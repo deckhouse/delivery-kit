@@ -86,6 +86,10 @@ type HostCleanupOptions struct {
 	CommonOptions
 }
 
+type SbomGetOptions struct {
+	CommonOptions
+}
+
 type KubeRunOptions struct {
 	CommonOptions
 	Command []string
@@ -103,6 +107,7 @@ type KubeCtlOptions struct {
 type runCommandOptions struct {
 	ShouldFail bool
 	Args       []string
+	Envs       []string
 
 	CancelOnOutput        string
 	CancelOnOutputTimeout time.Duration
@@ -313,6 +318,7 @@ func (p *Project) CreateRegistryPullSecretFromDockerConfig(ctx context.Context) 
 func (p *Project) runCommand(ctx context.Context, opts runCommandOptions) string {
 	outb, _ := iutils.RunCommandWithOptions(ctx, p.GitRepoPath, p.WerfBinPath, opts.Args, iutils.RunCommandOptions{
 		ShouldSucceed:         !opts.ShouldFail,
+		ExtraEnv:              opts.Envs,
 		CancelOnOutput:        opts.CancelOnOutput,
 		CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
 	})
@@ -367,6 +373,20 @@ func (p *Project) StagesCopy(ctx context.Context, opts *StagesCopyOptions) (comb
 
 	args := append([]string{"stages", "copy"}, opts.ExtraArgs...)
 	outb := p.runCommand(ctx, runCommandOptions{Args: args, ShouldFail: opts.ShouldFail})
+
+	return string(outb)
+}
+
+func (p *Project) SbomGet(ctx context.Context, opts *SbomGetOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &SbomGetOptions{}
+	}
+	args := append([]string{"sbom", "get"}, opts.ExtraArgs...)
+
+	outb := p.runCommand(ctx, runCommandOptions{
+		Args:       args,
+		ShouldFail: opts.ShouldFail,
+	})
 
 	return string(outb)
 }

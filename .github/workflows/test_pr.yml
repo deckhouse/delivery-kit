@@ -61,7 +61,7 @@ jobs:
       - name: Install werf build dependencies
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu libbtrfs-dev file
+          sudo apt install -y gcc-aarch64-linux-gnu libbtrfs-dev libelf-dev  file
 
       - name: Checkout code
         uses: actions/checkout@v4

@@ -8,7 +8,7 @@ on:
 jobs:
   publish:
     name: Build and publish binary
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, regular]
     permissions:
       contents: write
     steps:
@@ -26,14 +26,9 @@ jobs:
       - name: Build binary (linux/amd64)
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          mkdir -p dist/$VERSION/linux-amd64/bin
-          task --yes build:dev:linux:amd64 \
-            outputDir="dist/$VERSION/linux-amd64/bin" \
-            extraGoBuildArgs="-ldflags='-s -w'" \
-            pkg=./cmd/delivery-kit
-
-          file dist/$VERSION/linux-amd64/bin/delivery-kit | grep -Eq "x86-64.*statically linked.*Linux"
-          cp dist/$VERSION/linux-amd64/bin/delivery-kit dist/delivery-kit-linux-amd64
+          task --yes build:dist:linux:amd64 version="$VERSION"
+          file dist/$VERSION/linux-amd64/bin/werf | grep -Eq "x86-64.*statically linked.*Linux"
+          cp dist/$VERSION/linux-amd64/bin/werf dist/delivery-kit-linux-amd64
 
       - name: Upload binary to GitHub Release
         env:

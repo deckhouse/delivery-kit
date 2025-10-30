@@ -12,9 +12,6 @@ on:
       coverage:
         default: false
         type: string
-      linuxAmd64Runner:
-        default: ubuntu-22.04
-        type: string
       fetchDepth:
         default: 1
         type: number
@@ -29,16 +26,9 @@ env:
   TASK_X_REMOTE_TASKFILES: 1
 jobs:
   _:
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ${{ inputs.linuxAmd64Runner }}
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, regular]
     timeout-minutes: 60
     steps:
-      - name: Install werf build dependencies
-        run: sudo apt-get install -y libbtrfs-dev libelf-dev
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -51,11 +41,6 @@ jobs:
           cache: true
           go-version-file: go.mod
 
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Set up prebuilt werf test binary
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
@@ -63,9 +48,6 @@ jobs:
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        run: task --yes -p deps:install:ginkgo
 
       - name: Test
         run: |

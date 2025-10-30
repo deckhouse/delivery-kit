@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, regular]
     timeout-minutes: 10
     permissions:
       pull-requests: read
@@ -58,11 +58,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - name: Install werf build dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu libbtrfs-dev libelf-dev file
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -71,11 +66,6 @@ jobs:
         with:
           cache: true
           go-version-file: go.mod
-
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build
         run: task --yes -p build:dev:all

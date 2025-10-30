@@ -10,13 +10,13 @@ runs:
       run: |
         if ${{ inputs.coverage }}; then
           cat >> "$GITHUB_ENV" <<EOF
-        WERF_TEST_BINARY_PATH=$GITHUB_WORKSPACE/bin/delivery-kit
+        WERF_TEST_BINARY_PATH=$GITHUB_WORKSPACE/bin/werf
         WERF_TEST_COVER_DIR=$GITHUB_WORKSPACE/covdata
         WERF_TEST_COVERAGE_DIR=$GITHUB_WORKSPACE/coverage
         EOF
         else
           cat >> "$GITHUB_ENV" <<EOF
-        WERF_TEST_BINARY_PATH=$GITHUB_WORKSPACE/bin/delivery-kit
+        WERF_TEST_BINARY_PATH=$GITHUB_WORKSPACE/bin/werf
         EOF
         fi
       shell: bash

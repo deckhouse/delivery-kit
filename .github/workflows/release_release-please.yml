@@ -16,7 +16,7 @@ defaults:
 
 jobs:
   release-please:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, regular]
     steps:
       - name: Release
         id: release

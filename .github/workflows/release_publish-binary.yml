@@ -43,7 +43,6 @@ jobs:
           echo "Uploading delivery-kit-linux-amd64 to release $TAG"
           gh release upload "$TAG" dist/delivery-kit-linux-amd64 --clobber --name "delivery-kit-linux-amd64"
 
-
   notify:
     if: always()
     needs: publish

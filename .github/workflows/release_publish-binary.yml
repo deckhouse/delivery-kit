@@ -17,11 +17,17 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          path: ${{ github.job }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.23.11
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build binary (linux/amd64)
         run: |

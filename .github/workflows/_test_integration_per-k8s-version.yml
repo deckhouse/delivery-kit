@@ -15,7 +15,8 @@ env:
   DEBIAN_FRONTEND: "noninteractive"
   WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
   TASK_X_REMOTE_TASKFILES: 1
-  JOB_ID: ${{ github.run_id }}-${{ github.job }}
+  WERF_TEST_BINARY_PATH: "${{ github.workspace }}/bin/werf"
+  LD_LIBRARY_PATH: "/usr/local/lib/libgost"
 
 jobs:
   _:
@@ -28,11 +29,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          path: ${{ github.job }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          cache: true
+          cache: false
           go-version-file: go.mod
 
       - name: Set up prebuilt werf test binary
@@ -42,6 +45,13 @@ jobs:
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
+
+      - name: Setup PATH
+        run: |
+          echo "/usr/local/go1.23/go/bin:/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Install ginkgo
+        run: task --yes -p deps:install:ginkgo
 
       - name: Setup environment
         run: task --yes test:setup:environment

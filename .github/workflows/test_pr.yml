@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          path: ${{ github.job }}
 
       - name: Detect changes
         uses: dorny/paths-filter@v3
@@ -51,24 +53,16 @@ jobs:
       forceSkip: ${{ github.event_name == 'pull_request' && needs.detect-changes.outputs.workflow_proceed == 'false' }}
 
   build:
-    if: ${{ !(github.event_name == 'pull_request' && needs.detect-changes.outputs.workflow_proceed == 'false') }}
     needs: detect-changes
-    strategy:
-      fail-fast: false
-    runs-on: ubuntu-22.04
+    if: ${{ !(github.event_name == 'pull_request' && needs.detect-changes.outputs.workflow_proceed == 'false') }}
+    runs-on: [self-hosted, regular]
     timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          cache: true
-          go-version-file: go.mod
-
       - name: Build
-        run: task --yes -p build:dev:all
+        run: task --yes -p build:dev:linux:amd64
         env:
           TASK_X_REMOTE_TASKFILES: 1
 

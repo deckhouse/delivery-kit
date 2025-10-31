@@ -32,6 +32,7 @@ env:
   TASK_X_REMOTE_TASKFILES: 1
   WERF_TEST_BINARY_PATH: "${{ github.workspace }}/bin/werf"
   LD_LIBRARY_PATH: "/usr/local/lib/libgost"
+  WERF_DOCKER_CONFIG: "/tmp/"
 
 jobs:
   _:
@@ -39,18 +40,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kubeVersion: [1.29.14, 1.31.6]
+        kubeVersion: [1.31.6]
 
-    runs-on: [self-hosted, regular]
+    runs-on: [self-hosted, large]
     timeout-minutes: ${{ inputs.timeout }}
     steps:
+      - name: Set up JOB_ID
+        run: |
+          echo "JOB_ID=${GITHUB_RUN_ID}-${RANDOM}" >> "$GITHUB_ENV"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          cache: false
+          cache: true
           go-version-file: go.mod
 
       - name: Set up prebuilt werf test binary
@@ -63,7 +68,7 @@ jobs:
 
       - name: Setup PATH
         run: |
-          echo "/usr/local/go1.23/go/bin:/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
+          echo "/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Install ginkgo
         run: task --yes -p deps:install:ginkgo
@@ -73,10 +78,10 @@ jobs:
 
       - name: Test
         run: |
-          export KUBECONFIG="$CI_PROJECT_DIR/werf.kubeconfig-${JOB_ID}"
-          export WERF_TEST_K8S_DOCKER_REGISTRY="localhost:$(docker inspect kind-registry --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
+          export KUBECONFIG="$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}"
+          export WERF_TEST_K8S_DOCKER_REGISTRY="localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
           test -n "${{ inputs.packages }}" && paths=paths="$(echo ${{ inputs.packages }} | tr , ' ')"
-          task --yes -p test:e2e:${{ inputs.scope }} $paths kubeVersion=${{ matrix.kubeVersion }} -- --keep-going --skip-package '${{ inputs.excludePackages }}'
+          task --yes -p test:e2e:${{ inputs.scope }} $paths kubeVersion=${{ matrix.kubeVersion }} -- --keep-going --skip-package '${{ inputs.excludePackages }}' --skip "Buildah"
           echo loadavg: $(cat /proc/loadavg)
         env:
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}

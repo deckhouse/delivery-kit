@@ -35,13 +35,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          path: ${{ github.job }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          cache: false
+          cache: true
           go-version-file: go.mod
 
       - name: Set up prebuilt werf test binary

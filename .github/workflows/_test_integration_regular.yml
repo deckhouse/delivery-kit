@@ -36,7 +36,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: ${{ inputs.fetchDepth }}
-          path: ${{ github.job }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -51,7 +50,7 @@ jobs:
 
       - name: Setup PATH
         run: |
-          echo "/usr/local/go1.23/go/bin:/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
+          echo "/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Install ginkgo
         run: task --yes -p deps:install:ginkgo

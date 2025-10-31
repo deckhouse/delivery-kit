@@ -24,7 +24,7 @@ jobs:
         with:
           target-branch: ${{github.ref_name}}
           release-type: go
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
   notify:
     if: failure()
     needs: release-please

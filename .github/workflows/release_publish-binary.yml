@@ -5,6 +5,12 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
+env:
+  DEBIAN_FRONTEND: "noninteractive"
+  WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+  TASK_X_REMOTE_TASKFILES: 1
+  LD_LIBRARY_PATH: "/usr/local/lib/libgost"
+
 jobs:
   publish:
     name: Build and publish binary
@@ -17,17 +23,12 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          path: ${{ github.job }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.11
-
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: true
+          go-version-file: go.mod
 
       - name: Build binary (linux/amd64)
         run: |
@@ -38,7 +39,7 @@ jobs:
 
       - name: Upload binary to GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: |
           TAG=${GITHUB_REF_NAME}
           echo "Uploading delivery-kit-linux-amd64 to release $TAG"

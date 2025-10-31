@@ -44,7 +44,7 @@ func (runtime *PerfCheckContainerBackend) GetImageInfo(ctx context.Context, ref 
 		Do(func() {
 			resImg, resErr = runtime.ContainerBackend.GetImageInfo(ctx, ref, opts)
 		})
-	return
+	return resImg, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) (resErr error) {
@@ -52,7 +52,7 @@ func (runtime *PerfCheckContainerBackend) Rmi(ctx context.Context, ref string, o
 		Do(func() {
 			resErr = runtime.ContainerBackend.Rmi(ctx, ref, opts)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Pull(ctx context.Context, ref string, opts PullOpts) (resErr error) {
@@ -60,7 +60,7 @@ func (runtime *PerfCheckContainerBackend) Pull(ctx context.Context, ref string, 
 		Do(func() {
 			resErr = runtime.ContainerBackend.Pull(ctx, ref, opts)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Tag(ctx context.Context, ref, newRef string, opts TagOpts) (resErr error) {
@@ -68,7 +68,7 @@ func (runtime *PerfCheckContainerBackend) Tag(ctx context.Context, ref, newRef s
 		Do(func() {
 			resErr = runtime.ContainerBackend.Tag(ctx, ref, newRef, opts)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Push(ctx context.Context, ref string, opts PushOpts) (resErr error) {
@@ -76,7 +76,7 @@ func (runtime *PerfCheckContainerBackend) Push(ctx context.Context, ref string, 
 		Do(func() {
 			resErr = runtime.ContainerBackend.Push(ctx, ref, opts)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (resID string, resErr error) {
@@ -84,7 +84,7 @@ func (runtime *PerfCheckContainerBackend) BuildDockerfile(ctx context.Context, d
 		Do(func() {
 			resID, resErr = runtime.ContainerBackend.BuildDockerfile(ctx, dockerfile, opts)
 		})
-	return
+	return resID, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (resID string, resErr error) {
@@ -92,7 +92,7 @@ func (runtime *PerfCheckContainerBackend) BuildDockerfileStage(ctx context.Conte
 		Do(func() {
 			resID, resErr = runtime.ContainerBackend.BuildDockerfileStage(ctx, baseImage, opts, instructions...)
 		})
-	return
+	return resID, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) BuildStapelStage(ctx context.Context, baseImage string, opts BuildStapelStageOptions) (resID string, resErr error) {
@@ -100,7 +100,7 @@ func (runtime *PerfCheckContainerBackend) BuildStapelStage(ctx context.Context, 
 		Do(func() {
 			resID, resErr = runtime.ContainerBackend.BuildStapelStage(ctx, baseImage, opts)
 		})
-	return
+	return resID, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) CalculateDependencyImportChecksum(ctx context.Context, dependencyImport DependencyImportSpec, opts CalculateDependencyImportChecksum) (resID string, resErr error) {
@@ -108,7 +108,7 @@ func (runtime *PerfCheckContainerBackend) CalculateDependencyImportChecksum(ctx 
 		Do(func() {
 			resID, resErr = runtime.ContainerBackend.CalculateDependencyImportChecksum(ctx, dependencyImport, opts)
 		})
-	return
+	return resID, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) RefreshImageObject(ctx context.Context, img LegacyImageInterface) (resErr error) {
@@ -116,7 +116,7 @@ func (runtime *PerfCheckContainerBackend) RefreshImageObject(ctx context.Context
 		Do(func() {
 			resErr = runtime.ContainerBackend.RefreshImageObject(ctx, img)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) PullImageFromRegistry(ctx context.Context, img LegacyImageInterface) (resErr error) {
@@ -124,7 +124,7 @@ func (runtime *PerfCheckContainerBackend) PullImageFromRegistry(ctx context.Cont
 		Do(func() {
 			resErr = runtime.ContainerBackend.PullImageFromRegistry(ctx, img)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) RenameImage(ctx context.Context, img LegacyImageInterface, newImageName string, removeOldName bool) (resErr error) {
@@ -132,7 +132,7 @@ func (runtime *PerfCheckContainerBackend) RenameImage(ctx context.Context, img L
 		Do(func() {
 			resErr = runtime.ContainerBackend.RenameImage(ctx, img, newImageName, removeOldName)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) RemoveImage(ctx context.Context, img LegacyImageInterface) (resErr error) {
@@ -140,7 +140,7 @@ func (runtime *PerfCheckContainerBackend) RemoveImage(ctx context.Context, img L
 		Do(func() {
 			resErr = runtime.ContainerBackend.RemoveImage(ctx, img)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) String() string {
@@ -152,7 +152,7 @@ func (runtime *PerfCheckContainerBackend) RemoveHostDirs(ctx context.Context, mo
 		Do(func() {
 			resErr = runtime.ContainerBackend.RemoveHostDirs(ctx, mountDir, dirs)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Images(ctx context.Context, opts ImagesOptions) (res image.ImagesList, resErr error) {
@@ -160,7 +160,7 @@ func (runtime *PerfCheckContainerBackend) Images(ctx context.Context, opts Image
 		Do(func() {
 			res, resErr = runtime.ContainerBackend.Images(ctx, opts)
 		})
-	return
+	return res, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Containers(ctx context.Context, opts ContainersOptions) (res image.ContainerList, resErr error) {
@@ -168,7 +168,7 @@ func (runtime *PerfCheckContainerBackend) Containers(ctx context.Context, opts C
 		Do(func() {
 			res, resErr = runtime.ContainerBackend.Containers(ctx, opts)
 		})
-	return
+	return res, resErr
 }
 
 func (runtime *PerfCheckContainerBackend) Rm(ctx context.Context, name string, opts RmOpts) (resErr error) {
@@ -176,7 +176,7 @@ func (runtime *PerfCheckContainerBackend) Rm(ctx context.Context, name string, o
 		Do(func() {
 			resErr = runtime.ContainerBackend.Rm(ctx, name, opts)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) PostManifest(ctx context.Context, ref string, opts PostManifestOpts) (resErr error) {
@@ -184,7 +184,7 @@ func (runtime *PerfCheckContainerBackend) PostManifest(ctx context.Context, ref 
 		Do(func() {
 			resErr = runtime.ContainerBackend.PostManifest(ctx, ref, opts)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) TagImageByName(ctx context.Context, img LegacyImageInterface) (resErr error) {
@@ -192,7 +192,7 @@ func (runtime *PerfCheckContainerBackend) TagImageByName(ctx context.Context, im
 		Do(func() {
 			resErr = runtime.ContainerBackend.TagImageByName(ctx, img)
 		})
-	return
+	return resErr
 }
 
 func (runtime *PerfCheckContainerBackend) ClaimTargetPlatforms(ctx context.Context, targetPlatforms []string) {
@@ -205,7 +205,7 @@ func (runtime *PerfCheckContainerBackend) PruneImages(ctx context.Context, optio
 		Do(func() {
 			report, err = runtime.ContainerBackend.PruneImages(ctx, options)
 		})
-	return
+	return report, err
 }
 
 func (runtime *PerfCheckContainerBackend) PruneVolumes(ctx context.Context, options prune.Options) (report prune.Report, err error) {
@@ -213,7 +213,7 @@ func (runtime *PerfCheckContainerBackend) PruneVolumes(ctx context.Context, opti
 		Do(func() {
 			report, err = runtime.ContainerBackend.PruneVolumes(ctx, options)
 		})
-	return
+	return report, err
 }
 
 func (runtime *PerfCheckContainerBackend) DumpImage(ctx context.Context, ref string) (reader *bytes.Reader, err error) {
@@ -221,7 +221,7 @@ func (runtime *PerfCheckContainerBackend) DumpImage(ctx context.Context, ref str
 		Do(func() {
 			reader, err = runtime.ContainerBackend.DumpImage(ctx, ref)
 		})
-	return
+	return reader, err
 }
 
 func (runtime *PerfCheckContainerBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions, dstImgLabels []string) (imgId string, err error) {
@@ -229,5 +229,5 @@ func (runtime *PerfCheckContainerBackend) GenerateSBOM(ctx context.Context, scan
 		Do(func() {
 			imgId, err = runtime.ContainerBackend.GenerateSBOM(ctx, scanOpts, dstImgLabels)
 		})
-	return
+	return imgId, err
 }

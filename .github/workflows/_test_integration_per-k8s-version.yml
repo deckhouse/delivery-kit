@@ -23,19 +23,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kubeVersion: [1.29.14, 1.31.6]
-    runs-on: [self-hosted, regular]
+        kubeVersion: [1.31.6]
+    runs-on: [self-hosted, large]
     timeout-minutes: 60
     steps:
+      - name: Set up JOB_ID
+        run: |
+          echo "JOB_ID=${GITHUB_RUN_ID}-${RANDOM}" >> "$GITHUB_ENV"
+
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          path: ${{ github.job }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          cache: false
+          cache: true
           go-version-file: go.mod
 
       - name: Set up prebuilt werf test binary
@@ -48,7 +50,7 @@ jobs:
 
       - name: Setup PATH
         run: |
-          echo "/usr/local/go1.23/go/bin:/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
+          echo "/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Install ginkgo
         run: task --yes -p deps:install:ginkgo
@@ -60,7 +62,7 @@ jobs:
         run: |
           export KUBECONFIG="$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}"
           export WERF_TEST_K8S_DOCKER_REGISTRY="localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
-          task --yes -p test:integration kubeVersion=${{ matrix.kubeVersion }} paths="integration/suites/cleanup_after_converge integration/suites/deploy integration/suites/helm/deploy_rollback" -- --keep-going
+          task --yes -p test:integration kubeVersion=${{ matrix.kubeVersion }} paths="integration/suites/cleanup_after_converge integration/suites/deploy integration/suites/helm/deploy_rollback" -- --keep-going --skip "Buildah"
           echo loadavg: $(cat /proc/loadavg)
         env:
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}

@@ -68,7 +68,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check links
-        run: task --yes -o group -p doc:check-broken-links
+        run: |
+          task --yes deps:install:c
+          task --yes -o group -p doc:check-broken-links
         env:
           WERF_REPO: "ghcr.io/${{ github.repository_owner }}/werfio"
 

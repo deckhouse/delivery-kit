@@ -30,6 +30,7 @@ runs:
 
     - name: Build werf test binary
       run: |
+        task --yes deps:install:c
         if ${{ inputs.coverage }}; then
           task --yes -p build-with-coverage
         else

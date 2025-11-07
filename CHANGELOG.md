@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.52.0](https://github.com/werf/werf/compare/v2.51.4...v2.52.0) (2025-11-06)
+
+
+### Features
+
+* **deploy:** flag `--extra-apiversions` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-auth-password` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-auth-provider-config` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-auth-provider` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-auth-username` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-ca-data` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-cert-data` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-cert` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-context-cluster` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-context-user` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-impersonate-group` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-impersonate-uid` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-impersonate-user` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-key-data` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-key` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-proxy-url` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-request-timeout` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--kube-token-path` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--no-notes` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--provenance-keyring` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--provenance-strategy` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--release-info-annotations` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--release-storage` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--runtime-annotations` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--runtime-labels` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--set-json` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--set-literal` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** flag `--templates-allow-dns` ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+* **deploy:** LOTS of new cli flags ([21b9109](https://github.com/werf/werf/commit/21b9109ecf8b89ea42892712c218648e7ef6c6f4))
+
+## [2.51.4](https://github.com/werf/werf/compare/v2.51.3...v2.51.4) (2025-11-06)
+
+
+### Bug Fixes
+
+* **deploy:** failures in init containers of jobs ignored ([5cbbe69](https://github.com/werf/werf/commit/5cbbe69d12043454a9830f56bf8ca22db913b75c))
+* **deploy:** webhooks not readying ([63dfd5e](https://github.com/werf/werf/commit/63dfd5e0c8a18b448212cbbfa43731b9463079a8))
+
 ## [2.51.3](https://github.com/werf/werf/compare/v2.51.2...v2.51.3) (2025-10-31)
 
 

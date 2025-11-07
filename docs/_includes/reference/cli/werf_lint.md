@@ -3,23 +3,12 @@
 {% else %}
 {% assign header = "###" %}
 {% endif %}
-Prepare deploy plan and show how resources in a Kubernetes cluster would change on next deploy.
-
-Environment is a required param by default, because it is needed to construct Helm Release name and Kubernetes Namespace. Either `--env` or `$WERF_ENV` should be specified for command.
-
-
+Lint Helm chart. This command will calculate digests and build (if needed) all images defined in the `werf.yaml`.
 
 {{ header }} Syntax
 
 ```shell
-werf plan [options]
-```
-
-{{ header }} Examples
-
-```shell
-# Prepare and show deploy plan
-werf plan --repo registry.mydomain.com/web --env production
+werf lint [IMAGE_NAME...] [options]
 ```
 
 {{ header }} Environments
@@ -43,15 +32,6 @@ werf plan --repo registry.mydomain.com/web --env production
             Also, can be specified with $WERF_ADD_ANNOTATION_* (e.g.                                
             $WERF_ADD_ANNOTATION_1=annoName1=annoValue1,                                            
             $WERF_ADD_ANNOTATION_2=annoName2=annoValue2)
-      --add-custom-tag=[]
-            Set tag alias for the content-based tag.
-            The alias may contain the following shortcuts:
-            - %image%, %image_slug% or %image_safe_slug% to use the image name (necessary if there  
-            is more than one image in the werf config);
-            - %image_content_based_tag% to use a content-based tag.
-            For cleaning custom tags and associated content-based tag are treated as one.
-            Also can be defined with $WERF_ADD_CUSTOM_TAG_* (e.g.                                   
-            $WERF_ADD_CUSTOM_TAG_1="%image%-tag1", $WERF_ADD_CUSTOM_TAG_2="%image%-tag2")
       --add-label=[]
             Add label to deploying resources (can specify multiple).
             Format: labelName=labelValue.
@@ -59,35 +39,6 @@ werf plan --repo registry.mydomain.com/web --env production
             $WERF_ADD_LABEL_1=labelName1=labelValue1, $WERF_ADD_LABEL_2=labelName2=labelValue2)
       --allow-includes-update=false
             Allow use includes latest versions (default $WERF_ALLOW_INCLUDES_UPDATE or false)
-      --allowed-backend-storage-volume-usage=70
-            Set allowed percentage of backend (Docker or Buildah) storage volume usage which will   
-            cause cleanup of least recently used local backend images (default 70% or               
-            $WERF_ALLOWED_BACKEND_STORAGE_VOLUME_USAGE)
-      --allowed-backend-storage-volume-usage-margin=5
-            During cleanup of least recently used local backend (Docker or Buildah) images werf     
-            would delete images until volume usage becomes below                                    
-            "allowed-backend-storage-volume-usage - allowed-backend-storage-volume-usage-margin"    
-            level (default 5% or $WERF_ALLOWED_BACKEND_STORAGE_VOLUME_USAGE_MARGIN)
-      --allowed-local-cache-volume-usage=70
-            Set allowed percentage of local cache (~/.werf/local_cache by default) volume usage     
-            which will cause cleanup of least recently used data from the local cache (default 70%  
-            or $WERF_ALLOWED_LOCAL_CACHE_VOLUME_USAGE)
-      --allowed-local-cache-volume-usage-margin=5
-            During cleanup of local cache werf would delete local cache data until volume usage     
-            becomes below "allowed-local-cache-volume-usage -                                       
-            allowed-local-cache-volume-usage-margin" level (default 5% or                           
-            $WERF_ALLOWED_LOCAL_CACHE_VOLUME_USAGE_MARGIN)
-      --annotate-layers-with-dm-verity-root-hash=false
-            Enable annotation of image layers with dm-verity root hash (default                     
-            $WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH)
-      --backend-storage-path=""
-            Use specified path to the local backend (Docker or Buildah) storage to check backend    
-            storage volume usage while performing garbage collection of local backend images        
-            (detect local backend storage path by default or use $WERF_BACKEND_STORAGE_PATH)
-      --bsign-elf-files=false
-            Enable ELF files signing with bsign (default $WERF_BSIGN_ELF_FILES).
-            When enabled, the private elf key must be specified with --elf-pgp-private-key-base64   
-            or --elf-pgp-private-key-fingerprint option
       --build-report-path=""
             Change build report path and format (by default $WERF_BUILD_REPORT_PATH or              
             ".werf-build-report.json" if not set). Extension must be either .json for JSON format   
@@ -109,9 +60,6 @@ werf plan --repo registry.mydomain.com/web --env production
             (Buildah-only) Use specified mirrors for docker.io
       --debug-templates=false
             Enable debug mode for Go templates (default $WERF_DEBUG_TEMPLATES or false)
-      --deploy-graph-path=""
-            Save deploy graph path to the specified file (by default $WERF_DEPLOY_GRAPH_PATH).      
-            Extension must be .dot or not specified. If extension not specified, then .dot is used
       --dev=false
             Enable development mode (default $WERF_DEV).
             The mode allows working with project files without doing redundant commits during       
@@ -123,14 +71,9 @@ werf plan --repo registry.mydomain.com/web --env production
             multiple).
             Also, can be specified with $WERF_DEV_IGNORE_* (e.g. $WERF_DEV_IGNORE_TESTS=*_test.go,  
             $WERF_DEV_IGNORE_DOCS=path/to/docs)
-      --diff-context-lines=3
-            Show N lines of context around diffs ($WERF_DIFF_CONTEXT_LINES by default)
       --dir=""
             Use specified project directory where project’s werf.yaml and other configuration files 
             should reside (default $WERF_DIR or current working directory)
-      --disable-auto-host-cleanup=false
-            Disable auto host cleanup procedure in main werf commands like werf-build,              
-            werf-converge and other (default disabled or WERF_DISABLE_AUTO_HOST_CLEANUP)
       --disable-default-secret-values=false
             Do not use secret values from the default .helm/secret-values.yaml file (default        
             $WERF_DISABLE_DEFAULT_SECRET_VALUES or false)
@@ -140,19 +83,13 @@ werf plan --repo registry.mydomain.com/web --env production
       --docker-config=""
             Specify docker config directory path. Default $WERF_DOCKER_CONFIG or $DOCKER_CONFIG or  
             ~/.docker (in the order of priority)
-            Command needs granted permissions to read, pull and push images into the specified      
-            repo, to pull base images
-      --elf-pgp-private-key-base64=""
-            Base64-encoded PGP private key (default $WERF_ELF_PGP_PRIVATE_KEY_BASE64)
-      --elf-pgp-private-key-fingerprint=""
-            PGP private key fingerprint (default $WERF_ELF_PGP_PRIVATE_KEY_FINGERPRINT)
-      --elf-pgp-private-key-passphrase=""
-            Passphrase for the PGP private key (default $WERF_ELF_PGP_PRIVATE_KEY_PASSPHRASE)
+            Command needs granted permissions to read, pull and push images into the specified repo 
+            and to pull base images
       --env=""
             Use specified environment (default $WERF_ENV)
-      --exit-code=false
-            If true, returns exit code 0 if no changes, exit code 2 if any changes planned or exit  
-            code 1 in case of an error (default $WERF_EXIT_CODE or false)
+      --extra-apiversions=[]
+            Extra Kubernetes API versions passed to $.Capabilities.APIVersions. Can be also set     
+            with $WERF_EXTRA_APIVERSIONS_* environment variables, values can be comma-separated
       --final-images-only=true
             Process final images only ($WERF_FINAL_IMAGES_ONLY or true by default)
       --final-repo=""
@@ -177,11 +114,6 @@ werf plan --repo registry.mydomain.com/web --env production
             final-repo Harbor username (default $WERF_FINAL_REPO_HARBOR_USERNAME)
       --final-repo-quay-token=""
             final-repo quay.io token (default $WERF_FINAL_REPO_QUAY_TOKEN)
-      --follow=false
-            Enable follow mode (default $WERF_FOLLOW).
-            The mode allows restarting the command on a new commit.
-            In development mode (--dev), werf restarts the command on any changes (including        
-            untracked files) in the git repository worktree
       --force-adoption=false
             Always adopt resources, even if they belong to a different Helm release (default        
             $WERF_FORCE_ADOPTION or false)
@@ -193,8 +125,6 @@ werf plan --repo registry.mydomain.com/web --env production
             (default $WERF_GITERMINISM_CONFIG or werf-giterminism.yaml in working directory)
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
-      --hooks-status-progress-period=0
-            No-op
       --ignore-secret-key=false
             Disable secrets decryption (default $WERF_IGNORE_SECRET_KEY)
       --insecure-helm-dependencies=false
@@ -290,6 +220,8 @@ werf plan --repo registry.mydomain.com/web --env production
       --kube-token-path=""
             Path to file with bearer token for authentication in Kubernetes (default                
             $WERF_KUBE_TOKEN_PATH)
+      --kube-version=""
+            Set specific Capabilities.KubeVersion (default $WERF_KUBE_VERSION)
       --log-color-mode="auto"
             Set log color mode.
             Supported on, off and auto (based on the stdout’s file descriptor referring to a        
@@ -327,9 +259,6 @@ werf plan --repo registry.mydomain.com/web --env production
             By default disable tracking operations that have no create/update/delete resource       
             operations after them, which are most tracking operations, to speed up the release      
             (default $WERF_NO_FINAL_TRACKING)
-      --no-install-crds=false
-            Do not install CRDs from "crds/" directories of installed charts (default               
-            $WERF_NO_INSTALL_CRDS)
       --no-remove-manual-changes=false
             Don`t remove fields added manually to the resource in the cluster if fields aren`t      
             present in the manifest (default $WERF_NO_REMOVE_MANUAL_CHANGES)
@@ -349,22 +278,11 @@ werf plan --repo registry.mydomain.com/web --env production
       --release=""
             Use specified Helm release name (default [[ project ]]-[[ env ]] template or            
             deploy.helmRelease custom template from werf.yaml or $WERF_RELEASE)
-      --release-info-annotations=[]
-            Add annotations to release metadata (default $WERF_RELEASE_INFO_ANNOTATIONS)
-      --release-label=[]
-            Add Helm release labels (can specify multiple). Kind of labels depends or release       
-            storage driver.
-            Format: labelName=labelValue.
-            Also, can be specified with $WERF_RELEASE_LABEL_* (e.g.                                 
-            $WERF_RELEASE_LABEL_1=labelName1=labelValue1,                                           
-            $WERF_RELEASE_LABEL_2=labelName2=labelValue2)
       --release-storage=""
             How releases should be stored (default $WERF_RELEASE_STORAGE)
       --release-storage-sql-connection=""
             SQL Connection String for Helm SQL Storage (default                                     
             $WERF_RELEASE_STORAGE_SQL_CONNECTION)
-      --releases-history-max=5
-            Max releases to keep in release storage ($WERF_RELEASES_HISTORY_MAX or 5 by default)
       --repo=""
             Container registry storage address (default $WERF_REPO)
       --repo-container-registry=""
@@ -446,31 +364,6 @@ werf plan --repo registry.mydomain.com/web --env production
             with commas: key1=val1,key2=val2).
             Also, can be defined with $WERF_SET_STRING_* (e.g. $WERF_SET_STRING_1=key1=val1,        
             $WERF_SET_STRING_2=key2=val2)
-      --show-insignificant-diffs=false
-            Show insignificant diff lines ($WERF_SHOW_INSIGNIFICANT_DIFFS by default)
-      --show-sensitive-diffs=false
-            Show sensitive diff lines ($WERF_SHOW_SENSITIVE_DIFFS by default)
-      --show-verbose-crd-diffs=false
-            Show verbose CRD diff lines ($WERF_SHOW_VERBOSE_CRD_DIFFS by default)
-      --show-verbose-diffs=false
-            Show verbose diff lines ($WERF_SHOW_VERBOSE_DIFFS by default)
-      --sign-cert=""
-            The leaf certificate as path to PEM file or base64-encoded PEM (default $WERF_SIGN_CERT)
-      --sign-elf-files=false
-            Enable ELF files signing (default $WERF_SIGN_ELF_FILES).
-            When enabled, the private signing key must be specified with --sign-key option and the  
-            certificate must be specified with --sign-cert option
-      --sign-intermediates=""
-            The intermediate certificates as path to PEM file or base64-encoded PEM (default        
-            $WERF_SIGN_INTERMEDIATES)
-      --sign-key=""
-            The private signing key as path to PEM file, base64-encoded PEM or hashivault://[KEY]   
-            (default $WERF_SIGN_KEY)
-      --sign-manifest=false
-            Enable image manifest signing (default $WERF_SIGN_MANIFEST).
-            When enabled,
-            the private signing key must be specified with --sign-key option and
-            the certificate must be specified with --sign-cert option
   -L, --skip-dependencies-repo-refresh=false
             Do not refresh helm chart repositories locally cached index
       --skip-image-spec-stage=false
@@ -489,8 +382,6 @@ werf plan --repo registry.mydomain.com/web --env production
             Can be specified with $WERF_SSH_KEY_* (e.g. $WERF_SSH_KEY_REPO=~/.ssh/repo_rsa,         
             $WERF_SSH_KEY_NODEJS=~/.ssh/nodejs_rsa).
             Defaults to $WERF_SSH_KEY_*, system ssh-agent or ~/.ssh/{id_rsa|id_dsa}
-      --status-progress-period=0
-            No-op
       --stub-tags=false
             Use stubs instead of real tags (default $WERF_STUB_TAGS)
   -S, --synchronization=""
@@ -505,8 +396,6 @@ werf plan --repo registry.mydomain.com/web --env production
             repo. :local address allows execution of werf processes from a single host only
       --templates-allow-dns=false
             Allow performing DNS requests in templating (default $WERF_TEMPLATES_ALLOW_DNS)
-  -t, --timeout=0
-            No-op
       --tmp-dir=""
             Use specified dir to store tmp files and dirs (default $WERF_TMP_DIR or system tmp dir)
       --use-custom-tag=""
@@ -518,6 +407,9 @@ werf plan --repo registry.mydomain.com/web --env production
             - %image_content_based_tag% to use a content-based tag.
             For cleaning custom tags and associated content-based tag are treated as one.
             Also, can be defined with $WERF_USE_CUSTOM_TAG (e.g. $WERF_USE_CUSTOM_TAG="%image%-tag")
+      --validate=false
+            Validate your manifests against the Kubernetes cluster you are currently pointing at    
+            (default $WERF_VALIDATE)
       --values=[]
             Specify helm values in a YAML file or a URL (can specify multiple). Also, can be        
             defined with $WERF_VALUES_* (e.g. $WERF_VALUES_1=.helm/values_1.yaml,                   

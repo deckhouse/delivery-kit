@@ -183,7 +183,7 @@ func (repo *Base) CreatePatch(ctx context.Context, repoPath, gitDir, repoID, wor
 		patch, err = repo.createPatch(ctx, repoPath, gitDir, repoID, workTreeCacheDir, opts)
 	})
 
-	return patch, err
+	return
 }
 
 func (repo *Base) createPatch(ctx context.Context, repoPath, gitDir, repoID, workTreeCacheDir string, opts PatchOptions) (Patch, error) {
@@ -369,7 +369,7 @@ func (repo *Base) CreateArchive(ctx context.Context, repoPath, gitDir, repoID, w
 		archive, err = repo.createArchive(ctx, repoPath, gitDir, repoID, workTreeCacheDir, opts)
 	})
 
-	return archive, err
+	return
 }
 
 func (repo *Base) createArchive(ctx context.Context, repoPath, gitDir, repoID, workTreeCacheDir string, opts ArchiveOptions) (Archive, error) {
@@ -547,7 +547,7 @@ func (repo *Base) CreateChecksum(ctx context.Context, repoHandle repo_handle.Han
 		checksum, err = repo.createChecksum(ctx, repoHandle, opts)
 	})
 
-	return checksum, err
+	return
 }
 
 func (repo *Base) createChecksum(ctx context.Context, repoHandle repo_handle.Handle, opts ChecksumOptions) (checksum string, err error) {
@@ -565,7 +565,7 @@ func (repo *Base) lsTreeResult(ctx context.Context, commit string, opts LsTreeOp
 		return err
 	})
 
-	return result, err
+	return
 }
 
 func (repo *Base) lsTreeResultWithExistingHandle(ctx context.Context, repoHandle repo_handle.Handle, commit string, opts LsTreeOptions) (result *ls_tree.Result, err error) {
@@ -640,7 +640,7 @@ func (repo *Base) IsCommitTreeEntryExist(ctx context.Context, commit, relPath st
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (repo *Base) isTreeEntryExist(ctx context.Context, commit, relPath string) (bool, error) {
@@ -668,7 +668,7 @@ func (repo *Base) IsCommitTreeEntryDirectory(ctx context.Context, commit, relPat
 			}
 		})
 
-	return isDirectory, err
+	return
 }
 
 func (repo *Base) isCommitTreeEntryDirectory(ctx context.Context, commit, relPath string) (bool, error) {
@@ -715,7 +715,7 @@ func (repo *Base) ResolveCommitFilePath(ctx context.Context, commit, path string
 			}
 		})
 
-	return resolvedPath, err
+	return
 }
 
 func (repo *Base) resolveCommitFilePath(ctx context.Context, commit, path string, depth int, checkSymlinkTargetFunc func(resolvedPath string) error) (string, error) {
@@ -832,7 +832,7 @@ func (repo *Base) ResolveAndCheckCommitFilePath(ctx context.Context, commit, pat
 			}
 		})
 
-	return resolvedPath, err
+	return
 }
 
 func (repo *Base) resolveAndCheckCommitFilePath(ctx context.Context, commit, path string, checkSymlinkTargetFunc func(relPath string) error) (resolvedPath string, err error) {
@@ -880,7 +880,7 @@ func (repo *Base) IsCommitDirectoryExist(ctx context.Context, commit, path strin
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (repo *Base) isCommitDirectoryExist(ctx context.Context, commit, path string) (bool, error) {
@@ -904,7 +904,7 @@ func (repo *Base) IsCommitFileExist(ctx context.Context, commit, path string) (e
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (repo *Base) isCommitFileExist(ctx context.Context, commit, path string) (bool, error) {
@@ -928,7 +928,7 @@ func (repo *Base) ReadCommitFile(ctx context.Context, commit, path string) (data
 			}
 		})
 
-	return data, err
+	return
 }
 
 func (repo *Base) readCommitFile(ctx context.Context, commit, path string) ([]byte, error) {

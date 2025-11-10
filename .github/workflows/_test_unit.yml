@@ -50,10 +50,6 @@ jobs:
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
 
-      - name: Setup PATH
-        run: |
-          echo "/usr/local/go1.23/go/bin:/usr/local/golangci-lint-1.57.1:$HOME/go/bin" >> $GITHUB_PATH
-
       - name: Install ginkgo
         run: task --yes -p deps:install:ginkgo
 

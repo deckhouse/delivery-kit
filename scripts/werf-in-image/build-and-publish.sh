@@ -82,4 +82,4 @@ done
 
 glob_patterns=($(printf "%s\n" "${glob_patterns[@]}" | sort -u))
 export_globs=$(IFS=" "; echo "${glob_patterns[*]}")
-werf export $export_globs --config "$2.yaml" --tag "$DEST_SUBREPO/$2:%image%"
+werf export $export_globs --config "$2.yaml" --tag "$DEST_SUBREPO/$2:%image%" 

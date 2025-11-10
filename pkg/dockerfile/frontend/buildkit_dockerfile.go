@@ -244,7 +244,7 @@ func removeDependenciesArgs(args []instructions.KeyValuePairOptional, dependenci
 			res = append(res, arg)
 		}
 	}
-	return res
+	return
 }
 
 func resolveMetaArgs(metaArgsCommands []instructions.ArgCommand, buildArgs map[string]string, dependenciesArgsKeys []string, targetPlatform string, expanderFactory *ShlexExpanderFactory) (map[string]string, error) {

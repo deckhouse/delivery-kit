@@ -20,7 +20,7 @@ func (r FileReader) IsIncludesConfigExistAnywhere(ctx context.Context, relPath s
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (r FileReader) ReadIncludesConfig(ctx context.Context, relPath string) (data []byte, err error) {
@@ -39,7 +39,7 @@ func (r FileReader) ReadIncludesConfig(ctx context.Context, relPath string) (dat
 		return nil, fmt.Errorf("unable to read werf giterminism config: %w", err)
 	}
 
-	return data, err
+	return
 }
 
 func (r FileReader) readIncludesConfig(ctx context.Context, relPath string) ([]byte, error) {
@@ -69,7 +69,7 @@ func (r FileReader) ReadIncludesLockFile(ctx context.Context, relPath string) (d
 		}
 		return nil, fmt.Errorf("unable to read werf includes lock file: %w", err)
 	}
-	return data, err
+	return
 }
 
 func (r FileReader) readIncludesLockFile(ctx context.Context, relPath string) ([]byte, error) {

@@ -45,7 +45,7 @@ func (r FileReader) ListFilesWithGlob(ctx context.Context, relDir, glob string, 
 			}
 		})
 
-	return files, err
+	return
 }
 
 func (r FileReader) listFilesWithGlob(ctx context.Context, relDir, glob string, skipFileFunc func(ctx context.Context, r FileReader, existingRelPath string) (bool, error)) ([]string, error) {
@@ -211,7 +211,7 @@ func (r FileReader) SkipFileFunc(acceptedFilePathMatcher path_matcher.PathMatche
 				}
 			})
 
-		return skip, err
+		return
 	}
 }
 
@@ -274,7 +274,7 @@ func (r FileReader) CheckFileExistenceAndAcceptance(ctx context.Context, relPath
 			}
 		})
 
-	return err
+	return
 }
 
 func (r FileReader) checkFileExistenceAndAcceptance(ctx context.Context, relPath string, isPathMatched matchPathFunc, isFileExist testFileFunc) error {
@@ -338,7 +338,7 @@ func (r FileReader) ShouldFileBeRead(ctx context.Context, relPath string, isPath
 			}
 		})
 
-	return should, err
+	return
 }
 
 func (r FileReader) shouldFileBeRead(relPath string, isPathMatched matchPathFunc, _ testFileFunc) (bool, error) {
@@ -362,7 +362,7 @@ func (r FileReader) ReadFile(ctx context.Context, relPath string) (data []byte, 
 			}
 		})
 
-	return data, err
+	return
 }
 
 func (r FileReader) readFile(relPath string) ([]byte, error) {
@@ -388,7 +388,7 @@ func (r FileReader) IsDirectoryExist(ctx context.Context, relPath string) (exist
 			}
 		})
 
-	return exist, err
+	return
 }
 
 // IsRegularFileExist resolves symlinks and returns true if the resolved file is a regular file.
@@ -404,7 +404,7 @@ func (r FileReader) IsRegularFileExist(ctx context.Context, relPath string) (exi
 			}
 		})
 
-	return exist, err
+	return
 }
 
 // IsFileExist resolves symlinks and returns true if the resolved file exists.
@@ -420,7 +420,7 @@ func (r FileReader) IsFileExist(ctx context.Context, relPath string) (exist bool
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (r FileReader) isFileExist(ctx context.Context, relPath string, isFileExist testFileFunc) (bool, error) {
@@ -460,7 +460,7 @@ func (r FileReader) ResolveAndCheckFilePath(ctx context.Context, relPath string,
 						}
 					})
 
-				return exists, err // explicitly return named params
+				return // explicitly return named params
 			}
 
 			resolvedPath, err = r.resolveAndCheckFilePath(ctx, relPath, checkWithDebugFunc)
@@ -470,7 +470,7 @@ func (r FileReader) ResolveAndCheckFilePath(ctx context.Context, relPath string,
 			}
 		})
 
-	return resolvedPath, err
+	return
 }
 
 func (r FileReader) resolveAndCheckFilePath(ctx context.Context, relPath string, checkSymlinkTargetFunc testFileFunc) (resolvedPath string, err error) {
@@ -489,7 +489,7 @@ func (r FileReader) ResolveFilePath(ctx context.Context, relPath string) (resolv
 			}
 		})
 
-	return resolvedPath, err
+	return
 }
 
 func (r FileReader) resolveFilePath(ctx context.Context, relPath string, depth int, checkSymlinkTargetFunc testFileFunc) (string, error) {

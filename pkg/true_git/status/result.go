@@ -34,7 +34,7 @@ func (r *Result) PathListWithSubmodules() (result []string) {
 		}
 	}
 
-	return result
+	return
 }
 
 type Scope interface {

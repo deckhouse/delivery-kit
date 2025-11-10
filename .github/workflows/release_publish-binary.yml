@@ -35,15 +35,15 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           task --yes build:dist:linux:amd64 version="$VERSION"
           file dist/$VERSION/linux-amd64/bin/werf | grep -Eq "x86-64.*statically linked.*Linux"
-          cp dist/$VERSION/linux-amd64/bin/werf dist/delivery-kit-linux-amd64
+          cp dist/$VERSION/linux-amd64/bin/werf dist/delivery-kit
 
       - name: Upload binary to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: |
           TAG=${GITHUB_REF_NAME}
-          echo "Uploading delivery-kit-linux-amd64 to release $TAG"
-          gh release upload "$TAG" dist/delivery-kit-linux-amd64 --clobber --name "delivery-kit-linux-amd64"
+          echo "Uploading delivery-kit to release $TAG"
+          gh release upload "$TAG" dist/delivery-kit --name "delivery-kit"
 
   notify:
     if: always()

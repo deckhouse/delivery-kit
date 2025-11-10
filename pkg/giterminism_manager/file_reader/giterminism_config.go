@@ -19,7 +19,7 @@ func (r FileReader) IsGiterminismConfigExistAnywhere(ctx context.Context, relPat
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (r FileReader) ReadGiterminismConfig(ctx context.Context, relPath string) (data []byte, err error) {
@@ -38,7 +38,7 @@ func (r FileReader) ReadGiterminismConfig(ctx context.Context, relPath string) (
 		return nil, fmt.Errorf("unable to read werf giterminism config: %w", err)
 	}
 
-	return data, err
+	return
 }
 
 func (r FileReader) readGiterminismConfig(ctx context.Context, relPath string) ([]byte, error) {

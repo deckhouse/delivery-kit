@@ -20,7 +20,7 @@ func (r FileReader) IsDockerignoreExistAnywhere(ctx context.Context, relPath str
 			}
 		})
 
-	return exist, err
+	return
 }
 
 func (r FileReader) ReadDockerfile(ctx context.Context, relPath string) (data []byte, err error) {

@@ -114,7 +114,7 @@ func GetConfigDependencies(dependencies []*TestDependency) (res []*config.Depend
 		res = append(res, dep.ToConfigDependency())
 	}
 
-	return res
+	return
 }
 
 func CheckImageDependenciesAfterPrepare(img *LegacyImageStub, stageBuilder *stage_builder.StageBuilder, dependencies []*TestDependency) {

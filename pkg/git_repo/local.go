@@ -290,7 +290,7 @@ func (repo *Local) GetOrCreateChecksum(ctx context.Context, opts ChecksumOptions
 		return err
 	})
 
-	return checksum, err
+	return
 }
 
 func (repo *Local) IsCommitExists(ctx context.Context, commit string) (bool, error) {
@@ -442,7 +442,7 @@ func (repo *Local) StatusPathList(ctx context.Context, pathMatcher path_matcher.
 			}
 		})
 
-	return list, err
+	return
 }
 
 func (repo *Local) statusPathList(ctx context.Context, pathMatcher path_matcher.PathMatcher) ([]string, error) {

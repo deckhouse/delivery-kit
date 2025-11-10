@@ -308,7 +308,7 @@ func filterReferencesByIn(refs []*ReferenceToScan, in *time.Duration) (result []
 		}
 	}
 
-	return result
+	return
 }
 
 func filterReferencesByLast(refs []*ReferenceToScan, last int) []*ReferenceToScan {

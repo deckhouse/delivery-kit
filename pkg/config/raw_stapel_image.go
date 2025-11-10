@@ -188,7 +188,7 @@ func (c *rawStapelImage) toShellDirectiveByCommandAndStage(command, stage string
 
 	shell.raw = c.RawShell
 
-	return shell
+	return
 }
 
 //nolint:unused
@@ -205,7 +205,7 @@ func (c *rawStapelImage) toAnsibleWithTaskByStage(task *AnsibleTask, stage strin
 		ansible.Setup = []*AnsibleTask{task}
 	}
 	ansible.raw = c.RawAnsible
-	return ansible
+	return
 }
 
 func (c *rawStapelImage) validateStapelImageArtifactDirective(imageArtifact *StapelImageArtifact) (err error) {

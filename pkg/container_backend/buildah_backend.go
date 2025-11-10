@@ -72,7 +72,7 @@ func (backend *BuildahBackend) getBuildahCommonOpts(ctx context.Context, suppres
 	}
 	opts.TargetPlatform = targetPlatform
 
-	return opts
+	return
 }
 
 type containerDesc struct {

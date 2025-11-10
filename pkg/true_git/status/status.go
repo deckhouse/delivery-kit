@@ -32,7 +32,7 @@ func Status(ctx context.Context, workTreeDir string) (r Result, err error) {
 			}
 		})
 
-	return r, err
+	return
 }
 
 func status(ctx context.Context, workTreeDir string) (Result, error) {

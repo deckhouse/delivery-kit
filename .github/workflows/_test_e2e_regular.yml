@@ -33,9 +33,6 @@ env:
   DEBIAN_FRONTEND: "noninteractive"
   WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
   TASK_X_REMOTE_TASKFILES: 1
-  WERF_TEST_BINARY_PATH: "${{ github.workspace }}/bin/werf"
-  LD_LIBRARY_PATH: "/usr/local/lib/libgost"
-  WERF_DOCKER_CONFIG: "/tmp/"
 
 jobs:
   _:
@@ -79,6 +76,8 @@ jobs:
           echo loadavg: $(cat /proc/loadavg)
         env:
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}
+          LD_LIBRARY_PATH: "/usr/local/lib/libgost"
+          WERF_DOCKER_CONFIG: ${{ runner.temp }}/werf-docker-config-${{ github.run_id }}
 
       - name: Upload coverage artifact
         uses: ./.github/actions/upload-coverage-artifact

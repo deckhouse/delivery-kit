@@ -27,7 +27,7 @@ env:
   DEBIAN_FRONTEND: "noninteractive"
   GOPATH: ${{ github.workspace }}/go
   TASK_X_REMOTE_TASKFILES: 1
-  WERF_DOCKER_CONFIG: "/tmp/"
+  WERF_DOCKER_CONFIG: ${{ runner.temp }}/werf-docker-config-${{ github.run_id }}
 
 jobs:
   doc_unit:

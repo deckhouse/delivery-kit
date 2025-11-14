@@ -34,10 +34,6 @@ env:
 jobs:
   _:
     if: inputs.forceSkip == 'false'
-    strategy:
-      fail-fast: false
-      matrix:
-        kubeVersion: [1.31.6]
 
     runs-on: [self-hosted, large]
     timeout-minutes: ${{ inputs.timeout }}
@@ -74,11 +70,12 @@ jobs:
           export KUBECONFIG="$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}"
           export WERF_TEST_K8S_DOCKER_REGISTRY="localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
           test -n "${{ inputs.packages }}" && paths=paths="$(echo ${{ inputs.packages }} | tr , ' ')"
-          task --yes -p test:e2e:${{ inputs.scope }} $paths kubeVersion=${{ matrix.kubeVersion }} -- --keep-going --skip-package '${{ inputs.excludePackages }}' --skip "Buildah"
+          task --yes -p test:e2e:${{ inputs.scope }} $paths -- --keep-going --skip-package '${{ inputs.excludePackages }}' --skip "Buildah"
           echo loadavg: $(cat /proc/loadavg)
         env:
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}
           LD_LIBRARY_PATH: "/usr/local/lib/libgost"
+          # TODO: remove after implementing `werf ci-env --disable-docker-config-copy`
           WERF_DOCKER_CONFIG: ${{ runner.temp }}/werf-docker-config-${{ github.run_id }}
 
       - name: Upload coverage artifact

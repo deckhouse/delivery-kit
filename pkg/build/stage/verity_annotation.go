@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/deckhouse/delivery-kit-sdk/pkg/integrity"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -11,6 +12,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
+	"github.com/werf/werf/v2/pkg/storage"
 )
 
 type VerityAnnotationStage struct {
@@ -43,7 +45,13 @@ func (s *VerityAnnotationStage) GetDependencies(_ context.Context, _ Conveyor, _
 	return "", nil
 }
 
-func (s *VerityAnnotationStage) MutateImage(ctx context.Context, registry docker_registry.Interface, prevBuiltImage, stageImage *StageImage) error {
+func (s *VerityAnnotationStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
+	// TODO: refactor type assertion by adopting stage и storage interfaces
+	registry, err := registryFromImageMutatorPusher(stagesStorage)
+	if err != nil {
+		return err
+	}
+
 	srcRef := prevBuiltImage.Image.Name()
 	destRef := stageImage.Image.Name()
 
@@ -93,4 +101,14 @@ func (s *VerityAnnotationStage) MutateImage(ctx context.Context, registry docker
 	})
 
 	return registry.MutateAndPushImage(ctx, srcRef, destRef, optWithLayersMutation, optWithManifestAnnotationsFunc)
+}
+
+// registryFromImageMutatorPusher returns docker registry interface from stages storage.
+func registryFromImageMutatorPusher(stagesStorage ImageMutatorPusher) (docker_registry.Interface, error) {
+	repoStagesStorage, ok := stagesStorage.(*storage.RepoStagesStorage)
+	if !ok {
+		return nil, fmt.Errorf("expected stages storage of type *storage.RepoStagesStorage, got %T", stagesStorage)
+	}
+
+	return repoStagesStorage.DockerRegistry, nil
 }

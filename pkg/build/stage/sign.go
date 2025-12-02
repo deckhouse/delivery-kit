@@ -10,7 +10,6 @@ import (
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/build/signing"
 	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
 )
 
@@ -52,7 +51,13 @@ func (s *SignStage) GetDependencies(_ context.Context, _ Conveyor, _ container_b
 	return util.Sha256Hash(args...), nil
 }
 
-func (s *SignStage) MutateImage(ctx context.Context, registry docker_registry.Interface, prevBuiltImage, stageImage *StageImage) error {
+func (s *SignStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
+	// TODO: refactor type assertion by adopting stage и storage interfaces
+	registry, err := registryFromImageMutatorPusher(stagesStorage)
+	if err != nil {
+		return err
+	}
+
 	srcRef := prevBuiltImage.Image.Name()
 	destRef := stageImage.Image.Name()
 

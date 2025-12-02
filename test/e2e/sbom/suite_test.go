@@ -1,6 +1,7 @@
 package e2e_build_test
 
 import (
+	"context"
 	"runtime"
 	"testing"
 
@@ -40,12 +41,12 @@ var (
 	_ = SuiteData.SetupProjectName(suite_init.NewProjectNameData(SuiteData.StubsData))
 	_ = SuiteData.SetupTmp(suite_init.NewTmpDirData())
 
-	_ = SuiteData.AppendSynchronizedBeforeSuiteAllNodesFunc(func(_ []byte) {
-		SuiteData.RegistryLocalAddress, SuiteData.RegistryInternalAddress, SuiteData.RegistryContainerName = docker.LocalDockerRegistryRun()
+	_ = SuiteData.AppendSynchronizedBeforeSuiteAllNodesFunc(func(ctx context.Context, _ []byte) {
+		SuiteData.RegistryLocalAddress, SuiteData.RegistryInternalAddress, SuiteData.RegistryContainerName = docker.LocalDockerRegistryRun(ctx)
 	})
 
-	_ = SuiteData.AppendSynchronizedAfterSuiteAllNodesFunc(func() {
-		docker.ContainerStopAndRemove(SuiteData.RegistryContainerName)
+	_ = SuiteData.AppendSynchronizedAfterSuiteAllNodesFunc(func(ctx context.Context) {
+		docker.ContainerStopAndRemove(ctx, SuiteData.RegistryContainerName)
 	})
 
 	_ = AfterEach(func(ctx SpecContext) {

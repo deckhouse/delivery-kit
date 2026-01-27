@@ -75,7 +75,7 @@ jobs:
           export KUBECONFIG="$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}"
           export WERF_TEST_K8S_DOCKER_REGISTRY="localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
           test -n "${{ inputs.packages }}" && paths=paths="$(echo ${{ inputs.packages }} | tr , ' ')"
-          task --yes -p test:e2e:${{ inputs.scope }} $paths -- --keep-going --skip-package '${{ inputs.excludePackages }}' --skip "Buildah" --procs=4 --poll-progress-after=1m --poll-progress-interval=1m
+          task --yes -p test:e2e:${{ inputs.scope }} $paths -- --keep-going --skip-package '${{ inputs.excludePackages }}' --skip "Buildah" --procs=8 --poll-progress-after=1m --poll-progress-interval=1m
           echo loadavg: $(cat /proc/loadavg)
         env:
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}

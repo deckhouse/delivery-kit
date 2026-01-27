@@ -53,10 +53,10 @@ jobs:
       - name: Test
         run: |
           if ${{ inputs.coverage }}; then
-            task --yes -p test:unit paths="$(echo ${{ inputs.packages }} | tr , ' ')" -- --coverprofile="$(openssl rand -hex 6)-coverage.out" --keep-going --skip-package '${{ inputs.excludePackages }}' --procs=4 --poll-progress-after=1m --poll-progress-interval=1m
+            task --yes -p test:unit paths="$(echo ${{ inputs.packages }} | tr , ' ')" -- --coverprofile="$(openssl rand -hex 6)-coverage.out" --keep-going --skip-package '${{ inputs.excludePackages }}' --procs=8 --poll-progress-after=1m --poll-progress-interval=1m
             mv *-coverage.out "$WERF_TEST_COVERAGE_DIR/"
           else
-            task --yes -p test:unit paths="$(echo ${{ inputs.packages }} | tr , ' ')" -- --keep-going --skip-package '${{ inputs.excludePackages }}' --procs=4 --poll-progress-after=1m --poll-progress-interval=1m
+            task --yes -p test:unit paths="$(echo ${{ inputs.packages }} | tr , ' ')" -- --keep-going --skip-package '${{ inputs.excludePackages }}' --procs=8 --poll-progress-after=1m --poll-progress-interval=1m
           fi
           echo loadavg: $(cat /proc/loadavg)
         env:

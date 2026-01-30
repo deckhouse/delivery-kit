@@ -244,7 +244,7 @@ var _ = Describe("SbomStep", func() {
 			"ubuntu:22.04",
 			"",
 			true,
-			"SBOM for base image \"ubuntu:22.04\" not found in container registry",
+			"unable to pull image SBOM",
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,

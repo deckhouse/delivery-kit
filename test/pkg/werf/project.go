@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	. "github.com/onsi/gomega"
+
 	iutils "github.com/werf/werf/v2/test/pkg/utils"
 )
 

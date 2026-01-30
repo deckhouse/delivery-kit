@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	. "github.com/onsi/gomega"
+
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/utils"
 )

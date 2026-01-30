@@ -7,11 +7,12 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/werf/werf/v2/test/pkg/suite_init"
+
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/contback"
 	"github.com/werf/werf/v2/test/pkg/report"
-	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -123,20 +124,22 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			WithStagedDockerfileBuilder: false,
 		}}, FlakeAttempts(5)),
 	)
-})
 
-var _ = Describe("Base image SBOM", Label("e2e", "build", "sbom", "base-image"), func() {
 	DescribeTable("should fail when base image SBOM is not found in registry",
 		func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
-			_, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
 			if err == contback.ErrRuntimeUnavailable {
 				Skip(err.Error())
 			} else if err != nil {
 				Fail(err.Error())
 			}
+
+			By("removing local base image SBOM if exists")
+			baseImageSbomName := sbom.ImageName(testOpts.BaseImageReference)
+			contRuntime.RmImage(ctx, baseImageSbomName)
 
 			By("preparing test repo")
 			repoDirname := "repo_base_sbom"
@@ -155,7 +158,8 @@ var _ = Describe("Base image SBOM", Label("e2e", "build", "sbom", "base-image"),
 				WithLocalRepo:               true,
 				WithStagedDockerfileBuilder: false,
 			},
-			FixtureRelPath: "sbom/base_image_dockerfile",
+			FixtureRelPath:     "sbom/base_image_dockerfile",
+			BaseImageReference: "alpine:3.18",
 		}),
 		Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
 			setupEnvOptions: setupEnvOptions{
@@ -163,7 +167,8 @@ var _ = Describe("Base image SBOM", Label("e2e", "build", "sbom", "base-image"),
 				WithLocalRepo:               true,
 				WithStagedDockerfileBuilder: false,
 			},
-			FixtureRelPath: "sbom/base_image_stapel",
+			FixtureRelPath:     "sbom/base_image_stapel",
+			BaseImageReference: "alpine:3.18",
 		}),
 	)
 

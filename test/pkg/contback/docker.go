@@ -43,6 +43,15 @@ func (r *DockerBackend) Rm(ctx context.Context, containerName string) {
 	utils.RunSucceedCommand(ctx, "/", "docker", args...)
 }
 
+func (r *DockerBackend) RmImage(ctx context.Context, image string) {
+	args := r.CommonCliArgs
+	args = append(args, "rmi", "-f", image)
+	// Ignore errors - image might not exist
+	_, _ = utils.RunCommandWithOptions(ctx, "/", "docker", args, utils.RunCommandOptions{
+		ShouldSucceed: false,
+	})
+}
+
 func (r *DockerBackend) Pull(ctx context.Context, image string) {
 	args := r.CommonCliArgs
 	args = append(args, "pull", image)

@@ -26,16 +26,16 @@ func (r *DockerBackend) PrepareBaseImageSbomStub(ctx context.Context, baseImageR
 
 	// Create stub SBOM content
 	sbomDir := filepath.Join(tmpDir, "sbom")
-	Expect(os.MkdirAll(sbomDir, 0755)).To(Succeed())
+	Expect(os.MkdirAll(sbomDir, 0o755)).To(Succeed())
 
 	sbomContent := `{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}`
-	Expect(os.WriteFile(filepath.Join(sbomDir, "sbom.json"), []byte(sbomContent), 0644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(sbomDir, "sbom.json"), []byte(sbomContent), 0o644)).To(Succeed())
 
 	// Create Dockerfile
 	dockerfile := `FROM scratch
 COPY sbom /sbom
 `
-	Expect(os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(dockerfile), 0644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(dockerfile), 0o644)).To(Succeed())
 
 	// Build the stub image
 	buildArgs := r.CommonCliArgs
@@ -65,16 +65,16 @@ func (r *NativeBuildahBackend) PrepareBaseImageSbomStub(ctx context.Context, bas
 
 	// Create stub SBOM content
 	sbomDir := filepath.Join(tmpDir, "sbom")
-	Expect(os.MkdirAll(sbomDir, 0755)).To(Succeed())
+	Expect(os.MkdirAll(sbomDir, 0o755)).To(Succeed())
 
 	sbomContent := `{"bomFormat":"CycloneDX","specVersion":"1.6","components":[]}`
-	Expect(os.WriteFile(filepath.Join(sbomDir, "sbom.json"), []byte(sbomContent), 0644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(sbomDir, "sbom.json"), []byte(sbomContent), 0o644)).To(Succeed())
 
 	// Create Dockerfile
 	dockerfile := `FROM scratch
 COPY sbom /sbom
 `
-	Expect(os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(dockerfile), 0644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(dockerfile), 0o644)).To(Succeed())
 
 	// Build the stub image
 	buildArgs := r.CommonCliArgs

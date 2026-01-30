@@ -443,8 +443,6 @@ func getBaseImageReferenceFromDockerStages(stages []instructions.Stage, targetIn
 	}
 
 	baseName := stages[targetIndex].BaseName
-
-	// Substitute ARG values
 	baseName = expandArgsInBaseImage(baseName, metaArgs, buildArgs)
 
 	return baseName
@@ -480,5 +478,6 @@ func isDockerfileStageReference(stages []instructions.Stage, baseName string) bo
 			return true
 		}
 	}
+
 	return false
 }

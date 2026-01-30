@@ -1,0 +1,12 @@
+project: werf-test-e2e-build-sbom-base-stapel
+configVersion: 1
+build:
+  sbom:
+    use: true
+
+---
+image: stapel
+from: alpine:3.18
+shell:
+  setup:
+    - touch /created-by-stapel

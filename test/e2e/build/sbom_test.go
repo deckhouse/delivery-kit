@@ -7,11 +7,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/contback"
 	"github.com/werf/werf/v2/test/pkg/report"
+	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -124,3 +124,100 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}, FlakeAttempts(5)),
 	)
 })
+
+var _ = Describe("Base image SBOM", Label("e2e", "build", "sbom", "base-image"), func() {
+	DescribeTable("should fail when base image SBOM is not found in registry",
+		func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			_, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("preparing test repo")
+			repoDirname := "repo_base_sbom"
+			SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+
+			By("building images (expecting failure)")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+			out, err := werfProject.BuildWithErr(ctx, nil)
+
+			Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
+			Expect(out).To(ContainSubstring("not found in container registry"))
+		},
+		Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			setupEnvOptions: setupEnvOptions{
+				ContainerBackendMode:        "vanilla-docker",
+				WithLocalRepo:               true,
+				WithStagedDockerfileBuilder: false,
+			},
+			FixtureRelPath: "sbom/base_image_dockerfile",
+		}),
+		Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			setupEnvOptions: setupEnvOptions{
+				ContainerBackendMode:        "vanilla-docker",
+				WithLocalRepo:               true,
+				WithStagedDockerfileBuilder: false,
+			},
+			FixtureRelPath: "sbom/base_image_stapel",
+		}),
+	)
+
+	DescribeTable("should succeed when base image SBOM is found in registry",
+		func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("preparing base image SBOM stub in registry")
+			registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
+			contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
+
+			By("preparing test repo")
+			repoDirname := "repo_base_sbom_success"
+			SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+
+			By("building images")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+			reportProject := report.NewProjectWithReport(werfProject)
+			buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_base_sbom.json"), nil)
+
+			Expect(buildOut).To(ContainSubstring("base image SBOM processing"))
+			Expect(buildOut).To(ContainSubstring("SBOM processing"))
+		},
+		Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			setupEnvOptions: setupEnvOptions{
+				ContainerBackendMode:        "vanilla-docker",
+				WithLocalRepo:               true,
+				WithStagedDockerfileBuilder: false,
+			},
+			FixtureRelPath:     "sbom/base_image_dockerfile",
+			BaseImageReference: "alpine:3.18",
+		}),
+		Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			setupEnvOptions: setupEnvOptions{
+				ContainerBackendMode:        "vanilla-docker",
+				WithLocalRepo:               true,
+				WithStagedDockerfileBuilder: false,
+			},
+			FixtureRelPath:     "sbom/base_image_stapel",
+			BaseImageReference: "alpine:3.18",
+		}),
+	)
+})
+
+type baseImageSbomTestOptions struct {
+	setupEnvOptions
+	FixtureRelPath     string
+	BaseImageReference string
+}

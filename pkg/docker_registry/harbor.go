@@ -21,10 +21,10 @@ const (
 
 var harborPatterns = []string{"^harbor\\..*", "demo\\.goharbor\\.io"}
 
-type HarborRepositoryNotFoundErr apiError
+type HarborRepositoryNotFoundError apiError
 
-func NewHarborRepositoryNotFoundErr(err error) HarborRepositoryNotFoundErr {
-	return HarborRepositoryNotFoundErr{
+func NewHarborRepositoryNotFoundErr(err error) HarborRepositoryNotFoundError {
+	return HarborRepositoryNotFoundError{
 		error: errors.New(harborRepositoryNotFoundErrPrefix + err.Error()),
 	}
 }

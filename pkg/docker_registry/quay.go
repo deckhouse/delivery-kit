@@ -16,10 +16,10 @@ const (
 	quayRepositoryNotFoundErrPrefix = "quay repository not found: "
 )
 
-type QuayRepositoryNotFoundErr apiError
+type QuayRepositoryNotFoundError apiError
 
-func NewQuayRepositoryNotFoundErr(err error) QuayRepositoryNotFoundErr {
-	return QuayRepositoryNotFoundErr{
+func NewQuayRepositoryNotFoundErr(err error) QuayRepositoryNotFoundError {
+	return QuayRepositoryNotFoundError{
 		error: errors.New(quayRepositoryNotFoundErrPrefix + err.Error()),
 	}
 }

@@ -268,17 +268,6 @@ func mapDockerfileToImagesSets(ctx context.Context, cfg *dockerfile.Dockerfile, 
 }
 
 func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, dockerfileImageConfig *config.ImageFromDockerfile, targetPlatform string, useCustomTag bool, opts CommonImageOptions) (*Image, error) {
-	img, err := NewImage(ctx, targetPlatform, dockerfileImageConfig.Name, NoBaseImage, ImageOptions{
-		CommonImageOptions:    opts,
-		IsFinal:               dockerfileImageConfig.IsFinal(),
-		IsDockerfileImage:     true,
-		UseCustomTag:          useCustomTag,
-		DockerfileImageConfig: dockerfileImageConfig,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("unable to create image %q: %w", dockerfileImageConfig.Name, err)
-	}
-
 	for _, contextAddFile := range dockerfileImageConfig.ContextAddFiles {
 		relContextAddFile := filepath.Join(dockerfileImageConfig.Context, contextAddFile)
 		absContextAddFile := filepath.Join(opts.ProjectDir, relContextAddFile)
@@ -318,6 +307,30 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 	dockerTargetIndex, err := frontend.GetDockerTargetStageIndex(dockerStages, dockerfileImageConfig.Target)
 	if err != nil {
 		return nil, err
+	}
+
+	baseImageReference := getBaseImageReferenceFromDockerStages(
+		dockerStages,
+		dockerTargetIndex,
+		dockerMetaArgs,
+		util.MapStringInterfaceToMapStringString(dockerfileImageConfig.Args),
+	)
+
+	baseImageType := NoBaseImage
+	if baseImageReference != "" && !isDockerfileStageReference(dockerStages, baseImageReference) {
+		baseImageType = ImageFromRegistryAsBaseImage
+	}
+
+	img, err := NewImage(ctx, targetPlatform, dockerfileImageConfig.Name, baseImageType, ImageOptions{
+		CommonImageOptions:    opts,
+		IsFinal:               dockerfileImageConfig.IsFinal(),
+		IsDockerfileImage:     true,
+		UseCustomTag:          useCustomTag,
+		DockerfileImageConfig: dockerfileImageConfig,
+		BaseImageReference:    baseImageReference,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to create image %q: %w", dockerfileImageConfig.Name, err)
 	}
 
 	ds := stage.NewDockerStages(
@@ -422,4 +435,50 @@ func createDockerIgnorePathMatcher(ctx context.Context, giterminismMgr gitermini
 	}
 
 	return dockerIgnorePathMatcher, nil
+}
+
+func getBaseImageReferenceFromDockerStages(stages []instructions.Stage, targetIndex int, metaArgs []instructions.ArgCommand, buildArgs map[string]string) string {
+	if targetIndex < 0 || targetIndex >= len(stages) {
+		return ""
+	}
+
+	baseName := stages[targetIndex].BaseName
+
+	// Substitute ARG values
+	baseName = expandArgsInBaseImage(baseName, metaArgs, buildArgs)
+
+	return baseName
+}
+
+func expandArgsInBaseImage(baseName string, metaArgs []instructions.ArgCommand, buildArgs map[string]string) string {
+	args := make(map[string]string)
+
+	for _, argCmd := range metaArgs {
+		for _, arg := range argCmd.Args {
+			if arg.Value != nil {
+				args[arg.Key] = *arg.Value
+			}
+		}
+	}
+
+	for k, v := range buildArgs {
+		args[k] = v
+	}
+
+	result := baseName
+	for key, value := range args {
+		result = strings.ReplaceAll(result, "${"+key+"}", value)
+		result = strings.ReplaceAll(result, "$"+key, value)
+	}
+
+	return result
+}
+
+func isDockerfileStageReference(stages []instructions.Stage, baseName string) bool {
+	for _, stg := range stages {
+		if stg.Name != "" && strings.EqualFold(stg.Name, baseName) {
+			return true
+		}
+	}
+	return false
 }

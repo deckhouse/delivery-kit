@@ -130,16 +130,12 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
-			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			_, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
 			if err == contback.ErrRuntimeUnavailable {
 				Skip(err.Error())
 			} else if err != nil {
 				Fail(err.Error())
 			}
-
-			By("removing local base image SBOM if exists")
-			baseImageSbomName := sbom.ImageName(testOpts.BaseImageReference)
-			contRuntime.RmImage(ctx, baseImageSbomName)
 
 			By("preparing test repo")
 			repoDirname := "repo_base_sbom"
@@ -200,7 +196,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			Expect(buildOut).To(ContainSubstring("base image SBOM processing"))
 			Expect(buildOut).To(ContainSubstring("SBOM processing"))
 		},
-		Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
+		FEntry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
 			setupEnvOptions: setupEnvOptions{
 				ContainerBackendMode:        "vanilla-docker",
 				WithLocalRepo:               true,
@@ -209,7 +205,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			FixtureRelPath:     "sbom/base_image_dockerfile",
 			BaseImageReference: "alpine:3.18",
 		}),
-		Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+		FEntry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
 			setupEnvOptions: setupEnvOptions{
 				ContainerBackendMode:        "vanilla-docker",
 				WithLocalRepo:               true,

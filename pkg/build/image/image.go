@@ -59,7 +59,6 @@ type ImageOptions struct {
 	FetchLatestBaseImage      bool
 	UseCustomTag              bool
 	DockerfileExpanderFactory dockerfile.ExpanderFactory
-	Sbom                      *config.Sbom
 }
 
 func NewImage(ctx context.Context, targetPlatform, name string, baseImageType BaseImageType, opts ImageOptions) (*Image, error) {
@@ -86,7 +85,6 @@ func NewImage(ctx context.Context, targetPlatform, name string, baseImageType Ba
 		baseImageName:             opts.BaseImageName,
 		dockerfileExpanderFactory: opts.DockerfileExpanderFactory,
 		useCustomTag:              opts.UseCustomTag,
-		sbom:                      opts.Sbom,
 	}
 
 	if opts.FetchLatestBaseImage {
@@ -109,7 +107,6 @@ type Image struct {
 	TargetPlatform          string
 	BuildDuration           time.Duration
 
-	sbom              *config.Sbom
 	stages            []stage.Interface
 	lastNonEmptyStage stage.Interface
 	contentDigest     string
@@ -225,11 +222,7 @@ func (i *Image) UseSbom() bool {
 		return false
 	}
 
-	if i.IsDockerfileImage {
-		return i.DockerfileImageConfig.Sbom() != nil
-	}
-
-	return i.sbom != nil
+	return i.Conveyor.UseSbom()
 }
 
 func (i *Image) GetName() string {

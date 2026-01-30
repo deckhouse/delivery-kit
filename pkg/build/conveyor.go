@@ -376,6 +376,10 @@ func (c *Conveyor) SkipImageSpecStage() bool {
 	return c.ConveyorOptions.SkipImageSpecStage
 }
 
+func (c *Conveyor) UseSbom() bool {
+	return c.werfConfig.Meta.Build.Sbom.GetUse()
+}
+
 func (c *Conveyor) SetShouldAddManagedImagesRecords() {
 	c.GetServiceRWMutex("ShouldAddManagedImagesRecords").Lock()
 	defer c.GetServiceRWMutex("ShouldAddManagedImagesRecords").Unlock()

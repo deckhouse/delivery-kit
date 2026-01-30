@@ -31,4 +31,6 @@ type Conveyor interface {
 	GetRemoteGitRepo(key string) *git_repo.Remote
 
 	SkipImageSpecStage() bool
+
+	UseSbom() bool
 }

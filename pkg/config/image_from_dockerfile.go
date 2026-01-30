@@ -26,7 +26,6 @@ type ImageFromDockerfile struct {
 	cacheVersion string
 	platform     []string
 	final        bool
-	sbom         *Sbom
 	raw          *rawImageFromDockerfile
 }
 
@@ -85,10 +84,6 @@ func (c *ImageFromDockerfile) GetFrom() string {
 
 func (c *ImageFromDockerfile) SetFromExternal() {
 	panic("not implemented")
-}
-
-func (c *ImageFromDockerfile) Sbom() *Sbom {
-	return c.sbom
 }
 
 func (c *ImageFromDockerfile) dependsOn() DependsOn {

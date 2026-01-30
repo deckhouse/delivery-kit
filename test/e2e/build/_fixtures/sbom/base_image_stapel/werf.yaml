@@ -6,7 +6,7 @@ build:
 
 ---
 image: stapel
-from: alpine:3.18
+from: registry.werf.io/base/alpine
 shell:
   setup:
     - touch /created-by-stapel

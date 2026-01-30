@@ -610,15 +610,17 @@ jq -r '.Images | to_entries | map({key: .key, value: .value.DockerImageName}) | 
 
 ## Сканирование и генерация SBOM артефактов (EXPERIMENTAL)
 
-Для сканирования и генерации SBOM артефактов в процессе сборки активируйте опцию `sbom` в werf.yml:
+Для сканирования и генерации SBOM артефактов для всех образов в процессе сборки активируйте опцию `sbom` в werf.yml:
 
 ```
 project: werf-sbom-experimental
 configVersion: 1
+build:
+  sbom:
+    enable: true
 ---
 image: dockerfile
 dockerfile: Dockerfile
-sbom: true # <-- (!) вот здесь
 ```
 
 Результат сканирования будет сохранен как отдельный образ с постфиксом `-sbom` в локальном хранилище бекенда 

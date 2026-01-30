@@ -608,15 +608,17 @@ Result:
 
 ## Scanning and Generation of SBOM Artifacts (EXPERIMENTAL)
 
-To enable scanning and generation of SBOM artifacts during the build process, activate the `sbom` option in werf.yml:
+To enable scanning and generation of SBOM artifacts during the build process for all images, activate the `sbom` option in werf.yml:
 
 ```
 project: werf-sbom-experimental
 configVersion: 1
+build:
+  sbom:
+    enable: true
 ---
 image: dockerfile
 dockerfile: Dockerfile
-sbom: true # <-- (!) here
 ```
 
 The scanning result will be saved as a separate image with the `-sbom` postfix in the local backend storage

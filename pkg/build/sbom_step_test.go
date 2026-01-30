@@ -2,11 +2,10 @@ package build
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"go.uber.org/mock/gomock"
-
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
@@ -16,6 +15,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/test/mock"
+	"go.uber.org/mock/gomock"
 )
 
 var _ = Describe("SbomStep", func() {
@@ -153,6 +153,106 @@ var _ = Describe("SbomStep", func() {
 				backend.EXPECT().Tag(ctx, tmpImgId, sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 
 				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
+			},
+		),
+	)
+
+	DescribeTable("PullBaseImageSbom()",
+		func(
+			ctx context.Context,
+			baseImageReference string,
+			expectedSbomImageName string,
+			expectError bool,
+			expectedErrorMsg string,
+			setupMocks func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			),
+		) {
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			stagesStorage := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+
+			step := newSbomStep(backend, stagesStorage)
+
+			ctx = logging.WithLogger(ctx)
+
+			setupMocks(ctx, backend, baseImageReference)
+
+			sbomImageName, err := step.PullImageSbom(ctx, "some-name", baseImageReference)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(sbomImageName).To(Equal(expectedSbomImageName))
+			}
+		},
+		Entry(
+			"should use existing local sbom if found",
+			context.Background(),
+			"ubuntu:22.04",
+			"ubuntu:22.04-sbom",
+			false,
+			"",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(&image.Info{}, nil)
+			},
+		),
+		Entry(
+			"should pull from registry if not found locally (dockerfile)",
+			context.Background(),
+			"ubuntu:22.04",
+			"ubuntu:22.04-sbom",
+			false,
+			"",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
+				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(nil)
+			},
+		),
+		Entry(
+			"should pull from registry if not found locally (stapel with registry.werf.io)",
+			context.Background(),
+			"registry.werf.io/base/alpine:3.18",
+			"registry.werf.io/base/alpine:3.18-sbom",
+			false,
+			"",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
+				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(nil)
+			},
+		),
+		Entry(
+			"should fail if sbom not found locally and not in registry",
+			context.Background(),
+			"ubuntu:22.04",
+			"",
+			true,
+			"SBOM for base image \"ubuntu:22.04\" not found in container registry",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
+				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
 			},
 		),
 	)

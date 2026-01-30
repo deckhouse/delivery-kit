@@ -157,7 +157,7 @@ var _ = Describe("SbomStep", func() {
 		),
 	)
 
-	DescribeTable("PullBaseImageSbom()",
+	DescribeTable("PullImageSbom()",
 		func(
 			ctx context.Context,
 			baseImageReference string,
@@ -189,7 +189,7 @@ var _ = Describe("SbomStep", func() {
 			}
 		},
 		Entry(
-			"should use existing local sbom if found",
+			"should pull from registry",
 			context.Background(),
 			"ubuntu:22.04",
 			"ubuntu:22.04-sbom",
@@ -201,57 +201,22 @@ var _ = Describe("SbomStep", func() {
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
-				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(&image.Info{}, nil)
-			},
-		),
-		Entry(
-			"should pull from registry if not found locally (dockerfile)",
-			context.Background(),
-			"ubuntu:22.04",
-			"ubuntu:22.04-sbom",
-			false,
-			"",
-			func(
-				ctx context.Context,
-				backend *mock.MockContainerBackend,
-				baseImageReference string,
-			) {
-				srcSbomImageName := sbom.ImageName(baseImageReference)
-				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(nil)
 			},
 		),
 		Entry(
-			"should pull from registry if not found locally (stapel with registry.werf.io)",
-			context.Background(),
-			"registry.werf.io/base/alpine:3.18",
-			"registry.werf.io/base/alpine:3.18-sbom",
-			false,
-			"",
-			func(
-				ctx context.Context,
-				backend *mock.MockContainerBackend,
-				baseImageReference string,
-			) {
-				srcSbomImageName := sbom.ImageName(baseImageReference)
-				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
-				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(nil)
-			},
-		),
-		Entry(
-			"should fail if sbom not found locally and not in registry",
+			"should fail if sbom not found in registry",
 			context.Background(),
 			"ubuntu:22.04",
 			"",
 			true,
-			"unable to pull image SBOM",
+			"SBOM for image",
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
-				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
 			},
 		),

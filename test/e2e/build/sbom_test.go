@@ -196,7 +196,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			Expect(buildOut).To(ContainSubstring("base image SBOM processing"))
 			Expect(buildOut).To(ContainSubstring("SBOM processing"))
 		},
-		FEntry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
+		Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
 			setupEnvOptions: setupEnvOptions{
 				ContainerBackendMode:        "vanilla-docker",
 				WithLocalRepo:               true,
@@ -205,7 +205,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			FixtureRelPath:     "sbom/base_image_dockerfile",
 			BaseImageReference: "alpine:3.18",
 		}),
-		FEntry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+		Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
 			setupEnvOptions: setupEnvOptions{
 				ContainerBackendMode:        "vanilla-docker",
 				WithLocalRepo:               true,

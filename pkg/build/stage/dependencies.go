@@ -74,6 +74,25 @@ type DependenciesStage struct {
 	dependencies []*config.Dependency
 }
 
+// GetExternalImports returns imports from external images (not from stages in current build).
+func (s *DependenciesStage) GetExternalImports() []*config.Import {
+	var result []*config.Import
+	for _, imp := range s.imports {
+		if imp.ExternalImage {
+			result = append(result, imp)
+		}
+	}
+	return result
+}
+
+// GetCopyFromInfo implements CopyFromInfoProvider interface for stapel imports.
+// Returns nil for DependenciesStage since it has multiple imports, use GetExternalImports instead.
+func (s *DependenciesStage) GetCopyFromInfo() *CopyFromInfo {
+	// DependenciesStage can have multiple imports, so we return nil here
+	// Use GetExternalImports() to get all external imports
+	return nil
+}
+
 func (s *DependenciesStage) GetDependencies(ctx context.Context, c Conveyor, cb container_backend.ContainerBackend, _, _ *StageImage, _ container_backend.BuildContextArchiver) (string, error) {
 	var args []string
 

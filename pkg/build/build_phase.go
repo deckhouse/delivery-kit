@@ -181,6 +181,21 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbomName // TODO: pass to Converge
 
+				// Process COPY --from external images SBOM
+				copyFromSbomCollector := NewCopyFromSBOMCollector()
+				for _, copyFromInfo := range img.GetCopyFromExternalImages() {
+					filteredSbom, err := phase.sbomStep.PullAndFilterCopyFromSbom(ctx, name, CopyFromSBOMEntry{
+						SourceImageRef: copyFromInfo.SourceImageRef,
+						SourcePaths:    copyFromInfo.SourcePaths,
+						DestPath:       copyFromInfo.DestPath,
+					})
+					if err != nil {
+						return fmt.Errorf("unable to pull and filter COPY --from SBOM for %s: %w", copyFromInfo.SourceImageRef, err)
+					}
+					copyFromSbomCollector.Add(filteredSbom)
+				}
+				_ = copyFromSbomCollector // TODO: merge with base image SBOM and pass to Converge
+
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
 				}
@@ -228,6 +243,23 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					}
 				}
 				_ = baseImageSbomName // TODO: pass to Converge
+
+				// Process COPY --from external images SBOM
+				copyFromSbomCollector := NewCopyFromSBOMCollector()
+				if len(img.Images) > 0 {
+					for _, copyFromInfo := range img.Images[0].GetCopyFromExternalImages() {
+						filteredSbom, err := phase.sbomStep.PullAndFilterCopyFromSbom(ctx, img.Name, CopyFromSBOMEntry{
+							SourceImageRef: copyFromInfo.SourceImageRef,
+							SourcePaths:    copyFromInfo.SourcePaths,
+							DestPath:       copyFromInfo.DestPath,
+						})
+						if err != nil {
+							return fmt.Errorf("unable to pull and filter COPY --from SBOM for %s: %w", copyFromInfo.SourceImageRef, err)
+						}
+						copyFromSbomCollector.Add(filteredSbom)
+					}
+				}
+				_ = copyFromSbomCollector // TODO: merge with base image SBOM and pass to Converge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)

@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 
 	"github.com/samber/lo"
@@ -188,4 +189,86 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	}
 
 	return nil
+}
+
+// CopyFromSBOMEntry represents SBOM data for a COPY --from instruction.
+type CopyFromSBOMEntry struct {
+	// SourceImageRef is the reference to the source image.
+	SourceImageRef string
+	// SourcePaths are the source paths from the COPY instruction.
+	SourcePaths []string
+	// DestPath is the destination path in the target image.
+	DestPath string
+}
+
+// PullAndFilterCopyFromSbom pulls SBOM for the COPY --from source image and filters it.
+// Returns the filtered SBOM containing only components that match the copied paths.
+func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName string, entry CopyFromSBOMEntry) (*sbom.CycloneDXBOM, error) {
+	if step.isLocalStorage {
+		return nil, nil
+	}
+
+	sbomImageName := sbom.ImageName(entry.SourceImageRef)
+
+	var filteredBOM *sbom.CycloneDXBOM
+
+	if err := logboek.Context(ctx).Default().LogProcess("image %s: COPY --from SBOM processing (%s)", werfImgName, entry.SourceImageRef).DoError(func() error {
+		logboek.Context(ctx).Default().LogF("Pulling SBOM from %s\n", sbomImageName)
+
+		// Pull the SBOM image
+		if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
+			return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", entry.SourceImageRef, sbomImageName, err)
+		}
+
+		// Create opener for the SBOM image
+		opener := func() (io.ReadCloser, error) {
+			return step.containerBackend.SaveImageToStream(ctx, sbomImageName)
+		}
+
+		// Extract and filter SBOM
+		_, filtered, err := sbom.ExtractAndFilterSBOM(ctx, opener, entry.SourcePaths, entry.DestPath)
+		if err != nil {
+			return fmt.Errorf("unable to extract and filter SBOM: %w", err)
+		}
+
+		filteredBOM = filtered
+
+		logboek.Context(ctx).Default().LogF("Filtered %d components for paths %v -> %s\n",
+			len(filteredBOM.Components), entry.SourcePaths, entry.DestPath)
+
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("unable to process COPY --from SBOM: %w", err)
+	}
+
+	return filteredBOM, nil
+}
+
+// CopyFromSBOMCollector collects filtered SBOMs from multiple COPY --from instructions.
+type CopyFromSBOMCollector struct {
+	entries []*sbom.CycloneDXBOM
+}
+
+// NewCopyFromSBOMCollector creates a new CopyFromSBOMCollector.
+func NewCopyFromSBOMCollector() *CopyFromSBOMCollector {
+	return &CopyFromSBOMCollector{
+		entries: make([]*sbom.CycloneDXBOM, 0),
+	}
+}
+
+// Add adds a filtered SBOM to the collector.
+func (c *CopyFromSBOMCollector) Add(bom *sbom.CycloneDXBOM) {
+	if bom != nil && len(bom.Components) > 0 {
+		c.entries = append(c.entries, bom)
+	}
+}
+
+// GetMergedSBOM returns a merged SBOM from all collected entries.
+func (c *CopyFromSBOMCollector) GetMergedSBOM() *sbom.CycloneDXBOM {
+	return sbom.MergeSBOMs(c.entries...)
+}
+
+// HasEntries returns true if there are any collected SBOMs.
+func (c *CopyFromSBOMCollector) HasEntries() bool {
+	return len(c.entries) > 0
 }

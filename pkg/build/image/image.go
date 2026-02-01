@@ -216,6 +216,51 @@ func (i *Image) UsesBuildContext() bool {
 	return false
 }
 
+// CopyFromExternalImageInfo contains information about COPY --from instruction with external image.
+type CopyFromExternalImageInfo struct {
+	// SourceImageRef is the reference to the external source image.
+	SourceImageRef string
+	// SourcePaths are the source paths from the COPY instruction.
+	SourcePaths []string
+	// DestPath is the destination path in the target image.
+	DestPath string
+}
+
+// GetCopyFromExternalImages returns information about all COPY --from instructions
+// that reference external images (not stages in the current build).
+func (i *Image) GetCopyFromExternalImages() []CopyFromExternalImageInfo {
+	var result []CopyFromExternalImageInfo
+
+	for _, stg := range i.GetStages() {
+		// Check for dockerfile COPY --from instructions
+		if copyStage, ok := stg.(stage.CopyFromInfoProvider); ok {
+			info := copyStage.GetCopyFromInfo()
+			if info != nil && info.IsExternalImage && info.SourceImageRef != "" {
+				result = append(result, CopyFromExternalImageInfo{
+					SourceImageRef: info.SourceImageRef,
+					SourcePaths:    info.SourcePaths,
+					DestPath:       info.DestPath,
+				})
+			}
+		}
+
+		// Check for stapel external imports
+		if depStage, ok := stg.(interface {
+			GetExternalImports() []*config.Import
+		}); ok {
+			for _, imp := range depStage.GetExternalImports() {
+				result = append(result, CopyFromExternalImageInfo{
+					SourceImageRef: imp.ImageName,
+					SourcePaths:    []string{imp.Add},
+					DestPath:       imp.To,
+				})
+			}
+		}
+	}
+
+	return result
+}
+
 func (i *Image) UseCustomTag() bool {
 	return i.useCustomTag
 }

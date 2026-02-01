@@ -130,12 +130,15 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
-			_, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
 			if err == contback.ErrRuntimeUnavailable {
 				Skip(err.Error())
 			} else if err != nil {
 				Fail(err.Error())
 			}
+
+			By("ensuring local base image SBOM does not exist")
+			contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
 
 			By("preparing test repo")
 			repoDirname := "repo_base_sbom"

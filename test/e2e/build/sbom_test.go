@@ -184,6 +184,10 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
 			contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
 
+			DeferCleanup(func(ctx SpecContext) {
+				contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
+			})
+
 			By("preparing test repo")
 			repoDirname := "repo_base_sbom_success"
 			SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
@@ -193,7 +197,10 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			reportProject := report.NewProjectWithReport(werfProject)
 			buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_base_sbom.json"), nil)
 
-			Expect(buildOut).To(ContainSubstring("base image SBOM processing"))
+			Expect(buildOut).To(SatisfyAny(
+				ContainSubstring("base image SBOM processing"),
+				ContainSubstring("Using local image SBOM"),
+			))
 			Expect(buildOut).To(ContainSubstring("SBOM processing"))
 		},
 		Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{

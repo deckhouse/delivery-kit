@@ -139,7 +139,8 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 }
 
 // PullImageSbom pulls SBOM for the image from the image registry.
-// If the SBOM is not found in registry, returns an error.
+// If the SBOM image exists locally, it skips the pull.
+// If the SBOM is not found locally or in registry, returns an error.
 func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName, imageReference string) (string, error) {
 	if step.isLocalStorage {
 		return "", nil
@@ -148,6 +149,12 @@ func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName, imageRefer
 	sbomImageName := sbom.ImageName(imageReference)
 
 	if err := logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, imageReference).DoError(func() error {
+		if _, err := step.containerBackend.GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}); err == nil {
+			logboek.Context(ctx).Default().LogF("Using local image SBOM %s\n", sbomImageName)
+
+			return nil
+		}
+
 		logboek.Context(ctx).Default().LogF("Pulling image SBOM from %s\n", sbomImageName)
 		if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
 			return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", imageReference, sbomImageName, err)

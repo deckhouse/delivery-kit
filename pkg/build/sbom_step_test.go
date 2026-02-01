@@ -202,6 +202,7 @@ var _ = Describe("SbomStep", func() {
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, fmt.Errorf("not found locally"))
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(nil)
 			},
 		),
@@ -218,7 +219,24 @@ var _ = Describe("SbomStep", func() {
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, fmt.Errorf("not found locally"))
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
+			},
+		),
+		Entry(
+			"should use local image if exists",
+			context.Background(),
+			"ubuntu:22.04",
+			"ubuntu:22.04-sbom",
+			false,
+			"",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(&image.Info{Name: srcSbomImageName}, nil)
 			},
 		),
 	)

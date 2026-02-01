@@ -44,7 +44,6 @@ type ContainerBackend interface {
 	GetImageInspect(ctx context.Context, image string) DockerImageInspect
 	SaveImageToStream(ctx context.Context, image string) io.ReadCloser
 
-	// PrepareBaseImageSbomStub creates a stub SBOM image for base image and pushes it to registry
 	PrepareBaseImageSbomStub(ctx context.Context, baseImageReference, registryRepo string)
 }
 

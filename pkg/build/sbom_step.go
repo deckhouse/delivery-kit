@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
@@ -191,26 +192,24 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	return nil
 }
 
-// CopyFromSBOMEntry represents SBOM data for a COPY --from instruction.
-type CopyFromSBOMEntry struct {
-	// SourceImageRef is the reference to the source image.
-	SourceImageRef string
-	// SourcePaths are the source paths from the COPY instruction.
-	SourcePaths []string
-	// DestPath is the destination path in the target image.
-	DestPath string
+// CopyFromSBOMCollector is an alias for sbom.SBOMCollector for backward compatibility.
+type CopyFromSBOMCollector = sbom.SBOMCollector
+
+// NewCopyFromSBOMCollector creates a new CopyFromSBOMCollector.
+func NewCopyFromSBOMCollector() *CopyFromSBOMCollector {
+	return sbom.NewSBOMCollector()
 }
 
 // PullAndFilterCopyFromSbom pulls SBOM for the COPY --from source image and filters it.
 // Returns the filtered SBOM containing only components that match the copied paths.
-func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName string, entry CopyFromSBOMEntry) (*sbom.CycloneDXBOM, error) {
+func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName string, entry sbom.CopyFromEntry) (*cdx.BOM, error) {
 	if step.isLocalStorage {
 		return nil, nil
 	}
 
 	sbomImageName := sbom.ImageName(entry.SourceImageRef)
 
-	var filteredBOM *sbom.CycloneDXBOM
+	var filteredBOM *cdx.BOM
 
 	if err := logboek.Context(ctx).Default().LogProcess("image %s: COPY --from SBOM processing (%s)", werfImgName, entry.SourceImageRef).DoError(func() error {
 		logboek.Context(ctx).Default().LogF("Pulling SBOM from %s\n", sbomImageName)
@@ -234,7 +233,7 @@ func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName
 		filteredBOM = filtered
 
 		logboek.Context(ctx).Default().LogF("Filtered %d components for paths %v -> %s\n",
-			len(filteredBOM.Components), entry.SourcePaths, entry.DestPath)
+			sbom.GetComponentsCount(filteredBOM), entry.SourcePaths, entry.DestPath)
 
 		return nil
 	}); err != nil {
@@ -242,33 +241,4 @@ func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName
 	}
 
 	return filteredBOM, nil
-}
-
-// CopyFromSBOMCollector collects filtered SBOMs from multiple COPY --from instructions.
-type CopyFromSBOMCollector struct {
-	entries []*sbom.CycloneDXBOM
-}
-
-// NewCopyFromSBOMCollector creates a new CopyFromSBOMCollector.
-func NewCopyFromSBOMCollector() *CopyFromSBOMCollector {
-	return &CopyFromSBOMCollector{
-		entries: make([]*sbom.CycloneDXBOM, 0),
-	}
-}
-
-// Add adds a filtered SBOM to the collector.
-func (c *CopyFromSBOMCollector) Add(bom *sbom.CycloneDXBOM) {
-	if bom != nil && len(bom.Components) > 0 {
-		c.entries = append(c.entries, bom)
-	}
-}
-
-// GetMergedSBOM returns a merged SBOM from all collected entries.
-func (c *CopyFromSBOMCollector) GetMergedSBOM() *sbom.CycloneDXBOM {
-	return sbom.MergeSBOMs(c.entries...)
-}
-
-// HasEntries returns true if there are any collected SBOMs.
-func (c *CopyFromSBOMCollector) HasEntries() bool {
-	return len(c.entries) > 0
 }

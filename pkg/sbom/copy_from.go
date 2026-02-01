@@ -5,61 +5,70 @@ import (
 	"fmt"
 	"io"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
 	"github.com/werf/logboek"
 )
 
-// CopyFromSBOMInfo contains information about SBOM from COPY --from instruction.
-type CopyFromSBOMInfo struct {
-	// SourceImageRef is the reference to the source image.
+// CopyFromEntry represents data for a COPY --from instruction.
+type CopyFromEntry struct {
+	// SourceImageRef is the reference to the source image (COPY --from=<image>).
 	SourceImageRef string
 	// SourcePaths are the source paths from the COPY instruction.
 	SourcePaths []string
-	// DestPath is the destination path in the target image.
+	// DestPath is the destination path from the COPY instruction.
 	DestPath string
+}
+
+// CopyFromSBOMResult contains SBOM processing results for a COPY --from instruction.
+type CopyFromSBOMResult struct {
+	CopyFromEntry
 	// OriginalSBOM is the original SBOM from the source image.
-	OriginalSBOM *CycloneDXBOM
-	// FilteredSBOM is the SBOM filtered by the destination path.
-	FilteredSBOM *CycloneDXBOM
+	OriginalSBOM *cdx.BOM
+	// FilteredSBOM is the SBOM filtered by the copied paths.
+	FilteredSBOM *cdx.BOM
 }
 
-// CopyFromSBOMCollector collects and filters SBOMs from COPY --from instructions.
-type CopyFromSBOMCollector struct {
-	entries []CopyFromSBOMInfo
+// SBOMCollector collects and merges filtered SBOMs from multiple sources.
+type SBOMCollector struct {
+	entries []*cdx.BOM
 }
 
-// NewCopyFromSBOMCollector creates a new CopyFromSBOMCollector.
-func NewCopyFromSBOMCollector() *CopyFromSBOMCollector {
-	return &CopyFromSBOMCollector{
-		entries: make([]CopyFromSBOMInfo, 0),
+// NewSBOMCollector creates a new SBOMCollector.
+func NewSBOMCollector() *SBOMCollector {
+	return &SBOMCollector{
+		entries: make([]*cdx.BOM, 0),
 	}
 }
 
-// AddEntry adds a new COPY --from SBOM entry.
-func (c *CopyFromSBOMCollector) AddEntry(entry CopyFromSBOMInfo) {
-	c.entries = append(c.entries, entry)
-}
-
-// GetEntries returns all collected entries.
-func (c *CopyFromSBOMCollector) GetEntries() []CopyFromSBOMInfo {
-	return c.entries
-}
-
-// GetMergedFilteredSBOM returns a merged SBOM from all filtered entries.
-func (c *CopyFromSBOMCollector) GetMergedFilteredSBOM() *CycloneDXBOM {
-	boms := make([]*CycloneDXBOM, 0, len(c.entries))
-	for _, entry := range c.entries {
-		if entry.FilteredSBOM != nil && len(entry.FilteredSBOM.Components) > 0 {
-			boms = append(boms, entry.FilteredSBOM)
-		}
+// Add adds a filtered SBOM to the collector.
+// Nil BOMs and BOMs with no components are ignored.
+func (c *SBOMCollector) Add(bom *cdx.BOM) {
+	if bom != nil && GetComponentsCount(bom) > 0 {
+		c.entries = append(c.entries, bom)
 	}
-	return MergeSBOMs(boms...)
+}
+
+// Merge returns a merged SBOM from all collected entries.
+func (c *SBOMCollector) Merge() *cdx.BOM {
+	return MergeSBOMs(c.entries...)
+}
+
+// HasEntries returns true if there are any collected SBOMs.
+func (c *SBOMCollector) HasEntries() bool {
+	return len(c.entries) > 0
+}
+
+// Count returns the number of collected SBOMs.
+func (c *SBOMCollector) Count() int {
+	return len(c.entries)
 }
 
 // ExtractAndFilterSBOM extracts SBOM from an image and filters it by the COPY paths.
 // opener is a function that returns a ReadCloser for the SBOM image tarball.
-func ExtractAndFilterSBOM(ctx context.Context, opener tarball.Opener, srcPaths []string, dstPath string) (*CycloneDXBOM, *CycloneDXBOM, error) {
+// Returns the original BOM and the filtered BOM.
+func ExtractAndFilterSBOM(ctx context.Context, opener tarball.Opener, srcPaths []string, dstPath string) (*cdx.BOM, *cdx.BOM, error) {
 	// Extract SBOM artifact from image
 	sbomData, err := FindSingleSbomArtifact(opener)
 	if err != nil {
@@ -76,7 +85,7 @@ func ExtractAndFilterSBOM(ctx context.Context, opener tarball.Opener, srcPaths [
 	filteredBOM := FilterComponentsByDestPath(originalBOM, srcPaths, dstPath)
 
 	logboek.Context(ctx).Debug().LogF("Filtered SBOM: %d components from %d total\n",
-		len(filteredBOM.Components), len(originalBOM.Components))
+		GetComponentsCount(filteredBOM), GetComponentsCount(originalBOM))
 
 	return originalBOM, filteredBOM, nil
 }

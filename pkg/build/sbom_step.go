@@ -149,7 +149,7 @@ func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName, imageRefer
 	sbomImageName := sbom.ImageName(imageReference)
 
 	if err := logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, imageReference).DoError(func() error {
-		if _, err := step.containerBackend.GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}); err == nil {
+		if info, err := step.containerBackend.GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}); err == nil && info != nil {
 			logboek.Context(ctx).Default().LogF("Using local image SBOM %s\n", sbomImageName)
 
 			return nil

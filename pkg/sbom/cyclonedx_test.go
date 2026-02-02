@@ -5,6 +5,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseCycloneDXBOM(t *testing.T) {
@@ -43,14 +44,15 @@ func TestParseCycloneDXBOM(t *testing.T) {
 	}`
 
 	bom, err := ParseCycloneDXBOM([]byte(sbomJSON))
-	assert.NoError(t, err)
-	assert.NotNil(t, bom)
+	require.NoError(t, err)
+	require.NotNil(t, bom)
 	assert.Equal(t, "CycloneDX", bom.BOMFormat)
 	assert.Equal(t, cdx.SpecVersion1_6, bom.SpecVersion)
-	assert.NotNil(t, bom.Components)
-	assert.Len(t, *bom.Components, 2)
-	assert.Equal(t, "curl", (*bom.Components)[0].Name)
-	assert.Equal(t, "/bin/curl", GetLocationPath((*bom.Components)[0]))
+	assert.Equal(t, 2, GetComponentsCount(bom))
+
+	components := GetComponents(bom)
+	assert.Equal(t, "curl", components[0].Name)
+	assert.Equal(t, "/bin/curl", GetLocationPath(components[0]))
 }
 
 func TestGetLocationPath(t *testing.T) {
@@ -157,42 +159,37 @@ func TestMatchesCopyPath(t *testing.T) {
 		name         string
 		locationPath string
 		srcPaths     []string
-		dstPath      string
 		expected     bool
 	}{
 		{
 			name:         "exact match",
 			locationPath: "/usr/bin/curl",
 			srcPaths:     []string{"/usr/bin/curl"},
-			dstPath:      "/bin/curl",
 			expected:     true,
 		},
 		{
 			name:         "no match",
 			locationPath: "/usr/bin/curl",
 			srcPaths:     []string{"/usr/bin/bash"},
-			dstPath:      "/bin/bash",
 			expected:     false,
 		},
 		{
 			name:         "directory match",
 			locationPath: "/usr/bin/curl",
 			srcPaths:     []string{"/usr/bin/"},
-			dstPath:      "/bin/",
 			expected:     true,
 		},
 		{
 			name:         "glob match",
 			locationPath: "/usr/bin/curl",
 			srcPaths:     []string{"/usr/bin/*"},
-			dstPath:      "/bin/",
 			expected:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesCopyPath(tt.locationPath, tt.srcPaths, tt.dstPath)
+			result := matchesCopyPath(tt.locationPath, tt.srcPaths)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -237,35 +234,6 @@ func TestTransformPath(t *testing.T) {
 	}
 }
 
-func TestMergeSBOMs(t *testing.T) {
-	bom1 := &cdx.BOM{
-		BOMFormat:   "CycloneDX",
-		SpecVersion: cdx.SpecVersion1_6,
-		Components: &[]cdx.Component{
-			{Name: "curl", Version: "8.12.1"},
-		},
-	}
-
-	bom2 := &cdx.BOM{
-		BOMFormat:   "CycloneDX",
-		SpecVersion: cdx.SpecVersion1_6,
-		Components: &[]cdx.Component{
-			{Name: "bash", Version: "5.0"},
-		},
-	}
-
-	merged := MergeSBOMs(bom1, bom2)
-	assert.NotNil(t, merged)
-	assert.Len(t, *merged.Components, 2)
-
-	merged = MergeSBOMs(nil, bom1)
-	assert.NotNil(t, merged)
-	assert.Len(t, *merged.Components, 1)
-
-	merged = MergeSBOMs(nil, nil)
-	assert.Nil(t, merged)
-}
-
 func TestToJSON(t *testing.T) {
 	bom := &cdx.BOM{
 		BOMFormat:   "CycloneDX",
@@ -281,29 +249,83 @@ func TestToJSON(t *testing.T) {
 	}
 
 	data, err := ToJSON(bom)
-	assert.NoError(t, err)
-	assert.NotNil(t, data)
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
 	assert.Contains(t, string(data), "test")
 	assert.Contains(t, string(data), "1.0")
 
 	parsedBOM, err := ParseCycloneDXBOM(data)
-	assert.NoError(t, err)
-	assert.NotNil(t, parsedBOM.Components)
-	assert.Len(t, *parsedBOM.Components, 1)
-	assert.Equal(t, "test", (*parsedBOM.Components)[0].Name)
+	require.NoError(t, err)
+	assert.Equal(t, 1, GetComponentsCount(parsedBOM))
+	assert.Equal(t, "test", GetComponents(parsedBOM)[0].Name)
 }
 
 func TestGetComponentsCount(t *testing.T) {
-	assert.Equal(t, 0, GetComponentsCount(nil))
-
-	bom := &cdx.BOM{
-		BOMFormat: "CycloneDX",
+	tests := []struct {
+		name     string
+		bom      *cdx.BOM
+		expected int
+	}{
+		{"nil BOM", nil, 0},
+		{"nil components", &cdx.BOM{BOMFormat: "CycloneDX"}, 0},
+		{"empty components", &cdx.BOM{Components: &[]cdx.Component{}}, 0},
+		{"with components", &cdx.BOM{Components: &[]cdx.Component{{Name: "a"}, {Name: "b"}}}, 2},
 	}
-	assert.Equal(t, 0, GetComponentsCount(bom))
 
-	bom.Components = &[]cdx.Component{
-		{Name: "test1"},
-		{Name: "test2"},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, GetComponentsCount(tt.bom))
+		})
 	}
-	assert.Equal(t, 2, GetComponentsCount(bom))
+}
+
+func TestGetComponents(t *testing.T) {
+	t.Run("nil BOM returns nil", func(t *testing.T) {
+		assert.Nil(t, GetComponents(nil))
+	})
+
+	t.Run("nil components returns nil", func(t *testing.T) {
+		bom := &cdx.BOM{BOMFormat: "CycloneDX"}
+		assert.Nil(t, GetComponents(bom))
+	})
+
+	t.Run("returns components", func(t *testing.T) {
+		components := []cdx.Component{{Name: "test"}}
+		bom := &cdx.BOM{Components: &components}
+		assert.Equal(t, components, GetComponents(bom))
+	})
+}
+
+func TestSetComponents(t *testing.T) {
+	bom := &cdx.BOM{}
+	components := []cdx.Component{{Name: "test"}}
+
+	SetComponents(bom, components)
+
+	assert.Equal(t, 1, GetComponentsCount(bom))
+	assert.Equal(t, "test", GetComponents(bom)[0].Name)
+}
+
+func TestCloneBOMMetadata(t *testing.T) {
+	t.Run("nil returns nil", func(t *testing.T) {
+		assert.Nil(t, CloneBOMMetadata(nil))
+	})
+
+	t.Run("clones metadata with empty components", func(t *testing.T) {
+		source := &cdx.BOM{
+			BOMFormat:    "CycloneDX",
+			SpecVersion:  cdx.SpecVersion1_6,
+			SerialNumber: "urn:uuid:test",
+			Version:      1,
+			Components:   &[]cdx.Component{{Name: "original"}},
+		}
+
+		cloned := CloneBOMMetadata(source)
+
+		require.NotNil(t, cloned)
+		assert.Equal(t, source.BOMFormat, cloned.BOMFormat)
+		assert.Equal(t, source.SpecVersion, cloned.SpecVersion)
+		assert.Equal(t, source.SerialNumber, cloned.SerialNumber)
+		assert.Equal(t, 0, GetComponentsCount(cloned))
+	})
 }

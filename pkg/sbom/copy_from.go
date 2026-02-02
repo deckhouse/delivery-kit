@@ -3,7 +3,6 @@ package sbom
 import (
 	"context"
 	"fmt"
-	"io"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
@@ -17,40 +16,8 @@ type CopyFromEntry struct {
 	DestPath       string
 }
 
-type CopyFromSBOMResult struct {
-	CopyFromEntry
-	OriginalSBOM *cdx.BOM
-	FilteredSBOM *cdx.BOM
-}
-
-type SBOMCollector struct {
-	entries []*cdx.BOM
-}
-
-func NewSBOMCollector() *SBOMCollector {
-	return &SBOMCollector{
-		entries: make([]*cdx.BOM, 0),
-	}
-}
-
-func (c *SBOMCollector) Add(bom *cdx.BOM) {
-	if bom != nil && GetComponentsCount(bom) > 0 {
-		c.entries = append(c.entries, bom)
-	}
-}
-
-func (c *SBOMCollector) Merge() *cdx.BOM {
-	return MergeSBOMs(c.entries...)
-}
-
-func (c *SBOMCollector) HasEntries() bool {
-	return len(c.entries) > 0
-}
-
-func (c *SBOMCollector) Count() int {
-	return len(c.entries)
-}
-
+// ExtractAndFilterSBOM extracts SBOM from an image and filters it by the COPY paths.
+// Returns the original BOM and the filtered BOM containing only components matching the copied paths.
 func ExtractAndFilterSBOM(ctx context.Context, opener tarball.Opener, srcPaths []string, dstPath string) (*cdx.BOM, *cdx.BOM, error) {
 	sbomData, err := FindSingleSbomArtifact(opener)
 	if err != nil {
@@ -68,10 +35,4 @@ func ExtractAndFilterSBOM(ctx context.Context, opener tarball.Opener, srcPaths [
 		GetComponentsCount(filteredBOM), GetComponentsCount(originalBOM))
 
 	return originalBOM, filteredBOM, nil
-}
-
-func SaveImageToStreamOpener(saveFunc func() io.ReadCloser) tarball.Opener {
-	return func() (io.ReadCloser, error) {
-		return saveFunc(), nil
-	}
 }

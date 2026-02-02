@@ -10,6 +10,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
+	buildImage "github.com/werf/werf/v2/pkg/build/image"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
@@ -190,14 +191,6 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	}
 
 	return nil
-}
-
-// CopyFromSBOMCollector is an alias for sbom.SBOMCollector for backward compatibility.
-type CopyFromSBOMCollector = sbom.SBOMCollector
-
-// NewCopyFromSBOMCollector creates a new CopyFromSBOMCollector.
-func NewCopyFromSBOMCollector() *CopyFromSBOMCollector {
-	return sbom.NewSBOMCollector()
 }
 
 // PullAndFilterCopyFromSbom pulls SBOM for the COPY --from source image and filters it.

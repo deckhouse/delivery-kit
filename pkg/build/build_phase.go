@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 
@@ -181,20 +182,11 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbomName // TODO: pass to Converge
 
-				// Process COPY --from external images SBOM
-				copyFromSbomCollector := NewCopyFromSBOMCollector()
-				for _, copyFromInfo := range img.GetCopyFromExternalImages() {
-					filteredSbom, err := phase.sbomStep.PullAndFilterCopyFromSbom(ctx, name, CopyFromSBOMEntry{
-						SourceImageRef: copyFromInfo.SourceImageRef,
-						SourcePaths:    copyFromInfo.SourcePaths,
-						DestPath:       copyFromInfo.DestPath,
-					})
-					if err != nil {
-						return fmt.Errorf("unable to pull and filter COPY --from SBOM for %s: %w", copyFromInfo.SourceImageRef, err)
-					}
-					copyFromSbomCollector.Add(filteredSbom)
+				copyFromSboms, err := phase.sbomStep.ProcessCopyFromSboms(ctx, name, img.GetCopyFromExternalImages())
+				if err != nil {
+					return err
 				}
-				_ = copyFromSbomCollector // TODO: merge with base image SBOM and pass to Converge
+				_ = copyFromSboms // TODO: merge with base image SBOM and pass to Converge
 
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -244,22 +236,15 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbomName // TODO: pass to Converge
 
-				// Process COPY --from external images SBOM
-				copyFromSbomCollector := NewCopyFromSBOMCollector()
+				var copyFromSboms []*cdx.BOM
 				if len(img.Images) > 0 {
-					for _, copyFromInfo := range img.Images[0].GetCopyFromExternalImages() {
-						filteredSbom, err := phase.sbomStep.PullAndFilterCopyFromSbom(ctx, img.Name, CopyFromSBOMEntry{
-							SourceImageRef: copyFromInfo.SourceImageRef,
-							SourcePaths:    copyFromInfo.SourcePaths,
-							DestPath:       copyFromInfo.DestPath,
-						})
-						if err != nil {
-							return fmt.Errorf("unable to pull and filter COPY --from SBOM for %s: %w", copyFromInfo.SourceImageRef, err)
-						}
-						copyFromSbomCollector.Add(filteredSbom)
+					var err error
+					copyFromSboms, err = phase.sbomStep.ProcessCopyFromSboms(ctx, img.Name, img.Images[0].GetCopyFromExternalImages())
+					if err != nil {
+						return err
 					}
 				}
-				_ = copyFromSbomCollector // TODO: merge with base image SBOM and pass to Converge
+				_ = copyFromSboms // TODO: merge with base image SBOM and pass to Converge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)

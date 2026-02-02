@@ -63,31 +63,3 @@ func CloneBOMMetadata(source *cdx.BOM) *cdx.BOM {
 		Components:   &[]cdx.Component{},
 	}
 }
-
-func MergeSBOMs(boms ...*cdx.BOM) *cdx.BOM {
-	if len(boms) == 0 {
-		return nil
-	}
-
-	var baseBOM *cdx.BOM
-	for _, bom := range boms {
-		if bom != nil {
-			baseBOM = bom
-			break
-		}
-	}
-
-	if baseBOM == nil {
-		return nil
-	}
-
-	merged := CloneBOMMetadata(baseBOM)
-	mergedComponents := make([]cdx.Component, 0)
-
-	for _, bom := range boms {
-		mergedComponents = append(mergedComponents, GetComponents(bom)...)
-	}
-
-	SetComponents(merged, mergedComponents)
-	return merged
-}

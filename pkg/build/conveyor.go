@@ -376,8 +376,12 @@ func (c *Conveyor) SkipImageSpecStage() bool {
 	return c.ConveyorOptions.SkipImageSpecStage
 }
 
-func (c *Conveyor) UseSbom() bool {
-	return c.werfConfig.Meta.Build.Sbom.GetUse()
+func (c *Conveyor) EnableSbom() bool {
+	if c.werfConfig.Meta.Build.Sbom == nil {
+		return false
+	}
+
+	return c.werfConfig.Meta.Build.Sbom.Enable
 }
 
 func (c *Conveyor) SetShouldAddManagedImagesRecords() {

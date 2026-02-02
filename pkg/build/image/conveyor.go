@@ -32,5 +32,5 @@ type Conveyor interface {
 
 	SkipImageSpecStage() bool
 
-	UseSbom() bool
+	EnableSbom() bool
 }

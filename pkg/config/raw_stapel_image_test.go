@@ -64,6 +64,27 @@ var _ = Describe("rawStapelImage", func() {
 				Docker: nil,
 			},
 		),
+		Entry(
+			"should handle sbom",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				// "sbom": "..." TODO: restore when sbom is implemented
+			},
+			&StapelImage{
+				StapelImageBase: &StapelImageBase{
+					Name:    "image1",
+					From:    "alpine:latest",
+					Git:     &GitManager{},
+					Secrets: []Secret{},
+
+					platform: []string{},
+					final:    true,
+					sbom:     nil, // TODO: restore when sbom is implemented new(rawSbom).toDirective(),
+				},
+				Docker: nil,
+			},
+		),
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",

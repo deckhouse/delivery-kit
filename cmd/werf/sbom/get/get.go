@@ -167,7 +167,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return err
 	}
 
-	if werfConfig.Meta.Build.Sbom == nil || !werfConfig.Meta.Build.Sbom.Use {
+	if werfConfig.Meta.Build.Sbom == nil || !werfConfig.Meta.Build.Sbom.Enable {
 		return fmt.Errorf("SBOM should be enabled in the werf config build.sbom.use directive")
 	}
 

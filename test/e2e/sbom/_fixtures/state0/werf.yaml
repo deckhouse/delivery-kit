@@ -2,7 +2,7 @@ project: werf-test-e2e-sbom-get
 configVersion: 1
 build:
   sbom:
-    use: true
+    enable: true
 
 ---
 image: dockerfile

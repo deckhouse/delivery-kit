@@ -1,18 +1,20 @@
 package config
 
-type rawSbom struct {
+type rawMetaBuildSbom struct {
+	Enable bool `yaml:"enable,omitempty"`
+
 	rawMetaBuild *rawMetaBuild `yaml:"-"`
 
 	UnsupportedAttributes map[string]interface{} `yaml:",inline"`
 }
 
-func (s *rawSbom) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (s *rawMetaBuildSbom) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if parent, ok := parentStack.Peek().(*rawMetaBuild); ok {
 		s.rawMetaBuild = parent
 	}
 
 	parentStack.Push(s)
-	type plain rawSbom
+	type plain rawMetaBuildSbom
 	err := unmarshal((*plain)(s))
 	parentStack.Pop()
 	if err != nil {
@@ -26,10 +28,12 @@ func (s *rawSbom) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func (s *rawSbom) toDirective() *Sbom {
+func (s *rawMetaBuildSbom) toDirective() *MetaBuildSbom {
 	if s == nil {
 		return nil
 	}
 
-	return &Sbom{}
+	return &MetaBuildSbom{
+		Enable: s.Enable,
+	}
 }

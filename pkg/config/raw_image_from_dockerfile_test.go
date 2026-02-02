@@ -60,6 +60,23 @@ var _ = Describe("rawImageFromDockerfile", func() {
 				final:        true,
 			},
 		),
+		Entry(
+			"should handle sbom",
+			map[string]interface{}{
+				"image": "image1",
+				// "sbom": "..." TODO: restore when sbom is implemented
+			},
+			&ImageFromDockerfile{
+				Name:            "image1",
+				ContextAddFiles: []string{},
+				AddHost:         []string{},
+				Secrets:         []Secret{},
+				sbom:            nil, // TODO: restore when sbom is implemented new(rawSbom).toDirective(),
+
+				platform: []string{},
+				final:    true,
+			},
+		),
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",

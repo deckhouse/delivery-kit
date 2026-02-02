@@ -438,12 +438,16 @@ func extractBaseImageFromDockerfile(dockerStages []instructions.Stage, targetInd
 	targetStage := dockerStages[targetIndex]
 	baseName := targetStage.BaseName
 
-	if baseName == "" || baseName == "scratch" {
+	if baseName == "" || strings.EqualFold(baseName, "scratch") {
+		return NoBaseImage, ""
+	}
+
+	if strings.Contains(baseName, "${") || strings.Contains(baseName, "$") {
 		return NoBaseImage, ""
 	}
 
 	for i := 0; i < targetIndex; i++ {
-		if dockerStages[i].Name == baseName {
+		if strings.EqualFold(dockerStages[i].Name, baseName) {
 			return NoBaseImage, ""
 		}
 	}

@@ -234,8 +234,6 @@ func (c CopyFromExternalImageInfo) GetDestPath() string {
 	return c.DestPath
 }
 
-// GetCopyFromExternalImages returns information about all COPY --from instructions
-// that reference external images (not stages in the current build).
 func (i *Image) GetCopyFromExternalImages() []CopyFromExternalImageInfo {
 	var result []CopyFromExternalImageInfo
 

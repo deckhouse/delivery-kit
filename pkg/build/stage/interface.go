@@ -8,19 +8,13 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
-// CopyFromInfo contains information about COPY --from instruction.
 type CopyFromInfo struct {
-	// SourceImageRef is the reference to the source image (external image name or resolved stage reference).
-	SourceImageRef string
-	// SourcePaths are the source paths from the COPY instruction.
-	SourcePaths []string
-	// DestPath is the destination path in the target image.
-	DestPath string
-	// IsExternalImage indicates if the source is an external image (not a stage in current build).
+	SourceImageRef  string
+	SourcePaths     []string
+	DestPath        string
 	IsExternalImage bool
 }
 
-// CopyFromInfoProvider is an interface for stages that provide COPY --from information.
 type CopyFromInfoProvider interface {
 	GetCopyFromInfo() *CopyFromInfo
 }

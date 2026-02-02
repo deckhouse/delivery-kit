@@ -193,9 +193,9 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	return nil
 }
 
-// PullAndFilterCopyFromSbom pulls SBOM for the COPY --from source image and filters it.
+// PullAndFilterCopyFromImageSbom pulls SBOM for the COPY --from source image and filters it.
 // Returns the filtered SBOM containing only components that match the copied paths.
-func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName string, entry sbom.CopyFromEntry) (*cdx.BOM, error) {
+func (step *sbomStep) PullAndFilterCopyFromImageSbom(ctx context.Context, werfImgName string, entry sbom.CopyFromEntry) (*cdx.BOM, error) {
 	if step.isLocalStorage {
 		return nil, nil
 	}
@@ -207,17 +207,14 @@ func (step *sbomStep) PullAndFilterCopyFromSbom(ctx context.Context, werfImgName
 	if err := logboek.Context(ctx).Default().LogProcess("image %s: COPY --from SBOM processing (%s)", werfImgName, entry.SourceImageRef).DoError(func() error {
 		logboek.Context(ctx).Default().LogF("Pulling SBOM from %s\n", sbomImageName)
 
-		// Pull the SBOM image
 		if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
 			return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", entry.SourceImageRef, sbomImageName, err)
 		}
 
-		// Create opener for the SBOM image
 		opener := func() (io.ReadCloser, error) {
 			return step.containerBackend.SaveImageToStream(ctx, sbomImageName)
 		}
 
-		// Extract and filter SBOM
 		_, filtered, err := sbom.ExtractAndFilterSBOM(ctx, opener, entry.SourcePaths, entry.DestPath)
 		if err != nil {
 			return fmt.Errorf("unable to extract and filter SBOM: %w", err)

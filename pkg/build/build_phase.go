@@ -165,7 +165,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 			}
 
-			if img.UseSbom() {
+			if phase.Conveyor.EnableSbom() {
 				var baseImageSbomName string
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
@@ -209,7 +209,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 			}
 
-			if img.UseSbom() {
+			if phase.Conveyor.EnableSbom() {
 				var baseImageSbomName string
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {

@@ -63,10 +63,7 @@ func (r *NativeBuildahBackend) Rm(ctx context.Context, containerName string) {
 func (r *NativeBuildahBackend) RmImage(ctx context.Context, image string) {
 	args := r.CommonCliArgs
 	args = append(args, "rmi", "-f", image)
-	// Ignore errors - image might not exist
-	_, _ = utils.RunCommandWithOptions(ctx, "/", "buildah", args, utils.RunCommandOptions{
-		ShouldSucceed: false,
-	})
+	_, _ = utils.RunCommand(ctx, "/", "buildah", args...)
 }
 
 func (r *NativeBuildahBackend) Pull(ctx context.Context, image string) {

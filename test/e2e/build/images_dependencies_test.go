@@ -57,7 +57,7 @@ func getImageID(ctx context.Context, ref string, containerBackend container_back
 	return info.ID
 }
 
-var _ = Describe("Images dependencies", Label("e2e", "build", "extra"), func() {
+var _ = Describe("Images dependencies", Label("e2e", "build", "extra", "Buildah"), func() {
 	BeforeEach(func() {
 		Expect(kube.Init(kube.InitOptions{})).To(Succeed())
 		Expect(werf.Init(SuiteData.TmpDir, "")).To(Succeed())

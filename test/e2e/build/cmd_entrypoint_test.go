@@ -16,7 +16,7 @@ type cmdEntrypointTestOptions struct {
 	setupEnvOptions
 }
 
-var _ = Describe("CMD and ENTRYPOINT combinations", Label("e2e", "build", "extra"), func() {
+var _ = Describe("CMD and ENTRYPOINT combinations", Label("e2e", "build", "extra", "Buildah"), func() {
 	checkFunc := func(ctx SpecContext, testOpts cmdEntrypointTestOptions, imageName string, expectedEntrypoint, expectedCmd strslice.StrSlice) {
 		SuiteData.Stubs.SetEnv("WERF_STAGED_DOCKERFILE_VERSION", "v2")
 

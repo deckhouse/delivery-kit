@@ -36,7 +36,6 @@ func FilterComponentsByDestPath(sourceBOM *cdx.BOM, srcPaths []string, dstPath s
 	return filteredBOM
 }
 
-// matchesCopyPath checks if a component's location path matches any of the source paths.
 func matchesCopyPath(locationPath string, srcPaths []string) bool {
 	for _, srcPath := range srcPaths {
 		if matchesSinglePath(locationPath, srcPath) {
@@ -46,25 +45,19 @@ func matchesCopyPath(locationPath string, srcPaths []string) bool {
 	return false
 }
 
-// matchesSinglePath checks if locationPath matches a single source path pattern.
 func matchesSinglePath(locationPath, srcPath string) bool {
-	// Handle glob patterns
 	if strings.Contains(srcPath, "*") {
 		matched, _ := filepath.Match(srcPath, locationPath)
 		return matched
 	}
 
-	// Exact match
 	if locationPath == srcPath {
 		return true
 	}
 
-	// Directory match (locationPath is under srcPath)
 	return strings.HasPrefix(locationPath, ensureTrailingSlash(srcPath))
 }
 
-// transformPath transforms the source path to the destination path
-// based on COPY instruction semantics.
 func transformPath(locationPath string, srcPaths []string, dstPath string) string {
 	for _, srcPath := range srcPaths {
 		if transformed, ok := tryTransformPath(locationPath, srcPath, dstPath); ok {
@@ -74,10 +67,7 @@ func transformPath(locationPath string, srcPaths []string, dstPath string) strin
 	return locationPath
 }
 
-// tryTransformPath attempts to transform locationPath based on srcPath and dstPath.
-// Returns the transformed path and true if successful, or empty string and false otherwise.
 func tryTransformPath(locationPath, srcPath, dstPath string) (string, bool) {
-	// Handle glob patterns
 	if strings.Contains(srcPath, "*") {
 		if matched, _ := filepath.Match(srcPath, locationPath); matched {
 			return filepath.Join(dstPath, filepath.Base(locationPath)), true
@@ -85,7 +75,6 @@ func tryTransformPath(locationPath, srcPath, dstPath string) (string, bool) {
 		return "", false
 	}
 
-	// Exact file match
 	if locationPath == srcPath {
 		if strings.HasSuffix(dstPath, "/") {
 			return filepath.Join(dstPath, filepath.Base(srcPath)), true
@@ -93,7 +82,6 @@ func tryTransformPath(locationPath, srcPath, dstPath string) (string, bool) {
 		return dstPath, true
 	}
 
-	// Directory match
 	srcWithSlash := ensureTrailingSlash(srcPath)
 	if strings.HasPrefix(locationPath, srcWithSlash) {
 		relativePath := strings.TrimPrefix(locationPath, srcWithSlash)
@@ -103,7 +91,6 @@ func tryTransformPath(locationPath, srcPath, dstPath string) (string, bool) {
 	return "", false
 }
 
-// ensureTrailingSlash ensures the path ends with a trailing slash.
 func ensureTrailingSlash(path string) string {
 	if strings.HasSuffix(path, "/") {
 		return path

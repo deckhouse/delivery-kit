@@ -75,7 +75,6 @@ func TestGetLocationPath(t *testing.T) {
 
 	assert.Equal(t, "", GetLocationPath(componentNoPath))
 
-	// Test with nil properties
 	componentNilProps := cdx.Component{
 		Name:    "test",
 		Version: "1.0",
@@ -84,7 +83,6 @@ func TestGetLocationPath(t *testing.T) {
 }
 
 func TestSetLocationPath(t *testing.T) {
-	// Test updating existing property
 	component := cdx.Component{
 		Name:    "test",
 		Version: "1.0",
@@ -95,7 +93,6 @@ func TestSetLocationPath(t *testing.T) {
 	SetLocationPath(&component, "/new/path")
 	assert.Equal(t, "/new/path", GetLocationPath(component))
 
-	// Test adding new property
 	componentNoPath := cdx.Component{
 		Name:    "test",
 		Version: "1.0",
@@ -106,7 +103,6 @@ func TestSetLocationPath(t *testing.T) {
 	SetLocationPath(&componentNoPath, "/added/path")
 	assert.Equal(t, "/added/path", GetLocationPath(componentNoPath))
 
-	// Test with nil properties
 	componentNilProps := cdx.Component{
 		Name:    "test",
 		Version: "1.0",
@@ -144,7 +140,6 @@ func TestFilterComponentsByDestPath(t *testing.T) {
 		},
 	}
 
-	// Test filtering single file
 	filteredBOM := FilterComponentsByDestPath(sourceBOM, []string{"/usr/bin/curl"}, "/bin/curl")
 	assert.NotNil(t, filteredBOM)
 	assert.NotNil(t, filteredBOM.Components)
@@ -152,10 +147,9 @@ func TestFilterComponentsByDestPath(t *testing.T) {
 	assert.Equal(t, "curl", (*filteredBOM.Components)[0].Name)
 	assert.Equal(t, "/bin/curl", GetLocationPath((*filteredBOM.Components)[0]))
 
-	// Test filtering directory
 	filteredBOM = FilterComponentsByDestPath(sourceBOM, []string{"/usr/bin/"}, "/app/bin/")
 	assert.NotNil(t, filteredBOM)
-	assert.Len(t, *filteredBOM.Components, 2) // curl and bash
+	assert.Len(t, *filteredBOM.Components, 2)
 }
 
 func TestMatchesCopyPath(t *testing.T) {
@@ -264,12 +258,10 @@ func TestMergeSBOMs(t *testing.T) {
 	assert.NotNil(t, merged)
 	assert.Len(t, *merged.Components, 2)
 
-	// Test with nil
 	merged = MergeSBOMs(nil, bom1)
 	assert.NotNil(t, merged)
 	assert.Len(t, *merged.Components, 1)
 
-	// Test all nil
 	merged = MergeSBOMs(nil, nil)
 	assert.Nil(t, merged)
 }
@@ -294,7 +286,6 @@ func TestToJSON(t *testing.T) {
 	assert.Contains(t, string(data), "test")
 	assert.Contains(t, string(data), "1.0")
 
-	// Parse it back
 	parsedBOM, err := ParseCycloneDXBOM(data)
 	assert.NoError(t, err)
 	assert.NotNil(t, parsedBOM.Components)
@@ -303,16 +294,13 @@ func TestToJSON(t *testing.T) {
 }
 
 func TestGetComponentsCount(t *testing.T) {
-	// Test with nil BOM
 	assert.Equal(t, 0, GetComponentsCount(nil))
 
-	// Test with nil components
 	bom := &cdx.BOM{
 		BOMFormat: "CycloneDX",
 	}
 	assert.Equal(t, 0, GetComponentsCount(bom))
 
-	// Test with components
 	bom.Components = &[]cdx.Component{
 		{Name: "test1"},
 		{Name: "test2"},

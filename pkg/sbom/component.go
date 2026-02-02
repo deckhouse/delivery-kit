@@ -4,8 +4,6 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-// GetProperty returns the value of a property by name from a component.
-// Returns empty string if property is not found.
 func GetProperty(component cdx.Component, name string) string {
 	if component.Properties == nil {
 		return ""
@@ -18,7 +16,6 @@ func GetProperty(component cdx.Component, name string) string {
 	return ""
 }
 
-// SetProperty sets or updates a property value in a component.
 func SetProperty(component *cdx.Component, name, value string) {
 	if component.Properties == nil {
 		component.Properties = &[]cdx.Property{}
@@ -32,26 +29,20 @@ func SetProperty(component *cdx.Component, name, value string) {
 		}
 	}
 
-	// Property not found, add it
 	*component.Properties = append(props, cdx.Property{
 		Name:  name,
 		Value: value,
 	})
 }
 
-// GetLocationPath returns the location path from component properties.
-// It looks for the "syft:location:0:path" property.
 func GetLocationPath(component cdx.Component) string {
 	return GetProperty(component, SyftLocationPathProperty)
 }
 
-// SetLocationPath sets the location path in component properties.
 func SetLocationPath(component *cdx.Component, path string) {
 	SetProperty(component, SyftLocationPathProperty, path)
 }
 
-// CloneComponent creates a deep copy of a component.
-// Only Properties are deep-copied, other pointer fields are shallow-copied.
 func CloneComponent(component cdx.Component) cdx.Component {
 	copied := component
 	if component.Properties != nil {

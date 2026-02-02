@@ -186,7 +186,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
-				_ = copyFromSboms // TODO: merge with base image SBOM and pass to Converge
+				_ = copyFromSboms // TODO: pass to Converge
 
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -244,7 +244,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						return err
 					}
 				}
-				_ = copyFromSboms // TODO: merge with base image SBOM and pass to Converge
+				_ = copyFromSboms // TODO: pass to Converge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)

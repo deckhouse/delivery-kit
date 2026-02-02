@@ -219,7 +219,6 @@ var _ = Describe("SbomStep", func() {
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
-				// GetImageInfo returns (nil, nil) when image is not found locally
 				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
 			},
@@ -238,6 +237,75 @@ var _ = Describe("SbomStep", func() {
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
 				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(&image.Info{Name: srcSbomImageName}, nil)
+			},
+		),
+	)
+
+	DescribeTable("PullImageSbom() with local storage",
+		func(
+			ctx context.Context,
+			baseImageReference string,
+			expectedSbomImageName string,
+			expectError bool,
+			expectedErrorMsg string,
+			setupMocks func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			),
+		) {
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			stagesStorage := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+
+			step := &sbomStep{
+				containerBackend: backend,
+				stagesStorage:    stagesStorage,
+				isLocalStorage:   true,
+			}
+
+			ctx = logging.WithLogger(ctx)
+
+			setupMocks(ctx, backend, baseImageReference)
+
+			sbomImageName, err := step.PullImageSbom(ctx, "some-name", baseImageReference)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(sbomImageName).To(Equal(expectedSbomImageName))
+			}
+		},
+		Entry(
+			"should use local image if exists",
+			context.Background(),
+			"ubuntu:22.04",
+			"ubuntu:22.04-sbom",
+			false,
+			"",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(&image.Info{Name: srcSbomImageName}, nil)
+			},
+		),
+		Entry(
+			"should fail if sbom not found locally (no pull for local storage)",
+			context.Background(),
+			"ubuntu:22.04",
+			"",
+			true,
+			"not found locally",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageReference string,
+			) {
+				srcSbomImageName := sbom.ImageName(baseImageReference)
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 			},
 		),
 	)

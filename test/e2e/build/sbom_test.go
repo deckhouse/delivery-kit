@@ -38,6 +38,10 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				By("state0: preparing test repo")
 				SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
 
+				By("state0: preparing base image SBOM stub")
+				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
+				contRuntime.PrepareBaseImageSbomStub(ctx, "registry.werf.io/base/alpine", registryRepo)
+
 				By("state0: building images")
 				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
 				reportProject := report.NewProjectWithReport(werfProject)

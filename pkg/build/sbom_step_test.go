@@ -190,7 +190,7 @@ var _ = Describe("SbomStep", func() {
 			}
 		},
 		Entry(
-			"should pull from registry",
+			"should pull from registry when image not found locally",
 			context.Background(),
 			"ubuntu:22.04",
 			"ubuntu:22.04-sbom",
@@ -202,7 +202,7 @@ var _ = Describe("SbomStep", func() {
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
-				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, fmt.Errorf("not found locally"))
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(nil)
 			},
 		),
@@ -219,7 +219,8 @@ var _ = Describe("SbomStep", func() {
 				baseImageReference string,
 			) {
 				srcSbomImageName := sbom.ImageName(baseImageReference)
-				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, fmt.Errorf("not found locally"))
+				// GetImageInfo returns (nil, nil) when image is not found locally
+				backend.EXPECT().GetImageInfo(ctx, srcSbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, srcSbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
 			},
 		),

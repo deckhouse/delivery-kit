@@ -9,25 +9,27 @@ import (
 
 // FilterComponentsByDestPath filters components from the source SBOM
 // that match the source paths from COPY instruction.
-// It updates the location path in filtered components to reflect the destination path.
+// It updates all location paths in filtered components to reflect the destination path.
+// A component is included if ANY of its location paths matches.
 func FilterComponentsByDestPath(sourceBOM *cdx.BOM, srcPaths []string, dstPath string) *cdx.BOM {
 	if sourceBOM == nil {
 		return nil
 	}
 
 	filteredBOM := CloneBOMMetadata(sourceBOM)
-	filteredComponents := make([]cdx.Component, 0)
+	var filteredComponents []cdx.Component
 
 	for _, component := range GetComponents(sourceBOM) {
-		locationPath := GetLocationPath(component)
-		if locationPath == "" {
+		locationPaths := GetLocationPaths(component)
+		if len(locationPaths) == 0 {
 			continue
 		}
 
-		if matchesCopyPath(locationPath, srcPaths) {
+		if matchesAnyPath(locationPaths, srcPaths) {
 			updatedComponent := CloneComponent(component)
-			newPath := transformPath(locationPath, srcPaths, dstPath)
-			SetLocationPath(&updatedComponent, newPath)
+			TransformLocationPaths(&updatedComponent, func(path string) string {
+				return transformPath(path, srcPaths, dstPath)
+			})
 			filteredComponents = append(filteredComponents, updatedComponent)
 		}
 	}
@@ -36,10 +38,12 @@ func FilterComponentsByDestPath(sourceBOM *cdx.BOM, srcPaths []string, dstPath s
 	return filteredBOM
 }
 
-func matchesCopyPath(locationPath string, srcPaths []string) bool {
-	for _, srcPath := range srcPaths {
-		if matchesSinglePath(locationPath, srcPath) {
-			return true
+func matchesAnyPath(locationPaths, srcPaths []string) bool {
+	for _, loc := range locationPaths {
+		for _, src := range srcPaths {
+			if matchesSinglePath(loc, src) {
+				return true
+			}
 		}
 	}
 	return false

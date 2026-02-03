@@ -17,35 +17,35 @@ func createTestBOM() *cdx.BOM {
 				Name:    "curl",
 				Version: "8.5.0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/bin/curl"},
+					{Name: "syft:location:0:path", Value: "/usr/bin/curl"},
 				},
 			},
 			{
 				Name:    "wget",
 				Version: "1.21",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/bin/wget"},
+					{Name: "syft:location:0:path", Value: "/usr/bin/wget"},
 				},
 			},
 			{
 				Name:    "libcurl",
 				Version: "8.5.0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/lib/libcurl.so.4"},
+					{Name: "syft:location:0:path", Value: "/usr/lib/libcurl.so.4"},
 				},
 			},
 			{
 				Name:    "libssl",
 				Version: "3.0.0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/lib/ssl/libssl.so"},
+					{Name: "syft:location:0:path", Value: "/usr/lib/ssl/libssl.so"},
 				},
 			},
 			{
 				Name:    "ca-certificates",
 				Version: "2024.01",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/etc/ssl/certs/ca-certificates.crt"},
+					{Name: "syft:location:0:path", Value: "/etc/ssl/certs/ca-certificates.crt"},
 				},
 			},
 			{
@@ -194,84 +194,148 @@ func TestFilterComponentsByDestPath_EtcSslDirectory(t *testing.T) {
 	assert.Equal(t, "/copied/ssl/certs/ca-certificates.crt", GetLocationPath(components[0]))
 }
 
-func TestMatchesCopyPath(t *testing.T) {
+func TestFilterComponentsByDestPath_MultipleLocationPaths(t *testing.T) {
+	bom := &cdx.BOM{
+		BOMFormat:   "CycloneDX",
+		SpecVersion: cdx.SpecVersion1_6,
+		Components: &[]cdx.Component{
+			{
+				Name:    "busybox",
+				Version: "1.36",
+				Properties: &[]cdx.Property{
+					{Name: "syft:location:0:path", Value: "/bin/busybox"},
+					{Name: "syft:location:1:path", Value: "/usr/bin/busybox"},
+					{Name: "syft:location:5:path", Value: "/sbin/busybox"},
+				},
+			},
+			{
+				Name:    "curl",
+				Version: "8.5.0",
+				Properties: &[]cdx.Property{
+					{Name: "syft:location:0:path", Value: "/usr/bin/curl"},
+				},
+			},
+		},
+	}
+
+	t.Run("matches if any path matches", func(t *testing.T) {
+		result := FilterComponentsByDestPath(bom, []string{"/sbin/"}, "/app/sbin/")
+
+		require.NotNil(t, result)
+		assert.Equal(t, 1, GetComponentsCount(result))
+		assert.Equal(t, "busybox", GetComponents(result)[0].Name)
+	})
+
+	t.Run("transforms all matching paths", func(t *testing.T) {
+		result := FilterComponentsByDestPath(bom, []string{"/bin/", "/usr/bin/", "/sbin/"}, "/app/")
+
+		require.NotNil(t, result)
+		assert.Equal(t, 2, GetComponentsCount(result))
+
+		var busybox cdx.Component
+		for _, c := range GetComponents(result) {
+			if c.Name == "busybox" {
+				busybox = c
+				break
+			}
+		}
+
+		paths := GetLocationPaths(busybox)
+		assert.Len(t, paths, 3)
+		assert.Contains(t, paths, "/app/busybox")
+	})
+}
+
+func TestMatchesAnyPath(t *testing.T) {
 	tests := []struct {
-		name         string
-		locationPath string
-		srcPaths     []string
-		expected     bool
+		name          string
+		locationPaths []string
+		srcPaths      []string
+		expected      bool
 	}{
 		{
-			name:         "exact match",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bin/curl"},
-			expected:     true,
+			name:          "exact match",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bin/curl"},
+			expected:      true,
 		},
 		{
-			name:         "no match",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bin/wget"},
-			expected:     false,
+			name:          "no match",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bin/wget"},
+			expected:      false,
 		},
 		{
-			name:         "directory match with trailing slash",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bin/"},
-			expected:     true,
+			name:          "directory match with trailing slash",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bin/"},
+			expected:      true,
 		},
 		{
-			name:         "directory match without trailing slash",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bin"},
-			expected:     true,
+			name:          "directory match without trailing slash",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bin"},
+			expected:      true,
 		},
 		{
-			name:         "nested directory match",
-			locationPath: "/usr/lib/ssl/libssl.so",
-			srcPaths:     []string{"/usr/lib/"},
-			expected:     true,
+			name:          "nested directory match",
+			locationPaths: []string{"/usr/lib/ssl/libssl.so"},
+			srcPaths:      []string{"/usr/lib/"},
+			expected:      true,
 		},
 		{
-			name:         "glob pattern match",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bin/*"},
-			expected:     true,
+			name:          "glob pattern match",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bin/*"},
+			expected:      true,
 		},
 		{
-			name:         "glob pattern no match - nested",
-			locationPath: "/usr/bin/subdir/tool",
-			srcPaths:     []string{"/usr/bin/*"},
-			expected:     false,
+			name:          "glob pattern no match - nested",
+			locationPaths: []string{"/usr/bin/subdir/tool"},
+			srcPaths:      []string{"/usr/bin/*"},
+			expected:      false,
 		},
 		{
-			name:         "multiple paths - first matches",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bin/curl", "/opt/curl"},
-			expected:     true,
+			name:          "multiple src paths - first matches",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bin/curl", "/opt/curl"},
+			expected:      true,
 		},
 		{
-			name:         "multiple paths - second matches",
-			locationPath: "/opt/curl",
-			srcPaths:     []string{"/usr/bin/curl", "/opt/curl"},
-			expected:     true,
+			name:          "multiple src paths - second matches",
+			locationPaths: []string{"/opt/curl"},
+			srcPaths:      []string{"/usr/bin/curl", "/opt/curl"},
+			expected:      true,
 		},
 		{
-			name:         "multiple paths - none match",
-			locationPath: "/var/lib/data",
-			srcPaths:     []string{"/usr/bin/", "/opt/"},
-			expected:     false,
+			name:          "multiple src paths - none match",
+			locationPaths: []string{"/var/lib/data"},
+			srcPaths:      []string{"/usr/bin/", "/opt/"},
+			expected:      false,
 		},
 		{
-			name:         "partial path should not match",
-			locationPath: "/usr/bin/curl",
-			srcPaths:     []string{"/usr/bi"},
-			expected:     false,
+			name:          "partial path should not match",
+			locationPaths: []string{"/usr/bin/curl"},
+			srcPaths:      []string{"/usr/bi"},
+			expected:      false,
+		},
+		{
+			name:          "multiple location paths - one matches",
+			locationPaths: []string{"/bin/tool", "/usr/bin/tool"},
+			srcPaths:      []string{"/usr/bin/"},
+			expected:      true,
+		},
+		{
+			name:          "multiple location paths - none match",
+			locationPaths: []string{"/bin/tool", "/sbin/tool"},
+			srcPaths:      []string{"/usr/bin/"},
+			expected:      false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesCopyPath(tt.locationPath, tt.srcPaths)
+			result := matchesAnyPath(tt.locationPaths, tt.srcPaths)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -350,7 +414,7 @@ func TestCloneComponent(t *testing.T) {
 		Version: "1.0",
 		Properties: &[]cdx.Property{
 			{Name: "key1", Value: "value1"},
-			{Name: SyftLocationPathProperty, Value: "/original/path"},
+			{Name: "syft:location:0:path", Value: "/original/path"},
 		},
 	}
 
@@ -408,7 +472,7 @@ func TestFilterComponentsByDestPath_DockerfileCopyFrom(t *testing.T) {
 				Version: "8.5.0-r0",
 				Type:    cdx.ComponentTypeApplication,
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/bin/curl"},
+					{Name: "syft:location:0:path", Value: "/usr/bin/curl"},
 					{Name: "syft:package:type", Value: "apk"},
 				},
 			},
@@ -416,14 +480,14 @@ func TestFilterComponentsByDestPath_DockerfileCopyFrom(t *testing.T) {
 				Name:    "libcurl",
 				Version: "8.5.0-r0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/lib/libcurl.so.4"},
+					{Name: "syft:location:0:path", Value: "/usr/lib/libcurl.so.4"},
 				},
 			},
 			{
 				Name:    "busybox",
 				Version: "1.36.1-r15",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/bin/busybox"},
+					{Name: "syft:location:0:path", Value: "/bin/busybox"},
 				},
 			},
 		},
@@ -459,21 +523,21 @@ func TestFilterComponentsByDestPath_DirectoryCopy(t *testing.T) {
 				Name:    "ca-certificates",
 				Version: "20230506-r0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/etc/ssl/certs/ca-certificates.crt"},
+					{Name: "syft:location:0:path", Value: "/etc/ssl/certs/ca-certificates.crt"},
 				},
 			},
 			{
 				Name:    "openssl-config",
 				Version: "3.1.4-r0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/etc/ssl/openssl.cnf"},
+					{Name: "syft:location:0:path", Value: "/etc/ssl/openssl.cnf"},
 				},
 			},
 			{
 				Name:    "unrelated-package",
 				Version: "1.0.0",
 				Properties: &[]cdx.Property{
-					{Name: SyftLocationPathProperty, Value: "/usr/bin/tool"},
+					{Name: "syft:location:0:path", Value: "/usr/bin/tool"},
 				},
 			},
 		},

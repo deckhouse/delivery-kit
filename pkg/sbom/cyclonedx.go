@@ -3,13 +3,22 @@ package sbom
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-const (
-	SyftLocationPathProperty = "syft:location:0:path"
-)
+const SyftLocationPathFormat = "syft:location:%d:path"
+
+var syftLocationPathRegex = regexp.MustCompile(`^syft:location:\d+:path$`)
+
+func IsLocationPathProperty(name string) bool {
+	return syftLocationPathRegex.MatchString(name)
+}
+
+func FormatLocationPath(index int) string {
+	return fmt.Sprintf(SyftLocationPathFormat, index)
+}
 
 func ParseCycloneDXBOM(data []byte) (*cdx.BOM, error) {
 	bom := new(cdx.BOM)

@@ -56,32 +56,148 @@ func TestParseCycloneDXBOM(t *testing.T) {
 }
 
 func TestGetLocationPath(t *testing.T) {
-	component := cdx.Component{
-		Name:    "test",
-		Version: "1.0",
-		Properties: &[]cdx.Property{
-			{Name: "syft:package:type", Value: "binary"},
-			{Name: "syft:location:0:path", Value: "/usr/bin/test"},
-		},
+	t.Run("returns first location path", func(t *testing.T) {
+		component := cdx.Component{
+			Name:    "test",
+			Version: "1.0",
+			Properties: &[]cdx.Property{
+				{Name: "syft:package:type", Value: "binary"},
+				{Name: "syft:location:0:path", Value: "/usr/bin/test"},
+			},
+		}
+		assert.Equal(t, "/usr/bin/test", GetLocationPath(component))
+	})
+
+	t.Run("returns first of multiple paths", func(t *testing.T) {
+		component := cdx.Component{
+			Name:    "test",
+			Version: "1.0",
+			Properties: &[]cdx.Property{
+				{Name: "syft:location:0:path", Value: "/usr/bin/test"},
+				{Name: "syft:location:1:path", Value: "/usr/local/bin/test"},
+			},
+		}
+		assert.Equal(t, "/usr/bin/test", GetLocationPath(component))
+	})
+
+	t.Run("returns empty for no path", func(t *testing.T) {
+		componentNoPath := cdx.Component{
+			Name:    "test",
+			Version: "1.0",
+			Properties: &[]cdx.Property{
+				{Name: "syft:package:type", Value: "binary"},
+			},
+		}
+		assert.Equal(t, "", GetLocationPath(componentNoPath))
+	})
+
+	t.Run("returns empty for nil properties", func(t *testing.T) {
+		componentNilProps := cdx.Component{
+			Name:    "test",
+			Version: "1.0",
+		}
+		assert.Equal(t, "", GetLocationPath(componentNilProps))
+	})
+}
+
+func TestIsLocationPathProperty(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"index 0", "syft:location:0:path", true},
+		{"index 1", "syft:location:1:path", true},
+		{"index 42", "syft:location:42:path", true},
+		{"index 999", "syft:location:999:path", true},
+		{"wrong prefix", "other:location:0:path", false},
+		{"wrong suffix", "syft:location:0:other", false},
+		{"missing index", "syft:location::path", false},
+		{"non-numeric index", "syft:location:abc:path", false},
+		{"package type", "syft:package:type", false},
+		{"empty", "", false},
 	}
 
-	assert.Equal(t, "/usr/bin/test", GetLocationPath(component))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsLocationPathProperty(tt.input))
+		})
+	}
+}
 
-	componentNoPath := cdx.Component{
-		Name:    "test",
-		Version: "1.0",
-		Properties: &[]cdx.Property{
-			{Name: "syft:package:type", Value: "binary"},
-		},
+func TestFormatLocationPath(t *testing.T) {
+	tests := []struct {
+		index    int
+		expected string
+	}{
+		{0, "syft:location:0:path"},
+		{1, "syft:location:1:path"},
+		{42, "syft:location:42:path"},
 	}
 
-	assert.Equal(t, "", GetLocationPath(componentNoPath))
-
-	componentNilProps := cdx.Component{
-		Name:    "test",
-		Version: "1.0",
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			assert.Equal(t, tt.expected, FormatLocationPath(tt.index))
+		})
 	}
-	assert.Equal(t, "", GetLocationPath(componentNilProps))
+}
+
+func TestGetLocationPaths(t *testing.T) {
+	t.Run("returns all location paths", func(t *testing.T) {
+		component := cdx.Component{
+			Name: "test",
+			Properties: &[]cdx.Property{
+				{Name: "syft:location:0:path", Value: "/usr/bin/test"},
+				{Name: "syft:package:type", Value: "binary"},
+				{Name: "syft:location:1:path", Value: "/usr/local/bin/test"},
+				{Name: "syft:location:5:path", Value: "/opt/test"},
+			},
+		}
+		paths := GetLocationPaths(component)
+		assert.Len(t, paths, 3)
+		assert.Contains(t, paths, "/usr/bin/test")
+		assert.Contains(t, paths, "/usr/local/bin/test")
+		assert.Contains(t, paths, "/opt/test")
+	})
+
+	t.Run("returns nil for no paths", func(t *testing.T) {
+		component := cdx.Component{
+			Name: "test",
+			Properties: &[]cdx.Property{
+				{Name: "syft:package:type", Value: "binary"},
+			},
+		}
+		assert.Nil(t, GetLocationPaths(component))
+	})
+
+	t.Run("returns nil for nil properties", func(t *testing.T) {
+		component := cdx.Component{Name: "test"}
+		assert.Nil(t, GetLocationPaths(component))
+	})
+}
+
+func TestTransformLocationPaths(t *testing.T) {
+	t.Run("transforms all location paths", func(t *testing.T) {
+		component := cdx.Component{
+			Name: "test",
+			Properties: &[]cdx.Property{
+				{Name: "syft:location:0:path", Value: "/usr/bin/test"},
+				{Name: "syft:package:type", Value: "binary"},
+				{Name: "syft:location:1:path", Value: "/usr/local/bin/test"},
+			},
+		}
+
+		TransformLocationPaths(&component, func(path string) string {
+			return "/new" + path
+		})
+
+		paths := GetLocationPaths(component)
+		assert.Len(t, paths, 2)
+		assert.Contains(t, paths, "/new/usr/bin/test")
+		assert.Contains(t, paths, "/new/usr/local/bin/test")
+
+		assert.Equal(t, "binary", GetProperty(component, "syft:package:type"))
+	})
 }
 
 func TestSetLocationPath(t *testing.T) {

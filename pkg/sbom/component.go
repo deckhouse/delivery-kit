@@ -35,12 +35,47 @@ func SetProperty(component *cdx.Component, name, value string) {
 	})
 }
 
+func GetLocationPaths(component cdx.Component) []string {
+	if component.Properties == nil {
+		return nil
+	}
+
+	var paths []string
+	for _, prop := range *component.Properties {
+		if IsLocationPathProperty(prop.Name) {
+			paths = append(paths, prop.Value)
+		}
+	}
+	return paths
+}
+
 func GetLocationPath(component cdx.Component) string {
-	return GetProperty(component, SyftLocationPathProperty)
+	if component.Properties == nil {
+		return ""
+	}
+	for _, prop := range *component.Properties {
+		if IsLocationPathProperty(prop.Name) {
+			return prop.Value
+		}
+	}
+	return ""
 }
 
 func SetLocationPath(component *cdx.Component, path string) {
-	SetProperty(component, SyftLocationPathProperty, path)
+	SetProperty(component, FormatLocationPath(0), path)
+}
+
+func TransformLocationPaths(component *cdx.Component, transform func(path string) string) {
+	if component.Properties == nil {
+		return
+	}
+
+	props := *component.Properties
+	for i, prop := range props {
+		if IsLocationPathProperty(prop.Name) {
+			props[i].Value = transform(prop.Value)
+		}
+	}
 }
 
 func CloneComponent(component cdx.Component) cdx.Component {

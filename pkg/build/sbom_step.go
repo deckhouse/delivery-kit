@@ -222,8 +222,7 @@ func (step *sbomStep) PullAndFilterCopyFromImageSbom(ctx context.Context, werfIm
 
 		filteredBOM = filtered
 
-		logboek.Context(ctx).Default().LogF("Filtered %d components for paths %v -> %s\n",
-			sbom.GetComponentsCount(filteredBOM), entry.SourcePaths, entry.DestPath)
+		logboek.Context(ctx).Default().LogF("Filtered %d components for paths %v -> %s\n", sbom.GetComponentsCount(filteredBOM), entry.SourcePaths, entry.DestPath)
 
 		return nil
 	}); err != nil {

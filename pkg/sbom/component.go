@@ -8,11 +8,13 @@ func GetProperty(component cdx.Component, name string) string {
 	if component.Properties == nil {
 		return ""
 	}
+
 	for _, prop := range *component.Properties {
 		if prop.Name == name {
 			return prop.Value
 		}
 	}
+
 	return ""
 }
 
@@ -46,6 +48,7 @@ func GetLocationPaths(component cdx.Component) []string {
 			paths = append(paths, prop.Value)
 		}
 	}
+
 	return paths
 }
 
@@ -53,11 +56,13 @@ func GetLocationPath(component cdx.Component) string {
 	if component.Properties == nil {
 		return ""
 	}
+
 	for _, prop := range *component.Properties {
 		if IsLocationPathProperty(prop.Name) {
 			return prop.Value
 		}
 	}
+
 	return ""
 }
 
@@ -80,10 +85,12 @@ func TransformLocationPaths(component *cdx.Component, transform func(path string
 
 func CloneComponent(component cdx.Component) cdx.Component {
 	copied := component
+
 	if component.Properties != nil {
 		props := make([]cdx.Property, len(*component.Properties))
 		copy(props, *component.Properties)
 		copied.Properties = &props
 	}
+
 	return copied
 }

@@ -31,8 +31,7 @@ func ExtractAndFilterSBOM(ctx context.Context, opener tarball.Opener, srcPaths [
 
 	filteredBOM := FilterComponentsByDestPath(originalBOM, srcPaths, dstPath)
 
-	logboek.Context(ctx).Debug().LogF("Filtered SBOM: %d components from %d total\n",
-		GetComponentsCount(filteredBOM), GetComponentsCount(originalBOM))
+	logboek.Context(ctx).Debug().LogF("Filtered SBOM: %d components from %d total\n", GetComponentsCount(filteredBOM), GetComponentsCount(originalBOM))
 
 	return originalBOM, filteredBOM, nil
 }

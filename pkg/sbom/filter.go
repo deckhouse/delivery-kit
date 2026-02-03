@@ -35,6 +35,7 @@ func FilterComponentsByDestPath(sourceBOM *cdx.BOM, srcPaths []string, dstPath s
 	}
 
 	SetComponents(filteredBOM, filteredComponents)
+
 	return filteredBOM
 }
 
@@ -46,6 +47,7 @@ func matchesAnyPath(locationPaths, srcPaths []string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -68,6 +70,7 @@ func transformPath(locationPath string, srcPaths []string, dstPath string) strin
 			return transformed
 		}
 	}
+
 	return locationPath
 }
 
@@ -76,6 +79,7 @@ func tryTransformPath(locationPath, srcPath, dstPath string) (string, bool) {
 		if matched, _ := filepath.Match(srcPath, locationPath); matched {
 			return filepath.Join(dstPath, filepath.Base(locationPath)), true
 		}
+
 		return "", false
 	}
 
@@ -83,12 +87,14 @@ func tryTransformPath(locationPath, srcPath, dstPath string) (string, bool) {
 		if strings.HasSuffix(dstPath, "/") {
 			return filepath.Join(dstPath, filepath.Base(srcPath)), true
 		}
+
 		return dstPath, true
 	}
 
 	srcWithSlash := ensureTrailingSlash(srcPath)
 	if strings.HasPrefix(locationPath, srcWithSlash) {
 		relativePath := strings.TrimPrefix(locationPath, srcWithSlash)
+
 		return filepath.Join(dstPath, relativePath), true
 	}
 
@@ -99,5 +105,6 @@ func ensureTrailingSlash(path string) string {
 	if strings.HasSuffix(path, "/") {
 		return path
 	}
+
 	return path + "/"
 }

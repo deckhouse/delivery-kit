@@ -180,13 +180,13 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						return fmt.Errorf("unable to pull base image sbom: %w", err)
 					}
 				}
-				_ = baseImageSbomName // TODO: pass to Converge
+				_ = baseImageSbomName // TODO: pass to Merge
 
 				copyFromSboms, err := phase.sbomStep.ProcessCopyFromSboms(ctx, name, img.GetCopyFromExternalImages())
 				if err != nil {
 					return err
 				}
-				_ = copyFromSboms // TODO: pass to Converge
+				_ = copyFromSboms // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -234,7 +234,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						return fmt.Errorf("unable to pull base image sbom: %w", err)
 					}
 				}
-				_ = baseImageSbomName // TODO: pass to Converge
+				_ = baseImageSbomName // TODO: pass to Merge
 
 				var copyFromSboms []*cdx.BOM
 				if len(img.Images) > 0 {
@@ -244,7 +244,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						return err
 					}
 				}
-				_ = copyFromSboms // TODO: pass to Converge
+				_ = copyFromSboms // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)

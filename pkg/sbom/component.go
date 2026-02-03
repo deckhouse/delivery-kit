@@ -31,10 +31,11 @@ func SetProperty(component *cdx.Component, name, value string) {
 		}
 	}
 
-	*component.Properties = append(props, cdx.Property{
+	props = append(props, cdx.Property{
 		Name:  name,
 		Value: value,
 	})
+	component.Properties = &props
 }
 
 func GetLocationPaths(component cdx.Component) []string {

@@ -1,0 +1,8 @@
+project: werf-test-e2e-build-sbom-copy-from-dockerfile
+configVersion: 1
+build:
+  sbom:
+    enable: true
+---
+image: app
+dockerfile: Dockerfile

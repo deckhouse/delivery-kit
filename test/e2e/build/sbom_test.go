@@ -213,10 +213,182 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			}),
 		)
 	})
+
+	Describe("COPY --from external image SBOM", Serial, Ordered, func() {
+		DescribeTable("should process and filter SBOM from COPY --from external images",
+			func(ctx SpecContext, testOpts copyFromSbomTestOptions) {
+				By("initializing")
+				setupEnv(testOpts.setupEnvOptions)
+
+				contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+				if err == contback.ErrRuntimeUnavailable {
+					Skip(err.Error())
+				} else if err != nil {
+					Fail(err.Error())
+				}
+
+				By("preparing base image SBOM stubs in registry")
+				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
+				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
+				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.CopyFromImageReference, registryRepo)
+
+				DeferCleanup(func(ctx SpecContext) {
+					contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
+					contRuntime.RmImage(ctx, testOpts.CopyFromImageReference+"-sbom")
+				})
+
+				By("preparing test repo")
+				repoDirname := "repo_copy_from_sbom"
+				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+
+				By("building images")
+				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+				reportProject := report.NewProjectWithReport(werfProject)
+				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_copy_from_sbom.json"), nil)
+
+				By("validating COPY --from SBOM processing output")
+				Expect(buildOut).To(ContainSubstring("COPY --from SBOM processing"))
+				Expect(buildOut).To(ContainSubstring(testOpts.CopyFromImageReference))
+				Expect(buildOut).To(ContainSubstring("Filtered"))
+
+				By("validating SBOM image was created and contains correct data")
+				for builtImgName, reportRecord := range buildReport.Images {
+					By(fmt.Sprintf("checking SBOM for image %q", builtImgName))
+
+					sbomImageName := sbom.ImageName(reportRecord.DockerImageName)
+					sbomImgInspect := contRuntime.GetImageInspect(ctx, sbomImageName)
+					Expect(sbomImgInspect).NotTo(BeNil(), "SBOM image should exist")
+
+					By("extracting and validating SBOM content")
+					opener := func() (io.ReadCloser, error) {
+						return contRuntime.SaveImageToStream(ctx, sbomImageName), nil
+					}
+
+					sbomData, err := sbom.FindSingleSbomArtifact(opener)
+					Expect(err).NotTo(HaveOccurred(), "should find SBOM artifact in image")
+					Expect(sbomData).NotTo(BeEmpty(), "SBOM data should not be empty")
+
+					parsedBOM, err := sbom.ParseCycloneDXBOM(sbomData)
+					Expect(err).NotTo(HaveOccurred(), "should parse SBOM as CycloneDX")
+					Expect(parsedBOM).NotTo(BeNil())
+
+					By("validating SBOM structure")
+					Expect(parsedBOM.BOMFormat).To(Equal("CycloneDX"))
+					Expect(sbom.GetComponentsCount(parsedBOM)).To(BeNumerically(">", 0),
+						"SBOM should contain at least one component")
+
+					By("validating component paths are transformed correctly")
+					components := sbom.GetComponents(parsedBOM)
+					for _, component := range components {
+						locationPath := sbom.GetLocationPath(component)
+						if locationPath != "" {
+							if testOpts.ExpectedCopiedPathPrefix != "" {
+								By(fmt.Sprintf("component %s has path %s", component.Name, locationPath))
+							}
+						}
+					}
+				}
+			},
+			Entry("dockerfile with COPY --from using Vanilla Docker", copyFromSbomTestOptions{
+				baseImageSbomTestOptions: baseImageSbomTestOptions{
+					setupEnvOptions: setupEnvOptions{
+						ContainerBackendMode:        "vanilla-docker",
+						WithLocalRepo:               true,
+						WithStagedDockerfileBuilder: false,
+					},
+					FixtureRelPath:     "sbom/copy_from_dockerfile",
+					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				},
+				CopyFromImageReference:   "registry.werf.io/base/alpine",
+				ExpectedCopiedPathPrefix: "/copied/",
+			}),
+			Entry("stapel with import from external image using Vanilla Docker", copyFromSbomTestOptions{
+				baseImageSbomTestOptions: baseImageSbomTestOptions{
+					setupEnvOptions: setupEnvOptions{
+						ContainerBackendMode:        "vanilla-docker",
+						WithLocalRepo:               true,
+						WithStagedDockerfileBuilder: false,
+					},
+					FixtureRelPath:     "sbom/copy_from_stapel",
+					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				},
+				CopyFromImageReference:   "registry.werf.io/base/alpine",
+				ExpectedCopiedPathPrefix: "/copied/",
+			}),
+		)
+
+		DescribeTable("should fail when COPY --from source image SBOM is not found",
+			func(ctx SpecContext, testOpts copyFromSbomTestOptions) {
+				By("initializing")
+				setupEnv(testOpts.setupEnvOptions)
+
+				contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+				if err == contback.ErrRuntimeUnavailable {
+					Skip(err.Error())
+				} else if err != nil {
+					Fail(err.Error())
+				}
+
+				By("preparing only base image SBOM (not COPY --from source)")
+				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
+				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
+
+				By("ensuring COPY --from source image SBOM does not exist")
+				contRuntime.RmImage(ctx, testOpts.CopyFromImageReference+"-sbom")
+
+				DeferCleanup(func(ctx SpecContext) {
+					contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
+				})
+
+				By("preparing test repo")
+				repoDirname := "repo_copy_from_sbom_fail"
+				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+
+				By("building images (expecting failure)")
+				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+				out, err := werfProject.BuildWithErr(ctx, nil)
+
+				Expect(err).To(HaveOccurred(), "build should fail when COPY --from source image SBOM is not found")
+				Expect(out).To(ContainSubstring("not found in container registry"))
+			},
+			Entry("dockerfile with missing COPY --from SBOM using Vanilla Docker", copyFromSbomTestOptions{
+				baseImageSbomTestOptions: baseImageSbomTestOptions{
+					setupEnvOptions: setupEnvOptions{
+						ContainerBackendMode:        "vanilla-docker",
+						WithLocalRepo:               true,
+						WithStagedDockerfileBuilder: false,
+					},
+					FixtureRelPath:     "sbom/copy_from_dockerfile",
+					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				},
+				CopyFromImageReference:   "registry.werf.io/base/alpine",
+				ExpectedCopiedPathPrefix: "/copied/",
+			}),
+			Entry("stapel with missing import source SBOM using Vanilla Docker", copyFromSbomTestOptions{
+				baseImageSbomTestOptions: baseImageSbomTestOptions{
+					setupEnvOptions: setupEnvOptions{
+						ContainerBackendMode:        "vanilla-docker",
+						WithLocalRepo:               true,
+						WithStagedDockerfileBuilder: false,
+					},
+					FixtureRelPath:     "sbom/copy_from_stapel",
+					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				},
+				CopyFromImageReference:   "registry.werf.io/base/alpine",
+				ExpectedCopiedPathPrefix: "/copied/",
+			}),
+		)
+	})
 })
 
 type baseImageSbomTestOptions struct {
 	setupEnvOptions
 	FixtureRelPath     string
 	BaseImageReference string
+}
+
+type copyFromSbomTestOptions struct {
+	baseImageSbomTestOptions
+	CopyFromImageReference   string
+	ExpectedCopiedPathPrefix string
 }

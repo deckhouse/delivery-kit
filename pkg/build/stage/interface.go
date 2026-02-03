@@ -8,17 +8,6 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
-type CopyFromInfo struct {
-	SourceImageRef  string
-	SourcePaths     []string
-	DestPath        string
-	IsExternalImage bool
-}
-
-type CopyFromInfoProvider interface {
-	GetCopyFromInfo() *CopyFromInfo
-}
-
 type Interface interface {
 	Name() StageName
 	LogDetailedName() string

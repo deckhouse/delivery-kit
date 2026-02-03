@@ -214,8 +214,8 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		)
 	})
 
-	Describe("COPY --from external image SBOM", Serial, Ordered, func() {
-		DescribeTable("should process and filter SBOM from COPY --from external images",
+	Describe("Stapel import external image SBOM", Serial, Ordered, func() {
+		DescribeTable("should process and filter SBOM from stapel imports",
 			func(ctx SpecContext, testOpts copyFromSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
@@ -246,7 +246,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				reportProject := report.NewProjectWithReport(werfProject)
 				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_copy_from_sbom.json"), nil)
 
-				By("validating COPY --from SBOM processing output")
+				By("validating import SBOM processing output")
 				Expect(buildOut).To(ContainSubstring("COPY --from SBOM processing"))
 				Expect(buildOut).To(ContainSubstring(testOpts.CopyFromImageReference))
 				Expect(buildOut).To(ContainSubstring("Filtered"))
@@ -289,19 +289,6 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					}
 				}
 			},
-			Entry("dockerfile with COPY --from using Vanilla Docker", copyFromSbomTestOptions{
-				baseImageSbomTestOptions: baseImageSbomTestOptions{
-					setupEnvOptions: setupEnvOptions{
-						ContainerBackendMode:        "vanilla-docker",
-						WithLocalRepo:               true,
-						WithStagedDockerfileBuilder: false,
-					},
-					FixtureRelPath:     "sbom/copy_from_dockerfile",
-					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
-				},
-				CopyFromImageReference:   "registry.werf.io/base/alpine",
-				ExpectedCopiedPathPrefix: "/copied/",
-			}),
 			Entry("stapel with import from external image using Vanilla Docker", copyFromSbomTestOptions{
 				baseImageSbomTestOptions: baseImageSbomTestOptions{
 					setupEnvOptions: setupEnvOptions{
@@ -317,7 +304,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			}),
 		)
 
-		DescribeTable("should fail when COPY --from source image SBOM is not found",
+		DescribeTable("should fail when import source image SBOM is not found",
 			func(ctx SpecContext, testOpts copyFromSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
@@ -329,11 +316,11 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					Fail(err.Error())
 				}
 
-				By("preparing only base image SBOM (not COPY --from source)")
+				By("preparing only base image SBOM (not import source)")
 				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
 				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
 
-				By("ensuring COPY --from source image SBOM does not exist")
+				By("ensuring import source image SBOM does not exist")
 				contRuntime.RmImage(ctx, testOpts.CopyFromImageReference+"-sbom")
 
 				DeferCleanup(func(ctx SpecContext) {
@@ -348,22 +335,9 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
 				out, err := werfProject.BuildWithErr(ctx, nil)
 
-				Expect(err).To(HaveOccurred(), "build should fail when COPY --from source image SBOM is not found")
+				Expect(err).To(HaveOccurred(), "build should fail when import source image SBOM is not found")
 				Expect(out).To(ContainSubstring("not found in container registry"))
 			},
-			Entry("dockerfile with missing COPY --from SBOM using Vanilla Docker", copyFromSbomTestOptions{
-				baseImageSbomTestOptions: baseImageSbomTestOptions{
-					setupEnvOptions: setupEnvOptions{
-						ContainerBackendMode:        "vanilla-docker",
-						WithLocalRepo:               true,
-						WithStagedDockerfileBuilder: false,
-					},
-					FixtureRelPath:     "sbom/copy_from_dockerfile",
-					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
-				},
-				CopyFromImageReference:   "registry.werf.io/base/alpine",
-				ExpectedCopiedPathPrefix: "/copied/",
-			}),
 			Entry("stapel with missing import source SBOM using Vanilla Docker", copyFromSbomTestOptions{
 				baseImageSbomTestOptions: baseImageSbomTestOptions{
 					setupEnvOptions: setupEnvOptions{

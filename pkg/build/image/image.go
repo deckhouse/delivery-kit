@@ -238,17 +238,6 @@ func (i *Image) GetCopyFromExternalImages() []CopyFromExternalImageInfo {
 	var result []CopyFromExternalImageInfo
 
 	for _, stg := range i.GetStages() {
-		if copyStage, ok := stg.(stage.CopyFromInfoProvider); ok {
-			info := copyStage.GetCopyFromInfo()
-			if info != nil && info.IsExternalImage && info.SourceImageRef != "" {
-				result = append(result, CopyFromExternalImageInfo{
-					SourceImageRef: info.SourceImageRef,
-					SourcePaths:    info.SourcePaths,
-					DestPath:       info.DestPath,
-				})
-			}
-		}
-
 		if depStage, ok := stg.(interface{ GetExternalImports() []*config.Import }); ok {
 			for _, imp := range depStage.GetExternalImports() {
 				result = append(result, CopyFromExternalImageInfo{

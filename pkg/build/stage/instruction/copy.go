@@ -65,18 +65,3 @@ func (stg *Copy) GetDependencies(ctx context.Context, c stage.Conveyor, cb conta
 
 	return util.Sha256Hash(args...), nil
 }
-
-func (stg *Copy) GetCopyFromInfo() *stage.CopyFromInfo {
-	if stg.instruction.Data.From == "" {
-		return nil
-	}
-
-	isExternalImage := stg.instruction.GetDependencyByStageRef(stg.instruction.Data.From) == nil
-
-	return &stage.CopyFromInfo{
-		SourceImageRef:  stg.backendInstruction.From,
-		SourcePaths:     stg.instruction.Data.SourcePaths,
-		DestPath:        stg.instruction.Data.DestPath,
-		IsExternalImage: isExternalImage,
-	}
-}

@@ -5,5 +5,11 @@ build:
     enable: true
 
 ---
-image: dockerfile
-dockerfile: Dockerfile
+image: stapel
+from: registry.werf.io/base/alpine
+git:
+  - add: /file
+    to: /file
+shell:
+  setup:
+    - touch /created-by-run

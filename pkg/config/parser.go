@@ -797,6 +797,10 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 		return nil, err
 	}
 
+	if err := werfConfig.validateSbomOnlyWithStapelImages(); err != nil {
+		return nil, err
+	}
+
 	return werfConfig, nil
 }
 

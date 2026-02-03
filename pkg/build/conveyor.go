@@ -547,6 +547,14 @@ func (c *Conveyor) checkContainerBackendSupported(ctx context.Context) error {
 		return nil
 	}
 
+	// Check if SBOM is enabled with buildah container backend.
+	// TODO: remove this validation after adding SBOM support for Buildah backend
+	if c.werfConfig.Meta.Build.Sbom != nil && c.werfConfig.Meta.Build.Sbom.Enable {
+		return fmt.Errorf(`SBOM feature is not supported with Buildah container backend.
+
+Please use Docker backend instead by unsetting WERF_BUILDAH_MODE environment variable or setting it to "docker".`)
+	}
+
 	// Check if ansible builder is used with buildah container backend.
 	{
 		var nameList []string

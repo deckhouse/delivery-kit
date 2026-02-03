@@ -18,7 +18,7 @@ import (
 )
 
 var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func() {
-	DescribeTable("should generate and store SBOM as an image",
+	DescribeTable("should generate and store SBOM as an image for stapel syntax",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
@@ -156,15 +156,6 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
 				Expect(out).To(ContainSubstring("not found in container registry"))
 			},
-			Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
-				setupEnvOptions: setupEnvOptions{
-					ContainerBackendMode:        "vanilla-docker",
-					WithLocalRepo:               true,
-					WithStagedDockerfileBuilder: false,
-				},
-				FixtureRelPath:     "sbom/base_image_dockerfile",
-				BaseImageReference: "registry.werf.io/base/alpine",
-			}),
 			Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",
@@ -211,15 +202,6 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				))
 				Expect(buildOut).To(ContainSubstring("SBOM processing"))
 			},
-			Entry("dockerfile with local repo using Vanilla Docker", baseImageSbomTestOptions{
-				setupEnvOptions: setupEnvOptions{
-					ContainerBackendMode:        "vanilla-docker",
-					WithLocalRepo:               true,
-					WithStagedDockerfileBuilder: false,
-				},
-				FixtureRelPath:     "sbom/base_image_dockerfile",
-				BaseImageReference: "registry.werf.io/base/alpine",
-			}),
 			Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",

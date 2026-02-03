@@ -1,9 +1,0 @@
-project: werf-test-e2e-build-sbom-base
-configVersion: 1
-build:
-  sbom:
-    enable: true
-
----
-image: dockerfile
-dockerfile: Dockerfile

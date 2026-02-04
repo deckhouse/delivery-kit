@@ -247,7 +247,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_copy_from_sbom.json"), nil)
 
 				By("validating import SBOM processing output")
-				Expect(buildOut).To(ContainSubstring("COPY --from SBOM processing"))
+				Expect(buildOut).To(ContainSubstring("external image SBOM processing"))
 				Expect(buildOut).To(ContainSubstring(testOpts.CopyFromImageReference))
 				Expect(buildOut).To(ContainSubstring("Filtered"))
 

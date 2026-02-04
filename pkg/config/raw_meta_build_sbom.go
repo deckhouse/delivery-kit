@@ -10,14 +10,7 @@ import (
 )
 
 type rawMetaBuildSbom struct {
-	// Use a pointer to detect presence under strict YAML unmarshal:
-	// - nil => omitted
-	// - non-nil => specified
-	Enable *bool `yaml:"enable,omitempty"`
-
-	// Use a pointer to detect presence under strict YAML unmarshal:
-	// - nil => omitted
-	// - non-nil => specified (possibly empty string, which we reject)
+	Enable   *bool   `yaml:"enable,omitempty"`
 	Standard *string `yaml:"standard,omitempty"`
 
 	rawMetaBuild *rawMetaBuild `yaml:"-"`
@@ -62,35 +55,29 @@ func (s *rawMetaBuildSbom) applySbomAndValidate() error {
 	enableSpecified := s.Enable != nil
 	standardSpecified := s.Standard != nil
 
-	// Both omitted -> set full defaults and exit.
 	if !enableSpecified && !standardSpecified {
 		s.Enable = lo.ToPtr(false)
 		s.Standard = lo.ToPtr(defaultStandard.String())
 		return nil
 	}
 
-	// standard specified -> require enable=true (explicitly).
 	if standardSpecified && !enableSpecified {
 		return fmt.Errorf("meta build sbom config: field 'enable' must be explicitly set to true when 'standard' is specified")
 	}
 
-	// enable specified:
 	if enableSpecified {
 		enable := option.PtrValueOrDefault(s.Enable, false)
 
-		// enable=true -> require standard.
 		if enable && !standardSpecified {
 			return fmt.Errorf("meta build sbom config: field 'standard' is required when 'enable' is true")
 		}
 
-		// enable=false -> default standard if omitted.
 		if !enable && !standardSpecified {
 			s.Standard = lo.ToPtr(defaultStandard.String())
 			return nil
 		}
 	}
 
-	// At this point standard must be present -> validate it.
 	if s.Standard == nil || *s.Standard == "" {
 		return fmt.Errorf("meta build sbom config: field 'standard' must not be empty")
 	}
@@ -116,7 +103,6 @@ func (s *rawMetaBuildSbom) toDirective() *MetaBuildSbom {
 		return nil
 	}
 
-	// At this point UnmarshalYAML guarantees Standard is set to the only supported value.
 	return &MetaBuildSbom{
 		Enable:   option.PtrValueOrDefault(s.Enable, false),
 		Standard: sbom.StandardTypeCycloneDX16,

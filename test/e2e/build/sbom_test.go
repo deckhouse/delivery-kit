@@ -299,7 +299,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					FixtureRelPath:     "sbom/copy_from_stapel",
 					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 				},
-				CopyFromImageReference:   "registry.werf.io/base/alpine",
+				CopyFromImageReference:   "registry.werf.io/base/alpine:latest",
 				ExpectedCopiedPathPrefix: "/copied/",
 			}),
 		)
@@ -348,7 +348,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					FixtureRelPath:     "sbom/copy_from_stapel",
 					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 				},
-				CopyFromImageReference:   "registry.werf.io/base/alpine",
+				CopyFromImageReference:   "registry.werf.io/base/alpine:latest",
 				ExpectedCopiedPathPrefix: "/copied/",
 			}),
 		)

@@ -7,11 +7,11 @@ build:
 image: app
 from: registry.werf.io/base/ubuntu:22.04
 import:
-  - image: registry.werf.io/base/alpine
+  - image: registry.werf.io/base/alpine:latest
     add: /etc/alpine-release
     to: /copied/alpine-release
     after: install
-  - image: registry.werf.io/base/alpine
+  - image: registry.werf.io/base/alpine:latest
     add: /etc/ssl
     to: /copied/ssl
     after: install

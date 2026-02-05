@@ -169,16 +169,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbomName string
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					baseImageRef := img.GetBaseImageReference()
-					baseImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, baseImageRef, container_backend.GetImageInfoOpts{})
-					if err != nil {
-						return fmt.Errorf("unable to get base image info for %q: %w", baseImageRef, err)
-					}
-					if baseImageInfo == nil {
-						return fmt.Errorf("base image %q not found locally", baseImageRef)
+					baseStageImage := img.GetBaseStageImage()
+					if baseStageImage == nil || baseStageImage.Image.GetStageDesc() == nil || baseStageImage.Image.GetStageDesc().Info == nil {
+						return fmt.Errorf("base image info not available for %q", img.GetBaseImageReference())
 					}
 
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, baseImageInfo)
+					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, baseStageImage.Image.GetStageDesc().Info)
 					if err != nil {
 						return fmt.Errorf("unable to pull base image sbom: %w", err)
 					}
@@ -186,6 +182,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				_ = baseImageSbomName // TODO: pass to Merge
 
 				var importImageSbomNames []string
+
 				for _, importImageRef := range img.GetImportImages() {
 					importImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importImageRef, container_backend.GetImageInfoOpts{})
 					if err != nil {
@@ -239,16 +236,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbomName string
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					baseImageRef := img.Images[0].GetBaseImageReference()
-					baseImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, baseImageRef, container_backend.GetImageInfoOpts{})
-					if err != nil {
-						return fmt.Errorf("unable to get base image info for %q: %w", baseImageRef, err)
-					}
-					if baseImageInfo == nil {
-						return fmt.Errorf("base image %q not found locally", baseImageRef)
+					baseStageImage := img.Images[0].GetBaseStageImage()
+					if baseStageImage == nil || baseStageImage.Image.GetStageDesc() == nil || baseStageImage.Image.GetStageDesc().Info == nil {
+						return fmt.Errorf("base image info not available for %q", img.Images[0].GetBaseImageReference())
 					}
 
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, baseImageInfo)
+					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, baseStageImage.Image.GetStageDesc().Info)
 					if err != nil {
 						return fmt.Errorf("unable to pull base image sbom: %w", err)
 					}
@@ -1413,22 +1406,4 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
-}
-
-func (phase *BuildPhase) getBaseImageInfo(ctx context.Context, img *image.Image) (*imagePkg.Info, error) {
-	baseStageImage := img.GetBaseStageImage()
-	if baseStageImage != nil && baseStageImage.Image.GetStageDesc() != nil && baseStageImage.Image.GetStageDesc().Info != nil {
-		return baseStageImage.Image.GetStageDesc().Info, nil
-	}
-
-	baseImageRef := img.GetBaseImageReference()
-	info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, baseImageRef, container_backend.GetImageInfoOpts{})
-	if err != nil {
-		return nil, fmt.Errorf("unable to get image info for %q: %w", baseImageRef, err)
-	}
-	if info == nil {
-		return nil, fmt.Errorf("image %q not found locally", baseImageRef)
-	}
-
-	return info, nil
 }

@@ -169,8 +169,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbomName string
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					var err error
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, img.GetBaseImageReference())
+					baseImageInfo, err := phase.getBaseImageInfo(ctx, img)
+					if err != nil {
+						return fmt.Errorf("unable to get base image info: %w", err)
+					}
+
+					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, baseImageInfo)
 					if err != nil {
 						return fmt.Errorf("unable to pull base image sbom: %w", err)
 					}
@@ -213,8 +217,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbomName string
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					var err error
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, img.Images[0].GetBaseImageReference())
+					baseImageInfo, err := phase.getBaseImageInfo(ctx, img.Images[0])
+					if err != nil {
+						return fmt.Errorf("unable to get base image info: %w", err)
+					}
+
+					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, baseImageInfo)
 					if err != nil {
 						return fmt.Errorf("unable to pull base image sbom: %w", err)
 					}
@@ -1359,4 +1367,22 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
+}
+
+func (phase *BuildPhase) getBaseImageInfo(ctx context.Context, img *image.Image) (*imagePkg.Info, error) {
+	baseStageImage := img.GetBaseStageImage()
+	if baseStageImage != nil && baseStageImage.Image.GetStageDesc() != nil && baseStageImage.Image.GetStageDesc().Info != nil {
+		return baseStageImage.Image.GetStageDesc().Info, nil
+	}
+
+	baseImageRef := img.GetBaseImageReference()
+	info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, baseImageRef, container_backend.GetImageInfoOpts{})
+	if err != nil {
+		return nil, fmt.Errorf("unable to get image info for %q: %w", baseImageRef, err)
+	}
+	if info == nil {
+		return nil, fmt.Errorf("image %q not found locally", baseImageRef)
+	}
+
+	return info, nil
 }

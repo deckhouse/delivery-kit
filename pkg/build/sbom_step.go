@@ -3,14 +3,11 @@ package build
 import (
 	"context"
 	"fmt"
-	"io"
 	"slices"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
-	buildImage "github.com/werf/werf/v2/pkg/build/image"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
@@ -191,73 +188,4 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	}
 
 	return nil
-}
-
-// PullAndFilterCopyFromImageSbom pulls SBOM for the external source image and filters it.
-// Returns the filtered SBOM containing only components that match the copied paths.
-// For local storage, checks if SBOM exists locally and returns an error if not found.
-func (step *sbomStep) PullAndFilterCopyFromImageSbom(ctx context.Context, werfImgName string, entry sbom.CopyFromEntry) (*cdx.BOM, error) {
-	sbomImageName := sbom.ImageName(entry.SourceImageRef)
-
-	var filteredBOM *cdx.BOM
-
-	if err := logboek.Context(ctx).Default().LogProcess("image %s: external image SBOM processing (%s)", werfImgName, entry.SourceImageRef).DoError(func() error {
-		if info, err := step.containerBackend.GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}); err == nil && info != nil {
-			logboek.Context(ctx).Default().LogF("Using local image SBOM %s\n", sbomImageName)
-		} else if step.isLocalStorage {
-			return fmt.Errorf("SBOM for image %q not found locally (expected %q)", entry.SourceImageRef, sbomImageName)
-		} else {
-			logboek.Context(ctx).Default().LogF("Pulling SBOM from %s\n", sbomImageName)
-
-			if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
-				return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", entry.SourceImageRef, sbomImageName, err)
-			}
-		}
-
-		opener := func() (io.ReadCloser, error) {
-			return step.containerBackend.SaveImageToStream(ctx, sbomImageName)
-		}
-
-		_, filtered, err := sbom.ExtractAndFilterSBOM(ctx, opener, entry.SourcePaths, entry.DestPath)
-		if err != nil {
-			return fmt.Errorf("unable to extract and filter SBOM: %w", err)
-		}
-
-		filteredBOM = filtered
-
-		logboek.Context(ctx).Default().LogF("Filtered %d components for paths %v -> %s\n", sbom.GetComponentsCount(filteredBOM), entry.SourcePaths, entry.DestPath)
-
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("unable to process external image SBOM: %w", err)
-	}
-
-	return filteredBOM, nil
-}
-
-func (step *sbomStep) ProcessCopyFromSboms(ctx context.Context, werfImgName string, copyFromImages []buildImage.CopyFromExternalImageInfo) ([]*cdx.BOM, error) {
-	if len(copyFromImages) == 0 {
-		return nil, nil
-	}
-
-	var result []*cdx.BOM
-
-	for _, info := range copyFromImages {
-		entry := sbom.CopyFromEntry{
-			SourceImageRef: info.SourceImageRef,
-			SourcePaths:    info.SourcePaths,
-			DestPath:       info.DestPath,
-		}
-
-		filteredSbom, err := step.PullAndFilterCopyFromImageSbom(ctx, werfImgName, entry)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process external image SBOM for %s: %w", entry.SourceImageRef, err)
-		}
-
-		if filteredSbom != nil && sbom.GetComponentsCount(filteredSbom) > 0 {
-			result = append(result, filteredSbom)
-		}
-	}
-
-	return result, nil
 }

@@ -125,23 +125,6 @@ func TestIsLocationPathProperty(t *testing.T) {
 	}
 }
 
-func TestFormatLocationPath(t *testing.T) {
-	tests := []struct {
-		index    int
-		expected string
-	}{
-		{0, "syft:location:0:path"},
-		{1, "syft:location:1:path"},
-		{42, "syft:location:42:path"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			assert.Equal(t, tt.expected, FormatLocationPath(tt.index))
-		})
-	}
-}
-
 func TestGetLocationPaths(t *testing.T) {
 	t.Run("returns all location paths", func(t *testing.T) {
 		component := cdx.Component{
@@ -174,100 +157,6 @@ func TestGetLocationPaths(t *testing.T) {
 		component := cdx.Component{Name: "test"}
 		assert.Nil(t, GetLocationPaths(component))
 	})
-}
-
-func TestTransformLocationPaths(t *testing.T) {
-	t.Run("transforms all location paths", func(t *testing.T) {
-		component := cdx.Component{
-			Name: "test",
-			Properties: &[]cdx.Property{
-				{Name: "syft:location:0:path", Value: "/usr/bin/test"},
-				{Name: "syft:package:type", Value: "binary"},
-				{Name: "syft:location:1:path", Value: "/usr/local/bin/test"},
-			},
-		}
-
-		TransformLocationPaths(&component, func(path string) string {
-			return "/new" + path
-		})
-
-		paths := GetLocationPaths(component)
-		assert.Len(t, paths, 2)
-		assert.Contains(t, paths, "/new/usr/bin/test")
-		assert.Contains(t, paths, "/new/usr/local/bin/test")
-
-		assert.Equal(t, "binary", GetProperty(component, "syft:package:type"))
-	})
-}
-
-func TestSetLocationPath(t *testing.T) {
-	component := cdx.Component{
-		Name:    "test",
-		Version: "1.0",
-		Properties: &[]cdx.Property{
-			{Name: "syft:location:0:path", Value: "/old/path"},
-		},
-	}
-	SetLocationPath(&component, "/new/path")
-	assert.Equal(t, "/new/path", GetLocationPath(component))
-
-	componentNoPath := cdx.Component{
-		Name:    "test",
-		Version: "1.0",
-		Properties: &[]cdx.Property{
-			{Name: "syft:package:type", Value: "binary"},
-		},
-	}
-	SetLocationPath(&componentNoPath, "/added/path")
-	assert.Equal(t, "/added/path", GetLocationPath(componentNoPath))
-
-	componentNilProps := cdx.Component{
-		Name:    "test",
-		Version: "1.0",
-	}
-	SetLocationPath(&componentNilProps, "/nil/path")
-	assert.Equal(t, "/nil/path", GetLocationPath(componentNilProps))
-}
-
-func TestFilterComponentsByDestPath(t *testing.T) {
-	sourceBOM := &cdx.BOM{
-		BOMFormat:   "CycloneDX",
-		SpecVersion: cdx.SpecVersion1_6,
-		Components: &[]cdx.Component{
-			{
-				Name:    "curl",
-				Version: "8.12.1",
-				Properties: &[]cdx.Property{
-					{Name: "syft:location:0:path", Value: "/usr/bin/curl"},
-				},
-			},
-			{
-				Name:    "bash",
-				Version: "5.0",
-				Properties: &[]cdx.Property{
-					{Name: "syft:location:0:path", Value: "/usr/bin/bash"},
-				},
-			},
-			{
-				Name:    "libcurl",
-				Version: "8.12.1",
-				Properties: &[]cdx.Property{
-					{Name: "syft:location:0:path", Value: "/usr/lib/libcurl.so"},
-				},
-			},
-		},
-	}
-
-	filteredBOM := FilterComponentsByDestPath(sourceBOM, []string{"/usr/bin/curl"}, "/bin/curl")
-	assert.NotNil(t, filteredBOM)
-	assert.NotNil(t, filteredBOM.Components)
-	assert.Len(t, *filteredBOM.Components, 1)
-	assert.Equal(t, "curl", (*filteredBOM.Components)[0].Name)
-	assert.Equal(t, "/bin/curl", GetLocationPath((*filteredBOM.Components)[0]))
-
-	filteredBOM = FilterComponentsByDestPath(sourceBOM, []string{"/usr/bin/"}, "/app/bin/")
-	assert.NotNil(t, filteredBOM)
-	assert.Len(t, *filteredBOM.Components, 2)
 }
 
 func TestToJSON(t *testing.T) {
@@ -329,39 +218,5 @@ func TestGetComponents(t *testing.T) {
 		components := []cdx.Component{{Name: "test"}}
 		bom := &cdx.BOM{Components: &components}
 		assert.Equal(t, components, GetComponents(bom))
-	})
-}
-
-func TestSetComponents(t *testing.T) {
-	bom := &cdx.BOM{}
-	components := []cdx.Component{{Name: "test"}}
-
-	SetComponents(bom, components)
-
-	assert.Equal(t, 1, GetComponentsCount(bom))
-	assert.Equal(t, "test", GetComponents(bom)[0].Name)
-}
-
-func TestCloneBOMMetadata(t *testing.T) {
-	t.Run("nil returns nil", func(t *testing.T) {
-		assert.Nil(t, CloneBOMMetadata(nil))
-	})
-
-	t.Run("clones metadata with empty components", func(t *testing.T) {
-		source := &cdx.BOM{
-			BOMFormat:    "CycloneDX",
-			SpecVersion:  cdx.SpecVersion1_6,
-			SerialNumber: "urn:uuid:test",
-			Version:      1,
-			Components:   &[]cdx.Component{{Name: "original"}},
-		}
-
-		cloned := CloneBOMMetadata(source)
-
-		require.NotNil(t, cloned)
-		assert.Equal(t, source.BOMFormat, cloned.BOMFormat)
-		assert.Equal(t, source.SpecVersion, cloned.SpecVersion)
-		assert.Equal(t, source.SerialNumber, cloned.SerialNumber)
-		assert.Equal(t, 0, GetComponentsCount(cloned))
 	})
 }

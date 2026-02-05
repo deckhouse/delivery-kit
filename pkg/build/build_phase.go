@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 
@@ -170,9 +169,13 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbomName string
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					baseImageInfo, err := phase.getBaseImageInfo(ctx, img)
+					baseImageRef := img.GetBaseImageReference()
+					baseImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, baseImageRef, container_backend.GetImageInfoOpts{})
 					if err != nil {
-						return fmt.Errorf("unable to get base image info: %w", err)
+						return fmt.Errorf("unable to get base image info for %q: %w", baseImageRef, err)
+					}
+					if baseImageInfo == nil {
+						return fmt.Errorf("base image %q not found locally", baseImageRef)
 					}
 
 					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, baseImageInfo)
@@ -182,11 +185,23 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbomName // TODO: pass to Merge
 
-				copyFromSboms, err := phase.sbomStep.ProcessCopyFromSboms(ctx, name, img.GetCopyFromExternalImages())
-				if err != nil {
-					return err
+				var importImageSbomNames []string
+				for _, importImageRef := range img.GetImportImages() {
+					importImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importImageRef, container_backend.GetImageInfoOpts{})
+					if err != nil {
+						return fmt.Errorf("unable to get import image info for %q: %w", importImageRef, err)
+					}
+					if importImageInfo == nil {
+						return fmt.Errorf("import image %q not found locally", importImageRef)
+					}
+
+					importImageSbomName, err := phase.sbomStep.PullImageSbom(ctx, name, importImageInfo)
+					if err != nil {
+						return fmt.Errorf("unable to pull import image sbom for %q: %w", importImageRef, err)
+					}
+					importImageSbomNames = append(importImageSbomNames, importImageSbomName)
 				}
-				_ = copyFromSboms // TODO: pass to Merge
+				_ = importImageSbomNames // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -224,9 +239,13 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbomName string
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					baseImageInfo, err := phase.getBaseImageInfo(ctx, img.Images[0])
+					baseImageRef := img.Images[0].GetBaseImageReference()
+					baseImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, baseImageRef, container_backend.GetImageInfoOpts{})
 					if err != nil {
-						return fmt.Errorf("unable to get base image info: %w", err)
+						return fmt.Errorf("unable to get base image info for %q: %w", baseImageRef, err)
+					}
+					if baseImageInfo == nil {
+						return fmt.Errorf("base image %q not found locally", baseImageRef)
 					}
 
 					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, baseImageInfo)
@@ -236,15 +255,25 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbomName // TODO: pass to Merge
 
-				var copyFromSboms []*cdx.BOM
+				var importImageSbomNames []string
 				if len(img.Images) > 0 {
-					var err error
-					copyFromSboms, err = phase.sbomStep.ProcessCopyFromSboms(ctx, img.Name, img.Images[0].GetCopyFromExternalImages())
-					if err != nil {
-						return err
+					for _, importImageRef := range img.Images[0].GetImportImages() {
+						importImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importImageRef, container_backend.GetImageInfoOpts{})
+						if err != nil {
+							return fmt.Errorf("unable to get import image info for %q: %w", importImageRef, err)
+						}
+						if importImageInfo == nil {
+							return fmt.Errorf("import image %q not found locally", importImageRef)
+						}
+
+						importImageSbomName, err := phase.sbomStep.PullImageSbom(ctx, img.Name, importImageInfo)
+						if err != nil {
+							return fmt.Errorf("unable to pull import image sbom for %q: %w", importImageRef, err)
+						}
+						importImageSbomNames = append(importImageSbomNames, importImageSbomName)
 					}
 				}
-				_ = copyFromSboms // TODO: pass to Merge
+				_ = importImageSbomNames // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)

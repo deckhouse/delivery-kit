@@ -1,0 +1,16 @@
+project: werf-test-e2e-build-sbom-import-stapel
+configVersion: 1
+build:
+  sbom:
+    enable: true
+---
+image: app
+from: ubuntu:22.04
+import:
+  - image: alpine:latest
+    add: /etc/alpine-release
+    to: /imported/alpine-release
+    after: install
+shell:
+  setup:
+    - touch /created-by-stapel

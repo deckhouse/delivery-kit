@@ -215,8 +215,8 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 	})
 
 	Describe("Stapel import external image SBOM", Serial, Ordered, func() {
-		DescribeTable("should process and filter SBOM from stapel imports",
-			func(ctx SpecContext, testOpts copyFromSbomTestOptions) {
+		DescribeTable("should pull SBOM from stapel imports",
+			func(ctx SpecContext, testOpts importSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
 
@@ -230,82 +230,51 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				By("preparing base image SBOM stubs in registry")
 				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
 				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
-				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.CopyFromImageReference, registryRepo)
+				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.ImportImageReference, registryRepo)
 
 				DeferCleanup(func(ctx SpecContext) {
 					contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
-					contRuntime.RmImage(ctx, testOpts.CopyFromImageReference+"-sbom")
+					contRuntime.RmImage(ctx, testOpts.ImportImageReference+"-sbom")
 				})
 
 				By("preparing test repo")
-				repoDirname := "repo_copy_from_sbom"
+				repoDirname := "repo_import_sbom"
 				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
 
 				By("building images")
 				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
 				reportProject := report.NewProjectWithReport(werfProject)
-				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_copy_from_sbom.json"), nil)
+				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_import_sbom.json"), nil)
 
 				By("validating import SBOM processing output")
-				Expect(buildOut).To(ContainSubstring("external image SBOM processing"))
-				Expect(buildOut).To(ContainSubstring(testOpts.CopyFromImageReference))
-				Expect(buildOut).To(ContainSubstring("Filtered"))
+				Expect(buildOut).To(ContainSubstring("image SBOM processing"))
+				Expect(buildOut).To(ContainSubstring(testOpts.ImportImageReference))
 
-				By("validating SBOM image was created and contains correct data")
+				By("validating SBOM image was created")
 				for builtImgName, reportRecord := range buildReport.Images {
 					By(fmt.Sprintf("checking SBOM for image %q", builtImgName))
 
 					sbomImageName := sbom.ImageName(reportRecord.DockerImageName)
 					sbomImgInspect := contRuntime.GetImageInspect(ctx, sbomImageName)
 					Expect(sbomImgInspect).NotTo(BeNil(), "SBOM image should exist")
-
-					By("extracting and validating SBOM content")
-					opener := func() (io.ReadCloser, error) {
-						return contRuntime.SaveImageToStream(ctx, sbomImageName), nil
-					}
-
-					sbomData, err := sbom.FindSingleSbomArtifact(opener)
-					Expect(err).NotTo(HaveOccurred(), "should find SBOM artifact in image")
-					Expect(sbomData).NotTo(BeEmpty(), "SBOM data should not be empty")
-
-					parsedBOM, err := sbom.ParseCycloneDXBOM(sbomData)
-					Expect(err).NotTo(HaveOccurred(), "should parse SBOM as CycloneDX")
-					Expect(parsedBOM).NotTo(BeNil())
-
-					By("validating SBOM structure")
-					Expect(parsedBOM.BOMFormat).To(Equal("CycloneDX"))
-					Expect(sbom.GetComponentsCount(parsedBOM)).To(BeNumerically(">", 0),
-						"SBOM should contain at least one component")
-
-					By("validating component paths are transformed correctly")
-					components := sbom.GetComponents(parsedBOM)
-					for _, component := range components {
-						locationPath := sbom.GetLocationPath(component)
-						if locationPath != "" {
-							if testOpts.ExpectedCopiedPathPrefix != "" {
-								By(fmt.Sprintf("component %s has path %s", component.Name, locationPath))
-							}
-						}
-					}
 				}
 			},
-			Entry("stapel with import from external image using Vanilla Docker", copyFromSbomTestOptions{
+			Entry("stapel with import from external image using Vanilla Docker", importSbomTestOptions{
 				baseImageSbomTestOptions: baseImageSbomTestOptions{
 					setupEnvOptions: setupEnvOptions{
 						ContainerBackendMode:        "vanilla-docker",
 						WithLocalRepo:               true,
 						WithStagedDockerfileBuilder: false,
 					},
-					FixtureRelPath:     "sbom/copy_from_stapel",
+					FixtureRelPath:     "sbom/import_stapel",
 					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 				},
-				CopyFromImageReference:   "registry.werf.io/base/alpine:latest",
-				ExpectedCopiedPathPrefix: "/copied/",
+				ImportImageReference: "registry.werf.io/base/alpine:latest",
 			}),
 		)
 
 		DescribeTable("should fail when import source image SBOM is not found",
-			func(ctx SpecContext, testOpts copyFromSbomTestOptions) {
+			func(ctx SpecContext, testOpts importSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
 
@@ -321,14 +290,14 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
 
 				By("ensuring import source image SBOM does not exist")
-				contRuntime.RmImage(ctx, testOpts.CopyFromImageReference+"-sbom")
+				contRuntime.RmImage(ctx, testOpts.ImportImageReference+"-sbom")
 
 				DeferCleanup(func(ctx SpecContext) {
 					contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
 				})
 
 				By("preparing test repo")
-				repoDirname := "repo_copy_from_sbom_fail"
+				repoDirname := "repo_import_sbom_fail"
 				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
 
 				By("building images (expecting failure)")
@@ -338,18 +307,17 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				Expect(err).To(HaveOccurred(), "build should fail when import source image SBOM is not found")
 				Expect(out).To(ContainSubstring("not found in container registry"))
 			},
-			Entry("stapel with missing import source SBOM using Vanilla Docker", copyFromSbomTestOptions{
+			Entry("stapel with missing import source SBOM using Vanilla Docker", importSbomTestOptions{
 				baseImageSbomTestOptions: baseImageSbomTestOptions{
 					setupEnvOptions: setupEnvOptions{
 						ContainerBackendMode:        "vanilla-docker",
 						WithLocalRepo:               true,
 						WithStagedDockerfileBuilder: false,
 					},
-					FixtureRelPath:     "sbom/copy_from_stapel",
+					FixtureRelPath:     "sbom/import_stapel",
 					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 				},
-				CopyFromImageReference:   "registry.werf.io/base/alpine:latest",
-				ExpectedCopiedPathPrefix: "/copied/",
+				ImportImageReference: "registry.werf.io/base/alpine:latest",
 			}),
 		)
 	})
@@ -361,8 +329,7 @@ type baseImageSbomTestOptions struct {
 	BaseImageReference string
 }
 
-type copyFromSbomTestOptions struct {
+type importSbomTestOptions struct {
 	baseImageSbomTestOptions
-	CopyFromImageReference   string
-	ExpectedCopiedPathPrefix string
+	ImportImageReference string
 }

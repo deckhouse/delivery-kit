@@ -216,35 +216,13 @@ func (i *Image) UsesBuildContext() bool {
 	return false
 }
 
-type CopyFromExternalImageInfo struct {
-	SourceImageRef string
-	SourcePaths    []string
-	DestPath       string
-}
-
-func (c CopyFromExternalImageInfo) GetSourceImageRef() string {
-	return c.SourceImageRef
-}
-
-func (c CopyFromExternalImageInfo) GetSourcePaths() []string {
-	return c.SourcePaths
-}
-
-func (c CopyFromExternalImageInfo) GetDestPath() string {
-	return c.DestPath
-}
-
-func (i *Image) GetCopyFromExternalImages() []CopyFromExternalImageInfo {
-	var result []CopyFromExternalImageInfo
+func (i *Image) GetImportImages() []string {
+	var result []string
 
 	for _, stg := range i.GetStages() {
 		if depStage, ok := stg.(interface{ GetExternalImports() []*config.Import }); ok {
 			for _, imp := range depStage.GetExternalImports() {
-				result = append(result, CopyFromExternalImageInfo{
-					SourceImageRef: imp.ImageName,
-					SourcePaths:    []string{imp.Add},
-					DestPath:       imp.To,
-				})
+				result = append(result, imp.ImageName)
 			}
 		}
 	}

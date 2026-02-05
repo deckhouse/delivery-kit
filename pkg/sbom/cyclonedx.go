@@ -8,16 +8,10 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-const SyftLocationPathFormat = "syft:location:%d:path"
-
 var syftLocationPathRegex = regexp.MustCompile(`^syft:location:\d+:path$`)
 
 func IsLocationPathProperty(name string) bool {
 	return syftLocationPathRegex.MatchString(name)
-}
-
-func FormatLocationPath(index int) string {
-	return fmt.Sprintf(SyftLocationPathFormat, index)
 }
 
 func ParseCycloneDXBOM(data []byte) (*cdx.BOM, error) {
@@ -57,25 +51,4 @@ func GetComponents(bom *cdx.BOM) []cdx.Component {
 	}
 
 	return *bom.Components
-}
-
-func SetComponents(bom *cdx.BOM, components []cdx.Component) {
-	if bom != nil {
-		bom.Components = &components
-	}
-}
-
-func CloneBOMMetadata(source *cdx.BOM) *cdx.BOM {
-	if source == nil {
-		return nil
-	}
-
-	return &cdx.BOM{
-		BOMFormat:    source.BOMFormat,
-		SpecVersion:  source.SpecVersion,
-		SerialNumber: source.SerialNumber,
-		Version:      source.Version,
-		Metadata:     source.Metadata,
-		Components:   &[]cdx.Component{},
-	}
 }

@@ -138,34 +138,54 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 	return img, ok, nil
 }
 
-// PullImageSbom pulls SBOM for the image from the image registry.
-// If the SBOM image exists locally, it skips the pull.
-// For local storage, only checks if SBOM exists locally (no pull).
-// For remote storage, pulls from registry if not found locally.
-// If the SBOM is not found, returns an error.
-func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName, imageReference string) (string, error) {
-	sbomImageName := sbom.ImageName(imageReference)
+func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName string, baseImageInfo *image.Info) (string, error) {
+	sbomImageName, err := step.resolveImageSbomName(baseImageInfo)
+	if err != nil {
+		return "", err
+	}
 
-	if err := logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, imageReference).DoError(func() error {
-		if info, err := step.containerBackend.GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}); err == nil && info != nil {
-			logboek.Context(ctx).Default().LogF("Using local image SBOM %s\n", sbomImageName)
-
-			return nil
-		}
-
-		if step.isLocalStorage {
-			return fmt.Errorf("SBOM for image %q not found locally (expected %q)", imageReference, sbomImageName)
-		}
-
-		logboek.Context(ctx).Default().LogF("Pulling image SBOM from %s\n", sbomImageName)
-		if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
-			return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", imageReference, sbomImageName, err)
-		}
-
-		return nil
-	}); err != nil {
+	err = logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, baseImageInfo.Name).DoError(func() error {
+		return step.ensureSbomImageExists(ctx, sbomImageName, baseImageInfo.Name)
+	})
+	if err != nil {
 		return "", fmt.Errorf("unable to pull image SBOM: %w", err)
 	}
 
 	return sbomImageName, nil
+}
+
+func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, error) {
+	if digest, ok := baseImageInfo.Labels[image.WerfStageContentDigestLabel]; ok && digest != "" {
+		_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
+		_, creationTs, err := image.GetDigestAndCreationTsFromLocalStageImageTag(tag)
+		if err != nil {
+			return "", fmt.Errorf("unable to parse image tag %q: %w", tag, err)
+		}
+
+		return sbom.BaseImageSbomName(baseImageInfo.Repository, digest, creationTs), nil
+	}
+
+	return "", fmt.Errorf(
+		"unable to resolve SBOM name for image %q: no werf labels and no RepoDigest available",
+		baseImageInfo.Name,
+	)
+}
+
+func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, sourceImageName string) error {
+	if info, err := step.containerBackend.GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}); err == nil && info != nil {
+		logboek.Context(ctx).Default().LogF("Using local image SBOM %s\n", sbomImageName)
+
+		return nil
+	}
+
+	if step.isLocalStorage {
+		return fmt.Errorf("SBOM for image %q not found locally (expected %q)", sourceImageName, sbomImageName)
+	}
+
+	logboek.Context(ctx).Default().LogF("Pulling image SBOM from %s\n", sbomImageName)
+	if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
+		return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", sourceImageName, sbomImageName, err)
+	}
+
+	return nil
 }

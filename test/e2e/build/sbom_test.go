@@ -18,7 +18,7 @@ import (
 )
 
 var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func() {
-	DescribeTable("should generate and store SBOM as an image for stapel syntax",
+	DescribeTable("should generate and store SBOM as an image",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)

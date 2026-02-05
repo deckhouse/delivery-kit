@@ -396,7 +396,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250428153025-10db94c68c34 // indirect
 	google.golang.org/grpc v1.71.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
-	gopkg.in/evanphx/json-patch.v5 v5.8.0 // indirect
+	gopkg.in/evanphx/json-patch.v5 v5.8.0
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

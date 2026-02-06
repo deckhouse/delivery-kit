@@ -3,8 +3,10 @@ package build
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
@@ -138,20 +140,44 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 	return img, ok, nil
 }
 
-func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName string, baseImageInfo *image.Info) (string, error) {
+func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName string, baseImageInfo *image.Info) (*cdx.BOM, error) {
 	sbomImageName, err := step.resolveImageSbomName(baseImageInfo)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	err = logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, baseImageInfo.Name).DoError(func() error {
 		return step.ensureSbomImageExists(ctx, sbomImageName, baseImageInfo.Name)
 	})
 	if err != nil {
-		return "", fmt.Errorf("unable to pull image SBOM: %w", err)
+		return nil, fmt.Errorf("unable to pull image SBOM: %w", err)
 	}
 
-	return sbomImageName, nil
+	opener := func() (io.ReadCloser, error) {
+		return step.containerBackend.SaveImageToStream(ctx, sbomImageName)
+	}
+
+	bom, err := sbom.ExtractBOMFromImage(opener)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract BOM from SBOM image %q: %w", sbomImageName, err)
+	}
+
+	return bom, nil
+}
+
+// GetImageBOM returns the BOM for a image.
+// For scratch images, returns an empty BOM.
+// For other images, pulls the SBOM from storage and extracts the BOM.
+func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
+	if imageRef == sbom.ScratchImageName {
+		return sbom.NewEmptyBOM(), nil
+	}
+
+	if imageInfo == nil {
+		return nil, fmt.Errorf("image info not available for %q", imageRef)
+	}
+
+	return step.PullImageSbom(ctx, werfImgName, imageInfo)
 }
 
 func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, error) {

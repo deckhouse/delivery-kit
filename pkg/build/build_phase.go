@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 
@@ -166,20 +167,20 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				var baseImageSbomName string
+				var baseImageSbom *cdx.BOM
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					baseImageInfo, err := phase.getBaseImageInfo(ctx, img)
-					if err != nil {
-						return fmt.Errorf("unable to get base image info: %w", err)
+					var baseImageInfo *imagePkg.Info
+					if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil && baseStageImage.Image.GetStageDesc() != nil {
+						baseImageInfo = baseStageImage.Image.GetStageDesc().Info
 					}
 
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, baseImageInfo)
+					baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), baseImageInfo)
 					if err != nil {
-						return fmt.Errorf("unable to pull base image sbom: %w", err)
+						return fmt.Errorf("unable to get base image sbom: %w", err)
 					}
 				}
-				_ = baseImageSbomName // TODO: pass to Converge
+				_ = baseImageSbom // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -214,20 +215,20 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				var baseImageSbomName string
+				var baseImageSbom *cdx.BOM
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					baseImageInfo, err := phase.getBaseImageInfo(ctx, img.Images[0])
-					if err != nil {
-						return fmt.Errorf("unable to get base image info: %w", err)
+					var baseImageInfo *imagePkg.Info
+					if baseStageImage := img.Images[0].GetBaseStageImage(); baseStageImage != nil && baseStageImage.Image.GetStageDesc() != nil {
+						baseImageInfo = baseStageImage.Image.GetStageDesc().Info
 					}
 
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, baseImageInfo)
+					baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), baseImageInfo)
 					if err != nil {
-						return fmt.Errorf("unable to pull base image sbom: %w", err)
+						return fmt.Errorf("unable to get base image sbom: %w", err)
 					}
 				}
-				_ = baseImageSbomName // TODO: pass to Converge
+				_ = baseImageSbom // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)

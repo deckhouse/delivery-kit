@@ -4,8 +4,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/test/pkg/contback"
-	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
@@ -15,22 +13,9 @@ var _ = Describe("Sbom get", Label("e2e", "sbom", "get", "simple"), func() {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
-			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
-			if err == contback.ErrRuntimeUnavailable {
-				Skip(err.Error())
-			} else if err != nil {
-				Fail(err.Error())
-			}
-
 			By("state0: case", func() {
 				repoDirname := "repo0"
 				fixtureRelPath := "state0"
-
-				By("state0: preparing base image SBOM stub in registry")
-				if testOpts.WithLocalRepo {
-					registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
-					contRuntime.PrepareBaseImageSbomStub(ctx, "registry.werf.io/base/alpine", registryRepo)
-				}
 
 				By("state0: preparing test repo")
 				SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)

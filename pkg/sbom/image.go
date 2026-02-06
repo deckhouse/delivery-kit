@@ -2,9 +2,23 @@ package sbom
 
 import (
 	"fmt"
+	"strings"
 )
 
-const ScratchImageName = "scratch"
+func IsScratchImage(imageRef string) bool {
+	if imageRef == "scratch" {
+		return true
+	}
+
+	ref := imageRef
+	if idx := strings.LastIndex(ref, ":"); idx != -1 {
+		if !strings.Contains(ref[idx:], "/") {
+			ref = ref[:idx]
+		}
+	}
+
+	return strings.HasSuffix(ref, "/scratch")
+}
 
 func ImageName(name string) string {
 	return fmt.Sprintf("%s-sbom", name)

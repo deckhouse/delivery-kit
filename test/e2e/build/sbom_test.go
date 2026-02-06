@@ -192,7 +192,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					WithStagedDockerfileBuilder: false,
 				},
 				FixtureRelPath:     "sbom/state2",
-				BaseImageReference: "registry.werf.io/werf/alpine:3.18",
+				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 			}),
 			Entry("stapel with local repo using BuildKit Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
@@ -201,7 +201,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					WithStagedDockerfileBuilder: false,
 				},
 				FixtureRelPath:     "sbom/state2",
-				BaseImageReference: "registry.werf.io/werf/alpine:3.18",
+				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 			}),
 		)
 

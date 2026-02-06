@@ -3,7 +3,7 @@ configVersion: 1
 build:
   sbom:
     enable: true
-
+    standard: cyclonedx@1.6
 ---
 image: base
 from: scratch

@@ -1,0 +1,19 @@
+project: werf-test-e2e-build-chain
+configVersion: 1
+build:
+  sbom:
+    enable: true
+
+---
+image: base
+from: scratch
+git:
+  - add: /base
+    to: /imported/base
+
+---
+image: child
+from: base
+git:
+  - add: /child
+    to: /imported/child

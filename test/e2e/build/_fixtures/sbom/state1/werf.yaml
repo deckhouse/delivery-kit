@@ -5,8 +5,5 @@ build:
     enable: true
 
 ---
-image: stapel
+image: stapel-scratch-based
 from: registry.werf.io/werf/scratch
-shell:
-  setup:
-    - touch /created-by-stapel

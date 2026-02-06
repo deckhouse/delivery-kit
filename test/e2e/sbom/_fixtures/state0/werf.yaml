@@ -5,8 +5,8 @@ build:
     enable: true
     standard: cyclonedx@1.6
 ---
-image: dockerfile
-dockerfile: Dockerfile
+image: stapel
+from: registry.werf.io/werf/scratch
 sbom:
   fragment: |
     components:

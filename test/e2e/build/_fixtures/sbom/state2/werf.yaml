@@ -1,0 +1,9 @@
+project: werf-test-e2e-build-sbom-base-stapel
+configVersion: 1
+build:
+  sbom:
+    enable: true
+
+---
+image: stapel-alpine-based
+from: registry.werf.io/werf/alpine:3.18

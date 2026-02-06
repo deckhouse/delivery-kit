@@ -158,7 +158,7 @@ var _ = Describe("SbomStep", func() {
 		),
 	)
 
-	DescribeTable("PullImageSbom()",
+	DescribeTable("pullImageSbom()",
 		func(
 			ctx context.Context,
 			baseImageInfo *image.Info,
@@ -179,7 +179,7 @@ var _ = Describe("SbomStep", func() {
 
 			setupMocks(ctx, backend, baseImageInfo)
 
-			_, err := step.PullImageSbom(ctx, "some-name", baseImageInfo)
+			_, err := step.pullImageSbom(ctx, "some-name", baseImageInfo)
 			if expectError {
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))
@@ -229,7 +229,7 @@ var _ = Describe("SbomStep", func() {
 		),
 	)
 
-	DescribeTable("PullImageSbom() with local storage",
+	DescribeTable("pullImageSbom() with local storage",
 		func(
 			ctx context.Context,
 			baseImageInfo *image.Info,
@@ -254,7 +254,7 @@ var _ = Describe("SbomStep", func() {
 
 			setupMocks(ctx, backend, baseImageInfo)
 
-			_, err := step.PullImageSbom(ctx, "some-name", baseImageInfo)
+			_, err := step.pullImageSbom(ctx, "some-name", baseImageInfo)
 			if expectError {
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))

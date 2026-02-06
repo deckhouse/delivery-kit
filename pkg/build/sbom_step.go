@@ -140,7 +140,7 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 	return img, ok, nil
 }
 
-func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName string, baseImageInfo *image.Info) (*cdx.BOM, error) {
+func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, baseImageInfo *image.Info) (*cdx.BOM, error) {
 	sbomImageName, err := step.resolveImageSbomName(baseImageInfo)
 	if err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef str
 		return nil, fmt.Errorf("image info not available for %q", imageRef)
 	}
 
-	return step.PullImageSbom(ctx, werfImgName, imageInfo)
+	return step.pullImageSbom(ctx, werfImgName, imageInfo)
 }
 
 func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, error) {

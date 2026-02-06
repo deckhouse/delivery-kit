@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 
@@ -166,20 +167,20 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				var baseImageSbomName string
+				var baseImageSbom *cdx.BOM
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					baseStageImage := img.GetBaseStageImage()
-					if baseStageImage == nil || baseStageImage.Image.GetStageDesc() == nil || baseStageImage.Image.GetStageDesc().Info == nil {
-						return fmt.Errorf("base image info not available for %q", img.GetBaseImageReference())
+					var baseImageInfo *imagePkg.Info
+					if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil && baseStageImage.Image.GetStageDesc() != nil {
+						baseImageInfo = baseStageImage.Image.GetStageDesc().Info
 					}
 
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, name, baseStageImage.Image.GetStageDesc().Info)
+					baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), baseImageInfo)
 					if err != nil {
-						return fmt.Errorf("unable to pull base image sbom: %w", err)
+						return fmt.Errorf("unable to get base image sbom: %w", err)
 					}
 				}
-				_ = baseImageSbomName // TODO: pass to Merge
+				_ = baseImageSbom // TODO: pass to Merge
 
 				var importImageSbomNames []string
 
@@ -233,20 +234,20 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				var baseImageSbomName string
+				var baseImageSbom *cdx.BOM
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					baseStageImage := img.Images[0].GetBaseStageImage()
-					if baseStageImage == nil || baseStageImage.Image.GetStageDesc() == nil || baseStageImage.Image.GetStageDesc().Info == nil {
-						return fmt.Errorf("base image info not available for %q", img.Images[0].GetBaseImageReference())
+					var baseImageInfo *imagePkg.Info
+					if baseStageImage := img.Images[0].GetBaseStageImage(); baseStageImage != nil && baseStageImage.Image.GetStageDesc() != nil {
+						baseImageInfo = baseStageImage.Image.GetStageDesc().Info
 					}
 
-					baseImageSbomName, err = phase.sbomStep.PullImageSbom(ctx, img.Name, baseStageImage.Image.GetStageDesc().Info)
+					baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), baseImageInfo)
 					if err != nil {
-						return fmt.Errorf("unable to pull base image sbom: %w", err)
+						return fmt.Errorf("unable to get base image sbom: %w", err)
 					}
 				}
-				_ = baseImageSbomName // TODO: pass to Merge
+				_ = baseImageSbom // TODO: pass to Merge
 
 				var importImageSbomNames []string
 				if len(img.Images) > 0 {

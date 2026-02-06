@@ -125,3 +125,15 @@ func validateCycloneDX16BOM(b *cdx.BOM) error {
 
 	return nil
 }
+
+// NewEmptyBOM creates an empty but valid CycloneDX 1.6 BOM.
+// This is useful for base images like "scratch" that have no components.
+func NewEmptyBOM() *cdx.BOM {
+	return &cdx.BOM{
+		BOMFormat:    cdx.BOMFormat,
+		SpecVersion:  cdx.SpecVersion1_6,
+		Version:      1,
+		SerialNumber: "urn:uuid:" + uuid.New().String(),
+		Components:   &[]cdx.Component{},
+	}
+}

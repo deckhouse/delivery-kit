@@ -140,16 +140,30 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 	return img, ok, nil
 }
 
-func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName string, baseImageInfo *image.Info) (*cdx.BOM, error) {
-	sbomImageName, err := step.resolveImageSbomName(baseImageInfo)
+// GetImageBOM returns the BOM for a image.
+// For scratch images, returns an empty BOM.
+// For other images, pulls the SBOM from storage and extracts the BOM.
+func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
+	if imageRef == sbom.ScratchImageName {
+		return sbom.NewEmptyBOM(), nil
+	}
+
+	if imageInfo == nil {
+		return nil, fmt.Errorf("image info not available for %q", imageRef)
+	}
+
+	return step.pullImageSbom(ctx, werfImgName, imageInfo)
+}
+
+func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, imageInfo *image.Info) (*cdx.BOM, error) {
+	sbomImageName, err := step.resolveImageSbomName(imageInfo)
 	if err != nil {
 		return nil, err
 	}
 
-	err = logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, baseImageInfo.Name).DoError(func() error {
-		return step.ensureSbomImageExists(ctx, sbomImageName, baseImageInfo.Name)
-	})
-	if err != nil {
+	if err = logboek.Context(ctx).Default().LogProcess("image %s: image SBOM processing (%s)", werfImgName, imageInfo.Name).DoError(func() error {
+		return step.ensureSbomImageExists(ctx, sbomImageName, imageInfo.Name)
+	}); err != nil {
 		return nil, fmt.Errorf("unable to pull image SBOM: %w", err)
 	}
 
@@ -163,21 +177,6 @@ func (step *sbomStep) PullImageSbom(ctx context.Context, werfImgName string, bas
 	}
 
 	return bom, nil
-}
-
-// GetImageBOM returns the BOM for a image.
-// For scratch images, returns an empty BOM.
-// For other images, pulls the SBOM from storage and extracts the BOM.
-func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
-	if imageRef == sbom.ScratchImageName {
-		return sbom.NewEmptyBOM(), nil
-	}
-
-	if imageInfo == nil {
-		return nil, fmt.Errorf("image info not available for %q", imageRef)
-	}
-
-	return step.PullImageSbom(ctx, werfImgName, imageInfo)
 }
 
 func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, error) {

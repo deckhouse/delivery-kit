@@ -182,22 +182,19 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbom // TODO: pass to Merge
 
-				var importImageSbomNames []string
+				var importImageSbomNames []*cdx.BOM
 
 				for _, importImageRef := range img.GetImportImages() {
 					importImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importImageRef, container_backend.GetImageInfoOpts{})
 					if err != nil {
 						return fmt.Errorf("unable to get import image info for %q: %w", importImageRef, err)
 					}
-					if importImageInfo == nil {
-						return fmt.Errorf("import image %q not found locally", importImageRef)
-					}
 
-					importImageSbomName, err := phase.sbomStep.PullImageSbom(ctx, name, importImageInfo)
+					importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, importImageRef, importImageInfo)
 					if err != nil {
-						return fmt.Errorf("unable to pull import image sbom for %q: %w", importImageRef, err)
+						return fmt.Errorf("unable to get import image sbom for %q: %w", importImageRef, err)
 					}
-					importImageSbomNames = append(importImageSbomNames, importImageSbomName)
+					importImageSbomNames = append(importImageSbomNames, importImageSbom)
 				}
 				_ = importImageSbomNames // TODO: pass to Merge
 
@@ -249,22 +246,19 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 				_ = baseImageSbom // TODO: pass to Merge
 
-				var importImageSbomNames []string
+				var importImageSbomNames []*cdx.BOM
 				if len(img.Images) > 0 {
 					for _, importImageRef := range img.Images[0].GetImportImages() {
 						importImageInfo, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importImageRef, container_backend.GetImageInfoOpts{})
 						if err != nil {
 							return fmt.Errorf("unable to get import image info for %q: %w", importImageRef, err)
 						}
-						if importImageInfo == nil {
-							return fmt.Errorf("import image %q not found locally", importImageRef)
-						}
 
-						importImageSbomName, err := phase.sbomStep.PullImageSbom(ctx, img.Name, importImageInfo)
+						importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, img.Name, importImageRef, importImageInfo)
 						if err != nil {
-							return fmt.Errorf("unable to pull import image sbom for %q: %w", importImageRef, err)
+							return fmt.Errorf("unable to get import image sbom for %q: %w", importImageRef, err)
 						}
-						importImageSbomNames = append(importImageSbomNames, importImageSbomName)
+						importImageSbomNames = append(importImageSbomNames, importImageSbom)
 					}
 				}
 				_ = importImageSbomNames // TODO: pass to Merge

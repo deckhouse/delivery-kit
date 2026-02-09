@@ -216,18 +216,45 @@ func (i *Image) UsesBuildContext() bool {
 	return false
 }
 
-func (i *Image) GetImportImages() []string {
-	var result []string
+type ImportImageInfo struct {
+	ImageName     string
+	ExternalImage bool
+}
+
+func (i *Image) GetImportImagesInfo() []ImportImageInfo {
+	var result []ImportImageInfo
 
 	for _, stg := range i.GetStages() {
 		if depStage, ok := stg.(interface{ GetExternalImports() []*config.Import }); ok {
 			for _, imp := range depStage.GetExternalImports() {
-				result = append(result, imp.ImageName)
+				result = append(result, ImportImageInfo{
+					ImageName:     imp.ImageName,
+					ExternalImage: imp.ExternalImage,
+				})
 			}
 		}
 	}
 
 	return result
+}
+
+func (i *Image) GetLastNonEmptyStageImageInfo() *image.Info {
+	lastStage := i.GetLastNonEmptyStage()
+	if lastStage == nil {
+		return nil
+	}
+
+	stageImage := lastStage.GetStageImage()
+	if stageImage == nil {
+		return nil
+	}
+
+	stageDesc := stageImage.Image.GetStageDesc()
+	if stageDesc == nil {
+		return nil
+	}
+
+	return stageDesc.Info
 }
 
 func (i *Image) UseCustomTag() bool {

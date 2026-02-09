@@ -5,7 +5,7 @@ build:
     enable: true
     standard: cyclonedx@1.6
 ---
-image: stapel
+image: stapel-ubuntu-based
 from: registry.werf.io/base/ubuntu:22.04
 sbom:
   fragment: |

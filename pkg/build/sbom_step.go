@@ -182,12 +182,8 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, ima
 func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, error) {
 	if digest, ok := baseImageInfo.Labels[image.WerfStageContentDigestLabel]; ok && digest != "" {
 		_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
-		_, creationTs, err := image.GetDigestAndCreationTsFromLocalStageImageTag(tag)
-		if err != nil {
-			return "", fmt.Errorf("unable to parse image tag %q: %w", tag, err)
-		}
 
-		return sbom.BaseImageSbomName(baseImageInfo.Repository, digest, creationTs), nil
+		return sbom.BaseImageSbomName(baseImageInfo.Repository, tag), nil
 	}
 
 	return "", fmt.Errorf(

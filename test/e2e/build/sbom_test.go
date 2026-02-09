@@ -7,8 +7,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/werf/werf/v2/test/pkg/suite_init"
-
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/contback"
@@ -127,7 +125,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 	Describe("base image SBOM", Serial, Ordered, func() {
 		DescribeTable("should succeed when base image SBOM is scratch",
-			func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
+			func(ctx SpecContext, testOpts imageSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
 
@@ -142,7 +140,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 				Expect(buildOut).To(ContainSubstring("SBOM processing"))
 			},
-			Entry("with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",
 					WithLocalRepo:               true,
@@ -150,7 +148,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				},
 				FixtureRelPath: "sbom/state1",
 			}),
-			Entry("with local repo using BuildKit Docker", baseImageSbomTestOptions{
+			Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "buildkit-docker",
 					WithLocalRepo:               true,
@@ -158,7 +156,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				},
 				FixtureRelPath: "sbom/state1",
 			}),
-			Entry("with local repo using Native Buildah with chroot isolation", baseImageSbomTestOptions{
+			Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "native-chroot",
 					WithLocalRepo:               true,
@@ -166,7 +164,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				},
 				FixtureRelPath: "sbom/state1",
 			}),
-			Entry("with local repo using Native Buildah with rootless isolation", baseImageSbomTestOptions{
+			Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "native-rootless",
 					WithLocalRepo:               true,
@@ -177,7 +175,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		)
 
 		DescribeTable("should fail when image SBOM is not found in registry",
-			func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
+			func(ctx SpecContext, testOpts imageSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
 
@@ -192,161 +190,147 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
 				Expect(out).To(ContainSubstring("not found in container registry"))
 			},
-			Entry("with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",
 					WithLocalRepo:               true,
 					WithStagedDockerfileBuilder: false,
 				},
-				FixtureRelPath:     "sbom/state2",
-				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				FixtureRelPath: "sbom/state2",
 			}),
-			Entry("with local repo using BuildKit Docker", baseImageSbomTestOptions{
+			Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "buildkit-docker",
 					WithLocalRepo:               true,
 					WithStagedDockerfileBuilder: false,
 				},
-				FixtureRelPath:     "sbom/state2",
-				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				FixtureRelPath: "sbom/state2",
 			}),
-			Entry("with local repo using Native Buildah with chroot isolation", baseImageSbomTestOptions{
+			Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "native-chroot",
 					WithLocalRepo:               true,
 					WithStagedDockerfileBuilder: false,
 				},
-				FixtureRelPath:     "sbom/state2",
-				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				FixtureRelPath: "sbom/state2",
 			}),
-			Entry("with local repo using Native Buildah with rootless isolation", baseImageSbomTestOptions{
+			Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "native-rootless",
 					WithLocalRepo:               true,
 					WithStagedDockerfileBuilder: false,
 				},
-				FixtureRelPath:     "sbom/state2",
-				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+				FixtureRelPath: "sbom/state2",
 			}),
 		)
 	})
 
-	Describe("Stapel import external image SBOM", Serial, Ordered, func() {
-		DescribeTable("should pull SBOM from stapel imports",
-			func(ctx SpecContext, testOpts importSbomTestOptions) {
+	Describe("import image SBOM", Serial, Ordered, func() {
+		DescribeTable("should succeed and store SBOMs",
+			func(ctx SpecContext, testOpts imageSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
 
-				contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
-				if err == contback.ErrRuntimeUnavailable {
-					Skip(err.Error())
-				} else if err != nil {
-					Fail(err.Error())
-				}
-
-				By("preparing base image SBOM stubs in registry")
-				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
-				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
-				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.ImportImageReference, registryRepo)
-
-				DeferCleanup(func(ctx SpecContext) {
-					contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
-					contRuntime.RmImage(ctx, testOpts.ImportImageReference+"-sbom")
-				})
-
 				By("preparing test repo")
-				repoDirname := "repo_import_sbom"
-				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+				repoDirName := "repo_import_sbom_success"
+				SuiteData.InitTestRepo(ctx, repoDirName, testOpts.FixtureRelPath)
 
 				By("building images")
-				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
 				reportProject := report.NewProjectWithReport(werfProject)
-				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_import_sbom.json"), nil)
+				buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_import_sbom.json"), nil)
 
-				By("validating import SBOM processing output")
-				Expect(buildOut).To(ContainSubstring("image SBOM processing"))
-				Expect(buildOut).To(ContainSubstring(testOpts.ImportImageReference))
-
-				By("validating SBOM image was created")
-				for builtImgName, reportRecord := range buildReport.Images {
-					By(fmt.Sprintf("checking SBOM for image %q", builtImgName))
-
-					sbomImageName := sbom.ImageName(reportRecord.DockerImageName)
-					sbomImgInspect := contRuntime.GetImageInspect(ctx, sbomImageName)
-					Expect(sbomImgInspect).NotTo(BeNil(), "SBOM image should exist")
-				}
+				Expect(buildOut).To(ContainSubstring("SBOM processing"))
+				Expect(buildOut).To(ContainSubstring("image stapel-scratch-based"))
+				Expect(buildOut).To(ContainSubstring("image stapel"))
 			},
-			Entry("stapel with import from external image using Vanilla Docker", importSbomTestOptions{
-				baseImageSbomTestOptions: baseImageSbomTestOptions{
-					setupEnvOptions: setupEnvOptions{
-						ContainerBackendMode:        "vanilla-docker",
-						WithLocalRepo:               true,
-						WithStagedDockerfileBuilder: false,
-					},
-					FixtureRelPath:     "sbom/import_stapel",
-					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+			Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "vanilla-docker",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
 				},
-				ImportImageReference: "registry.werf.io/base/alpine:latest",
+				FixtureRelPath: "sbom/import_stapel/state0",
+			}),
+			Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "buildkit-docker",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/import_stapel/state0",
+			}),
+			Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-chroot",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/import_stapel/state0",
+			}),
+			Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-rootless",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/import_stapel/state0",
 			}),
 		)
 
-		DescribeTable("should fail when import source image SBOM is not found",
-			func(ctx SpecContext, testOpts importSbomTestOptions) {
+		DescribeTable("should fail when import image not found and store SBOMs",
+			func(ctx SpecContext, testOpts imageSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
 
-				contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
-				if err == contback.ErrRuntimeUnavailable {
-					Skip(err.Error())
-				} else if err != nil {
-					Fail(err.Error())
-				}
-
-				By("preparing only base image SBOM (not import source)")
-				registryRepo := suite_init.TestRepo(SuiteData.ProjectName)
-				contRuntime.PrepareBaseImageSbomStub(ctx, testOpts.BaseImageReference, registryRepo)
-
-				By("ensuring import source image SBOM does not exist")
-				contRuntime.RmImage(ctx, testOpts.ImportImageReference+"-sbom")
-
-				DeferCleanup(func(ctx SpecContext) {
-					contRuntime.RmImage(ctx, testOpts.BaseImageReference+"-sbom")
-				})
-
 				By("preparing test repo")
-				repoDirname := "repo_import_sbom_fail"
-				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+				repoDirName := "repo_import_sbom_success"
+				SuiteData.InitTestRepo(ctx, repoDirName, testOpts.FixtureRelPath)
 
-				By("building images (expecting failure)")
-				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+				By("building images")
+				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
 				out, err := werfProject.BuildWithErr(ctx, nil)
 
-				Expect(err).To(HaveOccurred(), "build should fail when import source image SBOM is not found")
+				Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
 				Expect(out).To(ContainSubstring("not found in container registry"))
 			},
-			Entry("stapel with missing import source SBOM using Vanilla Docker", importSbomTestOptions{
-				baseImageSbomTestOptions: baseImageSbomTestOptions{
-					setupEnvOptions: setupEnvOptions{
-						ContainerBackendMode:        "vanilla-docker",
-						WithLocalRepo:               true,
-						WithStagedDockerfileBuilder: false,
-					},
-					FixtureRelPath:     "sbom/import_stapel",
-					BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+			Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "vanilla-docker",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
 				},
-				ImportImageReference: "registry.werf.io/base/alpine:latest",
+				FixtureRelPath: "sbom/import_stapel/state1",
+			}),
+			Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "buildkit-docker",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/import_stapel/state1",
+			}),
+			Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-chroot",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/import_stapel/state1",
+			}),
+			Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-rootless",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/import_stapel/state1",
 			}),
 		)
 	})
 })
 
-type baseImageSbomTestOptions struct {
+type imageSbomTestOptions struct {
 	setupEnvOptions
-	FixtureRelPath     string
-	BaseImageReference string
-}
-
-type importSbomTestOptions struct {
-	baseImageSbomTestOptions
-	ImportImageReference string
+	FixtureRelPath string
 }

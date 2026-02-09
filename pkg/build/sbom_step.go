@@ -200,12 +200,12 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	}
 
 	if step.isLocalStorage {
-		return fmt.Errorf("SBOM for image %q not found locally (expected %q)", sourceImageName, sbomImageName)
+		return fmt.Errorf("SBOM for image %q not found locally", sourceImageName)
 	}
 
 	logboek.Context(ctx).Default().LogF("Pulling image SBOM from %s\n", sbomImageName)
 	if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
-		return fmt.Errorf("SBOM for image %q not found in container registry (expected %q): %w", sourceImageName, sbomImageName, err)
+		return fmt.Errorf("SBOM for image %q not found in container registry: %w", sourceImageName, err)
 	}
 
 	return nil

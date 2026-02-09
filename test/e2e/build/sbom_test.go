@@ -125,13 +125,14 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 	)
 
 	DescribeTable("should succeed when base image SBOM is scratch",
-		func(ctx SpecContext, testOpts imageSbomTestOptions) {
+		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
 			By("preparing test repo")
 			repoDirname := "repo_base_sbom"
-			SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+			fixtureRelPath := "sbom/state1"
+			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
@@ -141,48 +142,41 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			Expect(buildOut).To(ContainSubstring("SBOM processing"))
 			Expect(buildOut).To(ContainSubstring("image stapel"))
 		},
-		Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "vanilla-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state1",
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
-		Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "buildkit-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state1",
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
-		Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-chroot",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state1",
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
-		Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-rootless",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state1",
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
 	)
 
 	DescribeTable("should fail when base image SBOM is not found in registry",
-		func(ctx SpecContext, testOpts imageSbomTestOptions) {
+		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
 			By("preparing test repo")
 			repoDirname := "repo_base_sbom"
-			SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
+			fixtureRelPath := "sbom/state2"
+			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
 
 			By("building images (expecting failure)")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
@@ -191,37 +185,29 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
 			Expect(out).To(ContainSubstring("not found in container registry"))
 		},
-		Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "vanilla-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state2",
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
-		Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "buildkit-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state2",
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
-		Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-chroot",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state2",
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
-		Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-rootless",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/state2",
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		},
 		}),
 	)
 
@@ -327,8 +313,3 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}),
 	)
 })
-
-type imageSbomTestOptions struct {
-	setupEnvOptions
-	FixtureRelPath string
-}

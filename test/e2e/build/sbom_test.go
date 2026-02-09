@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -289,3 +290,181 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}),
 	)
 })
+
+var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge"), func() {
+	DescribeTable("should merge base image SBOM with fragment",
+		func(ctx SpecContext, testOpts simpleTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("preparing test repo")
+			repoDirname := "repo_merge_base_fragment"
+			fixtureRelPath := "sbom/merge_base_fragment"
+			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
+
+			By("building images")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+			reportProject := report.NewProjectWithReport(werfProject)
+			buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_merge_base_fragment.json"), nil)
+
+			Expect(buildOut).To(ContainSubstring("SBOM processing"))
+
+			By("extracting and verifying merged SBOM")
+			for imgName, reportRecord := range buildReport.Images {
+				if imgName != "app" {
+					continue
+				}
+
+				bom := extractBOMFromSbomImage(ctx, contRuntime, reportRecord.DockerImageName)
+
+				By("verifying SBOM structure")
+				Expect(bom.BOMFormat).To(Equal("CycloneDX"))
+				Expect(bom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+				Expect(bom.Version).To(Equal(1))
+				Expect(bom.SerialNumber).To(HavePrefix("urn:uuid:"))
+				Expect(bom.Components).NotTo(BeNil())
+
+				By("verifying fragment component is present")
+				components := *bom.Components
+				Expect(findComponentByName(components, "custom-component")).NotTo(BeNil(),
+					"fragment component 'custom-component' should be present in merged SBOM")
+
+				By("verifying components count (fragment only, scratch has no components)")
+				Expect(len(components)).To(BeNumerically(">=", 1),
+					"merged SBOM should contain at least fragment component")
+			}
+		},
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+	)
+
+	DescribeTable("should merge all SBOM sources (base + import + fragment)",
+		func(ctx SpecContext, testOpts simpleTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("preparing test repo")
+			repoDirname := "repo_merge_full"
+			fixtureRelPath := "sbom/merge_full"
+			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
+
+			By("building images")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+			_ = werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{
+					ExtraArgs: []string{"builder"},
+				},
+			})
+
+			reportProject := report.NewProjectWithReport(werfProject)
+			buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_merge_full.json"), nil)
+
+			Expect(buildOut).To(ContainSubstring("SBOM processing"))
+
+			By("extracting and verifying merged SBOM for app image")
+			for imgName, reportRecord := range buildReport.Images {
+				if imgName != "app" {
+					continue
+				}
+
+				bom := extractBOMFromSbomImage(ctx, contRuntime, reportRecord.DockerImageName)
+
+				By("verifying SBOM structure")
+				Expect(bom.BOMFormat).To(Equal("CycloneDX"))
+				Expect(bom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+				Expect(bom.Components).NotTo(BeNil())
+
+				components := *bom.Components
+
+				By("verifying app custom component from fragment is present")
+				Expect(findComponentByName(components, "app-custom")).NotTo(BeNil(),
+					"app-custom component from fragment should be present")
+
+				By("verifying builder custom component from import is present")
+				Expect(findComponentByName(components, "builder-custom")).NotTo(BeNil(),
+					"builder-custom component from imported image should be present")
+
+				By("verifying merged SBOM contains components from import and fragment")
+				Expect(len(components)).To(BeNumerically(">=", 2),
+					"merged SBOM should contain components from import and fragment")
+
+				By("verifying metadata is present")
+				Expect(bom.Metadata).NotTo(BeNil())
+			}
+		},
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+	)
+})
+
+func extractBOMFromSbomImage(ctx SpecContext, contRuntime contback.ContainerBackend, dockerImageName string) *cdx.BOM {
+	sbomImageName := sbom.ImageName(dockerImageName)
+
+	opener := func() (io.ReadCloser, error) {
+		return contRuntime.SaveImageToStream(ctx, sbomImageName), nil
+	}
+
+	bom, err := sbom.ExtractBOMFromImage(opener)
+	Expect(err).NotTo(HaveOccurred(), "failed to extract BOM from SBOM image")
+
+	return bom
+}
+
+func findComponentByName(components []cdx.Component, name string) *cdx.Component {
+	for i := range components {
+		if components[i].Name == name {
+			return &components[i]
+		}
+	}
+	return nil
+}

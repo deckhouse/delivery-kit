@@ -11,6 +11,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
+	"github.com/werf/werf/v2/pkg/sbom"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -179,7 +180,6 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						return fmt.Errorf("unable to get last non empty stage image info for base image")
 					}
 				}
-				_ = baseImageSbom // TODO: pass to Merge
 
 				var importImageSboms []*cdx.BOM
 				for _, importInfo := range img.GetImportImagesInfo() {
@@ -203,9 +203,19 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						return fmt.Errorf("unable to get last non empty stage image info for import image")
 					}
 				}
-				_ = importImageSboms // TODO: pass to Merge
 
-				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
+				var fragmentBOM *cdx.BOM
+				if imgSbom := img.Sbom(); imgSbom != nil {
+					fragmentBOM = imgSbom.Document
+				}
+
+				mergeOpts := sbom.MergeOpts{
+					BaseBOM:     baseImageSbom,
+					ImportBOMs:  importImageSboms,
+					FragmentBOM: fragmentBOM,
+				}
+
+				if err = phase.sbomStep.ConvergeWithMerge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
 				}
 			}
@@ -248,7 +258,6 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						}
 					}
 				}
-				_ = baseImageSbom // TODO: pass to Merge
 
 				var importImageSboms []*cdx.BOM
 				if len(img.Images) > 0 {
@@ -272,9 +281,21 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						}
 					}
 				}
-				_ = importImageSboms // TODO: pass to Merge
 
-				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
+				var fragmentBOM *cdx.BOM
+				if len(img.Images) > 0 {
+					if imgSbom := img.Images[0].Sbom(); imgSbom != nil {
+						fragmentBOM = imgSbom.Document
+					}
+				}
+
+				mergeOpts := sbom.MergeOpts{
+					BaseBOM:     baseImageSbom,
+					ImportBOMs:  importImageSboms,
+					FragmentBOM: fragmentBOM,
+				}
+
+				if err = phase.sbomStep.ConvergeWithMerge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
 				}
 			}

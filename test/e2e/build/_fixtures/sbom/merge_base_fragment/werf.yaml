@@ -1,0 +1,19 @@
+project: werf-test-e2e-build-sbom-merge-base-fragment
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.werf.io/werf/scratch
+sbom:
+  fragment: |
+    components:
+      - name: custom-component
+        type: application
+        version: 1.0.0
+        purl: pkg:generic/custom-component@1.0.0
+
+
+

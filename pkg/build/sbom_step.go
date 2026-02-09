@@ -104,6 +104,120 @@ func (step *sbomStep) Converge(ctx context.Context, werfImgName string, stageDes
 	})
 }
 
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) error {
+	sourceImageName := stageDesc.Info.Name
+	sbomImageName := sbom.ImageName(sourceImageName)
+	scanOpts.Commands[0].SourcePath = sourceImageName
+
+	sbomBaseImgLabels := step.prepareSbomBaseLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
+	sbomImgLabels := step.prepareSbomLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
+
+	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
+		_, ok, err := step.findSbomImageLocally(ctx, sbomBaseImgLabels, sbomImageName)
+		if err != nil {
+			return err
+		}
+		logboek.Context(ctx).Debug().LogF("-- sbom_phase.ConvergeWithMerge: sbom image is found locally=%t\n", ok)
+
+		if step.isLocalStorage {
+			if ok {
+				logboek.Context(ctx).Default().LogLn("Use previously generated SBOM from local backend storage")
+				return nil
+			}
+		} else {
+			if ok {
+				if _, err = step.stagesStorage.PushIfNotExistSbomImage(ctx, sbomImageName); err != nil {
+					return fmt.Errorf("unable to push sbom image: %q: %w", sbomImageName, err)
+				}
+				return nil
+			} else {
+				if pulled, err := step.stagesStorage.PullIfExistSbomImage(ctx, sbomImageName); err != nil {
+					return fmt.Errorf("unable to pull sbom image: %q: %w", sbomImageName, err)
+				} else if pulled {
+					logboek.Context(ctx).Default().LogLn("Use previously generated SBOM from container registry")
+					return nil
+				}
+			}
+		}
+
+		if !step.isLocalStorage {
+			if err := step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{}); err != nil {
+				return fmt.Errorf("unable to pull %q: %w", sourceImageName, err)
+			}
+		}
+
+		logboek.Context(ctx).Default().LogF("Scanning image %s\n", werfImgName)
+		tmpImgId, err := step.containerBackend.GenerateSBOM(ctx, scanOpts, nil)
+		if err != nil {
+			return fmt.Errorf("unable to scan image: %w", err)
+		}
+
+		targetBOM, err := step.extractBOM(ctx, tmpImgId)
+		if rmErr := step.containerBackend.Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}); rmErr != nil {
+			logboek.Context(ctx).Warn().LogF("unable to remove temp image %q: %s\n", tmpImgId, rmErr)
+		}
+		if err != nil {
+			return fmt.Errorf("unable to extract scanned BOM: %w", err)
+		}
+
+		resultBOM := targetBOM
+		if !mergeOpts.IsEmpty() {
+			resultBOM = sbom.MergeBOMs(targetBOM, mergeOpts)
+		}
+
+		sbomImgId, err := step.buildSbomImage(ctx, resultBOM, sbomImgLabels.ToStringSlice())
+		if err != nil {
+			return err
+		}
+
+		if err = step.containerBackend.Tag(ctx, sbomImgId, sbomImageName, container_backend.TagOpts{}); err != nil {
+			return fmt.Errorf("unable to tag sbom image: %w", err)
+		}
+
+		if !step.isLocalStorage {
+			if _, err := step.stagesStorage.PushIfNotExistSbomImage(ctx, sbomImageName); err != nil {
+				return fmt.Errorf("unable to push sbom image: %q: %w", sbomImageName, err)
+			}
+		}
+
+		return nil
+	})
+}
+
+func (step *sbomStep) buildSbomImage(ctx context.Context, bom *cdx.BOM, labels []string) (string, error) {
+	bc, err := sbom.PrepareBuildContext(bom)
+	if err != nil {
+		return "", err
+	}
+	defer bc.Cleanup()
+
+	archive := container_backend.NewSbomContextArchiver(bc.Dir)
+	if err := archive.Create(ctx, container_backend.BuildContextArchiveCreateOptions{
+		DockerfileRelToContextPath: "Dockerfile",
+		ContextAddFiles:            bc.Files,
+	}); err != nil {
+		return "", fmt.Errorf("unable to create build context: %w", err)
+	}
+
+	imgId, err := step.containerBackend.BuildDockerfile(ctx, []byte(bc.Dockerfile), container_backend.BuildDockerfileOpts{
+		DockerfileCtxRelPath: "Dockerfile",
+		BuildContextArchive:  archive,
+		Labels:               labels,
+	})
+	if err != nil {
+		return "", fmt.Errorf("unable to build SBOM image: %w", err)
+	}
+
+	return imgId, nil
+}
+
+func (step *sbomStep) extractBOM(ctx context.Context, imageId string) (*cdx.BOM, error) {
+	opener := func() (io.ReadCloser, error) {
+		return step.containerBackend.SaveImageToStream(ctx, imageId)
+	}
+	return sbom.ExtractBOMFromImage(opener)
+}
+
 func (step *sbomStep) prepareSbomBaseLabels(_ context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions) label.LabelList {
 	return label.LabelList{
 		label.NewLabel(image.WerfLabel, srcImgLabels[image.WerfLabel]),
@@ -115,6 +229,26 @@ func (step *sbomStep) prepareSbomBaseLabels(_ context.Context, srcImgLabels map[
 
 func (step *sbomStep) prepareSbomLabels(ctx context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions) label.LabelList {
 	list := step.prepareSbomBaseLabels(ctx, srcImgLabels, scanOpts)
+	list.Add(label.NewLabel(image.WerfVersionLabel, srcImgLabels[image.WerfVersionLabel]))
+	return list
+}
+
+func (step *sbomStep) prepareSbomBaseLabelsWithMerge(_ context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) label.LabelList {
+	checksum := scanOpts.Checksum()
+	if mc := mergeOpts.Checksum(); mc != "" {
+		checksum += "-" + mc
+	}
+
+	return label.LabelList{
+		label.NewLabel(image.WerfLabel, srcImgLabels[image.WerfLabel]),
+		label.NewLabel(image.WerfProjectRepoCommitLabel, srcImgLabels[image.WerfProjectRepoCommitLabel]),
+		label.NewLabel(image.WerfStageContentDigestLabel, srcImgLabels[image.WerfStageContentDigestLabel]),
+		label.NewLabel(image.WerfSbomLabel, checksum),
+	}
+}
+
+func (step *sbomStep) prepareSbomLabelsWithMerge(ctx context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) label.LabelList {
+	list := step.prepareSbomBaseLabelsWithMerge(ctx, srcImgLabels, scanOpts, mergeOpts)
 	list.Add(label.NewLabel(image.WerfVersionLabel, srcImgLabels[image.WerfVersionLabel]))
 	return list
 }
@@ -140,9 +274,6 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 	return img, ok, nil
 }
 
-// GetImageBOM returns the BOM for a image.
-// For scratch images, returns an empty BOM.
-// For other images, pulls the SBOM from storage and extracts the BOM.
 func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
 	if sbom.IsScratchImage(imageRef) {
 		return sbom.NewEmptyBOM(), nil

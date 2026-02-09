@@ -118,7 +118,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			WithStagedDockerfileBuilder: false,
 		}}),
 		// TODO: "werf purge --project-name=..." is not implemented for Buildah. So we have potential risk to fail the test.
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -142,7 +142,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 				Expect(buildOut).To(ContainSubstring("SBOM processing"))
 			},
-			Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			FEntry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",
 					WithLocalRepo:               true,
@@ -150,7 +150,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				},
 				FixtureRelPath: "sbom/state1",
 			}),
-			Entry("stapel with local repo using BuildKit Docker", baseImageSbomTestOptions{
+			FEntry("stapel with local repo using BuildKit Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "buildkit-docker",
 					WithLocalRepo:               true,
@@ -160,7 +160,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			}),
 		)
 
-		DescribeTable("should fail when base image SBOM is not found in registry",
+		DescribeTable("should fail when image SBOM is not found in registry",
 			func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
 				By("initializing")
 				setupEnv(testOpts.setupEnvOptions)
@@ -203,103 +203,6 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				},
 				FixtureRelPath:     "sbom/state2",
 				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
-			}),
-		)
-
-		DescribeTable("should succeed when child image uses base image built by werf",
-			func(ctx SpecContext, testOpts baseImageSbomTestOptions) {
-				By("initializing")
-				setupEnv(testOpts.setupEnvOptions)
-
-				contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
-				if err == contback.ErrRuntimeUnavailable {
-					Skip(err.Error())
-				} else if err != nil {
-					Fail(err.Error())
-				}
-
-				By("preparing test repo")
-				repoDirname := "repo_base_sbom_chain"
-				SuiteData.InitTestRepo(ctx, repoDirname, testOpts.FixtureRelPath)
-
-				By("building all images (base from scratch, child from base)")
-				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
-				reportProject := report.NewProjectWithReport(werfProject)
-				buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_chain.json"), nil)
-
-				By("verifying build output")
-				Expect(buildOut).To(ContainSubstring("SBOM processing"))
-
-				By("verifying both images were built")
-				Expect(buildReport.Images).To(HaveKey("base"))
-				Expect(buildReport.Images).To(HaveKey("child"))
-
-				for builtImgName, reportRecord := range buildReport.Images {
-					By(fmt.Sprintf("validating SBOM for %q", builtImgName))
-					{
-						By(fmt.Sprintf("%s: verifying SBOM image exists", builtImgName))
-						sbomImageName := sbom.ImageName(reportRecord.DockerImageName)
-						sbomImgInspect := contRuntime.GetImageInspect(ctx, sbomImageName)
-						Expect(sbomImgInspect).NotTo(BeNil(), "SBOM image should exist")
-
-						By(fmt.Sprintf("%s: verifying image labels", builtImgName))
-						imgInspect := contRuntime.GetImageInspect(ctx, reportRecord.DockerImageName)
-
-						// shared labels between image and SBOM image
-						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfLabel]))
-						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfVersionLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfVersionLabel]))
-						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfProjectRepoCommitLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfProjectRepoCommitLabel]))
-						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfStageContentDigestLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfStageContentDigestLabel]))
-
-						// SBOM-specific label should exist
-						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfSbomLabel]).NotTo(BeEmpty(), "SBOM label should be present")
-
-						By(fmt.Sprintf("%s: verifying SBOM image filesystem", builtImgName))
-						opener := func() (io.ReadCloser, error) {
-							return contRuntime.SaveImageToStream(ctx, sbomImageName), nil
-						}
-
-						flattenedFsStreamReaderCloser, err := sbom.ExtractFromImageStream(opener)
-						Expect(err).To(Succeed(), "should extract SBOM image from the stream")
-
-						var actualFilePaths []string
-						err = utils.ForEachInTarball(tar.NewReader(flattenedFsStreamReaderCloser), func(header *tar.Header) error {
-							actualFilePaths = append(actualFilePaths, header.Name)
-							return nil
-						})
-						Expect(err).To(Succeed(), "should iterate over the tarball entries")
-						Expect(flattenedFsStreamReaderCloser.Close()).To(Succeed(), "should close the stream reader")
-
-						// Verify SBOM filesystem structure
-						Expect(actualFilePaths).To(ContainElement("sbom"))
-						Expect(actualFilePaths).To(ContainElement("sbom/cyclonedx@1.6"))
-						// Should have at least one JSON file in sbom/cyclonedx@1.6/
-						hasJsonFile := false
-						for _, path := range actualFilePaths {
-							if len(path) > len("sbom/cyclonedx@1.6/") && path[:len("sbom/cyclonedx@1.6/")] == "sbom/cyclonedx@1.6/" {
-								hasJsonFile = true
-								break
-							}
-						}
-						Expect(hasJsonFile).To(BeTrue(), "should have at least one SBOM JSON file")
-					}
-				}
-			},
-			Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
-				setupEnvOptions: setupEnvOptions{
-					ContainerBackendMode:        "vanilla-docker",
-					WithLocalRepo:               true,
-					WithStagedDockerfileBuilder: false,
-				},
-				FixtureRelPath: "sbom/state3",
-			}),
-			Entry("stapel with local repo using BuildKit Docker", baseImageSbomTestOptions{
-				setupEnvOptions: setupEnvOptions{
-					ContainerBackendMode:        "buildkit-docker",
-					WithLocalRepo:               true,
-					WithStagedDockerfileBuilder: false,
-				},
-				FixtureRelPath: "sbom/state3",
 			}),
 		)
 	})

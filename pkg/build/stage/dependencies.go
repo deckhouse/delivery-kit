@@ -74,16 +74,6 @@ type DependenciesStage struct {
 	dependencies []*config.Dependency
 }
 
-func (s *DependenciesStage) GetExternalImports() []*config.Import {
-	var result []*config.Import
-	for _, imp := range s.imports {
-		if imp.ExternalImage {
-			result = append(result, imp)
-		}
-	}
-	return result
-}
-
 func (s *DependenciesStage) GetDependencies(ctx context.Context, c Conveyor, cb container_backend.ContainerBackend, _, _ *StageImage, _ container_backend.BuildContextArchiver) (string, error) {
 	var args []string
 

@@ -141,7 +141,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 				Expect(buildOut).To(ContainSubstring("SBOM processing"))
 			},
-			Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			Entry("with local repo using Vanilla Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",
 					WithLocalRepo:               true,
@@ -149,9 +149,25 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				},
 				FixtureRelPath: "sbom/state1",
 			}),
-			Entry("stapel with local repo using BuildKit Docker", baseImageSbomTestOptions{
+			Entry("with local repo using BuildKit Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "buildkit-docker",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/state1",
+			}),
+			Entry("with local repo using Native Buildah with chroot isolation", baseImageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-chroot",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath: "sbom/state1",
+			}),
+			Entry("with local repo using Native Buildah with rootless isolation", baseImageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-rootless",
 					WithLocalRepo:               true,
 					WithStagedDockerfileBuilder: false,
 				},
@@ -175,7 +191,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
 				Expect(out).To(ContainSubstring("not found in container registry"))
 			},
-			Entry("stapel with local repo using Vanilla Docker", baseImageSbomTestOptions{
+			Entry("with local repo using Vanilla Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "vanilla-docker",
 					WithLocalRepo:               true,
@@ -184,9 +200,27 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 				FixtureRelPath:     "sbom/state2",
 				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
 			}),
-			Entry("stapel with local repo using BuildKit Docker", baseImageSbomTestOptions{
+			Entry("with local repo using BuildKit Docker", baseImageSbomTestOptions{
 				setupEnvOptions: setupEnvOptions{
 					ContainerBackendMode:        "buildkit-docker",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath:     "sbom/state2",
+				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+			}),
+			Entry("with local repo using Native Buildah with chroot isolation", baseImageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-chroot",
+					WithLocalRepo:               true,
+					WithStagedDockerfileBuilder: false,
+				},
+				FixtureRelPath:     "sbom/state2",
+				BaseImageReference: "registry.werf.io/base/ubuntu:22.04",
+			}),
+			Entry("with local repo using Native Buildah with rootless isolation", baseImageSbomTestOptions{
+				setupEnvOptions: setupEnvOptions{
+					ContainerBackendMode:        "native-rootless",
 					WithLocalRepo:               true,
 					WithStagedDockerfileBuilder: false,
 				},

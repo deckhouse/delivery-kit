@@ -111,7 +111,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}),
 		// TODO (zaytsev): it does not work currently
 		// https://github.com/werf/werf/actions/runs/15076648086/job/42385521980?pr=6860#step:11:150
-		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -146,26 +146,22 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			ContainerBackendMode:        "vanilla-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "buildkit-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 	)
 
 	DescribeTable("should fail when base image SBOM is not found in registry",
@@ -189,36 +185,33 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			ContainerBackendMode:        "vanilla-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "buildkit-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 	)
 
 	DescribeTable("should succeed and store SBOMs",
-		func(ctx SpecContext, testOpts imageSbomTestOptions) {
+		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
 			By("preparing test repo")
-			repoDirName := "repo_import_sbom_success"
-			SuiteData.InitTestRepo(ctx, repoDirName, testOpts.FixtureRelPath)
+			repoDirName := "repo_import_sbom"
+			fixtureRelPath := "sbom/import_stapel/state0"
+			SuiteData.InitTestRepo(ctx, repoDirName, fixtureRelPath)
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
@@ -229,48 +222,37 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			Expect(buildOut).To(ContainSubstring("image stapel-scratch-based"))
 			Expect(buildOut).To(ContainSubstring("image stapel"))
 		},
-		FEntry("with local repo using Vanilla Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "vanilla-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state0",
-		}),
-		Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "buildkit-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state0",
-		}),
-		Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-chroot",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state0",
-		}),
-		Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-rootless",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state0",
-		}),
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
 	)
 
 	DescribeTable("should fail when import image not found and store SBOMs",
-		func(ctx SpecContext, testOpts imageSbomTestOptions) {
+		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
 			By("preparing test repo")
-			repoDirName := "repo_import_sbom_success"
-			SuiteData.InitTestRepo(ctx, repoDirName, testOpts.FixtureRelPath)
+			repoDirName := "repo_import_sbom"
+			fixtureRelPath := "sbom/import_stapel/state0"
+			SuiteData.InitTestRepo(ctx, repoDirName, fixtureRelPath)
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
@@ -279,37 +261,25 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
 			Expect(out).To(ContainSubstring("not found in container registry"))
 		},
-		Entry("with local repo using Vanilla Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "vanilla-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state1",
-		}),
-		Entry("with local repo using BuildKit Docker", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "buildkit-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state1",
-		}),
-		Entry("with local repo using Native Buildah with chroot isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-chroot",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state1",
-		}),
-		Entry("with local repo using Native Buildah with rootless isolation", imageSbomTestOptions{
-			setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "native-rootless",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			},
-			FixtureRelPath: "sbom/import_stapel/state1",
-		}),
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
 	)
 })

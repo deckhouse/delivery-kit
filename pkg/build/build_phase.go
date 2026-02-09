@@ -175,6 +175,8 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						if err != nil {
 							return fmt.Errorf("unable to get base image sbom: %w", err)
 						}
+					} else {
+						return fmt.Errorf("unable to get last non empty stage image info for base image")
 					}
 				}
 				_ = baseImageSbom // TODO: pass to Merge
@@ -197,6 +199,8 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 							return fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
 						}
 						importImageSboms = append(importImageSboms, importImageSbom)
+					} else {
+						return fmt.Errorf("unable to get last non empty stage image info for import image")
 					}
 				}
 				_ = importImageSboms // TODO: pass to Merge

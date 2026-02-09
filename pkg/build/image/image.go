@@ -225,8 +225,8 @@ func (i *Image) GetImportImagesInfo() []ImportImageInfo {
 	var result []ImportImageInfo
 
 	for _, stg := range i.GetStages() {
-		if depStage, ok := stg.(interface{ GetExternalImports() []*config.Import }); ok {
-			for _, imp := range depStage.GetExternalImports() {
+		if depStage, ok := stg.(interface{ GetImports() []*config.Import }); ok {
+			for _, imp := range depStage.GetImports() {
 				result = append(result, ImportImageInfo{
 					ImageName:     imp.ImageName,
 					ExternalImage: imp.ExternalImage,

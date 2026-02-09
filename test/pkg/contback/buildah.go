@@ -60,12 +60,6 @@ func (r *NativeBuildahBackend) Rm(ctx context.Context, containerName string) {
 	utils.RunSucceedCommand(ctx, "/", "buildah", args...)
 }
 
-func (r *NativeBuildahBackend) RmImage(ctx context.Context, image string) {
-	args := r.CommonCliArgs
-	args = append(args, "rmi", "-f", image)
-	_, _ = utils.RunCommand(ctx, "/", "buildah", args...)
-}
-
 func (r *NativeBuildahBackend) Pull(ctx context.Context, image string) {
 	args := r.CommonCliArgs
 	args = append(args, "pull", "--tls-verify=false", image)

@@ -8,7 +8,7 @@ build:
 image: stapel-scratch-based
 from: registry.werf.io/werf/scratch
 git:
-  - add: /state0/file
+  - add: /file
     to: /state0/file
 sbom:
   fragment: |

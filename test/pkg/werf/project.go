@@ -40,7 +40,6 @@ func (p *Project) Build(ctx context.Context, opts *BuildOptions) (combinedOut st
 	return string(outb)
 }
 
-// BuildWithErr runs werf build and returns output with error (does not fail on non-zero exit)
 func (p *Project) BuildWithErr(ctx context.Context, opts *BuildOptions) (combinedOut string, err error) {
 	if opts == nil {
 		opts = &BuildOptions{}

@@ -204,7 +204,8 @@ var _ = Describe("SbomStep", func() {
 				backend *mock.MockContainerBackend,
 				baseImageInfo *image.Info,
 			) {
-				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, baseImageInfo.Labels[image.WerfStageContentDigestLabel], 1747987463184)
+				_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
+				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, tag)
 				backend.EXPECT().GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, sbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
 			},
@@ -279,7 +280,8 @@ var _ = Describe("SbomStep", func() {
 				backend *mock.MockContainerBackend,
 				baseImageInfo *image.Info,
 			) {
-				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, baseImageInfo.Labels[image.WerfStageContentDigestLabel], 1747987463184)
+				_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
+				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, tag)
 				backend.EXPECT().GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 			},
 		),

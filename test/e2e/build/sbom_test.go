@@ -215,6 +215,12 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
+			_ = werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{
+					ExtraArgs: []string{"stapel-scratch-based"},
+				},
+			})
+
 			reportProject := report.NewProjectWithReport(werfProject)
 			buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_import_sbom.json"), nil)
 

@@ -146,26 +146,22 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			ContainerBackendMode:        "vanilla-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "buildkit-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 	)
 
 	DescribeTable("should fail when base image SBOM is not found in registry",
@@ -189,25 +185,21 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			ContainerBackendMode:        "vanilla-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "buildkit-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
-		},
-		}),
+		}}),
 	)
 })

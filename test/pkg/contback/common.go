@@ -37,14 +37,11 @@ type ContainerBackend interface {
 	Pull(ctx context.Context, image string)
 	Exec(ctx context.Context, containerName string, cmds ...string)
 	Rm(ctx context.Context, containerName string)
-	RmImage(ctx context.Context, image string)
 
 	RunSleepingContainer(ctx context.Context, containerName, image string)
 	ExpectCmdsToSucceed(ctx context.Context, image string, cmds ...string)
 	GetImageInspect(ctx context.Context, image string) DockerImageInspect
 	SaveImageToStream(ctx context.Context, image string) io.ReadCloser
-
-	PrepareBaseImageSbomStub(ctx context.Context, baseImageReference, registryRepo string)
 }
 
 type DockerImageInspect struct {

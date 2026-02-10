@@ -69,7 +69,7 @@ func createEmptyBOMStream() io.ReadCloser {
 	// Create layer directory and write layer.tar
 	tw.WriteHeader(&tar.Header{
 		Name:     layerDigestHex + "/",
-		Mode:     0755,
+		Mode:     0o755,
 		Typeflag: tar.TypeDir,
 	})
 	writeFileToTar(tw, layerFileName, layerContent)
@@ -85,14 +85,14 @@ func createLayerTarGz() []byte {
 	// Create sbom directory
 	tw.WriteHeader(&tar.Header{
 		Name:     "sbom/",
-		Mode:     0755,
+		Mode:     0o755,
 		Typeflag: tar.TypeDir,
 	})
 
 	// Create sbom/cyclonedx@1.6 directory
 	tw.WriteHeader(&tar.Header{
 		Name:     "sbom/cyclonedx@1.6/",
-		Mode:     0755,
+		Mode:     0o755,
 		Typeflag: tar.TypeDir,
 	})
 
@@ -108,7 +108,7 @@ func createLayerTarGz() []byte {
 func writeFileToTar(tw *tar.Writer, name string, content []byte) {
 	tw.WriteHeader(&tar.Header{
 		Name: name,
-		Mode: 0644,
+		Mode: 0o644,
 		Size: int64(len(content)),
 	})
 	tw.Write(content)

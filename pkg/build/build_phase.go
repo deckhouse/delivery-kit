@@ -170,10 +170,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbom *cdx.BOM
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					if baseImageInfo := img.GetLastNonEmptyStageImageInfo(); baseImageInfo != nil {
-						baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), baseImageInfo)
-						if err != nil {
-							return fmt.Errorf("unable to get base image with ref %s SBOM: %w", img.GetBaseImageReference(), err)
+					if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
+						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
+							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), stageDesc.Info)
+							if err != nil {
+								return fmt.Errorf("unable to get base image with ref %s SBOM: %w", img.GetBaseImageReference(), err)
+							}
 						}
 					} else {
 						return fmt.Errorf("unable to get last non empty stage image info for base image with ref %s", img.GetBaseImageReference())
@@ -245,10 +247,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbom *cdx.BOM
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					if baseImageInfo := img.Images[0].GetLastNonEmptyStageImageInfo(); baseImageInfo != nil {
-						baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), baseImageInfo)
-						if err != nil {
-							return fmt.Errorf("unable to get base image sbom: %w", err)
+					if baseStageImage := img.Images[0].GetBaseStageImage(); baseStageImage != nil {
+						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
+							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), stageDesc.Info)
+							if err != nil {
+								return fmt.Errorf("unable to get base image sbom: %w", err)
+							}
 						}
 					}
 				}

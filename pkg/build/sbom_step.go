@@ -187,7 +187,7 @@ func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, e
 	}
 
 	return "", fmt.Errorf(
-		"unable to resolve SBOM name for image %q: no werf labels and no RepoDigest available",
+		"unable to resolve SBOM name for image %q: required werf stage content digest label is missing",
 		baseImageInfo.Name,
 	)
 }

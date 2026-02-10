@@ -170,13 +170,11 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbom *cdx.BOM
 
 				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					if lastStage := img.GetLastNonEmptyStage(); lastStage != nil {
-						if stageImage := lastStage.GetStageImage(); stageImage != nil {
-							if stageDesc := stageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
-								baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), stageDesc.Info)
-								if err != nil {
-									return fmt.Errorf("unable to get base image sbom: %w", err)
-								}
+					if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
+						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
+							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), stageDesc.Info)
+							if err != nil {
+								return fmt.Errorf("unable to get base image sbom: %w", err)
 							}
 						}
 					}
@@ -219,13 +217,11 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				var baseImageSbom *cdx.BOM
 
 				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					if lastStage := img.Images[0].GetLastNonEmptyStage(); lastStage != nil {
-						if stageImage := lastStage.GetStageImage(); stageImage != nil {
-							if stageDesc := stageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
-								baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), stageDesc.Info)
-								if err != nil {
-									return fmt.Errorf("unable to get base image sbom: %w", err)
-								}
+					if baseStageImage := img.Images[0].GetBaseStageImage(); baseStageImage != nil {
+						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
+							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), stageDesc.Info)
+							if err != nil {
+								return fmt.Errorf("unable to get base image sbom: %w", err)
 							}
 						}
 					}

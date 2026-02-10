@@ -1,6 +1,7 @@
 package sbom
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -74,5 +75,9 @@ func BOMChecksum(bom *cdx.BOM) string {
 }
 
 func ToJSON(bom *cdx.BOM) ([]byte, error) {
-	return json.Marshal(bom)
+	var buf bytes.Buffer
+	if err := cdx.NewBOMEncoder(&buf, cdx.BOMFileFormatJSON).EncodeVersion(bom, cdx.SpecVersion1_6); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

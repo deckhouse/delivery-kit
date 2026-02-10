@@ -80,7 +80,9 @@ func (step *sbomStep) Converge(ctx context.Context, werfImgName string, stageDes
 
 		// SBOM scanning is local operation. Ensure source image exist locally.
 		if !step.isLocalStorage {
-			if err := step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{}); err != nil {
+			if err := logboek.Context(ctx).Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
+				return step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{})
+			}); err != nil {
 				return fmt.Errorf("unable to pull %q: %w", sourceImageName, err)
 			}
 		}
@@ -141,7 +143,9 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if !step.isLocalStorage {
-			if err := step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{}); err != nil {
+			if err := logboek.Context(ctx).Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
+				return step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{})
+			}); err != nil {
 				return fmt.Errorf("unable to pull %q: %w", sourceImageName, err)
 			}
 		}
@@ -335,7 +339,9 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	}
 
 	logboek.Context(ctx).Default().LogF("Pulling image SBOM from %s\n", sbomImageName)
-	if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
+	if err := logboek.Context(ctx).Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
+		return step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{})
+	}); err != nil {
 		return fmt.Errorf("SBOM for image %q not found in container registry: %w", sourceImageName, err)
 	}
 

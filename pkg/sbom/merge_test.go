@@ -265,6 +265,12 @@ func TestToJSON_SerializesBOM(t *testing.T) {
 	if len(data) == 0 {
 		t.Error("expected non-empty JSON output")
 	}
+
+	// Verify that $schema field is present (required by CycloneDX JSON format)
+	jsonStr := string(data)
+	if !strings.Contains(jsonStr, `"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`) {
+		t.Error("expected $schema field in JSON output")
+	}
 }
 
 func TestMergeOpts_IsEmpty(t *testing.T) {

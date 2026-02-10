@@ -1,8 +1,14 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -19,11 +25,101 @@ import (
 	"github.com/werf/werf/v2/test/mock"
 )
 
+// createEmptyBOMStream creates a mock tar stream containing a minimal valid Docker image structure
+// that contains an SBOM in the expected format.
+func createEmptyBOMStream() io.ReadCloser {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	// Create the layer content (tar.gz with sbom files)
+	layerContent := createLayerTarGz()
+	layerDigest := sha256.Sum256(layerContent)
+	layerDigestHex := hex.EncodeToString(layerDigest[:])
+
+	// Create config.json
+	configJSON := fmt.Sprintf(`{
+		"architecture": "amd64",
+		"os": "linux",
+		"rootfs": {
+			"type": "layers",
+			"diff_ids": ["sha256:%s"]
+		}
+	}`, layerDigestHex)
+	configDigest := sha256.Sum256([]byte(configJSON))
+	configDigestHex := hex.EncodeToString(configDigest[:])
+	configFileName := configDigestHex + ".json"
+
+	// Create manifest.json
+	layerFileName := layerDigestHex + "/layer.tar"
+	manifest := []map[string]interface{}{
+		{
+			"Config":   configFileName,
+			"RepoTags": []string{"test:latest"},
+			"Layers":   []string{layerFileName},
+		},
+	}
+	manifestJSON, _ := json.Marshal(manifest)
+
+	// Write manifest.json
+	writeFileToTar(tw, "manifest.json", manifestJSON)
+
+	// Write config file
+	writeFileToTar(tw, configFileName, []byte(configJSON))
+
+	// Create layer directory and write layer.tar
+	tw.WriteHeader(&tar.Header{
+		Name:     layerDigestHex + "/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	})
+	writeFileToTar(tw, layerFileName, layerContent)
+
+	tw.Close()
+	return io.NopCloser(&buf)
+}
+
+func createLayerTarGz() []byte {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	// Create sbom directory
+	tw.WriteHeader(&tar.Header{
+		Name:     "sbom/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	})
+
+	// Create sbom/cyclonedx@1.6 directory
+	tw.WriteHeader(&tar.Header{
+		Name:     "sbom/cyclonedx@1.6/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	})
+
+	// Create empty BOM JSON file
+	bomJSON := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}`)
+	bomFileName := "sbom/cyclonedx@1.6/70ee6b0600f471718988bc123475a625ecd4a5763059c62802ae6280e65f5623.json"
+	writeFileToTar(tw, bomFileName, bomJSON)
+
+	tw.Close()
+	return buf.Bytes()
+}
+
+func writeFileToTar(tw *tar.Writer, name string, content []byte) {
+	tw.WriteHeader(&tar.Header{
+		Name: name,
+		Mode: 0644,
+		Size: int64(len(content)),
+	})
+	tw.Write(content)
+}
+
 var _ = Describe("SbomStep", func() {
-	DescribeTable("Converge()",
+	DescribeTable("ConvergeWithMerge()",
 		func(
 			ctx context.Context,
 			isLocalStorage bool,
+			mergeOpts sbom.MergeOpts,
 			setupMocks func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -54,17 +150,19 @@ var _ = Describe("SbomStep", func() {
 			}
 			scanOpts := scanner.DefaultSyftScanOptions()
 
-			sbomBaseImgLabels := step.prepareSbomBaseLabels(ctx, stageDesc.Info.Labels, scanOpts)
+			sbomBaseImgLabels := step.prepareSbomBaseLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 			imgFilters := filter.NewFilterListFromLabelList(sbomBaseImgLabels).ToPairs()
 
-			sbomImgLabels := step.prepareSbomLabels(ctx, stageDesc.Info.Labels, scanOpts)
+			sbomImgLabels := step.prepareSbomLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 			setupMocks(ctx, backend, stagesStorage, stageDesc, scanOpts, sbomImgLabels, imgFilters)
 
-			Expect(step.Converge(ctx, "some-name", stageDesc, scanOpts)).To(Succeed())
+			Expect(step.ConvergeWithMerge(ctx, "some-name", stageDesc, scanOpts, mergeOpts)).To(Succeed())
 		},
 		Entry(
-			"[local storage]: should not scan source image if sbom image is already exist",
+			"[local storage]: should not scan source image if sbom image already exists",
+			context.Background(),
 			true,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -80,8 +178,10 @@ var _ = Describe("SbomStep", func() {
 			},
 		),
 		Entry(
-			"[local storage]: should scan source image if sbom image is not exist",
+			"[local storage]: should scan source image if sbom image does not exist",
+			context.Background(),
 			true,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -93,14 +193,22 @@ var _ = Describe("SbomStep", func() {
 			) {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{}, nil)
 
-				tmpImgId := "some id"
-				backend.EXPECT().GenerateSBOM(ctx, scanOpts, sbomImgLabels.ToStringSlice()).Return(tmpImgId, nil)
-				backend.EXPECT().Tag(ctx, tmpImgId, sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
+				tmpImgId := "tmp-sbom-img-id"
+				backend.EXPECT().GenerateSBOM(ctx, scanOpts, gomock.Any()).Return(tmpImgId, nil)
+				// Return a new stream each time SaveImageToStream is called
+				backend.EXPECT().SaveImageToStream(ctx, tmpImgId).DoAndReturn(func(_ context.Context, _ string) (io.ReadCloser, error) {
+					return createEmptyBOMStream(), nil
+				}).AnyTimes()
+				backend.EXPECT().Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}).Return(nil)
+				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
+				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 			},
 		),
 		Entry(
-			"[remote storage]: should push sbom source image if it exist locally",
+			"[remote storage]: should push sbom image if it exists locally",
+			context.Background(),
 			false,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -118,7 +226,9 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"[remote storage]: should not scan if sbom image is pulled from registry",
+			context.Background(),
 			false,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -133,8 +243,10 @@ var _ = Describe("SbomStep", func() {
 			},
 		),
 		Entry(
-			"[remote storage]: should scan source image if sbom image is not pulled from registry and push generated sbom image into registry",
+			"[remote storage]: should scan, build and push sbom image if not found",
+			context.Background(),
 			false,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -147,12 +259,21 @@ var _ = Describe("SbomStep", func() {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{}, nil)
 				stagesStorage.EXPECT().PullIfExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(false, nil)
 
+				// Pull source image
 				backend.EXPECT().Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}).Return(nil)
 
-				tmpImgId := "some id"
-				backend.EXPECT().GenerateSBOM(ctx, scanOpts, sbomImgLabels.ToStringSlice()).Return(tmpImgId, nil)
-				backend.EXPECT().Tag(ctx, tmpImgId, sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
+				// Scan, extract BOM, build and tag
+				tmpImgId := "tmp-sbom-img-id"
+				backend.EXPECT().GenerateSBOM(ctx, scanOpts, gomock.Any()).Return(tmpImgId, nil)
+				// Return a new stream each time SaveImageToStream is called
+				backend.EXPECT().SaveImageToStream(ctx, tmpImgId).DoAndReturn(func(_ context.Context, _ string) (io.ReadCloser, error) {
+					return createEmptyBOMStream(), nil
+				}).AnyTimes()
+				backend.EXPECT().Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}).Return(nil)
+				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
+				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 
+				// Push to registry
 				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
 			},
 		),

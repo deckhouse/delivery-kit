@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+
 	"github.com/werf/common-go/pkg/util"
 )
 

@@ -50,15 +50,15 @@ func (step *sbomStep) Converge(ctx context.Context, werfImgName string, stageDes
 	sbomBaseImgLabels := step.prepareSbomBaseLabels(ctx, stageDesc.Info.Labels, scanOpts)
 	sbomImgLabels := step.prepareSbomLabels(ctx, stageDesc.Info.Labels, scanOpts)
 
-	// Check if SBOM image already exists locally
 	_, ok, err := step.findSbomImageLocally(ctx, sbomBaseImgLabels, sbomImageName)
 	if err != nil {
 		return err
 	}
+	logboek.Context(ctx).Debug().LogF("-- sbom_phase.Converge: sbom image is found locally=%t\n", ok)
 
 	if step.isLocalStorage {
 		if ok {
-			logboek.Context(ctx).Default().LogF("image %s: Use previously generated SBOM from local backend storage\n", werfImgName)
+			logboek.Context(ctx).Default().LogLn("Use previously generated image from local backend storage")
 			return nil
 		}
 	} else {
@@ -71,18 +71,15 @@ func (step *sbomStep) Converge(ctx context.Context, werfImgName string, stageDes
 			if pulled, err := step.stagesStorage.PullIfExistSbomImage(ctx, sbomImageName); err != nil {
 				return fmt.Errorf("unable to pull sbom image: %q: %w", sbomImageName, err)
 			} else if pulled {
-				logboek.Context(ctx).Default().LogF("image %s: Use previously generated SBOM from container registry\n", werfImgName)
+				logboek.Context(ctx).Default().LogLn("Use previously generated image from container registry")
 				return nil
 			}
 		}
 	}
 
 	// SBOM scanning is local operation. Ensure source image exist locally.
-	// Pull BEFORE LogProcess to avoid parallel worker conflicts.
 	if !step.isLocalStorage {
-		if err := logboek.Context(ctx).Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
-			return step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{})
-		}); err != nil {
+		if err := step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{}); err != nil {
 			return fmt.Errorf("unable to pull %q: %w", sourceImageName, err)
 		}
 	}
@@ -110,12 +107,12 @@ func (step *sbomStep) Converge(ctx context.Context, werfImgName string, stageDes
 func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) error {
 	sourceImageName := stageDesc.Info.Name
 	sbomImageName := sbom.ImageName(sourceImageName)
+
 	scanOpts.Commands[0].SourcePath = sourceImageName
 
 	sbomBaseImgLabels := step.prepareSbomBaseLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 	sbomImgLabels := step.prepareSbomLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 
-	// Check if SBOM image already exists locally
 	_, ok, err := step.findSbomImageLocally(ctx, sbomBaseImgLabels, sbomImageName)
 	if err != nil {
 		return err
@@ -142,17 +139,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 	}
 
-	// Pull source image BEFORE LogProcess to avoid parallel worker conflicts
 	if !step.isLocalStorage {
-		if err := logboek.Context(ctx).Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
-			return step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{})
-		}); err != nil {
+		if err := step.containerBackend.Pull(ctx, sourceImageName, container_backend.PullOpts{}); err != nil {
 			return fmt.Errorf("unable to pull %q: %w", sourceImageName, err)
 		}
 	}
 
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
-		logboek.Context(ctx).Default().LogF("Scanning image %s\n", werfImgName)
 		tmpImgId, err := step.containerBackend.GenerateSBOM(ctx, scanOpts, nil)
 		if err != nil {
 			return fmt.Errorf("unable to scan image: %w", err)
@@ -341,9 +334,7 @@ func (step *sbomStep) ensureSbomImageExists(ctx context.Context, sbomImageName, 
 	}
 
 	logboek.Context(ctx).Default().LogF("Pulling image SBOM from %s\n", sbomImageName)
-	if err := logboek.Context(ctx).Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
-		return step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{})
-	}); err != nil {
+	if err := step.containerBackend.Pull(ctx, sbomImageName, container_backend.PullOpts{}); err != nil {
 		return fmt.Errorf("SBOM for image %q not found in container registry: %w", sourceImageName, err)
 	}
 

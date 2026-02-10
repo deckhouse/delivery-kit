@@ -137,7 +137,8 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 	imagesPairs := phase.Conveyor.imagesTree.GetImagesByName(false)
 
 	if err := parallel.DoTasks(ctx, len(imagesPairs), parallel.DoTasksOptions{
-		MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+		MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
+		InitDockerCLIForEachWorker: true,
 	}, func(ctx context.Context, taskId int) error {
 		pair := imagesPairs[taskId]
 

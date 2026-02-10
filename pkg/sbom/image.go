@@ -11,13 +11,18 @@ func IsScratchImage(imageRef string) bool {
 	}
 
 	ref := imageRef
+
+	if idx := strings.LastIndex(ref, "@"); idx != -1 {
+		ref = ref[:idx]
+	}
+
 	if idx := strings.LastIndex(ref, ":"); idx != -1 {
 		if !strings.Contains(ref[idx:], "/") {
 			ref = ref[:idx]
 		}
 	}
 
-	return strings.HasSuffix(ref, "/scratch")
+	return ref == "scratch" || strings.HasSuffix(ref, "/scratch")
 }
 
 func ImageName(name string) string {

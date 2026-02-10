@@ -219,7 +219,7 @@ var _ = Describe("SbomStep", func() {
 				Labels:     map[string]string{},
 			},
 			true,
-			"no werf labels",
+			"required werf stage content digest label is missing",
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,

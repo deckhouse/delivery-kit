@@ -227,8 +227,13 @@ func (i *Image) GetImportImagesInfo() []ImportImageInfo {
 	for _, stg := range i.GetStages() {
 		if depStage, ok := stg.(interface{ GetImports() []*config.Import }); ok {
 			for _, imp := range depStage.GetImports() {
+				imageName := imp.ImageName
+				if imageName == "" {
+					imageName = imp.ArtifactName
+				}
+
 				result = append(result, ImportImageInfo{
-					ImageName:     imp.ImageName,
+					ImageName:     imageName,
 					ExternalImage: imp.ExternalImage,
 				})
 			}

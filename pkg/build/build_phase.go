@@ -174,7 +174,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
 							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), stageDesc.Info)
 							if err != nil {
-								return fmt.Errorf("unable to get base image with ref %s SBOM: %w", img.GetBaseImageReference(), err)
+								return fmt.Errorf("unable to get base image sbom with ref %s SBOM: %w", img.GetBaseImageReference(), err)
 							}
 						}
 					} else {

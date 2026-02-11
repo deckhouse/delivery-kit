@@ -167,47 +167,15 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				var baseImageSbom *cdx.BOM
-
-				if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
-					if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
-						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
-							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), stageDesc.Info)
-							if err != nil {
-								return fmt.Errorf("unable to get base image sbom with ref %s SBOM: %w", img.GetBaseImageReference(), err)
-							}
-						}
-					} else {
-						return fmt.Errorf("unable to get last non empty stage image info for base image with ref %s", img.GetBaseImageReference())
-					}
+				baseImageSbom, err := phase.collectBaseImageSbom(ctx, name, img)
+				if err != nil {
+					return err
 				}
 				_ = baseImageSbom // TODO: pass to Merge
 
-				var importImageSboms []*cdx.BOM
-				for _, importInfo := range img.GetImportImagesInfo() {
-					var importImageInfo *imagePkg.Info
-
-					if importInfo.ExternalImage {
-						info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
-						if err != nil {
-							return fmt.Errorf("unable to get external import image info for %q: %w", importInfo.ImageName, err)
-						}
-						importImageInfo = info
-					} else {
-						if importImg := phase.Conveyor.GetImage(img.TargetPlatform, importInfo.ImageName); importImg != nil {
-							importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
-						}
-					}
-
-					if importImageInfo != nil {
-						importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, importInfo.ImageName, importImageInfo)
-						if err != nil {
-							return fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
-						}
-						importImageSboms = append(importImageSboms, importImageSbom)
-					} else {
-						return fmt.Errorf("unable to get last non empty stage image info for import image %q on platform %q", importInfo.ImageName, img.TargetPlatform)
-					}
+				importImageSboms, err := phase.collectImportImageSboms(ctx, name, img)
+				if err != nil {
+					return err
 				}
 				_ = importImageSboms // TODO: pass to Merge
 
@@ -244,47 +212,20 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				var baseImageSbom *cdx.BOM
+				var primaryImg *image.Image
+				if len(img.Images) > 0 {
+					primaryImg = img.Images[0]
+				}
 
-				if len(img.Images) > 0 && !img.Images[0].IsBasedOnStage() && img.Images[0].GetBaseImageReference() != "" {
-					if baseStageImage := img.Images[0].GetBaseStageImage(); baseStageImage != nil {
-						if stageDesc := baseStageImage.Image.GetStageDesc(); stageDesc != nil && stageDesc.Info != nil {
-							baseImageSbom, err = phase.sbomStep.GetImageBOM(ctx, img.Name, img.Images[0].GetBaseImageReference(), stageDesc.Info)
-							if err != nil {
-								return fmt.Errorf("unable to get base image sbom: %w", err)
-							}
-						}
-					}
+				baseImageSbom, err := phase.collectBaseImageSbom(ctx, img.Name, primaryImg)
+				if err != nil {
+					return err
 				}
 				_ = baseImageSbom // TODO: pass to Merge
 
-				var importImageSboms []*cdx.BOM
-				if len(img.Images) > 0 {
-					for _, importInfo := range img.Images[0].GetImportImagesInfo() {
-						var importImageInfo *imagePkg.Info
-
-						if importInfo.ExternalImage {
-							info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
-							if err != nil {
-								return fmt.Errorf("unable to get external import image info for %q: %w", importInfo.ImageName, err)
-							}
-							importImageInfo = info
-						} else {
-							if importImg := phase.Conveyor.GetImage(img.Images[0].TargetPlatform, importInfo.ImageName); importImg != nil {
-								importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
-							}
-						}
-
-						if importImageInfo == nil {
-							return fmt.Errorf("unable to resolve import image stage info for %q on platform %q", importInfo.ImageName, img.Images[0].TargetPlatform)
-						}
-
-						importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, img.Name, importInfo.ImageName, importImageInfo)
-						if err != nil {
-							return fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
-						}
-						importImageSboms = append(importImageSboms, importImageSbom)
-					}
+				importImageSboms, err := phase.collectImportImageSboms(ctx, img.Name, primaryImg)
+				if err != nil {
+					return err
 				}
 				_ = importImageSboms // TODO: pass to Merge
 
@@ -1417,6 +1358,65 @@ E.g.:
 - If you want to build images instead of requiring them to be already built, remove --require-built-images flag / WERF_REQUIRE_BUILT_IMAGES env`)
 			logboek.Context(ctx).Warn().LogLn()
 		})
+}
+
+func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, imageName string, img *image.Image) (*cdx.BOM, error) {
+	if img == nil || img.IsBasedOnStage() || img.GetBaseImageReference() == "" {
+		return nil, nil
+	}
+
+	baseStageImage := img.GetBaseStageImage()
+	if baseStageImage == nil {
+		return nil, fmt.Errorf("unable to get base stage image for %q", img.GetBaseImageReference())
+	}
+
+	stageDesc := baseStageImage.Image.GetStageDesc()
+	if stageDesc == nil || stageDesc.Info == nil {
+		return nil, fmt.Errorf("unable to get stage description for base image %q", img.GetBaseImageReference())
+	}
+
+	bom, err := phase.sbomStep.GetImageBOM(ctx, imageName, img.GetBaseImageReference(), stageDesc.Info)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get base image SBOM for %q: %w", img.GetBaseImageReference(), err)
+	}
+
+	return bom, nil
+}
+
+func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, imageName string, img *image.Image) ([]*cdx.BOM, error) {
+	if img == nil {
+		return nil, nil
+	}
+
+	var importImageSboms []*cdx.BOM
+
+	for _, importInfo := range img.GetImportImagesInfo() {
+		var importImageInfo *imagePkg.Info
+
+		if importInfo.ExternalImage {
+			info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
+			if err != nil {
+				return nil, fmt.Errorf("unable to get external import image info for %q: %w", importInfo.ImageName, err)
+			}
+			importImageInfo = info
+		} else {
+			if importImg := phase.Conveyor.GetImage(img.TargetPlatform, importInfo.ImageName); importImg != nil {
+				importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
+			}
+		}
+
+		if importImageInfo == nil {
+			return nil, fmt.Errorf("unable to get stage image info for import image %q on platform %q", importInfo.ImageName, img.TargetPlatform)
+		}
+
+		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, imageName, importInfo.ImageName, importImageInfo)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get import image SBOM for %q: %w", importInfo.ImageName, err)
+		}
+		importImageSboms = append(importImageSboms, importImageSbom)
+	}
+
+	return importImageSboms, nil
 }
 
 func (phase *BuildPhase) Clone() Phase {

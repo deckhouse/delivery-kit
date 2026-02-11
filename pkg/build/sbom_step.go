@@ -144,7 +144,7 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 // For scratch images, returns an empty BOM.
 // For other images, pulls the SBOM from storage and extracts the BOM.
 func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
-	if sbom.IsScratchImage(imageRef) {
+	if sbom.IsScratchRef(imageRef) {
 		return sbom.NewEmptyBOM(), nil
 	}
 

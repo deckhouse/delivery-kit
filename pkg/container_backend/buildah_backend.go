@@ -1138,7 +1138,7 @@ func (backend *BuildahBackend) LoadImageFromStream(ctx context.Context, input io
 func (backend *BuildahBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions, dstImgLabels []string) (string, error) {
 	workingTree := scanner.NewWorkingTree()
 
-	billNames := mapSbomScanCommandsToSbomBillNames(scanOpts.Commands)
+	billNames := scanner.BillNamesFromCommands(scanOpts.Commands)
 
 	if err := workingTree.Create(ctx, os.TempDir(), billNames); err != nil {
 		return "", err

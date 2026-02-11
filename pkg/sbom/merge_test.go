@@ -1,348 +1,240 @@
-package sbom
+package sbom_test
 
 import (
 	"strings"
-	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	. "github.com/werf/werf/v2/pkg/sbom"
 )
 
-func TestMergeBOMs_ConcatenatesComponentsInOrder(t *testing.T) {
-	baseBOM := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "base-comp-1", Version: "1.0.0"},
-			{Name: "base-comp-2", Version: "2.0.0"},
-		},
+func componentNames(bom *cdx.BOM) []string {
+	if bom == nil || bom.Components == nil {
+		return nil
 	}
-
-	importBOM1 := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "import1-comp", Version: "1.0.0"},
-		},
+	comps := *bom.Components
+	out := make([]string, 0, len(comps))
+	for _, c := range comps {
+		out = append(out, c.Name)
 	}
+	return out
+}
 
-	importBOM2 := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "import2-comp", Version: "1.0.0"},
-		},
-	}
-
-	fragmentBOM := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "fragment-comp", Version: "1.0.0"},
-		},
-	}
-
-	targetBOM := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "target-comp", Version: "1.0.0"},
-		},
-	}
-
-	result := MergeBOMs(targetBOM, MergeOpts{
-		BaseBOM:     baseBOM,
-		ImportBOMs:  []*cdx.BOM{importBOM1, importBOM2},
-		FragmentBOM: fragmentBOM,
-	})
-
-	if result.Components == nil {
-		t.Fatal("expected components to be non-nil")
-	}
-
-	components := *result.Components
-	if len(components) != 6 {
-		t.Fatalf("expected 6 components, got %d", len(components))
-	}
-
-	expectedOrder := []string{"base-comp-1", "base-comp-2", "import1-comp", "import2-comp", "fragment-comp", "target-comp"}
-	for i, expected := range expectedOrder {
-		if components[i].Name != expected {
-			t.Errorf("component %d: expected %q, got %q", i, expected, components[i].Name)
+var _ = Describe("MergeBOMs", func() {
+	It("concatenates components in order", func() {
+		baseBOM := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "base-comp-1", Version: "1.0.0"},
+				{Name: "base-comp-2", Version: "2.0.0"},
+			},
 		}
-	}
-}
+		importBOM1 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "import1-comp", Version: "1.0.0"},
+			},
+		}
+		importBOM2 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "import2-comp", Version: "1.0.0"},
+			},
+		}
+		fragmentBOM := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "fragment-comp", Version: "1.0.0"},
+			},
+		}
+		targetBOM := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "target-comp", Version: "1.0.0"},
+			},
+		}
 
-func TestMergeBOMs_TakesMetadataFromTarget(t *testing.T) {
-	baseBOM := &cdx.BOM{
-		Metadata: &cdx.Metadata{
-			Component: &cdx.Component{Name: "base-metadata-component"},
-		},
-		Components: &[]cdx.Component{},
-	}
-
-	targetBOM := &cdx.BOM{
-		Metadata: &cdx.Metadata{
-			Component: &cdx.Component{Name: "target-metadata-component"},
-		},
-		Components: &[]cdx.Component{},
-	}
-
-	result := MergeBOMs(targetBOM, MergeOpts{
-		BaseBOM: baseBOM,
-	})
-
-	if result.Metadata == nil {
-		t.Fatal("expected metadata to be non-nil")
-	}
-
-	if result.Metadata.Component == nil {
-		t.Fatal("expected metadata.component to be non-nil")
-	}
-
-	if result.Metadata.Component.Name != "target-metadata-component" {
-		t.Errorf("expected metadata from target, got %q", result.Metadata.Component.Name)
-	}
-}
-
-func TestMergeBOMs_SetsCorrectBOMFields(t *testing.T) {
-	targetBOM := &cdx.BOM{
-		Components: &[]cdx.Component{},
-	}
-
-	result := MergeBOMs(targetBOM, MergeOpts{})
-
-	if result.BOMFormat != cdx.BOMFormat {
-		t.Errorf("expected bomFormat %q, got %q", cdx.BOMFormat, result.BOMFormat)
-	}
-
-	if result.SpecVersion != cdx.SpecVersion1_6 {
-		t.Errorf("expected specVersion 1.6, got %s", result.SpecVersion)
-	}
-
-	if result.Version != 1 {
-		t.Errorf("expected version 1, got %d", result.Version)
-	}
-
-	if !strings.HasPrefix(result.SerialNumber, "urn:uuid:") {
-		t.Errorf("expected serialNumber to start with 'urn:uuid:', got %q", result.SerialNumber)
-	}
-
-	if result.Dependencies != nil {
-		t.Error("expected dependencies to be nil")
-	}
-}
-
-func TestMergeBOMs_GeneratesNewSerialNumber(t *testing.T) {
-	targetBOM := &cdx.BOM{
-		SerialNumber: "urn:uuid:old-serial-number",
-		Components:   &[]cdx.Component{},
-	}
-
-	result := MergeBOMs(targetBOM, MergeOpts{})
-
-	if result.SerialNumber == targetBOM.SerialNumber {
-		t.Error("expected new serial number to be generated")
-	}
-
-	if !strings.HasPrefix(result.SerialNumber, "urn:uuid:") {
-		t.Errorf("expected serial number to start with 'urn:uuid:', got %q", result.SerialNumber)
-	}
-}
-
-func TestMergeBOMs_HandlesNilTarget(t *testing.T) {
-	baseBOM := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "base-comp", Version: "1.0.0"},
-		},
-	}
-
-	result := MergeBOMs(nil, MergeOpts{
-		BaseBOM: baseBOM,
-	})
-
-	if result.Components == nil {
-		t.Fatal("expected components to be non-nil")
-	}
-
-	components := *result.Components
-	if len(components) != 1 {
-		t.Fatalf("expected 1 component, got %d", len(components))
-	}
-
-	if result.Metadata != nil {
-		t.Error("expected metadata to be nil when target is nil")
-	}
-}
-
-func TestMergeBOMs_HandlesNilBOMs(t *testing.T) {
-	result := MergeBOMs(nil, MergeOpts{
-		BaseBOM:     nil,
-		ImportBOMs:  nil,
-		FragmentBOM: nil,
-	})
-
-	if result.Components == nil {
-		t.Fatal("expected components to be non-nil")
-	}
-
-	if len(*result.Components) != 0 {
-		t.Errorf("expected 0 components, got %d", len(*result.Components))
-	}
-}
-
-func TestMergeBOMs_NoDuplication(t *testing.T) {
-	duplicateComp := cdx.Component{Name: "duplicate-comp", Version: "1.0.0"}
-
-	baseBOM := &cdx.BOM{
-		Components: &[]cdx.Component{duplicateComp},
-	}
-
-	targetBOM := &cdx.BOM{
-		Components: &[]cdx.Component{duplicateComp},
-	}
-
-	result := MergeBOMs(targetBOM, MergeOpts{
-		BaseBOM: baseBOM,
-	})
-
-	components := *result.Components
-	if len(components) != 2 {
-		t.Fatalf("expected 2 components (no deduplication), got %d", len(components))
-	}
-}
-
-func TestBOMChecksum_ReturnsConsistentHash(t *testing.T) {
-	bom := &cdx.BOM{
-		BOMFormat:   cdx.BOMFormat,
-		SpecVersion: cdx.SpecVersion1_6,
-		Version:     1,
-		Components: &[]cdx.Component{
-			{Name: "test-comp", Version: "1.0.0"},
-		},
-	}
-
-	checksum1 := BOMChecksum(bom)
-	checksum2 := BOMChecksum(bom)
-
-	if checksum1 != checksum2 {
-		t.Error("expected consistent checksum for same BOM")
-	}
-
-	if checksum1 == "" {
-		t.Error("expected non-empty checksum")
-	}
-}
-
-func TestBOMChecksum_DifferentForDifferentBOMs(t *testing.T) {
-	bom1 := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "comp-1", Version: "1.0.0"},
-		},
-	}
-
-	bom2 := &cdx.BOM{
-		Components: &[]cdx.Component{
-			{Name: "comp-2", Version: "1.0.0"},
-		},
-	}
-
-	if BOMChecksum(bom1) == BOMChecksum(bom2) {
-		t.Error("expected different checksums for different BOMs")
-	}
-}
-
-func TestBOMChecksum_ReturnsEmptyForNil(t *testing.T) {
-	if BOMChecksum(nil) != "" {
-		t.Error("expected empty checksum for nil BOM")
-	}
-}
-
-func TestToJSON_SerializesBOM(t *testing.T) {
-	bom := &cdx.BOM{
-		BOMFormat:   cdx.BOMFormat,
-		SpecVersion: cdx.SpecVersion1_6,
-		Version:     1,
-		Components: &[]cdx.Component{
-			{Name: "test-comp", Version: "1.0.0"},
-		},
-	}
-
-	data, err := ToJSON(bom)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(data) == 0 {
-		t.Error("expected non-empty JSON output")
-	}
-
-	// Verify that $schema field is present (required by CycloneDX JSON format)
-	jsonStr := string(data)
-	if !strings.Contains(jsonStr, `"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`) {
-		t.Error("expected $schema field in JSON output")
-	}
-}
-
-func TestMergeOpts_IsEmpty(t *testing.T) {
-	tests := []struct {
-		name     string
-		opts     MergeOpts
-		expected bool
-	}{
-		{
-			name:     "empty opts",
-			opts:     MergeOpts{},
-			expected: true,
-		},
-		{
-			name:     "with base BOM",
-			opts:     MergeOpts{BaseBOM: &cdx.BOM{}},
-			expected: false,
-		},
-		{
-			name:     "with import BOMs",
-			opts:     MergeOpts{ImportBOMs: []*cdx.BOM{{}}},
-			expected: false,
-		},
-		{
-			name:     "with fragment BOM",
-			opts:     MergeOpts{FragmentBOM: &cdx.BOM{}},
-			expected: false,
-		},
-		{
-			name:     "with empty import slice",
-			opts:     MergeOpts{ImportBOMs: []*cdx.BOM{}},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.opts.IsEmpty(); got != tt.expected {
-				t.Errorf("IsEmpty() = %v, want %v", got, tt.expected)
-			}
+		result := MergeBOMs(targetBOM, MergeOpts{
+			BaseBOM:     baseBOM,
+			ImportBOMs:  []*cdx.BOM{importBOM1, importBOM2},
+			FragmentBOM: fragmentBOM,
 		})
-	}
-}
 
-func TestMergeOpts_Checksum(t *testing.T) {
-	bom1 := &cdx.BOM{Components: &[]cdx.Component{{Name: "comp1"}}}
-	bom2 := &cdx.BOM{Components: &[]cdx.Component{{Name: "comp2"}}}
+		Expect(result.Components).ToNot(BeNil())
+		Expect(componentNames(result)).To(Equal([]string{
+			"base-comp-1",
+			"base-comp-2",
+			"import1-comp",
+			"import2-comp",
+			"fragment-comp",
+			"target-comp",
+		}))
+	})
 
-	opts1 := MergeOpts{BaseBOM: bom1}
-	opts2 := MergeOpts{BaseBOM: bom2}
-	opts3 := MergeOpts{BaseBOM: bom1} // Same as opts1
+	It("takes metadata from target", func() {
+		baseBOM := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{Name: "base-metadata-component"},
+			},
+			Components: &[]cdx.Component{},
+		}
+		targetBOM := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{Name: "target-metadata-component"},
+			},
+			Components: &[]cdx.Component{},
+		}
 
-	checksum1 := opts1.Checksum()
-	checksum2 := opts2.Checksum()
-	checksum3 := opts3.Checksum()
+		result := MergeBOMs(targetBOM, MergeOpts{BaseBOM: baseBOM})
 
-	if checksum1 == "" {
-		t.Error("expected non-empty checksum")
-	}
+		Expect(result.Metadata).ToNot(BeNil())
+		Expect(result.Metadata.Component).ToNot(BeNil())
+		Expect(result.Metadata.Component.Name).To(Equal("target-metadata-component"))
+	})
 
-	if checksum1 == checksum2 {
-		t.Error("expected different checksums for different BOMs")
-	}
+	It("sets correct BOM fields", func() {
+		targetBOM := &cdx.BOM{Components: &[]cdx.Component{}}
 
-	if checksum1 != checksum3 {
-		t.Error("expected same checksum for same BOMs")
-	}
-}
+		result := MergeBOMs(targetBOM, MergeOpts{})
 
-func TestMergeOpts_Checksum_Empty(t *testing.T) {
-	opts := MergeOpts{}
-	if opts.Checksum() != "" {
-		t.Error("expected empty checksum for empty opts")
-	}
-}
+		Expect(result.BOMFormat).To(Equal(cdx.BOMFormat))
+		Expect(result.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+		Expect(result.Version).To(Equal(1))
+		Expect(result.SerialNumber).To(HavePrefix("urn:uuid:"))
+		Expect(result.Dependencies).To(BeNil())
+	})
+
+	It("generates new serial number", func() {
+		targetBOM := &cdx.BOM{
+			SerialNumber: "urn:uuid:old-serial-number",
+			Components:   &[]cdx.Component{},
+		}
+
+		result := MergeBOMs(targetBOM, MergeOpts{})
+
+		Expect(result.SerialNumber).To(HavePrefix("urn:uuid:"))
+		Expect(result.SerialNumber).ToNot(Equal(targetBOM.SerialNumber))
+	})
+
+	It("handles nil target", func() {
+		baseBOM := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "base-comp", Version: "1.0.0"},
+			},
+		}
+
+		result := MergeBOMs(nil, MergeOpts{BaseBOM: baseBOM})
+
+		Expect(result.Components).ToNot(BeNil())
+		Expect(*result.Components).To(HaveLen(1))
+		Expect(result.Metadata).To(BeNil())
+	})
+
+	It("does not deduplicate components", func() {
+		duplicateComp := cdx.Component{Name: "duplicate-comp", Version: "1.0.0"}
+		baseBOM := &cdx.BOM{Components: &[]cdx.Component{duplicateComp}}
+		targetBOM := &cdx.BOM{Components: &[]cdx.Component{duplicateComp}}
+
+		result := MergeBOMs(targetBOM, MergeOpts{BaseBOM: baseBOM})
+
+		Expect(result.Components).ToNot(BeNil())
+		Expect(*result.Components).To(HaveLen(2))
+	})
+})
+
+var _ = Describe("BOMChecksum", func() {
+	It("returns consistent hash for same BOM", func() {
+		bom := &cdx.BOM{
+			BOMFormat:   cdx.BOMFormat,
+			SpecVersion: cdx.SpecVersion1_6,
+			Version:     1,
+			Components: &[]cdx.Component{
+				{Name: "test-comp", Version: "1.0.0"},
+			},
+		}
+
+		checksum1 := BOMChecksum(bom)
+		checksum2 := BOMChecksum(bom)
+
+		Expect(checksum1).ToNot(BeEmpty())
+		Expect(checksum1).To(Equal(checksum2))
+	})
+
+	It("is different for different BOMs", func() {
+		bom1 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "comp-1", Version: "1.0.0"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "comp-2", Version: "1.0.0"},
+			},
+		}
+
+		Expect(BOMChecksum(bom1)).ToNot(Equal(BOMChecksum(bom2)))
+	})
+
+	It("returns empty for nil", func() {
+		Expect(BOMChecksum(nil)).To(BeEmpty())
+	})
+})
+
+var _ = Describe("ToJSON", func() {
+	It("serializes BOM and contains required $schema", func() {
+		bom := &cdx.BOM{
+			BOMFormat:   cdx.BOMFormat,
+			SpecVersion: cdx.SpecVersion1_6,
+			Version:     1,
+			Components: &[]cdx.Component{
+				{Name: "test-comp", Version: "1.0.0"},
+			},
+		}
+
+		data, err := ToJSON(bom)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(data).ToNot(BeEmpty())
+
+		// required by CycloneDX JSON format
+		Expect(string(data)).To(ContainSubstring(`"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`))
+	})
+})
+
+var _ = Describe("MergeOpts", func() {
+	DescribeTable("IsEmpty",
+		func(opts MergeOpts, expected bool) {
+			Expect(opts.IsEmpty()).To(Equal(expected))
+		},
+		Entry("empty opts", MergeOpts{}, true),
+		Entry("with base BOM", MergeOpts{BaseBOM: &cdx.BOM{}}, false),
+		Entry("with import BOMs", MergeOpts{ImportBOMs: []*cdx.BOM{{}}}, false),
+		Entry("with fragment BOM", MergeOpts{FragmentBOM: &cdx.BOM{}}, false),
+		Entry("with empty import slice", MergeOpts{ImportBOMs: []*cdx.BOM{}}, true),
+	)
+
+	It("Checksum: same opts -> same checksum; different opts -> different checksum", func() {
+		bom1 := &cdx.BOM{Components: &[]cdx.Component{{Name: "comp1"}}}
+		bom2 := &cdx.BOM{Components: &[]cdx.Component{{Name: "comp2"}}}
+
+		opts1 := MergeOpts{BaseBOM: bom1}
+		opts2 := MergeOpts{BaseBOM: bom2}
+		opts3 := MergeOpts{BaseBOM: bom1}
+
+		checksum1 := opts1.Checksum()
+		checksum2 := opts2.Checksum()
+		checksum3 := opts3.Checksum()
+
+		Expect(checksum1).ToNot(BeEmpty())
+		Expect(checksum1).ToNot(Equal(checksum2))
+		Expect(checksum1).To(Equal(checksum3))
+	})
+
+	It("Checksum is empty for empty opts", func() {
+		Expect(MergeOpts{}.Checksum()).To(BeEmpty())
+	})
+})
+
+// если ты хочешь оставить package sbom (а не sbom_test),
+// то удали импорт ". your/module/path/sbom" и удали strings если не нужен.
+// Сейчас strings используется только косвенно (пример), но можно убрать:
+var _ = Describe("internal sanity", func() {
+	It("strings import is used (remove this block if not needed)", func() {
+		Expect(strings.HasPrefix("urn:uuid:x", "urn:uuid:")).To(BeTrue())
+	})
+})

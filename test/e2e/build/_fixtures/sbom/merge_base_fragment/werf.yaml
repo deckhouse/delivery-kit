@@ -15,5 +15,26 @@ sbom:
         version: 1.0.0
         purl: pkg:generic/custom-component@1.0.0
 
+    services:
+      - name: custom-api-service
+        endpoints:
+          - https://api.example.com/v1
+        authenticated: true
+        x-trust-boundary: false
 
+    externalReferences:
+      - type: website
+        url: https://example.com
+      - type: documentation
+        url: https://docs.example.com
 
+    properties:
+      - name: build-environment
+        value: production
+      - name: custom-property
+        value: custom-value
+
+    annotations:
+      - text: "This is a test annotation for merge verification"
+        subjects:
+          - "urn:cdx:custom-component/1.0.0"

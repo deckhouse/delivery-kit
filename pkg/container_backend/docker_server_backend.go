@@ -452,7 +452,7 @@ func (backend *DockerServerBackend) LoadImageFromStream(ctx context.Context, inp
 func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions, dstImgLabels []string) (string, error) {
 	workingTree := scanner.NewWorkingTree()
 
-	billNames := mapSbomScanCommandsToSbomBillNames(scanOpts.Commands)
+	billNames := scanner.BillNamesFromCommands(scanOpts.Commands)
 
 	if err := workingTree.Create(ctx, os.TempDir(), billNames); err != nil {
 		return "", err
@@ -500,12 +500,6 @@ func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts s
 	buildLogger.End()
 
 	return imageId, nil
-}
-
-func mapSbomScanCommandsToSbomBillNames(commands []scanner.ScanCommand) []string {
-	return lo.Map(commands, func(scanCmd scanner.ScanCommand, _ int) string {
-		return filepath.Join(scanCmd.OutputStandard.String(), fmt.Sprintf("%s.json", scanCmd.Checksum()))
-	})
 }
 
 func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billNames []string, scanOpts scanner.ScanOptions) []string {

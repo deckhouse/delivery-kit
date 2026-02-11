@@ -9,9 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v2/test/mock"
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/common-go/pkg/util"
@@ -19,10 +22,8 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
 	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
-	"github.com/werf/werf/v2/test/mock"
 )
 
 // createEmptyBOMStream creates a mock tar stream containing a minimal valid Docker image structure
@@ -31,12 +32,10 @@ func createEmptyBOMStream() io.ReadCloser {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
-	// Create the layer content (tar.gz with sbom files)
 	layerContent := createLayerTarGz()
 	layerDigest := sha256.Sum256(layerContent)
 	layerDigestHex := hex.EncodeToString(layerDigest[:])
 
-	// Create config.json
 	configJSON := fmt.Sprintf(`{
 		"architecture": "amd64",
 		"os": "linux",
@@ -48,8 +47,6 @@ func createEmptyBOMStream() io.ReadCloser {
 	configDigest := sha256.Sum256([]byte(configJSON))
 	configDigestHex := hex.EncodeToString(configDigest[:])
 	configFileName := configDigestHex + ".json"
-
-	// Create manifest.json
 	layerFileName := layerDigestHex + "/layer.tar"
 	manifest := []map[string]interface{}{
 		{
@@ -60,13 +57,10 @@ func createEmptyBOMStream() io.ReadCloser {
 	}
 	manifestJSON, _ := json.Marshal(manifest)
 
-	// Write manifest.json
 	writeFileToTar(tw, "manifest.json", manifestJSON)
 
-	// Write config file
 	writeFileToTar(tw, configFileName, []byte(configJSON))
 
-	// Create layer directory and write layer.tar
 	tw.WriteHeader(&tar.Header{
 		Name:     layerDigestHex + "/",
 		Mode:     0o755,
@@ -82,24 +76,12 @@ func createLayerTarGz() []byte {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
-	// Create sbom directory
-	tw.WriteHeader(&tar.Header{
-		Name:     "sbom/",
-		Mode:     0o755,
-		Typeflag: tar.TypeDir,
-	})
+	scanOpts := scanner.DefaultSyftScanOptions()
+	billName := scanner.BillNameFromCommand(scanOpts.Commands[0])
 
-	// Create sbom/cyclonedx@1.6 directory
-	tw.WriteHeader(&tar.Header{
-		Name:     "sbom/cyclonedx@1.6/",
-		Mode:     0o755,
-		Typeflag: tar.TypeDir,
-	})
-
-	// Create empty BOM JSON file
 	bomJSON := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}`)
-	bomFileName := "sbom/cyclonedx@1.6/70ee6b0600f471718988bc123475a625ecd4a5763059c62802ae6280e65f5623.json"
-	writeFileToTar(tw, bomFileName, bomJSON)
+	bomFilePath := filepath.Join("sbom", billName)
+	writeFileToTar(tw, bomFilePath, bomJSON)
 
 	tw.Close()
 	return buf.Bytes()
@@ -259,13 +241,10 @@ var _ = Describe("SbomStep", func() {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{}, nil)
 				stagesStorage.EXPECT().PullIfExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(false, nil)
 
-				// Pull source image
 				backend.EXPECT().Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}).Return(nil)
 
-				// Scan, extract BOM, build and tag
 				tmpImgId := "tmp-sbom-img-id"
 				backend.EXPECT().GenerateSBOM(ctx, scanOpts, gomock.Any()).Return(tmpImgId, nil)
-				// Return a new stream each time SaveImageToStream is called
 				backend.EXPECT().SaveImageToStream(ctx, tmpImgId).DoAndReturn(func(_ context.Context, _ string) (io.ReadCloser, error) {
 					return createEmptyBOMStream(), nil
 				}).AnyTimes()
@@ -273,7 +252,6 @@ var _ = Describe("SbomStep", func() {
 				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
 				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 
-				// Push to registry
 				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
 			},
 		),

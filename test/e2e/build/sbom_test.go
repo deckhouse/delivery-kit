@@ -339,6 +339,42 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge"), func() {
 				By("verifying components count (fragment only, scratch has no components)")
 				Expect(len(components)).To(BeNumerically(">=", 1),
 					"merged SBOM should contain at least fragment component")
+
+				By("verifying Services are merged")
+				if bom.Services != nil {
+					services := *bom.Services
+					Expect(findServiceByName(services, "custom-api-service")).NotTo(BeNil(),
+						"fragment service 'custom-api-service' should be present")
+					Expect(len(services)).To(BeNumerically(">=", 1))
+				}
+
+				By("verifying ExternalReferences are merged")
+				if bom.ExternalReferences != nil {
+					refs := *bom.ExternalReferences
+					Expect(findExternalReferenceByURL(refs, "https://example.com")).NotTo(BeNil(),
+						"fragment external reference should be present")
+					Expect(findExternalReferenceByURL(refs, "https://docs.example.com")).NotTo(BeNil(),
+						"fragment documentation reference should be present")
+					Expect(len(refs)).To(BeNumerically(">=", 2))
+				}
+
+				By("verifying Properties are merged")
+				if bom.Properties != nil {
+					props := *bom.Properties
+					Expect(findPropertyByName(props, "build-environment")).NotTo(BeNil(),
+						"fragment property 'build-environment' should be present")
+					Expect(findPropertyByName(props, "custom-property")).NotTo(BeNil(),
+						"fragment property 'custom-property' should be present")
+					Expect(len(props)).To(BeNumerically(">=", 2))
+				}
+
+				By("verifying Annotations are merged")
+				if bom.Annotations != nil {
+					annotations := *bom.Annotations
+					Expect(findAnnotationByText(annotations, "This is a test annotation for merge verification")).NotTo(BeNil(),
+						"fragment annotation should be present")
+					Expect(len(annotations)).To(BeNumerically(">=", 1))
+				}
 			}
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
@@ -422,6 +458,50 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge"), func() {
 
 				By("verifying metadata is present")
 				Expect(bom.Metadata).NotTo(BeNil())
+
+				By("verifying Services from both builder and app are merged")
+				if bom.Services != nil {
+					services := *bom.Services
+
+					Expect(findServiceByName(services, "builder-service")).NotTo(BeNil(),
+						"builder service should be present from import")
+
+					Expect(findServiceByName(services, "app-api-service")).NotTo(BeNil(),
+						"app service should be present from fragment")
+
+					Expect(len(services)).To(BeNumerically(">=", 2),
+						"should contain services from both builder and app")
+				}
+
+				By("verifying Properties from both sources are merged")
+				if bom.Properties != nil {
+					props := *bom.Properties
+
+					Expect(findPropertyByName(props, "builder-property")).NotTo(BeNil(),
+						"builder property should be present from import")
+
+					Expect(findPropertyByName(props, "app-property")).NotTo(BeNil(),
+						"app property should be present from fragment")
+
+					Expect(len(props)).To(BeNumerically(">=", 2),
+						"should contain properties from both sources")
+				}
+
+				By("verifying ExternalReferences are merged")
+				if bom.ExternalReferences != nil {
+					refs := *bom.ExternalReferences
+
+					Expect(findExternalReferenceByURL(refs, "https://github.com/example/app")).NotTo(BeNil(),
+						"app external reference should be present")
+				}
+
+				By("verifying Annotations are merged")
+				if bom.Annotations != nil {
+					annotations := *bom.Annotations
+
+					Expect(findAnnotationByText(annotations, "Application level annotation")).NotTo(BeNil(),
+						"app annotation should be present")
+				}
 			}
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
@@ -464,6 +544,42 @@ func findComponentByName(components []cdx.Component, name string) *cdx.Component
 	for i := range components {
 		if components[i].Name == name {
 			return &components[i]
+		}
+	}
+	return nil
+}
+
+func findServiceByName(services []cdx.Service, name string) *cdx.Service {
+	for i := range services {
+		if services[i].Name == name {
+			return &services[i]
+		}
+	}
+	return nil
+}
+
+func findPropertyByName(properties []cdx.Property, name string) *cdx.Property {
+	for i := range properties {
+		if properties[i].Name == name {
+			return &properties[i]
+		}
+	}
+	return nil
+}
+
+func findExternalReferenceByURL(refs []cdx.ExternalReference, url string) *cdx.ExternalReference {
+	for i := range refs {
+		if refs[i].URL == url {
+			return &refs[i]
+		}
+	}
+	return nil
+}
+
+func findAnnotationByText(annotations []cdx.Annotation, text string) *cdx.Annotation {
+	for i := range annotations {
+		if annotations[i].Text == text {
+			return &annotations[i]
 		}
 	}
 	return nil

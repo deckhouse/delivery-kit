@@ -3,26 +3,34 @@ package sbom
 import (
 	"fmt"
 	"strings"
+
+	"github.com/distribution/reference"
 )
 
-func IsScratchImage(imageRef string) bool {
-	if imageRef == "scratch" {
+const scratchImageName = "scratch"
+
+func IsScratchRef(imageRef string) bool {
+	if imageRef == "" {
+		return false
+	}
+
+	if imageRef == scratchImageName {
 		return true
 	}
 
-	ref := imageRef
-
-	if idx := strings.LastIndex(ref, "@"); idx != -1 {
-		ref = ref[:idx]
+	ref, err := reference.ParseAnyReference(imageRef)
+	if err != nil {
+		return false
 	}
 
-	if idx := strings.LastIndex(ref, ":"); idx != -1 {
-		if !strings.Contains(ref[idx:], "/") {
-			ref = ref[:idx]
-		}
+	named, ok := ref.(reference.Named)
+	if !ok {
+		return false
 	}
 
-	return ref == "scratch" || strings.HasSuffix(ref, "/scratch")
+	path := reference.Path(named)
+
+	return path == scratchImageName || strings.HasSuffix(path, "/"+scratchImageName)
 }
 
 func ImageName(name string) string {
@@ -30,5 +38,5 @@ func ImageName(name string) string {
 }
 
 func BaseImageSbomName(repo, tag string) string {
-	return fmt.Sprintf("%s:%s-sbom", repo, tag)
+	return ImageName(fmt.Sprintf("%s:%s", repo, tag))
 }

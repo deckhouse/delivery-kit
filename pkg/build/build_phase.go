@@ -167,17 +167,15 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 			}
 
 			if phase.Conveyor.EnableSbom() {
-				baseImageSbom, err := phase.collectBaseImageSbom(ctx, name, img)
+				_, err := phase.collectBaseImageSbom(ctx, img, name) // TODO: pass to Merge
 				if err != nil {
 					return err
 				}
-				_ = baseImageSbom // TODO: pass to Merge
 
-				importImageSboms, err := phase.collectImportImageSboms(ctx, name, img)
+				_, err = phase.collectImportImageSboms(ctx, img, name) // TODO: pass to Merge
 				if err != nil {
 					return err
 				}
-				_ = importImageSboms // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -217,17 +215,15 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					primaryImg = img.Images[0]
 				}
 
-				baseImageSbom, err := phase.collectBaseImageSbom(ctx, img.Name, primaryImg)
+				_, err := phase.collectBaseImageSbom(ctx, primaryImg, name) // TODO: pass to Merge
 				if err != nil {
 					return err
 				}
-				_ = baseImageSbom // TODO: pass to Merge
 
-				importImageSboms, err := phase.collectImportImageSboms(ctx, img.Name, primaryImg)
+				_, err = phase.collectImportImageSboms(ctx, primaryImg, name) // TODO: pass to Merge
 				if err != nil {
 					return err
 				}
-				_ = importImageSboms // TODO: pass to Merge
 
 				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
@@ -1360,34 +1356,26 @@ E.g.:
 		})
 }
 
-func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, imageName string, img *image.Image) (*cdx.BOM, error) {
-	if img == nil || img.IsBasedOnStage() || img.GetBaseImageReference() == "" {
-		return nil, nil
+func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image, name string) (*cdx.BOM, error) {
+	if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
+		if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
+			if baseStageDesc := baseStageImage.Image.GetStageDesc(); baseStageDesc != nil && baseStageDesc.Info != nil {
+				baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), baseStageDesc.Info)
+				if err != nil {
+					return nil, fmt.Errorf("unable to get base image sbom with ref %s SBOM: %w", img.GetBaseImageReference(), err)
+				}
+
+				return baseImageSbom, nil
+			}
+		} else {
+			return nil, fmt.Errorf("unable to get last non empty stage image info for base image with ref %s", img.GetBaseImageReference())
+		}
 	}
 
-	baseStageImage := img.GetBaseStageImage()
-	if baseStageImage == nil {
-		return nil, fmt.Errorf("unable to get base stage image for %q", img.GetBaseImageReference())
-	}
-
-	stageDesc := baseStageImage.Image.GetStageDesc()
-	if stageDesc == nil || stageDesc.Info == nil {
-		return nil, fmt.Errorf("unable to get stage description for base image %q", img.GetBaseImageReference())
-	}
-
-	bom, err := phase.sbomStep.GetImageBOM(ctx, imageName, img.GetBaseImageReference(), stageDesc.Info)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get base image SBOM for %q: %w", img.GetBaseImageReference(), err)
-	}
-
-	return bom, nil
+	return nil, nil
 }
 
-func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, imageName string, img *image.Image) ([]*cdx.BOM, error) {
-	if img == nil {
-		return nil, nil
-	}
-
+func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image, name string) ([]*cdx.BOM, error) {
 	var importImageSboms []*cdx.BOM
 
 	for _, importInfo := range img.GetImportImagesInfo() {
@@ -1405,15 +1393,15 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, imageName 
 			}
 		}
 
-		if importImageInfo == nil {
-			return nil, fmt.Errorf("unable to get stage image info for import image %q on platform %q", importInfo.ImageName, img.TargetPlatform)
+		if importImageInfo != nil {
+			importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, importInfo.ImageName, importImageInfo)
+			if err != nil {
+				return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
+			}
+			importImageSboms = append(importImageSboms, importImageSbom)
+		} else {
+			return nil, fmt.Errorf("unable to get last non empty stage image info for import image %q on platform %q", importInfo.ImageName, img.TargetPlatform)
 		}
-
-		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, imageName, importInfo.ImageName, importImageInfo)
-		if err != nil {
-			return nil, fmt.Errorf("unable to get import image SBOM for %q: %w", importInfo.ImageName, err)
-		}
-		importImageSboms = append(importImageSboms, importImageSbom)
 	}
 
 	return importImageSboms, nil

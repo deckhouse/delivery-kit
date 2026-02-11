@@ -179,7 +179,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			out, err := werfProject.BuildWithErr(ctx, nil)
 
 			Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
-			Expect(out).To(ContainSubstring("unable to get base image sbom"))
+			Expect(out).To(ContainSubstring("unable to get base image SBOM"))
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",

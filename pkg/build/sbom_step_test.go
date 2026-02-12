@@ -319,15 +319,6 @@ var _ = Describe("SbomStep", func() {
 		Entry(
 			"should return empty BOM for scratch image",
 			context.Background(),
-			"scratch",
-			nil,
-			false,
-			"",
-			true,
-		),
-		Entry(
-			"should return empty BOM for any registry scratch image",
-			context.Background(),
 			"registry.werf.io/werf/scratch",
 			nil,
 			false,
@@ -337,7 +328,7 @@ var _ = Describe("SbomStep", func() {
 		Entry(
 			"should return empty BOM for scratch image with tag",
 			context.Background(),
-			"myregistry.io/myproject/scratch:v1.0",
+			"registry.werf.io/werf/scratch:v1.0",
 			nil,
 			false,
 			"",

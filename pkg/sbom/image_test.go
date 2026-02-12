@@ -22,8 +22,8 @@ var _ = Describe("Image", func() {
 		Entry("scratch prefix", "scratchpad:latest", false),
 		Entry("scratch in path", "registry.werf.io/scratch-images/app:latest", false),
 
-		Entry("registry scratch with tag", "registry.werf.io/werf/scratch:latest", true),
 		Entry("registry scratch", "registry.werf.io/werf/scratch", true),
+		Entry("registry scratch with tag", "registry.werf.io/werf/scratch:latest", true),
 		Entry("registry scratch with custom tag", "registry.werf.io/werf/scratch:some-valid-tag", true),
 		Entry("registry scratch with digest", "registry.werf.io/werf/scratch@sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", true),
 	)

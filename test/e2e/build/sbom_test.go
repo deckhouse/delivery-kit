@@ -291,7 +291,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 	)
 })
 
-var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge"), func() {
+var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"), func() {
 	DescribeTable("should merge base image SBOM with fragment",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")

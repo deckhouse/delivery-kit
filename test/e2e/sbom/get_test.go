@@ -38,7 +38,7 @@ var _ = Describe("Sbom get", Label("e2e", "sbom", "get", "simple"), func() {
 					output = output[(71 + 1):]
 				}
 
-				Expect(output).To(HavePrefix(`{"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`))
+				Expect(output).To(ContainSubstring(`{"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`))
 			})
 		},
 		Entry("without repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{

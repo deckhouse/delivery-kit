@@ -13,8 +13,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/test/mock"
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/common-go/pkg/util"
@@ -22,8 +20,10 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
+	"github.com/werf/werf/v2/test/mock"
 )
 
 // createEmptyBOMStream creates a mock tar stream containing a minimal valid Docker image structure

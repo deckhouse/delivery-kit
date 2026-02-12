@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+
 	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )

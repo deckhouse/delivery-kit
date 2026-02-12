@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"slices"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -126,32 +125,10 @@ func (step *sbomStep) extractBOM(ctx context.Context, imageId string) (*cdx.BOM,
 }
 
 func (step *sbomStep) buildSbomImage(ctx context.Context, bom *cdx.BOM, scanOpts scanner.ScanOptions, labels []string) (string, error) {
-	wt, err := scanner.PrepareWorkingTreeForBOM(ctx, bom, scanOpts)
-	if err != nil {
-		return "", err
-	}
-	defer wt.Cleanup(ctx)
+	source := container_backend.NewStaticSource(bom)
+	builder := container_backend.NewSBOMImageBuilder(step.containerBackend)
 
-	billNames := scanner.BillNamesFromCommands(scanOpts.Commands)
-	contextAddFiles := make([]string, 0, len(billNames)+1)
-	for _, billName := range billNames {
-		contextAddFiles = append(contextAddFiles, filepath.Join(wt.BillsDir(), billName))
-	}
-	contextAddFiles = append(contextAddFiles, wt.Containerfile())
-
-	archive := container_backend.NewSbomContextArchiver(wt.RootDir())
-	if err := archive.Create(ctx, container_backend.BuildContextArchiveCreateOptions{
-		DockerfileRelToContextPath: wt.Containerfile(),
-		ContextAddFiles:            contextAddFiles,
-	}); err != nil {
-		return "", fmt.Errorf("unable to create build context: %w", err)
-	}
-
-	imgId, err := step.containerBackend.BuildDockerfile(ctx, wt.ContainerfileContent(), container_backend.BuildDockerfileOpts{
-		DockerfileCtxRelPath: wt.Containerfile(),
-		BuildContextArchive:  archive,
-		Labels:               labels,
-	})
+	imgId, err := builder.BuildImage(ctx, source, scanOpts, labels)
 	if err != nil {
 		return "", fmt.Errorf("unable to build SBOM image: %w", err)
 	}

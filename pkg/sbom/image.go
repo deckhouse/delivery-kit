@@ -2,20 +2,18 @@ package sbom
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/distribution/reference"
 )
 
-const scratchImageName = "scratch"
+const (
+	werfScratchRegistry  = "registry.werf.io"
+	werfScratchImageRepo = "werf/scratch"
+)
 
 func IsScratchRef(imageRef string) bool {
 	if imageRef == "" {
 		return false
-	}
-
-	if imageRef == scratchImageName {
-		return true
 	}
 
 	ref, err := reference.ParseAnyReference(imageRef)
@@ -28,9 +26,10 @@ func IsScratchRef(imageRef string) bool {
 		return false
 	}
 
+	domain := reference.Domain(named)
 	path := reference.Path(named)
 
-	return path == scratchImageName || strings.HasSuffix(path, "/"+scratchImageName)
+	return domain == werfScratchRegistry && path == werfScratchImageRepo
 }
 
 func ImageName(name string) string {

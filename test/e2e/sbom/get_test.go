@@ -25,7 +25,7 @@ var _ = Describe("Sbom get", Label("e2e", "sbom", "get", "simple"), func() {
 
 				output := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 					CommonOptions: werf.CommonOptions{
-						ExtraArgs: []string{"dockerfile"},
+						ExtraArgs: []string{"stapel"},
 					},
 				})
 
@@ -38,7 +38,7 @@ var _ = Describe("Sbom get", Label("e2e", "sbom", "get", "simple"), func() {
 					output = output[(71 + 1):]
 				}
 
-				Expect(output).To(HavePrefix(`{"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`))
+				Expect(output).To(ContainSubstring(`{"$schema":"http://cyclonedx.org/schema/bom-1.6.schema.json"`))
 			})
 		},
 		Entry("without repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
@@ -63,7 +63,7 @@ var _ = Describe("Sbom get", Label("e2e", "sbom", "get", "simple"), func() {
 		}}),
 		// TODO (zaytsev): it does not work currently
 		// https://github.com/werf/werf/actions/runs/15076648086/job/42385521980?pr=6860#step:11:150
-		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,

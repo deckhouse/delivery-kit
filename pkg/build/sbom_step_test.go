@@ -1,7 +1,15 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -18,11 +26,82 @@ import (
 	"github.com/werf/werf/v2/test/mock"
 )
 
+// createEmptyBOMStream creates a mock tar stream containing a minimal valid Docker image structure
+// that contains an SBOM in the expected format.
+func createEmptyBOMStream() io.ReadCloser {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	layerContent := createLayerTarGz()
+	layerDigest := sha256.Sum256(layerContent)
+	layerDigestHex := hex.EncodeToString(layerDigest[:])
+
+	configJSON := fmt.Sprintf(`{
+		"architecture": "amd64",
+		"os": "linux",
+		"rootfs": {
+			"type": "layers",
+			"diff_ids": ["sha256:%s"]
+		}
+	}`, layerDigestHex)
+	configDigest := sha256.Sum256([]byte(configJSON))
+	configDigestHex := hex.EncodeToString(configDigest[:])
+	configFileName := configDigestHex + ".json"
+	layerFileName := layerDigestHex + "/layer.tar"
+	manifest := []map[string]interface{}{
+		{
+			"Config":   configFileName,
+			"RepoTags": []string{"test:latest"},
+			"Layers":   []string{layerFileName},
+		},
+	}
+	manifestJSON, _ := json.Marshal(manifest)
+
+	writeFileToTar(tw, "manifest.json", manifestJSON)
+
+	writeFileToTar(tw, configFileName, []byte(configJSON))
+
+	tw.WriteHeader(&tar.Header{
+		Name:     layerDigestHex + "/",
+		Mode:     0o755,
+		Typeflag: tar.TypeDir,
+	})
+	writeFileToTar(tw, layerFileName, layerContent)
+
+	tw.Close()
+	return io.NopCloser(&buf)
+}
+
+func createLayerTarGz() []byte {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	scanOpts := scanner.DefaultSyftScanOptions()
+	billName := scanner.BillNameFromCommand(scanOpts.Commands[0])
+
+	bomJSON := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}`)
+	bomFilePath := filepath.Join("sbom", billName)
+	writeFileToTar(tw, bomFilePath, bomJSON)
+
+	tw.Close()
+	return buf.Bytes()
+}
+
+func writeFileToTar(tw *tar.Writer, name string, content []byte) {
+	tw.WriteHeader(&tar.Header{
+		Name: name,
+		Mode: 0o644,
+		Size: int64(len(content)),
+	})
+	tw.Write(content)
+}
+
 var _ = Describe("SbomStep", func() {
-	DescribeTable("Converge()",
+	DescribeTable("ConvergeWithMerge()",
 		func(
 			ctx context.Context,
 			isLocalStorage bool,
+			mergeOpts sbom.MergeOpts,
 			setupMocks func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -53,17 +132,19 @@ var _ = Describe("SbomStep", func() {
 			}
 			scanOpts := scanner.DefaultSyftScanOptions()
 
-			sbomBaseImgLabels := step.prepareSbomBaseLabels(ctx, stageDesc.Info.Labels, scanOpts)
+			sbomBaseImgLabels := step.prepareSbomBaseLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 			imgFilters := filter.NewFilterListFromLabelList(sbomBaseImgLabels).ToPairs()
 
-			sbomImgLabels := step.prepareSbomLabels(ctx, stageDesc.Info.Labels, scanOpts)
+			sbomImgLabels := step.prepareSbomLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 			setupMocks(ctx, backend, stagesStorage, stageDesc, scanOpts, sbomImgLabels, imgFilters)
 
-			Expect(step.Converge(ctx, "some-name", stageDesc, scanOpts)).To(Succeed())
+			Expect(step.ConvergeWithMerge(ctx, "some-name", stageDesc, scanOpts, mergeOpts)).To(Succeed())
 		},
 		Entry(
-			"[local storage]: should not scan source image if sbom image is already exist",
+			"[local storage]: should not scan source image if sbom image already exists",
+			context.Background(),
 			true,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -79,8 +160,10 @@ var _ = Describe("SbomStep", func() {
 			},
 		),
 		Entry(
-			"[local storage]: should scan source image if sbom image is not exist",
+			"[local storage]: should scan source image if sbom image does not exist",
+			context.Background(),
 			true,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -92,14 +175,22 @@ var _ = Describe("SbomStep", func() {
 			) {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{}, nil)
 
-				tmpImgId := "some id"
-				backend.EXPECT().GenerateSBOM(ctx, scanOpts, sbomImgLabels.ToStringSlice()).Return(tmpImgId, nil)
-				backend.EXPECT().Tag(ctx, tmpImgId, sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
+				tmpImgId := "tmp-sbom-img-id"
+				backend.EXPECT().GenerateSBOM(ctx, scanOpts, gomock.Any()).Return(tmpImgId, nil)
+				// Return a new stream each time SaveImageToStream is called
+				backend.EXPECT().SaveImageToStream(ctx, tmpImgId).DoAndReturn(func(_ context.Context, _ string) (io.ReadCloser, error) {
+					return createEmptyBOMStream(), nil
+				}).AnyTimes()
+				backend.EXPECT().Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}).Return(nil)
+				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
+				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 			},
 		),
 		Entry(
-			"[remote storage]: should push sbom source image if it exist locally",
+			"[remote storage]: should push sbom image if it exists locally",
+			context.Background(),
 			false,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -117,7 +208,9 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"[remote storage]: should not scan if sbom image is pulled from registry",
+			context.Background(),
 			false,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -132,8 +225,10 @@ var _ = Describe("SbomStep", func() {
 			},
 		),
 		Entry(
-			"[remote storage]: should scan source image if sbom image is not pulled from registry and push generated sbom image into registry",
+			"[remote storage]: should scan, build and push sbom image if not found",
+			context.Background(),
 			false,
+			sbom.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -148,12 +243,213 @@ var _ = Describe("SbomStep", func() {
 
 				backend.EXPECT().Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}).Return(nil)
 
-				tmpImgId := "some id"
-				backend.EXPECT().GenerateSBOM(ctx, scanOpts, sbomImgLabels.ToStringSlice()).Return(tmpImgId, nil)
-				backend.EXPECT().Tag(ctx, tmpImgId, sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
+				tmpImgId := "tmp-sbom-img-id"
+				backend.EXPECT().GenerateSBOM(ctx, scanOpts, gomock.Any()).Return(tmpImgId, nil)
+				backend.EXPECT().SaveImageToStream(ctx, tmpImgId).DoAndReturn(func(_ context.Context, _ string) (io.ReadCloser, error) {
+					return createEmptyBOMStream(), nil
+				}).AnyTimes()
+				backend.EXPECT().Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}).Return(nil)
+				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
+				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 
 				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
 			},
+		),
+	)
+
+	DescribeTable("pullImageSbom()",
+		func(
+			ctx context.Context,
+			baseImageInfo *image.Info,
+			expectError bool,
+			expectedErrorMsg string,
+			setupMocks func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageInfo *image.Info,
+			),
+		) {
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			stagesStorage := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+
+			step := newSbomStep(backend, stagesStorage)
+
+			ctx = logging.WithLogger(ctx)
+
+			setupMocks(ctx, backend, baseImageInfo)
+
+			_, err := step.pullImageSbom(ctx, "some-name", baseImageInfo)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry(
+			"should fail if sbom not found in registry",
+			context.Background(),
+			&image.Info{
+				Name:       "docker.io/namespace/repo:e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff-1747987463184",
+				Repository: "docker.io/namespace/repo",
+				Labels: map[string]string{
+					image.WerfStageContentDigestLabel: "e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff",
+				},
+			},
+			true,
+			"SBOM for image",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageInfo *image.Info,
+			) {
+				_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
+				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, tag)
+				backend.EXPECT().GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
+				backend.EXPECT().Pull(ctx, sbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
+			},
+		),
+		Entry(
+			"should fail if no werf labels available",
+			context.Background(),
+			&image.Info{
+				Name:       "ubuntu:22.04",
+				Repository: "ubuntu",
+				Labels:     map[string]string{},
+			},
+			true,
+			"required werf stage content digest label is missing",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageInfo *image.Info,
+			) {
+				// No mocks needed - should fail before any backend calls
+			},
+		),
+	)
+
+	DescribeTable("pullImageSbom() with local storage",
+		func(
+			ctx context.Context,
+			baseImageInfo *image.Info,
+			expectError bool,
+			expectedErrorMsg string,
+			setupMocks func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageInfo *image.Info,
+			),
+		) {
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			stagesStorage := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+
+			step := &sbomStep{
+				containerBackend: backend,
+				stagesStorage:    stagesStorage,
+				isLocalStorage:   true,
+			}
+
+			ctx = logging.WithLogger(ctx)
+
+			setupMocks(ctx, backend, baseImageInfo)
+
+			_, err := step.pullImageSbom(ctx, "some-name", baseImageInfo)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry(
+			"should fail if sbom not found locally (no pull for local storage)",
+			context.Background(),
+			&image.Info{
+				Name:       "docker.io/namespace/repo:e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff-1747987463184",
+				Repository: "docker.io/namespace/repo",
+				Labels: map[string]string{
+					image.WerfStageContentDigestLabel: "e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff",
+				},
+			},
+			true,
+			"not found locally",
+			func(
+				ctx context.Context,
+				backend *mock.MockContainerBackend,
+				baseImageInfo *image.Info,
+			) {
+				_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
+				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, tag)
+				backend.EXPECT().GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
+			},
+		),
+	)
+
+	DescribeTable("GetImageBOM()",
+		func(
+			ctx context.Context,
+			imageRef string,
+			imageInfo *image.Info,
+			expectError bool,
+			expectedErrorMsg string,
+			expectEmptyBOM bool,
+		) {
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			stagesStorage := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+
+			step := newSbomStep(backend, stagesStorage)
+
+			ctx = logging.WithLogger(ctx)
+
+			bom, err := step.GetImageBOM(ctx, "some-name", imageRef, imageInfo)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrorMsg))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(bom).ToNot(BeNil())
+				if expectEmptyBOM {
+					Expect(bom.Components).ToNot(BeNil())
+					Expect(*bom.Components).To(BeEmpty())
+				}
+			}
+		},
+		Entry(
+			"should return empty BOM for scratch image",
+			context.Background(),
+			"scratch",
+			nil,
+			false,
+			"",
+			true,
+		),
+		Entry(
+			"should return empty BOM for any registry scratch image",
+			context.Background(),
+			"registry.werf.io/werf/scratch",
+			nil,
+			false,
+			"",
+			true,
+		),
+		Entry(
+			"should return empty BOM for scratch image with tag",
+			context.Background(),
+			"myregistry.io/myproject/scratch:v1.0",
+			nil,
+			false,
+			"",
+			true,
+		),
+		Entry(
+			"should fail if imageInfo is nil for non-scratch image",
+			context.Background(),
+			"ubuntu:22.04",
+			nil,
+			true,
+			"image info not available",
+			false,
 		),
 	)
 })

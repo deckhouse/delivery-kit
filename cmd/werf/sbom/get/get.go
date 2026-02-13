@@ -167,8 +167,8 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return err
 	}
 
-	if werfConfig.GetImage(requestedImageName).Sbom() == nil || !werfConfig.GetImage(requestedImageName).Sbom().Use {
-		return fmt.Errorf("SBOM should be enabled for image %q in the werf config", requestedImageName)
+	if werfConfig.Meta.Build.Sbom == nil || !werfConfig.Meta.Build.Sbom.Enable {
+		return fmt.Errorf("SBOM should be enabled in the werf config build.sbom.enable directive")
 	}
 
 	projectName := werfConfig.Meta.Project

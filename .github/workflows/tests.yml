@@ -14,7 +14,11 @@ concurrency:
 
 jobs:
   detect-changes:
+<<<<<<< HEAD
     runs-on: delivery-github-runner
+=======
+    runs-on: [self-hosted, regular]
+>>>>>>> 13605ca47 (feat(sbom): sbom fstec mvp impl)
     timeout-minutes: 10
     permissions:
       pull-requests: read

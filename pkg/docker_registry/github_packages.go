@@ -24,12 +24,12 @@ const (
 var gitHubPackagesPatterns = []string{"^ghcr\\.io", "^docker\\.pkg\\.github\\.com"}
 
 type (
-	GitHubPackagesUnauthorizedErr apiError
-	GitHubPackagesForbiddenErr    apiError
+	GitHubPackagesUnauthorizedError apiError
+	GitHubPackagesForbiddenError    apiError
 )
 
-func NewGitHubPackagesUnauthorizedErr(err error) GitHubPackagesUnauthorizedErr {
-	return GitHubPackagesUnauthorizedErr{
+func NewGitHubPackagesUnauthorizedErr(err error) GitHubPackagesUnauthorizedError {
+	return GitHubPackagesUnauthorizedError{
 		error: errors.New(gitHubPackagesUnauthorizedErrPrefix + err.Error()),
 	}
 }
@@ -38,8 +38,8 @@ func IsGitHubPackagesUnauthorizedErr(err error) bool {
 	return strings.Contains(err.Error(), gitHubPackagesUnauthorizedErrPrefix)
 }
 
-func NewGitHubPackagesForbiddenErr(err error) GitHubPackagesForbiddenErr {
-	return GitHubPackagesForbiddenErr{
+func NewGitHubPackagesForbiddenErr(err error) GitHubPackagesForbiddenError {
+	return GitHubPackagesForbiddenError{
 		error: errors.New(gitHubPackagesForbiddenErrPrefix + err.Error()),
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/werf/werf/v2/pkg/git_repo"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -135,7 +137,8 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 	imagesPairs := phase.Conveyor.imagesTree.GetImagesByName(false)
 
 	if err := parallel.DoTasks(ctx, len(imagesPairs), parallel.DoTasksOptions{
-		MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+		MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
+		InitDockerCLIForEachWorker: true,
 	}, func(ctx context.Context, taskId int) error {
 		pair := imagesPairs[taskId]
 
@@ -165,8 +168,29 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 			}
 
-			if img.UseSbom() {
-				if err = phase.sbomStep.Converge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
+			if phase.Conveyor.EnableSbom() {
+				baseImageSbom, err := phase.collectBaseImageSbom(ctx, img, name)
+				if err != nil {
+					return err
+				}
+
+				importImageSboms, err := phase.collectImportImageSboms(ctx, img, name)
+				if err != nil {
+					return err
+				}
+
+				var fragmentBOM *cdx.BOM
+				if imgSbom := img.Sbom(); imgSbom != nil {
+					fragmentBOM = imgSbom.Document
+				}
+
+				mergeOpts := sbom.MergeOpts{
+					BaseBOM:     baseImageSbom,
+					ImportBOMs:  importImageSboms,
+					FragmentBOM: fragmentBOM,
+				}
+
+				if err = phase.sbomStep.ConvergeWithMerge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
 				}
 			}
@@ -198,8 +222,36 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 			}
 
-			if img.UseSbom() {
-				if err = phase.sbomStep.Converge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions()); err != nil {
+			if phase.Conveyor.EnableSbom() {
+				var primaryImg *image.Image
+				if len(img.Images) > 0 {
+					primaryImg = img.Images[0]
+				}
+
+				baseImageSbom, err := phase.collectBaseImageSbom(ctx, primaryImg, name)
+				if err != nil {
+					return err
+				}
+
+				importImageSboms, err := phase.collectImportImageSboms(ctx, primaryImg, name)
+				if err != nil {
+					return err
+				}
+
+				var fragmentBOM *cdx.BOM
+				if len(img.Images) > 0 {
+					if imgSbom := img.Images[0].Sbom(); imgSbom != nil {
+						fragmentBOM = imgSbom.Document
+					}
+				}
+
+				mergeOpts := sbom.MergeOpts{
+					BaseBOM:     baseImageSbom,
+					ImportBOMs:  importImageSboms,
+					FragmentBOM: fragmentBOM,
+				}
+
+				if err = phase.sbomStep.ConvergeWithMerge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
 					return fmt.Errorf("unable to converge sbom: %w", err)
 				}
 			}
@@ -1328,6 +1380,57 @@ E.g.:
 - If you want to build images instead of requiring them to be already built, remove --require-built-images flag / WERF_REQUIRE_BUILT_IMAGES env`)
 			logboek.Context(ctx).Warn().LogLn()
 		})
+}
+
+func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image, name string) (*cdx.BOM, error) {
+	if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
+		if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
+			if baseStageDesc := baseStageImage.Image.GetStageDesc(); baseStageDesc != nil && baseStageDesc.Info != nil {
+				baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), baseStageDesc.Info)
+				if err != nil {
+					return nil, fmt.Errorf("unable to get base image sbom with ref %s SBOM: %w", img.GetBaseImageReference(), err)
+				}
+
+				return baseImageSbom, nil
+			}
+		} else {
+			return nil, fmt.Errorf("unable to get last non empty stage image info for base image with ref %s", img.GetBaseImageReference())
+		}
+	}
+
+	return nil, nil
+}
+
+func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image, name string) ([]*cdx.BOM, error) {
+	var importImageSboms []*cdx.BOM
+
+	for _, importInfo := range img.GetImportImagesInfo() {
+		var importImageInfo *imagePkg.Info
+
+		if importInfo.ExternalImage {
+			info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
+			if err != nil {
+				return nil, fmt.Errorf("unable to get external import image info for %q: %w", importInfo.ImageName, err)
+			}
+			importImageInfo = info
+		} else {
+			if importImg := phase.Conveyor.GetImage(img.TargetPlatform, importInfo.ImageName); importImg != nil {
+				importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
+			}
+		}
+
+		if importImageInfo != nil {
+			importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, importInfo.ImageName, importImageInfo)
+			if err != nil {
+				return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
+			}
+			importImageSboms = append(importImageSboms, importImageSbom)
+		} else {
+			return nil, fmt.Errorf("unable to get last non empty stage image info for import image %q on platform %q", importInfo.ImageName, img.TargetPlatform)
+		}
+	}
+
+	return importImageSboms, nil
 }
 
 func (phase *BuildPhase) Clone() Phase {

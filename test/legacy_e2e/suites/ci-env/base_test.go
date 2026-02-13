@@ -61,7 +61,7 @@ var _ = Describe("base", func() {
 				scriptDataByte, err := ioutil.ReadFile(scriptPath)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				re := regexp.MustCompile("(.*/tmp/werf-docker-config-)[0-9]+(.*)")
+				re := regexp.MustCompile("(.*/tmp/werf-[a-z]*-?docker-config-)[0-9]+(.*)")
 				scriptData := re.ReplaceAllString(string(scriptDataByte), "${1}${2}")
 				output = re.ReplaceAllString(output, "${1}${2}")
 

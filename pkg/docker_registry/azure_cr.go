@@ -18,10 +18,10 @@ const (
 	azureCrRepositoryNotFoundErrPrefix = "azure cr repository not found: "
 )
 
-type AzureCrRepositoryNotFoundErr apiError
+type AzureCrRepositoryNotFoundError apiError
 
-func NewAzureCrRepositoryNotFoundErr(err error) AzureCrRepositoryNotFoundErr {
-	return AzureCrRepositoryNotFoundErr{
+func NewAzureCrRepositoryNotFoundErr(err error) AzureCrRepositoryNotFoundError {
+	return AzureCrRepositoryNotFoundError{
 		error: fmt.Errorf(azureCrRepositoryNotFoundErrPrefix + err.Error()),
 	}
 }

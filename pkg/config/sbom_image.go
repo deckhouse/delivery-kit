@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	sbomPkg "github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
 // buildImageSbom builds image-level SBOM configuration based on meta build settings.
@@ -55,7 +56,7 @@ func buildImageSbom(meta *Meta, raw *rawSbom, d *doc) (*Sbom, error) {
 		return nil, newDetailedConfigError("`sbom.fragment` must not be empty when `build.sbom.enable` is true", nil, d)
 	}
 
-	bom, err := sbomPkg.BuildCycloneDX16BOMFromYAMLFragment(metaSbom.Standard, []byte(fragment))
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromYAMLFragment([]byte(fragment))
 	if err != nil {
 		return nil, newDetailedConfigError(fmt.Sprintf("invalid `sbom.fragment`: %v", err), nil, d)
 	}

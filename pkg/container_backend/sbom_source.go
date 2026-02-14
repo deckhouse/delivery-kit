@@ -6,7 +6,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
 
@@ -23,7 +23,7 @@ func NewStaticSource(bom *cdx.BOM) *StaticSource {
 }
 
 func (s *StaticSource) Fill(ctx context.Context, wt *scanner.WorkingTree) error {
-	bomJSON, err := sbom.ToJSON(s.BOM)
+	bomJSON, err := cyclonedxutil.ToJSON(s.BOM)
 	if err != nil {
 		return fmt.Errorf("serialize BOM: %w", err)
 	}

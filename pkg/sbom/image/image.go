@@ -1,4 +1,4 @@
-package sbom
+package image
 
 import (
 	"fmt"
@@ -37,6 +37,6 @@ func ImageName(name string) string {
 	return fmt.Sprintf("%s-sbom", name)
 }
 
-func BaseImageSbomName(repo, tag string) string {
+func BaseImageName(repo, tag string) string {
 	return ImageName(fmt.Sprintf("%s:%s", repo, tag))
 }

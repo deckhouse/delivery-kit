@@ -1,4 +1,4 @@
-package sbom
+package image
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestSbom(t *testing.T) {
+func TestImage(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Sbom Suite")
+	RunSpecs(t, "Image Suite")
 }

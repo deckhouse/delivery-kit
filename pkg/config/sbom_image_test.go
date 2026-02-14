@@ -49,7 +49,7 @@ var _ = Describe("buildImageSbom", func() {
 			nil,
 		),
 		Entry(
-			"should fail when build.sbom.enable=true and image sbom is not specified",
+			"should succeed when build.sbom.enable=true and image sbom is not specified (now optional)",
 			&Meta{
 				Build: MetaBuild{
 					Sbom: &MetaBuildSbom{
@@ -60,9 +60,11 @@ var _ = Describe("buildImageSbom", func() {
 			},
 			nil,
 			&doc{RenderFilePath: "werf.yaml", Content: []byte("image: test")},
-			HaveOccurred(),
-			true,
-			nil,
+			Succeed(),
+			false,
+			func(sbomDirective *Sbom) {
+				Expect(sbomDirective).To(BeNil())
+			},
 		),
 		Entry(
 			"should fail when build.sbom.enable=true and sbom.fragment is empty",

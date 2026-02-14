@@ -29,9 +29,9 @@ func buildImageSbom(meta *Meta, raw *rawSbom, d *doc) (*Sbom, error) {
 		return nil, nil
 	}
 
-	// build.sbom is enabled => sbom must be specified for every image
+	// build.sbom is enabled => sbom is optional for every image
 	if raw == nil {
-		return nil, newDetailedConfigError("`build.sbom.enable` is true, but `sbom` section is not specified for the image", nil, d)
+		return nil, nil
 	}
 
 	// Defensive check: meta-level validation currently allows only CycloneDX@1.6.

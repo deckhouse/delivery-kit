@@ -14,7 +14,9 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
 	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v2/pkg/sbom/extract"
+	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 )
@@ -38,9 +40,9 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts) error {
 	sourceImageName := stageDesc.Info.Name
-	sbomImageName := sbom.ImageName(sourceImageName)
+	sbomImageName := sbomImage.ImageName(sourceImageName)
 
 	scanOpts.Commands[0].SourcePath = sourceImageName
 
@@ -95,7 +97,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		resultBOM := targetBOM
 		if !mergeOpts.IsEmpty() {
-			resultBOM = sbom.MergeBOMs(targetBOM, mergeOpts)
+			resultBOM = cyclonedxutil.MergeBOMs(targetBOM, mergeOpts)
 		}
 
 		sbomImgId, err := step.buildSbomImage(ctx, resultBOM, scanOpts, sbomImgLabels.ToStringSlice())
@@ -121,7 +123,18 @@ func (step *sbomStep) extractBOM(ctx context.Context, imageId string) (*cdx.BOM,
 	opener := func() (io.ReadCloser, error) {
 		return step.containerBackend.SaveImageToStream(ctx, imageId)
 	}
-	return sbom.ExtractBOMFromImage(opener)
+
+	artifactContent, err := extract.FromImageBytes(opener)
+	if err != nil {
+		return nil, fmt.Errorf("unable to find SBOM artifact: %w", err)
+	}
+
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(artifactContent)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse SBOM artifact: %w", err)
+	}
+
+	return bom, nil
 }
 
 func (step *sbomStep) buildSbomImage(ctx context.Context, bom *cdx.BOM, scanOpts scanner.ScanOptions, labels []string) (string, error) {
@@ -136,7 +149,7 @@ func (step *sbomStep) buildSbomImage(ctx context.Context, bom *cdx.BOM, scanOpts
 	return imgId, nil
 }
 
-func (step *sbomStep) prepareSbomBaseLabelsWithMerge(_ context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) label.LabelList {
+func (step *sbomStep) prepareSbomBaseLabelsWithMerge(_ context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts) label.LabelList {
 	checksum := scanOpts.Checksum()
 	if mc := mergeOpts.Checksum(); mc != "" {
 		checksum += "-" + mc
@@ -150,7 +163,7 @@ func (step *sbomStep) prepareSbomBaseLabelsWithMerge(_ context.Context, srcImgLa
 	}
 }
 
-func (step *sbomStep) prepareSbomLabelsWithMerge(ctx context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions, mergeOpts sbom.MergeOpts) label.LabelList {
+func (step *sbomStep) prepareSbomLabelsWithMerge(ctx context.Context, srcImgLabels map[string]string, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts) label.LabelList {
 	list := step.prepareSbomBaseLabelsWithMerge(ctx, srcImgLabels, scanOpts, mergeOpts)
 	list.Add(label.NewLabel(image.WerfVersionLabel, srcImgLabels[image.WerfVersionLabel]))
 	return list
@@ -178,8 +191,8 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 }
 
 func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
-	if sbom.IsScratchRef(imageRef) {
-		return sbom.NewEmptyBOM(), nil
+	if sbomImage.IsScratchRef(imageRef) {
+		return cyclonedxutil.NewEmptyBOM(), nil
 	}
 
 	if imageInfo == nil {
@@ -205,9 +218,14 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, ima
 		return step.containerBackend.SaveImageToStream(ctx, sbomImageName)
 	}
 
-	bom, err := sbom.ExtractBOMFromImage(opener)
+	artifactContent, err := extract.FromImageBytes(opener)
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract BOM from SBOM image %q: %w", sbomImageName, err)
+		return nil, fmt.Errorf("unable to find SBOM artifact: %w", err)
+	}
+
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(artifactContent)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse SBOM artifact: %w", err)
 	}
 
 	return bom, nil
@@ -217,7 +235,7 @@ func (step *sbomStep) resolveImageSbomName(baseImageInfo *image.Info) (string, e
 	if digest, ok := baseImageInfo.Labels[image.WerfStageContentDigestLabel]; ok && digest != "" {
 		_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
 
-		return sbom.BaseImageSbomName(baseImageInfo.Repository, tag), nil
+		return sbomImage.BaseImageName(baseImageInfo.Repository, tag), nil
 	}
 
 	return "", fmt.Errorf(

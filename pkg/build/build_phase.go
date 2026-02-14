@@ -28,7 +28,7 @@ import (
 	"github.com/werf/werf/v2/pkg/git_repo"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -184,7 +184,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					fragmentBOM = imgSbom.Document
 				}
 
-				mergeOpts := sbom.MergeOpts{
+				mergeOpts := cyclonedxutil.MergeOpts{
 					BaseBOM:     baseImageSbom,
 					ImportBOMs:  importImageSboms,
 					FragmentBOM: fragmentBOM,
@@ -245,7 +245,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					}
 				}
 
-				mergeOpts := sbom.MergeOpts{
+				mergeOpts := cyclonedxutil.MergeOpts{
 					BaseBOM:     baseImageSbom,
 					ImportBOMs:  importImageSboms,
 					FragmentBOM: fragmentBOM,

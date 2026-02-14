@@ -1,4 +1,4 @@
-package sbom_test
+package cyclonedxutil
 
 import (
 	"strings"
@@ -6,8 +6,6 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	. "github.com/werf/werf/v2/pkg/sbom"
 )
 
 func componentNames(bom *cdx.BOM) []string {
@@ -231,11 +229,8 @@ var _ = Describe("MergeOpts", func() {
 	})
 })
 
-// если ты хочешь оставить package sbom (а не sbom_test),
-// то удали импорт ". your/module/path/sbom" и удали strings если не нужен.
-// Сейчас strings используется только косвенно (пример), но можно убрать:
 var _ = Describe("internal sanity", func() {
-	It("strings import is used (remove this block if not needed)", func() {
+	It("strings import is used", func() {
 		Expect(strings.HasPrefix("urn:uuid:x", "urn:uuid:")).To(BeTrue())
 	})
 })

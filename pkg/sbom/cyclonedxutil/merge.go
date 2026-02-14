@@ -1,12 +1,10 @@
-package sbom
+package cyclonedxutil
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
-	"github.com/google/uuid"
 
 	"github.com/werf/common-go/pkg/util"
 )
@@ -40,12 +38,7 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 }
 
 func MergeBOMs(target *cdx.BOM, opts MergeOpts) *cdx.BOM {
-	result := &cdx.BOM{
-		BOMFormat:    cdx.BOMFormat,
-		SpecVersion:  cdx.SpecVersion1_6,
-		Version:      1,
-		SerialNumber: "urn:uuid:" + uuid.New().String(),
-	}
+	result := newCycloneDX16BOM()
 
 	if target != nil && target.Metadata != nil {
 		result.Metadata = target.Metadata
@@ -235,13 +228,4 @@ func BOMChecksum(bom *cdx.BOM) string {
 	}
 
 	return util.Sha256Hash(string(data))
-}
-
-func ToJSON(bom *cdx.BOM) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := cdx.NewBOMEncoder(&buf, cdx.BOMFileFormatJSON).EncodeVersion(bom, cdx.SpecVersion1_6); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }

@@ -1,4 +1,4 @@
-package sbom
+package cyclonedxutil
 
 import (
 	"strings"
@@ -16,8 +16,8 @@ var _ = Describe("SBOM CycloneDX builders", func() {
 	Describe("BuildCycloneDX16BOMFromYAMLFragment", func() {
 		DescribeTable(
 			"builds/validates BOM from YAML fragment",
-			func(standard StandardType, fragmentYAML string, expectedErrMatcher types.GomegaMatcher, expectedBom bomAssert) {
-				bom, err := BuildCycloneDX16BOMFromYAMLFragment(standard, []byte(fragmentYAML))
+			func(fragmentYAML string, expectedErrMatcher types.GomegaMatcher, expectedBom bomAssert) {
+				bom, err := BuildCycloneDX16BOMFromYAMLFragment([]byte(fragmentYAML))
 
 				Expect(err).To(expectedErrMatcher)
 				if err != nil {
@@ -35,22 +35,13 @@ var _ = Describe("SBOM CycloneDX builders", func() {
 			},
 
 			Entry(
-				"unsupported standard",
-				StandardTypeSPDX23,
-				"components: []",
-				MatchError(ContainSubstring("unsupported standard")),
-				nil,
-			),
-			Entry(
 				"empty fragment",
-				StandardTypeCycloneDX16,
 				"   \n\t",
 				MatchError(ContainSubstring("document fragment is empty")),
 				nil,
 			),
 			Entry(
 				"invalid YAML",
-				StandardTypeCycloneDX16,
 				"a: [",
 				MatchError(ContainSubstring("invalid YAML fragment")),
 				nil,
@@ -58,28 +49,24 @@ var _ = Describe("SBOM CycloneDX builders", func() {
 
 			Entry(
 				"overrides specVersion to unsupported value",
-				StandardTypeCycloneDX16,
 				"specVersion: \"1.5\"\n",
 				MatchError(ContainSubstring("invalid specVersion")),
 				nil,
 			),
 			Entry(
 				"overrides bomFormat to unsupported value",
-				StandardTypeCycloneDX16,
 				"bomFormat: \"SPDX\"\n",
 				MatchError(ContainSubstring("invalid bomFormat")),
 				nil,
 			),
 			Entry(
 				"sets invalid serialNumber",
-				StandardTypeCycloneDX16,
 				"serialNumber: \"not-a-urn\"\n",
 				MatchError(ContainSubstring("serialNumber")),
 				nil,
 			),
 			Entry(
 				"succeeds for a valid fragment (components)",
-				StandardTypeCycloneDX16,
 				`
 components:
   - type: library
@@ -101,7 +88,6 @@ components:
 			),
 			Entry(
 				"allows overriding base fields via full document YAML (version and serialNumber)",
-				StandardTypeCycloneDX16,
 				`
 bomFormat: CycloneDX
 specVersion: "1.6"
@@ -123,8 +109,8 @@ components:
 	Describe("BuildCycloneDX16BOMFromJSON", func() {
 		DescribeTable(
 			"builds/validates BOM from JSON bytes",
-			func(standard StandardType, bomJSON string, expectedErrMatcher types.GomegaMatcher, expectedBom bomAssert) {
-				bom, err := BuildCycloneDX16BOMFromJSON(standard, []byte(bomJSON))
+			func(bomJSON string, expectedErrMatcher types.GomegaMatcher, expectedBom bomAssert) {
+				bom, err := BuildCycloneDX16BOMFromJSON([]byte(bomJSON))
 
 				Expect(err).To(expectedErrMatcher)
 				if err != nil {
@@ -142,64 +128,49 @@ components:
 			},
 
 			Entry(
-				"unsupported standard",
-				StandardTypeSPDX23,
-				`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1}`,
-				MatchError(ContainSubstring("unsupported standard")),
-				nil,
-			),
-			Entry(
 				"empty json",
-				StandardTypeCycloneDX16,
 				"  \n\t",
 				MatchError(ContainSubstring("document json is empty")),
 				nil,
 			),
 			Entry(
 				"invalid json syntax",
-				StandardTypeCycloneDX16,
 				`{"bomFormat":`,
 				MatchError(ContainSubstring("failed to decode")),
 				nil,
 			),
 			Entry(
 				"invalid bomFormat",
-				StandardTypeCycloneDX16,
 				`{"bomFormat":"SPDX","specVersion":"1.6","version":1}`,
 				MatchError(ContainSubstring("invalid bomFormat")),
 				nil,
 			),
 			Entry(
 				"invalid specVersion",
-				StandardTypeCycloneDX16,
 				`{"bomFormat":"CycloneDX","specVersion":"1.5","version":1}`,
 				MatchError(ContainSubstring("invalid specVersion")),
 				nil,
 			),
 			Entry(
 				"missing specVersion (zero value is not 1.6)",
-				StandardTypeCycloneDX16,
 				`{"bomFormat":"CycloneDX","version":1}`,
 				MatchError(ContainSubstring("invalid specVersion")),
 				nil,
 			),
 			Entry(
 				"version must be >= 1",
-				StandardTypeCycloneDX16,
 				`{"bomFormat":"CycloneDX","specVersion":"1.6","version":0}`,
 				MatchError(ContainSubstring("version must be >= 1")),
 				nil,
 			),
 			Entry(
 				"invalid serialNumber format",
-				StandardTypeCycloneDX16,
 				`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"serialNumber":"not-a-urn"}`,
 				MatchError(ContainSubstring("serialNumber")),
 				nil,
 			),
 			Entry(
 				"succeeds for a valid BOM JSON",
-				StandardTypeCycloneDX16,
 				`{
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
@@ -223,7 +194,6 @@ components:
 			),
 			Entry(
 				"succeeds when serialNumber is omitted (it is optional for validation)",
-				StandardTypeCycloneDX16,
 				`{
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",

@@ -1,4 +1,4 @@
-package sbom
+package extract
 
 import (
 	"archive/tar"
@@ -6,14 +6,23 @@ import (
 	"fmt"
 	"io"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 )
 
-// FindSingleSbomArtifact finds the first SBOM artifact in the tar stream.
+// FromImageStream extracts the contents of an image stream (tarball) into a flattened filesystem tarball.
+func FromImageStream(opener tarball.Opener) (io.ReadCloser, error) {
+	if img, err := tarball.Image(opener, nil); err != nil {
+		return nil, fmt.Errorf("unable to open image: %w", err)
+	} else {
+		return mutate.Extract(img), nil
+	}
+}
+
+// FromImageBytes extracts the first SBOM artifact in the tar stream.
 // It assumes that the tar stream contains only one artifact file.
-func FindSingleSbomArtifact(opener tarball.Opener) (data []byte, errOut error) {
-	readerCloser, err := ExtractFromImageStream(opener)
+func FromImageBytes(opener tarball.Opener) (data []byte, errOut error) {
+	readerCloser, err := FromImageStream(opener)
 	if err != nil {
 		return nil, fmt.Errorf("unable to extract SBOM from tar: %w", err)
 	}
@@ -46,18 +55,4 @@ func FindSingleSbomArtifact(opener tarball.Opener) (data []byte, errOut error) {
 	}
 
 	return nil, errors.New("no artifact file found")
-}
-
-func ExtractBOMFromImage(opener tarball.Opener) (*cdx.BOM, error) {
-	artifactContent, err := FindSingleSbomArtifact(opener)
-	if err != nil {
-		return nil, fmt.Errorf("unable to find SBOM artifact: %w", err)
-	}
-
-	bom, err := BuildCycloneDX16BOMFromJSON(StandardTypeCycloneDX16, artifactContent)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse SBOM artifact: %w", err)
-	}
-
-	return bom, nil
 }

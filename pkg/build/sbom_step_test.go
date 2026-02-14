@@ -21,7 +21,8 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/label"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/test/mock"
 )
@@ -101,7 +102,7 @@ var _ = Describe("SbomStep", func() {
 		func(
 			ctx context.Context,
 			isLocalStorage bool,
-			mergeOpts sbom.MergeOpts,
+			mergeOpts cyclonedxutil.MergeOpts,
 			setupMocks func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -144,7 +145,7 @@ var _ = Describe("SbomStep", func() {
 			"[local storage]: should not scan source image if sbom image already exists",
 			context.Background(),
 			true,
-			sbom.MergeOpts{},
+			cyclonedxutil.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -163,7 +164,7 @@ var _ = Describe("SbomStep", func() {
 			"[local storage]: should scan source image if sbom image does not exist",
 			context.Background(),
 			true,
-			sbom.MergeOpts{},
+			cyclonedxutil.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -183,14 +184,14 @@ var _ = Describe("SbomStep", func() {
 				}).AnyTimes()
 				backend.EXPECT().Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}).Return(nil)
 				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
-				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
+				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbomImage.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 			},
 		),
 		Entry(
 			"[remote storage]: should push sbom image if it exists locally",
 			context.Background(),
 			false,
-			sbom.MergeOpts{},
+			cyclonedxutil.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -203,14 +204,14 @@ var _ = Describe("SbomStep", func() {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{
 					{RepoTags: []string{"namespace/repo:e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff-1747987463184-sbom"}},
 				}, nil)
-				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
+				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbomImage.ImageName(stageDesc.Info.Name)).Return(true, nil)
 			},
 		),
 		Entry(
 			"[remote storage]: should not scan if sbom image is pulled from registry",
 			context.Background(),
 			false,
-			sbom.MergeOpts{},
+			cyclonedxutil.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -221,14 +222,14 @@ var _ = Describe("SbomStep", func() {
 				imgFilters []util.Pair[string, string],
 			) {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{}, nil)
-				stagesStorage.EXPECT().PullIfExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
+				stagesStorage.EXPECT().PullIfExistSbomImage(ctx, sbomImage.ImageName(stageDesc.Info.Name)).Return(true, nil)
 			},
 		),
 		Entry(
 			"[remote storage]: should scan, build and push sbom image if not found",
 			context.Background(),
 			false,
-			sbom.MergeOpts{},
+			cyclonedxutil.MergeOpts{},
 			func(
 				ctx context.Context,
 				backend *mock.MockContainerBackend,
@@ -239,7 +240,7 @@ var _ = Describe("SbomStep", func() {
 				imgFilters []util.Pair[string, string],
 			) {
 				backend.EXPECT().Images(ctx, container_backend.ImagesOptions{Filters: imgFilters}).Return(image.ImagesList{}, nil)
-				stagesStorage.EXPECT().PullIfExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(false, nil)
+				stagesStorage.EXPECT().PullIfExistSbomImage(ctx, sbomImage.ImageName(stageDesc.Info.Name)).Return(false, nil)
 
 				backend.EXPECT().Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}).Return(nil)
 
@@ -250,9 +251,9 @@ var _ = Describe("SbomStep", func() {
 				}).AnyTimes()
 				backend.EXPECT().Rmi(ctx, tmpImgId, container_backend.RmiOpts{Force: true}).Return(nil)
 				backend.EXPECT().BuildDockerfile(ctx, gomock.Any(), gomock.Any()).Return("final-sbom-img-id", nil)
-				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbom.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
+				backend.EXPECT().Tag(ctx, "final-sbom-img-id", sbomImage.ImageName(stageDesc.Info.Name), container_backend.TagOpts{}).Return(nil)
 
-				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbom.ImageName(stageDesc.Info.Name)).Return(true, nil)
+				stagesStorage.EXPECT().PushIfNotExistSbomImage(ctx, sbomImage.ImageName(stageDesc.Info.Name)).Return(true, nil)
 			},
 		),
 	)
@@ -304,7 +305,7 @@ var _ = Describe("SbomStep", func() {
 				baseImageInfo *image.Info,
 			) {
 				_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
-				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, tag)
+				sbomImageName := sbomImage.BaseImageName(baseImageInfo.Repository, tag)
 				backend.EXPECT().GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 				backend.EXPECT().Pull(ctx, sbomImageName, container_backend.PullOpts{}).Return(fmt.Errorf("not found"))
 			},
@@ -380,7 +381,7 @@ var _ = Describe("SbomStep", func() {
 				baseImageInfo *image.Info,
 			) {
 				_, tag := image.ParseRepositoryAndTag(baseImageInfo.Name)
-				sbomImageName := sbom.BaseImageSbomName(baseImageInfo.Repository, tag)
+				sbomImageName := sbomImage.BaseImageName(baseImageInfo.Repository, tag)
 				backend.EXPECT().GetImageInfo(ctx, sbomImageName, container_backend.GetImageInfoOpts{}).Return(nil, nil)
 			},
 		),

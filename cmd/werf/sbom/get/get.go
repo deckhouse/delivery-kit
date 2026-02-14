@@ -17,7 +17,8 @@ import (
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/extract"
+	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/tmp_manager"
 	"github.com/werf/werf/v2/pkg/true_git"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
@@ -228,7 +229,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return containerBackend.SaveImageToStream(ctx, sbomImageName)
 	}
 
-	artifactContent, err := sbom.FindSingleSbomArtifact(opener)
+	artifactContent, err := extract.FromImageBytes(opener)
 	if err != nil {
 		return fmt.Errorf("unable to find artifact file: %w", err)
 	}
@@ -249,5 +250,5 @@ func getSbomImageName(exportedImages []*image.Image, requestedImageName string) 
 		return "", fmt.Errorf("unable to find requested image %q", requestedImageName)
 	}
 
-	return sbom.ImageName(foundImage.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc().Info.Name), nil
+	return sbomImage.ImageName(foundImage.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc().Info.Name), nil
 }

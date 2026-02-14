@@ -10,7 +10,9 @@ import (
 	. "github.com/onsi/gomega"
 
 	imagePkg "github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v2/pkg/sbom/extract"
+	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/test/pkg/contback"
 	"github.com/werf/werf/v2/test/pkg/report"
 	"github.com/werf/werf/v2/test/pkg/utils"
@@ -54,7 +56,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 					{
 						By("state0: SBOM image metadata")
 						imgInspect := contRuntime.GetImageInspect(ctx, reportRecord.DockerImageName)
-						sbomImgInspect := contRuntime.GetImageInspect(ctx, sbom.ImageName(reportRecord.DockerImageName))
+						sbomImgInspect := contRuntime.GetImageInspect(ctx, sbomImage.ImageName(reportRecord.DockerImageName))
 
 						// shared labels
 						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfLabel]))
@@ -66,10 +68,10 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 						By("state0: SBOM image file system layout")
 						opener := func() (io.ReadCloser, error) {
-							return contRuntime.SaveImageToStream(ctx, sbom.ImageName(reportRecord.DockerImageName)), nil
+							return contRuntime.SaveImageToStream(ctx, sbomImage.ImageName(reportRecord.DockerImageName)), nil
 						}
 
-						flattenedFsStreamReaderCloser, err := sbom.ExtractFromImageStream(opener)
+						flattenedFsStreamReaderCloser, err := extract.FromImageStream(opener)
 						Expect(err).To(Succeed(), "should extract SBOM image from the stream")
 
 						var actualFilePaths []string
@@ -83,7 +85,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 						expectedFilePaths := []string{
 							"sbom",
 							"sbom/cyclonedx@1.6",
-							"sbom/cyclonedx@1.6/70ee6b0600f471718988bc123475a625ecd4a5763059c62802ae6280e65f5623.json",
+							"sbom/cyclonedx@1.6/f2b172aa9b952cfba7ae9914e7e5a9760ff0d2c7d5da69d09195c63a2577da79.json",
 						}
 						Expect(actualFilePaths).To(Equal(expectedFilePaths))
 					}
@@ -528,14 +530,17 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 })
 
 func extractBOMFromSbomImage(ctx SpecContext, contRuntime contback.ContainerBackend, dockerImageName string) *cdx.BOM {
-	sbomImageName := sbom.ImageName(dockerImageName)
+	sbomImageName := sbomImage.ImageName(dockerImageName)
 
 	opener := func() (io.ReadCloser, error) {
 		return contRuntime.SaveImageToStream(ctx, sbomImageName), nil
 	}
 
-	bom, err := sbom.ExtractBOMFromImage(opener)
-	Expect(err).NotTo(HaveOccurred(), "failed to extract BOM from SBOM image")
+	artifactContent, err := extract.FromImageBytes(opener)
+	Expect(err).NotTo(HaveOccurred(), "failed to find SBOM artifact")
+
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(artifactContent)
+	Expect(err).NotTo(HaveOccurred(), "failed to parse SBOM artifact")
 
 	return bom
 }

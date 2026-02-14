@@ -1,4 +1,4 @@
-package sbom
+package image
 
 import (
 	. "github.com/onsi/ginkgo/v2"
@@ -39,7 +39,7 @@ var _ = Describe("Image", func() {
 
 	DescribeTable("BaseImageSbomName",
 		func(repo, tag, expected string) {
-			Expect(BaseImageSbomName(repo, tag)).To(Equal(expected))
+			Expect(BaseImageName(repo, tag)).To(Equal(expected))
 		},
 		Entry("registry image", "registry.io/image", "v1", "registry.io/image:v1-sbom"),
 		Entry("localhost image", "localhost:5000/app", "latest", "localhost:5000/app:latest-sbom"),

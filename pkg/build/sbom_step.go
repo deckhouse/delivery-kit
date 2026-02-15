@@ -192,7 +192,7 @@ func (step *sbomStep) findSbomImageLocally(ctx context.Context, sbomBaseImgLabel
 
 func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, imageRef string, imageInfo *image.Info) (*cdx.BOM, error) {
 	if sbomImage.IsScratchRef(imageRef) {
-		return cyclonedxutil.NewEmptyBOM(), nil
+		return cyclonedxutil.NewBOM(), nil
 	}
 
 	if imageInfo == nil {

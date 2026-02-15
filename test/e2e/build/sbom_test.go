@@ -85,7 +85,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 						expectedFilePaths := []string{
 							"sbom",
 							"sbom/cyclonedx@1.6",
-							"sbom/cyclonedx@1.6/f2b172aa9b952cfba7ae9914e7e5a9760ff0d2c7d5da69d09195c63a2577da79.json",
+							"sbom/cyclonedx@1.6/70ee6b0600f471718988bc123475a625ecd4a5763059c62802ae6280e65f5623.json",
 						}
 						Expect(actualFilePaths).To(Equal(expectedFilePaths))
 					}

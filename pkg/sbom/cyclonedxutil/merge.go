@@ -38,7 +38,7 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 }
 
 func MergeBOMs(target *cdx.BOM, opts MergeOpts) *cdx.BOM {
-	result := newCycloneDX16BOM()
+	result := NewBOM()
 
 	if target != nil && target.Metadata != nil {
 		result.Metadata = target.Metadata

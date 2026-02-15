@@ -1,3 +1,4 @@
+//nolint:misspell
 package cyclonedxutil
 
 import (
@@ -11,7 +12,7 @@ import (
 var (
 	cycloneDX16Schema     *gojsonschema.Schema
 	cycloneDX16SchemaOnce sync.Once
-	cycloneDX16SchemaErr  error
+	errCycloneDX16Schema  error
 )
 
 // preloadCycloneDX16Schema ensures offline usage because of the network restrictions.
@@ -27,11 +28,11 @@ func preloadCycloneDX16Schema() (*gojsonschema.Schema, error) {
 // ValidateCycloneDX16Schema validates the given JSON bytes against the CycloneDX 1.6 JSON Schema.
 func ValidateCycloneDX16Schema(jsonBytes []byte) error {
 	cycloneDX16SchemaOnce.Do(func() {
-		cycloneDX16Schema, cycloneDX16SchemaErr = preloadCycloneDX16Schema()
+		cycloneDX16Schema, errCycloneDX16Schema = preloadCycloneDX16Schema()
 	})
 
-	if cycloneDX16SchemaErr != nil {
-		return fmt.Errorf("failed to load CycloneDX 1.6 schema: %w", cycloneDX16SchemaErr)
+	if errCycloneDX16Schema != nil {
+		return fmt.Errorf("failed to load CycloneDX 1.6 schema: %w", errCycloneDX16Schema)
 	}
 
 	documentLoader := gojsonschema.NewBytesLoader(jsonBytes)

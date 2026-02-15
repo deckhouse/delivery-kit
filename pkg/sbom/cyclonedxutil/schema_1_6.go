@@ -1,3 +1,4 @@
+//nolint:misspell
 package cyclonedxutil
 
 // CycloneDX16Schema is the official JSON schema for CycloneDX 1.6

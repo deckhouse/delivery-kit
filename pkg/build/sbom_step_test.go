@@ -143,7 +143,6 @@ var _ = Describe("SbomStep", func() {
 		},
 		Entry(
 			"[local storage]: should not scan source image if sbom image already exists",
-			context.Background(),
 			true,
 			cyclonedxutil.MergeOpts{},
 			func(
@@ -162,7 +161,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"[local storage]: should scan source image if sbom image does not exist",
-			context.Background(),
 			true,
 			cyclonedxutil.MergeOpts{},
 			func(
@@ -189,7 +187,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"[remote storage]: should push sbom image if it exists locally",
-			context.Background(),
 			false,
 			cyclonedxutil.MergeOpts{},
 			func(
@@ -209,7 +206,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"[remote storage]: should not scan if sbom image is pulled from registry",
-			context.Background(),
 			false,
 			cyclonedxutil.MergeOpts{},
 			func(
@@ -227,7 +223,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"[remote storage]: should scan, build and push sbom image if not found",
-			context.Background(),
 			false,
 			cyclonedxutil.MergeOpts{},
 			func(
@@ -289,7 +284,6 @@ var _ = Describe("SbomStep", func() {
 		},
 		Entry(
 			"should fail if sbom not found in registry",
-			context.Background(),
 			&image.Info{
 				Name:       "docker.io/namespace/repo:e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff-1747987463184",
 				Repository: "docker.io/namespace/repo",
@@ -312,7 +306,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"should fail if no werf labels available",
-			context.Background(),
 			&image.Info{
 				Name:       "ubuntu:22.04",
 				Repository: "ubuntu",
@@ -365,7 +358,6 @@ var _ = Describe("SbomStep", func() {
 		},
 		Entry(
 			"should fail if sbom not found locally (no pull for local storage)",
-			context.Background(),
 			&image.Info{
 				Name:       "docker.io/namespace/repo:e5c6ebcd2718ccfe74d01069a0d758e03d5a2554155ccdc01be0daff-1747987463184",
 				Repository: "docker.io/namespace/repo",
@@ -411,14 +403,16 @@ var _ = Describe("SbomStep", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(bom).ToNot(BeNil())
 				if expectEmptyBOM {
-					Expect(bom.Components).ToNot(BeNil())
-					Expect(*bom.Components).To(BeEmpty())
+					emptyBom := cyclonedxutil.NewBOM()
+					// Reset serial numbers to allow comparison of the rest of the BOM structure
+					emptyBom.SerialNumber = ""
+					bom.SerialNumber = ""
+					Expect(bom).To(Equal(emptyBom))
 				}
 			}
 		},
 		Entry(
 			"should return empty BOM for scratch image",
-			context.Background(),
 			"scratch",
 			nil,
 			false,
@@ -427,7 +421,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"should return empty BOM for any registry scratch image",
-			context.Background(),
 			"registry.werf.io/werf/scratch",
 			nil,
 			false,
@@ -436,7 +429,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"should return empty BOM for scratch image with tag",
-			context.Background(),
 			"myregistry.io/myproject/scratch:v1.0",
 			nil,
 			false,
@@ -445,7 +437,6 @@ var _ = Describe("SbomStep", func() {
 		),
 		Entry(
 			"should fail if imageInfo is nil for non-scratch image",
-			context.Background(),
 			"ubuntu:22.04",
 			nil,
 			true,

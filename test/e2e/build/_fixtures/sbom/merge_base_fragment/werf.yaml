@@ -36,5 +36,9 @@ sbom:
 
     annotations:
       - text: "This is a test annotation for merge verification"
+        annotator:
+          organization:
+            name: "werf"
+        timestamp: "2024-05-24T12:00:00Z"
         subjects:
           - "urn:cdx:custom-component/1.0.0"

@@ -64,5 +64,9 @@ sbom:
 
     annotations:
       - text: "Application level annotation"
+        annotator:
+          organization:
+            name: "werf"
+        timestamp: "2024-05-24T12:00:00Z"
         subjects:
           - "pkg:generic/app-custom@2.0.0"

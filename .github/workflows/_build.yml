@@ -5,7 +5,7 @@ on:
 
 jobs:
   _:
-    runs-on: [self-hosted, regular]
+    runs-on: delivery-github-runner
     timeout-minutes: 60
     steps:
       - name: Checkout code

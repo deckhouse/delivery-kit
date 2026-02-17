@@ -35,7 +35,7 @@ jobs:
   _:
     if: inputs.forceSkip == 'false'
 
-    runs-on: [self-hosted, large]
+    runs-on: delivery-github-runner
     timeout-minutes: ${{ inputs.timeout }}
     steps:
       - name: Set up JOB_ID
@@ -77,9 +77,6 @@ jobs:
           echo loadavg: $(cat /proc/loadavg)
         env:
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}
-          LD_LIBRARY_PATH: "/usr/local/lib/libgost"
-          # TODO: remove after implementing `werf ci-env --disable-docker-config-copy`
-          WERF_DOCKER_CONFIG: ${{ runner.temp }}/werf-docker-config-${{ github.run_id }}
 
       - name: Upload coverage artifact
         uses: ./.github/actions/upload-coverage-artifact

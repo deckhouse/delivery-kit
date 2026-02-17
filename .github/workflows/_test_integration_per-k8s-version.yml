@@ -18,7 +18,7 @@ env:
 
 jobs:
   _:
-    runs-on: [self-hosted, large]
+    runs-on: delivery-github-runner
     timeout-minutes: 60
     steps:
       - name: Set up JOB_ID
@@ -55,10 +55,7 @@ jobs:
           task --yes -p test:integration paths="test/legacy_e2e/suites/cleanup_after_converge test/legacy_e2e/suites/deploy test/legacy_e2e/suites/helm/deploy_rollback" -- --keep-going --skip "Buildah"
           echo loadavg: $(cat /proc/loadavg)
         env:
-          LD_LIBRARY_PATH: "/usr/local/lib/libgost"
           GOCOVERDIR: ${{ env.WERF_TEST_COVER_DIR }}
-          # TODO: remove after implementing `werf ci-env --disable-docker-config-copy`
-          WERF_DOCKER_CONFIG: ${{ runner.temp }}/werf-docker-config-${{ github.run_id }}
 
       - name: Upload coverage artifact
         uses: ./.github/actions/upload-coverage-artifact

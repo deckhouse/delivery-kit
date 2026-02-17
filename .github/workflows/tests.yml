@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: [self-hosted, regular]
+    runs-on: delivery-github-runner
     timeout-minutes: 10
     permissions:
       pull-requests: read

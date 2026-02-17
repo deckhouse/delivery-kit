@@ -401,6 +401,98 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 		}}),
 	)
 
+	DescribeTable("should merge derived image SBOM with base",
+		func(ctx SpecContext, testOpts simpleTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("preparing test repo")
+			repoDirname := "repo_merge_derived_with_base"
+			fixtureRelPath := "sbom/merge_derived_with_base_fragment"
+			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
+
+			By("building images")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+			_ = werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{
+					ExtraArgs: []string{"base-level-0"},
+				},
+			})
+
+			reportProject := report.NewProjectWithReport(werfProject)
+			buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_merge_derived_with_base.json"), nil)
+
+			Expect(buildOut).To(ContainSubstring("SBOM processing"))
+
+			By("extracting and verifying SBOM for base-level-0")
+			baseReportRecord, ok := buildReport.Images["base-level-0"]
+			Expect(ok).To(BeTrue(), "base-level-0 should be in build report")
+
+			baseBom := extractBOMFromSbomImage(ctx, contRuntime, baseReportRecord.DockerImageName)
+
+			By("verifying base-level-0 SBOM structure")
+			Expect(baseBom.BOMFormat).To(Equal("CycloneDX"))
+			Expect(baseBom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+			Expect(baseBom.Version).To(Equal(1))
+			Expect(baseBom.SerialNumber).To(HavePrefix("urn:uuid:"))
+			Expect(baseBom.Components).NotTo(BeNil())
+
+			By("verifying base-level-0 has curl component from fragment")
+			baseComponents := *baseBom.Components
+			Expect(findComponentByName(baseComponents, "curl")).NotTo(BeNil(),
+				"curl component from fragment should be present in base-level-0 SBOM")
+
+			By("extracting and verifying SBOM for derived-level-1")
+			derivedReportRecord, ok := buildReport.Images["derived-level-1"]
+			Expect(ok).To(BeTrue(), "derived-level-1 should be in build report")
+
+			derivedBom := extractBOMFromSbomImage(ctx, contRuntime, derivedReportRecord.DockerImageName)
+
+			By("verifying derived-level-1 SBOM structure")
+			Expect(derivedBom.BOMFormat).To(Equal("CycloneDX"))
+			Expect(derivedBom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+			Expect(derivedBom.Version).To(Equal(1))
+			Expect(derivedBom.SerialNumber).To(HavePrefix("urn:uuid:"))
+			Expect(derivedBom.Components).NotTo(BeNil())
+
+			By("verifying derived-level-1 has curl component inherited from base-level-0")
+			derivedComponents := *derivedBom.Components
+			Expect(findComponentByName(derivedComponents, "curl")).NotTo(BeNil(),
+				"curl component should be inherited from base-level-0 SBOM")
+
+			By("verifying components count (curl from base, empty fragment)")
+			Expect(len(derivedComponents)).To(BeNumerically(">=", 1),
+				"derived-level-1 SBOM should contain at least curl component from base")
+		},
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+	)
+
 	DescribeTable("should merge all SBOM sources (base + import + fragment)",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")

@@ -1394,7 +1394,7 @@ E.g.:
 }
 
 func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image, name string) (*cdx.BOM, error) {
-	if !img.IsBasedOnStage() && img.GetBaseImageReference() != "" {
+	if img.GetBaseImageReference() != "" {
 		if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
 			if baseStageDesc := baseStageImage.Image.GetStageDesc(); baseStageDesc != nil && baseStageDesc.Info != nil {
 				baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, name, img.GetBaseImageReference(), baseStageDesc.Info)

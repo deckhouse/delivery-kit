@@ -72,6 +72,8 @@ werf build [IMAGE_NAME...] [options]
       --annotate-layers-with-dm-verity-root-hash=false
             Enable annotation of image layers with dm-verity root hash (default                     
             $WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH)
+      --backend-network=""
+            Network mode for the build containers ($WERF_BACKEND_NETWORK or nothing by default)
       --backend-storage-path=""
             Use specified path to the local backend (Docker or Buildah) storage to check backend    
             storage volume usage while performing garbage collection of local backend images        
@@ -235,8 +237,6 @@ werf build [IMAGE_NAME...] [options]
             Enable verbose output (default $WERF_LOG_VERBOSE).
       --loose-giterminism=false
             Loose werf giterminism mode restrictions
-      --network=""
-            Network mode for the build containers ($WERF_NETWORK or default by default)
   -p, --parallel=true
             Run in parallel (default $WERF_PARALLEL or true)
       --parallel-tasks-limit=5
@@ -316,4 +316,3 @@ werf build [IMAGE_NAME...] [options]
             Enable virtual/ephemeral merge commit mode when building current application state      
             ($WERF_VIRTUAL_MERGE by default)
 ```
-

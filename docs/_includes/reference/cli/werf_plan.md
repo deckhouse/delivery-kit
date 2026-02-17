@@ -80,6 +80,8 @@ werf plan --repo registry.mydomain.com/web --env production
       --annotate-layers-with-dm-verity-root-hash=false
             Enable annotation of image layers with dm-verity root hash (default                     
             $WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH)
+      --backend-network=""
+            Network mode for the build containers ($WERF_BACKEND_NETWORK or nothing by default)
       --backend-storage-path=""
             Use specified path to the local backend (Docker or Buildah) storage to check backend    
             storage volume usage while performing garbage collection of local backend images        
@@ -326,8 +328,6 @@ werf plan --repo registry.mydomain.com/web --env production
       --namespace=""
             Use specified Kubernetes namespace (default [[ project ]]-[[ env ]] template or         
             deploy.namespace custom template from werf.yaml or $WERF_NAMESPACE)
-      --network=""
-            Network mode for the build containers ($WERF_NETWORK or default by default)
       --network-parallelism=30
             Parallelize some network operations (default $WERF_NETWORK_PARALLELISM or 30)
       --no-final-tracking=false
@@ -546,4 +546,3 @@ werf plan --repo registry.mydomain.com/web --env production
             in the .helm/templates ($WERF_WITHOUT_IMAGES or false by default — e.g. enable all      
             images defined in the werf.yaml by default)
 ```
-

@@ -1,5 +1,5 @@
 project: werf-test-e2e-export-simple
 configVersion: 1
 ---
-image: alpine
+image: registry.werf.io/base/alpine
 dockerfile: Dockerfile

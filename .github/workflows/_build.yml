@@ -18,6 +18,6 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: task --yes -p build:dev:linux:amd64
+        run: task --yes build:dev:linux:amd64
         env:
           TASK_X_REMOTE_TASKFILES: 1

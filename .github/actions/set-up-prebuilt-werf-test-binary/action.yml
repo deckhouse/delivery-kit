@@ -31,9 +31,9 @@ runs:
     - name: Build werf test binary
       run: |
         if ${{ inputs.coverage }}; then
-          task --yes -p build-with-coverage
+          task --yes build-with-coverage
         else
-          task --yes -p build
+          task --yes build
         fi
       shell: bash
       env:

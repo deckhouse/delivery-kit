@@ -217,13 +217,11 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	}
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
-		// Group images by name for multi-platform support
 		imagesByName := make(map[string][]*image.Image)
 		for _, img := range imagesInSet {
 			imagesByName[img.Name] = append(imagesByName[img.Name], img)
 		}
 
-		// Convert to slice for parallel processing
 		names := make([]string, 0, len(imagesByName))
 		for name := range imagesByName {
 			names = append(names, name)
@@ -251,7 +249,6 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		primaryImg = images[0]
 		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
 	} else {
-		// Multi-platform: get existing or create temporary MultiplatformImage
 		primaryImg = images[0]
 		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
 			stageDesc = multiImg.GetStageDesc()

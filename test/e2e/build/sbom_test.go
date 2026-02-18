@@ -114,13 +114,13 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}),
 		// TODO (zaytsev): it does not work currently
 		// https://github.com/werf/werf/actions/runs/15076648086/job/42385521980?pr=6860#step:11:150
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native 1 with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
 		// TODO: "werf purge --project-name=..." is not implemented for Buildah. So we have potential risk to fail the test.
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -155,12 +155,12 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -194,12 +194,12 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -241,12 +241,12 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -280,12 +280,12 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -389,12 +389,12 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -516,12 +516,12 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,

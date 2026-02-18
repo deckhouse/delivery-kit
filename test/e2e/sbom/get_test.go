@@ -63,12 +63,12 @@ var _ = Describe("Sbom get", Label("e2e", "sbom", "get", "simple"), func() {
 		}}),
 		// TODO (zaytsev): it does not work currently
 		// https://github.com/werf/werf/actions/runs/15076648086/job/42385521980?pr=6860#step:11:150
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,

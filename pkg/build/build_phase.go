@@ -167,33 +167,6 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					return fmt.Errorf("unable to publish image %q metadata: %w", name, err)
 				}
 			}
-
-			if phase.Conveyor.EnableSbom() {
-				baseImageSbom, err := phase.collectBaseImageSbom(ctx, img, name)
-				if err != nil {
-					return err
-				}
-
-				importImageSboms, err := phase.collectImportImageSboms(ctx, img, name)
-				if err != nil {
-					return err
-				}
-
-				var fragmentBOM *cdx.BOM
-				if imgSbom := img.Sbom(); imgSbom != nil {
-					fragmentBOM = imgSbom.Document
-				}
-
-				mergeOpts := cyclonedxutil.MergeOpts{
-					BaseBOM:     baseImageSbom,
-					ImportBOMs:  importImageSboms,
-					FragmentBOM: fragmentBOM,
-				}
-
-				if err = phase.sbomStep.ConvergeWithMerge(ctx, name, img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc(), scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
-					return fmt.Errorf("unable to converge sbom: %w", err)
-				}
-			}
 		} else {
 			img := image.NewMultiplatformImage(name, images, taskId, len(imagesPairs))
 			phase.Conveyor.imagesTree.SetMultiplatformImage(img)
@@ -221,40 +194,6 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					}
 				}
 			}
-
-			if phase.Conveyor.EnableSbom() {
-				var primaryImg *image.Image
-				if len(img.Images) > 0 {
-					primaryImg = img.Images[0]
-				}
-
-				baseImageSbom, err := phase.collectBaseImageSbom(ctx, primaryImg, name)
-				if err != nil {
-					return err
-				}
-
-				importImageSboms, err := phase.collectImportImageSboms(ctx, primaryImg, name)
-				if err != nil {
-					return err
-				}
-
-				var fragmentBOM *cdx.BOM
-				if len(img.Images) > 0 {
-					if imgSbom := img.Images[0].Sbom(); imgSbom != nil {
-						fragmentBOM = imgSbom.Document
-					}
-				}
-
-				mergeOpts := cyclonedxutil.MergeOpts{
-					BaseBOM:     baseImageSbom,
-					ImportBOMs:  importImageSboms,
-					FragmentBOM: fragmentBOM,
-				}
-
-				if err = phase.sbomStep.ConvergeWithMerge(ctx, img.Name, img.GetStageDesc(), scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
-					return fmt.Errorf("unable to converge sbom: %w", err)
-				}
-			}
 		}
 
 		return nil
@@ -262,7 +201,91 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
+	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
+		return err
+	}
+
 	return phase.createReport(ctx, imagesPairs)
+}
+
+// convergeSbomByImagesSets generates SBOM for images respecting dependency order.
+// It iterates over ImagesSets sequentially (set by set) to ensure base image SBOMs
+// are generated before dependent images. Within each set, images are processed in parallel.
+func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
+	if !phase.Conveyor.EnableSbom() {
+		return nil
+	}
+
+	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
+		// Group images by name for multi-platform support
+		imagesByName := make(map[string][]*image.Image)
+		for _, img := range imagesInSet {
+			imagesByName[img.Name] = append(imagesByName[img.Name], img)
+		}
+
+		// Convert to slice for parallel processing
+		names := make([]string, 0, len(imagesByName))
+		for name := range imagesByName {
+			names = append(names, name)
+		}
+
+		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
+			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+		}, func(ctx context.Context, taskId int) error {
+			name := names[taskId]
+			images := imagesByName[name]
+			return phase.convergeImageSbom(ctx, name, images)
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {
+	var stageDesc *imagePkg.StageDesc
+	var primaryImg *image.Image
+
+	if len(images) == 1 {
+		primaryImg = images[0]
+		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+	} else {
+		// Multi-platform: get existing or create temporary MultiplatformImage
+		primaryImg = images[0]
+		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+			stageDesc = multiImg.GetStageDesc()
+		} else {
+			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
+		}
+	}
+
+	baseImageSbom, err := phase.collectBaseImageSbom(ctx, primaryImg, name)
+	if err != nil {
+		return err
+	}
+
+	importImageSboms, err := phase.collectImportImageSboms(ctx, primaryImg, name)
+	if err != nil {
+		return err
+	}
+
+	var fragmentBOM *cdx.BOM
+	if imgSbom := primaryImg.Sbom(); imgSbom != nil {
+		fragmentBOM = imgSbom.Document
+	}
+
+	mergeOpts := cyclonedxutil.MergeOpts{
+		BaseBOM:     baseImageSbom,
+		ImportBOMs:  importImageSboms,
+		FragmentBOM: fragmentBOM,
+	}
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
+		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+	}
+
+	return nil
 }
 
 func (phase *BuildPhase) targetPlatforms(ctx context.Context, forcedTargetPlatforms, commonTargetPlatforms []string, name string, images []*image.Image) ([]string, error) {

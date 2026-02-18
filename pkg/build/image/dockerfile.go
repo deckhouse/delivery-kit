@@ -173,6 +173,7 @@ func mapDockerfileToImagesSets(ctx context.Context, cfg *dockerfile.Dockerfile, 
 			ImageTmpDir:      img.TmpDir,
 			ContainerWerfDir: img.ContainerWerfDir,
 			ProjectName:      opts.ProjectName,
+			Network:          dockerfileImageConfig.Network,
 		}
 
 		var instrNum int
@@ -337,6 +338,7 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 		TargetPlatform: targetPlatform,
 		ImageName:      dockerfileImageConfig.Name,
 		ProjectName:    opts.ProjectName,
+		Network:        dockerfileImageConfig.Network,
 	}
 
 	buildSecrets := make([]string, 0, len(dockerfileImageConfig.Secrets))
@@ -358,7 +360,6 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 		dockerfileImageConfig.ContextAddFiles,
 		dockerfileImageConfig.Args,
 		dockerfileImageConfig.AddHost,
-		dockerfileImageConfig.Network,
 		dockerfileImageConfig.SSH,
 		buildSecrets,
 	), ds, stage.NewContextChecksum(dockerIgnorePathMatcher), baseStageOptions, dockerfileImageConfig.Dependencies, imageCacheVersion)

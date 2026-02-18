@@ -52,6 +52,7 @@ type ImageOptions struct {
 	CommonImageOptions
 	IsFinal               bool
 	DockerfileImageConfig *config.ImageFromDockerfile
+	StapelImageConfig     config.StapelImageInterface
 	IsDockerfileImage     bool
 
 	BaseImageReference        string
@@ -79,6 +80,7 @@ func NewImage(ctx context.Context, targetPlatform, name string, baseImageType Ba
 		IsFinal:               opts.IsFinal,
 		IsDockerfileImage:     opts.IsDockerfileImage,
 		DockerfileImageConfig: opts.DockerfileImageConfig,
+		StapelImageConfig:     opts.StapelImageConfig,
 		TargetPlatform:        targetPlatform,
 
 		baseImageType:             baseImageType,
@@ -106,6 +108,7 @@ type Image struct {
 	IsDockerfileTargetStage bool
 	Name                    string
 	DockerfileImageConfig   *config.ImageFromDockerfile
+	StapelImageConfig       config.StapelImageInterface
 	TargetPlatform          string
 	BuildDuration           time.Duration
 

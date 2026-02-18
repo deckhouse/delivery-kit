@@ -614,7 +614,7 @@ jq -r '.Images | to_entries | map({key: .key, value: .value.DockerImageName}) | 
 
 Для сканирования и генерации SBOM артефактов для всех образов в процессе сборки активируйте опцию `sbom` в werf.yml.
 
-При `build.sbom.enable: true` также необходимо указать SBOM-конфигурацию для каждого image через `sbom.fragment`:
+При `build.sbom.enable: true` также можно указать SBOM-конфигурацию для каждого image через `sbom.fragment`:
 
 ```
 project: werf-sbom-experimental

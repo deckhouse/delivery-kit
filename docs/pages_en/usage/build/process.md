@@ -612,7 +612,7 @@ Result:
 
 To enable scanning and generation of SBOM artifacts during the build process for all images, activate the `sbom` option in werf.yml.
 
-When `build.sbom.enable: true`, you must also provide an SBOM configuration for each image via `sbom.fragment`:
+When `build.sbom.enable: true`, you are free to provide an SBOM configuration for each image via `sbom.fragment`:
 
 ```
 project: werf-sbom-experimental

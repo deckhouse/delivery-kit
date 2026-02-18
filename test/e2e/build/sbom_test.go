@@ -701,6 +701,122 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 	)
 })
 
+var _ = Describe("SBOM cross-project merge", Label("e2e", "build", "sbom", "merge", "simple"), func() {
+	DescribeTable("should merge SBOM from external werf image (cross-project)",
+		func(ctx SpecContext, testOpts simpleTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("Step 1: building base project")
+			baseRepoDirname := "repo_cross_project_base"
+			baseFixtureRelPath := "sbom/cross_project/base"
+			SuiteData.InitTestRepo(ctx, baseRepoDirname, baseFixtureRelPath)
+
+			baseWerfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(baseRepoDirname))
+			baseReportProject := report.NewProjectWithReport(baseWerfProject)
+			baseBuildOut, baseBuildReport := baseReportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_cross_project_base.json"), nil)
+
+			Expect(baseBuildOut).To(ContainSubstring("SBOM processing"))
+
+			baseReportRecord, ok := baseBuildReport.Images["base-level-0"]
+			Expect(ok).To(BeTrue(), "base-level-0 should be in build report")
+
+			By("Step 2: verifying base image SBOM")
+			baseBom := extractBOMFromSbomImage(ctx, contRuntime, baseReportRecord.DockerImageName)
+			Expect(baseBom.Components).NotTo(BeNil())
+			baseComponents := *baseBom.Components
+			baseCurlComponent := findComponentByName(baseComponents, "curl")
+			Expect(baseCurlComponent).NotTo(BeNil(), "base image should have curl component")
+
+			By("Step 3: building derived project with BASE_IMAGE_REF env")
+			derivedRepoDirname := "repo_cross_project_derived"
+			derivedFixtureRelPath := "sbom/cross_project/derived"
+			SuiteData.InitTestRepo(ctx, derivedRepoDirname, derivedFixtureRelPath)
+
+			derivedWerfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(derivedRepoDirname))
+			derivedReportProject := report.NewProjectWithReport(derivedWerfProject)
+
+			derivedBuildOpts := &werf.WithReportOptions{
+				CommonOptions: werf.CommonOptions{
+					Envs: []string{
+						fmt.Sprintf("BASE_IMAGE_REF=%s", baseReportRecord.DockerImageName),
+					},
+				},
+			}
+			derivedBuildOut, derivedBuildReport := derivedReportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_cross_project_derived.json"), derivedBuildOpts)
+
+			Expect(derivedBuildOut).To(ContainSubstring("SBOM processing"))
+
+			derivedReportRecord, ok := derivedBuildReport.Images["derived-level-1"]
+			Expect(ok).To(BeTrue(), "derived-level-1 should be in build report")
+
+			By("Step 4: verifying derived image SBOM contains components from base")
+			derivedBom := extractBOMFromSbomImage(ctx, contRuntime, derivedReportRecord.DockerImageName)
+
+			Expect(derivedBom.BOMFormat).To(Equal("CycloneDX"))
+			Expect(derivedBom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+			Expect(derivedBom.Components).NotTo(BeNil())
+
+			derivedComponents := *derivedBom.Components
+
+			By("verifying curl component inherited from base with strict validation")
+			expectedCurl := expectedComponent{
+				Name:     "curl",
+				Type:     cdx.ComponentTypeApplication,
+				Version:  "8.12.1",
+				PURL:     "pkg:generic/curl@8.12.1",
+				Licenses: []string{"Apache-2.0"},
+				Hashes: map[cdx.HashAlgorithm]string{
+					cdx.HashAlgoSHA256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				},
+			}
+			derivedCurlComponent := findComponentByName(derivedComponents, "curl")
+			assertComponentEquals(derivedCurlComponent, expectedCurl)
+
+			By("verifying derived-component from fragment with strict validation")
+			expectedDerived := expectedComponent{
+				Name:    "derived-component",
+				Type:    cdx.ComponentTypeApplication,
+				Version: "1.0.0",
+				PURL:    "pkg:generic/derived-component@1.0.0",
+			}
+			derivedOwnComponent := findComponentByName(derivedComponents, "derived-component")
+			assertComponentEquals(derivedOwnComponent, expectedDerived)
+
+			By("verifying total components count")
+			Expect(len(derivedComponents)).To(Equal(2),
+				"derived SBOM should contain exactly 2 components (curl from base + derived-component from fragment)")
+		},
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-chroot",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "native-rootless",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+	)
+})
+
 func extractBOMFromSbomImage(ctx SpecContext, contRuntime contback.ContainerBackend, dockerImageName string) *cdx.BOM {
 	sbomImageName := sbomImage.ImageName(dockerImageName)
 

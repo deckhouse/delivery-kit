@@ -1,0 +1,4 @@
+giterminismConfigVersion: 1
+config:
+  env:
+    - BASE_IMAGE_REF

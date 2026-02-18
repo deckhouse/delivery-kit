@@ -1,4 +1,4 @@
-{{ $_ := set . "BaseImage" "registry.werf.io/base/alpine" }}
+{{ $_ := set . "BaseImage" "alpine" }}
 
 project: app
 configVersion: 1

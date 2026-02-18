@@ -48,7 +48,7 @@ sbom:
       - name: app-api-service
         endpoints:
           - https://app.example.com/api
-        authenticated: false
+        authenticated: true
 
     externalReferences:
       - type: vcs

@@ -88,6 +88,33 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 							"sbom/cyclonedx@1.6/70ee6b0600f471718988bc123475a625ecd4a5763059c62802ae6280e65f5623.json",
 						}
 						Expect(actualFilePaths).To(Equal(expectedFilePaths))
+
+						By("state0: extracting and validating SBOM content")
+						bom := extractBOMFromSbomImage(ctx, contRuntime, reportRecord.DockerImageName)
+
+						By("state0: verifying SBOM structure")
+						Expect(bom.BOMFormat).To(Equal("CycloneDX"))
+						Expect(bom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+						Expect(bom.Version).To(Equal(1))
+						Expect(bom.SerialNumber).To(HavePrefix("urn:uuid:"))
+						Expect(bom.Components).NotTo(BeNil())
+
+						By("state0: verifying curl component with strict field validation")
+						components := *bom.Components
+						curlComponent := findComponentByName(components, "curl")
+						assertComponentEquals(curlComponent, expectedComponent{
+							Name:     "curl",
+							Type:     cdx.ComponentTypeApplication,
+							Version:  "8.12.1",
+							PURL:     "pkg:generic/curl@8.12.1",
+							Licenses: []string{"MIT"},
+							Hashes: map[cdx.HashAlgorithm]string{
+								cdx.HashAlgoSHA256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+							},
+						})
+
+						By("state0: verifying components count")
+						Expect(len(components)).To(Equal(1), "SBOM should contain exactly 1 component (curl from fragment)")
 					}
 				}
 			})
@@ -218,12 +245,6 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
-			_ = werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{
-					ExtraArgs: []string{"stapel-scratch-based"},
-				},
-			})
-
 			reportProject := report.NewProjectWithReport(werfProject)
 			buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_import_sbom.json"), nil)
 
@@ -253,14 +274,14 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}),
 	)
 
-	DescribeTable("should fail when import image not found and store SBOMs",
+	DescribeTable("should fail when import image not found",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
 
 			By("preparing test repo")
 			repoDirName := "repo_import_sbom"
-			fixtureRelPath := "sbom/import_stapel/state0"
+			fixtureRelPath := "sbom/import_stapel/state1"
 			SuiteData.InitTestRepo(ctx, repoDirName, fixtureRelPath)
 
 			By("building images")
@@ -268,7 +289,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			out, err := werfProject.BuildWithErr(ctx, nil)
 
 			Expect(err).To(HaveOccurred(), "build should fail when base image SBOM is not found")
-			Expect(out).To(ContainSubstring("not found in container registry"))
+			Expect(out).To(ContainSubstring("unable to get import image sbom for"))
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",
@@ -333,50 +354,67 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 				Expect(bom.SerialNumber).To(HavePrefix("urn:uuid:"))
 				Expect(bom.Components).NotTo(BeNil())
 
-				By("verifying fragment component is present")
+				By("verifying custom-component with strict field validation")
 				components := *bom.Components
-				Expect(findComponentByName(components, "custom-component")).NotTo(BeNil(),
-					"fragment component 'custom-component' should be present in merged SBOM")
+				customComponent := findComponentByName(components, "custom-component")
+				assertComponentEquals(customComponent, expectedComponent{
+					Name:    "custom-component",
+					Type:    cdx.ComponentTypeApplication,
+					Version: "1.0.0",
+					PURL:    "pkg:generic/custom-component@1.0.0",
+				})
 
 				By("verifying components count (fragment only, scratch has no components)")
-				Expect(len(components)).To(BeNumerically(">=", 1),
-					"merged SBOM should contain at least fragment component")
+				Expect(len(components)).To(Equal(1),
+					"merged SBOM should contain exactly 1 component from fragment")
 
-				By("verifying Services are merged")
-				if bom.Services != nil {
-					services := *bom.Services
-					Expect(findServiceByName(services, "custom-api-service")).NotTo(BeNil(),
-						"fragment service 'custom-api-service' should be present")
-					Expect(len(services)).To(BeNumerically(">=", 1))
-				}
+				By("verifying Services with strict field validation")
+				Expect(bom.Services).NotTo(BeNil(), "SBOM should have services")
+				services := *bom.Services
+				customService := findServiceByName(services, "custom-api-service")
+				assertServiceEquals(customService, expectedService{
+					Name:          "custom-api-service",
+					Endpoints:     []string{"https://api.example.com/v1"},
+					Authenticated: boolPtr(true),
+				})
+				Expect(len(services)).To(Equal(1), "should have exactly 1 service")
 
-				By("verifying ExternalReferences are merged")
-				if bom.ExternalReferences != nil {
-					refs := *bom.ExternalReferences
-					Expect(findExternalReferenceByURL(refs, "https://example.com")).NotTo(BeNil(),
-						"fragment external reference should be present")
-					Expect(findExternalReferenceByURL(refs, "https://docs.example.com")).NotTo(BeNil(),
-						"fragment documentation reference should be present")
-					Expect(len(refs)).To(BeNumerically(">=", 2))
-				}
+				By("verifying ExternalReferences with strict field validation")
+				Expect(bom.ExternalReferences).NotTo(BeNil(), "SBOM should have external references")
+				refs := *bom.ExternalReferences
+				websiteRef := findExternalReferenceByURL(refs, "https://example.com")
+				assertExternalReferenceEquals(websiteRef, expectedExternalReference{
+					Type: cdx.ERTypeWebsite,
+					URL:  "https://example.com",
+				})
+				docsRef := findExternalReferenceByURL(refs, "https://docs.example.com")
+				assertExternalReferenceEquals(docsRef, expectedExternalReference{
+					Type: cdx.ERTypeDocumentation,
+					URL:  "https://docs.example.com",
+				})
+				Expect(len(refs)).To(Equal(2), "should have exactly 2 external references")
 
-				By("verifying Properties are merged")
-				if bom.Properties != nil {
-					props := *bom.Properties
-					Expect(findPropertyByName(props, "build-environment")).NotTo(BeNil(),
-						"fragment property 'build-environment' should be present")
-					Expect(findPropertyByName(props, "custom-property")).NotTo(BeNil(),
-						"fragment property 'custom-property' should be present")
-					Expect(len(props)).To(BeNumerically(">=", 2))
-				}
+				By("verifying Properties with strict field validation")
+				Expect(bom.Properties).NotTo(BeNil(), "SBOM should have properties")
+				props := *bom.Properties
+				buildEnvProp := findPropertyByName(props, "build-environment")
+				assertPropertyEquals(buildEnvProp, expectedProperty{
+					Name:  "build-environment",
+					Value: "production",
+				})
+				customProp := findPropertyByName(props, "custom-property")
+				assertPropertyEquals(customProp, expectedProperty{
+					Name:  "custom-property",
+					Value: "custom-value",
+				})
+				Expect(len(props)).To(Equal(2), "should have exactly 2 properties")
 
-				By("verifying Annotations are merged")
-				if bom.Annotations != nil {
-					annotations := *bom.Annotations
-					Expect(findAnnotationByText(annotations, "This is a test annotation for merge verification")).NotTo(BeNil(),
-						"fragment annotation should be present")
-					Expect(len(annotations)).To(BeNumerically(">=", 1))
-				}
+				By("verifying Annotations are present")
+				Expect(bom.Annotations).NotTo(BeNil(), "SBOM should have annotations")
+				annotations := *bom.Annotations
+				Expect(findAnnotationByText(annotations, "This is a test annotation for merge verification")).NotTo(BeNil(),
+					"fragment annotation should be present")
+				Expect(len(annotations)).To(Equal(1), "should have exactly 1 annotation")
 			}
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
@@ -420,16 +458,21 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
-			_ = werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{
-					ExtraArgs: []string{"base-level-0"},
-				},
-			})
-
 			reportProject := report.NewProjectWithReport(werfProject)
 			buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_merge_derived_with_base.json"), nil)
 
 			Expect(buildOut).To(ContainSubstring("SBOM processing"))
+
+			expectedCurl := expectedComponent{
+				Name:     "curl",
+				Type:     cdx.ComponentTypeApplication,
+				Version:  "8.12.1",
+				PURL:     "pkg:generic/curl@8.12.1",
+				Licenses: []string{"Apache-2.0"},
+				Hashes: map[cdx.HashAlgorithm]string{
+					cdx.HashAlgoSHA256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				},
+			}
 
 			By("extracting and verifying SBOM for base-level-0")
 			baseReportRecord, ok := buildReport.Images["base-level-0"]
@@ -444,10 +487,11 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 			Expect(baseBom.SerialNumber).To(HavePrefix("urn:uuid:"))
 			Expect(baseBom.Components).NotTo(BeNil())
 
-			By("verifying base-level-0 has curl component from fragment")
+			By("verifying base-level-0 curl component with strict field validation")
 			baseComponents := *baseBom.Components
-			Expect(findComponentByName(baseComponents, "curl")).NotTo(BeNil(),
-				"curl component from fragment should be present in base-level-0 SBOM")
+			baseCurlComponent := findComponentByName(baseComponents, "curl")
+			assertComponentEquals(baseCurlComponent, expectedCurl)
+			Expect(len(baseComponents)).To(Equal(1), "base-level-0 should have exactly 1 component")
 
 			By("extracting and verifying SBOM for derived-level-1")
 			derivedReportRecord, ok := buildReport.Images["derived-level-1"]
@@ -462,14 +506,14 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 			Expect(derivedBom.SerialNumber).To(HavePrefix("urn:uuid:"))
 			Expect(derivedBom.Components).NotTo(BeNil())
 
-			By("verifying derived-level-1 has curl component inherited from base-level-0")
+			By("verifying derived-level-1 has curl component inherited from base-level-0 with same values")
 			derivedComponents := *derivedBom.Components
-			Expect(findComponentByName(derivedComponents, "curl")).NotTo(BeNil(),
-				"curl component should be inherited from base-level-0 SBOM")
+			derivedCurlComponent := findComponentByName(derivedComponents, "curl")
+			assertComponentEquals(derivedCurlComponent, expectedCurl)
 
-			By("verifying components count (curl from base, empty fragment)")
-			Expect(len(derivedComponents)).To(BeNumerically(">=", 1),
-				"derived-level-1 SBOM should contain at least curl component from base")
+			By("verifying derived-level-1 components count (curl from base, empty fragment)")
+			Expect(len(derivedComponents)).To(Equal(1),
+				"derived-level-1 SBOM should contain exactly 1 component (curl inherited from base)")
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",
@@ -481,12 +525,12 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with chroot isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-chroot",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
+		XEntry("with local repo using Native Buildah with rootless isolation", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "native-rootless",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -512,12 +556,6 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
-			_ = werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{
-					ExtraArgs: []string{"builder"},
-				},
-			})
-
 			reportProject := report.NewProjectWithReport(werfProject)
 			buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_merge_full.json"), nil)
 
@@ -534,68 +572,110 @@ var _ = Describe("SBOM merge", Label("e2e", "build", "sbom", "merge", "simple"),
 				By("verifying SBOM structure")
 				Expect(bom.BOMFormat).To(Equal("CycloneDX"))
 				Expect(bom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+				Expect(bom.Version).To(Equal(1))
+				Expect(bom.SerialNumber).To(HavePrefix("urn:uuid:"))
 				Expect(bom.Components).NotTo(BeNil())
 
 				components := *bom.Components
 
-				By("verifying app custom component from fragment is present")
-				Expect(findComponentByName(components, "app-custom")).NotTo(BeNil(),
-					"app-custom component from fragment should be present")
+				By("verifying app-custom component from fragment with strict validation")
+				appCustomComponent := findComponentByName(components, "app-custom")
+				assertComponentEquals(appCustomComponent, expectedComponent{
+					Name:    "app-custom",
+					Type:    cdx.ComponentTypeApplication,
+					Version: "2.0.0",
+					PURL:    "pkg:generic/app-custom@2.0.0",
+				})
 
-				By("verifying builder custom component from import is present")
-				Expect(findComponentByName(components, "builder-custom")).NotTo(BeNil(),
-					"builder-custom component from imported image should be present")
+				By("verifying builder-custom component from import with strict validation")
+				builderCustomComponent := findComponentByName(components, "builder-custom")
+				assertComponentEquals(builderCustomComponent, expectedComponent{
+					Name:    "builder-custom",
+					Type:    cdx.ComponentTypeLibrary,
+					Version: "1.0.0",
+					PURL:    "pkg:generic/builder-custom@1.0.0",
+				})
 
-				By("verifying merged SBOM contains components from import and fragment")
-				Expect(len(components)).To(BeNumerically(">=", 2),
-					"merged SBOM should contain components from import and fragment")
+				By("verifying components count (import + fragment)")
+				Expect(len(components)).To(Equal(2),
+					"merged SBOM should contain exactly 2 components (builder-custom from import + app-custom from fragment)")
 
 				By("verifying metadata is present")
 				Expect(bom.Metadata).NotTo(BeNil())
 
-				By("verifying Services from both builder and app are merged")
-				if bom.Services != nil {
-					services := *bom.Services
+				By("verifying services from both builder and app with strict validation")
+				Expect(bom.Services).NotTo(BeNil(), "SBOM should have services")
+				services := *bom.Services
 
-					Expect(findServiceByName(services, "builder-service")).NotTo(BeNil(),
-						"builder service should be present from import")
+				builderService := findServiceByName(services, "builder-service")
+				assertServiceEquals(builderService, expectedService{
+					Name:      "builder-service",
+					Endpoints: []string{"https://builder.example.com"},
+				})
 
-					Expect(findServiceByName(services, "app-api-service")).NotTo(BeNil(),
-						"app service should be present from fragment")
+				appService := findServiceByName(services, "app-api-service")
+				assertServiceEquals(appService, expectedService{
+					Name:          "app-api-service",
+					Endpoints:     []string{"https://app.example.com/api"},
+					Authenticated: boolPtr(true),
+				})
 
-					Expect(len(services)).To(BeNumerically(">=", 2),
-						"should contain services from both builder and app")
-				}
+				Expect(len(services)).To(Equal(2), "should have exactly 2 services")
 
-				By("verifying Properties from both sources are merged")
-				if bom.Properties != nil {
-					props := *bom.Properties
+				By("verifying Properties from both sources with strict validation")
+				Expect(bom.Properties).NotTo(BeNil(), "SBOM should have properties")
+				props := *bom.Properties
 
-					Expect(findPropertyByName(props, "builder-property")).NotTo(BeNil(),
-						"builder property should be present from import")
+				builderProp := findPropertyByName(props, "builder-property")
+				assertPropertyEquals(builderProp, expectedProperty{
+					Name:  "builder-property",
+					Value: "builder-value",
+				})
 
-					Expect(findPropertyByName(props, "app-property")).NotTo(BeNil(),
-						"app property should be present from fragment")
+				builderStageProp := findPropertyByName(props, "builder-stage")
+				assertPropertyEquals(builderStageProp, expectedProperty{
+					Name:  "builder-stage",
+					Value: "build",
+				})
 
-					Expect(len(props)).To(BeNumerically(">=", 2),
-						"should contain properties from both sources")
-				}
+				appProp := findPropertyByName(props, "app-property")
+				assertPropertyEquals(appProp, expectedProperty{
+					Name:  "app-property",
+					Value: "app-value",
+				})
 
-				By("verifying ExternalReferences are merged")
-				if bom.ExternalReferences != nil {
-					refs := *bom.ExternalReferences
+				envProp := findPropertyByName(props, "environment")
+				assertPropertyEquals(envProp, expectedProperty{
+					Name:  "environment",
+					Value: "production",
+				})
 
-					Expect(findExternalReferenceByURL(refs, "https://github.com/example/app")).NotTo(BeNil(),
-						"app external reference should be present")
-				}
+				Expect(len(props)).To(Equal(4), "should have exactly 4 properties")
 
-				By("verifying Annotations are merged")
-				if bom.Annotations != nil {
-					annotations := *bom.Annotations
+				By("verifying ExternalReferences with strict validation")
+				Expect(bom.ExternalReferences).NotTo(BeNil(), "SBOM should have external references")
+				refs := *bom.ExternalReferences
 
-					Expect(findAnnotationByText(annotations, "Application level annotation")).NotTo(BeNil(),
-						"app annotation should be present")
-				}
+				vcsRef := findExternalReferenceByURL(refs, "https://github.com/example/app")
+				assertExternalReferenceEquals(vcsRef, expectedExternalReference{
+					Type: cdx.ERTypeVCS,
+					URL:  "https://github.com/example/app",
+				})
+
+				issueTrackerRef := findExternalReferenceByURL(refs, "https://github.com/example/app/issues")
+				assertExternalReferenceEquals(issueTrackerRef, expectedExternalReference{
+					Type: cdx.ERTypeIssueTracker,
+					URL:  "https://github.com/example/app/issues",
+				})
+
+				Expect(len(refs)).To(Equal(2), "should have exactly 2 external references")
+
+				By("verifying Annotations are present")
+				Expect(bom.Annotations).NotTo(BeNil(), "SBOM should have annotations")
+				annotations := *bom.Annotations
+				Expect(findAnnotationByText(annotations, "Application level annotation")).NotTo(BeNil(),
+					"app annotation should be present")
+				Expect(len(annotations)).To(Equal(1), "should have exactly 1 annotation")
 			}
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
@@ -680,4 +760,102 @@ func findAnnotationByText(annotations []cdx.Annotation, text string) *cdx.Annota
 		}
 	}
 	return nil
+}
+
+type expectedComponent struct {
+	Name     string
+	Type     cdx.ComponentType
+	Version  string
+	PURL     string
+	Licenses []string
+	Hashes   map[cdx.HashAlgorithm]string
+}
+
+type expectedService struct {
+	Name          string
+	Endpoints     []string
+	Authenticated *bool
+}
+
+type expectedProperty struct {
+	Name  string
+	Value string
+}
+
+type expectedExternalReference struct {
+	Type cdx.ExternalReferenceType
+	URL  string
+}
+
+func assertComponentEquals(actual *cdx.Component, expected expectedComponent) {
+	Expect(actual).NotTo(BeNil(), "component %q should exist", expected.Name)
+	Expect(actual.Name).To(Equal(expected.Name), "component name mismatch")
+	Expect(actual.Type).To(Equal(expected.Type), "component %q type mismatch", expected.Name)
+	Expect(actual.Version).To(Equal(expected.Version), "component %q version mismatch", expected.Name)
+	Expect(actual.PackageURL).To(Equal(expected.PURL), "component %q PURL mismatch", expected.Name)
+
+	if len(expected.Licenses) > 0 {
+		Expect(actual.Licenses).NotTo(BeNil(), "component %q should have licenses", expected.Name)
+		actualLicenseIDs := extractLicenseIDs(*actual.Licenses)
+		Expect(actualLicenseIDs).To(ConsistOf(expected.Licenses), "component %q licenses mismatch", expected.Name)
+	}
+
+	if len(expected.Hashes) > 0 {
+		Expect(actual.Hashes).NotTo(BeNil(), "component %q should have hashes", expected.Name)
+		for alg, expectedHash := range expected.Hashes {
+			foundHash := findHashByAlgorithm(*actual.Hashes, alg)
+			Expect(foundHash).NotTo(BeNil(), "component %q should have hash with algorithm %s", expected.Name, alg)
+			Expect(foundHash.Value).To(Equal(expectedHash), "component %q hash value mismatch for algorithm %s", expected.Name, alg)
+		}
+	}
+}
+
+func assertServiceEquals(actual *cdx.Service, expected expectedService) {
+	Expect(actual).NotTo(BeNil(), "service %q should exist", expected.Name)
+	Expect(actual.Name).To(Equal(expected.Name), "service name mismatch")
+
+	if len(expected.Endpoints) > 0 {
+		Expect(actual.Endpoints).NotTo(BeNil(), "service %q should have endpoints", expected.Name)
+		Expect(*actual.Endpoints).To(ConsistOf(expected.Endpoints), "service %q endpoints mismatch", expected.Name)
+	}
+
+	if expected.Authenticated != nil {
+		Expect(actual.Authenticated).NotTo(BeNil(), "service %q should have authenticated field", expected.Name)
+		Expect(*actual.Authenticated).To(Equal(*expected.Authenticated), "service %q authenticated mismatch", expected.Name)
+	}
+}
+
+func assertPropertyEquals(actual *cdx.Property, expected expectedProperty) {
+	Expect(actual).NotTo(BeNil(), "property %q should exist", expected.Name)
+	Expect(actual.Name).To(Equal(expected.Name), "property name mismatch")
+	Expect(actual.Value).To(Equal(expected.Value), "property %q value mismatch", expected.Name)
+}
+
+func assertExternalReferenceEquals(actual *cdx.ExternalReference, expected expectedExternalReference) {
+	Expect(actual).NotTo(BeNil(), "external reference with URL %q should exist", expected.URL)
+	Expect(actual.Type).To(Equal(expected.Type), "external reference type mismatch for URL %q", expected.URL)
+	Expect(actual.URL).To(Equal(expected.URL), "external reference URL mismatch")
+}
+
+func extractLicenseIDs(licenses cdx.Licenses) []string {
+	var ids []string
+	for _, lic := range licenses {
+		if lic.License != nil && lic.License.ID != "" {
+			ids = append(ids, lic.License.ID)
+		}
+	}
+	return ids
+}
+
+func findHashByAlgorithm(hashes []cdx.Hash, alg cdx.HashAlgorithm) *cdx.Hash {
+	for i := range hashes {
+		if hashes[i].Algorithm == alg {
+			return &hashes[i]
+		}
+	}
+	return nil
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }

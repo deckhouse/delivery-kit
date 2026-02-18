@@ -29,6 +29,7 @@ import (
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -224,13 +225,11 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	}
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
-		// Group images by name for multi-platform support
 		imagesByName := make(map[string][]*image.Image)
 		for _, img := range imagesInSet {
 			imagesByName[img.Name] = append(imagesByName[img.Name], img)
 		}
 
-		// Convert to slice for parallel processing
 		names := make([]string, 0, len(imagesByName))
 		for name := range imagesByName {
 			names = append(names, name)
@@ -258,7 +257,6 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		primaryImg = images[0]
 		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
 	} else {
-		// Multi-platform: get existing or create temporary MultiplatformImage
 		primaryImg = images[0]
 		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
 			stageDesc = multiImg.GetStageDesc()
@@ -1417,6 +1415,10 @@ E.g.:
 }
 
 func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image, name string) (*cdx.BOM, error) {
+	if sbomImage.IsScratchRef(img.GetBaseImageReference()) {
+		return cyclonedxutil.NewBOM(), nil
+	}
+
 	if img.GetBaseImageReference() != "" {
 		if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
 			if baseStageDesc := baseStageImage.Image.GetStageDesc(); baseStageDesc != nil && baseStageDesc.Info != nil {
@@ -1432,7 +1434,7 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 		}
 	}
 
-	return nil, nil
+	return nil, fmt.Errorf("unable to collect base image sbom for image %q", name)
 }
 
 func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image, name string) ([]*cdx.BOM, error) {

@@ -24,11 +24,7 @@ type (
 	DockerHubRepositoryNotFoundError apiError
 )
 
-<<<<<<< HEAD
 func NewDockerHubUnauthorizedError(err error) DockerHubUnauthorizedError {
-=======
-func NewDockerHubUnauthorizedErr(err error) DockerHubUnauthorizedError {
->>>>>>> 13605ca47 (feat(sbom): sbom fstec mvp impl)
 	return DockerHubUnauthorizedError{
 		error: errors.New(dockerHubUnauthorizedErrPrefix + err.Error()),
 	}
@@ -38,11 +34,7 @@ func IsDockerHubUnauthorizedError(err error) bool {
 	return strings.Contains(err.Error(), dockerHubUnauthorizedErrPrefix)
 }
 
-<<<<<<< HEAD
 func NewDockerHubRepositoryNotFoundError(err error) DockerHubRepositoryNotFoundError {
-=======
-func NewDockerHubRepositoryNotFoundErr(err error) DockerHubRepositoryNotFoundError {
->>>>>>> 13605ca47 (feat(sbom): sbom fstec mvp impl)
 	return DockerHubRepositoryNotFoundError{
 		error: errors.New(dockerHubRepositoryNotFoundErrPrefix + err.Error()),
 	}

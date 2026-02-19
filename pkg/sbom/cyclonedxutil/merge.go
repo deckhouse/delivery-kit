@@ -22,10 +22,11 @@ func (o MergeOpts) IsEmpty() bool {
 func (o MergeOpts) Checksum() string {
 	var parts []string
 	for _, bom := range append([]*cdx.BOM{o.BaseBOM, o.FragmentBOM}, o.ImportBOMs...) {
-		if cs := BOMChecksum(bom); cs != "" {
+		if cs := StableBOMChecksum(bom); cs != "" {
 			parts = append(parts, cs)
 		}
 	}
+
 	return strings.Join(parts, "-")
 }
 
@@ -34,6 +35,7 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 	boms = append(boms, o.BaseBOM)
 	boms = append(boms, o.ImportBOMs...)
 	boms = append(boms, o.FragmentBOM, target)
+
 	return boms
 }
 
@@ -218,11 +220,32 @@ func appendBOMFormulation(dest []cdx.Formula, bom *cdx.BOM) []cdx.Formula {
 	return dest
 }
 
-func BOMChecksum(bom *cdx.BOM) string {
+type stableBOMContent struct {
+	Components         *[]cdx.Component         `json:"components,omitempty"`
+	Services           *[]cdx.Service           `json:"services,omitempty"`
+	Dependencies       *[]cdx.Dependency        `json:"dependencies,omitempty"`
+	ExternalReferences *[]cdx.ExternalReference `json:"externalReferences,omitempty"`
+	Properties         *[]cdx.Property          `json:"properties,omitempty"`
+	Annotations        *[]cdx.Annotation        `json:"annotations,omitempty"`
+	Formulation        *[]cdx.Formula           `json:"formulation,omitempty"`
+}
+
+func StableBOMChecksum(bom *cdx.BOM) string {
 	if bom == nil {
 		return ""
 	}
-	data, err := json.Marshal(bom)
+
+	stable := stableBOMContent{
+		Components:         bom.Components,
+		Services:           bom.Services,
+		Dependencies:       bom.Dependencies,
+		ExternalReferences: bom.ExternalReferences,
+		Properties:         bom.Properties,
+		Annotations:        bom.Annotations,
+		Formulation:        bom.Formulation,
+	}
+
+	data, err := json.Marshal(stable)
 	if err != nil {
 		return ""
 	}

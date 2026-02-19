@@ -137,44 +137,6 @@ var _ = Describe("MergeBOMs", func() {
 	})
 })
 
-var _ = Describe("BOMChecksum", func() {
-	It("returns consistent hash for same BOM", func() {
-		bom := &cdx.BOM{
-			BOMFormat:   cdx.BOMFormat,
-			SpecVersion: cdx.SpecVersion1_6,
-			Version:     1,
-			Components: &[]cdx.Component{
-				{Name: "test-comp", Version: "1.0.0"},
-			},
-		}
-
-		checksum1 := BOMChecksum(bom)
-		checksum2 := BOMChecksum(bom)
-
-		Expect(checksum1).ToNot(BeEmpty())
-		Expect(checksum1).To(Equal(checksum2))
-	})
-
-	It("is different for different BOMs", func() {
-		bom1 := &cdx.BOM{
-			Components: &[]cdx.Component{
-				{Name: "comp-1", Version: "1.0.0"},
-			},
-		}
-		bom2 := &cdx.BOM{
-			Components: &[]cdx.Component{
-				{Name: "comp-2", Version: "1.0.0"},
-			},
-		}
-
-		Expect(BOMChecksum(bom1)).ToNot(Equal(BOMChecksum(bom2)))
-	})
-
-	It("returns empty for nil", func() {
-		Expect(BOMChecksum(nil)).To(BeEmpty())
-	})
-})
-
 var _ = Describe("ToJSON", func() {
 	It("serializes BOM and contains required $schema", func() {
 		bom := &cdx.BOM{
@@ -226,6 +188,76 @@ var _ = Describe("MergeOpts", func() {
 
 	It("Checksum is empty for empty opts", func() {
 		Expect(MergeOpts{}.Checksum()).To(BeEmpty())
+	})
+})
+
+var _ = Describe("StableBOMChecksum", func() {
+	It("should return same checksum for BOMs with different SerialNumber but same content", func() {
+		bom1 := &cdx.BOM{
+			SerialNumber: "urn:uuid:11111111-1111-1111-1111-111111111111",
+			Version:      1,
+			Components: &[]cdx.Component{
+				{Name: "test", Version: "1.0.0", Type: cdx.ComponentTypeLibrary},
+			},
+		}
+		bom2 := &cdx.BOM{
+			SerialNumber: "urn:uuid:22222222-2222-2222-2222-222222222222",
+			Version:      2,
+			Components: &[]cdx.Component{
+				{Name: "test", Version: "1.0.0", Type: cdx.ComponentTypeLibrary},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom2)))
+	})
+
+	It("should return different checksum for BOMs with different components", func() {
+		bom1 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "test1", Version: "1.0.0"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "test2", Version: "1.0.0"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
+	})
+
+	It("should return empty string for nil BOM", func() {
+		Expect(StableBOMChecksum(nil)).To(Equal(""))
+	})
+
+	It("should include services in checksum", func() {
+		bom1 := &cdx.BOM{
+			Services: &[]cdx.Service{
+				{Name: "service1"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Services: &[]cdx.Service{
+				{Name: "service2"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
+	})
+
+	It("should include properties in checksum", func() {
+		bom1 := &cdx.BOM{
+			Properties: &[]cdx.Property{
+				{Name: "prop1", Value: "value1"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Properties: &[]cdx.Property{
+				{Name: "prop1", Value: "value2"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
 	})
 })
 

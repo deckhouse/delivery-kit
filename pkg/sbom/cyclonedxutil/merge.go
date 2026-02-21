@@ -220,30 +220,18 @@ func appendBOMFormulation(dest []cdx.Formula, bom *cdx.BOM) []cdx.Formula {
 	return dest
 }
 
-type stableBOMContent struct {
-	Components         *[]cdx.Component         `json:"components,omitempty"`
-	Services           *[]cdx.Service           `json:"services,omitempty"`
-	Dependencies       *[]cdx.Dependency        `json:"dependencies,omitempty"`
-	ExternalReferences *[]cdx.ExternalReference `json:"externalReferences,omitempty"`
-	Properties         *[]cdx.Property          `json:"properties,omitempty"`
-	Annotations        *[]cdx.Annotation        `json:"annotations,omitempty"`
-	Formulation        *[]cdx.Formula           `json:"formulation,omitempty"`
-}
-
+// StableBOMChecksum computes a checksum excluding only dynamically generated
+// fields (SerialNumber, Version, Metadata, Signature). New fields added to the
+// CycloneDX spec are automatically included, preserving cache correctness.
 func StableBOMChecksum(bom *cdx.BOM) string {
 	if bom == nil {
 		return ""
 	}
-
-	stable := stableBOMContent{
-		Components:         bom.Components,
-		Services:           bom.Services,
-		Dependencies:       bom.Dependencies,
-		ExternalReferences: bom.ExternalReferences,
-		Properties:         bom.Properties,
-		Annotations:        bom.Annotations,
-		Formulation:        bom.Formulation,
-	}
+	stable := *bom
+	stable.SerialNumber = ""
+	stable.Version = 0
+	stable.Metadata = nil
+	stable.Signature = nil
 
 	data, err := json.Marshal(stable)
 	if err != nil {

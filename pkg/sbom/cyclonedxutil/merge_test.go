@@ -259,6 +259,75 @@ var _ = Describe("StableBOMChecksum", func() {
 
 		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
 	})
+
+	It("should ignore metadata differences", func() {
+		bom1 := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{Name: "metadata-comp-1"},
+			},
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{Name: "metadata-comp-2"},
+			},
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom2)))
+	})
+
+	It("should ignore signature differences", func() {
+		bom1 := &cdx.BOM{
+			Signature: &cdx.JSFSignature{
+				JSFSigner: &cdx.JSFSigner{Algorithm: "RS256", Value: "sig-value"},
+			},
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom2)))
+	})
+
+	It("should include vulnerabilities in checksum", func() {
+		bom1 := &cdx.BOM{
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{ID: "CVE-2024-0001"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{ID: "CVE-2024-0002"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
+	})
+
+	It("should include compositions in checksum", func() {
+		bom1 := &cdx.BOM{
+			Compositions: &[]cdx.Composition{
+				{Aggregate: cdx.CompositionAggregateComplete},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Compositions: &[]cdx.Composition{
+				{Aggregate: cdx.CompositionAggregateIncomplete},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
+	})
 })
 
 var _ = Describe("internal sanity", func() {

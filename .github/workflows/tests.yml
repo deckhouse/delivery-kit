@@ -90,7 +90,7 @@ jobs:
       - lint
       - unit
     runs-on: delivery-github-runner
-    timeout-minutes: 180
+    timeout-minutes: 60
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1

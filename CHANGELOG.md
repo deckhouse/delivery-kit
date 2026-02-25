@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.57.2](https://github.com/deckhouse/delivery-kit/compare/v2.57.1...v2.57.2) (2026-02-25)
+
+
+### Bug Fixes
+
+* **ci:** fix publish binary name ([fa95b3c](https://github.com/deckhouse/delivery-kit/commit/fa95b3c1ec8175fb1eb02d7ec1238d43243d211a))
+* **ci:** fix publish binary name ([e64707a](https://github.com/deckhouse/delivery-kit/commit/e64707add8def7bec76c6d697b58343b80f816b4))
+
 ## [2.57.1](https://github.com/deckhouse/delivery-kit/compare/v2.61.0...v2.57.1) (2026-02-20)
 
 

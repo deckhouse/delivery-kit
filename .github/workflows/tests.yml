@@ -78,7 +78,7 @@ jobs:
         uses: ./.github/actions/set-up-ci-base
 
       - name: Unit tests
-        run: task --yes test:unit -- --procs=8 --keep-going
+        run: task --yes test:unit -- --keep-going
 
   tests:
     if: |
@@ -116,35 +116,35 @@ jobs:
         id: integration_main
         continue-on-error: true
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=8 --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
+          task --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
           echo loadavg: $(cat /proc/loadavg)
 
       - name: E2E tests (simple)
         id: e2e_simple
         continue-on-error: true
         run: |
-          task --yes test:e2e:simple -- --procs=8 --keep-going
+          task --yes test:e2e:simple -- --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: E2E tests (complex)
         id: e2e_complex
         continue-on-error: true
         run: |
-          task --yes test:e2e:complex -- --procs=8 --keep-going
+          task --yes test:e2e:complex -- --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: E2E tests (extra)
         id: e2e_extra
         continue-on-error: true
         run: |
-          task --yes test:e2e:extra -- --procs=8 --keep-going
+          task --yes test:e2e:extra -- --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Integration tests (git)
         id: integration_git
         continue-on-error: true
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=8 --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Finalize test status

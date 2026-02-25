@@ -20,7 +20,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name || 'adhoc' }}
   cancel-in-progress: true
 
 env:
@@ -28,30 +28,39 @@ env:
   TASK_X_REMOTE_TASKFILES: 1
 
 jobs:
-  doc_unit:
-    uses: ./.github/workflows/_test_unit.yml
-    with:
-      packages: cmd/werf/docs
-
-  doc_integration:
-    uses: ./.github/workflows/_test_integration_regular.yml
-    with:
-      packages: test/legacy_e2e/suites/docs
-
-  check_broken_links:
+  docs:
     runs-on: delivery-github-runner
     timeout-minutes: 60
+    env:
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
         with:
-          cache: false
-          go-version-file: go.mod
+          setJobId: "true"
+
+      - name: Set up test runtime
+        uses: ./.github/actions/set-up-test-runtime
+        with:
+          coverage: "false"
+
+      - name: Doc unit tests
+        id: doc_unit
+        continue-on-error: true
+        run: |
+          task --yes test:unit paths="cmd/werf/docs" -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
+
+      - name: Doc integration tests
+        id: doc_integration
+        continue-on-error: true
+        run: |
+          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=2 --flake-attempts=3 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
 
       - name: Login to GitHub container registry
+        id: check_broken_links
+        continue-on-error: true
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
@@ -59,18 +68,36 @@ jobs:
           password: ${{ secrets.SERVICE_ACCOUNT_TOKEN }}
 
       - name: Check links
+        id: check_links
+        continue-on-error: true
         run: task --yes -o group -p doc:check-broken-links
         env:
           WERF_REPO: "ghcr.io/werf/werfio"
+
+      - name: Cleanup environment
+        if: always()
+        run: task --yes test:cleanup:environment
+
+      - name: Finalize docs status
+        if: always()
+        run: |
+          echo "doc_unit outcome: ${{ steps.doc_unit.outcome }}"
+          echo "doc_integration outcome: ${{ steps.doc_integration.outcome }}"
+          echo "check_links outcome: ${{ steps.check_links.outcome }}"
+
+          if [[ "${{ steps.doc_unit.outcome }}" == "failure" || \
+                "${{ steps.doc_integration.outcome }}" == "failure" || \
+                "${{ steps.check_links.outcome }}" == "failure" ]]; then
+            echo "One or more docs validation stages failed"
+            exit 1
+          fi
 
   notify:
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false && failure()) ||
       (github.event_name != 'pull_request' && failure())
     needs:
-      - doc_unit
-      - doc_integration
-      - check_broken_links
+      - docs
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:
       loopNotificationGroup: ${{ secrets.LOOP_NOTIFICATION_GROUP }}

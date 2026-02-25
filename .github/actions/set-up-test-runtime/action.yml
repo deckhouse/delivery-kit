@@ -1,0 +1,35 @@
+name: Set up test runtime
+description: Prepare test binary, git config, ginkgo, and shared runtime environment variables.
+inputs:
+  coverage:
+    default: 'false'
+    description: Whether to build test binary with coverage and set coverage env vars.
+  installGinkgo:
+    default: 'true'
+    description: Whether to ensure ginkgo is installed.
+runs:
+  using: composite
+  steps:
+    - name: Set up prebuilt werf test binary
+      uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+      with:
+        coverage: ${{ inputs.coverage }}
+
+    - name: Set up git config
+      uses: ./.github/actions/set-up-git-config
+
+    - if: inputs.installGinkgo == 'true'
+      name: Install ginkgo
+      shell: bash
+      run: |
+        command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
+    - name: Setup environment
+      shell: bash
+      run: task --yes test:setup:environment
+
+    - name: Resolve shared test environment variables
+      shell: bash
+      run: |
+        echo "KUBECONFIG=$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}" >> "$GITHUB_ENV"
+        echo "WERF_TEST_K8S_DOCKER_REGISTRY=localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')" >> "$GITHUB_ENV"

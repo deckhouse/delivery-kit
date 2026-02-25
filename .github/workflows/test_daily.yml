@@ -8,96 +8,144 @@ on:
   workflow_dispatch:
 
 jobs:
-  lint:
-    uses: ./.github/workflows/_lint.yml
+  tests:
+    runs-on: delivery-github-runner
+    timeout-minutes: 480
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+    steps:
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+        with:
+          setJobId: "true"
+          prepareMultiarch: "true"
+          installGolangciLint: "true"
 
-  unit:
-    uses: ./.github/workflows/_test_unit.yml
-    with:
-      coverage: true
+      - name: Lint
+        id: lint
+        run: task --yes lint
 
-  e2e_simple_per-k8s-version:
-    uses: ./.github/workflows/_test_e2e_per-k8s-version.yml
-    with:
-      scope: simple
-      coverage: true
-    secrets: inherit
+      - name: Set up test runtime
+        uses: ./.github/actions/set-up-test-runtime
+        with:
+          coverage: "true"
 
-  e2e_complex_per-k8s-version:
-    uses: ./.github/workflows/_test_e2e_per-k8s-version.yml
-    with:
-      scope: complex
-      timeout: 120
-      coverage: true
-    secrets: inherit
+      - name: Unit tests
+        id: unit
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:unit -- --procs=2 --keep-going
 
-  e2e_extra_per-k8s-version:
-    uses: ./.github/workflows/_test_e2e_per-k8s-version.yml
-    with:
-      scope: extra
-      coverage: true
-    secrets: inherit
+      - name: Integration tests (main)
+        id: integration_main
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=2 --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
+          echo loadavg: $(cat /proc/loadavg)
 
-  integration_main:
-    uses: ./.github/workflows/_test_integration_regular.yml
-    with:
-      packages: test/legacy_e2e/suites
-      excludePackages: test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs
-      fetchDepth: 0 # Git history as fixtures for tests.
-      coverage: true
-    secrets: inherit
+      - name: Integration tests (git)
+        id: integration_git
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=2 --flake-attempts=3 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
 
-  integration_git:
-    uses: ./.github/workflows/_test_integration_regular.yml
-    with:
-      packages: test/legacy_e2e/suites/build/stapel_image/git
-      coverage: true
-    secrets: inherit
+      - name: Integration tests (per-k8s)
+        id: integration_per_k8s
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:integration paths="test/legacy_e2e/suites/cleanup_after_converge test/legacy_e2e/suites/deploy test/legacy_e2e/suites/helm/deploy_rollback" -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
 
-  #  integration_ansible:
-  #    uses: ./.github/workflows/_test_integration_regular.yml
-  #    with:
-  #      packages: test/legacy_e2e/suites/ansible
-  #      coverage: true
-  #    secrets: inherit
+      - name: E2E tests (simple per-k8s)
+        id: e2e_simple_per_k8s
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:e2e:simple -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
 
-  integration_per-k8s:
-    uses: ./.github/workflows/_test_integration_per-k8s-version.yml
-    with:
-      coverage: true
-    secrets: inherit
+      - name: E2E tests (complex per-k8s)
+        id: e2e_complex_per_k8s
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:e2e:complex -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
 
-  #  integration_per-cr:
-  #    uses: ./.github/workflows/_test_integration_per-container-registry.yml
-  #    with:
-  #      coverage: true
-  #    secrets: inherit
-  #
-  #  integration_per-k8s-and-cr:
-  #    uses: ./.github/workflows/_test_integration_per-k8s-version-and-container-registry.yml
-  #    with:
-  #      coverage: true
-  #    secrets: inherit
+      - name: E2E tests (extra per-k8s)
+        id: e2e_extra_per_k8s
+        continue-on-error: true
+        run: |
+          export GOCOVERDIR="$WERF_TEST_COVER_DIR"
+          task --yes test:e2e:extra -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: ./.github/actions/upload-coverage-artifact
+        with:
+          coverage: true
+
+      - name: Cleanup environment
+        if: always()
+        run: task --yes test:cleanup:environment
+
+      - name: Finalize test status
+        if: always()
+        run: |
+          echo "lint outcome: ${{ steps.lint.outcome }}"
+          echo "unit outcome: ${{ steps.unit.outcome }}"
+          echo "integration_main outcome: ${{ steps.integration_main.outcome }}"
+          echo "integration_git outcome: ${{ steps.integration_git.outcome }}"
+          echo "integration_per_k8s outcome: ${{ steps.integration_per_k8s.outcome }}"
+          echo "e2e_simple_per_k8s outcome: ${{ steps.e2e_simple_per_k8s.outcome }}"
+          echo "e2e_complex_per_k8s outcome: ${{ steps.e2e_complex_per_k8s.outcome }}"
+          echo "e2e_extra_per_k8s outcome: ${{ steps.e2e_extra_per_k8s.outcome }}"
+
+          if [[ "${{ steps.lint.outcome }}" == "failure" || \
+                "${{ steps.unit.outcome }}" == "failure" || \
+                "${{ steps.integration_main.outcome }}" == "failure" || \
+                "${{ steps.integration_git.outcome }}" == "failure" || \
+                "${{ steps.integration_per_k8s.outcome }}" == "failure" || \
+                "${{ steps.e2e_simple_per_k8s.outcome }}" == "failure" || \
+                "${{ steps.e2e_complex_per_k8s.outcome }}" == "failure" || \
+                "${{ steps.e2e_extra_per_k8s.outcome }}" == "failure" ]]; then
+            echo "One or more test stages failed"
+            exit 1
+          fi
 
   coverage_report:
-    uses: ./.github/workflows/_coverage_report.yml
+    runs-on: delivery-github-runner
+    timeout-minutes: 30
     needs:
-      - unit
-      - integration_main
-      - integration_git
-      #      - integration_ansible
-      - integration_per-k8s
-      #      - integration_per-cr
-      #      - integration_per-k8s-and-cr
-      - e2e_simple_per-k8s-version
-      - e2e_complex_per-k8s-version
-      - e2e_extra_per-k8s-version
-    secrets: inherit
+      - tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage
+
+      - name: Format and upload coverage report
+        uses: qltysh/qlty-action/coverage@v1
+        with:
+          token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+          files: coverage/coverage-*/*.out
+          skip-errors: false
 
   notify:
     if: always()
     needs:
-      - lint
+      - tests
       - coverage_report
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:

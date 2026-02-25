@@ -9,7 +9,7 @@ on:
     types: [tests:all]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name || 'adhoc' }}
   cancel-in-progress: true
 
 jobs:
@@ -39,68 +39,97 @@ jobs:
               - 'scripts/**'
               - 'test/**'
 
-  lint:
-    uses: ./.github/workflows/_lint.yml
-
-  unit:
-    if: needs.detect-changes.outputs.workflow_proceed != 'false'
-    needs: detect-changes
-    uses: ./.github/workflows/_test_unit.yml
-
-  integration_main:
+  tests:
     if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
     needs: detect-changes
-    uses: ./.github/workflows/_test_integration_regular.yml
-    with:
-      packages: test/legacy_e2e/suites
-      excludePackages: test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs
-      fetchDepth: 0 # Git history as fixtures for tests.
-    secrets: inherit
+    runs-on: delivery-github-runner
+    timeout-minutes: 180
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+    steps:
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+        with:
+          setJobId: "true"
+          prepareMultiarch: "true"
+          installGolangciLint: "true"
 
-  e2e_simple:
-    if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
-    needs: detect-changes
-    uses: ./.github/workflows/_test_e2e_regular.yml
-    with:
-      scope: simple
-    secrets: inherit
+      - name: Lint
+        id: lint
+        run: task --yes lint
 
-  e2e_complex:
-    if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
-    needs: detect-changes
-    uses: ./.github/workflows/_test_e2e_regular.yml
-    with:
-      scope: complex
-    secrets: inherit
+      - name: Set up test runtime
+        uses: ./.github/actions/set-up-test-runtime
+        with:
+          coverage: "false"
 
-  e2e_extra:
-    if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
-    needs: detect-changes
-    uses: ./.github/workflows/_test_e2e_regular.yml
-    with:
-      scope: extra
-    secrets: inherit
+      - name: Unit tests
+        id: unit
+        continue-on-error: true
+        run: task --yes test:unit -- --procs=2 --keep-going
 
-  integration_git:
-    if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
-    needs: detect-changes
-    uses: ./.github/workflows/_test_integration_regular.yml
-    with:
-      packages: test/legacy_e2e/suites/build/stapel_image/git
-    secrets: inherit
+      - name: Integration tests (main)
+        id: integration_main
+        continue-on-error: true
+        run: |
+          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=2 --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
+          echo loadavg: $(cat /proc/loadavg)
 
-  # integration_ansible:
-  #   if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
-  #   needs: detect-changes
-  #   uses: ./.github/workflows/_test_integration_regular.yml
-  #   with:
-  #     packages: test/legacy_e2e/suites/ansible
-  #   secrets: inherit
+      - name: E2E tests (simple)
+        id: e2e_simple
+        continue-on-error: true
+        run: |
+          task --yes test:e2e:simple -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
 
-  build:
-    if: needs.detect-changes.outputs.workflow_proceed != 'false'
-    needs: detect-changes
-    uses: ./.github/workflows/_build.yml
+      - name: E2E tests (complex)
+        id: e2e_complex
+        continue-on-error: true
+        run: |
+          task --yes test:e2e:complex -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
+
+      - name: E2E tests (extra)
+        id: e2e_extra
+        continue-on-error: true
+        run: |
+          task --yes test:e2e:extra -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
+
+      - name: Integration tests (git)
+        id: integration_git
+        continue-on-error: true
+        run: |
+          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=2 --flake-attempts=3 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
+
+      - name: Finalize test status
+        if: always()
+        run: |
+          echo "lint outcome: ${{ steps.lint.outcome }}"
+          echo "unit outcome: ${{ steps.unit.outcome }}"
+          echo "integration_main outcome: ${{ steps.integration_main.outcome }}"
+          echo "e2e_simple outcome: ${{ steps.e2e_simple.outcome }}"
+          echo "e2e_complex outcome: ${{ steps.e2e_complex.outcome }}"
+          echo "e2e_extra outcome: ${{ steps.e2e_extra.outcome }}"
+          echo "integration_git outcome: ${{ steps.integration_git.outcome }}"
+
+          if [[ "${{ steps.lint.outcome }}" == "failure" || \
+                "${{ steps.unit.outcome }}" == "failure" || \
+                "${{ steps.integration_main.outcome }}" == "failure" || \
+                "${{ steps.e2e_simple.outcome }}" == "failure" || \
+                "${{ steps.e2e_complex.outcome }}" == "failure" || \
+                "${{ steps.e2e_extra.outcome }}" == "failure" || \
+                "${{ steps.integration_git.outcome }}" == "failure" ]]; then
+            echo "One or more test stages failed"
+            exit 1
+          fi
+
+      - name: Cleanup environment
+        if: always()
+        run: task --yes test:cleanup:environment
 
   notify:
     if: |
@@ -109,14 +138,7 @@ jobs:
       (github.event_name != 'pull_request' && failure())
       )
     needs:
-      - lint
-      - unit
-      - integration_main
-      - integration_git
-      # - integration_ansible
-      - e2e_simple
-      - e2e_complex
-      - e2e_extra
+      - tests
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:
       loopNotificationGroup: ${{ secrets.LOOP_NOTIFICATION_GROUP }}

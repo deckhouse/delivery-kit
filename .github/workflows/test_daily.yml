@@ -68,10 +68,24 @@ jobs:
           setJobId: "true"
           prepareMultiarch: "true"
 
-      - name: Set up test runtime
-        uses: ./.github/actions/set-up-test-runtime
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
+      - name: Setup environment
+        run: task --yes test:setup:environment
+
+      - name: Resolve shared test environment variables
+        run: |
+          echo "KUBECONFIG=$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}" >> "$GITHUB_ENV"
+          echo "WERF_TEST_K8S_DOCKER_REGISTRY=localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')" >> "$GITHUB_ENV"
 
       - name: Integration tests (main)
         id: integration_main

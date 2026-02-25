@@ -27,11 +27,6 @@ runs:
       shell: bash
       run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
 
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: ${{ inputs.fetchDepth }}
-
     - name: Set up Go
       uses: actions/setup-go@v5
       with:

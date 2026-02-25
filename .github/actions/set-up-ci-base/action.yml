@@ -2,16 +2,16 @@ name: Set up CI base
 description: Prepare common CI prerequisites (job id, checkout, Go, cache, tools).
 inputs:
   fetchDepth:
-    default: '0'
+    default: "0"
     description: Git fetch depth for checkout.
   setJobId:
-    default: 'false'
+    default: "false"
     description: Whether to export JOB_ID to GITHUB_ENV.
   prepareMultiarch:
-    default: 'false'
+    default: "false"
     description: Whether to prepare system for multiarch builds.
   installGolangciLint:
-    default: 'false'
+    default: "false"
     description: Whether to ensure golangci-lint is installed.
 runs:
   using: composite

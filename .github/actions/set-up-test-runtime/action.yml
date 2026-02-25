@@ -2,10 +2,10 @@ name: Set up test runtime
 description: Prepare test binary, git config, ginkgo, and shared runtime environment variables.
 inputs:
   coverage:
-    default: 'false'
+    default: "false"
     description: Whether to build test binary with coverage and set coverage env vars.
   installGinkgo:
-    default: 'true'
+    default: "true"
     description: Whether to ensure ginkgo is installed.
 runs:
   using: composite

@@ -1,9 +1,6 @@
 name: Set up CI base
-description: Prepare common CI prerequisites (job id, checkout, Go, cache, tools).
+description: Prepare common CI prerequisites (job id, Go, cache, tools). Requires checkout before use.
 inputs:
-  fetchDepth:
-    default: "0"
-    description: Git fetch depth for checkout.
   setJobId:
     default: "false"
     description: Whether to export JOB_ID to GITHUB_ENV.

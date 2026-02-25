@@ -52,14 +52,14 @@ jobs:
         id: doc_unit
         continue-on-error: true
         run: |
-          task --yes test:unit paths="cmd/werf/docs" -- --procs=4 --keep-going
+          task --yes test:unit paths="cmd/werf/docs" -- --procs=2 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Doc integration tests
         id: doc_integration
         continue-on-error: true
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=4 --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=2 --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Login to GitHub container registry

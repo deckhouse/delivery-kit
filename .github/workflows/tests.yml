@@ -39,9 +39,56 @@ jobs:
               - 'scripts/**'
               - 'test/**'
 
-  tests:
+  lint:
     if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
     needs: detect-changes
+    runs-on: delivery-github-runner
+    timeout-minutes: 60
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+        with:
+          installGolangciLint: "true"
+
+      - name: Lint
+        id: lint
+        run: task --yes lint
+
+  unit:
+    if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
+    needs:
+      - detect-changes
+      - lint
+    runs-on: delivery-github-runner
+    timeout-minutes: 90
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
+      - name: Unit tests
+        run: task --yes test:unit -- --procs=8 --keep-going
+
+  tests:
+    if: |
+      always() &&
+      (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false') &&
+      needs.lint.result == 'success'
+    needs:
+      - detect-changes
+      - lint
+      - unit
     runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
@@ -59,71 +106,57 @@ jobs:
         with:
           setJobId: "true"
           prepareMultiarch: "true"
-          installGolangciLint: "true"
-
-      - name: Lint
-        id: lint
-        run: task --yes lint
 
       - name: Set up test runtime
         uses: ./.github/actions/set-up-test-runtime
         with:
           coverage: "false"
 
-      - name: Unit tests
-        id: unit
-        continue-on-error: true
-        run: task --yes test:unit -- --procs=4 --keep-going
-
       - name: Integration tests (main)
         id: integration_main
         continue-on-error: true
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=4 --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible,'
+          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=8 --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
           echo loadavg: $(cat /proc/loadavg)
 
       - name: E2E tests (simple)
         id: e2e_simple
         continue-on-error: true
         run: |
-          task --yes test:e2e:simple -- --procs=4 --keep-going
+          task --yes test:e2e:simple -- --procs=8 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: E2E tests (complex)
         id: e2e_complex
         continue-on-error: true
         run: |
-          task --yes test:e2e:complex -- --procs=4 --keep-going
+          task --yes test:e2e:complex -- --procs=8 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: E2E tests (extra)
         id: e2e_extra
         continue-on-error: true
         run: |
-          task --yes test:e2e:extra -- --procs=4 --keep-going
+          task --yes test:e2e:extra -- --procs=8 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Integration tests (git)
         id: integration_git
         continue-on-error: true
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=4 --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=8 --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Finalize test status
         if: always()
         run: |
-          echo "lint outcome: ${{ steps.lint.outcome }}"
-          echo "unit outcome: ${{ steps.unit.outcome }}"
           echo "integration_main outcome: ${{ steps.integration_main.outcome }}"
           echo "e2e_simple outcome: ${{ steps.e2e_simple.outcome }}"
           echo "e2e_complex outcome: ${{ steps.e2e_complex.outcome }}"
           echo "e2e_extra outcome: ${{ steps.e2e_extra.outcome }}"
           echo "integration_git outcome: ${{ steps.integration_git.outcome }}"
 
-          if [[ "${{ steps.lint.outcome }}" == "failure" || \
-                "${{ steps.unit.outcome }}" == "failure" || \
-                "${{ steps.integration_main.outcome }}" == "failure" || \
+          if [[ "${{ steps.integration_main.outcome }}" == "failure" || \
                 "${{ steps.e2e_simple.outcome }}" == "failure" || \
                 "${{ steps.e2e_complex.outcome }}" == "failure" || \
                 "${{ steps.e2e_extra.outcome }}" == "failure" || \
@@ -143,6 +176,8 @@ jobs:
       (github.event_name != 'pull_request' && failure())
       )
     needs:
+      - lint
+      - unit
       - tests
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:

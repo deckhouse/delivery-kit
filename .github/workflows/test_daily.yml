@@ -24,7 +24,6 @@ jobs:
           installGolangciLint: "true"
 
       - name: Lint
-        id: lint
         run: task --yes lint
 
   unit:
@@ -45,17 +44,21 @@ jobs:
       - name: Unit tests
         run: task -p --yes test:unit -- --keep-going
 
-  tests:
-    if: always() && needs.lint.result == 'success'
+  kind_setup:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success'
     needs:
       - lint
       - unit
     runs-on: delivery-github-runner
-    timeout-minutes: 480
+    timeout-minutes: 30
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
       WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+    outputs:
+      job_id: ${{ steps.export_cluster.outputs.job_id }}
+      kubeconfig_path: ${{ steps.export_cluster.outputs.kubeconfig_path }}
+      registry: ${{ steps.export_cluster.outputs.registry }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -68,6 +71,44 @@ jobs:
           setJobId: "true"
           prepareMultiarch: "true"
 
+      - name: Setup environment
+        run: task --yes test:setup:environment
+
+      - name: Export shared cluster parameters
+        id: export_cluster
+        run: |
+          SHARED_KUBECONFIG="/tmp/werf.kubeconfig-${JOB_ID}"
+          cp "$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}" "$SHARED_KUBECONFIG"
+          chmod 0644 "$SHARED_KUBECONFIG"
+          REGISTRY="localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
+          echo "job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
+          echo "kubeconfig_path=$SHARED_KUBECONFIG" >> "$GITHUB_OUTPUT"
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+
+  integration_main:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    needs:
+      - lint
+      - unit
+      - kind_setup
+    runs-on: delivery-github-runner
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
       - name: Set up prebuilt werf test binary
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
@@ -79,57 +120,242 @@ jobs:
       - name: Install ginkgo
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
-      - name: Setup environment
-        run: task --yes test:setup:environment
-
-      - name: Resolve shared test environment variables
-        run: |
-          echo "KUBECONFIG=$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}" >> "$GITHUB_ENV"
-          echo "WERF_TEST_K8S_DOCKER_REGISTRY=localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')" >> "$GITHUB_ENV"
-
       - name: Integration tests (main)
-        id: integration_main
-        continue-on-error: true
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Upload coverage artifact
+        if: always()
+        uses: ./.github/actions/upload-coverage-artifact
+        with:
+          coverage: true
+
+  integration_git:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    needs:
+      - lint
+      - unit
+      - kind_setup
+    runs-on: delivery-github-runner
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "true"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
       - name: Integration tests (git)
-        id: integration_git
-        continue-on-error: true
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Upload coverage artifact
+        if: always()
+        uses: ./.github/actions/upload-coverage-artifact
+        with:
+          coverage: true
+
+  integration_per_k8s:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    needs:
+      - lint
+      - unit
+      - kind_setup
+    runs-on: delivery-github-runner
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "true"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
       - name: Integration tests (per-k8s)
-        id: integration_per_k8s
-        continue-on-error: true
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:integration paths="test/legacy_e2e/suites/cleanup_after_converge test/legacy_e2e/suites/deploy test/legacy_e2e/suites/helm/deploy_rollback" -- --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Upload coverage artifact
+        if: always()
+        uses: ./.github/actions/upload-coverage-artifact
+        with:
+          coverage: true
+
+  e2e_simple_per_k8s:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    needs:
+      - lint
+      - unit
+      - kind_setup
+    runs-on: delivery-github-runner
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "true"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
       - name: E2E tests (simple per-k8s)
-        id: e2e_simple_per_k8s
-        continue-on-error: true
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:e2e:simple -- --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Upload coverage artifact
+        if: always()
+        uses: ./.github/actions/upload-coverage-artifact
+        with:
+          coverage: true
+
+  e2e_complex_per_k8s:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    needs:
+      - lint
+      - unit
+      - kind_setup
+    runs-on: delivery-github-runner
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "true"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
       - name: E2E tests (complex per-k8s)
-        id: e2e_complex_per_k8s
-        continue-on-error: true
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:e2e:complex -- --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Upload coverage artifact
+        if: always()
+        uses: ./.github/actions/upload-coverage-artifact
+        with:
+          coverage: true
+
+  e2e_extra_per_k8s:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    needs:
+      - lint
+      - unit
+      - kind_setup
+    runs-on: delivery-github-runner
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "true"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
       - name: E2E tests (extra per-k8s)
-        id: e2e_extra_per_k8s
-        continue-on-error: true
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:e2e:extra -- --keep-going
@@ -141,35 +367,42 @@ jobs:
         with:
           coverage: true
 
+  kind_cleanup:
+    if: always() && needs.kind_setup.result == 'success'
+    needs:
+      - kind_setup
+      - integration_main
+      - integration_git
+      - integration_per_k8s
+      - e2e_simple_per_k8s
+      - e2e_complex_per_k8s
+      - e2e_extra_per_k8s
+    runs-on: delivery-github-runner
+    timeout-minutes: 20
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+
       - name: Cleanup environment
-        if: always()
         run: task --yes test:cleanup:environment
-
-      - name: Finalize test status
-        if: always()
-        run: |
-          echo "integration_main outcome: ${{ steps.integration_main.outcome }}"
-          echo "integration_git outcome: ${{ steps.integration_git.outcome }}"
-          echo "integration_per_k8s outcome: ${{ steps.integration_per_k8s.outcome }}"
-          echo "e2e_simple_per_k8s outcome: ${{ steps.e2e_simple_per_k8s.outcome }}"
-          echo "e2e_complex_per_k8s outcome: ${{ steps.e2e_complex_per_k8s.outcome }}"
-          echo "e2e_extra_per_k8s outcome: ${{ steps.e2e_extra_per_k8s.outcome }}"
-
-          if [[ "${{ steps.integration_main.outcome }}" == "failure" || \
-                "${{ steps.integration_git.outcome }}" == "failure" || \
-                "${{ steps.integration_per_k8s.outcome }}" == "failure" || \
-                "${{ steps.e2e_simple_per_k8s.outcome }}" == "failure" || \
-                "${{ steps.e2e_complex_per_k8s.outcome }}" == "failure" || \
-                "${{ steps.e2e_extra_per_k8s.outcome }}" == "failure" ]]; then
-            echo "One or more test stages failed"
-            exit 1
-          fi
 
   coverage_report:
     runs-on: delivery-github-runner
     timeout-minutes: 30
     needs:
-      - tests
+      - integration_main
+      - integration_git
+      - integration_per_k8s
+      - e2e_simple_per_k8s
+      - e2e_complex_per_k8s
+      - e2e_extra_per_k8s
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -191,7 +424,14 @@ jobs:
     needs:
       - lint
       - unit
-      - tests
+      - kind_setup
+      - integration_main
+      - integration_git
+      - integration_per_k8s
+      - e2e_simple_per_k8s
+      - e2e_complex_per_k8s
+      - e2e_extra_per_k8s
+      - kind_cleanup
       - coverage_report
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:

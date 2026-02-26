@@ -377,7 +377,45 @@ jobs:
           task -p --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
-  docs:
+  docs_unit:
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.outputs.docs_workflow_proceed != 'false'
+    needs:
+      - detect-changes
+    runs-on: delivery-github-runner
+    timeout-minutes: 60
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        uses: ./.github/actions/set-up-ci-base
+        with:
+          setJobId: "true"
+
+      - name: Set up prebuilt werf test binary
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "false"
+
+      - name: Set up git config
+        uses: ./.github/actions/set-up-git-config
+
+      - name: Install ginkgo
+        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
+
+      - name: Doc unit tests
+        run: |
+          task --yes test:unit paths="cmd/werf/docs" -- --procs=2 --keep-going
+          echo loadavg: $(cat /proc/loadavg)
+
+  docs_integration:
     if: |
       github.event_name == 'pull_request' &&
       needs.detect-changes.outputs.docs_workflow_proceed != 'false' &&
@@ -416,23 +454,29 @@ jobs:
       - name: Install ginkgo
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
-      - name: Doc unit tests
-        id: doc_unit
-        continue-on-error: true
-        run: |
-          task --yes test:unit paths="cmd/werf/docs" -- --procs=2 --keep-going
-          echo loadavg: $(cat /proc/loadavg)
-
       - name: Doc integration tests
-        id: doc_integration
-        continue-on-error: true
         run: |
           task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=2 --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+  docs_check_links:
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.outputs.docs_workflow_proceed != 'false'
+    needs:
+      - detect-changes
+    runs-on: delivery-github-runner
+    timeout-minutes: 60
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Login to GitHub container registry
-        id: check_broken_links
-        continue-on-error: true
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
@@ -440,25 +484,9 @@ jobs:
           password: ${{ secrets.SERVICE_ACCOUNT_TOKEN }}
 
       - name: Check links
-        id: check_links
-        continue-on-error: true
         run: task --yes -o group -p doc:check-broken-links
         env:
           WERF_REPO: "ghcr.io/werf/werfio"
-
-      - name: Finalize docs status
-        if: always()
-        run: |
-          echo "doc_unit outcome: ${{ steps.doc_unit.outcome }}"
-          echo "doc_integration outcome: ${{ steps.doc_integration.outcome }}"
-          echo "check_links outcome: ${{ steps.check_links.outcome }}"
-
-          if [[ "${{ steps.doc_unit.outcome }}" == "failure" || \
-                "${{ steps.doc_integration.outcome }}" == "failure" || \
-                "${{ steps.check_links.outcome }}" == "failure" ]]; then
-            echo "One or more docs validation stages failed"
-            exit 1
-          fi
 
   kind_cleanup:
     if: always() && needs.kind_setup.result == 'success'
@@ -469,6 +497,7 @@ jobs:
       - e2e_complex
       - e2e_extra
       - integration_git
+      - docs_integration
     runs-on: delivery-github-runner
     timeout-minutes: 20
     env:
@@ -500,7 +529,9 @@ jobs:
       - e2e_complex
       - e2e_extra
       - integration_git
-      - docs
+      - docs_unit
+      - docs_integration
+      - docs_check_links
       - kind_cleanup
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:

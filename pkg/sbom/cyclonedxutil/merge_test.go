@@ -260,7 +260,7 @@ var _ = Describe("StableBOMChecksum", func() {
 		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
 	})
 
-	It("should ignore metadata differences", func() {
+	It("should include metadata in checksum", func() {
 		bom1 := &cdx.BOM{
 			Metadata: &cdx.Metadata{
 				Component: &cdx.Component{Name: "metadata-comp-1"},
@@ -278,7 +278,7 @@ var _ = Describe("StableBOMChecksum", func() {
 			},
 		}
 
-		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom2)))
+		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
 	})
 
 	It("should ignore signature differences", func() {

@@ -299,6 +299,38 @@ var _ = Describe("StableBOMChecksum", func() {
 		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom2)))
 	})
 
+	It("should ignore metadata timestamp differences", func() {
+		bom1 := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Timestamp: "2024-01-01T00:00:00Z",
+				Component: &cdx.Component{Name: "comp"},
+			},
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+		bom2 := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Timestamp: "2025-06-15T12:30:00Z",
+				Component: &cdx.Component{Name: "comp"},
+			},
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+		bom3 := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{Name: "comp"},
+			},
+			Components: &[]cdx.Component{
+				{Name: "comp", Version: "1.0.0"},
+			},
+		}
+
+		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom2)))
+		Expect(StableBOMChecksum(bom1)).To(Equal(StableBOMChecksum(bom3)))
+	})
+
 	It("should include vulnerabilities in checksum", func() {
 		bom1 := &cdx.BOM{
 			Vulnerabilities: &[]cdx.Vulnerability{

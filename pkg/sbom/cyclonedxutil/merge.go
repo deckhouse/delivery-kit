@@ -221,8 +221,9 @@ func appendBOMFormulation(dest []cdx.Formula, bom *cdx.BOM) []cdx.Formula {
 }
 
 // StableBOMChecksum computes a checksum excluding only dynamically generated
-// fields (SerialNumber, Version, Signature). New fields added to the
-// CycloneDX spec are automatically included, preserving cache correctness.
+// fields (SerialNumber, Version, Signature, Metadata.Timestamp). New fields
+// added to the CycloneDX spec are automatically included, preserving cache
+// correctness.
 func StableBOMChecksum(bom *cdx.BOM) string {
 	if bom == nil {
 		return ""
@@ -231,6 +232,11 @@ func StableBOMChecksum(bom *cdx.BOM) string {
 	stable.SerialNumber = ""
 	stable.Version = 0
 	stable.Signature = nil
+	if stable.Metadata != nil {
+		stableMetadata := *stable.Metadata
+		stableMetadata.Timestamp = ""
+		stable.Metadata = &stableMetadata
+	}
 
 	data, err := json.Marshal(stable)
 	if err != nil {

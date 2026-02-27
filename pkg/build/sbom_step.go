@@ -16,6 +16,7 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/extract"
+	"github.com/werf/werf/v2/pkg/sbom/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -97,6 +98,33 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 		if err != nil {
 			return fmt.Errorf("unable to extract scanned BOM: %w", err)
+		}
+
+		if !mergeOpts.Gost.AttackSurface.IsUndefined() || !mergeOpts.Gost.SecurityFunction.IsUndefined() {
+			logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
+		}
+
+		// Images built FROM scratch are exempt from base SBOM validation as they have no prior BOM.
+		if mergeOpts.BaseBOM != nil {
+			if err := gost.Validate(mergeOpts.BaseBOM); err != nil {
+				return fmt.Errorf("base image SBOM validation failed: %w", err)
+			}
+		}
+
+		for i, bom := range mergeOpts.ImportBOMs {
+			if err := gost.Validate(bom); err != nil {
+				return fmt.Errorf("imported image %d SBOM validation failed: %w", i, err)
+			}
+		}
+
+		if err := gost.Inject(targetBOM, mergeOpts.Gost); err != nil {
+			return fmt.Errorf("unable to inject GOST properties into scanned BOM: %w", err)
+		}
+
+		if mergeOpts.FragmentBOM != nil {
+			if err := gost.Inject(mergeOpts.FragmentBOM, mergeOpts.Gost); err != nil {
+				return fmt.Errorf("unable to inject GOST properties into user-defined fragment BOM: %w", err)
+			}
 		}
 
 		resultBOM := targetBOM

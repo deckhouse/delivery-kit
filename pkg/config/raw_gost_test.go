@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/sbom/gost"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
 
 var _ = Describe("rawGost", func() {

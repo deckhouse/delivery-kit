@@ -7,7 +7,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/sbom"
-	"github.com/werf/werf/v2/pkg/sbom/gost"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
 
 var _ = Describe("rawMetaBuildSbom", func() {

@@ -8,7 +8,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/sbom/gost"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
 
 type MergeOpts struct {

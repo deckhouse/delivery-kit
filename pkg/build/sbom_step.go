@@ -15,8 +15,8 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/label"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/extract"
-	"github.com/werf/werf/v2/pkg/sbom/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -117,13 +117,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		if err := gost.Inject(targetBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("unable to inject GOST properties into scanned BOM: %w", err)
+		if err := gost.Upsert(targetBOM, mergeOpts.Gost); err != nil {
+			return fmt.Errorf("unable to set GOST properties into scanned BOM: %w", err)
 		}
 
 		if mergeOpts.FragmentBOM != nil {
-			if err := gost.Inject(mergeOpts.FragmentBOM, mergeOpts.Gost); err != nil {
-				return fmt.Errorf("unable to inject GOST properties into user-defined fragment BOM: %w", err)
+			if err := gost.Upsert(mergeOpts.FragmentBOM, mergeOpts.Gost); err != nil {
+				return fmt.Errorf("unable to set GOST properties into user-defined fragment BOM: %w", err)
 			}
 		}
 

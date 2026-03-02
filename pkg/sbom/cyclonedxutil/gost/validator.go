@@ -35,31 +35,24 @@ func Validate(bom *cdx.BOM) error {
 
 // ValidateComponent checks if a single component has the mandatory GOST properties.
 func ValidateComponent(comp *cdx.Component) error {
-	var hasAttackSurface, hasSecurityFunction bool
+	a := newAccessor(comp)
+	var missing []string
 
-	for _, prop := range lo.FromPtr(comp.Properties) {
-		if prop.Name == PropertyAttackSurface {
-			if !IsValidGostValue(prop.Value) {
-				return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'inherit')", PropertyAttackSurface, prop.Value)
-			}
-			hasAttackSurface = true
-		}
-		if prop.Name == PropertySecurityFunction {
-			if !IsValidGostValue(prop.Value) {
-				return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'inherit')", PropertySecurityFunction, prop.Value)
-			}
-			hasSecurityFunction = true
-		}
+	as, asOk := a.GetAttackSurface()
+	if !asOk {
+		missing = append(missing, PropertyAttackSurface)
+	} else if !IsValidGostValue(as.String()) {
+		return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'inherit')", PropertyAttackSurface, as)
 	}
 
-	if !hasAttackSurface || !hasSecurityFunction {
-		var missing []string
-		if !hasAttackSurface {
-			missing = append(missing, PropertyAttackSurface)
-		}
-		if !hasSecurityFunction {
-			missing = append(missing, PropertySecurityFunction)
-		}
+	sf, sfOk := a.GetSecurityFunction()
+	if !sfOk {
+		missing = append(missing, PropertySecurityFunction)
+	} else if !IsValidGostValue(sf.String()) {
+		return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'inherit')", PropertySecurityFunction, sf)
+	}
+
+	if len(missing) > 0 {
 		return fmt.Errorf("missing mandatory GOST properties: %v", missing)
 	}
 

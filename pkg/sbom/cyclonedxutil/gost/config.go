@@ -12,6 +12,10 @@ type Config struct {
 
 type GostValue string
 
+func (v GostValue) String() string {
+	return string(v)
+}
+
 const (
 	GostValueYes       GostValue = "yes"
 	GostValueNo        GostValue = "no"
@@ -38,7 +42,7 @@ func (c Config) Merge(other Config) Config {
 }
 
 func IsValidGostValue(v string) bool {
-	return v == string(GostValueYes) || v == string(GostValueNo) || v == string(GostValueInherit)
+	return v == GostValueYes.String() || v == GostValueNo.String() || v == GostValueInherit.String()
 }
 
 func (v GostValue) IsUndefined() bool {

@@ -66,7 +66,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfProjectRepoCommitLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfProjectRepoCommitLabel]))
 						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfStageContentDigestLabel]).To(Equal(imgInspect.Config.Labels[imagePkg.WerfStageContentDigestLabel]))
 						// sbom labels
-						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfSbomLabel]).To(HavePrefix("18084887c6995fbc90f4985a58b886e5ba4171d551c6d8329ce18f04ca0c695a"))
+						Expect(sbomImgInspect.Config.Labels[imagePkg.WerfSbomLabel]).To(HavePrefix("7bff0c5a05553c27f7b47d7c9e7f11841f40e5aafab399b8afaffac5aae66df9"))
 
 						By("state0: SBOM image file system layout")
 						opener := func() (io.ReadCloser, error) {

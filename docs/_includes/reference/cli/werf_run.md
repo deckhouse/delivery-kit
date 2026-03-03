@@ -36,6 +36,8 @@ werf run [options] [IMAGE_NAME] [-- COMMAND ARG...]
       --annotate-layers-with-dm-verity-root-hash=false
             Enable annotation of image layers with dm-verity root hash (default                     
             $WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH)
+      --backend-network=""
+            Network mode for the build containers ($WERF_BACKEND_NETWORK or nothing by default)
       --bash=false
             Use predefined docker options and command for debug
       --bsign-elf-files=false

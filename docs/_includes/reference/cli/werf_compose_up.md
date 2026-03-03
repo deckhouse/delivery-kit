@@ -87,6 +87,8 @@ werf compose up [IMAGE_NAME...] [options] [--docker-compose-options="OPTIONS"] [
       --annotate-layers-with-dm-verity-root-hash=false
             Enable annotation of image layers with dm-verity root hash (default                     
             $WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH)
+      --backend-network=""
+            Network mode for the build containers ($WERF_BACKEND_NETWORK or nothing by default)
       --backend-storage-path=""
             Use specified path to the local backend (Docker or Buildah) storage to check backend    
             storage volume usage while performing garbage collection of local backend images        

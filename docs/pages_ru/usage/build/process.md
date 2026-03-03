@@ -236,6 +236,39 @@ target: assets
 └ Concurrent builds plan (no more than 5 images at the same time)
 ```
 
+## Сетевая изоляция
+
+werf поддерживает настройку режима сети для сборочных контейнеров. Это позволяет ограничивать доступ к сети во время процесса сборки, что может быть полезно для безопасности или воспроизводимости.
+
+На текущий момент сетевая изоляция поддерживается только при использовании **Docker** в качестве сборочного бэкенда. Она работает как для **Dockerfile**, так и для **Stapel** синтаксисов.
+
+### Конфигурация
+
+Вы можете указать сетевой режим в конфигурации `werf.yaml` для каждого образа с помощью параметра `network`:
+
+```yaml
+project: my-project
+configVersion: 1
+---
+image: backend
+dockerfile: Dockerfile
+network: none # сеть отключена во время сборки
+---
+image: frontend
+from: alpine:3.14
+network: host # использовать сеть хоста
+```
+
+### Опция CLI
+
+Вы также можете установить сетевой режим глобально для процесса сборки с помощью опции CLI `--backend-network`:
+
+```bash
+werf build --backend-network none
+```
+
+Опция CLI `--backend-network` имеет **приоритет** над параметром `network`, определенным в конфигурации `werf.yaml`.
+
 ## Использование SSH-агента
 
 werf позволяет использовать SSH-агент для аутентификации при доступе к удалённым Git-репозиториям или выполнении команд в сборочных контейнерах.
@@ -612,19 +645,39 @@ jq -r '.Images | to_entries | map({key: .key, value: .value.DockerImageName}) | 
 
 ## Сканирование и генерация SBOM артефактов (EXPERIMENTAL)
 
-Для сканирования и генерации SBOM артефактов для всех образов в процессе сборки активируйте опцию `sbom` в werf.yml.
+Чтобы включить сканирование и генерацию SBOM артефактов в процессе сборки, необходимо настроить глобальную секцию `build.sbom` и, при необходимости, указать дополнительные компоненты для каждого образа.
 
-При `build.sbom.enable: true` также можно указать SBOM-конфигурацию для каждого image через `sbom.fragment`:
+### Глобальная конфигурация проекта (`build.sbom`)
 
-```
-project: werf-sbom-experimental
+Следующие параметры активируют процесс сканирования для всех образов проекта:
+1. Установите `build.sbom.enable: true`, чтобы включить функцию.
+2. Задайте стандарт вывода через `standard: cyclonedx@1.6` (на данный момент поддерживается только `cyclonedx@1.6`).
+
+```yaml
+project: werf-sbom-meta-example
 configVersion: 1
 build:
   sbom:
     enable: true
+    standard: cyclonedx@1.6
+```
+
+### Конфигурация конкретного образа (`sbom.fragment`)
+
+Опционально можно предоставить дополнительные SBOM-данные для каждого образа с помощью свойства `sbom.fragment`. Это может быть использовано для ручного включения компонентов, которые не были автоматически обнаружены сканером.
+
+`sbom.fragment` должен быть YAML-документом CycloneDX@1.6 или его частичным фрагментом (например, только секция `components:`). werf сформирует полный BOM-документ CycloneDX@1.6, объединив результаты сканирования с этим фрагментом.
+
+```yaml
+project: werf-sbom-base-image-example
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
 ---
-image: dockerfile
-dockerfile: Dockerfile
+image: base-image
+from: registry.werf.io/werf/scratch:latest
 sbom:
   fragment: |
     components:
@@ -640,10 +693,7 @@ sbom:
             content: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 ```
 
-Результат сканирования будет сохранен как отдельный образ с постфиксом `-sbom` в локальном хранилище бекенда 
-(Docker или Buildah), а также отправлен в container registry, если указан флаг `--repo`.
-
-`sbom.fragment` должен быть YAML-документом CycloneDX@1.6 (или его частичным фрагментом, например только `components:`). werf достроит до полноценного BOM-документа CycloneDX@1.6.
+Результат сканирования будет сохранен как отдельный образ с постфиксом `-sbom` в локальном хранилище бекенда (например, Docker), а также отправлен в container registry, если указан флаг `--repo`.
 
 Сейчас данная опция использует следующие _умолчания_:
 
@@ -652,7 +702,7 @@ sbom:
 | **Сканер**                                | syft                                                                                     |
 | **Образ сканера**                         | anchore/syft:v1.23.1                                                             |
 | **Политика получения образа**             | `PullIfMissing`                                                                          |
-| **Способ подключения к источнику данных** | daemon + socket via volume (для Docker) или image (для Buildah)                          |
+| **Способ подключения к источнику данных** | daemon + socket via volume (для Docker) |
 | **Путь в образе источнике**               | корень OS                                                                                |
 | **Настройки сканирования**                | [ссылка](https://github.com/anchore/syft/wiki/Configuration#list-of-configurable-values) |
 | **Исходящий стандарт**                    | `CycloneDX@1.6`                                                                          |

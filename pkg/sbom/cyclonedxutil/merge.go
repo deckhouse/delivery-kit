@@ -2,6 +2,7 @@ package cyclonedxutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -39,7 +40,11 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 	return boms
 }
 
-func MergeBOMs(target *cdx.BOM, opts MergeOpts) *cdx.BOM {
+func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
+	if err := validateBOMSpecVersions(target, opts); err != nil {
+		return nil, err
+	}
+
 	result := NewBOM()
 
 	if target != nil && target.Metadata != nil {
@@ -52,12 +57,14 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) *cdx.BOM {
 	result.Services = mergeServices(boms)
 	result.Vulnerabilities = mergeVulnerabilities(boms)
 	result.ExternalReferences = mergeExternalReferences(boms)
+	result.Dependencies = mergeDependencies(boms)
 	result.Compositions = mergeCompositions(boms)
 	result.Properties = mergeProperties(boms)
 	result.Annotations = mergeAnnotations(boms)
 	result.Formulation = mergeFormulation(boms)
+	result.Declarations = mergeDeclarations(boms)
 
-	return result
+	return result, nil
 }
 
 func mergeComponents(boms []*cdx.BOM) *[]cdx.Component {
@@ -156,6 +163,37 @@ func mergeFormulation(boms []*cdx.BOM) *[]cdx.Formula {
 	return nil
 }
 
+func mergeDependencies(boms []*cdx.BOM) *[]cdx.Dependency {
+	var dependencies []cdx.Dependency
+	for _, bom := range boms {
+		dependencies = appendBOMDependencies(dependencies, bom)
+	}
+	if len(dependencies) > 0 {
+		return &dependencies
+	}
+
+	return nil
+}
+
+func mergeDeclarations(boms []*cdx.BOM) *cdx.Declarations {
+	var result cdx.Declarations
+	var found bool
+
+	for _, bom := range boms {
+		if bom == nil || bom.Declarations == nil {
+			continue
+		}
+		found = true
+		appendBOMDeclarations(&result, bom.Declarations)
+	}
+
+	if !found {
+		return nil
+	}
+
+	return &result
+}
+
 func appendBOMComponents(dest []cdx.Component, bom *cdx.BOM) []cdx.Component {
 	if bom != nil && bom.Components != nil {
 		return append(dest, *bom.Components...)
@@ -220,6 +258,47 @@ func appendBOMFormulation(dest []cdx.Formula, bom *cdx.BOM) []cdx.Formula {
 	return dest
 }
 
+func appendBOMDependencies(dest []cdx.Dependency, bom *cdx.BOM) []cdx.Dependency {
+	if bom != nil && bom.Dependencies != nil {
+		return append(dest, *bom.Dependencies...)
+	}
+
+	return dest
+}
+
+func appendBOMDeclarations(dest, src *cdx.Declarations) {
+	dest.Assessors = appendPtrSlice(dest.Assessors, src.Assessors)
+	dest.Attestations = appendPtrSlice(dest.Attestations, src.Attestations)
+	dest.Claims = appendPtrSlice(dest.Claims, src.Claims)
+	dest.Evidence = appendPtrSlice(dest.Evidence, src.Evidence)
+
+	if src.Targets != nil {
+		if dest.Targets == nil {
+			dest.Targets = &cdx.Targets{}
+		}
+		dest.Targets.Organizations = appendPtrSlice(dest.Targets.Organizations, src.Targets.Organizations)
+		dest.Targets.Components = appendPtrSlice(dest.Targets.Components, src.Targets.Components)
+		dest.Targets.Services = appendPtrSlice(dest.Targets.Services, src.Targets.Services)
+	}
+
+	if src.Affirmation != nil {
+		dest.Affirmation = src.Affirmation
+	}
+}
+
+func appendPtrSlice[T any](dest, src *[]T) *[]T {
+	if src == nil {
+		return dest
+	}
+	if dest == nil {
+		result := make([]T, len(*src))
+		copy(result, *src)
+		return &result
+	}
+	*dest = append(*dest, *src...)
+	return dest
+}
+
 // StableBOMChecksum computes a checksum excluding only dynamically generated
 // fields (SerialNumber, Version, Signature, Metadata.Timestamp). New fields
 // added to the CycloneDX spec are automatically included, preserving cache
@@ -244,4 +323,24 @@ func StableBOMChecksum(bom *cdx.BOM) string {
 	}
 
 	return util.Sha256Hash(string(data))
+}
+
+func validateBOMSpecVersions(target *cdx.BOM, opts MergeOpts) error {
+	boms := opts.mergeOrder(target)
+	for _, bom := range boms {
+		if bom == nil {
+			continue
+		}
+
+		if bom.SpecVersion != cdx.SpecVersion1_6 {
+			return fmt.Errorf(
+				"unsupported CycloneDX spec version %q in BOM (expected %q): "+
+					"newer spec versions may introduce fields not handled during merging, "+
+					"convert the BOM to the supported spec version",
+				bom.SpecVersion, cdx.SpecVersion1_6,
+			)
+		}
+	}
+
+	return nil
 }

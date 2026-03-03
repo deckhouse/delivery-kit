@@ -137,7 +137,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-// prepareGostComponents validates external SBOMs and injects GOST properties into the user-defined fragment.
+// prepareGostComponents validates external SBOMs and upserts GOST properties into the user-defined fragment.
 func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
 	if !mergeOpts.Gost.AttackSurface.IsUndefined() || !mergeOpts.Gost.SecurityFunction.IsUndefined() {
 		logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")

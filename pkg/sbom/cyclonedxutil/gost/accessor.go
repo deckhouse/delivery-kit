@@ -43,6 +43,7 @@ func (a *accessor) setProperty(name string, val GostValue) {
 		return
 	}
 
+	// update case
 	for i, prop := range lo.FromPtr(a.comp.Properties) {
 		if prop.Name == name {
 			(*a.comp.Properties)[i].Value = val.String()
@@ -54,6 +55,7 @@ func (a *accessor) setProperty(name string, val GostValue) {
 		a.comp.Properties = lo.ToPtr([]cdx.Property{})
 	}
 
+	// insert case
 	*a.comp.Properties = append(*a.comp.Properties, cdx.Property{
 		Name:  name,
 		Value: val.String(),

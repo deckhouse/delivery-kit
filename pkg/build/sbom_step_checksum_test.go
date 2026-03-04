@@ -11,62 +11,27 @@ import (
 
 var _ = Describe("SbomStep Checksum", func() {
 	DescribeTable("calculateStableChecksum",
-		func(opts1, opts2 cyclonedxutil.MergeOpts, expectedEqual bool) {
+		func(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, expectedChecksum string) {
 			step := &sbomStep{}
-			scanOpts := scanner.DefaultSyftScanOptions()
-
-			cs1 := step.calculateStableChecksum(scanOpts, opts1)
-			cs2 := step.calculateStableChecksum(scanOpts, opts2)
-
-			if expectedEqual {
-				Expect(cs1).To(Equal(cs2))
-			} else {
-				Expect(cs1).ToNot(Equal(cs2))
-			}
+			checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
+			Expect(checksum).To(Equal(expectedChecksum))
 		},
 
-		Entry("should produce same checksum for same configuration",
+		Entry("empty options",
+			scanner.ScanOptions{},
+			cyclonedxutil.MergeOpts{},
+			"aa969eabe2faad149265a94e60b173e527e0bc27898afcd0ec4e85a06b28f29b",
+		),
+
+		Entry("empty options with GOST configuration (should be invariant)",
+			scanner.ScanOptions{},
 			cyclonedxutil.MergeOpts{
 				Gost: gost.Config{
 					AttackSurface:    gost.GostValueYes,
 					SecurityFunction: gost.GostValueInherit,
 				},
 			},
-			cyclonedxutil.MergeOpts{
-				Gost: gost.Config{
-					AttackSurface:    gost.GostValueYes,
-					SecurityFunction: gost.GostValueInherit,
-				},
-			},
-			true,
-		),
-
-		Entry("should produce same checksum even if GOST configuration differs (GOST is invariant for label checksum)",
-			cyclonedxutil.MergeOpts{
-				Gost: gost.Config{
-					AttackSurface: gost.GostValueYes,
-				},
-			},
-			cyclonedxutil.MergeOpts{
-				Gost: gost.Config{
-					AttackSurface: gost.GostValueNo,
-				},
-			},
-			true,
-		),
-
-		Entry("should produce same checksum when GOST inherit value is used versus other values",
-			cyclonedxutil.MergeOpts{
-				Gost: gost.Config{
-					AttackSurface: gost.GostValueYes,
-				},
-			},
-			cyclonedxutil.MergeOpts{
-				Gost: gost.Config{
-					AttackSurface: gost.GostValueInherit,
-				},
-			},
-			true,
+			"aa969eabe2faad149265a94e60b173e527e0bc27898afcd0ec4e85a06b28f29b",
 		),
 	)
 })

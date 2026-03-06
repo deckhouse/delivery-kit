@@ -76,6 +76,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.39.0
 	go.uber.org/mock v0.5.0
 	golang.org/x/crypto v0.46.0
+	golang.org/x/mod v0.26.0
 	golang.org/x/net v0.48.0
 	golang.org/x/sys v0.39.0
 	gopkg.in/ini.v1 v1.67.0

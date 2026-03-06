@@ -272,8 +272,7 @@ func (repo *Local) HeadCommitHash(_ context.Context) (string, error) {
 }
 
 func (repo *Local) HeadCommitTime(ctx context.Context) (*time.Time, error) {
-	time, err := baseHeadCommitTime(repo, ctx)
-	return time, err
+	return baseHeadCommitTime(repo, ctx)
 }
 
 func (repo *Local) GetOrCreatePatch(ctx context.Context, opts PatchOptions) (Patch, error) {

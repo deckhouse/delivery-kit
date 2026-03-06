@@ -1007,6 +1007,67 @@ var _ = Describe("GOST SBOM fields", Label("e2e", "build", "sbom", "gost"), func
 	)
 })
 
+var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace"), func() {
+	DescribeTable("should resolve versions for locally-replaced Go modules",
+		func(ctx SpecContext, testOpts simpleTestOptions) {
+			By("initializing")
+			setupEnv(testOpts.setupEnvOptions)
+
+			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			if err == contback.ErrRuntimeUnavailable {
+				Skip(err.Error())
+			} else if err != nil {
+				Fail(err.Error())
+			}
+
+			By("preparing test repo")
+			repoDirname := "repo_sbom_go_replace"
+			fixtureRelPath := "sbom-go-replace/state0"
+			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
+
+			By("building images")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
+			reportProject := report.NewProjectWithReport(werfProject)
+			buildOut, buildReport := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_sbom_go_replace.json"), nil)
+
+			Expect(buildOut).To(ContainSubstring("Building stage"))
+
+			By("extracting and verifying SBOM")
+			reportRecord, ok := buildReport.Images["app"]
+			Expect(ok).To(BeTrue(), "app should be in build report")
+
+			bom := extractBOMFromSbomImage(ctx, contRuntime, reportRecord.DockerImageName)
+
+			By("verifying SBOM structure")
+			Expect(bom.BOMFormat).To(Equal("CycloneDX"))
+			Expect(bom.SpecVersion).To(Equal(cdx.SpecVersion1_6))
+			Expect(bom.Components).NotTo(BeNil())
+
+			components := *bom.Components
+
+			By("verifying main module version is resolved (not UNKNOWN)")
+			mainModule := findComponentByName(components, "example.com/app")
+			Expect(mainModule).NotTo(BeNil(), "main module example.com/app should be in SBOM components")
+			Expect(mainModule.Version).NotTo(Equal("UNKNOWN"), "main module version should be resolved, not UNKNOWN")
+
+			By("verifying locally-replaced module version is resolved (not UNKNOWN)")
+			mylibModule := findComponentByName(components, "example.com/mylib")
+			Expect(mylibModule).NotTo(BeNil(), "locally-replaced module example.com/mylib should be in SBOM components")
+			Expect(mylibModule.Version).NotTo(Equal("UNKNOWN"), "locally-replaced module version should be resolved, not UNKNOWN")
+		},
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "vanilla-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "buildkit-docker",
+			WithLocalRepo:               true,
+			WithStagedDockerfileBuilder: false,
+		}}),
+	)
+})
+
 func extractBOMFromSbomImage(ctx SpecContext, contRuntime contback.ContainerBackend, dockerImageName string) *cdx.BOM {
 	sbomImageName := sbomImage.ImageName(dockerImageName)
 

@@ -16,10 +16,12 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
+	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/extract"
+	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -49,7 +51,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, gitRepo git_repo.GitRepo, commit, imageContext string) error {
 	sourceImageName := stageDesc.Info.Name
 	sbomImageName := sbomImage.ImageName(sourceImageName)
 
@@ -122,6 +124,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if err != nil {
 				return fmt.Errorf("merge BOMs: %w", err)
 			}
+		}
+
+		resultBOM, err = gomod.ResolveUnknownVersions(ctx, resultBOM, gitRepo, commit, imageContext)
+		if err != nil {
+			return err
 		}
 
 		sbomImgId, err := step.buildSbomImage(ctx, resultBOM, scanOpts, sbomImgLabels.ToStringSlice())

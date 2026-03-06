@@ -306,7 +306,13 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		Gost:        gostConfig,
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts); err != nil {
+	gitRepo := phase.Conveyor.GiterminismManager().LocalGitRepo()
+	commit := phase.Conveyor.GiterminismManager().HeadCommit(ctx)
+	imageContext := ""
+	if primaryImg.IsDockerfileImage && primaryImg.DockerfileImageConfig != nil {
+		imageContext = primaryImg.DockerfileImageConfig.Context
+	}
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, gitRepo, commit, imageContext); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

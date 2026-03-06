@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.62.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.62.1-dk...v2.62.2-dk) (2026-03-06)
+
+
+### Bug Fixes
+
+* **sbom:** throw warning instead of error when base/import image sbom is missing ([#56](https://github.com/deckhouse/delivery-kit/issues/56)) ([46eb36a](https://github.com/deckhouse/delivery-kit/commit/46eb36ad27209c14579b0088b64f7cbc89634b6e))
+
 ## [2.62.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.57.1...v2.62.1-dk) (2026-03-04)
 
 

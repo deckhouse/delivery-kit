@@ -14,6 +14,7 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 		replaceTargets   []string
 		replacePaths     []string
 		checkIdentity    bool
+		expectedNames    []string
 		expectedVersions []string
 		expectedPURLs    []string
 	}
@@ -27,6 +28,9 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 			}
 
 			if tc.inputBOM.Components != nil {
+				for i, expectedName := range tc.expectedNames {
+					Expect((*result.Components)[i].Name).To(Equal(expectedName))
+				}
 				for i, expectedVersion := range tc.expectedVersions {
 					Expect((*result.Components)[i].Version).To(Equal(expectedVersion))
 				}
@@ -167,7 +171,7 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 			mainModule:       "example.com/module",
 			expectedVersions: []string{"v1.0.0"},
 		}),
-		Entry("resolves component matched by local replace path", testCase{
+		Entry("resolves component matched by local replace path and fixes name/purl", testCase{
 			inputBOM: &cdx.BOM{
 				Components: &[]cdx.Component{{
 					Name:       "./mylib",
@@ -180,8 +184,9 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 			mainModule:       "example.com/app",
 			replaceTargets:   []string{"example.com/mylib"},
 			replacePaths:     []string{"./mylib"},
+			expectedNames:    []string{"example.com/mylib"},
 			expectedVersions: []string{"v2.0.0"},
-			expectedPURLs:    []string{"pkg:golang/./mylib@v2.0.0"},
+			expectedPURLs:    []string{"pkg:golang/example.com/mylib@v2.0.0"},
 		}),
 		Entry("resolves URL-encoded (devel) in PURL", testCase{
 			inputBOM: &cdx.BOM{

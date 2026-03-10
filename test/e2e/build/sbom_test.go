@@ -1054,10 +1054,11 @@ var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace", 
 			Expect(mainModule).NotTo(BeNil(), "main module example.com/app should be in SBOM components")
 			Expect(mainModule.Version).To(Equal("v1.0.0"))
 
-			By("verifying locally-replaced module version is resolved")
-			mylibModule := findComponentByName(components, "./mylib")
-			Expect(mylibModule).NotTo(BeNil(), "locally-replaced module ./mylib should be in SBOM components")
+			By("verifying locally-replaced module version and name are resolved")
+			mylibModule := findComponentByName(components, "example.com/mylib")
+			Expect(mylibModule).NotTo(BeNil(), "locally-replaced module example.com/mylib should be in SBOM components")
 			Expect(mylibModule.Version).To(Equal("v1.0.0"))
+			Expect(mylibModule.PackageURL).To(Equal("pkg:golang/example.com/mylib@v1.0.0"))
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",

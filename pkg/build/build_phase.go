@@ -252,8 +252,8 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		}
 
 		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
-			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
-			InitDockerCLIForEachWorker: true,
+			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+			//InitDockerCLIForEachWorker: true,
 		}, func(ctx context.Context, taskId int) error {
 			name := names[taskId]
 			images := imagesByName[name]

@@ -1022,8 +1022,12 @@ var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace"),
 
 			By("preparing test repo")
 			repoDirname := "repo_sbom_go_replace"
-			fixtureRelPath := "sbom-go-replace/state0"
+			fixtureRelPath := "sbom/go_replace"
 			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
+
+			// Create a git tag so version resolution picks it up
+			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+			utils.RunSucceedCommand(ctx, testRepoPath, "git", "tag", "v1.0.0")
 
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
@@ -1048,12 +1052,12 @@ var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace"),
 			By("verifying main module version is resolved (not UNKNOWN)")
 			mainModule := findComponentByName(components, "example.com/app")
 			Expect(mainModule).NotTo(BeNil(), "main module example.com/app should be in SBOM components")
-			Expect(mainModule.Version).NotTo(Equal("UNKNOWN"), "main module version should be resolved, not UNKNOWN")
+			Expect(mainModule.Version).To(Equal("v1.0.0"))
 
 			By("verifying locally-replaced module version is resolved (not UNKNOWN)")
 			mylibModule := findComponentByName(components, "example.com/mylib")
 			Expect(mylibModule).NotTo(BeNil(), "locally-replaced module example.com/mylib should be in SBOM components")
-			Expect(mylibModule.Version).NotTo(Equal("UNKNOWN"), "locally-replaced module version should be resolved, not UNKNOWN")
+			Expect(mylibModule.Version).To(Equal("v1.0.0"))
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",

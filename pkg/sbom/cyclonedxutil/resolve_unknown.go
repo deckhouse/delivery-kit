@@ -8,17 +8,10 @@ import (
 )
 
 func ResolveUnknownGoVersions(bom *cdx.BOM, version, modulePath string, localReplaceTargets, localReplacePaths []string) *cdx.BOM {
-	if bom == nil || bom.Components == nil || version == "" {
+	if version == "" {
 		return bom
 	}
 
-	components := *bom.Components
-	if len(components) == 0 {
-		return bom
-	}
-
-	// pathToModule maps filesystem paths (e.g. "./mylib") to module names (e.g. "example.com/mylib")
-	// so we can fix component name and PURL when Syft used the filesystem path.
 	pathToModule := make(map[string]string, len(localReplacePaths))
 	for i, p := range localReplacePaths {
 		if p != "" && i < len(localReplaceTargets) {
@@ -41,29 +34,28 @@ func ResolveUnknownGoVersions(bom *cdx.BOM, version, modulePath string, localRep
 		}
 	}
 
-	for i := range components {
-		component := &components[i]
-		if !isUnresolvedVersion(component.Version) {
-			continue
+	match := func(c *cdx.Component) bool {
+		if !isUnresolvedVersion(c.Version) {
+			return false
 		}
-		if component.Type != cdx.ComponentTypeLibrary {
-			continue
+		if c.Type != cdx.ComponentTypeLibrary {
+			return false
 		}
-		if _, ok := targets[component.Name]; !ok {
-			continue
-		}
-
-		if correctName, ok := pathToModule[component.Name]; ok {
-			component.Name = correctName
-			component.PackageURL = fmt.Sprintf("pkg:golang/%s@%s", correctName, version)
-		} else {
-			if component.PackageURL != "" {
-				component.PackageURL = resolvePackageURLVersion(component.PackageURL, version)
-			}
-		}
-
-		component.Version = version
+		_, ok := targets[c.Name]
+		return ok
 	}
+
+	patch := func(c *cdx.Component) {
+		if correctName, ok := pathToModule[c.Name]; ok {
+			c.Name = correctName
+			c.PackageURL = fmt.Sprintf("pkg:golang/%s@%s", correctName, version)
+		} else if c.PackageURL != "" {
+			c.PackageURL = resolvePackageURLVersion(c.PackageURL, version)
+		}
+		c.Version = version
+	}
+
+	PatchComponents(bom, match, patch)
 
 	return bom
 }

@@ -12,6 +12,7 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 		version          string
 		mainModule       string
 		replaceTargets   []string
+		replacePaths     []string
 		checkIdentity    bool
 		expectedVersions []string
 		expectedPURLs    []string
@@ -19,7 +20,7 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 
 	DescribeTable("version resolution",
 		func(tc testCase) {
-			result := ResolveUnknownGoVersions(tc.inputBOM, tc.version, tc.mainModule, tc.replaceTargets)
+			result := ResolveUnknownGoVersions(tc.inputBOM, tc.version, tc.mainModule, tc.replaceTargets, tc.replacePaths)
 
 			if tc.checkIdentity {
 				Expect(result).To(BeIdenticalTo(tc.inputBOM))
@@ -153,6 +154,48 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 			mainModule:       "example.com/module",
 			replaceTargets:   nil,
 			expectedVersions: []string{"UNKNOWN"},
+		}),
+		Entry("resolves (devel) version same as UNKNOWN", testCase{
+			inputBOM: &cdx.BOM{
+				Components: &[]cdx.Component{{
+					Name:    "example.com/module",
+					Version: "(devel)",
+					Type:    cdx.ComponentTypeLibrary,
+				}},
+			},
+			version:          "v1.0.0",
+			mainModule:       "example.com/module",
+			expectedVersions: []string{"v1.0.0"},
+		}),
+		Entry("resolves component matched by local replace path", testCase{
+			inputBOM: &cdx.BOM{
+				Components: &[]cdx.Component{{
+					Name:       "./mylib",
+					Version:    "(devel)",
+					PackageURL: "pkg:golang/./mylib@%28devel%29",
+					Type:       cdx.ComponentTypeLibrary,
+				}},
+			},
+			version:          "v2.0.0",
+			mainModule:       "example.com/app",
+			replaceTargets:   []string{"example.com/mylib"},
+			replacePaths:     []string{"./mylib"},
+			expectedVersions: []string{"v2.0.0"},
+			expectedPURLs:    []string{"pkg:golang/./mylib@v2.0.0"},
+		}),
+		Entry("resolves URL-encoded (devel) in PURL", testCase{
+			inputBOM: &cdx.BOM{
+				Components: &[]cdx.Component{{
+					Name:       "example.com/module",
+					Version:    "(devel)",
+					PackageURL: "pkg:golang/example.com/module@%28devel%29",
+					Type:       cdx.ComponentTypeLibrary,
+				}},
+			},
+			version:          "v1.5.0",
+			mainModule:       "example.com/module",
+			expectedVersions: []string{"v1.5.0"},
+			expectedPURLs:    []string{"pkg:golang/example.com/module@v1.5.0"},
 		}),
 		Entry("updates only UNKNOWN library components", testCase{
 			inputBOM: &cdx.BOM{

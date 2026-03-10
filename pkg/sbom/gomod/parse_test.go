@@ -47,6 +47,7 @@ var _ = Describe("Go mod parser", func() {
 				infoAssert(func(info *GoModInfo) {
 					Expect(info.ModulePath).To(Equal("example.com/app"))
 					Expect(info.LocalReplaceTargets).To(Equal([]string{"example.com/old"}))
+					Expect(info.LocalReplacePaths).To(Equal([]string{"./local/old"}))
 				}),
 			),
 			Entry(
@@ -55,6 +56,7 @@ var _ = Describe("Go mod parser", func() {
 				Succeed(),
 				infoAssert(func(info *GoModInfo) {
 					Expect(info.LocalReplaceTargets).To(Equal([]string{"example.com/old"}))
+					Expect(info.LocalReplacePaths).To(Equal([]string{"../vendor/old/subdir"}))
 				}),
 			),
 			Entry(

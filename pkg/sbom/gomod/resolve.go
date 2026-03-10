@@ -53,5 +53,5 @@ func ResolveUnknownVersions(ctx context.Context, bom *cdx.BOM, gitRepo git_repo.
 		return nil, err
 	}
 
-	return cyclonedxutil.ResolveUnknownGoVersions(bom, version, info.ModulePath, info.LocalReplaceTargets), nil
+	return cyclonedxutil.ResolveUnknownGoVersions(bom, version, info.ModulePath, info.LocalReplaceTargets, info.LocalReplacePaths), nil
 }

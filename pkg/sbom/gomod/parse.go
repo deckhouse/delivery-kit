@@ -9,7 +9,8 @@ import (
 
 type GoModInfo struct {
 	ModulePath          string
-	LocalReplaceTargets []string
+	LocalReplaceTargets []string // Old.Path values (e.g. "example.com/mylib")
+	LocalReplacePaths   []string // New.Path values (e.g. "./mylib") — Syft may use these as component names
 }
 
 func ParseLocalReplaces(goModContent []byte) (*GoModInfo, error) {
@@ -30,6 +31,7 @@ func ParseLocalReplaces(goModContent []byte) (*GoModInfo, error) {
 		newPath := replace.New.Path
 		if strings.HasPrefix(newPath, "./") || strings.HasPrefix(newPath, "../") {
 			info.LocalReplaceTargets = append(info.LocalReplaceTargets, replace.Old.Path)
+			info.LocalReplacePaths = append(info.LocalReplacePaths, newPath)
 			continue
 		}
 

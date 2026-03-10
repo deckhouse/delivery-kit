@@ -911,7 +911,7 @@ var _ = Describe("SBOM cross-project merge", Label("e2e", "build", "sbom", "merg
 	)
 })
 
-var _ = Describe("GOST SBOM fields", Label("e2e", "build", "sbom", "gost"), func() {
+var _ = Describe("GOST SBOM fields", Label("e2e", "build", "sbom", "gost", "simple"), func() {
 	type expectedGostConfig struct {
 		AttackSurface    string
 		SecurityFunction string
@@ -1007,7 +1007,7 @@ var _ = Describe("GOST SBOM fields", Label("e2e", "build", "sbom", "gost"), func
 	)
 })
 
-var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace"), func() {
+var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace", "simple"), func() {
 	DescribeTable("should resolve versions for locally-replaced Go modules",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
@@ -1054,9 +1054,9 @@ var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace"),
 			Expect(mainModule).NotTo(BeNil(), "main module example.com/app should be in SBOM components")
 			Expect(mainModule.Version).To(Equal("v1.0.0"))
 
-			By("verifying locally-replaced module version is resolved (not UNKNOWN)")
-			mylibModule := findComponentByName(components, "example.com/mylib")
-			Expect(mylibModule).NotTo(BeNil(), "locally-replaced module example.com/mylib should be in SBOM components")
+			By("verifying locally-replaced module version is resolved")
+			mylibModule := findComponentByName(components, "./mylib")
+			Expect(mylibModule).NotTo(BeNil(), "locally-replaced module ./mylib should be in SBOM components")
 			Expect(mylibModule.Version).To(Equal("v1.0.0"))
 		},
 		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{

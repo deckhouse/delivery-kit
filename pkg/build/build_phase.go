@@ -31,6 +31,7 @@ import (
 	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
@@ -252,8 +253,8 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		}
 
 		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
-			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
-			//InitDockerCLIForEachWorker: true,
+			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
+			InitDockerCLIForEachWorker: true,
 		}, func(ctx context.Context, taskId int) error {
 			name := names[taskId]
 			images := imagesByName[name]
@@ -312,7 +313,14 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	if primaryImg.IsDockerfileImage && primaryImg.DockerfileImageConfig != nil {
 		imageContext = primaryImg.DockerfileImageConfig.Context
 	}
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, gitRepo, commit, imageContext); err != nil {
+
+	var patchers []BOMPatcher
+	gomodPatcher := func(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
+		return gomod.ResolveUnknownVersions(ctx, bom, gitRepo, commit, imageContext)
+	}
+	patchers = append(patchers, gomodPatcher)
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, patchers); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

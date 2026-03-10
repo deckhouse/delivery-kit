@@ -16,16 +16,17 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
-	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/extract"
-	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 )
+
+// BOMPatcher is a function that modifies a BOM and returns the modified version.
+type BOMPatcher func(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error)
 
 // ErrSbomNotAvailable indicates that SBOM for the given image is not available
 // (e.g. it was not built by werf, or the SBOM image is missing from the registry/local storage).
@@ -51,7 +52,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, gitRepo git_repo.GitRepo, commit, imageContext string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcher) error {
 	sourceImageName := stageDesc.Info.Name
 	sbomImageName := sbomImage.ImageName(sourceImageName)
 
@@ -126,9 +127,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		resultBOM, err = gomod.ResolveUnknownVersions(ctx, resultBOM, gitRepo, commit, imageContext)
-		if err != nil {
-			return err
+		for _, patcher := range patchers {
+			resultBOM, err = patcher(ctx, resultBOM)
+			if err != nil {
+				return err
+			}
 		}
 
 		sbomImgId, err := step.buildSbomImage(ctx, resultBOM, scanOpts, sbomImgLabels.ToStringSlice())

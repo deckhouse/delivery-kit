@@ -12,14 +12,28 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
-func ResolveUnknownVersions(ctx context.Context, bom *cdx.BOM, gitRepo git_repo.GitRepo, commit, imageContext string) (*cdx.BOM, error) {
-	if gitRepo == nil || commit == "" {
+type BOMPatcher struct {
+	gitRepo      git_repo.GitRepo
+	commit       string
+	imageContext string
+}
+
+func NewBOMPatcher(gitRepo git_repo.GitRepo, commit, imageContext string) *BOMPatcher {
+	return &BOMPatcher{
+		gitRepo:      gitRepo,
+		commit:       commit,
+		imageContext: imageContext,
+	}
+}
+
+func (p *BOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
+	if p.gitRepo == nil || p.commit == "" {
 		return bom, nil
 	}
 
-	goModPath := filepath.Join(imageContext, "go.mod")
+	goModPath := filepath.Join(p.imageContext, "go.mod")
 
-	exists, err := gitRepo.IsCommitFileExist(ctx, commit, goModPath)
+	exists, err := p.gitRepo.IsCommitFileExist(ctx, p.commit, goModPath)
 	if err != nil {
 		return nil, fmt.Errorf("check go.mod existence: %w", err)
 	}
@@ -28,7 +42,7 @@ func ResolveUnknownVersions(ctx context.Context, bom *cdx.BOM, gitRepo git_repo.
 		return bom, nil
 	}
 
-	content, err := gitRepo.ReadCommitFile(ctx, commit, goModPath)
+	content, err := p.gitRepo.ReadCommitFile(ctx, p.commit, goModPath)
 	if err != nil {
 		return nil, fmt.Errorf("read go.mod: %w", err)
 	}
@@ -41,14 +55,14 @@ func ResolveUnknownVersions(ctx context.Context, bom *cdx.BOM, gitRepo git_repo.
 		return nil, err
 	}
 
-	tags, err := gitRepo.TagsList(ctx)
+	tags, err := p.gitRepo.TagsList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list tags: %w", err)
 	}
 
 	version, err := ResolveVersionFromTags(tags, func(tag string) (string, error) {
-		return gitRepo.TagCommit(ctx, tag)
-	}, commit)
+		return p.gitRepo.TagCommit(ctx, tag)
+	}, p.commit)
 	if err != nil {
 		return nil, err
 	}

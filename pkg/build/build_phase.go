@@ -314,13 +314,9 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		imageContext = primaryImg.DockerfileImageConfig.Context
 	}
 
-	var patchers []BOMPatcher
-	gomodPatcher := func(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
-		return gomod.ResolveUnknownVersions(ctx, bom, gitRepo, commit, imageContext)
-	}
-	patchers = append(patchers, gomodPatcher)
+	patcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, patchers); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, patcher); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

@@ -25,8 +25,11 @@ import (
 	"github.com/werf/werf/v2/pkg/storage"
 )
 
-// BOMPatcher is a function that modifies a BOM and returns the modified version.
-type BOMPatcher func(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error)
+//go:generate mockgen -source sbom_step.go -package mock -destination ../../test/mock/bom_patcher.go -mock_names BOMPatcherInterface=MockBOMPatcher
+
+type BOMPatcherInterface interface {
+	Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error)
+}
 
 // ErrSbomNotAvailable indicates that SBOM for the given image is not available
 // (e.g. it was not built by werf, or the SBOM image is missing from the registry/local storage).
@@ -52,7 +55,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcher) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patcher BOMPatcherInterface) error {
 	sourceImageName := stageDesc.Info.Name
 	sbomImageName := sbomImage.ImageName(sourceImageName)
 
@@ -127,8 +130,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		for _, patcher := range patchers {
-			resultBOM, err = patcher(ctx, resultBOM)
+		if patcher != nil {
+			resultBOM, err = patcher.Apply(ctx, resultBOM)
 			if err != nil {
 				return err
 			}

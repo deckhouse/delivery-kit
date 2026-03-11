@@ -11,7 +11,6 @@ import (
 	"io"
 	"path/filepath"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -20,7 +19,6 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/label"
-	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
@@ -124,17 +122,13 @@ var _ = Describe("SbomStep", func() {
 			step.isLocalStorage = isLocalStorage
 
 			ctx = logging.WithLogger(ctx)
-			var patchers []BOMPatcher
+			var patcher BOMPatcherInterface
 			if setupGitRepo != nil {
 				repo := mock.NewMockGitRepo(gomock.NewController(GinkgoT()))
-				gitRepo := git_repo.GitRepo(repo)
 				commit := "0123456789abcdef0123456789abcdef01234567"
 				imageContext := "app"
 				setupGitRepo(ctx, repo, commit, imageContext)
-				gomodPatcher := func(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
-					return gomod.ResolveUnknownVersions(ctx, bom, gitRepo, commit, imageContext)
-				}
-				patchers = append(patchers, gomodPatcher)
+				patcher = gomod.NewBOMPatcher(repo, commit, imageContext)
 			}
 			stageDesc := &image.StageDesc{
 				Info: &image.Info{
@@ -155,7 +149,7 @@ var _ = Describe("SbomStep", func() {
 			sbomImgLabels := step.prepareSbomLabelsWithMerge(ctx, stageDesc.Info.Labels, scanOpts, mergeOpts)
 			setupMocks(ctx, backend, stagesStorage, stageDesc, scanOpts, sbomImgLabels, imgFilters)
 
-			Expect(step.ConvergeWithMerge(ctx, "some-name", stageDesc, scanOpts, mergeOpts, patchers)).To(Succeed())
+			Expect(step.ConvergeWithMerge(ctx, "some-name", stageDesc, scanOpts, mergeOpts, patcher)).To(Succeed())
 		},
 		Entry(
 			"[local storage]: should not scan source image if sbom image already exists",

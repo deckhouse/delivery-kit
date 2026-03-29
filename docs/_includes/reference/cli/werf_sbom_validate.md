@@ -3,7 +3,9 @@
 {% else %}
 {% assign header = "###" %}
 {% endif %}
+Validate CycloneDX JSON SBOM files against ISPRAS schemas using sbom-checker.
 
+The command runs sbom-checker inside a Docker container and reports validation results. Supports both OSS and container SBOM types.
 
 {{ header }} Syntax
 
@@ -16,6 +18,9 @@ werf sbom validate [options]
 ```shell
       --check-vcs=false
             Enable VCS URL validation
+      --docker-config=""
+            Specify docker config directory path. Default $WERF_DOCKER_CONFIG or $DOCKER_CONFIG or  
+            ~/.docker (in the order of priority)
       --log-color-mode="auto"
             Set log color mode.
             Supported on, off and auto (based on the stdout’s file descriptor referring to a        

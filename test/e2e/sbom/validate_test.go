@@ -1,7 +1,6 @@
 package e2e_build_test
 
 import (
-	"os"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -11,110 +10,79 @@ import (
 )
 
 var _ = Describe("sbom validate", Label("e2e", "sbom", "validate"), func() {
-	It("should succeed with valid --path and --sbom-type oss", func(ctx SpecContext) {
-		tmpFile := filepath.Join(GinkgoT().TempDir(), "sbom.json")
-		Expect(os.WriteFile(tmpFile, []byte("{}"), 0o644)).To(Succeed())
+	var gitWorkTree string
 
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--path", tmpFile, "--sbom-type", "oss"},
-			},
-		})
-		_ = out
+	BeforeEach(func() {
+		absPath, err := filepath.Abs("../../..")
+		Expect(err).NotTo(HaveOccurred())
+		gitWorkTree = absPath
 	})
 
-	It("should succeed with valid --path and --sbom-type container", func(ctx SpecContext) {
-		tmpFile := filepath.Join(GinkgoT().TempDir(), "sbom.json")
-		Expect(os.WriteFile(tmpFile, []byte("{}"), 0o644)).To(Succeed())
+	fixturePath := func(name string) string {
+		absPath, err := filepath.Abs(filepath.Join("_fixtures", "validate", name+".json"))
+		Expect(err).NotTo(HaveOccurred())
+		return absPath
+	}
 
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--path", tmpFile, "--sbom-type", "container"},
-			},
-		})
-		_ = out
-	})
+	commonArgs := func() []string {
+		return []string{"--git-work-tree", gitWorkTree, "--dir", gitWorkTree}
+	}
 
-	It("should succeed with valid --path, --sbom-type, and --check-vcs", func(ctx SpecContext) {
-		tmpFile := filepath.Join(GinkgoT().TempDir(), "sbom.json")
-		Expect(os.WriteFile(tmpFile, []byte("{}"), 0o644)).To(Succeed())
+	DescribeTable("should pass validation",
+		func(ctx SpecContext, fixtures []string, sbomType string, extraFlags []string) {
+			args := commonArgs()
+			for _, f := range fixtures {
+				args = append(args, "--path", fixturePath(f))
+			}
+			args = append(args, "--sbom-type", sbomType)
+			args = append(args, extraFlags...)
 
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--path", tmpFile, "--sbom-type", "oss", "--check-vcs"},
-			},
-		})
-		_ = out
-	})
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+			out := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
+				CommonOptions: werf.CommonOptions{ExtraArgs: args},
+			})
+			Expect(out).To(ContainSubstring("OK"))
+		},
+		Entry("valid OSS SBOM", []string{"valid_oss"}, "oss", []string(nil)),
+		Entry("valid container SBOM", []string{"valid_container"}, "container", []string(nil)),
+		Entry("multiple valid files", []string{"valid_oss", "valid_container"}, "oss", []string(nil)),
+		Entry("with --check-vcs flag", []string{"valid_oss"}, "oss", []string{"--check-vcs"}),
+	)
 
-	It("should succeed with multiple --path arguments", func(ctx SpecContext) {
-		tmpDir := GinkgoT().TempDir()
-		tmpFile1 := filepath.Join(tmpDir, "sbom1.json")
-		tmpFile2 := filepath.Join(tmpDir, "sbom2.json")
+	DescribeTable("should fail validation",
+		func(ctx SpecContext, fixtures []string, sbomType, expectedSubstring string) {
+			args := commonArgs()
+			for _, f := range fixtures {
+				args = append(args, "--path", fixturePath(f))
+			}
+			args = append(args, "--sbom-type", sbomType)
 
-		Expect(os.WriteFile(tmpFile1, []byte("{}"), 0o644)).To(Succeed())
-		Expect(os.WriteFile(tmpFile2, []byte("{}"), 0o644)).To(Succeed())
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+			out, err := werfProject.SbomValidateWithErr(ctx, &werf.SbomValidateOptions{
+				CommonOptions: werf.CommonOptions{ExtraArgs: args},
+			})
+			Expect(err).To(HaveOccurred())
+			if expectedSubstring != "" {
+				Expect(out).To(ContainSubstring(expectedSubstring))
+			}
+		},
+		Entry("missing bomFormat", []string{"missing_bom_format"}, "oss", "bomFormat"),
+		Entry("wrong bomFormat", []string{"wrong_bom_format"}, "oss", "CycloneDX"),
+		Entry("missing version", []string{"missing_version"}, "oss", "version"),
+		Entry("missing metadata", []string{"missing_metadata"}, "oss", "metadata"),
+		Entry("additional properties", []string{"additional_property"}, "oss", "Additional properties"),
+		Entry("container bad GOST", []string{"container_bad_gost"}, "container", ""),
+		Entry("multiple files with one invalid", []string{"valid_oss", "missing_bom_format"}, "oss", "bomFormat"),
+	)
 
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--path", tmpFile1, "--path", tmpFile2, "--sbom-type", "oss"},
-			},
-		})
-		_ = out
-	})
-
-	It("should fail when --path is missing", func(ctx SpecContext) {
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out, err := werfProject.SbomValidateWithErr(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--sbom-type", "oss"},
-			},
-		})
-		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("path"))
-	})
-
-	It("should fail when --sbom-type is missing", func(ctx SpecContext) {
-		tmpFile := filepath.Join(GinkgoT().TempDir(), "sbom.json")
-		Expect(os.WriteFile(tmpFile, []byte("{}"), 0o644)).To(Succeed())
-
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out, err := werfProject.SbomValidateWithErr(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--path", tmpFile},
-			},
-		})
-		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("sbom-type"))
-	})
-
-	It("should fail with invalid --sbom-type value", func(ctx SpecContext) {
-		tmpFile := filepath.Join(GinkgoT().TempDir(), "sbom.json")
-		Expect(os.WriteFile(tmpFile, []byte("{}"), 0o644)).To(Succeed())
+	It("should fail when file does not exist", func(ctx SpecContext) {
+		args := commonArgs()
+		args = append(args, "--path", "/nonexistent/sbom.json", "--sbom-type", "oss")
 
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
 		_, err := werfProject.SbomValidateWithErr(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--path", tmpFile, "--sbom-type", "invalid"},
-			},
+			CommonOptions: werf.CommonOptions{ExtraArgs: args},
 		})
 		Expect(err).To(HaveOccurred())
-	})
-
-	It("should show all flags in --help", func(ctx SpecContext) {
-		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-		out, err := werfProject.SbomValidateWithErr(ctx, &werf.SbomValidateOptions{
-			CommonOptions: werf.CommonOptions{
-				ExtraArgs: []string{"--help"},
-			},
-		})
-		_ = err
-		Expect(out).To(ContainSubstring("--path"))
-		Expect(out).To(ContainSubstring("--sbom-type"))
-		Expect(out).To(ContainSubstring("--check-vcs"))
 	})
 })

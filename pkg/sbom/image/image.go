@@ -7,7 +7,10 @@ import (
 	"github.com/distribution/reference"
 )
 
-const scratchImageName = "scratch"
+const (
+	scratchImageName = "scratch"
+	TagSuffix        = "-sbom"
+)
 
 func IsScratchRef(imageRef string) bool {
 	if imageRef == "" {
@@ -34,7 +37,7 @@ func IsScratchRef(imageRef string) bool {
 }
 
 func ImageName(name string) string {
-	return fmt.Sprintf("%s-sbom", name)
+	return fmt.Sprintf("%s%s", name, TagSuffix)
 }
 
 func BaseImageName(repo, tag string) string {

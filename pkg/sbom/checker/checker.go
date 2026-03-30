@@ -21,29 +21,34 @@ type RunOptions struct {
 	CheckVCS bool
 }
 
-func Run(ctx context.Context, paths []string, sbomType SbomType, opts RunOptions) error {
+func Run(ctx context.Context, paths []string, isprasFormat IsprasFormat, opts RunOptions) error {
 	if err := checkFilesExisting(paths); err != nil {
 		return err
 	}
 
-	logboek.Context(ctx).Default().LogF("Validating %d SBOM file(s) as %q\n", len(paths), sbomType)
 	logboek.Context(ctx).Debug().LogF("Using checker image: %s\n", Image)
 
-	args, err := buildDockerArgs(paths, sbomType, opts.CheckVCS)
+	args, err := buildDockerArgs(paths, isprasFormat, opts.CheckVCS)
 	if err != nil {
 		return fmt.Errorf("build docker args: %w", err)
 	}
 
-	out, err := docker.CliRun_RecordedOutput(ctx, args...)
-	if err != nil && out == "" {
-		return fmt.Errorf("run sbom-checker container: %w", err)
+	header := fmt.Sprintf("Validating %d SBOM file(s) as %q", len(paths), isprasFormat)
+	if opts.CheckVCS {
+		header += " with VCS check"
 	}
 
-	passed, failed, parseErr := parseOutput(ctx, out, paths, sbomType)
+	return logboek.Context(ctx).Default().LogProcess(header).DoError(func() error {
+		out, err := docker.CliRun_RecordedOutput(ctx, args...)
+		if err != nil && out == "" {
+			return fmt.Errorf("run sbom-checker container: %w", err)
+		}
 
-	logboek.Context(ctx).Default().LogF("Validation complete: %d passed, %d failed\n", passed, failed)
+		passed, failed, parseErr := parseOutput(ctx, out, paths, isprasFormat)
+		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed\n", passed, failed)
 
-	return parseErr
+		return parseErr
+	})
 }
 
 func checkFilesExisting(paths []string) error {
@@ -56,7 +61,7 @@ func checkFilesExisting(paths []string) error {
 	return nil
 }
 
-func buildDockerArgs(paths []string, sbomType SbomType, checkVCS bool) ([]string, error) {
+func buildDockerArgs(paths []string, isprasFormat IsprasFormat, checkVCS bool) ([]string, error) {
 	args := []string{"--rm"}
 
 	containerPaths := make([]string, len(paths))
@@ -71,18 +76,18 @@ func buildDockerArgs(paths []string, sbomType SbomType, checkVCS bool) ([]string
 
 	if len(paths) == 1 {
 		args = append(args, Image)
-		args = append(args, checkerFlags(sbomType, checkVCS, containerPaths[0])...)
+		args = append(args, checkerFlags(isprasFormat, checkVCS, containerPaths[0])...)
 
 		return args, nil
 	}
 
-	args = append(args, "--entrypoint", "sh", Image, "-c", multiFileScript(containerPaths, sbomType, checkVCS))
+	args = append(args, "--entrypoint", "sh", Image, "-c", multiFileScript(containerPaths, isprasFormat, checkVCS))
 
 	return args, nil
 }
 
-func checkerFlags(sbomType SbomType, checkVCS bool, file string) []string {
-	flags := []string{"--format", sbomType.String(), "--errors", "0"}
+func checkerFlags(isprasFormat IsprasFormat, checkVCS bool, file string) []string {
+	flags := []string{"--format", isprasFormat.String(), "--errors", "0"}
 	if checkVCS {
 		flags = append(flags, "--check-vcs")
 	}
@@ -90,40 +95,40 @@ func checkerFlags(sbomType SbomType, checkVCS bool, file string) []string {
 	return append(flags, file)
 }
 
-func multiFileScript(containerPaths []string, sbomType SbomType, checkVCS bool) string {
+func multiFileScript(containerPaths []string, isprasFormat IsprasFormat, checkVCS bool) string {
 	commands := make([]string, 0, len(containerPaths))
 	for i, cp := range containerPaths {
 		cmd := fmt.Sprintf("echo '===FILE:%d===' && python sbom-checker.py %s",
-			i, strings.Join(checkerFlags(sbomType, checkVCS, cp), " "))
+			i, strings.Join(checkerFlags(isprasFormat, checkVCS, cp), " "))
 		commands = append(commands, cmd)
 	}
 
 	return strings.Join(commands, "; ")
 }
 
-func parseOutput(ctx context.Context, out string, paths []string, sbomType SbomType) (int, int, error) {
+func parseOutput(ctx context.Context, out string, paths []string, isprasFormat IsprasFormat) (int, int, error) {
 	if len(paths) == 1 {
-		if err := parseSingleResult(ctx, out, paths[0], sbomType); err != nil {
+		if err := parseSingleResult(ctx, out, paths[0], isprasFormat); err != nil {
 			return 0, 1, err
 		}
 		return 1, 0, nil
 	}
 
-	return parseMultiResult(ctx, out, paths, sbomType)
+	return parseMultiResult(ctx, out, paths, isprasFormat)
 }
 
-func parseSingleResult(ctx context.Context, out, path string, sbomType SbomType) error {
+func parseSingleResult(ctx context.Context, out, path string, isprasFormat IsprasFormat) error {
 	fileName := filepath.Base(path)
 
 	errs := extractPrefixedLines(out, errorPrefix)
 	warnings := extractPrefixedLines(out, warningPrefix)
 
 	if len(errs) == 0 && len(warnings) == 0 {
-		logboek.Context(ctx).Default().LogF("Validating %s (%s)... OK\n", fileName, sbomType)
+		logboek.Context(ctx).Default().LogF("(1/1) %s (%s)... OK\n", fileName, isprasFormat)
 		return nil
 	}
 
-	logboek.Context(ctx).Default().LogF("Validating %s (%s)... FAILED\n", fileName, sbomType)
+	logboek.Context(ctx).Default().LogF("(1/1) %s (%s)... FAILED\n", fileName, isprasFormat)
 	for _, e := range errs {
 		logboek.Context(ctx).Default().LogF("  %s\n", e)
 	}
@@ -134,9 +139,11 @@ func parseSingleResult(ctx context.Context, out, path string, sbomType SbomType)
 	return fmt.Errorf("validation failed for %s", fileName)
 }
 
-func parseMultiResult(ctx context.Context, out string, paths []string, sbomType SbomType) (int, int, error) {
+func parseMultiResult(ctx context.Context, out string, paths []string, isprasFormat IsprasFormat) (int, int, error) {
 	var failures []string
 	passed := 0
+	total := len(paths)
+	processed := 0
 
 	sections := strings.Split(out, "===FILE:")
 	for _, section := range sections[1:] {
@@ -156,16 +163,18 @@ func parseMultiResult(ctx context.Context, out string, paths []string, sbomType 
 			fileName = indexStr
 		}
 
+		processed++
+
 		errs := extractPrefixedLines(content, errorPrefix)
 		warnings := extractPrefixedLines(content, warningPrefix)
 
 		if len(errs) == 0 && len(warnings) == 0 {
-			logboek.Context(ctx).Default().LogF("Validating %s (%s)... OK\n", fileName, sbomType)
+			logboek.Context(ctx).Default().LogF("(%d/%d) %s (%s)... OK\n", processed, total, fileName, isprasFormat)
 			passed++
 			continue
 		}
 
-		logboek.Context(ctx).Default().LogF("Validating %s (%s)... FAILED\n", fileName, sbomType)
+		logboek.Context(ctx).Default().LogF("(%d/%d) %s (%s)... FAILED\n", processed, total, fileName, isprasFormat)
 		for _, e := range errs {
 			logboek.Context(ctx).Default().LogF("  %s\n", e)
 		}

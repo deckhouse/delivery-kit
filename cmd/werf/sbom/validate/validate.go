@@ -21,7 +21,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	ctx = common.NewContextWithCmdData(ctx, &commonCmdData)
 
 	var pathFlags []string
-	var sbomTypeFlag string
+	var isprasFormatFlag string
 	var checkVCSFlag bool
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
@@ -44,19 +44,19 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 			common.LogVersion()
 
-			if err := validateFlags(pathFlags, sbomTypeFlag, checkVCSFlag); err != nil {
+			if err := validateFlags(pathFlags, isprasFormatFlag, checkVCSFlag); err != nil {
 				common.PrintHelp(cmd)
 				return err
 			}
 
-			sbomType, err := checker.ParseSbomType(sbomTypeFlag)
+			isprasFormat, err := checker.ParseIsprasFormat(isprasFormatFlag)
 			if err != nil {
 				common.PrintHelp(cmd)
 				return err
 			}
 
 			return common.LogRunningTime(func() error {
-				return runValidate(ctx, pathFlags, sbomType, checkVCSFlag)
+				return runValidate(ctx, pathFlags, isprasFormat, checkVCSFlag)
 			})
 		},
 	})
@@ -114,13 +114,13 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	lo.Must0(common.SetupKubeConnectionFlags(&commonCmdData, cmd))
 
 	cmd.Flags().StringArrayVar(&pathFlags, "path", nil, "Path to CycloneDX JSON SBOM file (repeatable)")
-	cmd.Flags().StringVar(&sbomTypeFlag, "sbom-type", "", "SBOM type: oss or container")
+	cmd.Flags().StringVar(&isprasFormatFlag, "ispras-format", "", "ISPRAS SBOM format: oss or container")
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
 
 	return cmd
 }
 
-func runValidate(ctx context.Context, paths []string, sbomType checker.SbomType, checkVCS bool) error {
+func runValidate(ctx context.Context, paths []string, isprasFormat checker.IsprasFormat, checkVCS bool) error {
 	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
 
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
@@ -164,16 +164,16 @@ func runValidate(ctx context.Context, paths []string, sbomType checker.SbomType,
 
 	common.ProcessLogProjectDir(&commonCmdData, giterminismManager.ProjectDir())
 
-	return checker.Run(ctx, paths, sbomType, checker.RunOptions{CheckVCS: checkVCS})
+	return checker.Run(ctx, paths, isprasFormat, checker.RunOptions{CheckVCS: checkVCS})
 }
 
-func validateFlags(path []string, sbomType string, checkVcs bool) error {
+func validateFlags(path []string, isprasFormat string, checkVcs bool) error {
 	if len(path) == 0 {
 		return fmt.Errorf("required flag --path not set")
 	}
 
-	if sbomType == "" {
-		return fmt.Errorf("required flag --sbom-type not set")
+	if isprasFormat == "" {
+		return fmt.Errorf("required flag --ispras-format not set")
 	}
 
 	return nil

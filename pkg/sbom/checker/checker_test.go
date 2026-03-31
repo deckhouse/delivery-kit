@@ -9,143 +9,110 @@ import (
 )
 
 var _ = Describe("checker", func() {
-	Describe("parseSingleResult", func() {
+	Describe("parseResult", func() {
 		DescribeTable("parses output correctly",
-			func(out, path string, isprasFormat IsprasFormat, matcher types.GomegaMatcher) {
-				err := parseSingleResult(context.Background(), out, path, isprasFormat)
+			func(out, fileName string, index, total int, matcher types.GomegaMatcher) {
+				err := parseResult(context.Background(), out, fileName, index, total)
 				Expect(err).To(matcher)
 			},
 			Entry("no errors no warnings",
-				"файл корректный\n", "/tmp/valid.json", IsprasFormatOSS,
+				"файл корректный\n", "valid.json", 1, 1,
 				Succeed()),
 			Entry("empty output",
-				"", "/tmp/empty.json", IsprasFormatOSS,
+				"", "empty.json", 1, 1,
 				Succeed()),
 			Entry("errors only",
-				"ERROR: missing bomFormat\nERROR: missing specVersion\n", "/tmp/bad.json", IsprasFormatOSS,
+				"ERROR: missing bomFormat\nERROR: missing specVersion\n", "bad.json", 1, 3,
 				MatchError(ContainSubstring("validation failed for bad.json"))),
 			Entry("warnings only",
-				"WARNING: vcs url not found for pkg1\nWARNING: vcs url not found for pkg2\n", "/tmp/warn.json", IsprasFormatContainer,
+				"WARNING: vcs url not found for pkg1\nWARNING: vcs url not found for pkg2\n", "warn.json", 2, 3,
 				MatchError(ContainSubstring("validation failed for warn.json"))),
 			Entry("errors and warnings",
-				"ERROR: bad field\nWARNING: vcs issue\n", "/tmp/mixed.json", IsprasFormatOSS,
+				"ERROR: bad field\nWARNING: vcs issue\n", "mixed.json", 1, 1,
 				MatchError(ContainSubstring("validation failed for mixed.json"))),
 			Entry("non-prefixed output only",
-				"some random output\nanother line\n", "/tmp/random.json", IsprasFormatOSS,
+				"some random output\nanother line\n", "random.json", 1, 2,
 				Succeed()),
 			Entry("errors mixed with non-prefixed lines",
-				"starting check\nERROR: bad field\ndone\n", "/data/sbom/report.json", IsprasFormatOSS,
+				"starting check\nERROR: bad field\ndone\n", "report.json", 3, 5,
 				MatchError(ContainSubstring("validation failed for report.json"))),
-			Entry("uses basename from path",
-				"", "/very/deep/nested/path/to/file.json", IsprasFormatOSS,
-				Succeed()),
-		)
-	})
-
-	Describe("parseMultiResult", func() {
-		DescribeTable("parses multi-file output",
-			func(out string, paths []string, isprasFormat IsprasFormat, wantPassed, wantFailed int, matcher types.GomegaMatcher) {
-				passed, failed, err := parseMultiResult(context.Background(), out, paths, isprasFormat)
-				Expect(passed).To(Equal(wantPassed))
-				Expect(failed).To(Equal(wantFailed))
-				Expect(err).To(matcher)
-			},
-			Entry("all pass",
-				"===FILE:0===\nфайл корректный\n===FILE:1===\nфайл корректный\n",
-				[]string{"/tmp/a.json", "/tmp/b.json"}, IsprasFormatOSS,
-				2, 0, Succeed()),
-			Entry("all fail with errors",
-				"===FILE:0===\nERROR: bad format\n===FILE:1===\nERROR: missing field\n",
-				[]string{"/tmp/a.json", "/tmp/b.json"}, IsprasFormatOSS,
-				0, 2, MatchError(ContainSubstring("a.json"))),
-			Entry("mixed results",
-				"===FILE:0===\nфайл корректный\n===FILE:1===\nERROR: bad\n===FILE:2===\nall good\n",
-				[]string{"/tmp/pass.json", "/tmp/fail.json", "/tmp/also_pass.json"}, IsprasFormatContainer,
-				2, 1, MatchError(ContainSubstring("fail.json"))),
-			Entry("warnings count as failures",
-				"===FILE:0===\nWARNING: vcs not found\n===FILE:1===\nno issues\n",
-				[]string{"/tmp/warned.json", "/tmp/ok.json"}, IsprasFormatOSS,
-				1, 1, MatchError(ContainSubstring("warned.json"))),
-			Entry("error message contains details",
-				"===FILE:0===\nERROR: missing bomFormat\nERROR: missing specVersion\n",
-				[]string{"/tmp/bad.json"}, IsprasFormatOSS,
-				0, 1, MatchError(ContainSubstring("ERROR: missing bomFormat"))),
-			Entry("file names extracted from paths",
-				"===FILE:0===\nERROR: bad\n===FILE:1===\nERROR: also bad\n",
-				[]string{"/deep/path/to/first.json", "/other/path/second.json"}, IsprasFormatOSS,
-				0, 2, MatchError(ContainSubstring("first.json"))),
-		)
-	})
-
-	Describe("multiFileScript", func() {
-		DescribeTable("generates correct script",
-			func(containerPaths []string, isprasFormat IsprasFormat, checkVCS bool, want string) {
-				Expect(multiFileScript(containerPaths, isprasFormat, checkVCS)).To(Equal(want))
-			},
-			Entry("single file oss without check-vcs",
-				[]string{"/sbom/0.json"}, IsprasFormatOSS, false,
-				"echo '===FILE:0===' && python sbom-checker.py --format oss --errors 0 /sbom/0.json"),
-			Entry("single file container with check-vcs",
-				[]string{"/sbom/0.json"}, IsprasFormatContainer, true,
-				"echo '===FILE:0===' && python sbom-checker.py --format container --errors 0 --check-vcs /sbom/0.json"),
-			Entry("multiple files separated by semicolon",
-				[]string{"/sbom/0.json", "/sbom/1.json"}, IsprasFormatOSS, false,
-				"echo '===FILE:0===' && python sbom-checker.py --format oss --errors 0 /sbom/0.json; echo '===FILE:1===' && python sbom-checker.py --format oss --errors 0 /sbom/1.json"),
-			Entry("three files with check-vcs",
-				[]string{"/sbom/0.json", "/sbom/1.json", "/sbom/2.json"}, IsprasFormatContainer, true,
-				"echo '===FILE:0===' && python sbom-checker.py --format container --errors 0 --check-vcs /sbom/0.json; echo '===FILE:1===' && python sbom-checker.py --format container --errors 0 --check-vcs /sbom/1.json; echo '===FILE:2===' && python sbom-checker.py --format container --errors 0 --check-vcs /sbom/2.json"),
+			Entry("error details included in message",
+				"ERROR: missing bomFormat\nERROR: missing specVersion\n", "bad.json", 1, 1,
+				MatchError(And(
+					ContainSubstring("ERROR: missing bomFormat"),
+					ContainSubstring("ERROR: missing specVersion"),
+				))),
+			Entry("warning details included in message",
+				"WARNING: vcs url not found\n", "warn.json", 1, 1,
+				MatchError(ContainSubstring("WARNING: vcs url not found"))),
 		)
 	})
 
 	Describe("buildDockerArgs", func() {
 		DescribeTable("builds correct docker arguments",
-			func(paths []string, isprasFormat IsprasFormat, checkVCS bool, want []string) {
-				got, err := buildDockerArgs(paths, isprasFormat, checkVCS)
+			func(path string, isprasFormat IsprasFormat, checkVCS bool, want []string) {
+				got, err := buildDockerArgs(path, isprasFormat, checkVCS)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(got).To(Equal(want))
 			},
-			Entry("single file oss without check-vcs",
-				[]string{"/tmp/sbom.json"}, IsprasFormatOSS, false,
+			Entry("oss without check-vcs",
+				"/tmp/sbom.json", IsprasFormatOSS, false,
 				[]string{
 					"--rm",
-					"-v", "/tmp/sbom.json:/sbom/0.json:ro",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
 					Image,
-					"--format", "oss", "--errors", "0", "/sbom/0.json",
+					"--format", "oss", "--errors", "0", "/sbom/input.json",
 				}),
-			Entry("single file with check-vcs",
-				[]string{"/tmp/sbom.json"}, IsprasFormatOSS, true,
+			Entry("oss with check-vcs",
+				"/tmp/sbom.json", IsprasFormatOSS, true,
 				[]string{
 					"--rm",
-					"-v", "/tmp/sbom.json:/sbom/0.json:ro",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
 					Image,
-					"--format", "oss", "--errors", "0", "--check-vcs", "/sbom/0.json",
+					"--format", "oss", "--errors", "0", "--check-vcs", "/sbom/input.json",
 				}),
-			Entry("single file container type",
-				[]string{"/tmp/sbom.json"}, IsprasFormatContainer, false,
+			Entry("container format",
+				"/tmp/sbom.json", IsprasFormatContainer, false,
 				[]string{
 					"--rm",
-					"-v", "/tmp/sbom.json:/sbom/0.json:ro",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
 					Image,
-					"--format", "container", "--errors", "0", "/sbom/0.json",
+					"--format", "container", "--errors", "0", "/sbom/input.json",
 				}),
-			Entry("multiple files uses entrypoint",
-				[]string{"/tmp/a.json", "/tmp/b.json"}, IsprasFormatOSS, false,
+			Entry("container with check-vcs",
+				"/tmp/sbom.json", IsprasFormatContainer, true,
 				[]string{
 					"--rm",
-					"-v", "/tmp/a.json:/sbom/0.json:ro",
-					"-v", "/tmp/b.json:/sbom/1.json:ro",
-					"--entrypoint", "sh", Image, "-c",
-					multiFileScript([]string{"/sbom/0.json", "/sbom/1.json"}, IsprasFormatOSS, false),
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "container", "--errors", "0", "--check-vcs", "/sbom/input.json",
 				}),
-			Entry("multiple files with check-vcs",
-				[]string{"/tmp/a.json", "/tmp/b.json"}, IsprasFormatContainer, true,
-				[]string{
-					"--rm",
-					"-v", "/tmp/a.json:/sbom/0.json:ro",
-					"-v", "/tmp/b.json:/sbom/1.json:ro",
-					"--entrypoint", "sh", Image, "-c",
-					multiFileScript([]string{"/sbom/0.json", "/sbom/1.json"}, IsprasFormatContainer, true),
-				}),
+		)
+	})
+
+	Describe("extractPrefixedLines", func() {
+		DescribeTable("extracts lines with given prefix",
+			func(text, prefix string, want []string) {
+				Expect(extractPrefixedLines(text, prefix)).To(Equal(want))
+			},
+			Entry("no matching lines",
+				"some output\nanother line\n", "ERROR:",
+				[]string(nil)),
+			Entry("single error line",
+				"ERROR: bad field\n", "ERROR:",
+				[]string{"ERROR: bad field"}),
+			Entry("multiple error lines",
+				"ERROR: first\nok\nERROR: second\n", "ERROR:",
+				[]string{"ERROR: first", "ERROR: second"}),
+			Entry("warning lines",
+				"WARNING: vcs not found\nWARNING: another\n", "WARNING:",
+				[]string{"WARNING: vcs not found", "WARNING: another"}),
+			Entry("trims whitespace before matching",
+				"  ERROR: indented\n\tERROR: tabbed\n", "ERROR:",
+				[]string{"ERROR: indented", "ERROR: tabbed"}),
+			Entry("empty input",
+				"", "ERROR:",
+				[]string(nil)),
 		)
 	})
 })

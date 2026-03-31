@@ -12,7 +12,9 @@ import (
 )
 
 const (
-	Image         = "localhost:5001/sbom-checker:latest"
+	// Image FIXME (khurum): PROVIDE SBOM-CHECKER IMAGE TAG
+	Image         = ""
+	containerPath = "/sbom/input.json"
 	errorPrefix   = "ERROR:"
 	warningPrefix = "WARNING:"
 )
@@ -26,28 +28,43 @@ func Run(ctx context.Context, paths []string, isprasFormat IsprasFormat, opts Ru
 		return err
 	}
 
-	logboek.Context(ctx).Debug().LogF("Using checker image: %s\n", Image)
-
-	args, err := buildDockerArgs(paths, isprasFormat, opts.CheckVCS)
-	if err != nil {
-		return fmt.Errorf("build docker args: %w", err)
-	}
-
 	header := fmt.Sprintf("Validating %d SBOM file(s) as %q", len(paths), isprasFormat)
 	if opts.CheckVCS {
 		header += " with VCS check"
 	}
 
 	return logboek.Context(ctx).Default().LogProcess(header).DoError(func() error {
-		out, err := docker.CliRun_RecordedOutput(ctx, args...)
-		if err != nil && out == "" {
-			return fmt.Errorf("run sbom-checker container: %w", err)
+		logboek.Context(ctx).Debug().LogF("Using checker image: %s\n", Image)
+
+		var failures []string
+		total := len(paths)
+
+		for i, p := range paths {
+			args, err := buildDockerArgs(p, isprasFormat, opts.CheckVCS)
+			if err != nil {
+				return fmt.Errorf("build docker args for %q: %w", p, err)
+			}
+
+			fileName := filepath.Base(p)
+
+			out, err := docker.CliRun_RecordedOutput(ctx, args...)
+			if err != nil && out == "" {
+				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
+			}
+
+			if err := parseResult(ctx, out, fileName, i+1, total); err != nil {
+				failures = append(failures, err.Error())
+			}
 		}
 
-		passed, failed, parseErr := parseOutput(ctx, out, paths, isprasFormat)
-		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed\n", passed, failed)
+		passed := total - len(failures)
+		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed\n", passed, len(failures))
 
-		return parseErr
+		if len(failures) > 0 {
+			return fmt.Errorf("%s", strings.Join(failures, "\n"))
+		}
+
+		return nil
 	})
 }
 
@@ -61,74 +78,37 @@ func checkFilesExisting(paths []string) error {
 	return nil
 }
 
-func buildDockerArgs(paths []string, isprasFormat IsprasFormat, checkVCS bool) ([]string, error) {
-	args := []string{"--rm"}
-
-	containerPaths := make([]string, len(paths))
-	for i, p := range paths {
-		absPath, err := filepath.Abs(p)
-		if err != nil {
-			return nil, fmt.Errorf("resolve absolute path for %q: %w", p, err)
-		}
-		containerPaths[i] = fmt.Sprintf("/sbom/%d.json", i)
-		args = append(args, "-v", absPath+":"+containerPaths[i]+":ro")
+func buildDockerArgs(path string, isprasFormat IsprasFormat, checkVCS bool) ([]string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve absolute path for %q: %w", path, err)
 	}
 
-	if len(paths) == 1 {
-		args = append(args, Image)
-		args = append(args, checkerFlags(isprasFormat, checkVCS, containerPaths[0])...)
-
-		return args, nil
+	args := []string{
+		"--rm",
+		"-v", absPath + ":" + containerPath + ":ro",
+		Image,
+		"--format", isprasFormat.String(),
+		"--errors", "0",
 	}
 
-	args = append(args, "--entrypoint", "sh", Image, "-c", multiFileScript(containerPaths, isprasFormat, checkVCS))
-
-	return args, nil
-}
-
-func checkerFlags(isprasFormat IsprasFormat, checkVCS bool, file string) []string {
-	flags := []string{"--format", isprasFormat.String(), "--errors", "0"}
 	if checkVCS {
-		flags = append(flags, "--check-vcs")
+		args = append(args, "--check-vcs")
 	}
 
-	return append(flags, file)
+	return append(args, containerPath), nil
 }
 
-func multiFileScript(containerPaths []string, isprasFormat IsprasFormat, checkVCS bool) string {
-	commands := make([]string, 0, len(containerPaths))
-	for i, cp := range containerPaths {
-		cmd := fmt.Sprintf("echo '===FILE:%d===' && python sbom-checker.py %s",
-			i, strings.Join(checkerFlags(isprasFormat, checkVCS, cp), " "))
-		commands = append(commands, cmd)
-	}
-
-	return strings.Join(commands, "; ")
-}
-
-func parseOutput(ctx context.Context, out string, paths []string, isprasFormat IsprasFormat) (int, int, error) {
-	if len(paths) == 1 {
-		if err := parseSingleResult(ctx, out, paths[0], isprasFormat); err != nil {
-			return 0, 1, err
-		}
-		return 1, 0, nil
-	}
-
-	return parseMultiResult(ctx, out, paths, isprasFormat)
-}
-
-func parseSingleResult(ctx context.Context, out, path string, isprasFormat IsprasFormat) error {
-	fileName := filepath.Base(path)
-
+func parseResult(ctx context.Context, out, fileName string, index, total int) error {
 	errs := extractPrefixedLines(out, errorPrefix)
 	warnings := extractPrefixedLines(out, warningPrefix)
 
 	if len(errs) == 0 && len(warnings) == 0 {
-		logboek.Context(ctx).Default().LogF("(1/1) %s (%s)... OK\n", fileName, isprasFormat)
+		logboek.Context(ctx).Default().LogF("(%d/%d) %s... OK\n", index, total, fileName)
 		return nil
 	}
 
-	logboek.Context(ctx).Default().LogF("(1/1) %s (%s)... FAILED\n", fileName, isprasFormat)
+	logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
 	for _, e := range errs {
 		logboek.Context(ctx).Default().LogF("  %s\n", e)
 	}
@@ -136,63 +116,11 @@ func parseSingleResult(ctx context.Context, out, path string, isprasFormat Ispra
 		logboek.Context(ctx).Default().LogF("  %s\n", w)
 	}
 
-	return fmt.Errorf("validation failed for %s", fileName)
-}
+	var details []string
+	details = append(details, errs...)
+	details = append(details, warnings...)
 
-func parseMultiResult(ctx context.Context, out string, paths []string, isprasFormat IsprasFormat) (int, int, error) {
-	var failures []string
-	passed := 0
-	total := len(paths)
-	processed := 0
-
-	sections := strings.Split(out, "===FILE:")
-	for _, section := range sections[1:] {
-		idx := strings.Index(section, "===")
-		if idx < 0 {
-			continue
-		}
-
-		indexStr := section[:idx]
-		content := section[idx+3:]
-
-		var fileName string
-		var fileIdx int
-		if _, err := fmt.Sscanf(indexStr, "%d", &fileIdx); err == nil && fileIdx < len(paths) {
-			fileName = filepath.Base(paths[fileIdx])
-		} else {
-			fileName = indexStr
-		}
-
-		processed++
-
-		errs := extractPrefixedLines(content, errorPrefix)
-		warnings := extractPrefixedLines(content, warningPrefix)
-
-		if len(errs) == 0 && len(warnings) == 0 {
-			logboek.Context(ctx).Default().LogF("(%d/%d) %s (%s)... OK\n", processed, total, fileName, isprasFormat)
-			passed++
-			continue
-		}
-
-		logboek.Context(ctx).Default().LogF("(%d/%d) %s (%s)... FAILED\n", processed, total, fileName, isprasFormat)
-		for _, e := range errs {
-			logboek.Context(ctx).Default().LogF("  %s\n", e)
-		}
-		for _, w := range warnings {
-			logboek.Context(ctx).Default().LogF("  %s\n", w)
-		}
-
-		var details []string
-		details = append(details, errs...)
-		details = append(details, warnings...)
-		failures = append(failures, fmt.Sprintf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n")))
-	}
-
-	if len(failures) > 0 {
-		return passed, len(failures), fmt.Errorf("%s", strings.Join(failures, "\n"))
-	}
-
-	return passed, 0, nil
+	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
 }
 
 func extractPrefixedLines(text, prefix string) []string {

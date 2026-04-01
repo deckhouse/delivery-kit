@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	// Image FIXME (khurum): PROVIDE SBOM-CHECKER IMAGE TAG
-	Image         = ""
+	Image         = "registry.werf.io/sbom-toolkit/3p-ispras-sbom-checker:master"
 	containerPath = "/sbom/input.json"
 	errorPrefix   = "ERROR:"
 	warningPrefix = "WARNING:"

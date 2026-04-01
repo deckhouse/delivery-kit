@@ -9,7 +9,7 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
-var _ = Describe("sbom validate", Label("e2e", "sbom", "validate"), func() {
+var _ = Describe("sbom validate", Label("e2e", "sbom", "validate", "simple"), func() {
 	var gitWorkTree string
 
 	BeforeEach(func() {

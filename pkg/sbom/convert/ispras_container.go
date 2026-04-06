@@ -30,9 +30,7 @@ func (a *ISPRASContainerAssembler) Assemble(_ context.Context, images []*ImageSB
 			container = *img.BOM.Metadata.Component
 			container.BOMRef = img.Name
 			container.Type = cdx.ComponentTypeContainer
-			if container.Name == "" {
-				container.Name = img.Name
-			}
+			container.Name = img.Name
 		}
 
 		container.ExternalReferences = img.BOM.ExternalReferences

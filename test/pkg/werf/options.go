@@ -61,6 +61,10 @@ type SbomGetOptions struct {
 	CommonOptions
 }
 
+type SbomValidateOptions struct {
+	CommonOptions
+}
+
 type SbomMergeOptions struct {
 	CommonOptions
 }

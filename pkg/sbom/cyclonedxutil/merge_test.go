@@ -448,6 +448,86 @@ var _ = Describe("MergeBOMs", func() {
 			},
 		),
 	)
+
+	It("resolves bom-ref collision when merging components with same bom-ref but different PURL", func() {
+		baseBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "curl", PackageURL: "pkg:deb/curl@7.74", Name: "curl", Version: "7.74"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl"},
+			},
+		}
+		targetBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "curl", PackageURL: "pkg:deb/curl@8.12", Name: "curl", Version: "8.12"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl"},
+			},
+		}
+
+		result, err := MergeBOMs(targetBOM, MergeOpts{BaseBOM: baseBOM})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(result.Components).ToNot(BeNil())
+		Expect(*result.Components).To(HaveLen(2))
+
+		refs := make([]string, 0, 2)
+		for _, c := range *result.Components {
+			refs = append(refs, c.BOMRef)
+		}
+		// all bom-refs must be unique
+		Expect(refs[0]).ToNot(Equal(refs[1]))
+
+		// all dependency refs must point to existing component bom-refs
+		refSet := map[string]struct{}{refs[0]: {}, refs[1]: {}}
+		for _, dep := range *result.Dependencies {
+			_, ok := refSet[dep.Ref]
+			Expect(ok).To(BeTrue(), "dependency ref %q must point to an existing component", dep.Ref)
+		}
+	})
+
+	It("deduplicates components with same PURL from different BOMs and remaps dependency refs", func() {
+		sharedComp := cdx.Component{
+			BOMRef:     "curl-base",
+			PackageURL: "pkg:deb/curl@8.12",
+			Name:       "curl",
+			Version:    "8.12",
+		}
+		targetComp := cdx.Component{
+			BOMRef:     "curl-target",
+			PackageURL: "pkg:deb/curl@8.12",
+			Name:       "curl",
+			Version:    "8.12",
+		}
+
+		baseBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components:  &[]cdx.Component{sharedComp},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl-base", Dependencies: &[]string{"dep-a"}},
+			},
+		}
+		targetBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components:  &[]cdx.Component{targetComp},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl-target", Dependencies: &[]string{"dep-b"}},
+			},
+		}
+
+		result, err := MergeBOMs(targetBOM, MergeOpts{BaseBOM: baseBOM})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(result.Components).ToNot(BeNil())
+		Expect(*result.Components).To(HaveLen(1), "identical PURL components must be deduped")
+
+		survivorRef := (*result.Components)[0].BOMRef
+		for _, dep := range *result.Dependencies {
+			Expect(dep.Ref).To(Equal(survivorRef), "all dependency refs must point to survivor")
+		}
+	})
 })
 
 var _ = Describe("ToJSON", func() {

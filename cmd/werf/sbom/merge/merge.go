@@ -6,8 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/cmd/werf/common"
 	"github.com/werf/werf/v2/pkg/sbom/merge"
+	"github.com/werf/werf/v2/pkg/tmp_manager"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
@@ -61,6 +63,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupLogOptions(&commonCmdData, cmd)
 
+	common.SetupParallelOptions(&commonCmdData, cmd, common.DefaultBuildParallelTasksLimit)
+
 	setupMergeFlags(cmd, &opts)
 
 	return cmd
@@ -88,6 +92,12 @@ func runMerge(ctx context.Context, opts merge.Options) error {
 	if err != nil {
 		return fmt.Errorf("component init error: %w", err)
 	}
+
+	defer func() {
+		if err := tmp_manager.DelegateCleanup(ctx); err != nil {
+			logboek.Context(ctx).Warn().LogF("Temporary files cleanup preparation failed: %s\n", err)
+		}
+	}()
 
 	repoAddr, err := commonCmdData.Repo.GetAddress()
 	if err != nil {

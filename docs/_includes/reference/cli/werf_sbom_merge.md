@@ -68,6 +68,11 @@ werf sbom merge [options]
             Manufacturer name for the merged SBOM metadata
   -o, --output=""
             Output file path (defaults to stdout)
+  -p, --parallel=true
+            Run in parallel (default $WERF_PARALLEL or true)
+      --parallel-tasks-limit=5
+            Parallel tasks limit, set -1 to remove the limitation (default                          
+            $WERF_PARALLEL_TASKS_LIMIT or 5)
       --repo=""
             Container registry storage address (default $WERF_REPO)
       --repo-container-registry=""

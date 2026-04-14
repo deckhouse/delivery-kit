@@ -489,7 +489,7 @@ var _ = Describe("MergeBOMs", func() {
 		}
 	})
 
-	It("deduplicates components with same PURL from different BOMs and remaps dependency refs", func() {
+	It("keeps components with same PURL from different BOMs (redundancy over dedup) and remaps dependency refs", func() {
 		sharedComp := cdx.Component{
 			BOMRef:     "curl-base",
 			PackageURL: "pkg:deb/curl@8.12",
@@ -521,11 +521,18 @@ var _ = Describe("MergeBOMs", func() {
 		result, err := MergeBOMs(targetBOM, MergeOpts{BaseBOM: baseBOM})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(result.Components).ToNot(BeNil())
-		Expect(*result.Components).To(HaveLen(1), "identical PURL components must be deduped")
+		Expect(*result.Components).To(HaveLen(2), "same-PURL components are kept (redundancy over dedup)")
 
-		survivorRef := (*result.Components)[0].BOMRef
+		refs := make([]string, 0, 2)
+		for _, c := range *result.Components {
+			refs = append(refs, c.BOMRef)
+		}
+		Expect(refs[0]).ToNot(Equal(refs[1]), "bom-refs must be unique")
+
+		refSet := map[string]struct{}{refs[0]: {}, refs[1]: {}}
 		for _, dep := range *result.Dependencies {
-			Expect(dep.Ref).To(Equal(survivorRef), "all dependency refs must point to survivor")
+			_, ok := refSet[dep.Ref]
+			Expect(ok).To(BeTrue(), "dependency ref %q must point to an existing component", dep.Ref)
 		}
 	})
 })

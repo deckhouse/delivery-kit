@@ -5,24 +5,26 @@ import (
 	"fmt"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	packageurl "github.com/package-url/packageurl-go"
 )
 
-func shortHash(s string) string {
-	h := sha256.Sum256([]byte(s))
-
+func packageID(serial string, index int) string {
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", serial, index)))
 	return fmt.Sprintf("%x", h[:8])
 }
 
-func componentIdentity(c cdx.Component) string {
-	if c.PackageURL != "" {
-		return c.PackageURL
+func deriveBomRef(purl, serial string, index int) string {
+	id := packageID(serial, index)
+
+	if parsed, err := packageurl.FromString(purl); err == nil {
+		parsed.Qualifiers = append(parsed.Qualifiers, packageurl.Qualifier{
+			Key:   "package-id",
+			Value: id,
+		})
+		return parsed.ToString()
 	}
 
-	return fmt.Sprintf("%s:%s/%s@%s", c.Type, c.Group, c.Name, c.Version)
-}
-
-func serviceIdentity(s cdx.Service) string {
-	return s.Name + ":" + s.Version
+	return id
 }
 
 func remapRef(ref string, refMap map[string]string) string {
@@ -52,94 +54,6 @@ func remapBOMReferenceSlice(refs *[]cdx.BOMReference, refMap map[string]string) 
 	r := *refs
 	for i := range r {
 		r[i] = cdx.BOMReference(remapRef(string(r[i]), refMap))
-	}
-}
-
-func resolveRefCollision(ref string, seenRefs map[string]struct{}, hashInput string) string {
-	if ref == "" {
-		return ""
-	}
-
-	if _, exists := seenRefs[ref]; !exists {
-		seenRefs[ref] = struct{}{}
-		return ""
-	}
-
-	newRef := shortHash(hashInput)
-	seenRefs[newRef] = struct{}{}
-
-	return newRef
-}
-
-func dedupByIdentity[T any](items *[]T, refMap map[string]string, getRef, identity func(T) string) *[]T {
-	if items == nil {
-		return nil
-	}
-
-	seen := map[string]string{}
-	var kept []T
-	for _, item := range *items {
-		ref := getRef(item)
-		if ref == "" {
-			kept = append(kept, item)
-			continue
-		}
-		id := identity(item)
-		if survivor, exists := seen[id]; exists {
-			refMap[ref] = survivor
-			continue
-		}
-		seen[id] = ref
-		kept = append(kept, item)
-	}
-
-	if len(kept) == 0 {
-		return nil
-	}
-
-	return &kept
-}
-
-func resolveCollisions[T any](items *[]T, seenRefs map[string]struct{}, getRef func(T) string, setRef func(*T, string), hashInput func(T, int) string) {
-	if items == nil {
-		return
-	}
-
-	s := *items
-	for i := range s {
-		ref := getRef(s[i])
-		hi := hashInput(s[i], i)
-		if newRef := resolveRefCollision(ref, seenRefs, hi); newRef != "" {
-			setRef(&s[i], newRef)
-		}
-	}
-}
-
-func resolveComponentCollisions(components *[]cdx.Component, seenRefs map[string]struct{}) {
-	if components == nil {
-		return
-	}
-
-	comps := *components
-	for i := range comps {
-		ref := comps[i].BOMRef
-		if ref == "" {
-			continue
-		}
-
-		if _, exists := seenRefs[ref]; !exists {
-			seenRefs[ref] = struct{}{}
-			continue
-		}
-
-		var newRef string
-		if comps[i].PackageURL != "" {
-			newRef = comps[i].PackageURL
-		} else {
-			newRef = shortHash("component:" + comps[i].Name + ":" + comps[i].Version + ":" + fmt.Sprintf("%d", i))
-		}
-		comps[i].BOMRef = newRef
-		seenRefs[newRef] = struct{}{}
 	}
 }
 
@@ -228,7 +142,7 @@ func rewriteDeclarationRefs(declarations *cdx.Declarations, refMap map[string]st
 	}
 }
 
-func rewriteBOMRefs(bom *cdx.BOM, refMap map[string]string) {
+func rewriteAllRefs(bom *cdx.BOM, refMap map[string]string) {
 	if len(refMap) == 0 {
 		return
 	}
@@ -240,68 +154,50 @@ func rewriteBOMRefs(bom *cdx.BOM, refMap map[string]string) {
 	rewriteDeclarationRefs(bom.Declarations, refMap)
 }
 
-func normalizeBOMRefs(bom *cdx.BOM) {
+func ensureUniqueBOMRefs(bom *cdx.BOM) {
 	if bom == nil {
 		return
 	}
 
 	refMap := map[string]string{}
-	bom.Components = dedupByIdentity(bom.Components, refMap,
-		func(c cdx.Component) string { return c.BOMRef },
-		componentIdentity,
-	)
-	bom.Services = dedupByIdentity(bom.Services, refMap,
-		func(s cdx.Service) string { return s.BOMRef },
-		serviceIdentity,
-	)
+	serial := bom.SerialNumber
+	index := 0
 
-	seenRefs := map[string]struct{}{}
+	if bom.Components != nil {
+		comps := *bom.Components
+		for i := range comps {
+			oldRef := comps[i].BOMRef
+			if oldRef == "" {
+				index++
+				continue
+			}
 
-	resolveComponentCollisions(bom.Components, seenRefs)
-
-	resolveCollisions(bom.Services, seenRefs,
-		func(s cdx.Service) string { return s.BOMRef },
-		func(s *cdx.Service, ref string) { s.BOMRef = ref },
-		func(s cdx.Service, i int) string { return fmt.Sprintf("service:%s:%s:%d", s.Name, s.Version, i) },
-	)
-
-	resolveCollisions(bom.Vulnerabilities, seenRefs,
-		func(v cdx.Vulnerability) string { return v.BOMRef },
-		func(v *cdx.Vulnerability, ref string) { v.BOMRef = ref },
-		func(v cdx.Vulnerability, i int) string {
-			return fmt.Sprintf("vulnerability:%s:%s:%d", v.ID, v.BOMRef, i)
-		},
-	)
-
-	resolveCollisions(bom.Compositions, seenRefs,
-		func(c cdx.Composition) string { return c.BOMRef },
-		func(c *cdx.Composition, ref string) { c.BOMRef = ref },
-		func(c cdx.Composition, i int) string { return fmt.Sprintf("composition:%s:%d", c.BOMRef, i) },
-	)
-
-	resolveCollisions(bom.Annotations, seenRefs,
-		func(a cdx.Annotation) string { return a.BOMRef },
-		func(a *cdx.Annotation, ref string) { a.BOMRef = ref },
-		func(a cdx.Annotation, i int) string { return fmt.Sprintf("annotation:%s:%d", a.BOMRef, i) },
-	)
-
-	if bom.Declarations != nil {
-		resolveCollisions(bom.Declarations.Assessors, seenRefs,
-			func(a cdx.Assessor) string { return string(a.BOMRef) },
-			func(a *cdx.Assessor, ref string) { a.BOMRef = cdx.BOMReference(ref) },
-			func(a cdx.Assessor, i int) string { return fmt.Sprintf("assessor:%s:%d", string(a.BOMRef), i) },
-		)
-		resolveCollisions(bom.Declarations.Claims, seenRefs,
-			func(c cdx.Claim) string { return c.BOMRef },
-			func(c *cdx.Claim, ref string) { c.BOMRef = ref },
-			func(c cdx.Claim, i int) string { return fmt.Sprintf("claim:%s:%d", c.BOMRef, i) },
-		)
-		resolveCollisions(bom.Declarations.Evidence, seenRefs,
-			func(e cdx.DeclarationEvidence) string { return e.BOMRef },
-			func(e *cdx.DeclarationEvidence, ref string) { e.BOMRef = ref },
-			func(e cdx.DeclarationEvidence, i int) string { return fmt.Sprintf("evidence:%s:%d", e.BOMRef, i) },
-		)
+			newRef := deriveBomRef(comps[i].PackageURL, serial, index)
+			if oldRef != newRef {
+				refMap[oldRef] = newRef
+			}
+			comps[i].BOMRef = newRef
+			index++
+		}
 	}
 
-	rewriteBOMRefs(bom, refMap)
+	if bom.Services != nil {
+		svcs := *bom.Services
+		for i := range svcs {
+			oldRef := svcs[i].BOMRef
+			if oldRef == "" {
+				index++
+				continue
+			}
+
+			newRef := deriveBomRef("", serial, index)
+			if oldRef != newRef {
+				refMap[oldRef] = newRef
+			}
+			svcs[i].BOMRef = newRef
+			index++
+		}
+	}
+
+	rewriteAllRefs(bom, refMap)
 }

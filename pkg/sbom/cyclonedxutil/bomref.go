@@ -16,15 +16,58 @@ func packageID(serial string, index int) string {
 func deriveBomRef(purl, serial string, index int) string {
 	id := packageID(serial, index)
 
-	if parsed, err := packageurl.FromString(purl); err == nil {
-		parsed.Qualifiers = append(parsed.Qualifiers, packageurl.Qualifier{
-			Key:   "package-id",
-			Value: id,
-		})
-		return parsed.ToString()
+	parsed, err := packageurl.FromString(purl)
+	if err != nil {
+		return id
 	}
 
-	return id
+	parsed.Qualifiers = append(parsed.Qualifiers, packageurl.Qualifier{
+		Key:   "package-id",
+		Value: id,
+	})
+
+	return parsed.ToString()
+}
+
+func assignNewRef(oldRef, purl, serial string, index int, refMap map[string]string) string {
+	newRef := deriveBomRef(purl, serial, index)
+	if oldRef != newRef {
+		refMap[oldRef] = newRef
+	}
+
+	return newRef
+}
+
+func ensureUniqueBOMRefs(bom *cdx.BOM) {
+	if bom == nil {
+		return
+	}
+
+	refMap := map[string]string{}
+	serial := bom.SerialNumber
+	index := 0
+
+	if bom.Components != nil {
+		comps := *bom.Components
+		for i := range comps {
+			if comps[i].BOMRef != "" {
+				comps[i].BOMRef = assignNewRef(comps[i].BOMRef, comps[i].PackageURL, serial, index, refMap)
+			}
+			index++
+		}
+	}
+
+	if bom.Services != nil {
+		svcs := *bom.Services
+		for i := range svcs {
+			if svcs[i].BOMRef != "" {
+				svcs[i].BOMRef = assignNewRef(svcs[i].BOMRef, "", serial, index, refMap)
+			}
+			index++
+		}
+	}
+
+	rewriteAllRefs(bom, refMap)
 }
 
 func remapRef(ref string, refMap map[string]string) string {
@@ -40,9 +83,8 @@ func remapStringSlice(ss *[]string, refMap map[string]string) {
 		return
 	}
 
-	s := *ss
-	for i := range s {
-		s[i] = remapRef(s[i], refMap)
+	for i := range *ss {
+		(*ss)[i] = remapRef((*ss)[i], refMap)
 	}
 }
 
@@ -51,94 +93,8 @@ func remapBOMReferenceSlice(refs *[]cdx.BOMReference, refMap map[string]string) 
 		return
 	}
 
-	r := *refs
-	for i := range r {
-		r[i] = cdx.BOMReference(remapRef(string(r[i]), refMap))
-	}
-}
-
-func rewriteDependencyRefs(deps *[]cdx.Dependency, refMap map[string]string) {
-	if deps == nil {
-		return
-	}
-
-	d := *deps
-	for i := range d {
-		d[i].Ref = remapRef(d[i].Ref, refMap)
-		remapStringSlice(d[i].Dependencies, refMap)
-		remapStringSlice(d[i].Provides, refMap)
-	}
-}
-
-func rewriteVulnerabilityRefs(vulns *[]cdx.Vulnerability, refMap map[string]string) {
-	if vulns == nil {
-		return
-	}
-
-	v := *vulns
-	for i := range v {
-		if v[i].Affects == nil {
-			continue
-		}
-		affects := *v[i].Affects
-		for j := range affects {
-			affects[j].Ref = remapRef(affects[j].Ref, refMap)
-		}
-		v[i].Affects = &affects
-	}
-}
-
-func rewriteCompositionRefs(compositions *[]cdx.Composition, refMap map[string]string) {
-	if compositions == nil {
-		return
-	}
-
-	c := *compositions
-	for i := range c {
-		remapBOMReferenceSlice(c[i].Assemblies, refMap)
-		remapBOMReferenceSlice(c[i].Dependencies, refMap)
-		remapBOMReferenceSlice(c[i].Vulnerabilities, refMap)
-	}
-}
-
-func rewriteAnnotationRefs(annotations *[]cdx.Annotation, refMap map[string]string) {
-	if annotations == nil {
-		return
-	}
-
-	a := *annotations
-	for i := range a {
-		remapBOMReferenceSlice(a[i].Subjects, refMap)
-	}
-}
-
-func rewriteDeclarationRefs(declarations *cdx.Declarations, refMap map[string]string) {
-	if declarations == nil {
-		return
-	}
-
-	if declarations.Assessors != nil {
-		assessors := *declarations.Assessors
-		for i := range assessors {
-			assessors[i].BOMRef = cdx.BOMReference(remapRef(string(assessors[i].BOMRef), refMap))
-		}
-		declarations.Assessors = &assessors
-	}
-
-	if declarations.Claims != nil {
-		claims := *declarations.Claims
-		for i := range claims {
-			claims[i].BOMRef = remapRef(claims[i].BOMRef, refMap)
-		}
-		declarations.Claims = &claims
-	}
-
-	if declarations.Evidence != nil {
-		evidence := *declarations.Evidence
-		for i := range evidence {
-			evidence[i].BOMRef = remapRef(evidence[i].BOMRef, refMap)
-		}
-		declarations.Evidence = &evidence
+	for i := range *refs {
+		(*refs)[i] = cdx.BOMReference(remapRef(string((*refs)[i]), refMap))
 	}
 }
 
@@ -154,50 +110,76 @@ func rewriteAllRefs(bom *cdx.BOM, refMap map[string]string) {
 	rewriteDeclarationRefs(bom.Declarations, refMap)
 }
 
-func ensureUniqueBOMRefs(bom *cdx.BOM) {
-	if bom == nil {
+func rewriteDependencyRefs(deps *[]cdx.Dependency, refMap map[string]string) {
+	if deps == nil {
 		return
 	}
 
-	refMap := map[string]string{}
-	serial := bom.SerialNumber
-	index := 0
+	for i := range *deps {
+		(*deps)[i].Ref = remapRef((*deps)[i].Ref, refMap)
+		remapStringSlice((*deps)[i].Dependencies, refMap)
+		remapStringSlice((*deps)[i].Provides, refMap)
+	}
+}
 
-	if bom.Components != nil {
-		comps := *bom.Components
-		for i := range comps {
-			oldRef := comps[i].BOMRef
-			if oldRef == "" {
-				index++
-				continue
-			}
+func rewriteVulnerabilityRefs(vulns *[]cdx.Vulnerability, refMap map[string]string) {
+	if vulns == nil {
+		return
+	}
 
-			newRef := deriveBomRef(comps[i].PackageURL, serial, index)
-			if oldRef != newRef {
-				refMap[oldRef] = newRef
-			}
-			comps[i].BOMRef = newRef
-			index++
+	for i := range *vulns {
+		if (*vulns)[i].Affects == nil {
+			continue
+		}
+
+		for j := range *(*vulns)[i].Affects {
+			(*(*vulns)[i].Affects)[j].Ref = remapRef((*(*vulns)[i].Affects)[j].Ref, refMap)
+		}
+	}
+}
+
+func rewriteCompositionRefs(compositions *[]cdx.Composition, refMap map[string]string) {
+	if compositions == nil {
+		return
+	}
+
+	for i := range *compositions {
+		remapBOMReferenceSlice((*compositions)[i].Assemblies, refMap)
+		remapBOMReferenceSlice((*compositions)[i].Dependencies, refMap)
+		remapBOMReferenceSlice((*compositions)[i].Vulnerabilities, refMap)
+	}
+}
+
+func rewriteAnnotationRefs(annotations *[]cdx.Annotation, refMap map[string]string) {
+	if annotations == nil {
+		return
+	}
+
+	for i := range *annotations {
+		remapBOMReferenceSlice((*annotations)[i].Subjects, refMap)
+	}
+}
+
+func rewriteDeclarationRefs(declarations *cdx.Declarations, refMap map[string]string) {
+	if declarations == nil {
+		return
+	}
+
+	if declarations.Assessors != nil {
+		for i := range *declarations.Assessors {
+			(*declarations.Assessors)[i].BOMRef = cdx.BOMReference(remapRef(string((*declarations.Assessors)[i].BOMRef), refMap))
 		}
 	}
 
-	if bom.Services != nil {
-		svcs := *bom.Services
-		for i := range svcs {
-			oldRef := svcs[i].BOMRef
-			if oldRef == "" {
-				index++
-				continue
-			}
-
-			newRef := deriveBomRef("", serial, index)
-			if oldRef != newRef {
-				refMap[oldRef] = newRef
-			}
-			svcs[i].BOMRef = newRef
-			index++
+	if declarations.Claims != nil {
+		for i := range *declarations.Claims {
+			(*declarations.Claims)[i].BOMRef = remapRef((*declarations.Claims)[i].BOMRef, refMap)
 		}
 	}
 
-	rewriteAllRefs(bom, refMap)
+	if declarations.Evidence != nil {
+		for i := range *declarations.Evidence {
+			(*declarations.Evidence)[i].BOMRef = remapRef((*declarations.Evidence)[i].BOMRef, refMap)
+		}
+	}
 }

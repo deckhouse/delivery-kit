@@ -180,6 +180,11 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				); err != nil {
 					return err
 				}
+				if phase.Conveyor.EnableSbom() {
+					if err := phase.convergeImageSbom(ctx, name, images); err != nil {
+						return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+					}
+				}
 				logboek.Context(ctx).LogOptionalLn()
 			}
 
@@ -214,6 +219,11 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					if err := phase.publishMultiplatformFinalImage(ctx, name, img, phase.Conveyor.StorageManager.GetFinalStagesStorage()); err != nil {
 						return err
 					}
+					if phase.Conveyor.EnableSbom() {
+						if err := phase.convergeImageSbom(ctx, name, images); err != nil {
+							return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+						}
+					}
 				}
 			}
 		}
@@ -223,51 +233,9 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
-	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
-		return err
-	}
-
 	telemetry.GetTelemetryWerfIO().BuildFinished(ctx, true)
 
 	return phase.createReport(ctx, imagesPairs)
-}
-
-// convergeSbomByImagesSets generates SBOM for images respecting dependency order.
-// It iterates over ImagesSets sequentially (set by set) to ensure base image SBOMs
-// are generated before dependent images. Within each set, images are processed in parallel.
-func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
-	if !phase.Conveyor.EnableSbom() {
-		return nil
-	}
-
-	logboek.Context(ctx).Warn().LogF("WARNING: SBOM generation is running in emulation mode, skipping actual generation\n")
-
-	return nil
-
-	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
-		imagesByName := make(map[string][]*image.Image)
-		for _, img := range imagesInSet {
-			imagesByName[img.Name] = append(imagesByName[img.Name], img)
-		}
-
-		names := make([]string, 0, len(imagesByName))
-		for name := range imagesByName {
-			names = append(names, name)
-		}
-
-		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
-			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
-			InitDockerCLIForEachWorker: true,
-		}, func(ctx context.Context, taskId int) error {
-			name := names[taskId]
-			images := imagesByName[name]
-			return phase.convergeImageSbom(ctx, name, images)
-		}); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {

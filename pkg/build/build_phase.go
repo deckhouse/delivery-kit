@@ -180,11 +180,6 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				); err != nil {
 					return err
 				}
-				if phase.Conveyor.EnableSbom() {
-					if err := phase.convergeImageSbom(ctx, name, images); err != nil {
-						return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
-					}
-				}
 				logboek.Context(ctx).LogOptionalLn()
 			}
 
@@ -219,11 +214,6 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 					if err := phase.publishMultiplatformFinalImage(ctx, name, img, phase.Conveyor.StorageManager.GetFinalStagesStorage()); err != nil {
 						return err
 					}
-					if phase.Conveyor.EnableSbom() {
-						if err := phase.convergeImageSbom(ctx, name, images); err != nil {
-							return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
-						}
-					}
 				}
 			}
 		}
@@ -233,9 +223,45 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
+	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
+		return err
+	}
+
 	telemetry.GetTelemetryWerfIO().BuildFinished(ctx, true)
 
 	return phase.createReport(ctx, imagesPairs)
+}
+
+func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
+	if !phase.Conveyor.EnableSbom() {
+		return nil
+	}
+
+	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
+		imagesByName := make(map[string][]*image.Image)
+		for _, img := range imagesInSet {
+			if !img.IsFinal {
+				continue
+			}
+			imagesByName[img.Name] = append(imagesByName[img.Name], img)
+		}
+
+		names := util.MapKeys(imagesByName)
+		if len(names) == 0 {
+			continue
+		}
+
+		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
+			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+		}, func(ctx context.Context, taskId int) error {
+			name := names[taskId]
+			return phase.convergeImageSbom(ctx, name, imagesByName[name])
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {

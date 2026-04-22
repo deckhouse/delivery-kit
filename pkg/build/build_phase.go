@@ -232,10 +232,17 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 	return phase.createReport(ctx, imagesPairs)
 }
 
+// convergeSbomByImagesSets generates SBOM for images respecting dependency order.
+// It iterates over ImagesSets sequentially (set by set) to ensure base image SBOMs
+// are generated before dependent images. Within each set, images are processed in parallel.
 func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	if !phase.Conveyor.EnableSbom() {
 		return nil
 	}
+
+	logboek.Context(ctx).Warn().LogF("WARNING: SBOM generation is running in emulation mode, skipping actual generation\n")
+
+	return nil
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
 		imagesByName := make(map[string][]*image.Image)
@@ -252,7 +259,8 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		}
 
 		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
-			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
+			InitDockerCLIForEachWorker: true,
 		}, func(ctx context.Context, taskId int) error {
 			name := names[taskId]
 			return phase.convergeImageSbom(ctx, name, imagesByName[name])

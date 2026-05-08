@@ -46,4 +46,4 @@ runs:
       name: Install golangci-lint
       shell: bash
       run: |
-        command -v golangci-lint >/dev/null 2>&1 || task --yes deps:install:golangci-lint
+        command -v golangci-lint >/dev/null 2>&1 || task --yes deps:install:golangci-lint -v

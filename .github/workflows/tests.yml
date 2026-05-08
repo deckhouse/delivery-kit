@@ -69,7 +69,7 @@ jobs:
 
       - name: Lint
         id: lint
-        run: task --yes lint
+        run: task --yes lint -v
 
       - name: Check generated mocks are up to date
         run: task --yes mock:check

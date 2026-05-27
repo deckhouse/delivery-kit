@@ -7,6 +7,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 
@@ -17,7 +20,6 @@ import (
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/sbom/extract"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/tmp_manager"
@@ -133,11 +135,10 @@ func NewCmd(ctx context.Context) *cobra.Command {
 func runGetByTag(ctx context.Context, tag string) error {
 	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
 
-	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
-		Cmd:                         &commonCmdData,
-		InitWerf:                    true,
-		InitProcessContainerBackend: true,
-		InitDockerRegistry:          true,
+	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
+		Cmd:                &commonCmdData,
+		InitWerf:           true,
+		InitDockerRegistry: true,
 	})
 	if err != nil {
 		return fmt.Errorf("component init error: %w", err)
@@ -154,12 +155,19 @@ func runGetByTag(ctx context.Context, tag string) error {
 		return fmt.Errorf("--repo is required when using --tag")
 	}
 
-	sbomRef := sbomImage.BaseImageName(repoAddr, tag)
-	containerBackend := commonManager.ContainerBackend()
-
-	sbomJSON, err := getRawSbom(ctx, containerBackend, repoAddr, sbomRef)
+	ref, err := name.ParseReference(fmt.Sprintf("%s:%s", repoAddr, tag))
 	if err != nil {
-		return err
+		return fmt.Errorf("parse image reference: %w", err)
+	}
+
+	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return fmt.Errorf("resolve image digest for tag %q: %w", tag, err)
+	}
+
+	sbomJSON, err := sbomImage.PullSBOM(ctx, repoAddr, desc.Digest.String(), "")
+	if err != nil {
+		return fmt.Errorf("pull SBOM: %w", err)
 	}
 
 	return writeSbomToStdout(sbomJSON)
@@ -188,52 +196,12 @@ func runGetByDigest(ctx context.Context, imageDigest string) error {
 		return fmt.Errorf("--repo is required when using --digest")
 	}
 
-	registry, err := common.CreateDockerRegistry(ctx, repoAddr, *commonCmdData.InsecureRegistry, *commonCmdData.SkipTlsVerifyRegistry, nil)
+	sbomJSON, err := sbomImage.PullSBOM(ctx, repoAddr, imageDigest, "")
 	if err != nil {
-		return fmt.Errorf("create docker registry: %w", err)
-	}
-
-	digestToTag, err := sbomImage.BuildDigestToTagIndex(ctx, registry, repoAddr)
-	if err != nil {
-		return fmt.Errorf("build digest-to-tag index: %w", err)
-	}
-
-	sbomRef, err := sbomImage.ResolveSBOMReference(repoAddr, imageDigest, digestToTag)
-	if err != nil {
-		return err
-	}
-
-	sbomJSON, err := sbomImage.PullRawSbom(ctx, registry, sbomRef)
-	if err != nil {
-		return fmt.Errorf("pull SBOM image: %w", err)
+		return fmt.Errorf("pull SBOM: %w", err)
 	}
 
 	return writeSbomToStdout(sbomJSON)
-}
-
-func getRawSbom(ctx context.Context, containerBackend container_backend.ContainerBackend, repoAddr, sbomRef string) ([]byte, error) {
-	opener := func() (io.ReadCloser, error) {
-		return containerBackend.SaveImageToStream(ctx, sbomRef)
-	}
-
-	sbomJSON, err := extract.FromImageBytes(opener)
-	if err == nil {
-		return sbomJSON, nil
-	}
-
-	logboek.Context(ctx).Info().LogF("SBOM image not found in local cache, pulling from registry\n")
-
-	registry, err := common.CreateDockerRegistry(ctx, repoAddr, *commonCmdData.InsecureRegistry, *commonCmdData.SkipTlsVerifyRegistry, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create docker registry: %w", err)
-	}
-
-	sbomJSON, err = sbomImage.PullRawSbom(ctx, registry, sbomRef)
-	if err != nil {
-		return nil, fmt.Errorf("pull SBOM image: %w", err)
-	}
-
-	return sbomJSON, nil
 }
 
 func writeSbomToStdout(data []byte) error {
@@ -355,30 +323,31 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return err
 	}
 
-	sbomImageName, err := getSbomImageName(exportedImages, requestedImageName)
-	if err != nil {
-		return fmt.Errorf("unable to get SBOM image name: %w", err)
-	}
-
-	opener := func() (io.ReadCloser, error) {
-		return containerBackend.SaveImageToStream(ctx, sbomImageName)
-	}
-
-	artifactContent, err := extract.FromImageBytes(opener)
-	if err != nil {
-		return fmt.Errorf("unable to find artifact file: %w", err)
-	}
-
-	return writeSbomToStdout(artifactContent)
-}
-
-func getSbomImageName(exportedImages []*image.Image, requestedImageName string) (string, error) {
 	foundImage, ok := lo.Find(exportedImages, func(item *image.Image) bool {
 		return item.Name == requestedImageName
 	})
 	if !ok {
-		return "", fmt.Errorf("unable to find requested image %q", requestedImageName)
+		return fmt.Errorf("unable to find requested image %q", requestedImageName)
 	}
 
-	return sbomImage.ImageName(foundImage.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc().Info.Name), nil
+	imageInfo := foundImage.GetLastNonEmptyStageImageInfo()
+	if imageInfo == nil {
+		return fmt.Errorf("image info not available for %q", requestedImageName)
+	}
+
+	if imageInfo.Repository == "" || imageInfo.Repository == storage.LocalStorageAddress {
+		return fmt.Errorf("SBOM retrieval requires a container registry. Image was built locally without --repo.")
+	}
+
+	parentDigest := imageInfo.GetDigest()
+	if parentDigest == "" {
+		return fmt.Errorf("image digest not available for %q", requestedImageName)
+	}
+
+	sbomJSON, err := sbomImage.PullSBOM(ctx, imageInfo.Repository, parentDigest, requestedImageName)
+	if err != nil {
+		return fmt.Errorf("pull SBOM: %w", err)
+	}
+
+	return writeSbomToStdout(sbomJSON)
 }

@@ -247,9 +247,10 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		return nil
 	}
 
-	logboek.Context(ctx).Warn().LogF("WARNING: SBOM generation is running in emulation mode, skipping actual generation\n")
-
-	return nil
+	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
+		logboek.Context(ctx).Warn().LogF("WARNING: SBOM generation skipped — no container registry specified. Use --repo to enable SBOM.\n")
+		return nil
+	}
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
 		imagesByName := make(map[string][]*image.Image)

@@ -43,7 +43,10 @@ func FallbackTag(parentDigest string) string {
 }
 
 func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum string) error {
-	digestHex := strings.TrimPrefix(parentDigest, "sha256:")
+	digestHex, err := artifact.DigestHex(parentDigest)
+	if err != nil {
+		return fmt.Errorf("extract digest hex: %w", err)
+	}
 
 	stmtBytes, err := WrapInInTotoStatement(bomJSON, CycloneDX16Predicate, repo, digestHex)
 	if err != nil {
@@ -61,9 +64,20 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 
 func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte, error) {
 	store := artifact.NewOCIStore(repo, imageName)
-	envelopeJSON, err := store.GetAttachedContent(ctx, parentDigest, DSSEMediaType)
-	if err != nil {
-		return nil, fmt.Errorf("get attached SBOM: %w", err)
+
+	var envelopeJSON []byte
+	if imageName != "" {
+		var err error
+		envelopeJSON, err = store.GetAttachedContent(ctx, parentDigest, DSSEMediaType)
+		if err != nil {
+			return nil, fmt.Errorf("get attached SBOM: %w", err)
+		}
+	} else {
+		var err error
+		envelopeJSON, err = store.GetAttachedContentAny(ctx, parentDigest, DSSEMediaType)
+		if err != nil {
+			return nil, fmt.Errorf("get attached SBOM: %w", err)
+		}
 	}
 
 	stmtBytes, err := UnwrapDSSE(envelopeJSON, InTotoMediaType)
@@ -81,6 +95,16 @@ func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte
 	}
 
 	return []byte(predicate), nil
+}
+
+// PullSBOMByTag resolves the image tag to a digest and returns the attached SBOM.
+func PullSBOMByTag(ctx context.Context, repo, tag, imageName string) ([]byte, error) {
+	parentDigest, err := artifact.ResolveTag(ctx, repo, tag)
+	if err != nil {
+		return nil, fmt.Errorf("resolve image tag: %w", err)
+	}
+
+	return PullSBOM(ctx, repo, parentDigest, imageName)
 }
 
 func PullCycloneDX16BOM(ctx context.Context, repo, parentDigest, imageName string) (*cdx.BOM, error) {

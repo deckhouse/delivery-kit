@@ -7,9 +7,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 
@@ -155,17 +152,7 @@ func runGetByTag(ctx context.Context, tag string) error {
 		return fmt.Errorf("--repo is required when using --tag")
 	}
 
-	ref, err := name.ParseReference(fmt.Sprintf("%s:%s", repoAddr, tag))
-	if err != nil {
-		return fmt.Errorf("parse image reference: %w", err)
-	}
-
-	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
-	if err != nil {
-		return fmt.Errorf("resolve image digest for tag %q: %w", tag, err)
-	}
-
-	sbomJSON, err := sbomImage.PullSBOM(ctx, repoAddr, desc.Digest.String(), "")
+	sbomJSON, err := sbomImage.PullSBOMByTag(ctx, repoAddr, tag, "")
 	if err != nil {
 		return fmt.Errorf("pull SBOM: %w", err)
 	}

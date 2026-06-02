@@ -33,7 +33,7 @@ var _ = Describe("Image", func() {
 		func(digest, expected string) {
 			Expect(FallbackTag(digest)).To(Equal(expected))
 		},
-		Entry("standard digest", "sha256:abc123", "sha256-abc123"),
-		Entry("full digest", "sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", "sha256-5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a"),
+		Entry("standard digest", "sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", "sha256-5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a"),
+		Entry("alternate digest", "sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1", "sha256-abc123def456abc123def456abc123def456abc123def456abc123def456abc1"),
 	)
 })

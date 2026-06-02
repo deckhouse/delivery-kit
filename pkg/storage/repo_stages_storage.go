@@ -856,7 +856,7 @@ func (storage *RepoStagesStorage) GetOrphanedArtifactNames(ctx context.Context) 
 			continue
 		}
 
-		parentDigest := strings.Replace(tag, artifact.FallbackTagPrefix, "sha256:", 1)
+		parentDigest := "sha256:" + strings.TrimPrefix(tag, artifact.FallbackTagPrefix)
 		ref := fmt.Sprintf("%s@%s", storage.RepoAddress, parentDigest)
 		imgInfo, err := storage.DockerRegistry.TryGetRepoImage(ctx, ref)
 		if err != nil {

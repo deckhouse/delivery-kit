@@ -34,7 +34,6 @@ var ErrSbomNotAvailable = errors.New("sbom not available")
 type sbomStep struct {
 	containerBackend container_backend.ContainerBackend
 	stagesStorage    storage.StagesStorage
-	artifactStore    artifact.Store
 }
 
 func newSbomStep(
@@ -59,11 +58,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 	checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
 
-	store := step.artifactStore
-	if store == nil {
-		store = artifact.NewOCIStore(repo, werfImgName)
-	}
-
+	store := artifact.NewOCIStore(repo, werfImgName)
 	desc, found, err := store.GetAttached(ctx, parentDigest, sbomImage.DSSEMediaType)
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
@@ -116,18 +111,8 @@ for _, patcher := range patchers {
 			return fmt.Errorf("serialize BOM: %w", err)
 		}
 
-		digestHex := strings.TrimPrefix(parentDigest, "sha256:")
-		stmtBytes, err := sbomImage.WrapInInTotoStatement(resultJSON, sbomImage.CycloneDX16Predicate, repo, digestHex)
-		if err != nil {
-			return fmt.Errorf("wrap BOM in in-toto statement: %w", err)
-		}
-		envelopeBytes, err := sbomImage.WrapInDSSE(stmtBytes, sbomImage.InTotoMediaType)
-		if err != nil {
-			return fmt.Errorf("wrap in-toto statement in DSSE: %w", err)
-		}
-
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
-			return store.Attach(ctx, parentDigest, sbomImage.DSSEMediaType, envelopeBytes, checksum)
+			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum)
 		}); err != nil {
 			return err
 		}
@@ -165,22 +150,12 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, ima
 		return nil, fmt.Errorf("image digest not available for %q: %w", imageInfo.Name, ErrSbomNotAvailable)
 	}
 
-	store := step.artifactStore
-	if store == nil {
-		store = artifact.NewOCIStore(imageInfo.Repository, werfImgName)
-	}
-
-	envelopeJSON, err := store.GetAttachedContent(ctx, parentDigest, sbomImage.DSSEMediaType)
+	bomJSON, err := sbomImage.PullSBOM(ctx, imageInfo.Repository, parentDigest, werfImgName)
 	if err != nil {
 		if errors.Is(err, artifact.ErrNotFound) {
 			return nil, fmt.Errorf("SBOM not available for %q: %w", werfImgName, ErrSbomNotAvailable)
 		}
-		return nil, fmt.Errorf("pull SBOM artifact for %q: %w", werfImgName, err)
-	}
-
-	bomJSON, err := sbomImage.PullCycloneDX16BOMContent(ctx, envelopeJSON)
-	if err != nil {
-		return nil, fmt.Errorf("parse pulled SBOM for %q: %w", werfImgName, err)
+		return nil, fmt.Errorf("pull SBOM for %q: %w", werfImgName, err)
 	}
 
 	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)

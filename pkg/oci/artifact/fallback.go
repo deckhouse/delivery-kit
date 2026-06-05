@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -13,24 +15,26 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/image"
 )
 
 const (
 	FallbackTagPrefix    = "sha256-"
 	EmptyConfigMediaType = "application/vnd.oci.empty.v1+json"
-	maxRetries           = 3
-
-	WerfImageNameAnnotation = "io.werf.image-name"
 )
+
+var maxRetries = 3
 
 func FallbackTag(parentDigest string) string {
 	hex, err := DigestHex(parentDigest)
 	if err != nil {
-		// Fallback to simple trim for malformed digests — this is best-effort
-		return FallbackTagPrefix + parentDigest
+		hex = strings.TrimPrefix(parentDigest, "sha256:")
+		hex = strings.NewReplacer(":", "-", "/", "_", "@", "-").Replace(hex)
+		return FallbackTagPrefix + hex
 	}
 	return FallbackTagPrefix + hex
 }
@@ -38,48 +42,47 @@ func FallbackTag(parentDigest string) string {
 func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
 	eb := backoff.NewExponentialBackOff()
 	eb.InitialInterval = 500 * time.Millisecond
-	eb.Reset()
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			sleepDuration := eb.NextBackOff()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(sleepDuration):
-			}
-		}
+	notify := func(err error, duration time.Duration) {
+		logboek.Context(ctx).Warn().LogF("SBOM attach CAS attempt failed: %s. Retrying in %v...\n", err, duration)
+	}
 
+	_, err := backoff.Retry(ctx, func() (bool, error) {
 		current, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName)
 		if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
-			return err
+			return false, err
 		}
 
 		verified, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		verifiedDigest, err := verified.Digest()
 		if err != nil {
-			return fmt.Errorf("get fallback index digest: %w", err)
+			return false, fmt.Errorf("get fallback index digest: %w", err)
 		}
 		nextDigest, err := next.Digest()
 		if err != nil {
-			return fmt.Errorf("get updated index digest: %w", err)
+			return false, fmt.Errorf("get updated index digest: %w", err)
 		}
 
-		if verifiedDigest == nextDigest {
-			return nil
+		if verifiedDigest != nextDigest {
+			return false, fmt.Errorf("CAS mismatch: concurrent write detected")
 		}
-	}
 
-	return fmt.Errorf("attach artifact: max retries (%d) exceeded", maxRetries)
+		return true, nil
+	},
+		backoff.WithBackOff(eb),
+		backoff.WithMaxTries(uint(maxRetries)),
+		backoff.WithNotify(notify),
+	)
+	return err
 }
 
 func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageName string, opts ...remote.Option) (v1.Descriptor, bool, error) {
@@ -98,7 +101,7 @@ func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageNam
 		if desc.ArtifactType != artifactType {
 			continue
 		}
-		if imageName != "" && desc.Annotations[WerfImageNameAnnotation] != imageName {
+		if imageName != "" && desc.Annotations[image.WerfImageNameAnnotation] != imageName {
 			continue
 		}
 		matches = append(matches, desc)
@@ -142,11 +145,11 @@ func pullFallbackIndex(ctx context.Context, repo, parentDigest string, opts ...r
 	ropts := append([]remote.Option{remote.WithContext(ctx)}, opts...)
 	idx, err := remote.Index(tagRef, ropts...)
 	if err != nil {
-		desc, getErr := remote.Get(tagRef, ropts...)
-		if getErr == nil && desc != nil {
-			return nil, fmt.Errorf("pull fallback index: %w", err)
+		var transportErr *transport.Error
+		if errors.As(err, &transportErr) && transportErr.StatusCode == 404 {
+			return empty.Index, nil
 		}
-		return empty.Index, nil
+		return nil, fmt.Errorf("pull fallback index: %w", err)
 	}
 
 	return idx, nil
@@ -175,7 +178,7 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 	kept := make([]v1.Descriptor, 0, len(im.Manifests)+1)
 	for _, manifest := range im.Manifests {
 		if manifest.ArtifactType == artifactType {
-			if imageName != "" && manifest.Annotations[WerfImageNameAnnotation] == imageName {
+			if imageName != "" && manifest.Annotations[image.WerfImageNameAnnotation] == imageName {
 				continue
 			}
 		}

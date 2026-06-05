@@ -248,8 +248,7 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	}
 
 	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
-		logboek.Context(ctx).Warn().LogF("WARNING: SBOM generation skipped — no container registry specified. Use --repo to enable SBOM.\n")
-		return nil
+		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
 	}
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
@@ -330,14 +329,14 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		return err
 	}
 
-	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
+goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
 	patchers := []BOMPatcherInterface{
 		externalRefPatcher,
 		goModPatcher,
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, patchers); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, patchers, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

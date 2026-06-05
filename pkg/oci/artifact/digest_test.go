@@ -43,5 +43,8 @@ var _ = Describe("FallbackTag", func() {
 			Expect(artifact.FallbackTag(digest)).To(Equal(expected))
 		},
 		Entry("plain hex without prefix", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+		Entry("digest with colons", "sha256:abc:def", "sha256-abc-def"),
+		Entry("digest with slashes", "sha256:abc/def", "sha256-abc_def"),
+		Entry("digest with at sign", "sha256:abc@def", "sha256-abc-def"),
 	)
 })

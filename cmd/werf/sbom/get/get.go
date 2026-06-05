@@ -66,6 +66,10 @@ func NewCmd(ctx context.Context) *cobra.Command {
 					return runGetByDigest(ctx, digestFlag)
 				}
 
+				if len(args) == 0 {
+					return fmt.Errorf("specify image name, or use --tag/--digest flag")
+				}
+
 				return runGet(ctx, args[0])
 			})
 		},

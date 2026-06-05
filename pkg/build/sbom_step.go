@@ -46,7 +46,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, targetPlatform string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -63,7 +63,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
 	}
-	if found && desc.Annotations["io.werf.checksum"] == checksum {
+	if found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
 		logboek.Context(ctx).Default().LogF("image %s: Use previously generated SBOM from registry\n", werfImgName)
 		return nil
 	}
@@ -112,7 +112,7 @@ for _, patcher := range patchers {
 		}
 
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
-			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum)
+			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform)
 		}); err != nil {
 			return err
 		}

@@ -30,4 +30,8 @@ const (
 	ImportServerContainerNamePrefix = "import-server-"
 	AssemblingContainerNamePrefix   = "werf.stapel."
 	SBOMScannerContainerNamePrefix  = "werf.sbom.scanner."
+
+	WerfImageNameAnnotation = "io.werf.image-name"
+	WerfChecksumAnnotation  = "io.werf.checksum"
+	WerfPlatformAnnotation  = "io.werf.target-platform"
 )

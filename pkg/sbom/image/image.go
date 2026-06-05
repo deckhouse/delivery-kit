@@ -42,7 +42,7 @@ func FallbackTag(parentDigest string) string {
 	return artifact.FallbackTag(parentDigest)
 }
 
-func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum string) error {
+func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string) error {
 	digestHex, err := artifact.DigestHex(parentDigest)
 	if err != nil {
 		return fmt.Errorf("extract digest hex: %w", err)
@@ -59,7 +59,7 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)
-	return store.Attach(ctx, parentDigest, DSSEMediaType, envelopeBytes, checksum)
+	return store.Attach(ctx, parentDigest, DSSEMediaType, envelopeBytes, checksum, targetPlatform)
 }
 
 func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte, error) {

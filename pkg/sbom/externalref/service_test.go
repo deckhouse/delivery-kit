@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/werf"
 )
 
@@ -16,12 +17,14 @@ var _ = Describe("Service", func() {
 	var ts *httptest.Server
 	var calls *int
 	var service *Service
+	var ctx context.Context
 
 	BeforeEach(func() {
 		handler, c := mockResolver()
 		calls = c
 		ts = httptest.NewServer(handler)
 		service = NewService(ServiceConfig{ServerURL: ts.URL})
+		ctx = logging.WithLogger(context.Background())
 	})
 
 	AfterEach(func() {
@@ -36,7 +39,7 @@ var _ = Describe("Service", func() {
 
 		DescribeTable("returns expected result",
 			func(c resolveCase) {
-				result, err := service.Resolve(context.Background(), c.purl)
+				result, err := service.Resolve(ctx, c.purl)
 				c.check(result, err)
 			},
 			Entry("resolves lodash to VCS URL", resolveCase{
@@ -82,11 +85,14 @@ var _ = Describe("Service", func() {
 		)
 
 		It("returns error on server error (without retry)", func() {
+			timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+
 			noRetryService := NewService(ServiceConfig{
 				ServerURL:  ts.URL,
 				HTTPClient: &http.Client{Timeout: 30 * time.Second},
 			})
-			_, err := noRetryService.Resolve(context.Background(), "pkg:npm/server-error@1.0.0")
+			_, err := noRetryService.Resolve(timeoutCtx, "pkg:npm/server-error@1.0.0")
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -100,14 +106,14 @@ var _ = Describe("Service", func() {
 			defer uaTS.Close()
 
 			uaService := NewService(ServiceConfig{ServerURL: uaTS.URL})
-			_, _ = uaService.Resolve(context.Background(), "pkg:npm/lodash@4.17.21")
+			_, _ = uaService.Resolve(ctx, "pkg:npm/lodash@4.17.21")
 
 			Expect(capturedUA).To(Equal(werf.UserAgent))
 		})
 
 		It("counts resolve calls", func() {
-			_, _ = service.Resolve(context.Background(), "pkg:npm/lodash@4.17.21")
-			_, _ = service.Resolve(context.Background(), "pkg:npm/express@4.18.2")
+			_, _ = service.Resolve(ctx, "pkg:npm/lodash@4.17.21")
+			_, _ = service.Resolve(ctx, "pkg:npm/express@4.18.2")
 			Expect(*calls).To(Equal(2))
 		})
 	})

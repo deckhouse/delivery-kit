@@ -11,6 +11,27 @@ import (
 	"github.com/werf/logboek"
 )
 
+func validateRefKind(kind string) error {
+	switch cdx.ExternalReferenceType(kind) {
+	case cdx.ERTypeVCS, cdx.ERTypeWebsite, cdx.ERTypeIssueTracker, cdx.ERTypeAdvisories,
+		cdx.ERTypeBOM, cdx.ERTypeChat, cdx.ERTypeDocumentation, cdx.ERTypeDistribution,
+		cdx.ERTypeLicense, cdx.ERTypeOther, cdx.ERTypeReleaseNotes, cdx.ERTypeSecurityContact,
+		cdx.ERTypeSocial, cdx.ERTypeSupport, cdx.ERTypeEvidence, cdx.ERTypeFormulation,
+		cdx.ERTypeConfiguration, cdx.ERTypeBuildMeta, cdx.ERTypeBuildSystem,
+		cdx.ERTypeAttestation, cdx.ERTypeThreatModel, cdx.ERTypeRiskAssessment,
+		cdx.ERTypeMaturityReport, cdx.ERTypeComponentAnalysisReport, cdx.ERTypeDynamicAnalysisReport,
+		cdx.ERTypeStaticAnalysisReport, cdx.ERTypePentestReport, cdx.ERTypeCertificationReport,
+		cdx.ERTypeQualityMetrics, cdx.ERTypePOAM, cdx.ERTypeRuntimeAnalysisReport,
+		cdx.ERTypeExploitabilityStatement, cdx.ERTypeAdversaryModel, cdx.ERTypeModelCard,
+		cdx.ERTypeDistributionIntake, cdx.ERTypeDigitalSignature, cdx.ERTypeElectronicSignature,
+		cdx.ERTypeCodifiedInfrastructure, cdx.ERTypeLog, cdx.ERTypeMailingList,
+		cdx.ERTypeRFC9116, cdx.ERTypeSourceDistribution, cdx.ERTypeVulnerabilityAssertion:
+		return nil
+	default:
+		return fmt.Errorf("enrich: unknown external reference kind %q", kind)
+	}
+}
+
 type Enricher struct {
 	resolve func(ctx context.Context, purl string) (*ResolveResult, error)
 }
@@ -44,6 +65,10 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 				return fmt.Errorf("enrich %q: %w", comp.PackageURL, err)
 			}
 
+			if err := validateRefKind(res.Kind); err != nil {
+				return fmt.Errorf("enrich %q: %w", comp.PackageURL, err)
+			}
+
 			extRef := cdx.ExternalReference{
 				URL:  res.URL,
 				Type: cdx.ExternalReferenceType(res.Kind),
@@ -54,14 +79,14 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 			}
 			*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
 
-			mu.Lock()
-			defer mu.Unlock()
-
 			key := res.URL + "|" + res.Kind
+
+			mu.Lock()
 			if !seen[key] {
 				seen[key] = true
 				bomRefs = append(bomRefs, extRef)
 			}
+			mu.Unlock()
 
 			return nil
 		})

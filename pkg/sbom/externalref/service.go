@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/werf/werf/v2/pkg/docker_registry/transport"
+	"github.com/cenkalti/backoff/v5"
+
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/werf"
 )
 
@@ -36,10 +38,8 @@ func NewService(cfg ServiceConfig) *Service {
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Transport: transport.NewTransport(
-				werf.NewUserAgentTransport(http.DefaultTransport),
-			),
-			Timeout: timeout,
+			Transport: werf.NewUserAgentTransport(http.DefaultTransport),
+			Timeout:   timeout,
 		}
 	}
 
@@ -52,34 +52,24 @@ func NewService(cfg ServiceConfig) *Service {
 func (s *Service) Resolve(ctx context.Context, purl string) (*ResolveResult, error) {
 	u := fmt.Sprintf("%s/api/v1/resolve?purl=%s", s.serverURL, url.QueryEscape(purl))
 
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(i) * time.Second):
-			}
-		}
-
-		result, err := s.doResolve(ctx, u, purl)
-		if err == nil {
-			return result, nil
-		}
-		lastErr = err
-
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-	}
-
-	return nil, lastErr
+	return backoff.Retry(ctx, func() (*ResolveResult, error) {
+		return s.doResolve(ctx, u, purl)
+	},
+		backoff.WithBackOff(backoff.NewExponentialBackOff()),
+		backoff.WithMaxElapsedTime(30*time.Second),
+		backoff.WithNotify(func(err error, duration time.Duration) {
+			logboek.Context(ctx).Warn().LogF(
+				"WARNING: resolve PURL failed, retrying in %v: %s\n",
+				duration, err,
+			)
+		}),
+	)
 }
 
 func (s *Service) doResolve(ctx context.Context, u, purl string) (*ResolveResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %q: create request: %w", purl, err)
+		return nil, backoff.Permanent(fmt.Errorf("resolve %q: create request: %w", purl, err))
 	}
 
 	resp, err := s.httpClient.Do(req)
@@ -96,18 +86,18 @@ func (s *Service) doResolve(ctx context.Context, u, purl string) (*ResolveResult
 	if resp.StatusCode != http.StatusOK {
 		err := fmt.Errorf("resolve %q: unexpected status %d: %s", purl, resp.StatusCode, strings.TrimSpace(string(body)))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			return nil, err // retryable
+			return nil, err
 		}
-		return nil, err
+		return nil, backoff.Permanent(err)
 	}
 
 	var result ResolveResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("resolve %q: parse response: %w", purl, err)
+		return nil, backoff.Permanent(fmt.Errorf("resolve %q: parse response: %w", purl, err))
 	}
 
 	if result.URL == "" {
-		return nil, fmt.Errorf("resolve %q: %w", purl, ErrEmptyURL)
+		return nil, backoff.Permanent(fmt.Errorf("resolve %q: %w", purl, ErrEmptyURL))
 	}
 
 	return &result, nil

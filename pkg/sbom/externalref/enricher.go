@@ -48,9 +48,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(10)
 
-	var mu sync.Mutex
-	seen := make(map[string]bool)
-	var bomRefs []cdx.ExternalReference
+	var seen sync.Map
 
 	components := *bom.Components
 	for i := range components {
@@ -79,14 +77,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 			}
 			*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
 
-			key := res.URL + "|" + res.Kind
-
-			mu.Lock()
-			if !seen[key] {
-				seen[key] = true
-				bomRefs = append(bomRefs, extRef)
-			}
-			mu.Unlock()
+			seen.Store(res.URL+"|"+res.Kind, extRef)
 
 			return nil
 		})
@@ -95,6 +86,12 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	if err := g.Wait(); err != nil {
 		return err
 	}
+
+	var bomRefs []cdx.ExternalReference
+	seen.Range(func(_, value any) bool {
+		bomRefs = append(bomRefs, value.(cdx.ExternalReference))
+		return true
+	})
 
 	if len(bomRefs) > 0 {
 		bom.ExternalReferences = &bomRefs

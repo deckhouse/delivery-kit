@@ -96,7 +96,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-for _, patcher := range patchers {
+		for _, patcher := range patchers {
 			if patcher == nil {
 				continue
 			}

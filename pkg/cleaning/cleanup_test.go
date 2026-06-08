@@ -33,15 +33,15 @@ var _ = Describe("deleteOrphanedArtifacts", func() {
 		),
 		Entry("orphans deleted successfully",
 			func(s *mock.MockStagesStorage) {
-				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:abc123-sbom", "repo:def456-sbom"}, nil)
-				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:abc123-sbom").Return(nil)
-				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:def456-sbom").Return(nil)
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123", "repo:sha256-def456"}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-abc123").Return(nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-def456").Return(nil)
 			},
 			false, false, "",
 		),
 		Entry("dry run — skips deletion",
 			func(s *mock.MockStagesStorage) {
-				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:abc123-sbom", "repo:def456-sbom"}, nil)
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123", "repo:sha256-def456"}, nil)
 			},
 			true, false, "",
 		),
@@ -53,16 +53,16 @@ var _ = Describe("deleteOrphanedArtifacts", func() {
 		),
 		Entry("non-fatal deletion error — continues to next",
 			func(s *mock.MockStagesStorage) {
-				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:abc123-sbom", "repo:def456-sbom"}, nil)
-				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:abc123-sbom").Return(errors.New("temporary network error"))
-				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:def456-sbom").Return(nil)
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123", "repo:sha256-def456"}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-abc123").Return(errors.New("temporary network error"))
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-def456").Return(nil)
 			},
 			false, false, "",
 		),
 		Entry("fatal deletion error (UNAUTHORIZED) — stops and returns error",
 			func(s *mock.MockStagesStorage) {
-				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:abc123-sbom"}, nil)
-				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:abc123-sbom").Return(errors.New("UNAUTHORIZED"))
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123"}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-abc123").Return(errors.New("UNAUTHORIZED"))
 			},
 			false, true, "UNAUTHORIZED",
 		),

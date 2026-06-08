@@ -40,6 +40,10 @@ func FallbackTag(parentDigest string) string {
 }
 
 func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
+	if imageName == "" {
+		return fmt.Errorf("imageName is required to attach artifact of type %q to digest %s", artifactType, parentDigest)
+	}
+
 	eb := backoff.NewExponentialBackOff()
 	eb.InitialInterval = 500 * time.Millisecond
 

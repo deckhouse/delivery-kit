@@ -98,7 +98,7 @@ func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string
 // at digest D has an SBOM attached, any image with digest D (same content) shares that SBOM.
 // The artifact is identified by the (parentDigest, artifactType, imageName) tuple.
 func (s *OCIStore) GetAttached(ctx context.Context, parentDigest, artifactType string) (v1.Descriptor, bool, error) {
-	return GetAttached(ctx, s.repo, parentDigest, artifactType, s.imageName, s.opts...)
+	return GetAttached(ctx, s.repo, parentDigest, artifactType, s.imageName, s.remoteOptions(ctx)...)
 }
 
 func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {

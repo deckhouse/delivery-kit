@@ -329,7 +329,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		return err
 	}
 
-goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
+	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
 	patchers := []BOMPatcherInterface{
 		externalRefPatcher,

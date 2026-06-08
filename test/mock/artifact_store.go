@@ -42,17 +42,17 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 }
 
 // Attach mocks base method.
-func (m *MockStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum string) error {
+func (m *MockStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum string, targetPlatform string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Attach", ctx, parentDigest, artifactType, payload, checksum)
+	ret := m.ctrl.Call(m, "Attach", ctx, parentDigest, artifactType, payload, checksum, targetPlatform)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Attach indicates an expected call of Attach.
-func (mr *MockStoreMockRecorder) Attach(ctx, parentDigest, artifactType, payload, checksum any) *gomock.Call {
+func (mr *MockStoreMockRecorder) Attach(ctx, parentDigest, artifactType, payload, checksum, targetPlatform any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Attach", reflect.TypeOf((*MockStore)(nil).Attach), ctx, parentDigest, artifactType, payload, checksum)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Attach", reflect.TypeOf((*MockStore)(nil).Attach), ctx, parentDigest, artifactType, payload, checksum, targetPlatform)
 }
 
 // GetAttached mocks base method.

@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/werf/werf/v2/test/pkg/report"
+	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -446,10 +447,22 @@ var _ = Describe("SBOM go-replace", Label("e2e", "build", "sbom", "go-replace", 
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 			utils.RunSucceedCommand(ctx, testRepoPath, "git", "tag", "v1.0.0")
 
+			By("building and pushing builder-base image to local registry")
+			builderBaseRef := fmt.Sprintf("%s/golang-builder:test", suite_init.TestRegistry())
+			utils.RunSucceedCommand(ctx, testRepoPath, "docker", "build", "-t", builderBaseRef, "-f", "Dockerfile.builder-base", ".")
+			utils.RunSucceedCommand(ctx, testRepoPath, "docker", "push", builderBaseRef)
+
 			By("building images")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
 			reportProject := report.NewProjectWithReport(werfProject)
-			buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_sbom_go_replace.json"), nil)
+			buildOpts := &werf.WithReportOptions{
+				CommonOptions: werf.CommonOptions{
+					Envs: []string{
+						fmt.Sprintf("BUILDER_BASE_IMAGE=%s", builderBaseRef),
+					},
+				},
+			}
+			buildOut, _ := reportProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report_sbom_go_replace.json"), buildOpts)
 			Expect(buildOut).To(ContainSubstring("Building stage"))
 			Expect(buildOut).To(ContainSubstring(sbomProcessingPrefix))
 		},

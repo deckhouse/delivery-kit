@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -19,15 +20,16 @@ var _ = Describe("SbomStep", func() {
 	Describe("GetImageBOM()", func() {
 		It("should return ErrSbomNotAvailable if image info is nil", func() {
 			step := &sbomStep{}
-			_, err := step.GetImageBOM(context.Background(), "app", "tag", nil)
+			_, err := step.GetImageBOM(context.Background(), "app", nil)
 			Expect(err).To(MatchError(ErrSbomNotAvailable))
 		})
 
-		It("should return ErrSbomNotAvailable if image digest is empty", func() {
+		It("should return fatal error if image digest is empty", func() {
 			step := &sbomStep{}
 			imgInfo := &werfImage.Info{Name: "app:latest"}
-			_, err := step.GetImageBOM(context.Background(), "app", "tag", imgInfo)
-			Expect(err).To(MatchError(ErrSbomNotAvailable))
+			_, err := step.GetImageBOM(context.Background(), "app", imgInfo)
+			Expect(err).To(HaveOccurred())
+			Expect(errors.Is(err, ErrSbomNotAvailable)).To(BeFalse())
 		})
 	})
 
@@ -85,5 +87,41 @@ var _ = Describe("SbomStep", func() {
 				},
 			),
 		)
+	})
+
+	Describe("isTrustedBuilderImage()", func() {
+		DescribeTable("should detect trusted builder images",
+			func(labels map[string]string, expected bool) {
+				Expect(isTrustedBuilderImage(labels)).To(Equal(expected))
+			},
+			Entry("nil labels", nil, false),
+			Entry("empty labels", map[string]string{}, false),
+			Entry("label set to false", map[string]string{werfImage.DeckhouseInternalBuilderLabel: "false"}, false),
+			Entry("label set to true", map[string]string{werfImage.DeckhouseInternalBuilderLabel: "true"}, true),
+			Entry("other labels without builder", map[string]string{"foo": "bar", "baz": "qux"}, false),
+			Entry("other labels with builder true", map[string]string{"foo": "bar", werfImage.DeckhouseInternalBuilderLabel: "true", "baz": "qux"}, true),
+		)
+	})
+
+	Describe("GetImageBOM() with trusted builder image", func() {
+		It("should return ErrSbomNotAvailable when SBOM pull fails", func() {
+			ctrl := gomock.NewController(GinkgoT())
+			backend := mock.NewMockContainerBackend(ctrl)
+			stagesStorage := mock.NewMockStagesStorage(ctrl)
+
+			step := newSbomStep(backend, stagesStorage)
+			ctx := logging.WithLogger(context.Background())
+
+			imageInfo := &werfImage.Info{
+				Name:       "docker.io/namespace/repo:builder-tag",
+				Repository: "docker.io/namespace/repo",
+				Labels: map[string]string{
+					werfImage.DeckhouseInternalBuilderLabel: "true",
+				},
+			}
+
+			_, err := step.GetImageBOM(ctx, "builder-image", imageInfo)
+			Expect(errors.Is(err, ErrSbomNotAvailable)).To(BeTrue())
+		})
 	})
 })

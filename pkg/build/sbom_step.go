@@ -128,34 +128,31 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 	return util.Sha256Hash(strings.Join(parts, "-"))
 }
 
-func (step *sbomStep) GetImageBOM(ctx context.Context, werfImgName, tag string, imageInfo *image.Info) (*cdx.BOM, error) {
+func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
 	if imageInfo == nil {
 		return nil, ErrSbomNotAvailable
 	}
 
-	bom, err := step.pullImageSbom(ctx, werfImgName, imageInfo)
+	bom, err := step.pullImageSbom(ctx, imageName, imageInfo)
 	if err != nil {
-		if errors.Is(err, ErrSbomNotAvailable) {
-			return nil, err
+		if isTrustedBuilderImage(imageInfo.Labels) {
+			return nil, fmt.Errorf("SBOM not required for trusted builder image %q: %w", imageName, ErrSbomNotAvailable)
 		}
-		return nil, fmt.Errorf("pull SBOM for %q: %w", werfImgName, err)
+		return nil, fmt.Errorf("pull SBOM for %q: %w", imageName, err)
 	}
 
 	return bom, nil
 }
 
-func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, imageInfo *image.Info) (*cdx.BOM, error) {
+func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
 	parentDigest := imageInfo.GetDigest()
 	if parentDigest == "" {
-		return nil, fmt.Errorf("image digest not available for %q: %w", imageInfo.Name, ErrSbomNotAvailable)
+		return nil, fmt.Errorf("image digest not available for %q", imageInfo.Name)
 	}
 
-	bomJSON, err := sbomImage.PullSBOM(ctx, imageInfo.Repository, parentDigest, werfImgName)
+	bomJSON, err := sbomImage.PullSBOM(ctx, imageInfo.Repository, parentDigest, imageName)
 	if err != nil {
-		if errors.Is(err, artifact.ErrNotFound) {
-			return nil, fmt.Errorf("SBOM not available for %q: %w", werfImgName, ErrSbomNotAvailable)
-		}
-		return nil, fmt.Errorf("pull SBOM for %q: %w", werfImgName, err)
+		return nil, fmt.Errorf("pull SBOM for %q: %w", imageName, err)
 	}
 
 	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
@@ -164,6 +161,13 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, werfImgName string, ima
 	}
 
 	return bom, nil
+}
+
+func isTrustedBuilderImage(labels map[string]string) bool {
+	if labels == nil {
+		return false
+	}
+	return labels[image.DeckhouseInternalBuilderLabel] == "true"
 }
 
 func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
@@ -186,6 +190,12 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 		}
 		if err := gost.Upsert(externalBOM, mergeOpts.Gost); err != nil {
 			return fmt.Errorf("set GOST properties for external SBOM [%d]: %w", i, err)
+		}
+	}
+
+	if mergeOpts.FragmentBOM != nil {
+		if err := gost.Upsert(mergeOpts.FragmentBOM, mergeOpts.Gost); err != nil {
+			return fmt.Errorf("set GOST properties for fragment BOM: %w", err)
 		}
 	}
 

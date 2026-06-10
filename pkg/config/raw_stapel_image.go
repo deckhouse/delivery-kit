@@ -8,28 +8,29 @@ import (
 )
 
 type rawStapelImage struct {
-	Images               []string         `yaml:"-"`
-	Final                *bool            `yaml:"final,omitempty"`
-	Artifact             string           `yaml:"artifact,omitempty"`
-	CacheVersion         string           `yaml:"cacheVersion,omitempty"`
-	From                 string           `yaml:"from,omitempty"`
-	FromLatest           bool             `yaml:"fromLatest,omitempty"`
-	FromCacheVersion     string           `yaml:"fromCacheVersion,omitempty"`
-	FromImage            string           `yaml:"fromImage,omitempty"`
-	FromArtifact         string           `yaml:"fromArtifact,omitempty"`
-	DisableGitAfterPatch bool             `yaml:"disableGitAfterPatch,omitempty"`
-	RawGit               []*rawGit        `yaml:"git,omitempty"`
-	RawShell             *rawShell        `yaml:"shell,omitempty"`
-	RawAnsible           *rawAnsible      `yaml:"ansible,omitempty"`
-	RawMount             []*rawMount      `yaml:"mount,omitempty"`
-	RawDocker            *rawDocker       `yaml:"docker,omitempty"`
-	RawImport            []*rawImport     `yaml:"import,omitempty"`
-	RawDependencies      []*rawDependency `yaml:"dependencies,omitempty"`
-	Platform             []string         `yaml:"platform,omitempty"`
-	Network              string           `yaml:"network,omitempty"`
-	RawSbom              *rawSbom         `yaml:"sbom,omitempty"`
-	RawSecrets           []*rawSecret     `yaml:"secrets,omitempty"`
-	RawImageSpec         *rawImageSpec    `yaml:"imageSpec,omitempty"`
+	Images               []string                `yaml:"-"`
+	Final                *bool                   `yaml:"final,omitempty"`
+	Artifact             string                  `yaml:"artifact,omitempty"`
+	CacheVersion         string                  `yaml:"cacheVersion,omitempty"`
+	From                 string                  `yaml:"from,omitempty"`
+	FromLatest           bool                    `yaml:"fromLatest,omitempty"`
+	FromCacheVersion     string                  `yaml:"fromCacheVersion,omitempty"`
+	FromImage            string                  `yaml:"fromImage,omitempty"`
+	FromArtifact         string                  `yaml:"fromArtifact,omitempty"`
+	DisableGitAfterPatch bool                    `yaml:"disableGitAfterPatch,omitempty"`
+	RawGit               []*rawGit               `yaml:"git,omitempty"`
+	RawShell             *rawShell               `yaml:"shell,omitempty"`
+	RawAnsible           *rawAnsible             `yaml:"ansible,omitempty"`
+	RawMount             []*rawMount             `yaml:"mount,omitempty"`
+	RawDocker            *rawDocker              `yaml:"docker,omitempty"`
+	RawImport            []*rawImport            `yaml:"import,omitempty"`
+	RawDependencies      []*rawDependency        `yaml:"dependencies,omitempty"`
+	Platform             []string                `yaml:"platform,omitempty"`
+	Network              string                  `yaml:"network,omitempty"`
+	RawSbom              *rawSbom                `yaml:"sbom,omitempty"`
+	RawSecrets           []*rawSecret            `yaml:"secrets,omitempty"`
+	RawImageSpec         *rawImageSpec           `yaml:"imageSpec,omitempty"`
+	RawPackages          []*rawPackagesDirective `yaml:"packages,omitempty"`
 
 	doc *doc `yaml:"-"` // parent
 
@@ -314,6 +315,15 @@ func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager gitermini
 
 	if c.RawImageSpec != nil {
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
+	}
+
+	for _, rawPkg := range c.RawPackages {
+		pkgDirective, err := rawPkg.toDirective()
+		if err != nil {
+			return nil, err
+		}
+
+		imageBase.Packages = append(imageBase.Packages, pkgDirective)
 	}
 
 	if imageBase.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {

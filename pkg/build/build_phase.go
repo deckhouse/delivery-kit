@@ -1522,7 +1522,7 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 
 	baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, img.GetBaseImageName(), baseImageInfo)
 	if err != nil {
-		if errors.Is(err, ErrSbomNotAvailable) {
+		if errors.Is(err, ErrSbomNotRequired) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("unable to get base image sbom with ref %s: %w", img.GetBaseImageReference(), err)
@@ -1568,7 +1568,7 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 
 		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importLookupName, importImageInfo)
 		if err != nil {
-			if errors.Is(err, ErrSbomNotAvailable) {
+			if errors.Is(err, ErrSbomNotRequired) {
 				continue
 			}
 			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)

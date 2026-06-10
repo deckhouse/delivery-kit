@@ -26,10 +26,9 @@ type BOMPatcherInterface interface {
 	Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error)
 }
 
-// ErrSbomNotAvailable indicates that SBOM for the given image is not available
-// (e.g. it was not built by werf, or the SBOM image is missing from the registry).
-// Callers should handle this as a non-fatal condition by emitting a warning.
-var ErrSbomNotAvailable = errors.New("sbom not available")
+// ErrSbomNotRequired indicates that SBOM is intentionally absent for the image
+// (e.g. it is a trusted builder image). Callers should handle this silently.
+var ErrSbomNotRequired = errors.New("sbom not required")
 
 type sbomStep struct {
 	containerBackend container_backend.ContainerBackend
@@ -130,13 +129,16 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 
 func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
 	if imageInfo == nil {
-		return nil, ErrSbomNotAvailable
+		return nil, fmt.Errorf("image info is nil for %q", imageName)
 	}
 
 	bom, err := step.pullImageSbom(ctx, imageName, imageInfo)
 	if err != nil {
+		if !errors.Is(err, artifact.ErrNotFound) {
+			return nil, fmt.Errorf("pull SBOM for %q: %w", imageName, err)
+		}
 		if isTrustedBuilderImage(imageInfo.Labels) {
-			return nil, fmt.Errorf("SBOM not required for trusted builder image %q: %w", imageName, ErrSbomNotAvailable)
+			return nil, fmt.Errorf("trusted builder image %q: %w", imageName, ErrSbomNotRequired)
 		}
 		return nil, fmt.Errorf("pull SBOM for %q: %w", imageName, err)
 	}

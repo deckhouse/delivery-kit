@@ -93,7 +93,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}),
 	)
 
-	DescribeTable("should succeed with registry-only SBOM when base image SBOM is not found in registry",
+	DescribeTable("should fail when base image has no SBOM and is not a trusted builder image",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
@@ -103,17 +103,17 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			fixtureRelPath := "sbom/state2"
 			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
 
-			By("building images")
+			By("building images expecting failure")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
-			buildOut := werfProject.Build(ctx, nil)
-			Expect(buildOut).To(ContainSubstring(sbomProcessingPrefix))
+			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ShouldFail: true}})
+			Expect(buildOut).To(ContainSubstring("unable to get base image sbom"))
 		},
-		XEntry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		XEntry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "buildkit-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -168,7 +168,7 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 		}}),
 	)
 
-	DescribeTable("should succeed with registry-only SBOM when import image not found",
+	DescribeTable("should fail when external import image has no SBOM and is not a trusted builder image",
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
@@ -178,17 +178,17 @@ var _ = Describe("Simple build", Label("e2e", "build", "sbom", "simple"), func()
 			fixtureRelPath := "sbom/import_stapel/state1"
 			SuiteData.InitTestRepo(ctx, repoDirName, fixtureRelPath)
 
-			By("building images")
+			By("building images expecting failure")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirName))
-			buildOut := werfProject.Build(ctx, nil)
-			Expect(buildOut).To(ContainSubstring(sbomProcessingPrefix))
+			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ShouldFail: true}})
+			Expect(buildOut).To(ContainSubstring("unable to get import image sbom"))
 		},
-		XEntry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
+		Entry("with local repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "vanilla-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		XEntry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
+		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
 			ContainerBackendMode:        "buildkit-docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,

@@ -24,6 +24,7 @@ type StapelImageBase struct {
 	Secrets          []Secret
 	ImageSpec        *ImageSpec
 	Network          string
+	Packages         []*PackagesDirective
 
 	FromExternal bool
 	cacheVersion string

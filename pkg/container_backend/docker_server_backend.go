@@ -496,6 +496,7 @@ func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts s
 	var bomJSON []byte
 	err := logboek.Context(ctx).Default().LogProcess("Scan image %q", scanOpts.Commands[0].SourcePath).DoError(func() error {
 		runArgs := mapSbomScanOptionsToDockerRunCommand(wt.RootDir(), wt.BillsDir(), billNames, scanOpts)
+		logboek.Context(ctx).Debug().LogF("docker %s\n", strings.Join(runArgs, " "))
 		if _, err := docker.CliRun_RecordedOutput(ctx, runArgs...); err != nil {
 			return fmt.Errorf("run scanner: %w", err)
 		}

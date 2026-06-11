@@ -578,6 +578,33 @@ sections:
           all: "/usage/build/stapel/imports.html"
       - <<: *dockerfile-image-section-final
       - <<: *image-section-sbom
+      - name: packages
+        description:
+          en: "Set of directives to catalog language package manifests into the SBOM"
+          ru: "Набор директив для каталогизации манифестов пакетов языков в SBOM"
+        collapsible: true
+        isCollapsedByDefault: false
+        directiveList:
+          - name: type
+            value: "string"
+            description:
+              en: "Package ecosystem type (go-mod)"
+              ru: "Тип экосистемы пакетов (go-mod)"
+          - name: workdir
+            value: "string"
+            description:
+              en: "Directory inside the image that contains the module files (required for go-mod)"
+              ru: "Директория внутри образа, содержащая файлы модуля (обязательно для go-mod)"
+          - name: spec
+            value: "string"
+            description:
+              en: "Module file name (for go-mod, default: go.mod)"
+              ru: "Имя файла модуля (для go-mod, по умолчанию: go.mod)"
+          - name: lock
+            value: "string"
+            description:
+              en: "Checksum file name (for go-mod, default: go.sum)"
+              ru: "Имя файла контрольных сумм (для go-mod, по умолчанию: go.sum)"
       - <<: *meta-section-build-cache-version
       - name: platform
         description:

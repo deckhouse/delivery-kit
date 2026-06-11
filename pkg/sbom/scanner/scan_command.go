@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/samber/lo"
+
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/sbom"
 )
@@ -16,6 +18,7 @@ type ScanCommand struct {
 	OutputStandard  sbom.StandardType
 	OutputPath      string
 	outputFormat    string
+	Catalogers      []Cataloger
 }
 
 func (c ScanCommand) output() string {
@@ -57,10 +60,26 @@ func (c ScanCommand) String() string {
 
 		out.WriteString(fmt.Sprintf("scan %s:%s --output=%s", c.SourceType, c.SourcePath, c.output()))
 
+		if selectArg := c.selectCatalogersArg(); selectArg != "" {
+			out.WriteString(fmt.Sprintf(" %s", selectArg))
+		}
+
 		return out.String()
 	default:
 		panic(fmt.Sprintf("unsupported scanner type %s", c.scannerType))
 	}
+}
+
+func (c ScanCommand) selectCatalogersArg() string {
+	if len(c.Catalogers) == 0 {
+		return ""
+	}
+
+	selectors := lo.Map(c.Catalogers, func(cat Cataloger, _ int) string {
+		return cat.Name
+	})
+
+	return fmt.Sprintf("--select-catalogers=%s", strings.Join(selectors, ","))
 }
 
 func (c ScanCommand) Checksum() string {
@@ -69,6 +88,12 @@ func (c ScanCommand) Checksum() string {
 		"source_type", c.SourceType.String(),
 		"output_standard", c.OutputStandard.String(),
 	}
+
+	for _, cat := range c.Catalogers {
+		args = append(args, "cataloger", cat.Name)
+		args = append(args, cat.SourcePaths...)
+	}
+
 	return util.Sha256Hash(args...)
 }
 

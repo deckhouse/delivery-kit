@@ -18,17 +18,17 @@ import (
 
 var _ = Describe("SbomStep", func() {
 	Describe("GetImageBOM()", func() {
-		It("should return error if image info is nil", func() {
+		It("should return error if image info is nil", func(ctx SpecContext) {
 			step := &sbomStep{}
-			_, err := step.GetImageBOM(context.Background(), "app", nil)
+			_, err := step.GetImageBOM(ctx, "app", nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("image info is nil"))
 		})
 
-		It("should return fatal error if image digest is empty", func() {
+		It("should return fatal error if image digest is empty", func(ctx SpecContext) {
 			step := &sbomStep{}
 			imgInfo := &werfImage.Info{Name: "app:latest"}
-			_, err := step.GetImageBOM(context.Background(), "app", imgInfo)
+			_, err := step.GetImageBOM(ctx, "app", imgInfo)
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
 		})
@@ -105,7 +105,7 @@ var _ = Describe("SbomStep", func() {
 	})
 
 	Describe("GetImageBOM() with trusted builder image", func() {
-		It("should return fatal error even for builder image when error is not 'not found'", func() {
+		It("should return fatal error even for builder image when error is not 'not found'", func(ctx SpecContext) {
 			step := &sbomStep{}
 
 			imageInfo := &werfImage.Info{
@@ -116,13 +116,13 @@ var _ = Describe("SbomStep", func() {
 				},
 			}
 
-			_, err := step.GetImageBOM(context.Background(), "builder-image", imageInfo)
+			_, err := step.GetImageBOM(ctx, "builder-image", imageInfo)
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse(),
 				"non-'not found' errors must NOT be treated as 'not required', got: %v", err)
 		})
 
-		It("should return fatal error for non-builder image when SBOM pull fails", func() {
+		It("should return fatal error for non-builder image when SBOM pull fails", func(ctx SpecContext) {
 			step := &sbomStep{}
 
 			imageInfo := &werfImage.Info{
@@ -131,7 +131,7 @@ var _ = Describe("SbomStep", func() {
 				Labels:     map[string]string{},
 			}
 
-			_, err := step.GetImageBOM(context.Background(), "app", imageInfo)
+			_, err := step.GetImageBOM(ctx, "app", imageInfo)
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
 		})

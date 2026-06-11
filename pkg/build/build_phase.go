@@ -329,9 +329,16 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
+	var hasOsPmPackages bool
+	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
+		hasOsPmPackages = len(primaryImg.StapelImageConfig.ImageBaseConfig().Packages) > 0
+	}
+	osPmPatcher := osPm.NewBOMPatcher(stageDesc.Info.Name, hasOsPmPackages)
+
 	patchers := []BOMPatcherInterface{
 		externalRefPatcher,
 		goModPatcher,
+		osPmPatcher,
 	}
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)

@@ -3,8 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -20,7 +18,6 @@ var _ = Describe("PackagesInstallStage", func() {
 	DescribeTable("GeneratePackagesInstallStage", testGeneratePackagesInstallStage,
 		Entry("returns nil when Packages is nil",
 			&config.StapelImageBase{},
-			nil,
 			BeNil(),
 		),
 
@@ -28,11 +25,21 @@ var _ = Describe("PackagesInstallStage", func() {
 			&config.StapelImageBase{
 				Packages: []*config.PackagesDirective{},
 			},
-			nil,
 			BeNil(),
 		),
 
-		Entry("creates stage with single inline package",
+		Entry("returns nil when Packages has empty spec",
+			&config.StapelImageBase{
+				Packages: []*config.PackagesDirective{
+					{
+						Type: config.PackagesDirectiveTypeOSPM,
+					},
+				},
+			},
+			BeNil(),
+		),
+
+		Entry("creates stage with single package",
 			&config.StapelImageBase{
 				Packages: []*config.PackagesDirective{
 					{
@@ -41,11 +48,10 @@ var _ = Describe("PackagesInstallStage", func() {
 					},
 				},
 			},
-			nil,
 			ConsistOf("curl"),
 		),
 
-		Entry("creates stage with multiple inline packages",
+		Entry("creates stage with multiple packages",
 			&config.StapelImageBase{
 				Packages: []*config.PackagesDirective{
 					{
@@ -54,71 +60,7 @@ var _ = Describe("PackagesInstallStage", func() {
 					},
 				},
 			},
-			nil,
 			ConsistOf("curl", "jq"),
-		),
-
-		Entry("creates stage with file path spec",
-			&config.StapelImageBase{
-				Packages: []*config.PackagesDirective{
-					{
-						Type: config.PackagesDirectiveTypeOSPM,
-						Spec: config.PackagesSpec{FilePath: "packages.txt"},
-					},
-				},
-			},
-			func(dir string) {
-				content := []byte("curl\njq\nbrotli\n")
-				Expect(os.WriteFile(filepath.Join(dir, "packages.txt"), content, 0o644)).To(Succeed())
-			},
-			ConsistOf("brotli", "curl", "jq"),
-		),
-
-		Entry("combines multiple directive specs",
-			&config.StapelImageBase{
-				Packages: []*config.PackagesDirective{
-					{
-						Type: config.PackagesDirectiveTypeOSPM,
-						Spec: config.PackagesSpec{Packages: []string{"curl"}},
-					},
-					{
-						Type: config.PackagesDirectiveTypeOSPM,
-						Spec: config.PackagesSpec{Packages: []string{"jq"}},
-					},
-				},
-			},
-			nil,
-			ConsistOf("curl", "jq"),
-		),
-
-		Entry("deduplicates packages from multiple directives",
-			&config.StapelImageBase{
-				Packages: []*config.PackagesDirective{
-					{
-						Type: config.PackagesDirectiveTypeOSPM,
-						Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}},
-					},
-					{
-						Type: config.PackagesDirectiveTypeOSPM,
-						Spec: config.PackagesSpec{Packages: []string{"curl"}},
-					},
-				},
-			},
-			nil,
-			ConsistOf("curl", "jq"),
-		),
-
-		Entry("sorts packages for deterministic output",
-			&config.StapelImageBase{
-				Packages: []*config.PackagesDirective{
-					{
-						Type: config.PackagesDirectiveTypeOSPM,
-						Spec: config.PackagesSpec{Packages: []string{"jq", "curl", "brotli"}},
-					},
-				},
-			},
-			nil,
-			ConsistOf("brotli", "curl", "jq"),
 		),
 	)
 
@@ -210,14 +152,9 @@ var _ = Describe("PackagesInstallStage", func() {
 	})
 })
 
-func testGeneratePackagesInstallStage(ctx context.Context, imageBaseConfig *config.StapelImageBase, setupDir func(string), packagesMatcher types.GomegaMatcher) {
-	dir := GinkgoT().TempDir()
-	if setupDir != nil {
-		setupDir(dir)
-	}
-
+func testGeneratePackagesInstallStage(ctx context.Context, imageBaseConfig *config.StapelImageBase, packagesMatcher types.GomegaMatcher) {
 	options := &BaseStageOptions{ImageName: "test-image", ProjectName: "test-project"}
-	stage := GeneratePackagesInstallStage(ctx, imageBaseConfig, options, dir)
+	stage := GeneratePackagesInstallStage(ctx, imageBaseConfig, options)
 
 	var packages []string
 	if stage != nil {

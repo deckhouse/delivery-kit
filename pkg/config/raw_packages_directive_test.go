@@ -38,31 +38,9 @@ var _ = Describe("rawPackagesDirective", func() {
 			Expect(stapelImage.Packages).To(HaveLen(len(expectedPackages)))
 			for i, expected := range expectedPackages {
 				Expect(stapelImage.Packages[i].Type).To(Equal(expected.Type))
-				Expect(stapelImage.Packages[i].Spec.FilePath).To(Equal(expected.Spec.FilePath))
 				Expect(stapelImage.Packages[i].Spec.Packages).To(Equal(expected.Spec.Packages))
 			}
 		},
-
-		Entry("os-pm with file spec",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:latest",
-				"packages": []map[string]interface{}{
-					{
-						"type": "os-pm",
-						"spec": "packages.txt",
-					},
-				},
-			},
-			[]*PackagesDirective{
-				{
-					Type: PackagesDirectiveTypeOSPM,
-					Spec: PackagesSpec{
-						FilePath: "packages.txt",
-					},
-				},
-			},
-		),
 
 		Entry("os-pm with inline package list",
 			map[string]interface{}{
@@ -80,37 +58,6 @@ var _ = Describe("rawPackagesDirective", func() {
 					Type: PackagesDirectiveTypeOSPM,
 					Spec: PackagesSpec{
 						Packages: []string{"curl", "openssl=3.3.7"},
-					},
-				},
-			},
-		),
-
-		Entry("os-pm with multiple entries",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:latest",
-				"packages": []map[string]interface{}{
-					{
-						"type": "os-pm",
-						"spec": "base-packages.txt",
-					},
-					{
-						"type": "os-pm",
-						"spec": []string{"curl"},
-					},
-				},
-			},
-			[]*PackagesDirective{
-				{
-					Type: PackagesDirectiveTypeOSPM,
-					Spec: PackagesSpec{
-						FilePath: "base-packages.txt",
-					},
-				},
-				{
-					Type: PackagesDirectiveTypeOSPM,
-					Spec: PackagesSpec{
-						Packages: []string{"curl"},
 					},
 				},
 			},
@@ -179,6 +126,19 @@ var _ = Describe("rawPackagesDirective", func() {
 			Expect(err).To(HaveOccurred())
 		},
 
+		Entry("packages entry with file spec",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": "packages.txt",
+					},
+				},
+			},
+		),
+
 		Entry("packages entry with unsupported type",
 			map[string]interface{}{
 				"image": "image1",
@@ -205,4 +165,49 @@ var _ = Describe("rawPackagesDirective", func() {
 			},
 		),
 	)
+})
+
+var _ = Describe("normalizePackages", func() {
+	It("returns nil for nil input", func() {
+		result := normalizePackages(nil)
+		Expect(result).To(BeNil())
+	})
+
+	It("returns nil for empty slice", func() {
+		result := normalizePackages([]*PackagesDirective{})
+		Expect(result).To(BeNil())
+	})
+
+	It("preserves single directive packages", func() {
+		result := normalizePackages([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
+		})
+		Expect(result).To(HaveLen(1))
+		Expect(result[0].Spec.Packages).To(Equal([]string{"curl", "jq"}))
+	})
+
+	It("merges multiple directives", func() {
+		result := normalizePackages([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq"}}},
+		})
+		Expect(result).To(HaveLen(1))
+		Expect(result[0].Spec.Packages).To(ConsistOf("curl", "jq"))
+	})
+
+	It("deduplicates across directives", func() {
+		result := normalizePackages([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+		})
+		Expect(result).To(HaveLen(1))
+		Expect(result[0].Spec.Packages).To(ConsistOf("curl", "jq"))
+	})
+
+	It("sorts packages deterministically", func() {
+		result := normalizePackages([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq", "curl", "brotli"}}},
+		})
+		Expect(result[0].Spec.Packages).To(Equal([]string{"brotli", "curl", "jq"}))
+	})
 })

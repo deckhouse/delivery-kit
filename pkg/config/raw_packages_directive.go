@@ -1,8 +1,6 @@
 package config
 
-import (
-	"fmt"
-)
+import "fmt"
 
 type rawPackagesDirective struct {
 	Type    string      `yaml:"type,omitempty"`

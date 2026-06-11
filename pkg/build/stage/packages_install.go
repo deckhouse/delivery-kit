@@ -3,9 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/werf/common-go/pkg/util"
@@ -13,51 +10,18 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 )
 
-func GeneratePackagesInstallStage(_ context.Context, imageBaseConfig *config.StapelImageBase, baseStageOptions *BaseStageOptions, projectDir string) *PackagesInstallStage {
-	if len(imageBaseConfig.Packages) == 0 {
-		return nil
-	}
-
+func GeneratePackagesInstallStage(_ context.Context, imageBaseConfig *config.StapelImageBase, baseStageOptions *BaseStageOptions) *PackagesInstallStage {
 	var resolvedPackages []string
-	seen := map[string]bool{}
-
 	for _, pkg := range imageBaseConfig.Packages {
 		if pkg.Type != config.PackagesDirectiveTypeOSPM {
 			continue
 		}
-
-		if len(pkg.Spec.Packages) > 0 {
-			for _, name := range pkg.Spec.Packages {
-				name = strings.TrimSpace(name)
-				if name != "" && !seen[name] {
-					seen[name] = true
-					resolvedPackages = append(resolvedPackages, name)
-				}
-			}
-		}
-
-		if pkg.Spec.FilePath != "" {
-			fullPath := filepath.Join(projectDir, pkg.Spec.FilePath)
-			data, err := os.ReadFile(fullPath)
-			if err != nil {
-				panic(fmt.Sprintf("packages: unable to read file %q: %v", pkg.Spec.FilePath, err))
-			}
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line != "" && !seen[line] {
-					seen[line] = true
-					resolvedPackages = append(resolvedPackages, line)
-				}
-			}
-		}
+		resolvedPackages = append(resolvedPackages, pkg.Spec.Packages...)
 	}
 
 	if len(resolvedPackages) == 0 {
 		return nil
 	}
-
-	sort.Strings(resolvedPackages)
 
 	s := &PackagesInstallStage{}
 	s.resolvedPackages = resolvedPackages

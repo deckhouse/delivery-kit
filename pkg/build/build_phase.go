@@ -34,6 +34,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v2/pkg/sbom/managedinput"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -336,11 +337,29 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		goModPatcher,
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanner.DefaultSyftScanOptions(), mergeOpts, patchers, primaryImg.TargetPlatform); err != nil {
+	scanOpts := phase.scanOptionsForImage(primaryImg)
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
 	return nil
+}
+
+func (phase *BuildPhase) scanOptionsForImage(img *image.Image) scanner.ScanOptions {
+	scanOpts := scanner.DefaultSyftScanOptions()
+
+	stapelConfig := img.StapelImageConfig
+	if stapelConfig == nil {
+		return scanOpts
+	}
+
+	catalogers := managedinput.ToCatalogers(stapelConfig.ImageBaseConfig().Packages)
+	for i := range scanOpts.Commands {
+		scanOpts.Commands[i].Catalogers = catalogers
+	}
+
+	return scanOpts
 }
 
 func (phase *BuildPhase) targetPlatforms(ctx context.Context, forcedTargetPlatforms, commonTargetPlatforms []string, name string, images []*image.Image) ([]string, error) {

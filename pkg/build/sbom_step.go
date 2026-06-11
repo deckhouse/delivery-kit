@@ -16,6 +16,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v2/pkg/sbom/managedinput"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 )
@@ -81,6 +82,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		if err != nil {
 			return fmt.Errorf("parse scanned BOM: %w", err)
 		}
+
+		managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
 
 		if err := gost.Upsert(targetBOM, mergeOpts.Gost); err != nil {
 			return fmt.Errorf("set GOST properties: %w", err)

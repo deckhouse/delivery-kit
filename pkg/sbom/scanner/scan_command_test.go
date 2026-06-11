@@ -164,6 +164,39 @@ var _ = Describe("ScanCommand", func() {
 			},
 			Equal("scan docker:alpine:3.18 --output=cyclonedx-json@1.6"),
 		),
+		Entry(
+			"should add a single cataloger with --select-catalogers",
+			ScanCommand{
+				scannerType:     TypeSyft,
+				scannerExecPath: "/syft",
+				SourceType:      SourceTypeDocker,
+				SourcePath:      "alpine:3.18",
+				OutputStandard:  sbom.StandardTypeCycloneDX16,
+				OutputPath:      "file.json",
+				outputFormat:    "json",
+				Catalogers: []Cataloger{
+					{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}},
+				},
+			},
+			Equal("/syft scan docker:alpine:3.18 --output=cyclonedx-json@1.6=file.json --select-catalogers=go-module-file-cataloger"),
+		),
+		Entry(
+			"should join multiple catalogers by comma",
+			ScanCommand{
+				scannerType:     TypeSyft,
+				scannerExecPath: "/syft",
+				SourceType:      SourceTypeDocker,
+				SourcePath:      "alpine:3.18",
+				OutputStandard:  sbom.StandardTypeCycloneDX16,
+				OutputPath:      "file.json",
+				outputFormat:    "json",
+				Catalogers: []Cataloger{
+					{Name: "go-module-file-cataloger"},
+					{Name: "javascript-package-cataloger"},
+				},
+			},
+			Equal("/syft scan docker:alpine:3.18 --output=cyclonedx-json@1.6=file.json --select-catalogers=go-module-file-cataloger,javascript-package-cataloger"),
+		),
 	)
 
 	DescribeTable("Checksum()",

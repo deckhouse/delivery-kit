@@ -185,6 +185,20 @@ func (mr *MockStagesStorageMockRecorder) DeleteStage(ctx, stageDesc, options any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteStage", reflect.TypeOf((*MockStagesStorage)(nil).DeleteStage), ctx, stageDesc, options)
 }
 
+// DeleteRejectedStageImage mocks base method.
+func (m *MockStagesStorage) DeleteRejectedStageImage(ctx context.Context, stageID image.StageID, options storage.DeleteImageOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRejectedStageImage", ctx, stageID, options)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRejectedStageImage indicates an expected call of DeleteRejectedStageImage.
+func (mr *MockStagesStorageMockRecorder) DeleteRejectedStageImage(ctx, stageID, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRejectedStageImage", reflect.TypeOf((*MockStagesStorage)(nil).DeleteRejectedStageImage), ctx, stageID, options)
+}
+
 // DeleteStageCustomTag mocks base method.
 func (m *MockStagesStorage) DeleteStageCustomTag(ctx context.Context, tag string) error {
 	m.ctrl.T.Helper()

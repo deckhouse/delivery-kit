@@ -199,6 +199,40 @@ func (mr *MockStagesStorageMockRecorder) DeleteRejectedStageImage(ctx, stageID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRejectedStageImage", reflect.TypeOf((*MockStagesStorage)(nil).DeleteRejectedStageImage), ctx, stageID, options)
 }
 
+// DeleteRejectedStageRecord mocks base method.
+func (m *MockStagesStorage) DeleteRejectedStageRecord(ctx context.Context, stageID image.StageID, options storage.DeleteImageOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRejectedStageRecord", ctx, stageID, options)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRejectedStageRecord indicates an expected call of DeleteRejectedStageRecord.
+func (mr *MockStagesStorageMockRecorder) DeleteRejectedStageRecord(ctx, stageID, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRejectedStageRecord", reflect.TypeOf((*MockStagesStorage)(nil).DeleteRejectedStageRecord), ctx, stageID, options)
+}
+
+// GetRejectedStageIDs mocks base method.
+func (m *MockStagesStorage) GetRejectedStageIDs(ctx context.Context, opts ...storage.Option) ([]image.StageID, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetRejectedStageIDs", varargs...)
+	ret0, _ := ret[0].([]image.StageID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRejectedStageIDs indicates an expected call of GetRejectedStageIDs.
+func (mr *MockStagesStorageMockRecorder) GetRejectedStageIDs(ctx any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRejectedStageIDs", reflect.TypeOf((*MockStagesStorage)(nil).GetRejectedStageIDs), varargs...)
+}
+
 // DeleteStageCustomTag mocks base method.
 func (m *MockStagesStorage) DeleteStageCustomTag(ctx context.Context, tag string) error {
 	m.ctrl.T.Helper()

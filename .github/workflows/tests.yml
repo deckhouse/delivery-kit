@@ -540,7 +540,7 @@ jobs:
       - docs_integration
       - docs_check_links
       - kind_cleanup
-    uses: werf/common-ci/.github/workflows/notification.yml@main
+    uses: werf/common-ci/.github/workflows/notification.yml@chore/ci/update-actions
     secrets:
       loopNotificationGroup: ${{ secrets.LOOP_NOTIFICATION_GROUP }}
       webhook: ${{ secrets.LOOP_NOTIFICATION_WEBHOOK }}

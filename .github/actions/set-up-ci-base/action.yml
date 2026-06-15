@@ -25,7 +25,7 @@ runs:
       run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         cache: false
         go-version-file: go.mod
@@ -35,7 +35,7 @@ runs:
       run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
     - name: Restore Go tools cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/go/bin/ginkgo

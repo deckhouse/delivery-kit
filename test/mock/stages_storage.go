@@ -157,34 +157,6 @@ func (mr *MockStagesStorageMockRecorder) DeleteArtifact(ctx, imageName any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteArtifact", reflect.TypeOf((*MockStagesStorage)(nil).DeleteArtifact), ctx, imageName)
 }
 
-// DeleteRepo mocks base method.
-func (m *MockStagesStorage) DeleteRepo(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteRepo", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteRepo indicates an expected call of DeleteRepo.
-func (mr *MockStagesStorageMockRecorder) DeleteRepo(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRepo", reflect.TypeOf((*MockStagesStorage)(nil).DeleteRepo), ctx)
-}
-
-// DeleteStage mocks base method.
-func (m *MockStagesStorage) DeleteStage(ctx context.Context, stageDesc *image.StageDesc, options storage.DeleteImageOptions) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteStage", ctx, stageDesc, options)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteStage indicates an expected call of DeleteStage.
-func (mr *MockStagesStorageMockRecorder) DeleteStage(ctx, stageDesc, options any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteStage", reflect.TypeOf((*MockStagesStorage)(nil).DeleteStage), ctx, stageDesc, options)
-}
-
 // DeleteRejectedStageImage mocks base method.
 func (m *MockStagesStorage) DeleteRejectedStageImage(ctx context.Context, stageID image.StageID, options storage.DeleteImageOptions) error {
 	m.ctrl.T.Helper()
@@ -213,24 +185,32 @@ func (mr *MockStagesStorageMockRecorder) DeleteRejectedStageRecord(ctx, stageID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRejectedStageRecord", reflect.TypeOf((*MockStagesStorage)(nil).DeleteRejectedStageRecord), ctx, stageID, options)
 }
 
-// GetRejectedStageIDs mocks base method.
-func (m *MockStagesStorage) GetRejectedStageIDs(ctx context.Context, opts ...storage.Option) ([]image.StageID, error) {
+// DeleteRepo mocks base method.
+func (m *MockStagesStorage) DeleteRepo(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GetRejectedStageIDs", varargs...)
-	ret0, _ := ret[0].([]image.StageID)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret := m.ctrl.Call(m, "DeleteRepo", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// GetRejectedStageIDs indicates an expected call of GetRejectedStageIDs.
-func (mr *MockStagesStorageMockRecorder) GetRejectedStageIDs(ctx any, opts ...any) *gomock.Call {
+// DeleteRepo indicates an expected call of DeleteRepo.
+func (mr *MockStagesStorageMockRecorder) DeleteRepo(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRejectedStageIDs", reflect.TypeOf((*MockStagesStorage)(nil).GetRejectedStageIDs), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRepo", reflect.TypeOf((*MockStagesStorage)(nil).DeleteRepo), ctx)
+}
+
+// DeleteStage mocks base method.
+func (m *MockStagesStorage) DeleteStage(ctx context.Context, stageDesc *image.StageDesc, options storage.DeleteImageOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteStage", ctx, stageDesc, options)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteStage indicates an expected call of DeleteStage.
+func (mr *MockStagesStorageMockRecorder) DeleteStage(ctx, stageDesc, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteStage", reflect.TypeOf((*MockStagesStorage)(nil).DeleteStage), ctx, stageDesc, options)
 }
 
 // DeleteStageCustomTag mocks base method.
@@ -419,6 +399,26 @@ func (m *MockStagesStorage) GetOrphanedArtifactNames(ctx context.Context) ([]str
 func (mr *MockStagesStorageMockRecorder) GetOrphanedArtifactNames(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrphanedArtifactNames", reflect.TypeOf((*MockStagesStorage)(nil).GetOrphanedArtifactNames), ctx)
+}
+
+// GetRejectedStageIDs mocks base method.
+func (m *MockStagesStorage) GetRejectedStageIDs(ctx context.Context, opts ...storage.Option) ([]image.StageID, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetRejectedStageIDs", varargs...)
+	ret0, _ := ret[0].([]image.StageID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRejectedStageIDs indicates an expected call of GetRejectedStageIDs.
+func (mr *MockStagesStorageMockRecorder) GetRejectedStageIDs(ctx any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRejectedStageIDs", reflect.TypeOf((*MockStagesStorage)(nil).GetRejectedStageIDs), varargs...)
 }
 
 // GetStageDesc mocks base method.

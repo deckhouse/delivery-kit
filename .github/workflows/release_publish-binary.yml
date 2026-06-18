@@ -46,6 +46,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          tag_name: ${{ env.VERSION }}
           files: dist/${{ env.VERSION }}/linux-amd64/bin/werf
 
   notify:

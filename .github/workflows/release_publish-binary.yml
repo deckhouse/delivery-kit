@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v[0-9].[0-9].[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v2.72.1-dk)"
+        required: true
 
 env:
   DEBIAN_FRONTEND: "noninteractive"
@@ -30,7 +35,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Set version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+        run: echo "VERSION=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
       - name: Build binary (linux/amd64)
         run: |

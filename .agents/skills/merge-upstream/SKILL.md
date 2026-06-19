@@ -1,70 +1,122 @@
 ---
 name: merge-upstream
-description: Merge werf upstream (origin/main) into deckhouse/delivery-kit fork (dk-main). Resolves CHANGELOG.md conflicts by keeping -dk entries only. Use when given a delivery-kit PR URL or asked to merge upstream changes.
+description: Merge werf upstream into the deckhouse/delivery-kit fork. Resolves conflicts (CHANGELOG.md kept -dk-only), then opens a PR for review. Use when asked to sync upstream into delivery-kit.
 ---
 
 # Merge Upstream (werf → delivery-kit)
 
 ## Context
 
-- **Fork:** `deckhouse/delivery-kit` (remote `delivery-kit`, branch `main`)
-- **Upstream:** `werf/werf` (remote `origin`, branch `main`)
-- **Local tracking branch:** `dk-main` → tracks `delivery-kit/main`
-- **CHANGELOG rule:** only `-dk` versioned entries belong in `CHANGELOG.md`. Never add bare upstream entries like `## [2.72.2]` — only `## [2.72.2-dk]`.
+- **Upstream** = `werf/werf` (fetch/merge source). **Fork** = `deckhouse/delivery-kit` (push target).
+- Remote names vary per clone, so Step 0 resolves both by URL into `$UPSTREAM` / `$FORK`.
+- `CHANGELOG.md` is release-please-managed (`release-type: go`, runs on push to `main`). Only `-dk`
+  entries are authored by hand; bare upstream blocks (`## [X.Y.Z]`) already in history stay, but
+  you never add new ones.
+- Requires `gh` authenticated and a clean working tree.
+
+The agent merges, resolves conflicts, and opens a PR — it never pushes to the fork's `main`.
 
 ## Steps
 
-### 1. Resolve changelog for the PR
+### 0. Resolve remotes by URL
 
-Given a PR URL (e.g. `https://github.com/deckhouse/delivery-kit/pull/NNN`):
-
-1. Fetch PR contents via `webfetch`.
-2. Identify all meaningful commits (skip `chore(main): release X.Y.Z` release-please commits and `chore(release): N alpha,beta` commits).
-3. Determine the next `-dk` version: look at the top of `CHANGELOG.md`, increment the patch of the latest `-dk` tag.
-4. Add a new `-dk` entry at the top of `CHANGELOG.md` (below `# Changelog`) with today's date.
-   - Include `### Features` and/or `### Bug Fixes` sections as appropriate.
-   - Use `deckhouse/delivery-kit` issue/commit links, not `werf/werf` links.
-   - Never add a bare upstream block (`## [X.Y.Z]` without `-dk`).
-5. Commit: `chore(release): resolve changelog for X.Y.Z-dk`
-
-### 2. Merge upstream into dk-main
+Map each repo to whatever remote points at it, adding the upstream if missing. Run in the same shell
+as the later steps so `$UPSTREAM` / `$FORK` stay set:
 
 ```bash
-git fetch origin main
-git merge origin/main --no-edit
+UPSTREAM=$(git remote -v | awk '/werf\/werf(\.git)? \(fetch\)/{print $1; exit}')
+FORK=$(git remote -v | awk '/deckhouse\/delivery-kit(\.git)? \(fetch\)/{print $1; exit}')
+[ -n "$UPSTREAM" ] || { git remote add upstream https://github.com/werf/werf.git; UPSTREAM=upstream; }
+[ -n "$FORK" ]     || { echo "no remote for deckhouse/delivery-kit"; exit 1; }
+git fetch "$UPSTREAM" && git fetch "$FORK"
 ```
 
-If conflicts arise, resolve them:
-
-**CHANGELOG.md conflicts:**
-- Keep the `-dk` block from HEAD.
-- Discard the bare upstream block from `origin/main` (the `<<<<<<< HEAD` / `>>>>>>> origin/main` markers around `## [X.Y.Z]` without `-dk`).
-- Result: `-dk` entry at top, followed by the rest of the existing `-dk` history. No bare upstream entries added.
-
-**Other file conflicts:** resolve by taking `origin/main` version unless the file contains delivery-kit–specific customizations (check git blame / prior `-dk` commits).
-
-After resolving all conflicts:
-```bash
-git add .
-git commit -m "chore(main): merge werf main into dk-main"
-```
-
-### 3. Push and merge PR
+### 1. Branch off the fork's main and merge upstream
 
 ```bash
-git push delivery-kit dk-main:main
+git checkout -b chore/release/merge-werf-upstream "$FORK/main"
+git log --oneline "$UPSTREAM/main" "^$FORK/main"   # preview what gets pulled in
+git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" "$UPSTREAM/main"
 ```
 
-If the PR still shows as not mergeable after push (conflict was on the PR side), the push itself resolves it — the PR is superseded by the direct push to `main`.
+Suffix the branch (`-2`, …) if it already exists. Work only on this branch. `--no-ff -m` keeps the
+merge subject identical with or without conflicts.
 
-## Commit messages
+Resolve conflicts:
 
-- Changelog resolution: `chore(release): resolve changelog for X.Y.Z-dk`
-- Merge commit: `chore(main): merge werf main into dk-main`
+- **`CHANGELOG.md`** — always take ours: `git checkout --ours CHANGELOG.md && git add CHANGELOG.md`.
+  Upstream changelog changes are dropped; the `-dk` entry is authored in Step 2.
+- **`go.mod` / `go.sum`** — resolve obvious parts, then `go mod tidy && git add go.mod go.sum`.
+  Never blindly take one side.
+- **Any other file** — do not blanket-take upstream; it can silently revert delivery-kit
+  customizations (branding, `d8 dk` wiring, module path). Stop and surface the conflict for a
+  maintainer.
+
+Stage resolved tracked files only, then commit:
+
+```bash
+git add -u && git commit --no-edit
+```
+
+### 2. Author the `-dk` changelog entry
+
+Do this after a conflict-free merge exists. Use the Step 1 preview for the commit list (and
+`gh pr view <url> --json commits` if a delivery-kit PR URL was given).
+
+Skip release-please noise (`chore(main): release …`, `chore(release): N alpha,beta`).
+
+Pick the next `-dk` version **from the upstream base being merged**: if upstream moved
+`2.72.x → 2.73.0`, it is `2.73.0-dk`; if the upstream base is unchanged and you add only fork-side
+fixes, bump the `-dk` patch. Never blindly +1 the latest `-dk` patch across an upstream minor/major.
+
+Prepend one block below `# Changelog` (today's date), then commit:
+
+```
+## [X.Y.Z-dk](https://github.com/deckhouse/delivery-kit/compare/vPREV-dk...vX.Y.Z-dk) (YYYY-MM-DD)
+### Features / Bug Fixes — using deckhouse/delivery-kit links, not werf/werf
+```
+
+```bash
+git add CHANGELOG.md && git commit -m "chore(release): resolve changelog for X.Y.Z-dk"
+```
+
+### 3. Regenerate docs, build, test
+
+An upstream merge can change CLI flags/help and break the build:
+
+```bash
+task doc:gen          # commit changes as: docs(dev): regenerate after werf upstream merge
+task build            # MUST succeed
+task test:unit        # MUST pass
+```
+
+If build or tests fail, stop and resolve (or surface for a maintainer) before the PR.
+
+### 4. Verify, push the branch, open the PR
+
+```bash
+git grep -q '^<<<<<<<' && { echo "ABORT: conflict markers"; exit 1; }  # MUST find none
+head -5 CHANGELOG.md                                                   # top MUST be the new -dk block
+git status                                                             # MUST be clean
+
+git push -u "$FORK" chore/release/merge-werf-upstream
+gh pr create --repo deckhouse/delivery-kit --base main \
+  --head chore/release/merge-werf-upstream \
+  --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk)" \
+  --body "Sync werf upstream. CHANGELOG.md kept -dk-only. New release entry: X.Y.Z-dk."
+```
+
+The agent stops after opening the PR; a maintainer reviews and merges.
+
+To recover before pushing: `git merge --abort`, or discard the branch with
+`git checkout - && git branch -D chore/release/merge-werf-upstream`.
 
 ## Rules
 
-- NEVER add bare upstream changelog entries (e.g. `## [2.72.2]`). Only `-dk` entries in `CHANGELOG.md`.
-- NEVER modify `CHANGELOG.md`, release notes, or generated files beyond what's described here.
-- NEVER commit unless changes are staged and verified conflict-free.
-- When resolving CHANGELOG conflicts: always prefer HEAD (`-dk` block) over `origin/main` (bare block).
+- Branch/commit/PR names use the fixed values above; follow the `git-branch-name`,
+  `git-commit-message`, and `pull-request-name` skills for any other naming.
+- ALWAYS work on the `chore/release/...` branch and finish with a PR; NEVER push to the fork's `main`.
+- ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
+- CHANGELOG: NEVER add a bare upstream block or reorder existing entries; only prepend one `-dk` block, and take ours (`--ours`) on conflict.
+- NEVER `git add .`; stage only resolved tracked files.
+- NEVER blanket-resolve non-CHANGELOG conflicts toward upstream; stop and ask a human.

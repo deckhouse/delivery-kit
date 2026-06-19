@@ -63,12 +63,14 @@ whether or not conflicts occur.
 
 If conflicts arise, resolve them:
 
-**`CHANGELOG.md` conflicts:**
-- Keep HEAD (the fork's `-dk` history).
-- Discard the bare upstream block introduced by `origin/main` between the
-  `<<<<<<< HEAD` / `>>>>>>> origin/main` markers (the `## [X.Y.Z]` block without `-dk`).
-- Result: the existing `-dk` history is preserved at the top; no new bare upstream block is added.
-- `git checkout --ours CHANGELOG.md` is the fast path when the conflict is changelog-only.
+**`CHANGELOG.md` conflicts — always take ours (the fork's `-dk` history):**
+
+```bash
+git checkout --ours CHANGELOG.md && git add CHANGELOG.md
+```
+
+No manual block-by-block resolution. The upstream changelog changes are intentionally dropped;
+the correct `-dk` entry is authored separately in Step 2.
 
 **Any other file conflict:**
 - **Do not** blanket-resolve toward `origin/main`. Taking upstream silently can revert
@@ -180,4 +182,4 @@ Never improvise destructive history rewrites on `dk-main`.
 - NEVER `git add .`; stage only resolved tracked files (`git add -u` or named paths).
 - NEVER commit or push with unresolved conflict markers or a dirty tree — run the Step 3 checks first.
 - NEVER `git push --force` to `delivery-kit/main`; use `--force-with-lease` only with maintainer sign-off.
-- When resolving CHANGELOG conflicts: always prefer HEAD (`-dk` history) over `origin/main` (bare block).
+- When resolving CHANGELOG conflicts: always take ours — `git checkout --ours CHANGELOG.md`.

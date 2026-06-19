@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.73.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.72.1-dk...v2.73.0-dk) (2026-06-19)
+
+
+### Features
+
+* **deploy:** move `dockerconfigjson` to .global.werf ([#7583](https://github.com/deckhouse/delivery-kit/issues/7583)) ([79d90cb](https://github.com/deckhouse/delivery-kit/commit/79d90cb69f563a2ec7b109de5481c4eba45f9722))
+
+
+### Bug Fixes
+
+* **build, stapel, import:** rsync chown "/sys" Read-only file system on to: / ([#7590](https://github.com/deckhouse/delivery-kit/issues/7590)) ([b6dac9c](https://github.com/deckhouse/delivery-kit/commit/b6dac9c9835e5a9d3745f865ee5ab3944828f6c4))
+* **ci:** switch release-please to manifest mode, fix upstream werf baseline contamination ([#124](https://github.com/deckhouse/delivery-kit/issues/124)) ([f00cd16](https://github.com/deckhouse/delivery-kit/commit/f00cd165b9189bee3e26b4f60121888c307b7f7d))
+
 ## [2.72.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.72.1-dk...v2.72.2-dk) (2026-06-19)
 
 

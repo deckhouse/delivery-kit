@@ -7,10 +7,10 @@ description: Merge werf upstream into the deckhouse/delivery-kit fork. Resolves 
 
 ## Context
 
-- **Upstream** = `werf/werf` — the fetch/merge source.
-- **Fork** = `deckhouse/delivery-kit` — the push target.
-- Map these to your local remotes via `git remote -v` (names vary per clone). Below, `UPSTREAM`
-  and `FORK` stand for whatever remote points at each URL.
+- **Upstream** = `werf/werf` (fetch/merge source). **Fork** = `deckhouse/delivery-kit` (push target).
+- Remote names differ per clone (a fork clone may name the fork `origin`; a werf checkout may name
+  werf `origin`). Step 0 resolves both by URL into `$UPSTREAM` / `$FORK`, so the rest works in any
+  setup.
 - `CHANGELOG.md` is release-please-managed (`release-type: go`, runs on push to `main`). Only `-dk`
   entries are authored by hand; bare upstream blocks (`## [X.Y.Z]`) already in history stay, but
   you never add new ones.
@@ -20,22 +20,29 @@ The agent merges, resolves conflicts, and opens a PR — it never pushes to the 
 
 ## Steps
 
-### 0. Branch off the fork's main
+### 0. Resolve remotes by URL
+
+Map each repo to whatever remote points at it, adding the upstream if missing. Run in the same shell
+as the later steps so `$UPSTREAM` / `$FORK` stay set:
 
 ```bash
-git fetch FORK && git fetch UPSTREAM main
-git checkout -b chore/release/merge-werf-upstream FORK/main
-git log --oneline UPSTREAM/main ^FORK/main   # preview what gets pulled in
+UPSTREAM=$(git remote -v | awk '/werf\/werf(\.git)? \(fetch\)/{print $1; exit}')
+FORK=$(git remote -v | awk '/deckhouse\/delivery-kit(\.git)? \(fetch\)/{print $1; exit}')
+[ -n "$UPSTREAM" ] || { git remote add upstream https://github.com/werf/werf.git; UPSTREAM=upstream; }
+[ -n "$FORK" ]     || { echo "no remote for deckhouse/delivery-kit"; exit 1; }
+git fetch "$UPSTREAM" && git fetch "$FORK"
+```
+
+### 1. Branch off the fork's main and merge upstream
+
+```bash
+git checkout -b chore/release/merge-werf-upstream "$FORK/main"
+git log --oneline "$UPSTREAM/main" "^$FORK/main"   # preview what gets pulled in
+git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" "$UPSTREAM/main"
 ```
 
 Branch name follows the werf convention `<type>/<scope>/<short-description>` (top-level scope,
 ≤ 50 chars). Suffix it (`-2`, …) if it already exists. Work only on this branch.
-
-### 1. Merge upstream
-
-```bash
-git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" UPSTREAM/main
-```
 
 Always `--no-ff -m` so the subject is identical with or without conflicts. Resolve conflicts:
 
@@ -58,7 +65,7 @@ git add -u && git commit --no-edit
 Do this after a conflict-free merge exists. Find the meaningful commits:
 
 ```bash
-git log --oneline UPSTREAM/main ^FORK/main     # commits this merge introduces
+git log --oneline "$UPSTREAM/main" "^$FORK/main"   # commits this merge introduces
 gh pr view <url> --json commits,title,number   # if a delivery-kit PR URL was given
 ```
 
@@ -98,7 +105,7 @@ git grep -n '^<<<<<<<' && echo "ABORT: conflict markers" # MUST find nothing
 head -5 CHANGELOG.md                                       # top entry MUST be the new -dk block
 git status                                                 # MUST be clean
 
-git push -u FORK chore/release/merge-werf-upstream
+git push -u "$FORK" chore/release/merge-werf-upstream
 gh pr create --repo deckhouse/delivery-kit --base main \
   --head chore/release/merge-werf-upstream \
   --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk)" \

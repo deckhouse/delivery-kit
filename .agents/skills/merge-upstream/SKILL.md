@@ -39,9 +39,8 @@ git log --oneline "$UPSTREAM/main" "^$FORK/main"   # preview what gets pulled in
 git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" "$UPSTREAM/main"
 ```
 
-Branch name follows the werf convention `<type>/<scope>/<short-description>` (top-level scope,
-≤ 50 chars). Suffix it (`-2`, …) if it already exists. Work only on this branch. `--no-ff -m` keeps
-the merge subject identical with or without conflicts.
+Suffix the branch (`-2`, …) if it already exists. Work only on this branch. `--no-ff -m` keeps the
+merge subject identical with or without conflicts.
 
 Resolve conflicts:
 
@@ -114,8 +113,9 @@ To recover before pushing: `git merge --abort`, or discard the branch with
 
 ## Rules
 
-- ALWAYS work on a `chore/release/merge-werf-upstream` branch and finish with a PR; NEVER push to the fork's `main`.
-- ALWAYS name branches/commits/PRs per the werf convention (`<type>/<scope>/<desc>`, `<type>(<scope>): <subject>`, ≤ 72 chars).
+- Branch/commit/PR names use the fixed values above; follow the `git-branch-name`,
+  `git-commit-message`, and `pull-request-name` skills for any other naming.
+- ALWAYS work on the `chore/release/...` branch and finish with a PR; NEVER push to the fork's `main`.
 - ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
 - CHANGELOG: NEVER add a bare upstream block or reorder existing entries; only prepend one `-dk` block, and take ours (`--ours`) on conflict.
 - NEVER `git add .`; stage only resolved tracked files.

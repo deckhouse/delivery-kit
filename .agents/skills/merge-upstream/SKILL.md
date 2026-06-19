@@ -9,7 +9,6 @@ description: Merge werf upstream (origin/main) into the deckhouse/delivery-kit f
 
 - **Fork:** `deckhouse/delivery-kit` (remote `delivery-kit`, branch `main`). This is the **push target**.
 - **Upstream:** `werf/werf` (remote `origin`, branch `main`). This is the **fetch/merge source**.
-- **Local tracking branch:** `dk-main` → tracks `delivery-kit/main`.
 - **Remote mapping is inverted** from the usual convention: `origin` is **upstream werf**, not the
   fork. Read every command below with that in mind — `git merge origin/main` pulls *upstream* into
   the fork; it does **not** merge the fork into itself.
@@ -24,6 +23,10 @@ description: Merge werf upstream (origin/main) into the deckhouse/delivery-kit f
   - `delivery-kit` → `git@github.com:deckhouse/delivery-kit.git` (fork)
 - `gh` CLI authenticated against `github.com` (used to read PR contents).
 - A clean working tree (no uncommitted changes).
+
+> **Remote names are clone-specific.** The commands below assume `origin` = upstream werf and
+> `delivery-kit` = the fork. Verify with `git remote -v` and substitute your actual remote names
+> if they differ.
 
 ## How CHANGELOG.md is managed
 
@@ -44,32 +47,30 @@ The agent **merges upstream, resolves conflicts, and opens a PR** — it does **
 
 ## Steps
 
-### 0. Sync a fresh working branch off `dk-main` (do this first)
+### 0. Create a fresh working branch off `delivery-kit/main` (do this first)
 
 ```bash
-git checkout dk-main
-git fetch delivery-kit                       # refresh fork (push target)
-git merge --ff-only delivery-kit/main        # fast-forward dk-main to fork main
-git status                                    # MUST be clean and on dk-main
-
-git fetch origin main                                        # origin = upstream werf
-git checkout -b merge/werf-<upstream-version>                # e.g. merge/werf-2.73.0
+git fetch delivery-kit                                   # refresh fork (push target)
+git fetch origin main                                    # origin = upstream werf
+git checkout -b chore/release/merge-werf-upstream delivery-kit/main
+git status                                                # MUST be clean
 ```
 
-If `--ff-only` fails, `dk-main` has diverged — **stop** and reconcile manually before continuing.
-Never proceed with a dirty tree or from any branch other than `dk-main`. All merge work happens on
-the `merge/werf-*` branch, never directly on `dk-main`.
+Branch name follows the werf convention `<type>/<scope>/<short-description>` (top-level scope only,
+≤ 50 chars). Use a fresh branch per sync; if it already exists, suffix it (e.g.
+`chore/release/merge-werf-upstream-2`). All merge work happens on this branch, never on
+`delivery-kit/main` directly.
 
 To see what will be pulled in before merging:
 
 ```bash
-git log --oneline origin/main ^dk-main       # upstream commits not yet in the fork
+git log --oneline origin/main ^delivery-kit/main         # upstream commits not yet in the fork
 ```
 
 ### 1. Merge upstream into the working branch
 
 ```bash
-git merge --no-ff -m "chore(main): merge werf main into dk-main" origin/main
+git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" origin/main
 ```
 
 Always use `--no-ff` with the explicit `-m` message so the merge commit subject is identical
@@ -104,7 +105,7 @@ Stage only the resolved tracked files (never `git add .`):
 
 ```bash
 git add -u                  # stages resolved tracked files only
-git commit --no-edit        # keeps the "chore(main): merge werf main into dk-main" message
+git commit --no-edit        # keeps the "chore(release): merge werf upstream into delivery-kit" message
 ```
 
 ### 2. Author the `-dk` changelog entry
@@ -115,7 +116,7 @@ manufacturing a changelog conflict).
 Identify the meaningful upstream commits being pulled in:
 
 ```bash
-git log --oneline origin/main ^dk-main       # commits this merge introduces
+git log --oneline origin/main ^delivery-kit/main   # commits this merge introduces
 ```
 
 If a delivery-kit PR URL was given for the sync, also read it with `gh`:
@@ -184,12 +185,15 @@ is dirty.
 Push the working branch to the fork and open a PR for maintainer review:
 
 ```bash
-git push -u delivery-kit merge/werf-<upstream-version>      # delivery-kit = fork; pushes the BRANCH, not main
+git push -u delivery-kit chore/release/merge-werf-upstream   # delivery-kit = fork; pushes the BRANCH, not main
 gh pr create --repo deckhouse/delivery-kit --base main \
-  --head merge/werf-<upstream-version> \
-  --title "chore(main): merge werf main into dk-main (X.Y.Z-dk)" \
+  --head chore/release/merge-werf-upstream \
+  --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk)" \
   --body "Sync werf upstream into delivery-kit. Resolves CHANGELOG.md (kept -dk-only) and any other conflicts. New release entry: X.Y.Z-dk."
 ```
+
+PR title follows the werf convention `<type>(<scope>): <subject>` (≤ 72 chars), mirroring the
+merge commit.
 
 A maintainer reviews and merges the PR; release-please then runs on the resulting push to `main`.
 The agent stops here — it does not merge the PR itself unless explicitly asked.
@@ -200,21 +204,24 @@ If resolution goes wrong **before pushing**:
 
 ```bash
 git merge --abort                            # during an unfinished merge
-# or, to discard the working branch and start over from synced dk-main:
-git checkout dk-main && git branch -D merge/werf-<upstream-version>
+# or, to discard the working branch and start over from the fork's main:
+git checkout - && git branch -D chore/release/merge-werf-upstream
 ```
 
-Never rewrite history on `dk-main`, and never force-push the fork.
+Never rewrite history on `delivery-kit/main`, and never force-push the fork.
 
 ## Commit messages
 
-- Merge commit: `chore(main): merge werf main into dk-main` (same on clean and conflicted paths).
+Follow the werf convention `<type>(<scope>): <subject>` (imperative, lower-case, ≤ 72 chars).
+
+- Merge commit: `chore(release): merge werf upstream into delivery-kit` (same on clean and conflicted paths).
 - Changelog resolution: `chore(release): resolve changelog for X.Y.Z-dk`.
-- Doc regeneration (only if `task doc:gen` changed files): `docs: regenerate after werf upstream merge`.
+- Doc regeneration (only if `task doc:gen` changed files): `docs(dev): regenerate after werf upstream merge`.
 
 ## Rules
 
-- ALWAYS work on a `merge/werf-*` branch and finish by opening a PR; NEVER push to `delivery-kit/main` directly.
+- ALWAYS work on a `chore/release/merge-werf-upstream` branch and finish by opening a PR; NEVER push to `delivery-kit/main` directly.
+- ALWAYS name branches/commits/PRs per the werf convention (`<type>/<scope>/<desc>`, `<type>(<scope>): <subject>`).
 - ALWAYS run `task doc:gen`, `task build`, and `task test:unit` before opening the PR; NEVER open a merge PR with a broken build.
 - NEVER author a bare upstream changelog entry (e.g. `## [2.72.3]`). The new top entry is always `-dk`.
 - NEVER reformat, delete, or reorder existing `CHANGELOG.md` entries — only prepend one `-dk` block.

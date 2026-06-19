@@ -1,31 +1,31 @@
 ---
 name: merge-upstream
-description: Merge werf upstream (origin/main) into the deckhouse/delivery-kit fork. Resolves conflicts (CHANGELOG.md kept -dk-only), then opens a PR for review. Use when asked to sync upstream into delivery-kit.
+description: Merge werf upstream into the deckhouse/delivery-kit fork. Resolves conflicts (CHANGELOG.md kept -dk-only), then opens a PR for review. Use when asked to sync upstream into delivery-kit.
 ---
 
 # Merge Upstream (werf → delivery-kit)
 
 ## Context
 
-- **Upstream:** `werf/werf` — remote `origin` (fetch/merge source).
-- **Fork:** `deckhouse/delivery-kit` — remote `delivery-kit` (push target).
-- The mapping is **inverted**: `origin` is upstream, not the fork — `git merge origin/main` pulls
-  upstream *in*. Remote names are clone-specific; verify with `git remote -v`.
+- **Upstream** = `werf/werf` — the fetch/merge source.
+- **Fork** = `deckhouse/delivery-kit` — the push target.
+- Map these to your local remotes via `git remote -v` (names vary per clone). Below, `UPSTREAM`
+  and `FORK` stand for whatever remote points at each URL.
 - `CHANGELOG.md` is release-please-managed (`release-type: go`, runs on push to `main`). Only `-dk`
   entries are authored by hand; bare upstream blocks (`## [X.Y.Z]`) already in history stay, but
   you never add new ones.
 - Requires `gh` authenticated and a clean working tree.
 
-The agent merges, resolves conflicts, and opens a PR — it never pushes to `delivery-kit/main`.
+The agent merges, resolves conflicts, and opens a PR — it never pushes to the fork's `main`.
 
 ## Steps
 
 ### 0. Branch off the fork's main
 
 ```bash
-git fetch delivery-kit && git fetch origin main
-git checkout -b chore/release/merge-werf-upstream delivery-kit/main
-git log --oneline origin/main ^delivery-kit/main   # preview what gets pulled in
+git fetch FORK && git fetch UPSTREAM main
+git checkout -b chore/release/merge-werf-upstream FORK/main
+git log --oneline UPSTREAM/main ^FORK/main   # preview what gets pulled in
 ```
 
 Branch name follows the werf convention `<type>/<scope>/<short-description>` (top-level scope,
@@ -34,7 +34,7 @@ Branch name follows the werf convention `<type>/<scope>/<short-description>` (to
 ### 1. Merge upstream
 
 ```bash
-git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" origin/main
+git merge --no-ff -m "chore(release): merge werf upstream into delivery-kit" UPSTREAM/main
 ```
 
 Always `--no-ff -m` so the subject is identical with or without conflicts. Resolve conflicts:
@@ -58,8 +58,8 @@ git add -u && git commit --no-edit
 Do this after a conflict-free merge exists. Find the meaningful commits:
 
 ```bash
-git log --oneline origin/main ^delivery-kit/main   # commits this merge introduces
-gh pr view <url> --json commits,title,number       # if a delivery-kit PR URL was given
+git log --oneline UPSTREAM/main ^FORK/main     # commits this merge introduces
+gh pr view <url> --json commits,title,number   # if a delivery-kit PR URL was given
 ```
 
 Skip release-please noise (`chore(main): release …`, `chore(release): N alpha,beta`).
@@ -98,7 +98,7 @@ git grep -n '^<<<<<<<' && echo "ABORT: conflict markers" # MUST find nothing
 head -5 CHANGELOG.md                                       # top entry MUST be the new -dk block
 git status                                                 # MUST be clean
 
-git push -u delivery-kit chore/release/merge-werf-upstream
+git push -u FORK chore/release/merge-werf-upstream
 gh pr create --repo deckhouse/delivery-kit --base main \
   --head chore/release/merge-werf-upstream \
   --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk)" \
@@ -112,7 +112,7 @@ To recover before pushing: `git merge --abort`, or discard the branch with
 
 ## Rules
 
-- ALWAYS work on a `chore/release/merge-werf-upstream` branch and finish with a PR; NEVER push to `delivery-kit/main`.
+- ALWAYS work on a `chore/release/merge-werf-upstream` branch and finish with a PR; NEVER push to the fork's `main`.
 - ALWAYS name branches/commits/PRs per the werf convention (`<type>/<scope>/<desc>`, `<type>(<scope>): <subject>`, ≤ 72 chars).
 - ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
 - CHANGELOG: NEVER add a bare upstream block or reorder existing entries; only prepend one `-dk` block, and take ours (`--ours`) on conflict.

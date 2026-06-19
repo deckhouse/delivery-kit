@@ -58,18 +58,18 @@ Stage resolved tracked files only, then commit:
 git add -u && git commit --no-edit
 ```
 
-### 2. Author the `-dk` changelog entry
+### 2. Author the `-dk` changelog entry and force the release version
 
 Do this after a conflict-free merge exists. Use the Step 1 preview for the commit list (and
 `gh pr view <url> --json commits` if a delivery-kit PR URL was given).
 
 Skip release-please noise (`chore(main): release …`, `chore(release): N alpha,beta`).
 
-Pick the next `-dk` version **from the upstream base being merged**: if upstream moved
+**Determine the next `-dk` version** from the upstream base being merged: if upstream moved
 `2.72.x → 2.73.0`, it is `2.73.0-dk`; if the upstream base is unchanged and you add only fork-side
 fixes, bump the `-dk` patch. Never blindly +1 the latest `-dk` patch across an upstream minor/major.
 
-Prepend one block below `# Changelog` (today's date), then commit:
+**Prepend the changelog block** below `# Changelog` (today's date), then commit:
 
 ```
 ## [X.Y.Z-dk](https://github.com/deckhouse/delivery-kit/compare/vPREV-dk...vX.Y.Z-dk) (YYYY-MM-DD)
@@ -79,6 +79,18 @@ Prepend one block below `# Changelog` (today's date), then commit:
 ```bash
 git add CHANGELOG.md && git commit -m "chore(release): resolve changelog for X.Y.Z-dk"
 ```
+
+**Force the Release Please version** with an empty commit carrying `Release-As`. This overrides the
+SemVer bump Release Please would calculate from commit history and pins the exact `-dk` version:
+
+```bash
+git commit --allow-empty -m "chore: force release X.Y.Z-dk
+
+Release-As: vX.Y.Z-dk"
+```
+
+`Release-As: vX.Y.Z-dk` must be in the **commit body** (blank line after subject), not the subject
+line. The value must include the `v` prefix. Use the same version as the changelog entry above.
 
 ### 3. Regenerate docs, build, test
 
@@ -117,6 +129,7 @@ To recover before pushing: `git merge --abort`, or discard the branch with
   `git-commit-message`, and `pull-request-name` skills for any other naming.
 - ALWAYS work on the `chore/release/...` branch and finish with a PR; NEVER push to the fork's `main`.
 - ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
+- ALWAYS add an empty `Release-As: vX.Y.Z-dk` commit (Step 2) so Release Please proposes the correct version; NEVER rely on SemVer bump inference from commit history alone.
 - CHANGELOG: NEVER add a bare upstream block or reorder existing entries; only prepend one `-dk` block, and take ours (`--ours`) on conflict.
 - NEVER `git add .`; stage only resolved tracked files.
 - NEVER blanket-resolve non-CHANGELOG conflicts toward upstream; stop and ask a human.

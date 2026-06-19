@@ -16,6 +16,7 @@ defaults:
 
 jobs:
   release-please:
+    if: "${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '): release ') }}"
     runs-on: [self-hosted, regular]
     steps:
       - name: Release
@@ -23,7 +24,7 @@ jobs:
         uses: googleapis/release-please-action@v5
         with:
           target-branch: ${{github.ref_name}}
-          release-type: go
+          skip-github-release: true
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
   notify:
     if: failure()

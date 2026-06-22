@@ -195,11 +195,5 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 		}
 	}
 
-	if mergeOpts.FragmentBOM != nil {
-		if err := gost.Upsert(mergeOpts.FragmentBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties for fragment BOM: %w", err)
-		}
-	}
-
 	return nil
 }

@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -11,8 +10,6 @@ import (
 	pkgsbom "github.com/werf/werf/v2/pkg/sbom"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
-
-func strPtr(s string) *string { return &s }
 
 var _ = Describe("buildImageSbom", func() {
 	DescribeTable("validate and build image sbom",
@@ -42,9 +39,7 @@ var _ = Describe("buildImageSbom", func() {
 					},
 				},
 			},
-			&rawSbom{
-				Fragment: strPtr("components: []"),
-			},
+			&rawSbom{},
 			&doc{RenderFilePath: "werf.yaml", Content: []byte("image: test")},
 			HaveOccurred(),
 			true,
@@ -146,61 +141,6 @@ var _ = Describe("buildImageSbom", func() {
 				Expect(sbomDirective).ToNot(BeNil())
 				Expect(sbomDirective.Gost.AttackSurface).To(Equal(gost.GostValueNo))
 				Expect(sbomDirective.Gost.SecurityFunction).To(Equal(gost.GostValueNo))
-			},
-		),
-		Entry(
-			"should fail when build.sbom.enable=true and sbom.fragment is empty",
-			&Meta{
-				Build: MetaBuild{
-					Sbom: &MetaBuildSbom{
-						Enable:   true,
-						Standard: pkgsbom.StandardTypeCycloneDX16,
-						Gost:     gost.DefaultConfig(),
-					},
-				},
-			},
-			&rawSbom{
-				Fragment: strPtr("   "),
-			},
-			&doc{RenderFilePath: "werf.yaml", Content: []byte("image: test")},
-			HaveOccurred(),
-			true,
-			nil,
-		),
-		Entry(
-			"should succeed when build.sbom.enable=true and sbom.fragment contains valid YAML",
-			&Meta{
-				Build: MetaBuild{
-					Sbom: &MetaBuildSbom{
-						Enable:   true,
-						Standard: pkgsbom.StandardTypeCycloneDX16,
-						Gost:     gost.DefaultConfig(),
-					},
-				},
-			},
-			&rawSbom{
-				Fragment: strPtr(`
-components:
-  - type: library
-    name: openssl
-    version: "3.0.0"
-`),
-			},
-			&doc{RenderFilePath: "werf.yaml", Content: []byte("image: test")},
-			Succeed(),
-			false,
-			func(sbomDirective *Sbom) {
-				Expect(sbomDirective).ToNot(BeNil())
-				Expect(sbomDirective.Document).ToNot(BeNil())
-
-				Expect(sbomDirective.Document.BOMFormat).To(Equal(cdx.BOMFormat))
-				Expect(sbomDirective.Document.SpecVersion).To(Equal(cdx.SpecVersion1_6))
-				Expect(sbomDirective.Document.Version).To(BeNumerically(">=", 1))
-
-				Expect(sbomDirective.Document.Components).ToNot(BeNil())
-				Expect(*sbomDirective.Document.Components).To(HaveLen(1))
-				Expect((*sbomDirective.Document.Components)[0].Name).To(Equal("openssl"))
-				Expect(sbomDirective.Gost.AttackSurface).To(Equal(gost.GostValueYes))
 			},
 		),
 	)

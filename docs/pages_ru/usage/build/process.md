@@ -698,37 +698,6 @@ build:
     standard: cyclonedx@1.6
 ```
 
-### Конфигурация конкретного образа (`sbom.fragment`)
-
-Опционально можно предоставить дополнительные SBOM-данные для каждого образа с помощью свойства `sbom.fragment`. Это может быть использовано для ручного включения компонентов, которые не были автоматически обнаружены сканером.
-
-`sbom.fragment` должен быть YAML-документом CycloneDX@1.6 или его частичным фрагментом (например, только секция `components:`). werf сформирует полный BOM-документ CycloneDX@1.6, объединив результаты сканирования с этим фрагментом.
-
-```yaml
-project: werf-sbom-base-image-example
-configVersion: 1
-build:
-  sbom:
-    enable: true
-    standard: cyclonedx@1.6
----
-image: base-image
-from: registry.werf.io/werf/scratch:latest
-sbom:
-  fragment: |
-    components:
-      - type: library
-        name: openssl
-        version: "3.0.0"
-        purl: pkg:generic/openssl@3.0.0
-        licenses:
-          - license:
-              id: Apache-2.0
-        hashes:
-          - alg: SHA-256
-            content: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-```
-
 Результат сканирования будет сохранен как отдельный образ с постфиксом `-sbom` в локальном хранилище бекенда (например, Docker), а также отправлен в container registry, если указан флаг `--repo`.
 
 ### Свойства безопасности ГОСТ (`sbom.gost`)

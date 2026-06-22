@@ -699,37 +699,6 @@ build:
     standard: cyclonedx@1.6
 ```
 
-### Per-image configuration (`sbom.fragment`)
-
-Optionally you can provide additional SBOM data for each image via the `sbom.fragment` property. This can be used to manually include components that are not automatically detected by the scanner.
-
-`sbom.fragment` must be a YAML CycloneDX@1.6 document or a partial fragment (e.g., only the `components:` section). werf will build a full CycloneDX@1.6 BOM document by combining the scan results with this fragment.
-
-```yaml
-project: werf-sbom-base-image-example
-configVersion: 1
-build:
-  sbom:
-    enable: true
-    standard: cyclonedx@1.6
----
-image: base-image
-from: registry.werf.io/werf/scratch:latest
-sbom:
-  fragment: |
-    components:
-      - type: library
-        name: openssl
-        version: "3.0.0"
-        purl: pkg:generic/openssl@3.0.0
-        licenses:
-          - license:
-              id: Apache-2.0
-        hashes:
-          - alg: SHA-256
-            content: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-```
-
 The scanning result will be saved as a separate image with the `-sbom` postfix in the local backend storage (for example, Docker), and will also be sent to the container registry if the `--repo` flag is specified.
 
 ### GOST security properties (`sbom.gost`)

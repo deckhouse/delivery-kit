@@ -9,9 +9,10 @@ description: Merge werf upstream into the deckhouse/delivery-kit fork. Resolves 
 
 - **Upstream** = `werf/werf` (fetch/merge source). **Fork** = `deckhouse/delivery-kit` (push target).
 - Remote names vary per clone, so Step 0 resolves both by URL into `$UPSTREAM` / `$FORK`.
-- `CHANGELOG.md` is release-please-managed (`release-type: go`, runs on push to `main`). Only `-dk`
-  entries are authored by hand; bare upstream blocks (`## [X.Y.Z]`) already in history stay, but
-  you never add new ones.
+- `CHANGELOG.md` is release-please-managed (`release-type: go`, runs on push to `main`).
+  Nothing from `upstream/main` ever lands in it: on conflict you always take ours and never copy,
+  author, or prepend any entry — the changelog is release-please's job on push to `main`, not the
+  agent's. The agent only pins the release version via an empty `Release-As` commit (Step 2).
 - Requires `gh` authenticated and a clean working tree.
 
 The agent merges, resolves conflicts, and opens a PR — it never pushes to the fork's `main`.
@@ -45,7 +46,8 @@ merge subject identical with or without conflicts.
 Resolve conflicts:
 
 - **`CHANGELOG.md`** — always take ours: `git checkout --ours CHANGELOG.md && git add CHANGELOG.md`.
-  Upstream changelog changes are dropped; the `-dk` entry is authored in Step 2.
+  Upstream changelog changes are dropped. Do NOT author or prepend any entry — release-please
+  generates the changelog on push to `main`.
 - **`go.mod` / `go.sum`** — resolve obvious parts, then `go mod tidy && git add go.mod go.sum`.
   Never blindly take one side.
 - **Any other file** — do not blanket-take upstream; it can silently revert delivery-kit
@@ -58,30 +60,15 @@ Stage resolved tracked files only, then commit:
 git add -u && git commit --no-edit
 ```
 
-### 2. Author the `-dk` changelog entry and force the release version
+### 2. Force the release version (no changelog)
 
-Do this after a conflict-free merge exists. Use the Step 1 preview for the commit list (and
-`gh pr view <url> --json commits` if a delivery-kit PR URL was given).
-
-Skip release-please noise (`chore(main): release …`, `chore(release): N alpha,beta`).
+Do NOT author or prepend anything in `CHANGELOG.md` — release-please generates it on push to
+`main`. The only release artifact the agent adds is an empty `Release-As` commit that pins the
+exact `-dk` version (release-please would otherwise infer it from commit history).
 
 **Determine the next `-dk` version** from the upstream base being merged: if upstream moved
 `2.72.x → 2.73.0`, it is `2.73.0-dk`; if the upstream base is unchanged and you add only fork-side
 fixes, bump the `-dk` patch. Never blindly +1 the latest `-dk` patch across an upstream minor/major.
-
-**Prepend the changelog block** below `# Changelog` (today's date), then commit:
-
-```
-## [X.Y.Z-dk](https://github.com/deckhouse/delivery-kit/compare/vPREV-dk...vX.Y.Z-dk) (YYYY-MM-DD)
-### Features / Bug Fixes — using deckhouse/delivery-kit links, not werf/werf
-```
-
-```bash
-git add CHANGELOG.md && git commit -m "chore(release): resolve changelog for X.Y.Z-dk"
-```
-
-**Force the Release Please version** with an empty commit carrying `Release-As`. This overrides the
-SemVer bump Release Please would calculate from commit history and pins the exact `-dk` version:
 
 ```bash
 git commit --allow-empty -m "chore: force release X.Y.Z-dk
@@ -90,7 +77,7 @@ Release-As: vX.Y.Z-dk"
 ```
 
 `Release-As: vX.Y.Z-dk` must be in the **commit body** (blank line after subject), not the subject
-line. The value must include the `v` prefix. Use the same version as the changelog entry above.
+line. The value must include the `v` prefix.
 
 ### 3. Regenerate docs, build, test
 
@@ -108,14 +95,14 @@ If build or tests fail, stop and resolve (or surface for a maintainer) before th
 
 ```bash
 git grep -q '^<<<<<<<' && { echo "ABORT: conflict markers"; exit 1; }  # MUST find none
-head -5 CHANGELOG.md                                                   # top MUST be the new -dk block
+git diff "$FORK/main" -- CHANGELOG.md                                  # MUST be empty (nothing from upstream)
 git status                                                             # MUST be clean
 
 git push -u "$FORK" chore/release/merge-werf-upstream
 gh pr create --repo deckhouse/delivery-kit --base main \
   --head chore/release/merge-werf-upstream \
   --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk)" \
-  --body "Sync werf upstream. CHANGELOG.md kept -dk-only. New release entry: X.Y.Z-dk."
+  --body "Sync werf upstream. CHANGELOG.md unchanged; release-please generates it on merge. Release pinned to X.Y.Z-dk via Release-As."
 ```
 
 The agent stops after opening the PR; a maintainer reviews and merges.
@@ -129,7 +116,7 @@ To recover before pushing: `git merge --abort`, or discard the branch with
   `git-commit-message`, and `pull-request-name` skills for any other naming.
 - ALWAYS work on the `chore/release/...` branch and finish with a PR; NEVER push to the fork's `main`.
 - ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
-- ALWAYS add an empty `Release-As: vX.Y.Z-dk` commit (Step 2) so Release Please proposes the correct version; NEVER rely on SemVer bump inference from commit history alone.
-- CHANGELOG: NEVER add a bare upstream block or reorder existing entries; only prepend one `-dk` block, and take ours (`--ours`) on conflict.
+- CHANGELOG: NEVER copy, author, prepend, or reorder any entry; take ours (`--ours`) on conflict and leave it byte-identical to `$FORK/main`. The changelog is release-please's job.
+- ALWAYS add an empty `Release-As: vX.Y.Z-dk` commit (Step 2) so release-please pins the correct version; NEVER author a changelog entry for it — release-please generates the changelog on push to `main`.
 - NEVER `git add .`; stage only resolved tracked files.
 - NEVER blanket-resolve non-CHANGELOG conflicts toward upstream; stop and ask a human.

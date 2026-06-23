@@ -138,6 +138,7 @@ type BaseStage struct {
 	configMounts     []*config.Mount
 	projectName      string
 	network          string
+	networkOverride  string
 	meta             *StageMeta
 }
 
@@ -149,6 +150,14 @@ type StageMeta struct {
 
 func (s *BaseStage) IsBuildable() bool {
 	return true
+}
+
+func (s *BaseStage) SetNetworkOverride(network string) {
+	s.networkOverride = network
+}
+
+func (s *BaseStage) NetworkOverrideValue() string {
+	return s.networkOverride
 }
 
 func (s *BaseStage) IsMutable() bool {
@@ -344,11 +353,16 @@ func (s *BaseStage) PrepareImage(ctx context.Context, c Conveyor, cb container_b
 
 	s.addProjectRepoCommitLabel(ctx, c, cb, stageImage)
 
-	if s.network != "" {
+	network := s.network
+	if s.networkOverride != "" {
+		network = s.networkOverride
+	}
+
+	if network != "" {
 		if c.UseLegacyStapelBuilder(cb) {
-			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddNetwork(s.network)
+			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddNetwork(network)
 		} else {
-			stageImage.Builder.StapelStageBuilder().SetNetwork(s.network)
+			stageImage.Builder.StapelStageBuilder().SetNetwork(network)
 		}
 	}
 

@@ -1,0 +1,12 @@
+project: network-managed-deps-test
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: "cyclonedx@1.6"
+---
+image: stapel
+from: registry.werf.io/base/alpine
+shell:
+  setup:
+    - apk add --no-cache bash

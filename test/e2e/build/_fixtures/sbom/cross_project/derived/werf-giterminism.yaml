@@ -1,5 +1,0 @@
-giterminismConfigVersion: 1
-config:
-  goTemplateRendering:
-    allowEnvVariables:
-      - BASE_IMAGE_REF

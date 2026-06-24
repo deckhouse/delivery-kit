@@ -93,11 +93,6 @@ sections:
               en: "/usage/build/process.html#scanning-and-generation-of-sbom-artifacts-experimental"
               ru: "/usage/build/process.html#сканирование-и-генерация-sbom-артефактов-experimental"
             directives:
-              - name: fragment
-                value: "string"
-                description:
-                  en: "Additional SBOM data in CycloneDX format"
-                  ru: "Дополнительные данные SBOM в формате CycloneDX"
               - <<: *gost-directive
           - name: imageSpec
             description:

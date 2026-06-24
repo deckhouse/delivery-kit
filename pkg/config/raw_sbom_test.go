@@ -12,7 +12,7 @@ import (
 
 var _ = Describe("rawSbom (YAML-level validation)", func() {
 	DescribeTable(
-		"fragment and gost validation when sbom section is present",
+		"gost validation and unknown field handling when sbom section is present",
 		func(yamlMap map[string]interface{}, expectedSbomPresent bool, unmarshalMatcher, configErrMatcher OmegaMatcher) {
 			// NOTE: global var used by UnmarshalYAML parent tracking across many config raw structs.
 			parentStack = util.NewStack()
@@ -53,88 +53,29 @@ var _ = Describe("rawSbom (YAML-level validation)", func() {
 		),
 
 		Entry(
-			"should fail when sbom section exists but fragment is missing",
+			"should succeed when sbom section is empty",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:3.20",
 				"sbom":  map[string]interface{}{},
 			},
-			false,
-			HaveOccurred(),
-			BeTrue(),
-		),
-
-		Entry(
-			"should fail when sbom.fragment is empty",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:3.20",
-				"sbom": map[string]interface{}{
-					"fragment": "   ",
-				},
-			},
-			false,
-			HaveOccurred(),
-			BeTrue(),
-		),
-
-		Entry(
-			"should fail when sbom.fragment is not valid YAML",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:3.20",
-				"sbom": map[string]interface{}{
-					"fragment": "components: [",
-				},
-			},
-			false,
-			HaveOccurred(),
-			BeTrue(),
-		),
-
-		Entry(
-			"should fail when sbom.fragment YAML root is not a mapping",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:3.20",
-				"sbom": map[string]interface{}{
-					"fragment": "- a\n- b\n",
-				},
-			},
-			false,
-			HaveOccurred(),
-			BeTrue(),
-		),
-
-		Entry(
-			"should succeed when sbom.fragment contains valid YAML mapping",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:3.20",
-				"sbom": map[string]interface{}{
-					"fragment": "components: []\n",
-				},
-			},
 			true,
 			Succeed(),
 			BeFalse(),
 		),
 
 		Entry(
-			"should succeed when sbom.fragment and gost are valid",
+			"should fail when sbom.fragment is specified (removed feature)",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:3.20",
 				"sbom": map[string]interface{}{
-					"fragment": "components: []\n",
-					"gost": map[string]interface{}{
-						"attackSurface": "yes",
-					},
+					"fragment": "components: []",
 				},
 			},
-			true,
-			Succeed(),
-			BeFalse(),
+			false,
+			HaveOccurred(),
+			BeTrue(),
 		),
 
 		Entry(
@@ -143,7 +84,6 @@ var _ = Describe("rawSbom (YAML-level validation)", func() {
 				"image": "image1",
 				"from":  "alpine:3.20",
 				"sbom": map[string]interface{}{
-					"fragment": "components: []\n",
 					"gost": map[string]interface{}{
 						"attackSurface": "indirect",
 					},
@@ -160,7 +100,6 @@ var _ = Describe("rawSbom (YAML-level validation)", func() {
 				"image": "image1",
 				"from":  "alpine:3.20",
 				"sbom": map[string]interface{}{
-					"fragment": "components: []\n",
 					"gost": map[string]interface{}{
 						"attackSurface": "invalid",
 					},

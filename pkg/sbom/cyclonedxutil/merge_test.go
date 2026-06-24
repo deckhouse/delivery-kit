@@ -33,7 +33,7 @@ func dependencyRefs(bom *cdx.BOM) []string {
 }
 
 var _ = Describe("MergeBOMs", func() {
-	It("concatenates components in order", func() {
+	It("concatenates components in merge order (base → imports → target)", func() {
 		baseBOM := &cdx.BOM{
 			SpecVersion: cdx.SpecVersion1_6,
 			Components: &[]cdx.Component{
@@ -53,12 +53,6 @@ var _ = Describe("MergeBOMs", func() {
 				{Name: "import2-comp", Version: "1.0.0"},
 			},
 		}
-		fragmentBOM := &cdx.BOM{
-			SpecVersion: cdx.SpecVersion1_6,
-			Components: &[]cdx.Component{
-				{Name: "fragment-comp", Version: "1.0.0"},
-			},
-		}
 		targetBOM := &cdx.BOM{
 			SpecVersion: cdx.SpecVersion1_6,
 			Components: &[]cdx.Component{
@@ -67,9 +61,8 @@ var _ = Describe("MergeBOMs", func() {
 		}
 
 		result, err := MergeBOMs(targetBOM, MergeOpts{
-			BaseBOM:     baseBOM,
-			ImportBOMs:  []*cdx.BOM{importBOM1, importBOM2},
-			FragmentBOM: fragmentBOM,
+			BaseBOM:    baseBOM,
+			ImportBOMs: []*cdx.BOM{importBOM1, importBOM2},
 		})
 		Expect(err).ToNot(HaveOccurred())
 
@@ -79,7 +72,6 @@ var _ = Describe("MergeBOMs", func() {
 			"base-comp-2",
 			"import1-comp",
 			"import2-comp",
-			"fragment-comp",
 			"target-comp",
 		}))
 	})
@@ -233,7 +225,7 @@ var _ = Describe("MergeBOMs", func() {
 			assert(result)
 		},
 
-		Entry("concatenates in merge order (base → imports → fragment → target)",
+		Entry("concatenates in merge order (base → imports → target)",
 			&cdx.BOM{
 				SpecVersion: cdx.SpecVersion1_6,
 				Dependencies: &[]cdx.Dependency{
@@ -252,16 +244,11 @@ var _ = Describe("MergeBOMs", func() {
 					{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "import1-ref"}}},
 					{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "import2-ref"}}},
 				},
-				FragmentBOM: &cdx.BOM{
-					SpecVersion:  cdx.SpecVersion1_6,
-					Dependencies: &[]cdx.Dependency{{Ref: "fragment-ref"}},
-				},
 			},
 			func(result *cdx.BOM) {
 				Expect(dependencyRefs(result)).To(Equal([]string{
 					"base-ref-1", "base-ref-2",
 					"import1-ref", "import2-ref",
-					"fragment-ref",
 					"target-ref",
 				}))
 			},
@@ -533,7 +520,6 @@ var _ = Describe("MergeOpts", func() {
 		Entry("empty opts", MergeOpts{}, true),
 		Entry("with base BOM", MergeOpts{BaseBOM: &cdx.BOM{}}, false),
 		Entry("with import BOMs", MergeOpts{ImportBOMs: []*cdx.BOM{{}}}, false),
-		Entry("with fragment BOM", MergeOpts{FragmentBOM: &cdx.BOM{}}, false),
 		Entry("with empty import slice", MergeOpts{ImportBOMs: []*cdx.BOM{}}, true),
 	)
 

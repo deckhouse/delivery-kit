@@ -303,18 +303,15 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		return err
 	}
 
-	var fragmentBOM *cdx.BOM
 	var gostConfig gost.Config
 	if imgSbom := primaryImg.Sbom(); imgSbom != nil {
-		fragmentBOM = imgSbom.Document
 		gostConfig = imgSbom.Gost
 	}
 
 	mergeOpts := cyclonedxutil.MergeOpts{
-		BaseBOM:     baseImageSbom,
-		ImportBOMs:  importImageSboms,
-		FragmentBOM: fragmentBOM,
-		Gost:        gostConfig,
+		BaseBOM:    baseImageSbom,
+		ImportBOMs: importImageSboms,
+		Gost:       gostConfig,
 	}
 
 	gitRepo := phase.Conveyor.GiterminismManager().LocalGitRepo()

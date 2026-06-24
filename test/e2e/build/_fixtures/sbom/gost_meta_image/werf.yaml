@@ -11,8 +11,6 @@ build:
 image: app
 from: registry.werf.io/werf/scratch
 sbom:
-  fragment: |
-    components: []
   gost:
     attackSurface: no
     securityFunction: yes

@@ -6,25 +6,25 @@ import (
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/google/uuid"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
 
 type MergeOpts struct {
-	BaseBOM     *cdx.BOM
-	ImportBOMs  []*cdx.BOM
-	FragmentBOM *cdx.BOM
-	Gost        gost.Config
+	BaseBOM    *cdx.BOM
+	ImportBOMs []*cdx.BOM
+	Gost       gost.Config
 }
 
 func (o MergeOpts) IsEmpty() bool {
-	return o.BaseBOM == nil && len(o.ImportBOMs) == 0 && o.FragmentBOM == nil
+	return o.BaseBOM == nil && len(o.ImportBOMs) == 0
 }
 
 func (o MergeOpts) Checksum() string {
 	var parts []string
-	for _, bom := range append([]*cdx.BOM{o.BaseBOM, o.FragmentBOM}, o.ImportBOMs...) {
+	for _, bom := range append([]*cdx.BOM{o.BaseBOM}, o.ImportBOMs...) {
 		if cs := StableBOMChecksum(bom); cs != "" {
 			parts = append(parts, cs)
 		}
@@ -34,10 +34,10 @@ func (o MergeOpts) Checksum() string {
 }
 
 func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
-	boms := make([]*cdx.BOM, 0, len(o.ImportBOMs)+3)
+	boms := make([]*cdx.BOM, 0, len(o.ImportBOMs)+2)
 	boms = append(boms, o.BaseBOM)
 	boms = append(boms, o.ImportBOMs...)
-	boms = append(boms, o.FragmentBOM, target)
+	boms = append(boms, target)
 
 	return boms
 }
@@ -198,6 +198,20 @@ func mergeDeclarations(boms []*cdx.BOM) *cdx.Declarations {
 	}
 
 	return &result
+}
+
+// NewBOM creates a new empty CycloneDX 1.6 BOM with standard fields initialized.
+func NewBOM() *cdx.BOM {
+	return &cdx.BOM{
+		BOMFormat:    cdx.BOMFormat,
+		SpecVersion:  cdx.SpecVersion1_6,
+		Version:      1,
+		SerialNumber: newSerialNumber(),
+	}
+}
+
+func newSerialNumber() string {
+	return "urn:uuid:" + uuid.New().String()
 }
 
 func appendBOMComponents(dest []cdx.Component, bom *cdx.BOM) []cdx.Component {

@@ -73,6 +73,14 @@ func (b *Ansible) BeforeSetupChecksum(ctx context.Context) string {
 }
 func (b *Ansible) SetupChecksum(ctx context.Context) string { return b.stageChecksum(ctx, "Setup") }
 
+func (b *Ansible) IsPackagesEmpty(_ context.Context) bool { return true }
+
+func (b *Ansible) Packages(_ context.Context, _ container_backend.ContainerBackend, _ stage_builder.StageBuilderInterface, _ bool) error {
+	return nil
+}
+
+func (b *Ansible) PackagesChecksum(_ context.Context) string { return "" }
+
 func (b *Ansible) isEmptyStage(ctx context.Context, userStageName string) bool {
 	return b.stageChecksum(ctx, userStageName) == ""
 }

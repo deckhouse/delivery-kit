@@ -33,6 +33,7 @@ const (
 	DependenciesBeforeSetup   StageName = "dependenciesBeforeSetup"
 	Setup                     StageName = "setup"
 	DependenciesAfterSetup    StageName = "dependenciesAfterSetup"
+	Packages                  StageName = "packages"
 	GitCache                  StageName = "gitCache"
 	GitLatestPatch            StageName = "gitLatestPatch"
 	DockerInstructions        StageName = "dockerInstructions"
@@ -88,6 +89,7 @@ type BaseStageOptions struct {
 	ContainerWerfDir  string
 	ProjectName       string
 	Network           string
+	NeedsNetwork      bool
 }
 
 const disableGitCommitAncestryCheckEnv = "WERF_DISABLE_GIT_COMMIT_ANCESTRY_CHECK"
@@ -120,6 +122,7 @@ func NewBaseStage(name StageName, options *BaseStageOptions) *BaseStage {
 	s.containerWerfDir = options.ContainerWerfDir
 	s.projectName = options.ProjectName
 	s.network = options.Network
+	s.needsNetwork = options.NeedsNetwork
 	s.meta = &StageMeta{}
 	return s
 }
@@ -139,6 +142,7 @@ type BaseStage struct {
 	projectName      string
 	network          string
 	networkOverride  string
+	needsNetwork     bool
 	meta             *StageMeta
 }
 
@@ -156,8 +160,8 @@ func (s *BaseStage) SetNetworkOverride(network string) {
 	s.networkOverride = network
 }
 
-func (s *BaseStage) NetworkOverrideValue() string {
-	return s.networkOverride
+func (s *BaseStage) NeedsNetwork() bool {
+	return s.needsNetwork
 }
 
 func (s *BaseStage) IsMutable() bool {

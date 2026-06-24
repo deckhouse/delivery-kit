@@ -113,9 +113,7 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		stages = append(stages, stage.NewGitArchiveStage(gitArchiveStageOptions, baseStageOptions))
 	}
 
-	for i, pkg := range imageBaseConfig.Packages {
-		stages = appendIfExist(ctx, stages, stage.GeneratePackageResolveStage(pkg, i, baseStageOptions))
-	}
+	stages = appendIfExist(ctx, stages, stage.GeneratePackagesStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 
 	stages = appendIfExist(ctx, stages, stage.GenerateInstallStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 	stages = appendIfExist(ctx, stages, stage.GenerateDependenciesAfterInstallStage(imageBaseConfig, baseStageOptions))
@@ -155,15 +153,19 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 
 	sbomEnabled := metaConfig.Build.Sbom != nil && metaConfig.Build.Sbom.Enable
 	if sbomEnabled {
-		logboek.Context(ctx).Warn().LogLn("Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
-
+		hasShellStages := false
 		for _, s := range stages {
 			if stageHasNetworkAccess(s) {
 				continue
 			}
 			if no, ok := s.(interface{ SetNetworkOverride(string) }); ok {
 				no.SetNetworkOverride("none")
+				hasShellStages = true
 			}
+		}
+
+		if hasShellStages {
+			logboek.Context(ctx).Warn().LogLn("Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
 		}
 	}
 
@@ -173,12 +175,10 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 }
 
 func stageHasNetworkAccess(s stage.Interface) bool {
-	switch s.Name() {
-	case stage.From, stage.GitArchive, stage.GitCache, stage.GitLatestPatch:
-		return true
+	if nn, ok := s.(interface{ NeedsNetwork() bool }); ok {
+		return nn.NeedsNetwork()
 	}
-	_, isPackageResolve := s.(*stage.PackageResolveStage)
-	return isPackageResolve
+	return false
 }
 
 // TODO(v3): make this a hard error instead of a warning.

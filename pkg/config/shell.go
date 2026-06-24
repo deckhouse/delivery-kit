@@ -5,11 +5,13 @@ type Shell struct {
 	Install                   []string
 	BeforeSetup               []string
 	Setup                     []string
+	Packages                  []string
 	CacheVersion              string
 	BeforeInstallCacheVersion string
 	InstallCacheVersion       string
 	BeforeSetupCacheVersion   string
 	SetupCacheVersion         string
+	PackagesCacheVersion      string
 
 	raw *rawShell
 }

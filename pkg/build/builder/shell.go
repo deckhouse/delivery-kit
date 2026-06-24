@@ -40,6 +40,8 @@ func (b *Shell) IsBeforeSetupEmpty(ctx context.Context) bool {
 }
 func (b *Shell) IsSetupEmpty(ctx context.Context) bool { return b.isEmptyStage(ctx, "Setup") }
 
+func (b *Shell) IsPackagesEmpty(ctx context.Context) bool { return b.isEmptyStage(ctx, "Packages") }
+
 func (b *Shell) BeforeInstall(_ context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error {
 	return b.stage(cr, stageBuilder, useLegacyStapelBuilder, "BeforeInstall")
 }
@@ -56,6 +58,10 @@ func (b *Shell) Setup(_ context.Context, cr container_backend.ContainerBackend, 
 	return b.stage(cr, stageBuilder, useLegacyStapelBuilder, "Setup")
 }
 
+func (b *Shell) Packages(_ context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error {
+	return b.stage(cr, stageBuilder, useLegacyStapelBuilder, "Packages")
+}
+
 func (b *Shell) BeforeInstallChecksum(ctx context.Context) string {
 	return b.stageChecksum(ctx, "BeforeInstall")
 }
@@ -63,7 +69,8 @@ func (b *Shell) InstallChecksum(ctx context.Context) string { return b.stageChec
 func (b *Shell) BeforeSetupChecksum(ctx context.Context) string {
 	return b.stageChecksum(ctx, "BeforeSetup")
 }
-func (b *Shell) SetupChecksum(ctx context.Context) string { return b.stageChecksum(ctx, "Setup") }
+func (b *Shell) SetupChecksum(ctx context.Context) string    { return b.stageChecksum(ctx, "Setup") }
+func (b *Shell) PackagesChecksum(ctx context.Context) string { return b.stageChecksum(ctx, "Packages") }
 
 func (b *Shell) isEmptyStage(ctx context.Context, userStageName string) bool {
 	return b.stageChecksum(ctx, userStageName) == ""

@@ -351,6 +351,10 @@ func (phase *BuildPhase) scanOptionsForImage(img *image.Image) scanner.ScanOptio
 		return scanOpts
 	}
 
+	if len(scanOpts.Commands) == 0 {
+		return scanOpts
+	}
+
 	catalogers := managedinput.ToCatalogers(stapelConfig.ImageBaseConfig().Packages)
 	for i := range scanOpts.Commands {
 		scanOpts.Commands[i].Catalogers = catalogers

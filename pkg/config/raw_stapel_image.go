@@ -326,6 +326,16 @@ func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager gitermini
 		imageBase.Packages = append(imageBase.Packages, pkgDirective)
 	}
 
+	if len(imageBase.Packages) > 0 && meta.Build.Sbom != nil && meta.Build.Sbom.Enable {
+		packagesCommands := GeneratePackagesCommands(imageBase.Packages)
+		if len(packagesCommands) > 0 {
+			if imageBase.Shell == nil {
+				imageBase.Shell = &Shell{}
+			}
+			imageBase.Shell.Packages = packagesCommands
+		}
+	}
+
 	if imageBase.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {
 		return nil, err
 	}

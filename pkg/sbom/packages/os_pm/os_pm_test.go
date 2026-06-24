@@ -144,9 +144,10 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	It("should return error for empty JSON", func() {
-		_, err := ParsePmInstalledJSON([]byte(`{}`))
-		Expect(err).To(HaveOccurred())
+	It("should return an empty map for an empty JSON object", func() {
+		pkgs, err := ParsePmInstalledJSON([]byte(`{}`))
+		Expect(err).To(Succeed())
+		Expect(pkgs).To(BeEmpty())
 	})
 })
 

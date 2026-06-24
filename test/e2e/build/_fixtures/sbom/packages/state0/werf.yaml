@@ -1,0 +1,32 @@
+project: werf-test-e2e-build-sbom-packages
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: stapel
+from: registry.werf.io/base/ubuntu:22.04
+shell:
+  beforeInstall:
+    - mkdir -p /usr/local/bin /var/lib/pm /opt
+    - |
+      cat > /opt/pm-index.json <<'IDX'
+      {
+        "flant-marker": {"name":"flant-marker","arch":["linux/amd64"],"default":true,"depends":["flant-lib"],"description":"e2e marker package","license":"MIT","originalRepo":"https://example.com/flant-marker","repo":"flant/flant-marker","type":"runtime","version":"9.9.9","digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+        "flant-lib": {"name":"flant-lib","arch":["linux/amd64"],"default":true,"description":"e2e transitive lib","license":"MIT","originalRepo":"https://example.com/flant-lib","repo":"flant/flant-lib","type":"runtime","version":"2.0.0","digest":"sha256:2222222222222222222222222222222222222222222222222222222222222222"}
+      }
+      IDX
+    - |
+      cat > /usr/local/bin/pm <<'PM'
+      #!/bin/sh
+      case "$1" in
+        install) cp /opt/pm-index.json /var/lib/pm/index.json ;;
+        info) cat /var/lib/pm/index.json ;;
+      esac
+      PM
+    - chmod +x /usr/local/bin/pm
+packages:
+  - type: os-pm
+    spec:
+      - flant-marker

@@ -28,10 +28,6 @@ func ParsePmInstalledJSON(data []byte) (map[string]PmPackageInfo, error) {
 		return nil, fmt.Errorf("parse pm info: %w", err)
 	}
 
-	if len(result) == 0 {
-		return nil, fmt.Errorf("parse pm info: empty package list")
-	}
-
 	return result, nil
 }
 
@@ -68,6 +64,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo) *cdx.BOM {
 			purl = fmt.Sprintf("pkg:generic/%s@%s?repository_url=%s", pkg.Name, pkg.Version, pkg.Repo)
 		}
 		comp.PackageURL = purl
+		comp.BOMRef = purl
 
 		components = append(components, comp)
 	}

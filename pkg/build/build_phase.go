@@ -333,17 +333,15 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
 		hasOsPmPackages = len(primaryImg.StapelImageConfig.ImageBaseConfig().Packages) > 0
 	}
-	osPmPatcher := osPm.NewBOMPatcher(stageDesc.Info.Name, hasOsPmPackages)
 
 	patchers := []BOMPatcherInterface{
 		externalRefPatcher,
 		goModPatcher,
-		osPmPatcher,
 	}
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, primaryImg.TargetPlatform); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, false, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

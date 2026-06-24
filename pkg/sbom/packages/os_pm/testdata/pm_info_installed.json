@@ -1,0 +1,77 @@
+{
+  "brotli": {
+    "name": "brotli",
+    "arch": ["linux/amd64"],
+    "default": true,
+    "description": "Generic lossless compressor",
+    "license": "MIT",
+    "originalRepo": "https://github.com/google/brotli",
+    "repo": "google/brotli",
+    "type": "runtime",
+    "version": "1.1.0",
+    "digest": "sha256:82dcd7127798a506c1ab00993dffaf4ddd2bf576fba97a5d1cc45b931bcd2a0f"
+  },
+  "curl": {
+    "name": "curl",
+    "arch": ["linux/amd64"],
+    "default": true,
+    "depends": ["brotli", "libpsl"],
+    "description": "URL retrival utility and library",
+    "license": "curl",
+    "originalRepo": "https://github.com/curl/curl",
+    "repo": "curl/curl",
+    "type": "runtime",
+    "version": "8.12.1",
+    "digest": "sha256:6f2108c511daa7c46ace9879c0d9bbef2573fb5fd88bee5fad745d96ceda081d"
+  },
+  "jq": {
+    "name": "jq",
+    "arch": ["linux/amd64"],
+    "default": true,
+    "description": "A lightweight and flexible command-line JSON processor",
+    "license": "MIT",
+    "originalRepo": "https://jqlang.github.io/jq/",
+    "repo": "jqlang/jq",
+    "type": "runtime",
+    "version": "1.8.1",
+    "digest": "sha256:4b36dcf53c35b50e0afbc445232713aff15f788a61b832cd720bf9e88fc9fba8"
+  },
+  "libidn2": {
+    "name": "libidn2",
+    "arch": ["linux/amd64"],
+    "default": true,
+    "depends": ["libunistring"],
+    "description": "Encode/Decode library for internationalized domain names",
+    "license": "BSD-3-Clause",
+    "originalRepo": "https://gitlab.com/libidn/libidn2",
+    "repo": "libidn/libidn2",
+    "type": "runtime",
+    "version": "2.3.8",
+    "digest": "sha256:71efcb507c12a77b262038c18043695ee65d27f79f2d6dba052bb0a9e59589e5"
+  },
+  "libpsl": {
+    "name": "libpsl",
+    "arch": ["linux/amd64"],
+    "default": true,
+    "depends": ["libidn2", "libunistring"],
+    "description": "C library for the Publix Suffix List.",
+    "license": "MIT",
+    "originalRepo": "https://github.com/rockdaboot/libpsl",
+    "repo": "rockdaboot/libpsl",
+    "type": "runtime",
+    "version": "0.21.5",
+    "digest": "sha256:9cec4175f81c57c445b8f4904dfecc3c98e35416e8bbcabd3206537b7055687e"
+  },
+  "libunistring": {
+    "name": "libunistring",
+    "arch": ["linux/amd64"],
+    "default": true,
+    "description": "Library for manipulating Unicode strings and C strings.",
+    "license": "LGPL-3.0-or-later",
+    "originalRepo": "https://git.savannah.gnu.org/git/libunistring.git",
+    "repo": "git/libunistring",
+    "type": "runtime",
+    "version": "1.4.1",
+    "digest": "sha256:2d2a7d27c1c23f4b169c58bcf0104509a28c3bd73d8293969f067fa4820fb79b"
+  }
+}

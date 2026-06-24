@@ -1,6 +1,9 @@
 package os_pm
 
 import (
+	"net/url"
+	"os"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -228,3 +231,138 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		}
 	})
 })
+
+var _ = Describe("ParsePmInstalledJSON golden fixture (AI)", func() {
+	It("parses the real-world pm info --installed --json contract", func() {
+		data, err := os.ReadFile("testdata/pm_info_installed.json")
+		Expect(err).To(Succeed())
+
+		pkgs, err := ParsePmInstalledJSON(data)
+		Expect(err).To(Succeed())
+		Expect(pkgs).ToNot(BeEmpty())
+
+		curl, ok := pkgs["curl"]
+		Expect(ok).To(BeTrue())
+		Expect(curl.Name).To(Equal("curl"))
+		Expect(curl.Version).ToNot(BeEmpty())
+		Expect(curl.Arch).ToNot(BeEmpty())
+		Expect(curl.Type).ToNot(BeEmpty())
+		Expect(curl.License).ToNot(BeEmpty())
+		Expect(curl.OriginalRepo).To(HavePrefix("https://"))
+		Expect(curl.Digest).To(HavePrefix("sha256:"))
+		Expect(curl.Depends).To(ConsistOf("brotli", "libpsl"))
+	})
+})
+
+var _ = Describe("ConvertToCycloneDX provenance and dependency graph (AI)", func() {
+	It("maps the package digest into a CycloneDX SHA-256 hash", func() {
+		curl := goldenComponent(loadGoldenPmBOM(), "curl")
+		Expect(curl.Hashes).ToNot(BeNil())
+		Expect(*curl.Hashes).To(HaveLen(1))
+
+		h := (*curl.Hashes)[0]
+		Expect(h.Algorithm).To(Equal(cdx.HashAlgoSHA256))
+		Expect(h.Value).To(Equal("6f2108c511daa7c46ace9879c0d9bbef2573fb5fd88bee5fad745d96ceda081d"))
+	})
+
+	It("records architecture, type and repo as component properties", func() {
+		curl := goldenComponent(loadGoldenPmBOM(), "curl")
+		Expect(curl.Properties).ToNot(BeNil())
+		Expect(*curl.Properties).To(ContainElement(cdx.Property{Name: "werf:pm:arch", Value: "linux/amd64"}))
+		Expect(*curl.Properties).To(ContainElement(cdx.Property{Name: "werf:pm:type", Value: "runtime"}))
+		Expect(*curl.Properties).To(ContainElement(cdx.Property{Name: "werf:pm:repo", Value: "curl/curl"}))
+	})
+
+	It("sets the component description from package info", func() {
+		curl := goldenComponent(loadGoldenPmBOM(), "curl")
+		Expect(curl.Description).To(Equal("URL retrival utility and library"))
+	})
+
+	It("uses the upstream repository URL (not the repo slug) for the purl qualifier", func() {
+		curl := goldenComponent(loadGoldenPmBOM(), "curl")
+		Expect(curl.PackageURL).To(ContainSubstring("pkg:generic/curl@8.12.1"))
+		Expect(curl.PackageURL).To(ContainSubstring("repository_url=" + url.QueryEscape("https://github.com/curl/curl")))
+		Expect(curl.PackageURL).ToNot(ContainSubstring("repository_url=curl/curl"))
+	})
+
+	It("emits a dependency graph from the package depends field", func() {
+		bom := loadGoldenPmBOM()
+		Expect(bom.Dependencies).ToNot(BeNil())
+
+		curlPurl := goldenComponent(bom, "curl").BOMRef
+		brotliPurl := goldenComponent(bom, "brotli").BOMRef
+		libpslPurl := goldenComponent(bom, "libpsl").BOMRef
+
+		var curlDeps *[]string
+		for _, dep := range *bom.Dependencies {
+			if dep.Ref == curlPurl {
+				curlDeps = dep.Dependencies
+			}
+		}
+		Expect(curlDeps).ToNot(BeNil(), "curl must have a dependency entry")
+		Expect(*curlDeps).To(ConsistOf(brotliPurl, libpslPurl))
+	})
+
+	It("omits dependency entries for packages without dependencies", func() {
+		bom := loadGoldenPmBOM()
+		brotliPurl := goldenComponent(bom, "brotli").BOMRef
+
+		for _, dep := range *bom.Dependencies {
+			Expect(dep.Ref).ToNot(Equal(brotliPurl), "brotli has no depends and must not be a dependency source")
+		}
+	})
+})
+
+var _ = Describe("ConvertToCycloneDX bom-ref (AI)", func() {
+	It("should set a non-empty bom-ref equal to the purl for every component", func() {
+		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		Expect(err).To(Succeed())
+
+		bom := ConvertToCycloneDX(pkgs)
+		Expect(bom).ToNot(BeNil())
+
+		for _, comp := range *bom.Components {
+			Expect(comp.BOMRef).ToNot(BeEmpty(), "component %s should have bom-ref", comp.Name)
+			Expect(comp.BOMRef).To(Equal(comp.PackageURL), "component %s bom-ref should equal purl", comp.Name)
+		}
+	})
+
+	It("should produce unique bom-refs across components", func() {
+		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		Expect(err).To(Succeed())
+
+		bom := ConvertToCycloneDX(pkgs)
+		Expect(bom).ToNot(BeNil())
+
+		seen := map[string]struct{}{}
+		for _, comp := range *bom.Components {
+			_, dup := seen[comp.BOMRef]
+			Expect(dup).To(BeFalse(), "bom-ref %s must be unique", comp.BOMRef)
+			seen[comp.BOMRef] = struct{}{}
+		}
+	})
+})
+
+func loadGoldenPmBOM() *cdx.BOM {
+	data, err := os.ReadFile("testdata/pm_info_installed.json")
+	Expect(err).To(Succeed())
+
+	pkgs, err := ParsePmInstalledJSON(data)
+	Expect(err).To(Succeed())
+
+	bom := ConvertToCycloneDX(pkgs)
+	Expect(bom).ToNot(BeNil())
+
+	return bom
+}
+
+func goldenComponent(bom *cdx.BOM, name string) cdx.Component {
+	for _, comp := range *bom.Components {
+		if comp.Name == name {
+			return comp
+		}
+	}
+	Fail("component not found: " + name)
+
+	return cdx.Component{}
+}

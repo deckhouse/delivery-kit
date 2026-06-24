@@ -1,12 +1,37 @@
-project: werf-test-e2e-build-sbom-packages
+project: werf-test-e2e-build-sbom-packages-base
 configVersion: 1
 build:
   sbom:
     enable: true
     standard: cyclonedx@1.6
 ---
-image: app
+image: base-layer
 from: {{ env "BUILDER_BASE_IMAGE" }}
+shell:
+  beforeInstall:
+    - mkdir -p /usr/local/bin /var/lib/pm /opt
+    - |
+      cat > /opt/pm-index.json <<'IDX'
+      {
+        "base-pkg": {"name":"base-pkg","arch":["linux/amd64"],"default":true,"description":"e2e base package","license":"MIT","originalRepo":"https://example.com/base-pkg","repo":"example/base-pkg","type":"runtime","version":"1.0.0","digest":"sha256:3333333333333333333333333333333333333333333333333333333333333333"}
+      }
+      IDX
+    - |
+      cat > /usr/local/bin/pm <<'PM'
+      #!/bin/sh
+      case "$1" in
+        install) cp /opt/pm-index.json /var/lib/pm/index.json ;;
+        info) cat /var/lib/pm/index.json ;;
+      esac
+      PM
+    - chmod +x /usr/local/bin/pm
+packages:
+  - type: os-pm
+    spec:
+      - base-pkg
+---
+image: app
+fromImage: base-layer
 shell:
   beforeInstall:
     - mkdir -p /usr/local/bin /var/lib/pm /opt

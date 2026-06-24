@@ -52,19 +52,19 @@ var _ = Describe("ToCatalogers", func() {
 var _ = Describe("FilterBOMBySourcePaths", func() {
 	goModProps := func(path string) *[]cdx.Property {
 		return &[]cdx.Property{
-			{Name: "syft:package:type", Value: "go-module"},
+			{Name: "syft:package:foundBy", Value: "go-module-file-cataloger"},
 			{Name: "syft:location:0:path", Value: path},
 		}
 	}
 
 	osProps := func() *[]cdx.Property {
 		return &[]cdx.Property{
-			{Name: "syft:package:type", Value: "deb"},
+			{Name: "syft:package:foundBy", Value: "dpkg-db-cataloger"},
 			{Name: "syft:location:0:path", Value: "/var/lib/dpkg/status"},
 		}
 	}
 
-	It("keeps go-module components matching declared paths and removes others", func() {
+	It("keeps only components found by declared catalogers with matching paths", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{Name: "github.com/foo/bar", Properties: goModProps("/app/api/go.mod")},
@@ -79,9 +79,8 @@ var _ = Describe("FilterBOMBySourcePaths", func() {
 
 		FilterBOMBySourcePaths(bom, catalogers)
 
-		Expect(*bom.Components).To(HaveLen(2))
+		Expect(*bom.Components).To(HaveLen(1))
 		Expect((*bom.Components)[0].Name).To(Equal("github.com/foo/bar"))
-		Expect((*bom.Components)[1].Name).To(Equal("curl"))
 	})
 
 	It("does nothing when no catalogers are provided", func() {

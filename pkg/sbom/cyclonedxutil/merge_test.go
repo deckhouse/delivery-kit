@@ -476,18 +476,18 @@ var _ = Describe("MergeBOMs", func() {
 			}},
 			2,
 		),
-		Entry("same PURL from different BOMs — kept (redundancy over dedup)",
+		Entry("same PURL from different BOMs — deduped by purl (first occurrence wins)",
 			&cdx.BOM{
 				SpecVersion:  cdx.SpecVersion1_6,
 				Components:   &[]cdx.Component{{BOMRef: "curl-target", PackageURL: "pkg:deb/curl@8.12", Name: "curl", Version: "8.12"}},
-				Dependencies: &[]cdx.Dependency{{Ref: "curl-target", Dependencies: &[]string{"dep-b"}}},
+				Dependencies: &[]cdx.Dependency{{Ref: "curl-target"}},
 			},
 			MergeOpts{BaseBOM: &cdx.BOM{
 				SpecVersion:  cdx.SpecVersion1_6,
 				Components:   &[]cdx.Component{{BOMRef: "curl-base", PackageURL: "pkg:deb/curl@8.12", Name: "curl", Version: "8.12"}},
-				Dependencies: &[]cdx.Dependency{{Ref: "curl-base", Dependencies: &[]string{"dep-a"}}},
+				Dependencies: &[]cdx.Dependency{{Ref: "curl-base"}},
 			}},
-			2,
+			1,
 		),
 	)
 })

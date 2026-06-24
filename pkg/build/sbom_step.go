@@ -47,7 +47,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled bool, targetPlatform string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -74,17 +74,30 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	}
 
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
-		bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
-		if err != nil {
-			return fmt.Errorf("generate SBOM: %w", err)
-		}
+		var targetBOM *cdx.BOM
 
-		targetBOM, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
-		if err != nil {
-			return fmt.Errorf("parse scanned BOM: %w", err)
-		}
+		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+			targetBOM = cyclonedxutil.NewBOM()
+			targetBOM.Metadata = &cdx.Metadata{
+				Component: &cdx.Component{
+					Type:    cdx.ComponentTypeContainer,
+					Name:    stageDesc.Info.Repository,
+					Version: stageDesc.Info.Tag,
+				},
+			}
+		} else {
+			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
+			if err != nil {
+				return fmt.Errorf("generate SBOM: %w", err)
+			}
 
-		managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
+			targetBOM, err = cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
+			if err != nil {
+				return fmt.Errorf("parse scanned BOM: %w", err)
+			}
+
+			managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
+		}
 
 		if osPmEnabled {
 			pmBOM, err := osPm.CollectBOM(ctx, stageDesc.Info.Name)

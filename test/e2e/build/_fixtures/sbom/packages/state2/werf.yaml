@@ -1,11 +1,11 @@
-project: werf-test-e2e-build-sbom-packages
+project: werf-test-e2e-build-sbom-packages-propagation
 configVersion: 1
 build:
   sbom:
     enable: true
     standard: cyclonedx@1.6
 ---
-image: app
+image: base-builder
 from: {{ env "BUILDER_BASE_IMAGE" }}
 shell:
   beforeInstall:
@@ -30,3 +30,9 @@ packages:
   - type: os-pm
     spec:
       - demo-app
+---
+image: app
+fromImage: base-builder
+shell:
+  install:
+    - mkdir -p /opt/app

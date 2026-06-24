@@ -138,6 +138,29 @@ This stage deals with the application settings. A typical set of actions include
 
 No limitations are imposed on assembly instructions. The suggested use of _user stages_ is only a recommendation based on our experience with real-world applications. You can use just one _user stage_, or you can design your own instruction grouping strategy to take advantage of caching and dependency changes in the Git repositories tailored to how your application is built.
 
+## Installing binary packages
+
+The `packages` directive provides a declarative way to install binary packages with the `pm` package manager. werf installs the listed packages in a dedicated `packagesInstall` stage that runs before the `install` stage. When SBOM generation is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
+
+```yaml
+image: app
+from: registry.example.com/base/ubuntu:22.04
+packages:
+  - type: os-pm
+    spec:
+      - curl
+      - jq
+```
+
+The directive supports the following options:
+
+- `type` — the package source type. Only `os-pm` (the `pm` package manager) is currently supported.
+- `spec` — an inline list of package names to install. File-based package lists are not supported.
+
+The base image must provide the `pm` binary in `$PATH` (for example, a Deckhouse builder base image labeled `io.deckhouse.internal.builder=true`). Otherwise the build fails because `pm` cannot be found.
+
+Packages installed in a parent image are inherited by images based on it via `fromImage` and remain present in the child image SBOM.
+
 ## Syntax
 
 There are two mutually exclusive top-level ***builder directives*** for assembly instructions: `shell` and `ansible`. You can build an image either via ***shell instructions*** or via their ***ansible counterparts***.

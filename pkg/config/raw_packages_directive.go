@@ -71,8 +71,6 @@ func (r *rawPackagesDirective) toDirective() (*PackagesDirective, error) {
 
 func (r *rawPackagesDirective) fillOSPMSpec(d *PackagesDirective) error {
 	switch v := r.Spec.(type) {
-	case string:
-		d.Spec.FilePath = v
 	case []interface{}:
 		packages, err := InterfaceToStringArray(v, nil, r.rawStapelImage.doc)
 		if err != nil {
@@ -80,7 +78,7 @@ func (r *rawPackagesDirective) fillOSPMSpec(d *PackagesDirective) error {
 		}
 		d.Spec.Packages = packages
 	default:
-		return fmt.Errorf("unsupported packages spec type %T for type %q", r.Spec, r.Type)
+		return fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a list of package names", r.Spec, r.Type)
 	}
 
 	return nil

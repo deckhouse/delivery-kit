@@ -26,7 +26,6 @@ const (
 	From                      StageName = "from"
 	BeforeInstall             StageName = "beforeInstall"
 	DependenciesBeforeInstall StageName = "dependenciesBeforeInstall"
-	PackagesInstall           StageName = "packagesInstall"
 	GitArchive                StageName = "gitArchive"
 	Install                   StageName = "install"
 	DependenciesAfterInstall  StageName = "dependenciesAfterInstall"
@@ -65,7 +64,6 @@ var AllStages = []StageName{
 	From,
 	BeforeInstall,
 	DependenciesBeforeInstall,
-	PackagesInstall,
 	GitArchive,
 	Install,
 	DependenciesAfterInstall,

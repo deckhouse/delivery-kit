@@ -331,7 +331,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	var hasOsPmPackages bool
 	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
-		hasOsPmPackages = len(primaryImg.StapelImageConfig.ImageBaseConfig().Packages) > 0
+		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().HasOSPMPackages()
 	}
 
 	patchers := []BOMPatcherInterface{
@@ -341,7 +341,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, false, primaryImg.TargetPlatform); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

@@ -17,7 +17,6 @@ const (
 	goModDefaultLock = "go.sum"
 )
 
-
 type PackagesSpec struct {
 	Packages []string
 }
@@ -39,7 +38,7 @@ type PackagesDirective struct {
 func (d *PackagesDirective) validate() error {
 	switch d.Type {
 	case PackagesDirectiveTypeOSPM:
-		if d.Spec.FilePath == "" && len(d.Spec.Packages) == 0 {
+		if len(d.Spec.Packages) == 0 {
 			return fmt.Errorf("packages spec must not be empty for type %q", d.Type)
 		}
 	case PackagesDirectiveTypeGoMod:
@@ -49,7 +48,6 @@ func (d *PackagesDirective) validate() error {
 	default:
 		return fmt.Errorf("unsupported packages type %q", d.Type)
 	}
-
 
 	return nil
 }

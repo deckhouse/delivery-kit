@@ -13,14 +13,17 @@ type Builder interface {
 	IsInstallEmpty(ctx context.Context) bool
 	IsBeforeSetupEmpty(ctx context.Context) bool
 	IsSetupEmpty(ctx context.Context) bool
+	IsPackagesEmpty(ctx context.Context) bool
 	BeforeInstall(ctx context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error
 	Install(ctx context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error
 	BeforeSetup(ctx context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error
 	Setup(ctx context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error
+	Packages(ctx context.Context, cr container_backend.ContainerBackend, stageBuilder stage_builder.StageBuilderInterface, useLegacyStapelBuilder bool) error
 	BeforeInstallChecksum(ctx context.Context) string
 	InstallChecksum(ctx context.Context) string
 	BeforeSetupChecksum(ctx context.Context) string
 	SetupChecksum(ctx context.Context) string
+	PackagesChecksum(ctx context.Context) string
 }
 
 type Container interface {

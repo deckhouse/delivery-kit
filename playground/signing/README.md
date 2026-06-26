@@ -93,10 +93,3 @@ crane manifest "$REF" | jq -r '.annotations | keys[] | select(contains("delivery
 # └ Verifying image (1/1)
 #   │ Manifest signature ... ok
 ```
-
-> **Platform note.** Verification passes when the image was built on Linux
-> (Buildah backend). With the Docker backend on macOS the config JSON is
-> re-serialized in a different key order during signing, which shifts the
-> config digest and makes `werf verify` fail with
-> `invalid signature when validating ASN.1 encoded signature`. Build and verify
-> on Linux for a working end-to-end flow.

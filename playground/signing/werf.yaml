@@ -1,0 +1,8 @@
+project: dk-sign-test
+configVersion: 1
+---
+image: app
+from: alpine:3.20
+shell:
+  install:
+    - echo "delivery-kit signed image" > /hello.txt

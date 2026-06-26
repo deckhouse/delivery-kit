@@ -75,11 +75,11 @@ func (c ScanCommand) selectCatalogersArg() string {
 		return ""
 	}
 
-	selectors := lo.Map(c.Catalogers, func(cat Cataloger, _ int) string {
+	names := lo.Map(c.Catalogers, func(cat Cataloger, _ int) string {
 		return cat.Name
 	})
 
-	return fmt.Sprintf("--select-catalogers=%s", strings.Join(selectors, ","))
+	return fmt.Sprintf("--override-default-catalogers=%s", strings.Join(names, ","))
 }
 
 func (c ScanCommand) Checksum() string {

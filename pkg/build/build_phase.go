@@ -329,6 +329,13 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
+	var hasOsPmPackages bool
+	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
+		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().HasOSPMPackages()
+	}
+
+	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
+
 	patchers := []BOMPatcherInterface{
 		externalRefPatcher,
 		goModPatcher,
@@ -336,7 +343,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, primaryImg.TargetPlatform); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

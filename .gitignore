@@ -24,8 +24,7 @@ cmd/werf/werf
 
 /bin
 /coverage
-/test/**/*.test
-/integration/**/*.test
+*.test
 
 /docs/\.jekyll-cache/
 /docs/site/backend/root/

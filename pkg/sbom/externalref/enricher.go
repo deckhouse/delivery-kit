@@ -71,11 +71,21 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	for i := range components {
 		comp := &components[i]
 		g.Go(func() error {
+			if comp.ExternalReferences != nil && len(*comp.ExternalReferences) > 0 {
+				for _, ref := range *comp.ExternalReferences {
+					seen.Store(ref.URL+"|"+string(ref.Type), ref)
+				}
+			}
+
 			if comp.PackageURL == "" {
 				if purlNotExpected(comp.Type) {
 					return nil
 				}
 				return fmt.Errorf("enrich: component %q (type %q) has no purl", comp.Name, comp.Type)
+			}
+
+			if comp.Version == "(devel)" {
+				return nil
 			}
 
 			res, err := e.resolve(ctx, comp.PackageURL)

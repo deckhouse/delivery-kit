@@ -81,6 +81,15 @@ func (c *StapelImageBase) Sbom() *Sbom {
 	return c.sbom
 }
 
+func (c *StapelImageBase) HasOSPMPackages() bool {
+	for _, p := range c.Packages {
+		if p.Type == PackagesDirectiveTypeOSPM {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *StapelImageBase) dependsOn() DependsOn {
 	var dependsOn DependsOn
 

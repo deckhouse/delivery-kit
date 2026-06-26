@@ -533,6 +533,11 @@ func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billN
 	billContainerPath := filepath.Join("/tmp", billsDir, billNames[0])
 	args = append(args, "--volume", fmt.Sprintf("%s:%s", billHostPath, billContainerPath))
 
+	args = append(args,
+		"-e", "SYFT_GOLANG_MAIN_MODULE_VERSION_FROM_CONTENTS=false",
+		"-e", "SYFT_FILE_METADATA_SELECTION=none",
+	)
+
 	args = append(args, scanOpts.Image)
 
 	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands

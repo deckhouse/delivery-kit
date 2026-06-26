@@ -165,7 +165,7 @@ var _ = Describe("ScanCommand", func() {
 			Equal("scan docker:alpine:3.18 --output=cyclonedx-json@1.6"),
 		),
 		Entry(
-			"should add a single cataloger with --select-catalogers",
+			"should add a single cataloger with --override-default-catalogers",
 			ScanCommand{
 				scannerType:     TypeSyft,
 				scannerExecPath: "/syft",
@@ -178,7 +178,7 @@ var _ = Describe("ScanCommand", func() {
 					{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}},
 				},
 			},
-			Equal("/syft scan docker:alpine:3.18 --output=cyclonedx-json@1.6=file.json --select-catalogers=go-module-file-cataloger"),
+			Equal("/syft scan docker:alpine:3.18 --output=cyclonedx-json@1.6=file.json --override-default-catalogers=go-module-file-cataloger"),
 		),
 		Entry(
 			"should join multiple catalogers by comma",
@@ -195,7 +195,7 @@ var _ = Describe("ScanCommand", func() {
 					{Name: "javascript-package-cataloger"},
 				},
 			},
-			Equal("/syft scan docker:alpine:3.18 --output=cyclonedx-json@1.6=file.json --select-catalogers=go-module-file-cataloger,javascript-package-cataloger"),
+			Equal("/syft scan docker:alpine:3.18 --output=cyclonedx-json@1.6=file.json --override-default-catalogers=go-module-file-cataloger,javascript-package-cataloger"),
 		),
 	)
 

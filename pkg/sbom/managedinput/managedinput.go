@@ -55,16 +55,18 @@ func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
 		return
 	}
 
+	catalogerNames := make(map[string]struct{})
 	allowedPaths := make(map[string]struct{})
 	for _, cat := range catalogers {
+		catalogerNames[cat.Name] = struct{}{}
 		for _, p := range cat.SourcePaths {
 			allowedPaths[p] = struct{}{}
 		}
 	}
 
 	filtered := lo.Filter(*bom.Components, func(comp cdx.Component, _ int) bool {
-		if !isGoModuleComponent(comp) {
-			return true
+		if !componentFoundByCatalogers(comp, catalogerNames) {
+			return false
 		}
 		return componentMatchesAllowedPaths(comp, allowedPaths)
 	})
@@ -72,13 +74,14 @@ func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
 	*bom.Components = filtered
 }
 
-func isGoModuleComponent(comp cdx.Component) bool {
+func componentFoundByCatalogers(comp cdx.Component, catalogerNames map[string]struct{}) bool {
 	if comp.Properties == nil {
 		return false
 	}
 	for _, prop := range *comp.Properties {
-		if prop.Name == "syft:package:type" && prop.Value == "go-module" {
-			return true
+		if prop.Name == "syft:package:foundBy" {
+			_, ok := catalogerNames[prop.Value]
+			return ok
 		}
 	}
 	return false

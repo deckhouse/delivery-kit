@@ -17,6 +17,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 )
@@ -46,7 +47,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, targetPlatform string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -73,17 +74,43 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	}
 
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
-		bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
-		if err != nil {
-			return fmt.Errorf("generate SBOM: %w", err)
+		var targetBOM *cdx.BOM
+
+		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+			targetBOM = cyclonedxutil.NewBOM()
+			targetBOM.Metadata = &cdx.Metadata{
+				Component: &cdx.Component{
+					Type:    cdx.ComponentTypeContainer,
+					Name:    stageDesc.Info.Repository,
+					Version: stageDesc.Info.Tag,
+				},
+			}
+		} else {
+			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
+			if err != nil {
+				return fmt.Errorf("generate SBOM: %w", err)
+			}
+
+			targetBOM, err = cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
+			if err != nil {
+				return fmt.Errorf("parse scanned BOM: %w", err)
+			}
+
+			managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
 		}
 
-		targetBOM, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
-		if err != nil {
-			return fmt.Errorf("parse scanned BOM: %w", err)
+		if osPmEnabled {
+			pmBOM, err := osPm.CollectBOM(ctx, stageDesc.Info.Name)
+			if err != nil {
+				return fmt.Errorf("collect os-pm SBOM: %w", err)
+			}
+			if pmBOM != nil {
+				if err := gost.Upsert(pmBOM, mergeOpts.Gost); err != nil {
+					return fmt.Errorf("set GOST properties for os-pm BOM: %w", err)
+				}
+				mergeOpts.ImportBOMs = append(mergeOpts.ImportBOMs, pmBOM)
+			}
 		}
-
-		managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
 
 		if err := gost.Upsert(targetBOM, mergeOpts.Gost); err != nil {
 			return fmt.Errorf("set GOST properties: %w", err)

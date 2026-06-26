@@ -3,6 +3,8 @@ package cyclonedxutil
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"net/url"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
@@ -63,11 +65,101 @@ func DedupBOM(bom *cdx.BOM) {
 		return
 	}
 
+	var removedRefs map[string]struct{}
+	bom.Components, removedRefs = dedupComponentsByPURL(bom.Components)
 	bom.Components = dedupPtrSlice(bom.Components)
 	bom.Services = dedupPtrSlice(bom.Services)
 	bom.Dependencies = dedupPtrSlice(bom.Dependencies)
+	bom.Dependencies = dropDependenciesByRefs(bom.Dependencies, removedRefs)
 	bom.Compositions = dedupPtrSlice(bom.Compositions)
 	bom.Vulnerabilities = dedupPtrSlice(bom.Vulnerabilities)
 	bom.Annotations = dedupPtrSlice(bom.Annotations)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
+}
+
+func dropDependenciesByRefs(deps *[]cdx.Dependency, refs map[string]struct{}) *[]cdx.Dependency {
+	if deps == nil || len(refs) == 0 {
+		return deps
+	}
+
+	result := make([]cdx.Dependency, 0, len(*deps))
+	for _, dep := range *deps {
+		if _, removed := refs[dep.Ref]; !removed {
+			result = append(result, dep)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return &result
+}
+
+// dedupComponentsByPURL removes components that share the same normalized purl
+// (purl without the package-id query parameter). First occurrence wins.
+// Components without a purl are always kept.
+// Returns the deduplicated slice and a set of BOMRefs that were removed.
+func dedupComponentsByPURL(components *[]cdx.Component) (*[]cdx.Component, map[string]struct{}) {
+	if components == nil {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{})
+	removedRefs := make(map[string]struct{})
+	result := make([]cdx.Component, 0, len(*components))
+
+	for _, comp := range *components {
+		if comp.PackageURL == "" {
+			result = append(result, comp)
+			continue
+		}
+
+		key := normalizePURL(comp.PackageURL)
+		if _, exists := seen[key]; exists {
+			if comp.BOMRef != "" {
+				removedRefs[comp.BOMRef] = struct{}{}
+			}
+			continue
+		}
+
+		seen[key] = struct{}{}
+		result = append(result, comp)
+	}
+
+	if len(result) == 0 {
+		return nil, removedRefs
+	}
+
+	return &result, removedRefs
+}
+
+// normalizePURL strips the package-id query parameter from a purl for
+// deduplication purposes. Syft generates unique package-id values per
+// cataloger invocation, making otherwise identical components appear different.
+func normalizePURL(purl string) string {
+	hashIdx := strings.IndexByte(purl, '#')
+	fragment := ""
+	base := purl
+	if hashIdx >= 0 {
+		fragment = purl[hashIdx:]
+		base = purl[:hashIdx]
+	}
+
+	qIdx := strings.IndexByte(base, '?')
+	if qIdx < 0 {
+		return purl
+	}
+
+	query, err := url.ParseQuery(base[qIdx+1:])
+	if err != nil {
+		return purl
+	}
+
+	query.Del("package-id")
+
+	if len(query) == 0 {
+		return base[:qIdx] + fragment
+	}
+
+	return base[:qIdx] + "?" + query.Encode() + fragment
 }

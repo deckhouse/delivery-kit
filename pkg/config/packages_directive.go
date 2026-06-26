@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 type PackagesDirectiveType string
 
@@ -15,7 +18,6 @@ const (
 )
 
 type PackagesSpec struct {
-	FilePath string
 	Packages []string
 }
 
@@ -36,7 +38,7 @@ type PackagesDirective struct {
 func (d *PackagesDirective) validate() error {
 	switch d.Type {
 	case PackagesDirectiveTypeOSPM:
-		if d.Spec.FilePath == "" && len(d.Spec.Packages) == 0 {
+		if len(d.Spec.Packages) == 0 {
 			return fmt.Errorf("packages spec must not be empty for type %q", d.Type)
 		}
 	case PackagesDirectiveTypeGoMod:
@@ -48,4 +50,35 @@ func (d *PackagesDirective) validate() error {
 	}
 
 	return nil
+}
+
+// normalizePackages flattens all packages across every directive, deduplicates
+// and sorts them, and returns a single directive with the normalized list.
+// This is called during config conversion so that the build stage receives
+// a ready-to-use package list without needing to re-resolve or deduplicate.
+func normalizePackages(packages []*PackagesDirective) []*PackagesDirective {
+	seen := map[string]bool{}
+	var all []string
+
+	for _, p := range packages {
+		for _, name := range p.Spec.Packages {
+			if !seen[name] {
+				seen[name] = true
+				all = append(all, name)
+			}
+		}
+	}
+
+	if len(all) == 0 {
+		return nil
+	}
+
+	sort.Strings(all)
+
+	return []*PackagesDirective{
+		{
+			Type: PackagesDirectiveTypeOSPM,
+			Spec: PackagesSpec{Packages: all},
+		},
+	}
 }

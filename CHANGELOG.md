@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.73.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.72.2-dk...v2.73.1-dk) (2026-06-26)
+
+
+### Features
+
+* **sbom:** add packages install stage and os-pm SBOM support  ([#135](https://github.com/deckhouse/delivery-kit/issues/135)) ([198c497](https://github.com/deckhouse/delivery-kit/commit/198c4978386f76594b1724c5cf72169feb774ded))
+* **sbom:** catalog go.mod packages via go-mod packages directive ([cc0a088](https://github.com/deckhouse/delivery-kit/commit/cc0a088e7bc481d5630e81cd6b089dc03dde0bf1))
+* **sbom:** enforce network isolation for Stapel stages when SBOM enabled ([e753409](https://github.com/deckhouse/delivery-kit/commit/e753409afd308c8d052b0480be64ecee0d58b107))
+* **sbom:** replace PackageResolveStage with shell-based packages stage ([7260401](https://github.com/deckhouse/delivery-kit/commit/7260401c29203418753c2b68006ae2bba1d9de78))
+
+
+### Bug Fixes
+
+* **build, buildah, dockerfile, staged:** resolve staged Dockerfile RUN --mount from=&lt;stage&gt; to built image ([#7594](https://github.com/deckhouse/delivery-kit/issues/7594)) ([b1933b3](https://github.com/deckhouse/delivery-kit/commit/b1933b36118fb36a5bab847a93c56bc9196c13b1))
+* **build:** use UUID-based naming for scratch base images to prevent buildah misinterpretation ([#7602](https://github.com/deckhouse/delivery-kit/issues/7602)) ([9ce7545](https://github.com/deckhouse/delivery-kit/commit/9ce7545582c59de01789d72c6f56bdf13b1e6a22))
+
+
+### Miscellaneous Chores
+
+* force release 2.73.0-dk ([c48df85](https://github.com/deckhouse/delivery-kit/commit/c48df853a061d36ce84fe22a5602c1cc5df762a5))
+* force release 2.73.1-dk ([2877a2c](https://github.com/deckhouse/delivery-kit/commit/2877a2c645d9ad3baf835ffaee82c51b7176e81a))
+
 ## [2.72.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.72.1-dk...v2.72.2-dk) (2026-06-19)
 
 

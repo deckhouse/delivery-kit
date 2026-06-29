@@ -1,0 +1,59 @@
+project: werf-test-e2e-sbom-lifecycle-multi
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+    gost:
+      attackSurface: yes
+      securityFunction: yes
+---
+image: frontend
+from: {{ env "BUILDER_BASE_IMAGE" }}
+shell:
+  beforeInstall:
+    - mkdir -p /usr/local/bin /var/lib/pm /opt
+    - |
+      cat > /opt/pm-index.json <<'IDX'
+      {
+        "frontend-pkg": {"name":"frontend-pkg","arch":["linux/amd64"],"default":true,"description":"frontend package","license":"MIT","originalRepo":"https://example.com/frontend-pkg","repo":"example/frontend-pkg","type":"runtime","version":"1.0.0","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      }
+      IDX
+    - |
+      cat > /usr/local/bin/pm <<'PM'
+      #!/bin/sh
+      case "$1" in
+        install) cp /opt/pm-index.json /var/lib/pm/index.json ;;
+        info) cat /var/lib/pm/index.json ;;
+      esac
+      PM
+    - chmod +x /usr/local/bin/pm
+packages:
+  - type: os-pm
+    spec:
+      - frontend-pkg
+---
+image: backend
+from: {{ env "BUILDER_BASE_IMAGE" }}
+shell:
+  beforeInstall:
+    - mkdir -p /usr/local/bin /var/lib/pm /opt
+    - |
+      cat > /opt/pm-index.json <<'IDX'
+      {
+        "backend-pkg": {"name":"backend-pkg","arch":["linux/amd64"],"default":true,"description":"backend package","license":"Apache-2.0","originalRepo":"https://example.com/backend-pkg","repo":"example/backend-pkg","type":"runtime","version":"2.0.0","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+      }
+      IDX
+    - |
+      cat > /usr/local/bin/pm <<'PM'
+      #!/bin/sh
+      case "$1" in
+        install) cp /opt/pm-index.json /var/lib/pm/index.json ;;
+        info) cat /var/lib/pm/index.json ;;
+      esac
+      PM
+    - chmod +x /usr/local/bin/pm
+packages:
+  - type: os-pm
+    spec:
+      - backend-pkg

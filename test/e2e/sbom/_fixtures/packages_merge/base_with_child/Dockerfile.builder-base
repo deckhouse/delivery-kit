@@ -1,0 +1,2 @@
+FROM registry.werf.io/base/ubuntu:22.04
+LABEL io.deckhouse.internal.builder=true

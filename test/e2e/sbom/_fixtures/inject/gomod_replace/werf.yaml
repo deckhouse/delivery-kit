@@ -1,4 +1,4 @@
-project: werf-test-e2e-build-sbom-go-replace
+project: werf-test-e2e-sbom-inject-gomod-replace
 configVersion: 1
 build:
   sbom:
@@ -13,3 +13,6 @@ git:
 shell:
   install:
     - cd /app && CGO_ENABLED=0 go build -o /bin/app .
+packages:
+  - type: go-mod
+    workdir: /app

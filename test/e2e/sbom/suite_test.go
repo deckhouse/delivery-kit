@@ -17,7 +17,7 @@ func TestSuite(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		requiredTools = append(requiredTools, "buildah")
 	}
-	suite_init.MakeTestSuiteEntrypointFunc("E2E Build suite", suite_init.TestSuiteEntrypointFuncOptions{
+	suite_init.MakeTestSuiteEntrypointFunc("E2E SBOM suite", suite_init.TestSuiteEntrypointFuncOptions{
 		RequiredSuiteTools: requiredTools,
 		RequiredSuiteEnvs: []string{
 			"WERF_TEST_K8S_DOCKER_REGISTRY",

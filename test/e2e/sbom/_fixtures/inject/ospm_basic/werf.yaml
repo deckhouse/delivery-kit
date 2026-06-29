@@ -1,9 +1,12 @@
-project: werf-test-e2e-build-sbom-packages
+project: werf-test-e2e-sbom-inject-ospm-basic
 configVersion: 1
 build:
   sbom:
     enable: true
     standard: cyclonedx@1.6
+    gost:
+      attackSurface: yes
+      securityFunction: yes
 ---
 image: app
 from: {{ env "BUILDER_BASE_IMAGE" }}

@@ -105,7 +105,7 @@ var _ = Describe("SbomStep", func() {
 	})
 
 	Describe("GetImageBOM() with trusted builder image", func() {
-		It("should return fatal error even for builder image when error is not 'not found'", func(ctx SpecContext) {
+		It("should return ErrSbomNotRequired for builder image regardless of digest availability", func(ctx SpecContext) {
 			step := &sbomStep{}
 
 			imageInfo := &werfImage.Info{
@@ -117,12 +117,10 @@ var _ = Describe("SbomStep", func() {
 			}
 
 			_, err := step.GetImageBOM(ctx, "builder-image", imageInfo)
-			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse(),
-				"non-'not found' errors must NOT be treated as 'not required', got: %v", err)
+			Expect(err).To(MatchError(ErrSbomNotRequired))
 		})
 
-		It("should return fatal error for non-builder image when SBOM pull fails", func(ctx SpecContext) {
+		It("should return actionable error for non-builder image when SBOM pull fails", func(ctx SpecContext) {
 			step := &sbomStep{}
 
 			imageInfo := &werfImage.Info{
@@ -134,6 +132,7 @@ var _ = Describe("SbomStep", func() {
 			_, err := step.GetImageBOM(ctx, "app", imageInfo)
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
+			Expect(err.Error()).To(ContainSubstring(werfImage.DeckhouseInternalBuilderLabel))
 		})
 	})
 })

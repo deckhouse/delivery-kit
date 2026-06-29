@@ -164,13 +164,10 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 
 	bom, err := step.pullImageSbom(ctx, imageName, imageInfo)
 	if err != nil {
-		if !errors.Is(err, artifact.ErrNotFound) {
-			return nil, fmt.Errorf("pull SBOM for %q: %w", imageName, err)
-		}
 		if isTrustedBuilderImage(imageInfo.Labels) {
-			return nil, fmt.Errorf("trusted builder image %q: %w", imageName, ErrSbomNotRequired)
+			return nil, ErrSbomNotRequired
 		}
-		return nil, fmt.Errorf("pull SBOM for %q: %w", imageName, err)
+		return nil, fmt.Errorf("the base image %q must either have the label %q set to \"true\" or have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled: %w", imageInfo.Name, image.DeckhouseInternalBuilderLabel, err)
 	}
 
 	return bom, nil

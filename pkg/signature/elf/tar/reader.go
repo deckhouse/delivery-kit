@@ -51,9 +51,6 @@ func (etr *Reader) Next() (*Header, error) {
 	}
 	prefix = prefix[:n]
 
-	// MultiReader stitches the peeked prefix back before the rest of the tar
-	// body so the caller reads the full contents with no buffering of the whole
-	// file.
 	etr.body = io.MultiReader(bytes.NewReader(prefix), etr.tr)
 
 	return newHeader(hdr, isELFPrefix(prefix, hdr.Size)), nil

@@ -9,9 +9,10 @@ import (
 )
 
 // elfHeaderPeekSize is the number of leading bytes needed to classify an ELF
-// file: 4-byte magic, EI_CLASS (off.4), EI_DATA (off.5) and e_machine (off.18,
-// 2 bytes). 20 bytes covers up to and including e_machine.
-const elfHeaderPeekSize = 20
+// file: 4-byte magic, EI_CLASS (off.4), EI_DATA (off.5), EI_VERSION (off.6),
+// e_machine (off.18, 2 bytes) and e_version (off.20, 4 bytes). 24 bytes covers
+// up to and including e_version.
+const elfHeaderPeekSize = 24
 
 // Reader is a wrapper around tar.Reader that works almost like tar.Reader with one difference:
 // 1. It returns header.IsELF boolean field when no error.
@@ -49,8 +50,9 @@ func (etr *Reader) Next() (*Header, error) {
 	}
 	prefix = prefix[:n]
 
-	// ponytail: MultiReader stitches the peeked prefix back before the rest of
-	// the tar body — bounded memory, no full-file buffering.
+	// MultiReader stitches the peeked prefix back before the rest of the tar
+	// body so the caller reads the full contents with no buffering of the whole
+	// file.
 	etr.body = io.MultiReader(bytes.NewReader(prefix), etr.tr)
 
 	return newHeader(hdr, isELFPrefix(prefix)), nil
@@ -94,7 +96,7 @@ func isELFPrefix(b []byte) bool {
 		return false
 	}
 
-	// EI_DATA (off.5) selects endianness for e_machine (off.18, 2 bytes).
+	// EI_DATA (off.5) selects endianness for the numeric header fields.
 	var order binary.ByteOrder
 	switch elf.Data(b[elf.EI_DATA]) {
 	case elf.ELFDATA2LSB:
@@ -102,6 +104,16 @@ func isELFPrefix(b []byte) bool {
 	case elf.ELFDATA2MSB:
 		order = binary.BigEndian
 	default:
+		return false
+	}
+
+	// EI_VERSION (off.6) and e_version (off.20) must be EV_CURRENT. This keeps
+	// detection conservative so files that merely start with the ELF magic but
+	// are not real binaries are not sent to the signer.
+	if elf.Version(b[elf.EI_VERSION]) != elf.EV_CURRENT {
+		return false
+	}
+	if elf.Version(order.Uint32(b[20:24])) != elf.EV_CURRENT {
 		return false
 	}
 

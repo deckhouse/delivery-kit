@@ -3,11 +3,11 @@ package os_pm
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	packageurl "github.com/package-url/packageurl-go"
 )
 
 type PmPackageInfo struct {
@@ -33,7 +33,7 @@ func ParsePmInstalledJSON(data []byte) (map[string]PmPackageInfo, error) {
 	return result, nil
 }
 
-func ConvertToCycloneDX(pkgs map[string]PmPackageInfo) *cdx.BOM {
+func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion string) *cdx.BOM {
 	if len(pkgs) == 0 {
 		return nil
 	}
@@ -49,7 +49,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo) *cdx.BOM {
 
 	for _, key := range keys {
 		pkg := pkgs[key]
-		purl := purlOf(pkg)
+		purl := purlOf(pkg, containerFactoryVersion)
 
 		comp := cdx.Component{
 			BOMRef:      purl,
@@ -67,15 +67,9 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo) *cdx.BOM {
 		comp.Hashes = digestToHashes(pkg.Digest)
 		comp.Properties = packageProperties(pkg)
 
-		if pkg.OriginalRepo != "" {
-			comp.ExternalReferences = &[]cdx.ExternalReference{
-				{URL: pkg.OriginalRepo, Type: cdx.ERTypeVCS},
-			}
-		}
-
 		components = append(components, comp)
 
-		if refs := dependencyRefs(pkg, pkgs); refs != nil {
+		if refs := dependencyRefs(pkg, pkgs, containerFactoryVersion); refs != nil {
 			dependencies = append(dependencies, cdx.Dependency{Ref: purl, Dependencies: refs})
 		}
 	}
@@ -92,13 +86,15 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo) *cdx.BOM {
 	return bom
 }
 
-func purlOf(pkg PmPackageInfo) string {
-	purl := fmt.Sprintf("pkg:generic/%s@%s", pkg.Name, pkg.Version)
-	if pkg.OriginalRepo != "" {
-		purl += "?repository_url=" + url.QueryEscape(pkg.OriginalRepo)
-	}
-
-	return purl
+func purlOf(pkg PmPackageInfo, containerFactoryVersion string) string {
+	return packageurl.NewPackageURL(
+		"generic", "",
+		pkg.Name, pkg.Version,
+		packageurl.Qualifiers{
+			{Key: "containerFactoryVersion", Value: containerFactoryVersion},
+		},
+		"",
+	).ToString()
 }
 
 func digestToHashes(digest string) *[]cdx.Hash {
@@ -141,7 +137,7 @@ func packageProperties(pkg PmPackageInfo) *[]cdx.Property {
 	return &props
 }
 
-func dependencyRefs(pkg PmPackageInfo, pkgs map[string]PmPackageInfo) *[]string {
+func dependencyRefs(pkg PmPackageInfo, pkgs map[string]PmPackageInfo, containerFactoryVersion string) *[]string {
 	if len(pkg.Depends) == 0 {
 		return nil
 	}
@@ -152,7 +148,7 @@ func dependencyRefs(pkg PmPackageInfo, pkgs map[string]PmPackageInfo) *[]string 
 	refs := make([]string, 0, len(sorted))
 	for _, name := range sorted {
 		if dep, ok := pkgs[name]; ok {
-			refs = append(refs, purlOf(dep))
+			refs = append(refs, purlOf(dep, containerFactoryVersion))
 		}
 	}
 

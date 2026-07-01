@@ -94,4 +94,24 @@ var _ = Describe("Reader ELF prefix detection (AI)", func() {
 		Expect(err).To(Succeed())
 		Expect(body).To(Equal(bad))
 	})
+
+	It("rejects a truncated file smaller than the ELF header", func() {
+		// Valid ident + x86_64 machine + version, but only 24 bytes total — too
+		// small to be a real ELF; debug/elf.NewFile would have rejected it too.
+		trunc := elfHeaderAI(elf.EM_X86_64)[:elfMinPeek]
+
+		order := []string{"trunc.elf"}
+		files := map[string][]byte{"trunc.elf": trunc}
+
+		r := elfTar.NewReader(tar.NewReader(bytes.NewReader(makeTarAI(files, order))))
+		h, err := r.Next()
+		Expect(err).To(Succeed())
+		Expect(h.IsELF).To(BeFalse())
+		body, err := io.ReadAll(r)
+		Expect(err).To(Succeed())
+		Expect(body).To(Equal(trunc))
+	})
 })
+
+// elfMinPeek mirrors reader.elfHeaderPeekSize (24) for the truncation case.
+const elfMinPeek = 24

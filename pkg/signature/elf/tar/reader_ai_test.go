@@ -6,87 +6,92 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"io"
-	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	elfTar "github.com/werf/werf/v2/pkg/signature/elf/tar"
 )
 
-// elfHeader builds a minimal valid ELF header prefix for the given machine.
-func elfHeader(machine elf.Machine) []byte {
+// elfHeaderAI builds a minimal valid ELF header prefix for the given machine.
+func elfHeaderAI(machine elf.Machine) []byte {
 	b := make([]byte, 64)
 	copy(b, []byte{0x7f, 'E', 'L', 'F'})
 	b[elf.EI_CLASS] = byte(elf.ELFCLASS64)
 	b[elf.EI_DATA] = byte(elf.ELFDATA2LSB)
+	b[elf.EI_VERSION] = byte(elf.EV_CURRENT)
 	binary.LittleEndian.PutUint16(b[18:20], uint16(machine))
+	binary.LittleEndian.PutUint32(b[20:24], uint32(elf.EV_CURRENT))
 	return b
 }
 
-func makeTar(t *testing.T, files map[string][]byte, order []string) []byte {
-	t.Helper()
+func makeTarAI(files map[string][]byte, order []string) []byte {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	for _, name := range order {
 		body := files[name]
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tw.Write(body); err != nil {
-			t.Fatal(err)
-		}
+		Expect(tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})).To(Succeed())
+		_, err := tw.Write(body)
+		Expect(err).To(Succeed())
 	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
+	Expect(tw.Close()).To(Succeed())
 	return buf.Bytes()
 }
 
-// TestAI_ReaderDetectsELFAndPreservesBody verifies prefix-based ELF detection
-// matches the supported-machine gating and that the full entry body is still
-// readable after Next() (no bytes lost by the peek).
-func TestAI_ReaderDetectsELFAndPreservesBody(t *testing.T) {
-	x86 := append(elfHeader(elf.EM_X86_64), []byte("PAYLOAD-x86-tail")...)
-	arm := append(elfHeader(elf.EM_AARCH64), []byte("arm-tail")...)
-	short := []byte{0x7f, 'E', 'L', 'F'} // valid magic but truncated before e_machine
-	txt := []byte("hello world, not an elf file at all")
+var _ = Describe("Reader ELF prefix detection (AI)", func() {
+	It("detects supported ELF machines and preserves the full body", func() {
+		x86 := append(elfHeaderAI(elf.EM_X86_64), []byte("PAYLOAD-x86-tail")...)
+		arm := append(elfHeaderAI(elf.EM_AARCH64), []byte("arm-tail")...)
+		magicOnly := []byte{0x7f, 'E', 'L', 'F'} // magic but truncated before version/machine
+		txt := []byte("hello world, not an elf file at all")
 
-	order := []string{"bin/x86.elf", "bin/arm.elf", "short", "hello.txt"}
-	files := map[string][]byte{
-		"bin/x86.elf": x86,
-		"bin/arm.elf": arm,
-		"short":       short,
-		"hello.txt":   txt,
-	}
-	wantELF := map[string]bool{
-		"bin/x86.elf": true,  // EM_X86_64 → ELF
-		"bin/arm.elf": false, // unsupported machine → not classified ELF
-		"short":       false, // truncated before e_machine
-		"hello.txt":   false, // no magic
-	}
+		order := []string{"bin/x86.elf", "bin/arm.elf", "magic-only", "hello.txt"}
+		files := map[string][]byte{
+			"bin/x86.elf": x86,
+			"bin/arm.elf": arm,
+			"magic-only":  magicOnly,
+			"hello.txt":   txt,
+		}
+		wantELF := map[string]bool{
+			"bin/x86.elf": true,  // EM_X86_64 → ELF
+			"bin/arm.elf": false, // unsupported machine → not ELF
+			"magic-only":  false, // truncated before version/machine
+			"hello.txt":   false, // no magic
+		}
 
-	r := elfTar.NewReader(tar.NewReader(bytes.NewReader(makeTar(t, files, order))))
+		r := elfTar.NewReader(tar.NewReader(bytes.NewReader(makeTarAI(files, order))))
 
-	seen := 0
-	for {
+		seen := 0
+		for {
+			h, err := r.Next()
+			if err == io.EOF {
+				break
+			}
+			Expect(err).To(Succeed())
+			Expect(h.IsELF).To(Equal(wantELF[h.Name]), "IsELF for %s", h.Name)
+
+			body, err := io.ReadAll(r)
+			Expect(err).To(Succeed())
+			Expect(body).To(Equal(files[h.Name]), "body for %s", h.Name)
+			seen++
+		}
+		Expect(seen).To(Equal(len(order)))
+	})
+
+	It("rejects files with ELF magic but an invalid version field", func() {
+		bad := elfHeaderAI(elf.EM_X86_64)
+		bad[elf.EI_VERSION] = 0 // invalid EI_VERSION
+		bad = append(bad, []byte("tail")...)
+
+		order := []string{"bad.elf"}
+		files := map[string][]byte{"bad.elf": bad}
+
+		r := elfTar.NewReader(tar.NewReader(bytes.NewReader(makeTarAI(files, order))))
 		h, err := r.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-		if h.IsELF != wantELF[h.Name] {
-			t.Fatalf("%s: IsELF=%v want %v", h.Name, h.IsELF, wantELF[h.Name])
-		}
+		Expect(err).To(Succeed())
+		Expect(h.IsELF).To(BeFalse())
 		body, err := io.ReadAll(r)
-		if err != nil {
-			t.Fatalf("%s: ReadAll body: %v", h.Name, err)
-		}
-		if !bytes.Equal(body, files[h.Name]) {
-			t.Fatalf("%s: body lost bytes: got %d want %d", h.Name, len(body), len(files[h.Name]))
-		}
-		seen++
-	}
-	if seen != len(order) {
-		t.Fatalf("saw %d entries, want %d", seen, len(order))
-	}
-}
+		Expect(err).To(Succeed())
+		Expect(body).To(Equal(bad))
+	})
+})

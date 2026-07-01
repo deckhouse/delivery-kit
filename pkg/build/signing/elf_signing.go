@@ -2,7 +2,6 @@ package signing
 
 import (
 	"archive/tar"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -115,23 +114,26 @@ func formatBsignError(path string, output []byte, err error) error {
 	return fmt.Errorf("%s: %w\n\n%s", baseMsg, err, output)
 }
 
-func mutateELFFiles(ctx context.Context, reader io.Reader, elfSigningOptions ELFSigningOptions) (*bytes.Buffer, error) {
+// mutateELFFiles streams the rewritten tar layer directly into w, signing ELF
+// entries. It never buffers the whole layer in memory: only per-ELF temp files
+// (bounded by the largest ELF, needed anyway for the on-disk signing tools) are
+// used.
+func mutateELFFiles(ctx context.Context, reader io.Reader, w io.Writer, elfSigningOptions ELFSigningOptions) error {
 	elfTarReader := elfTar.NewReader(tar.NewReader(reader))
-	var buffer bytes.Buffer
-	tarWriter := tar.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(w)
 
 	for {
 		header, err := elfTarReader.Next()
 		if errors.Is(err, io.EOF) {
 			break // We have reached the end of the archive
 		} else if err != nil {
-			return nil, fmt.Errorf("failed to read tar archive: %w", err)
+			return fmt.Errorf("failed to read tar archive: %w", err)
 		}
 
 		if !header.IsELF {
 			// For NON-ELF files, copy the header and content as-is
 			if err = writeTarFile(tarWriter, header.Header, elfTarReader); err != nil {
-				return nil, fmt.Errorf("failed to write tar file: %w", err)
+				return fmt.Errorf("failed to write tar file: %w", err)
 			}
 			continue
 		}
@@ -180,15 +182,15 @@ func mutateELFFiles(ctx context.Context, reader io.Reader, elfSigningOptions ELF
 
 			return nil
 		}(); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if err := tarWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close tar writer: %w", err)
+		return fmt.Errorf("failed to close tar writer: %w", err)
 	}
 
-	return &buffer, nil
+	return nil
 }
 
 func writeTarFile(tarWriter *tar.Writer, header *tar.Header, body io.Reader) error {
@@ -246,26 +248,32 @@ func Sign(ctx context.Context, refBase, refFinal string, elfSigningOptions ELFSi
 			continue
 		}
 
-		rc, err := layer.Uncompressed()
-		if err != nil {
-			return "", fmt.Errorf("failed to get uncompressed layer: %w", err)
-		}
-		deferredActions = append(deferredActions, func() { _ = rc.Close() })
-
-		modifiedLayerBuffer, err := mutateELFFiles(ctx, rc, elfSigningOptions)
-		if err != nil {
-			return "", fmt.Errorf("failed to mutate ELF files: %w", err)
-		}
-
+		// Stream the mutated layer straight to a temp file. The temp file must
+		// outlive this loop (LayerFromOpener re-reads it during daemon.Write), so
+		// its removal is deferred to function exit; the uncompressed reader and
+		// tar writer, however, are released as soon as this layer is done.
 		tmpFile, err := tmp_manager.TempFile("layer-*.tmp")
 		if err != nil {
 			return "", fmt.Errorf("failed to create temp file: %w", err)
 		}
 		deferredActions = append(deferredActions, func() { _ = os.Remove(tmpFile.Name()) })
-		deferredActions = append(deferredActions, func() { _ = tmpFile.Close() })
 
-		if _, err := io.Copy(tmpFile, modifiedLayerBuffer); err != nil {
-			return "", fmt.Errorf("failed to write to temp file: %w", err)
+		if err := func() error {
+			defer tmpFile.Close()
+
+			rc, err := layer.Uncompressed()
+			if err != nil {
+				return fmt.Errorf("failed to get uncompressed layer: %w", err)
+			}
+			defer rc.Close()
+
+			if err := mutateELFFiles(ctx, rc, tmpFile, elfSigningOptions); err != nil {
+				return fmt.Errorf("failed to mutate ELF files: %w", err)
+			}
+
+			return nil
+		}(); err != nil {
+			return "", err
 		}
 
 		newLayer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) {

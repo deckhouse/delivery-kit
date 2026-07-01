@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"debug/elf"
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
@@ -45,7 +46,7 @@ func (etr *Reader) Next() (*Header, error) {
 
 	prefix := make([]byte, elfHeaderPeekSize)
 	n, err := io.ReadFull(etr.tr, prefix)
-	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	prefix = prefix[:n]
@@ -55,7 +56,7 @@ func (etr *Reader) Next() (*Header, error) {
 	// file.
 	etr.body = io.MultiReader(bytes.NewReader(prefix), etr.tr)
 
-	return newHeader(hdr, isELFPrefix(prefix)), nil
+	return newHeader(hdr, isELFPrefix(prefix, hdr.Size)), nil
 }
 
 func (etr *Reader) Read(p []byte) (n int, err error) {
@@ -76,10 +77,18 @@ func newHeader(hdr *tar.Header, isELF bool) *Header {
 	return &Header{hdr, isELF}
 }
 
-// isELFPrefix classifies an ELF file from its leading header bytes. It matches
-// the previous debug/elf.NewFile-based behavior for the supported machines
-// (EM_386, EM_X86_64) without reading the whole file body.
-func isELFPrefix(b []byte) bool {
+// ELF header sizes (bytes) for the two supported classes. A real ELF file is
+// at least this large; debug/elf.NewFile rejects anything smaller, so we use it
+// to keep truncated files (valid ident, no real body) out of the signer.
+const (
+	ehsize32 = 52
+	ehsize64 = 64
+)
+
+// isELFPrefix classifies an ELF file from its leading header bytes and total
+// size. It matches the previous debug/elf.NewFile-based behavior for the
+// supported machines (EM_386, EM_X86_64) without reading the whole file body.
+func isELFPrefix(b []byte, size int64) bool {
 	if len(b) < elfHeaderPeekSize {
 		return false
 	}
@@ -89,9 +98,17 @@ func isELFPrefix(b []byte) bool {
 		return false
 	}
 
-	// EI_CLASS (off.4): must be 32- or 64-bit.
+	// EI_CLASS (off.4): must be 32- or 64-bit, and the file must be at least as
+	// large as the corresponding ELF header (rejects truncated non-binaries).
 	switch elf.Class(b[elf.EI_CLASS]) {
-	case elf.ELFCLASS32, elf.ELFCLASS64:
+	case elf.ELFCLASS32:
+		if size < ehsize32 {
+			return false
+		}
+	case elf.ELFCLASS64:
+		if size < ehsize64 {
+			return false
+		}
 	default:
 		return false
 	}

@@ -7,10 +7,9 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
+	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 )
-
-const packagesVersionEnvName = "PACKAGES_VERSION"
 
 func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (*cdx.BOM, error) {
 	if imageRef == "" {
@@ -48,28 +47,15 @@ func collectInstalledPackets(ctx context.Context, containerBackend container_bac
 }
 
 func readContainerFactoryVersion(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (string, error) {
-	info, err := containerBackend.GetImageInfo(ctx, imageRef, container_backend.GetImageInfoOpts{})
+	stdout, err := containerBackend.RunCommandInImage(ctx, imageRef, []string{"cat", config.ContainerFactoryVersionFile}, container_backend.RunCommandInImageOpts{})
 	if err != nil {
-		return "", fmt.Errorf("get image info for %q: %w", imageRef, err)
-	}
-	if info == nil {
-		return "", fmt.Errorf("image %q not found", imageRef)
+		return "", fmt.Errorf("read %s from image %q: %w", config.ContainerFactoryVersionFile, imageRef, err)
 	}
 
-	prefix := packagesVersionEnvName + "="
-	for _, env := range info.Env {
-		value, ok := strings.CutPrefix(env, prefix)
-		if !ok {
-			continue
-		}
-
-		value = strings.TrimSpace(value)
-		if value == "" {
-			return "", fmt.Errorf("%s is empty in image %q", packagesVersionEnvName, imageRef)
-		}
-
-		return value, nil
+	version := strings.TrimSpace(string(stdout))
+	if version == "" {
+		return "", fmt.Errorf("%s is empty in image %q", config.ContainerFactoryVersionFile, imageRef)
 	}
 
-	return "", fmt.Errorf("%s not found in image %q config", packagesVersionEnvName, imageRef)
+	return version, nil
 }

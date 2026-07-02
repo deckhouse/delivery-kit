@@ -2,6 +2,7 @@ package managedinput
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -20,9 +21,16 @@ type inputResolver struct {
 var resolvers = buildResolvers()
 
 func buildResolvers() []inputResolver {
-	built := make([]inputResolver, 0, len(config.Ecosystems()))
-	for _, eco := range config.Ecosystems() {
-		eco := eco
+	ecosystems := config.Ecosystems()
+	types := make([]config.PackagesDirectiveType, 0, len(ecosystems))
+	for t := range ecosystems {
+		types = append(types, t)
+	}
+	slices.Sort(types)
+
+	built := make([]inputResolver, 0, len(types))
+	for _, t := range types {
+		eco := ecosystems[t]
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,

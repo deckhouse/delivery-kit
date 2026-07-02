@@ -2,6 +2,7 @@ package managedinput
 
 import (
 	"fmt"
+	"sort"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -10,6 +11,37 @@ import (
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
+
+var _ = Describe("buildResolvers", func() {
+	It("returns resolvers in deterministic order across invocations", func() {
+		first := buildResolvers()
+		firstOrder := make([]config.PackagesDirectiveType, len(first))
+		for i, r := range first {
+			firstOrder[i] = r.inputType
+		}
+
+		for i := 0; i < 20; i++ {
+			next := buildResolvers()
+			nextOrder := make([]config.PackagesDirectiveType, len(next))
+			for j, r := range next {
+				nextOrder[j] = r.inputType
+			}
+			Expect(nextOrder).To(Equal(firstOrder))
+		}
+	})
+
+	It("orders resolvers by inputType alphabetically", func() {
+		built := buildResolvers()
+		order := make([]string, len(built))
+		for i, r := range built {
+			order[i] = string(r.inputType)
+		}
+		sorted := make([]string, len(order))
+		copy(sorted, order)
+		sort.Strings(sorted)
+		Expect(order).To(Equal(sorted))
+	})
+})
 
 var _ = Describe("ToCatalogers", func() {
 	DescribeTable("maps packages directives to syft catalogers",

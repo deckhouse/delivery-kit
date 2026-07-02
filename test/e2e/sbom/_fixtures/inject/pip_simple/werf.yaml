@@ -14,5 +14,5 @@ shell:
   install:
     - cd /app && pip install -r requirements.txt
 packages:
-  - type: python-pip
+  - type: pip
     workdir: /app

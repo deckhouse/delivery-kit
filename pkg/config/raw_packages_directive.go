@@ -107,6 +107,9 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 
 	d.FileBased.Lock = eco.DefaultLock
 	if r.Lock != "" {
+		if eco.DefaultLock == "" {
+			return fmt.Errorf("lock is not supported for type %q", d.Type)
+		}
 		d.FileBased.Lock = r.Lock
 	}
 

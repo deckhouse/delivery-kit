@@ -214,5 +214,19 @@ var _ = Describe("rawPackagesDirective python", func() {
 				},
 			},
 		),
+
+		Entry("python-pip with lock field is rejected (pip has no lock semantics)",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "python:3.12",
+				"packages": []map[string]interface{}{
+					{
+						"type":    "python-pip",
+						"workdir": "/app",
+						"lock":    "requirements.lock",
+					},
+				},
+			},
+		),
 	)
 })

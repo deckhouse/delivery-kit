@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
@@ -39,7 +40,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:          PackagesDirectiveTypeGoMod,
 		DefaultSpec:   "go.mod",
 		DefaultLock:   "go.sum",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %s && go mod download", workdir) },
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && go mod download", workdir) },
 		CatalogerName: "go-module-file-cataloger",
 	},
 	PackagesDirectiveTypePythonUV: {
@@ -47,15 +48,17 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Aliases:       []string{"uv"},
 		DefaultSpec:   "pyproject.toml",
 		DefaultLock:   "uv.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %s && uv sync --frozen", workdir) },
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && uv sync --frozen", workdir) },
 		CatalogerName: "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPip: {
-		Type:          PackagesDirectiveTypePythonPip,
-		Aliases:       []string{"pip"},
-		DefaultSpec:   "requirements.txt",
-		DefaultLock:   "",
-		InstallCmd:    func(workdir, spec string) string { return fmt.Sprintf("cd %s && pip install -r %s", workdir, spec) },
+		Type:        PackagesDirectiveTypePythonPip,
+		Aliases:     []string{"pip"},
+		DefaultSpec: "requirements.txt",
+		DefaultLock: "",
+		InstallCmd: func(workdir, spec string) string {
+			return fmt.Sprintf("cd %q && pip install --no-cache-dir -r %q", workdir, spec)
+		},
 		CatalogerName: "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPoetry: {
@@ -63,7 +66,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Aliases:       []string{"poetry"},
 		DefaultSpec:   "pyproject.toml",
 		DefaultLock:   "poetry.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %s && poetry install --no-root", workdir) },
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry install --no-root", workdir) },
 		CatalogerName: "python-package-cataloger",
 	},
 }
@@ -78,10 +81,10 @@ var aliasToType = func() map[string]PackagesDirectiveType {
 	return idx
 }()
 
-// Ecosystems returns the registry of file-based package ecosystems.
-// The map is intended read-only; callers must not mutate entries.
+// Ecosystems returns a defensive copy of the file-based package ecosystems registry.
+// The returned map is safe to iterate; mutating it does not affect the internal registry.
 func Ecosystems() map[PackagesDirectiveType]PackageEcosystem {
-	return ecosystems
+	return maps.Clone(ecosystems)
 }
 
 type PackagesDirective struct {

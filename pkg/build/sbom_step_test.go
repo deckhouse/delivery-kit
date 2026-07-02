@@ -105,7 +105,7 @@ var _ = Describe("SbomStep", func() {
 	})
 
 	Describe("GetImageBOM() with trusted builder image", func() {
-		It("should return ErrSbomNotRequired for builder image regardless of digest availability", func(ctx SpecContext) {
+		It("should return hard error for builder image from different namespace", func(ctx SpecContext) {
 			step := &sbomStep{}
 
 			imageInfo := &werfImage.Info{
@@ -117,7 +117,56 @@ var _ = Describe("SbomStep", func() {
 			}
 
 			_, err := step.GetImageBOM(ctx, "builder-image", imageInfo)
+			Expect(err).To(HaveOccurred())
+			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
+			Expect(err.Error()).To(ContainSubstring("the image is a builder image but SBOM is required"))
+		})
+
+		It("should return ErrSbomNotRequired for golang builder image from container-factory", func(ctx SpecContext) {
+			step := &sbomStep{}
+
+			imageInfo := &werfImage.Info{
+				Name:       "registry.deckhouse.io/container-factory/builder/golang-alpine:1.25",
+				Repository: "registry.deckhouse.io/container-factory/builder/golang-alpine",
+				Labels: map[string]string{
+					werfImage.DeckhouseInternalBuilderLabel: "true",
+				},
+			}
+
+			_, err := step.GetImageBOM(logging.WithLogger(ctx), "builder-image", imageInfo)
 			Expect(err).To(MatchError(ErrSbomNotRequired))
+		})
+
+		It("should return ErrSbomNotRequired for alpine builder image from container-factory", func(ctx SpecContext) {
+			step := &sbomStep{}
+
+			imageInfo := &werfImage.Info{
+				Name:       "registry.deckhouse.io/container-factory/builder/alpine:3.22",
+				Repository: "registry.deckhouse.io/container-factory/builder/alpine",
+				Labels: map[string]string{
+					werfImage.DeckhouseInternalBuilderLabel: "true",
+				},
+			}
+
+			_, err := step.GetImageBOM(ctx, "builder-image", imageInfo)
+			Expect(err).To(MatchError(ErrSbomNotRequired))
+		})
+
+		It("should return hard error for other builder image from container-factory", func(ctx SpecContext) {
+			step := &sbomStep{}
+
+			imageInfo := &werfImage.Info{
+				Name:       "registry.deckhouse.io/container-factory/builder/scratch",
+				Repository: "registry.deckhouse.io/container-factory/builder/scratch",
+				Labels: map[string]string{
+					werfImage.DeckhouseInternalBuilderLabel: "true",
+				},
+			}
+
+			_, err := step.GetImageBOM(ctx, "builder-image", imageInfo)
+			Expect(err).To(HaveOccurred())
+			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
+			Expect(err.Error()).To(ContainSubstring("the image is a builder image but SBOM is required"))
 		})
 
 		It("should return actionable error for non-builder image when SBOM pull fails", func(ctx SpecContext) {

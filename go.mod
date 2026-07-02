@@ -68,7 +68,7 @@ require (
 	github.com/werf/kubedog v0.13.1-0.20260616105957-2c00b08fb99e
 	github.com/werf/kubedog-for-werf-helm v0.0.0-20241217155728-9d45c48b82b6
 	github.com/werf/lockgate v0.1.1
-	github.com/werf/logboek v0.6.1
+	github.com/werf/logboek v0.7.1
 	github.com/werf/nelm v1.24.4-0.20260618090926-7f5713b27219
 	github.com/werf/nelm-for-werf-helm v0.0.0-20241217155925-b0e6734d1dbf
 	go.opentelemetry.io/otel v1.39.0
@@ -401,7 +401,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	gopkg.in/evanphx/json-patch.v5 v5.8.0
+	gopkg.in/evanphx/json-patch.v5 v5.8.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

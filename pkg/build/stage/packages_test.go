@@ -157,20 +157,20 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		},
 
 		Entry("go-mod /app", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 		}, []string{"cd /app && go mod download"}),
 
 		Entry("go-mod /src/backend", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/src/backend"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/src/backend"}},
 		}, []string{"cd /src/backend && go mod download"}),
 
 		Entry("multiple go-mod entries", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/lib"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/lib"}},
 		}, []string{"cd /app && go mod download", "cd /lib && go mod download"}),
 
 		Entry("root workdir", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/"}},
 		}, []string{"cd / && go mod download"}),
 
 		Entry("unsupported type", []*config.PackagesDirective{
@@ -189,36 +189,36 @@ var _ = Describe("GeneratePackagesCommands", func() {
 
 		Entry("mixed types: os-pm and go-mod skip unsupported cargo type", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveType("cargo")},
 		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "cd /app && go mod download"}),
 
 		Entry("python-pip /app requirements.txt", []*config.PackagesDirective{
 			{
-				Type:   config.PackagesDirectiveTypePythonPip,
-				Python: config.PythonSpec{Workdir: "/app", Spec: "requirements.txt"},
+				Type:      config.PackagesDirectiveTypePythonPip,
+				FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"},
 			},
 		}, []string{"cd /app && pip install -r requirements.txt"}),
 
 		Entry("python-poetry /svc", []*config.PackagesDirective{
 			{
-				Type:   config.PackagesDirectiveTypePythonPoetry,
-				Python: config.PythonSpec{Workdir: "/svc"},
+				Type:      config.PackagesDirectiveTypePythonPoetry,
+				FileBased: config.FileBasedSpec{Workdir: "/svc"},
 			},
 		}, []string{"cd /svc && poetry install --no-root"}),
 
 		Entry("python-uv /api", []*config.PackagesDirective{
 			{
-				Type:   config.PackagesDirectiveTypePythonUV,
-				Python: config.PythonSpec{Workdir: "/api"},
+				Type:      config.PackagesDirectiveTypePythonUV,
+				FileBased: config.FileBasedSpec{Workdir: "/api"},
 			},
 		}, []string{"cd /api && uv sync --frozen"}),
 
 		Entry("mixed: go-mod + python-uv + os-pm all produce commands", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{
-				Type:   config.PackagesDirectiveTypePythonUV,
-				Python: config.PythonSpec{Workdir: "/lib"},
+				Type:      config.PackagesDirectiveTypePythonUV,
+				FileBased: config.FileBasedSpec{Workdir: "/lib"},
 			},
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
 		}, []string{"cd /app && go mod download", "cd /lib && uv sync --frozen", config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),

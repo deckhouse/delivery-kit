@@ -15,68 +15,95 @@ const (
 	PackagesDirectiveTypePythonPoetry PackagesDirectiveType = "python-poetry"
 )
 
-const (
-	goModDefaultSpec = "go.mod"
-	goModDefaultLock = "go.sum"
-)
-
-const (
-	pythonUVDefaultSpec     = "pyproject.toml"
-	pythonUVDefaultLock     = "uv.lock"
-	pythonPipDefaultSpec    = "requirements.txt"
-	pythonPipDefaultLock    = ""
-	pythonPoetryDefaultSpec = "pyproject.toml"
-	pythonPoetryDefaultLock = "poetry.lock"
-)
-
 type PackagesSpec struct {
 	Packages []string
 }
 
-// GoModSpec describes Go module files inside the image. Workdir is the directory
-// holding the module files; Spec and Lock default to "go.mod" and "go.sum".
-type GoModSpec struct {
+type FileBasedSpec struct {
 	Workdir string
 	Spec    string
 	Lock    string
 }
 
-type PythonSpec struct {
-	Manager PackagesDirectiveType
-	Workdir string
-	Spec    string
-	Lock    string
+type PackageEcosystem struct {
+	Type          PackagesDirectiveType
+	Aliases       []string
+	DefaultSpec   string
+	DefaultLock   string
+	InstallCmd    func(workdir, spec string) string
+	CatalogerName string
+}
+
+var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
+	PackagesDirectiveTypeGoMod: {
+		Type:          PackagesDirectiveTypeGoMod,
+		DefaultSpec:   "go.mod",
+		DefaultLock:   "go.sum",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %s && go mod download", workdir) },
+		CatalogerName: "go-module-file-cataloger",
+	},
+	PackagesDirectiveTypePythonUV: {
+		Type:          PackagesDirectiveTypePythonUV,
+		Aliases:       []string{"uv"},
+		DefaultSpec:   "pyproject.toml",
+		DefaultLock:   "uv.lock",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %s && uv sync --frozen", workdir) },
+		CatalogerName: "python-package-cataloger",
+	},
+	PackagesDirectiveTypePythonPip: {
+		Type:          PackagesDirectiveTypePythonPip,
+		Aliases:       []string{"pip"},
+		DefaultSpec:   "requirements.txt",
+		DefaultLock:   "",
+		InstallCmd:    func(workdir, spec string) string { return fmt.Sprintf("cd %s && pip install -r %s", workdir, spec) },
+		CatalogerName: "python-package-cataloger",
+	},
+	PackagesDirectiveTypePythonPoetry: {
+		Type:          PackagesDirectiveTypePythonPoetry,
+		Aliases:       []string{"poetry"},
+		DefaultSpec:   "pyproject.toml",
+		DefaultLock:   "poetry.lock",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %s && poetry install --no-root", workdir) },
+		CatalogerName: "python-package-cataloger",
+	},
+}
+
+var aliasToType = func() map[string]PackagesDirectiveType {
+	idx := map[string]PackagesDirectiveType{}
+	for _, eco := range ecosystems {
+		for _, a := range eco.Aliases {
+			idx[a] = eco.Type
+		}
+	}
+	return idx
+}()
+
+// Ecosystems returns the registry of file-based package ecosystems.
+// The map is intended read-only; callers must not mutate entries.
+func Ecosystems() map[PackagesDirectiveType]PackageEcosystem {
+	return ecosystems
 }
 
 type PackagesDirective struct {
-	Type   PackagesDirectiveType
-	Spec   PackagesSpec
-	GoMod  GoModSpec
-	Python PythonSpec
+	Type      PackagesDirectiveType
+	Spec      PackagesSpec
+	FileBased FileBasedSpec
 }
 
 func (d *PackagesDirective) validate() error {
-	switch d.Type {
-	case PackagesDirectiveTypeOSPM:
+	if d.Type == PackagesDirectiveTypeOSPM {
 		if len(d.Spec.Packages) == 0 {
 			return fmt.Errorf("packages spec must not be empty for type %q", d.Type)
 		}
-	case PackagesDirectiveTypeGoMod:
-		if d.GoMod.Workdir == "" {
-			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
-		}
-	case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPip, PackagesDirectiveTypePythonPoetry:
-		if d.Python.Workdir == "" {
-			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
-		}
-		if d.Python.Manager != d.Type {
-			return fmt.Errorf("python spec manager %q does not match directive type %q", d.Python.Manager, d.Type)
-		}
-	default:
-		return fmt.Errorf("unsupported packages type %q", d.Type)
+		return nil
 	}
-
-	return nil
+	if _, ok := ecosystems[d.Type]; ok {
+		if d.FileBased.Workdir == "" {
+			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported packages type %q", d.Type)
 }
 
 // normalizePackages flattens all packages across every directive, deduplicates

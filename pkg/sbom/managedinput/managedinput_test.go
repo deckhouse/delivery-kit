@@ -20,12 +20,12 @@ var _ = Describe("ToCatalogers", func() {
 		Entry("go-mod entries map to the go-module-file-cataloger",
 			[]*config.PackagesDirective{
 				{
-					Type:  config.PackagesDirectiveTypeGoMod,
-					GoMod: config.GoModSpec{Workdir: "/app/api", Spec: "go.mod", Lock: "go.sum"},
+					Type:      config.PackagesDirectiveTypeGoMod,
+					FileBased: config.FileBasedSpec{Workdir: "/app/api", Spec: "go.mod", Lock: "go.sum"},
 				},
 				{
-					Type:  config.PackagesDirectiveTypeGoMod,
-					GoMod: config.GoModSpec{Workdir: "/app/cli", Spec: "go.mod", Lock: "go.sum"},
+					Type:      config.PackagesDirectiveTypeGoMod,
+					FileBased: config.FileBasedSpec{Workdir: "/app/cli", Spec: "go.mod", Lock: "go.sum"},
 				},
 			},
 			[]scanner.Cataloger{
@@ -66,40 +66,49 @@ var _ = Describe("FilterBOMBySourcePaths", func() {
 		}
 	}
 
-	It("keeps only components found by declared catalogers with matching paths", func() {
-		bom := &cdx.BOM{
-			Components: &[]cdx.Component{
-				{Name: "github.com/foo/bar", Properties: goModProps("/app/api/go.mod")},
-				{Name: "github.com/baz/qux", Properties: goModProps("/vendor/tool/go.mod")},
-				{Name: "curl", Properties: osProps()},
+	DescribeTable("filter behavior",
+		func(bom *cdx.BOM, catalogers []scanner.Cataloger, expectedNames []string) {
+			FilterBOMBySourcePaths(bom, catalogers)
+			if bom == nil {
+				return
+			}
+			var names []string
+			for _, c := range *bom.Components {
+				names = append(names, c.Name)
+			}
+			Expect(names).To(Equal(expectedNames))
+		},
+
+		Entry("keeps only components found by declared catalogers with matching paths",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "github.com/foo/bar", Properties: goModProps("/app/api/go.mod")},
+					{Name: "github.com/baz/qux", Properties: goModProps("/vendor/tool/go.mod")},
+					{Name: "curl", Properties: osProps()},
+				},
 			},
-		}
-
-		catalogers := []scanner.Cataloger{
-			{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}},
-		}
-
-		FilterBOMBySourcePaths(bom, catalogers)
-
-		Expect(*bom.Components).To(HaveLen(1))
-		Expect((*bom.Components)[0].Name).To(Equal("github.com/foo/bar"))
-	})
-
-	It("does nothing when no catalogers are provided", func() {
-		bom := &cdx.BOM{
-			Components: &[]cdx.Component{
-				{Name: "github.com/foo/bar", Properties: goModProps("/app/api/go.mod")},
+			[]scanner.Cataloger{
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}},
 			},
-		}
+			[]string{"github.com/foo/bar"},
+		),
 
-		FilterBOMBySourcePaths(bom, nil)
+		Entry("does nothing when no catalogers are provided",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "github.com/foo/bar", Properties: goModProps("/app/api/go.mod")},
+				},
+			},
+			[]scanner.Cataloger(nil),
+			[]string{"github.com/foo/bar"},
+		),
 
-		Expect(*bom.Components).To(HaveLen(1))
-	})
-
-	It("does nothing when BOM is nil", func() {
-		FilterBOMBySourcePaths(nil, []scanner.Cataloger{{Name: "x", SourcePaths: []string{"/app/go.mod"}}})
-	})
+		Entry("does nothing when BOM is nil",
+			(*cdx.BOM)(nil),
+			[]scanner.Cataloger{{Name: "x", SourcePaths: []string{"/app/go.mod"}}},
+			[]string(nil),
+		),
+	)
 })
 
 var _ = Describe("ToCatalogers python", func() {
@@ -111,8 +120,8 @@ var _ = Describe("ToCatalogers python", func() {
 		Entry("python-pip maps to python-package-cataloger with spec path only (no lock)",
 			[]*config.PackagesDirective{
 				{
-					Type:   config.PackagesDirectiveTypePythonPip,
-					Python: config.PythonSpec{Manager: config.PackagesDirectiveTypePythonPip, Workdir: "/app", Spec: "requirements.txt", Lock: ""},
+					Type:      config.PackagesDirectiveTypePythonPip,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "requirements.txt", Lock: ""},
 				},
 			},
 			[]scanner.Cataloger{
@@ -123,8 +132,8 @@ var _ = Describe("ToCatalogers python", func() {
 		Entry("python-uv maps to python-package-cataloger with spec and lock paths",
 			[]*config.PackagesDirective{
 				{
-					Type:   config.PackagesDirectiveTypePythonUV,
-					Python: config.PythonSpec{Manager: config.PackagesDirectiveTypePythonUV, Workdir: "/app", Spec: "pyproject.toml", Lock: "uv.lock"},
+					Type:      config.PackagesDirectiveTypePythonUV,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Lock: "uv.lock"},
 				},
 			},
 			[]scanner.Cataloger{
@@ -135,8 +144,8 @@ var _ = Describe("ToCatalogers python", func() {
 		Entry("python-poetry maps to python-package-cataloger with spec and lock paths",
 			[]*config.PackagesDirective{
 				{
-					Type:   config.PackagesDirectiveTypePythonPoetry,
-					Python: config.PythonSpec{Manager: config.PackagesDirectiveTypePythonPoetry, Workdir: "/svc", Spec: "pyproject.toml", Lock: "poetry.lock"},
+					Type:      config.PackagesDirectiveTypePythonPoetry,
+					FileBased: config.FileBasedSpec{Workdir: "/svc", Spec: "pyproject.toml", Lock: "poetry.lock"},
 				},
 			},
 			[]scanner.Cataloger{

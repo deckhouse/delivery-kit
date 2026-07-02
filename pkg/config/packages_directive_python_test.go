@@ -1,11 +1,8 @@
 package config
 
 import (
-	"errors"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"gopkg.in/yaml.v2"
 
 	"github.com/werf/common-go/pkg/util"
 )
@@ -20,31 +17,15 @@ var _ = Describe("rawPackagesDirective python", func() {
 		giterminismManager = NewGiterminismManagerStub(localGitRepo)
 	})
 
-	directivesFromYamlPython := func(yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
-		rawYaml, err := yaml.Marshal(yamlMap)
-		Expect(err).To(Succeed())
-
-		doc := &doc{Content: rawYaml}
-		rawStapelImage := &rawStapelImage{doc: doc}
-
-		Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
-
-		stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
-		if err != nil {
-			return nil, err
-		}
-		return stapelImage.Packages, nil
-	}
-
 	DescribeTable("unmarshal and convert succeed",
 		func(yamlMap map[string]interface{}, expected []*PackagesDirective) {
-			packages, err := directivesFromYamlPython(yamlMap)
+			packages, err := directivesFromYaml(giterminismManager, yamlMap)
 			Expect(err).To(Succeed())
 
 			Expect(packages).To(HaveLen(len(expected)))
 			for i, exp := range expected {
 				Expect(packages[i].Type).To(Equal(exp.Type))
-				Expect(packages[i].Python).To(Equal(exp.Python))
+				Expect(packages[i].FileBased).To(Equal(exp.FileBased))
 			}
 		},
 
@@ -59,8 +40,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonUV,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonUV,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "pyproject.toml",
 						Lock:    "uv.lock",
@@ -80,8 +60,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonUV,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonUV,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "pyproject.toml",
 						Lock:    "uv.lock",
@@ -101,8 +80,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonPip,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonPip,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "requirements.txt",
 						Lock:    "",
@@ -122,8 +100,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonPip,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonPip,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "requirements.txt",
 						Lock:    "",
@@ -143,8 +120,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonPoetry,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonPoetry,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "pyproject.toml",
 						Lock:    "poetry.lock",
@@ -164,8 +140,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonPoetry,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonPoetry,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "pyproject.toml",
 						Lock:    "poetry.lock",
@@ -190,8 +165,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypePythonUV,
-					Python: PythonSpec{
-						Manager: PackagesDirectiveTypePythonUV,
+					FileBased: FileBasedSpec{
 						Workdir: "/app",
 						Spec:    "custom.toml",
 						Lock:    "custom.lock",
@@ -203,7 +177,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 
 	DescribeTable("convert to directive fails when required fields are missing",
 		func(yamlMap map[string]interface{}) {
-			_, err := directivesFromYamlPython(yamlMap)
+			_, err := directivesFromYaml(giterminismManager, yamlMap)
 			Expect(err).To(HaveOccurred())
 		},
 
@@ -241,21 +215,4 @@ var _ = Describe("rawPackagesDirective python", func() {
 			},
 		),
 	)
-
-	It("python-poetry with Manager mismatch fails validation", func() {
-		d := &PackagesDirective{
-			Type: PackagesDirectiveTypePythonPoetry,
-			Python: PythonSpec{
-				Manager: PackagesDirectiveTypePythonUV,
-				Workdir: "/app",
-				Spec:    "pyproject.toml",
-				Lock:    "poetry.lock",
-			},
-		}
-		var errConf *configError
-		err := d.validate()
-		Expect(err).To(HaveOccurred())
-		Expect(errors.As(err, &errConf)).To(BeFalse())
-		Expect(err.Error()).To(ContainSubstring("does not match directive type"))
-	})
 })

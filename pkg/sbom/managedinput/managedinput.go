@@ -17,40 +17,25 @@ type inputResolver struct {
 	sourcePaths   func(directive *config.PackagesDirective) []string
 }
 
-var resolvers = []inputResolver{
-	{
-		inputType:     config.PackagesDirectiveTypeGoMod,
-		catalogerName: "go-module-file-cataloger",
-		sourcePaths: func(directive *config.PackagesDirective) []string {
-			return []string{
-				path.Join(directive.GoMod.Workdir, directive.GoMod.Spec),
-				path.Join(directive.GoMod.Workdir, directive.GoMod.Lock),
-			}
-		},
-	},
-	{
-		inputType:     config.PackagesDirectiveTypePythonUV,
-		catalogerName: "python-package-cataloger",
-		sourcePaths:   pythonSourcePaths,
-	},
-	{
-		inputType:     config.PackagesDirectiveTypePythonPip,
-		catalogerName: "python-package-cataloger",
-		sourcePaths:   pythonSourcePaths,
-	},
-	{
-		inputType:     config.PackagesDirectiveTypePythonPoetry,
-		catalogerName: "python-package-cataloger",
-		sourcePaths:   pythonSourcePaths,
-	},
-}
+var resolvers = buildResolvers()
 
-func pythonSourcePaths(d *config.PackagesDirective) []string {
-	paths := []string{path.Join(d.Python.Workdir, d.Python.Spec)}
-	if d.Python.Lock != "" {
-		paths = append(paths, path.Join(d.Python.Workdir, d.Python.Lock))
+func buildResolvers() []inputResolver {
+	built := make([]inputResolver, 0, len(config.Ecosystems()))
+	for _, eco := range config.Ecosystems() {
+		eco := eco
+		built = append(built, inputResolver{
+			inputType:     eco.Type,
+			catalogerName: eco.CatalogerName,
+			sourcePaths: func(d *config.PackagesDirective) []string {
+				paths := []string{path.Join(d.FileBased.Workdir, d.FileBased.Spec)}
+				if d.FileBased.Lock != "" {
+					paths = append(paths, path.Join(d.FileBased.Workdir, d.FileBased.Lock))
+				}
+				return paths
+			},
+		})
 	}
-	return paths
+	return built
 }
 
 func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {

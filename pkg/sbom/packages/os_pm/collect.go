@@ -8,11 +8,13 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
-	"github.com/werf/werf/v2/pkg/config"
+	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker"
 )
 
-func CollectBOM(ctx context.Context, imageRef string) (*cdx.BOM, error) {
+const packagesVersionEnvName = "PACKAGES_VERSION"
+
+func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (*cdx.BOM, error) {
 	if imageRef == "" {
 		return nil, nil
 	}
@@ -25,7 +27,7 @@ func CollectBOM(ctx context.Context, imageRef string) (*cdx.BOM, error) {
 		return nil, nil
 	}
 
-	version, err := readContainerFactoryVersion(ctx, imageRef)
+	version, err := readContainerFactoryVersion(ctx, containerBackend, imageRef)
 	if err != nil {
 		return nil, err
 	}
@@ -48,18 +50,29 @@ func collectInstalledPackets(ctx context.Context, imageRef string) (map[string]P
 	return pkgs, nil
 }
 
-func readContainerFactoryVersion(ctx context.Context, imageRef string) (string, error) {
-	var stdout, stderr bytes.Buffer
-	err := docker.CliRun_ProvidedOutput(ctx, &stdout, &stderr, "--rm", "--entrypoint", "", imageRef, "cat", config.ContainerFactoryVersionFile)
+func readContainerFactoryVersion(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (string, error) {
+	info, err := containerBackend.GetImageInfo(ctx, imageRef, container_backend.GetImageInfoOpts{})
 	if err != nil {
-		return "", fmt.Errorf("read %s from image %q: %w (stderr: %s)",
-			config.ContainerFactoryVersionFile, imageRef, err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("get image info for %q: %w", imageRef, err)
+	}
+	if info == nil {
+		return "", fmt.Errorf("image %q not found", imageRef)
 	}
 
-	version := strings.TrimSpace(stdout.String())
-	if version == "" {
-		return "", fmt.Errorf("%s is empty in image %q", config.ContainerFactoryVersionFile, imageRef)
+	prefix := packagesVersionEnvName + "="
+	for _, env := range info.Env {
+		value, ok := strings.CutPrefix(env, prefix)
+		if !ok {
+			continue
+		}
+
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", fmt.Errorf("%s is empty in image %q", packagesVersionEnvName, imageRef)
+		}
+
+		return value, nil
 	}
 
-	return version, nil
+	return "", fmt.Errorf("%s not found in image %q config", packagesVersionEnvName, imageRef)
 }

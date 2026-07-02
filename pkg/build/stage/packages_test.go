@@ -181,17 +181,17 @@ var _ = Describe("GeneratePackagesCommands", func() {
 
 		Entry("os-pm single package", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),
+		}, []string{"pm install curl"}),
 
 		Entry("os-pm multiple packages", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "wget", "jq"}}},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "pm install wget", "pm install jq"}),
+		}, []string{"pm install curl", "pm install wget", "pm install jq"}),
 
 		Entry("mixed types: os-pm and go-mod produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
 			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveType("pip")},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "cd /app && go mod download"}),
+		}, []string{"pm install curl", "cd /app && go mod download"}),
 	)
 })
 

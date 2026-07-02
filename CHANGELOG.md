@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.73.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.73.1-dk...v2.73.2-dk) (2026-07-02)
+
+
+### Bug Fixes
+
+* **build, signing:** stream signed ELF layer instead of buffering ([#143](https://github.com/deckhouse/delivery-kit/issues/143)) ([1770207](https://github.com/deckhouse/delivery-kit/commit/1770207acadc643b2e0e1fa1c35e1b1b406c4f3d))
+* **build, stapel:** introspect failed stage from committed image, not temp UUID ([#7607](https://github.com/deckhouse/delivery-kit/issues/7607)) ([a0bc374](https://github.com/deckhouse/delivery-kit/commit/a0bc374892442d3de2ca9e803eeb437996bc7dfd))
+* **sign:** sign normalized manifest so verify matches pushed config ([#141](https://github.com/deckhouse/delivery-kit/issues/141)) ([89774d8](https://github.com/deckhouse/delivery-kit/commit/89774d8c04821986b805318ee1c00d153521443e))
+
+
+### Miscellaneous Chores
+
+* force release 2.73.2-dk ([ea36764](https://github.com/deckhouse/delivery-kit/commit/ea36764b3f2206ab24555b38e6d4f7b62b5c26ea))
+
 ## [2.73.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.72.2-dk...v2.73.1-dk) (2026-06-26)
 
 

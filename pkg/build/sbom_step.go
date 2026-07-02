@@ -20,6 +20,7 @@ import (
 	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
+	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
 //go:generate mockgen -source sbom_step.go -package mock -destination ../../test/mock/bom_patcher.go -mock_names BOMPatcherInterface=MockBOMPatcher
@@ -165,7 +166,16 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 	bom, err := step.pullImageSbom(ctx, imageName, imageInfo)
 	if err != nil {
 		if isTrustedBuilderImage(imageInfo.Labels) {
-			return nil, ErrSbomNotRequired
+			switch {
+			case isGolangBuilderImage(imageInfo.Name):
+				global_warnings.GlobalWarningLn(ctx,
+					fmt.Sprintf("The builder image %q is DEPRECATED and it WILL CAUSE AN ERROR in the future. Plan your migration to an up-to-date builder image.", imageInfo.Name))
+				return nil, ErrSbomNotRequired
+			case isAlpineBuilderImage(imageInfo.Name):
+				return nil, ErrSbomNotRequired
+			default:
+				return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
+			}
 		}
 		return nil, fmt.Errorf("the base image %q must either have the label %q set to \"true\" or have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled: %w", imageInfo.Name, image.DeckhouseInternalBuilderLabel, err)
 	}
@@ -190,13 +200,6 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, image
 	}
 
 	return bom, nil
-}
-
-func isTrustedBuilderImage(labels map[string]string) bool {
-	if labels == nil {
-		return false
-	}
-	return labels[image.DeckhouseInternalBuilderLabel] == "true"
 }
 
 func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {

@@ -2,6 +2,18 @@ package config
 
 import "fmt"
 
+var pythonAliases = map[string]PackagesDirectiveType{
+	"uv":     PackagesDirectiveTypePythonUV,
+	"pip":    PackagesDirectiveTypePythonPip,
+	"poetry": PackagesDirectiveTypePythonPoetry,
+}
+
+var pythonDefaults = map[PackagesDirectiveType]struct{ Spec, Lock string }{
+	PackagesDirectiveTypePythonUV:     {Spec: pythonUVDefaultSpec, Lock: pythonUVDefaultLock},
+	PackagesDirectiveTypePythonPip:    {Spec: pythonPipDefaultSpec, Lock: pythonPipDefaultLock},
+	PackagesDirectiveTypePythonPoetry: {Spec: pythonPoetryDefaultSpec, Lock: pythonPoetryDefaultLock},
+}
+
 type rawPackagesDirective struct {
 	Type    string      `yaml:"type,omitempty"`
 	Spec    interface{} `yaml:"spec,omitempty"`
@@ -49,6 +61,10 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 }
 
 func (r *rawPackagesDirective) toDirective() (*PackagesDirective, error) {
+	if canonical, ok := pythonAliases[r.Type]; ok {
+		r.Type = string(canonical)
+	}
+
 	d := &PackagesDirective{
 		Type: PackagesDirectiveType(r.Type),
 	}
@@ -60,6 +76,10 @@ func (r *rawPackagesDirective) toDirective() (*PackagesDirective, error) {
 		}
 	case PackagesDirectiveTypeGoMod:
 		r.fillGoModSpec(d)
+	case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPip, PackagesDirectiveTypePythonPoetry:
+		if err := r.fillPythonSpec(d); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := d.validate(); err != nil {
@@ -96,4 +116,24 @@ func (r *rawPackagesDirective) fillGoModSpec(d *PackagesDirective) {
 	if r.Lock != "" {
 		d.GoMod.Lock = r.Lock
 	}
+}
+
+func (r *rawPackagesDirective) fillPythonSpec(d *PackagesDirective) error {
+	d.Python.Manager = d.Type
+	d.Python.Workdir = r.Workdir
+
+	defaults := pythonDefaults[d.Type]
+	d.Python.Spec = defaults.Spec
+	if spec, ok := r.Spec.(string); ok && spec != "" {
+		d.Python.Spec = spec
+	} else if r.Spec != nil {
+		return fmt.Errorf("spec must be a string for type %q", d.Type)
+	}
+
+	d.Python.Lock = defaults.Lock
+	if r.Lock != "" {
+		d.Python.Lock = r.Lock
+	}
+
+	return nil
 }

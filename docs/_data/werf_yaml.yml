@@ -588,23 +588,23 @@ sections:
           - name: type
             value: "string"
             description:
-              en: "Package ecosystem type (go-mod)"
-              ru: "Тип экосистемы пакетов (go-mod)"
+              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry; aliases: uv, pip, poetry)"
+              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry; алиасы: uv, pip, poetry)"
           - name: workdir
             value: "string"
             description:
-              en: "Directory inside the image that contains the module files (required for go-mod)"
-              ru: "Директория внутри образа, содержащая файлы модуля (обязательно для go-mod)"
+              en: "Directory inside the image that contains the manifest files (required for go-mod and python-*)"
+              ru: "Директория внутри образа, содержащая файлы манифеста (обязательно для go-mod и python-*)"
           - name: spec
             value: "string"
             description:
-              en: "Module file name (for go-mod, default: go.mod)"
-              ru: "Имя файла модуля (для go-mod, по умолчанию: go.mod)"
+              en: "Manifest file name (defaults: go.mod for go-mod, pyproject.toml for python-uv/python-poetry, requirements.txt for python-pip)"
+              ru: "Имя файла манифеста (по умолчанию: go.mod для go-mod, pyproject.toml для python-uv/python-poetry, requirements.txt для python-pip)"
           - name: lock
             value: "string"
             description:
-              en: "Checksum file name (for go-mod, default: go.sum)"
-              ru: "Имя файла контрольных сумм (для go-mod, по умолчанию: go.sum)"
+              en: "Lock file name (defaults: go.sum for go-mod, uv.lock for python-uv, poetry.lock for python-poetry; empty for python-pip)"
+              ru: "Имя lock-файла (по умолчанию: go.sum для go-mod, uv.lock для python-uv, poetry.lock для python-poetry; пусто для python-pip)"
       - <<: *meta-section-build-cache-version
       - name: platform
         description:

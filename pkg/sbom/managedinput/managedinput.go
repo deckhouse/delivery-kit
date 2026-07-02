@@ -28,6 +28,29 @@ var resolvers = []inputResolver{
 			}
 		},
 	},
+	{
+		inputType:     config.PackagesDirectiveTypePythonUV,
+		catalogerName: "python-package-cataloger",
+		sourcePaths:   pythonSourcePaths,
+	},
+	{
+		inputType:     config.PackagesDirectiveTypePythonPip,
+		catalogerName: "python-package-cataloger",
+		sourcePaths:   pythonSourcePaths,
+	},
+	{
+		inputType:     config.PackagesDirectiveTypePythonPoetry,
+		catalogerName: "python-package-cataloger",
+		sourcePaths:   pythonSourcePaths,
+	},
+}
+
+func pythonSourcePaths(d *config.PackagesDirective) []string {
+	paths := []string{path.Join(d.Python.Workdir, d.Python.Spec)}
+	if d.Python.Lock != "" {
+		paths = append(paths, path.Join(d.Python.Workdir, d.Python.Lock))
+	}
+	return paths
 }
 
 func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {

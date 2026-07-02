@@ -211,3 +211,28 @@ var _ = Describe("normalizePackages", func() {
 		Expect(result[0].Spec.Packages).To(Equal([]string{"brotli", "curl", "jq"}))
 	})
 })
+
+var _ = Describe("rawPackagesDirective python smoke", func() {
+	It("canonical python-uv type roundtrips through raw parser", func() {
+		parentStack = util.NewStack()
+		localGitRepo := NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0")
+		giterminismManager := NewGiterminismManagerStub(localGitRepo)
+
+		yamlContent := []byte(`image: image1
+from: python:3.12
+packages:
+  - type: python-uv
+    workdir: /app
+`)
+		doc := &doc{Content: yamlContent}
+		rawStapelImage := &rawStapelImage{doc: doc}
+
+		Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
+
+		stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
+		Expect(err).To(Succeed())
+		Expect(stapelImage.Packages).To(HaveLen(1))
+		Expect(stapelImage.Packages[0].Type).To(Equal(PackagesDirectiveTypePythonUV))
+		Expect(stapelImage.Packages[0].Python.Spec).To(Equal("pyproject.toml"))
+	})
+})

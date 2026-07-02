@@ -8,13 +8,25 @@ import (
 type PackagesDirectiveType string
 
 const (
-	PackagesDirectiveTypeOSPM  PackagesDirectiveType = "os-pm"
-	PackagesDirectiveTypeGoMod PackagesDirectiveType = "go-mod"
+	PackagesDirectiveTypeOSPM         PackagesDirectiveType = "os-pm"
+	PackagesDirectiveTypeGoMod        PackagesDirectiveType = "go-mod"
+	PackagesDirectiveTypePythonUV     PackagesDirectiveType = "python-uv"
+	PackagesDirectiveTypePythonPip    PackagesDirectiveType = "python-pip"
+	PackagesDirectiveTypePythonPoetry PackagesDirectiveType = "python-poetry"
 )
 
 const (
 	goModDefaultSpec = "go.mod"
 	goModDefaultLock = "go.sum"
+)
+
+const (
+	pythonUVDefaultSpec     = "pyproject.toml"
+	pythonUVDefaultLock     = "uv.lock"
+	pythonPipDefaultSpec    = "requirements.txt"
+	pythonPipDefaultLock    = ""
+	pythonPoetryDefaultSpec = "pyproject.toml"
+	pythonPoetryDefaultLock = "poetry.lock"
 )
 
 type PackagesSpec struct {
@@ -29,10 +41,18 @@ type GoModSpec struct {
 	Lock    string
 }
 
+type PythonSpec struct {
+	Manager PackagesDirectiveType
+	Workdir string
+	Spec    string
+	Lock    string
+}
+
 type PackagesDirective struct {
-	Type  PackagesDirectiveType
-	Spec  PackagesSpec
-	GoMod GoModSpec
+	Type   PackagesDirectiveType
+	Spec   PackagesSpec
+	GoMod  GoModSpec
+	Python PythonSpec
 }
 
 func (d *PackagesDirective) validate() error {
@@ -44,6 +64,13 @@ func (d *PackagesDirective) validate() error {
 	case PackagesDirectiveTypeGoMod:
 		if d.GoMod.Workdir == "" {
 			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
+		}
+	case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPip, PackagesDirectiveTypePythonPoetry:
+		if d.Python.Workdir == "" {
+			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
+		}
+		if d.Python.Manager != d.Type {
+			return fmt.Errorf("python spec manager %q does not match directive type %q", d.Python.Manager, d.Type)
 		}
 	default:
 		return fmt.Errorf("unsupported packages type %q", d.Type)

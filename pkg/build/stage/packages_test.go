@@ -187,11 +187,41 @@ var _ = Describe("GeneratePackagesCommands", func() {
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "wget", "jq"}}},
 		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "pm install wget", "pm install jq"}),
 
-		Entry("mixed types: os-pm and go-mod produce commands", []*config.PackagesDirective{
+		Entry("mixed types: os-pm and go-mod skip unsupported cargo type", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
 			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
-			{Type: config.PackagesDirectiveType("pip")},
+			{Type: config.PackagesDirectiveType("cargo")},
 		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "cd /app && go mod download"}),
+
+		Entry("python-pip /app requirements.txt", []*config.PackagesDirective{
+			{
+				Type:   config.PackagesDirectiveTypePythonPip,
+				Python: config.PythonSpec{Workdir: "/app", Spec: "requirements.txt"},
+			},
+		}, []string{"cd /app && pip install -r requirements.txt"}),
+
+		Entry("python-poetry /svc", []*config.PackagesDirective{
+			{
+				Type:   config.PackagesDirectiveTypePythonPoetry,
+				Python: config.PythonSpec{Workdir: "/svc"},
+			},
+		}, []string{"cd /svc && poetry install --no-root"}),
+
+		Entry("python-uv /api", []*config.PackagesDirective{
+			{
+				Type:   config.PackagesDirectiveTypePythonUV,
+				Python: config.PythonSpec{Workdir: "/api"},
+			},
+		}, []string{"cd /api && uv sync --frozen"}),
+
+		Entry("mixed: go-mod + python-uv + os-pm all produce commands", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
+			{
+				Type:   config.PackagesDirectiveTypePythonUV,
+				Python: config.PythonSpec{Workdir: "/lib"},
+			},
+			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+		}, []string{"cd /app && go mod download", "cd /lib && uv sync --frozen", config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),
 	)
 })
 

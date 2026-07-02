@@ -31,6 +31,12 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			}
 		case PackagesDirectiveTypeGoMod:
 			commands = append(commands, fmt.Sprintf("cd %s && go mod download", pkg.GoMod.Workdir))
+		case PackagesDirectiveTypePythonPip:
+			commands = append(commands, fmt.Sprintf("cd %s && pip install -r %s", pkg.Python.Workdir, pkg.Python.Spec))
+		case PackagesDirectiveTypePythonPoetry:
+			commands = append(commands, fmt.Sprintf("cd %s && poetry install --no-root", pkg.Python.Workdir))
+		case PackagesDirectiveTypePythonUV:
+			commands = append(commands, fmt.Sprintf("cd %s && uv sync --frozen", pkg.Python.Workdir))
 		}
 	}
 	return commands

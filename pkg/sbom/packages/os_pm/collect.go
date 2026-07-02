@@ -1,7 +1,6 @@
 package os_pm
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -9,7 +8,6 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/docker"
 )
 
 const packagesVersionEnvName = "PACKAGES_VERSION"
@@ -19,7 +17,7 @@ func CollectBOM(ctx context.Context, containerBackend container_backend.Containe
 		return nil, nil
 	}
 
-	pkgs, err := collectInstalledPackets(ctx, imageRef)
+	pkgs, err := collectInstalledPackets(ctx, containerBackend, imageRef)
 	if err != nil {
 		return nil, err
 	}
@@ -35,14 +33,13 @@ func CollectBOM(ctx context.Context, containerBackend container_backend.Containe
 	return ConvertToCycloneDX(pkgs, version), nil
 }
 
-func collectInstalledPackets(ctx context.Context, imageRef string) (map[string]PmPackageInfo, error) {
-	var stdout, stderr bytes.Buffer
-	err := docker.CliRun_ProvidedOutput(ctx, &stdout, &stderr, "--rm", "--entrypoint", "", imageRef, "pm", "info", "--installed", "--json")
+func collectInstalledPackets(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (map[string]PmPackageInfo, error) {
+	stdout, err := containerBackend.RunCommandInImage(ctx, imageRef, []string{"pm", "info", "--installed", "--json"}, container_backend.RunCommandInImageOpts{})
 	if err != nil {
-		return nil, fmt.Errorf("run pm info in image %q: %w (stderr: %s)", imageRef, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("run pm info in image %q: %w", imageRef, err)
 	}
 
-	pkgs, err := ParsePmInstalledJSON(stdout.Bytes())
+	pkgs, err := ParsePmInstalledJSON(stdout)
 	if err != nil {
 		return nil, fmt.Errorf("parse pm info from image %q: %w", imageRef, err)
 	}

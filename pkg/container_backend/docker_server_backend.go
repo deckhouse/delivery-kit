@@ -223,7 +223,7 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 	return docker.NewInfoFromInspect(ref, inspect), nil
 }
 
-func (backend *DockerServerBackend) ExecCommandInImage(ctx context.Context, imageRef string, command []string, opts ExecCommandInImageOpts) ([]byte, error) {
+func (backend *DockerServerBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 
 	args := []string{"--rm", "--entrypoint", ""}

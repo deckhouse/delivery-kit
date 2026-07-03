@@ -43,10 +43,10 @@ func (runtime *PerfCheckContainerBackend) GetImageInfo(ctx context.Context, ref 
 	return
 }
 
-func (runtime *PerfCheckContainerBackend) ExecCommandInImage(ctx context.Context, imageRef string, command []string, opts ExecCommandInImageOpts) (resOut []byte, resErr error) {
-	logboek.Context(ctx).Default().LogProcess("ContainerBackend.ExecCommandInImage %q", imageRef).
+func (runtime *PerfCheckContainerBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) (resOut []byte, resErr error) {
+	logboek.Context(ctx).Default().LogProcess("ContainerBackend.RunCommandInImage %q", imageRef).
 		Do(func() {
-			resOut, resErr = runtime.ContainerBackend.ExecCommandInImage(ctx, imageRef, command, opts)
+			resOut, resErr = runtime.ContainerBackend.RunCommandInImage(ctx, imageRef, command, opts)
 		})
 	return
 }

@@ -1,39 +1,61 @@
 package os_pm
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
-	werfExec "github.com/werf/werf/v2/pkg/werf/exec"
+	"github.com/werf/werf/v2/pkg/config"
+	"github.com/werf/werf/v2/pkg/container_backend"
 )
 
-// CollectBOM runs pm inside the built image to read the installed binary
-// packages and converts them to a CycloneDX BOM. It returns nil when imageRef
-// is empty.
-func CollectBOM(ctx context.Context, imageRef string) (*cdx.BOM, error) {
+func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (*cdx.BOM, error) {
 	if imageRef == "" {
 		return nil, nil
 	}
 
-	cmd := werfExec.CommandContextCancellation(ctx, "docker", "run", "--rm", "--entrypoint", "", imageRef, "pm", "info", "--installed", "--json")
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		werfExec.TerminateIfCanceled(ctx)
-		return nil, fmt.Errorf("run pm info in image %q: %w (stderr: %s)", imageRef, err, strings.TrimSpace(stderr.String()))
+	pkgs, err := collectInstalledPackets(ctx, containerBackend, imageRef)
+	if err != nil {
+		return nil, err
+	}
+	if len(pkgs) == 0 {
+		return nil, nil
 	}
 
-	pkgs, err := ParsePmInstalledJSON(stdout.Bytes())
+	version, err := readContainerFactoryVersion(ctx, containerBackend, imageRef)
+	if err != nil {
+		return nil, err
+	}
+
+	return ConvertToCycloneDX(pkgs, version), nil
+}
+
+func collectInstalledPackets(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (map[string]PmPackageInfo, error) {
+	stdout, err := containerBackend.RunCommandInImage(ctx, imageRef, []string{"pm", "info", "--installed", "--json"}, container_backend.RunCommandInImageOpts{})
+	if err != nil {
+		return nil, fmt.Errorf("run pm info in image %q: %w", imageRef, err)
+	}
+
+	pkgs, err := ParsePmInstalledJSON(stdout)
 	if err != nil {
 		return nil, fmt.Errorf("parse pm info from image %q: %w", imageRef, err)
 	}
 
-	return ConvertToCycloneDX(pkgs), nil
+	return pkgs, nil
+}
+
+func readContainerFactoryVersion(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (string, error) {
+	stdout, err := containerBackend.RunCommandInImage(ctx, imageRef, []string{"cat", config.ContainerFactoryVersionFile}, container_backend.RunCommandInImageOpts{})
+	if err != nil {
+		return "", fmt.Errorf("read %s from image %q: %w", config.ContainerFactoryVersionFile, imageRef, err)
+	}
+
+	version := strings.TrimSpace(string(stdout))
+	if version == "" {
+		return "", fmt.Errorf("%s is empty in image %q", config.ContainerFactoryVersionFile, imageRef)
+	}
+
+	return version, nil
 }

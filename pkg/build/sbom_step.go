@@ -100,7 +100,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if osPmEnabled {
-			pmBOM, err := osPm.CollectBOM(ctx, stageDesc.Info.Name)
+			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
 			if err != nil {
 				return fmt.Errorf("collect os-pm SBOM: %w", err)
 			}

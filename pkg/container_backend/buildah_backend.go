@@ -775,6 +775,31 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 	}, nil
 }
 
+func (backend *BuildahBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error) {
+	containers, err := backend.createContainers(ctx, []string{imageRef}, CommonOpts(opts))
+	if err != nil {
+		return nil, err
+	}
+	container := containers[0]
+	defer func() {
+		if err := backend.removeContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
+			logboek.Context(ctx).Error().LogF("ERROR: unable to remove temporal container %q: %s\n", container.Name, err)
+		}
+	}()
+
+	var stdout bytes.Buffer
+	if err := backend.buildah.RunCommand(ctx, container.Name, command, buildah.RunCommandOpts{
+		CommonOpts: backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform),
+		User:       "0:0",
+		WorkingDir: "/",
+		Stdout:     &stdout,
+	}); err != nil {
+		return nil, fmt.Errorf("run command %v in image %q: %w", command, imageRef, err)
+	}
+
+	return stdout.Bytes(), nil
+}
+
 func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) error {
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {

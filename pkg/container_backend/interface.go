@@ -22,6 +22,7 @@ type (
 	PullOpts                          CommonOpts
 	GetImageInfoOpts                  CommonOpts
 	CalculateDependencyImportChecksum CommonOpts
+	RunCommandInImageOpts             CommonOpts
 )
 
 type RmOpts struct {
@@ -91,6 +92,10 @@ type ContainerBackend interface {
 	PostManifest(ctx context.Context, ref string, opts PostManifestOpts) error
 
 	GetImageInfo(ctx context.Context, ref string, opts GetImageInfoOpts) (*image.Info, error)
+
+	// RunCommandInImage executes command inside a throwaway container created
+	// from imageRef (entrypoint bypassed) and returns its captured stdout.
+	RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error)
 
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)

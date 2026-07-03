@@ -1,6 +1,7 @@
 package container_backend
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -220,6 +221,23 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 		return nil, fmt.Errorf("unable to inspect docker image: %w", err)
 	}
 	return docker.NewInfoFromInspect(ref, inspect), nil
+}
+
+func (backend *DockerServerBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error) {
+	var stdout, stderr bytes.Buffer
+
+	args := []string{"--rm", "--entrypoint", ""}
+	if opts.TargetPlatform != "" {
+		args = append(args, "--platform", opts.TargetPlatform)
+	}
+	args = append(args, imageRef)
+	args = append(args, command...)
+
+	if err := docker.CliRun_ProvidedOutput(ctx, &stdout, &stderr, args...); err != nil {
+		return nil, fmt.Errorf("run command %v in image %q: %w (stderr: %s)", command, imageRef, err, strings.TrimSpace(stderr.String()))
+	}
+
+	return stdout.Bytes(), nil
 }
 
 // GetImageInspect only available for DockerServerBackend

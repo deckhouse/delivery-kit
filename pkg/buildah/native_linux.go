@@ -500,7 +500,7 @@ func (b *NativeBuildah) RunCommand(ctx context.Context, container string, comman
 	nsOpts, netPolicy := generateNamespaceOptionsAndNetworkPolicy(opts.NetworkType)
 	globalMounts := generateGlobalMounts(opts.GlobalMounts)
 	runMounts := generateRunMounts(opts.RunMounts)
-	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter)
+	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter, opts.Stdout, opts.Stderr)
 	command = prependShellToCommand(opts.PrependShell, opts.Shell, command, builder)
 
 	sysCtx, err := b.getSystemContext(opts.TargetPlatform)
@@ -1425,12 +1425,22 @@ func generateContextDir(rawContextDir string, runMounts []*instructions.Mount) s
 	return contextDir
 }
 
-func generateStdoutStderr(optionalLogWriter io.Writer) (stdout, stderr io.Writer, stderrBuf *bytes.Buffer) {
+func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (stdout, stderr io.Writer, stderrBuf *bytes.Buffer) {
 	stderrBuf = &bytes.Buffer{}
-	if optionalLogWriter != nil {
+
+	switch {
+	case optionalStdout != nil:
+		stdout = optionalStdout
+	case optionalLogWriter != nil:
 		stdout = optionalLogWriter
+	}
+
+	switch {
+	case optionalStderr != nil:
+		stderr = io.MultiWriter(optionalStderr, stderrBuf)
+	case optionalLogWriter != nil:
 		stderr = io.MultiWriter(optionalLogWriter, stderrBuf)
-	} else {
+	default:
 		stderr = stderrBuf
 	}
 

@@ -1,13 +1,14 @@
 package os_pm
 
 import (
-	"net/url"
 	"os"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+const testContainerFactoryVersion = "v1.0.0-test"
 
 var examplePmInstalledJSON = []byte(`{
   "brotli": {
@@ -159,7 +160,7 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
-		bom := ConvertToCycloneDX(pkgs)
+		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 		Expect(bom).ToNot(BeNil())
 		Expect(*bom.Components).To(HaveLen(6))
 	})
@@ -168,26 +169,29 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
-		bom := ConvertToCycloneDX(pkgs)
+		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 		Expect(*bom.Components).To(ContainElement(HaveField("Name", "curl")))
 		Expect(*bom.Components).To(ContainElement(HaveField("Version", "8.12.1")))
 	})
 
-	It("should set component type to Library", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
-		Expect(err).To(Succeed())
-
-		bom := ConvertToCycloneDX(pkgs)
-		for _, comp := range *bom.Components {
+	DescribeTable("component type",
+		func(name string) {
+			comp := goldenComponent(loadGoldenPmBOM(), name)
 			Expect(comp.Type).To(Equal(cdx.ComponentTypeLibrary))
-		}
-	})
+		},
+		Entry("curl", "curl"),
+		Entry("brotli", "brotli"),
+		Entry("jq", "jq"),
+		Entry("libidn2", "libidn2"),
+		Entry("libpsl", "libpsl"),
+		Entry("libunistring", "libunistring"),
+	)
 
 	It("should set licenses from package info", func() {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
-		bom := ConvertToCycloneDX(pkgs)
+		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 
 		var mitComponents int
 		for _, comp := range *bom.Components {
@@ -202,18 +206,21 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		Expect(mitComponents).To(BeNumerically(">=", 1))
 	})
 
-	It("should set PURL for each component", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
-		Expect(err).To(Succeed())
-
-		bom := ConvertToCycloneDX(pkgs)
-		for _, comp := range *bom.Components {
+	DescribeTable("PURL is set for every component",
+		func(name string) {
+			comp := goldenComponent(loadGoldenPmBOM(), name)
 			Expect(comp.PackageURL).ToNot(BeEmpty(), "component %s should have PURL", comp.Name)
-		}
-	})
+		},
+		Entry("curl", "curl"),
+		Entry("brotli", "brotli"),
+		Entry("jq", "jq"),
+		Entry("libidn2", "libidn2"),
+		Entry("libpsl", "libpsl"),
+		Entry("libunistring", "libunistring"),
+	)
 
 	It("should return nil for empty input", func() {
-		bom := ConvertToCycloneDX(map[string]PmPackageInfo{})
+		bom := ConvertToCycloneDX(map[string]PmPackageInfo{}, testContainerFactoryVersion)
 		Expect(bom).To(BeNil())
 	})
 
@@ -221,7 +228,7 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
-		bom := ConvertToCycloneDX(pkgs)
+		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 
 		for _, comp := range *bom.Components {
 			if comp.Name == "libunistring" {
@@ -278,11 +285,11 @@ var _ = Describe("ConvertToCycloneDX provenance and dependency graph (AI)", func
 		Expect(curl.Description).To(Equal("URL retrival utility and library"))
 	})
 
-	It("uses the upstream repository URL (not the repo slug) for the purl qualifier", func() {
+	It("encodes the container-factory version as a purl qualifier", func() {
 		curl := goldenComponent(loadGoldenPmBOM(), "curl")
-		Expect(curl.PackageURL).To(ContainSubstring("pkg:generic/curl@8.12.1"))
-		Expect(curl.PackageURL).To(ContainSubstring("repository_url=" + url.QueryEscape("https://github.com/curl/curl")))
-		Expect(curl.PackageURL).ToNot(ContainSubstring("repository_url=curl/curl"))
+		Expect(curl.PackageURL).To(HavePrefix("pkg:generic/curl@8.12.1?"))
+		Expect(curl.PackageURL).To(ContainSubstring("containerFactoryVersion=" + testContainerFactoryVersion))
+		Expect(curl.PackageURL).ToNot(ContainSubstring("repository_url="))
 	})
 
 	It("emits a dependency graph from the package depends field", func() {
@@ -314,24 +321,25 @@ var _ = Describe("ConvertToCycloneDX provenance and dependency graph (AI)", func
 })
 
 var _ = Describe("ConvertToCycloneDX bom-ref (AI)", func() {
-	It("should set a non-empty bom-ref equal to the purl for every component", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
-		Expect(err).To(Succeed())
-
-		bom := ConvertToCycloneDX(pkgs)
-		Expect(bom).ToNot(BeNil())
-
-		for _, comp := range *bom.Components {
+	DescribeTable("bom-ref matches purl",
+		func(name string) {
+			comp := goldenComponent(loadGoldenPmBOM(), name)
 			Expect(comp.BOMRef).ToNot(BeEmpty(), "component %s should have bom-ref", comp.Name)
 			Expect(comp.BOMRef).To(Equal(comp.PackageURL), "component %s bom-ref should equal purl", comp.Name)
-		}
-	})
+		},
+		Entry("curl", "curl"),
+		Entry("brotli", "brotli"),
+		Entry("jq", "jq"),
+		Entry("libidn2", "libidn2"),
+		Entry("libpsl", "libpsl"),
+		Entry("libunistring", "libunistring"),
+	)
 
-	It("should produce unique bom-refs across components", func() {
+	It("produces unique bom-refs across components", func() {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
-		bom := ConvertToCycloneDX(pkgs)
+		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 		Expect(bom).ToNot(BeNil())
 
 		seen := map[string]struct{}{}
@@ -350,7 +358,7 @@ func loadGoldenPmBOM() *cdx.BOM {
 	pkgs, err := ParsePmInstalledJSON(data)
 	Expect(err).To(Succeed())
 
-	bom := ConvertToCycloneDX(pkgs)
+	bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 	Expect(bom).ToNot(BeNil())
 
 	return bom

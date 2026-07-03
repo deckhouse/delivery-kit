@@ -775,7 +775,7 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 	}, nil
 }
 
-func (backend *BuildahBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error) {
+func (backend *BuildahBackend) ExecCommandInImage(ctx context.Context, imageRef string, command []string, opts ExecCommandInImageOpts) ([]byte, error) {
 	containers, err := backend.createContainers(ctx, []string{imageRef}, CommonOpts(opts))
 	if err != nil {
 		return nil, err

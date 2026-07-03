@@ -1,2 +1,3 @@
-FROM registry.werf.io/base/golang:1.12-alpine3.9
+FROM registry.deckhouse.io/container-factory@sha256:e4bd69e68f3a3cafbde16a3d6600a534f0ad80756f61323e5aee6ea66071b98e
 LABEL io.deckhouse.internal.builder=true
+ENV PACKAGES_VERSION=v1.1.11

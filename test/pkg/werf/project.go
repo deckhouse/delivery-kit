@@ -269,6 +269,7 @@ func (p *Project) SbomValidate(ctx context.Context, opts *SbomValidateOptions) (
 
 	outb := p.RunCommand(ctx, args, CommonOptions{
 		ShouldFail: opts.ShouldFail,
+		Envs:       opts.Envs,
 	})
 
 	return string(outb)
@@ -303,6 +304,7 @@ func (p *Project) SbomMerge(ctx context.Context, opts *SbomMergeOptions) (combin
 
 	outb := p.RunCommand(ctx, args, CommonOptions{
 		ShouldFail: opts.ShouldFail,
+		Envs:       opts.Envs,
 	})
 
 	return string(outb)

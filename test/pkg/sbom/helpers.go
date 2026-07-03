@@ -53,6 +53,12 @@ func extractBOMJSON(output string) (string, error) {
 	return output[start:end], nil
 }
 
+// findMatchingBrace returns the index just past the '}' that closes the '{' at s[start].
+// It is a minimal brace-matcher used to extract the first top-level JSON object from
+// werf CLI output that may contain progress lines, logs, and other noise before/after
+// the JSON body. Standard json.Decoder cannot be used directly because the surrounding
+// text is not valid JSON. String literals are honored (braces inside "..." are ignored)
+// but JSON comments are not — inputs are trusted werf output, not arbitrary user data.
 func findMatchingBrace(s string, start int) (int, error) {
 	depth := 0
 	inString := false
@@ -201,39 +207,35 @@ func AssertNoComponent(bom *cdx.BOM, name string) {
 	})
 }
 
-func AssertGostProperty(bom *cdx.BOM, propertyName string, expected gost.GostValue) {
+// AssertGostPropertyOnMetadata asserts the GOST property on `bom.Metadata.Component`
+// only. Use it together with AssertGostPropertyOnComponents when a test needs to
+// verify that both surfaces carry the same value (single-image builds, where werf
+// applies the resolved image-level GOST config uniformly to metadata and to every
+// component — see gost.Upsert in pkg/sbom/cyclonedxutil/gost/upsert.go).
+// Splitting the two checks documents the intent explicitly and produces a targeted
+// error message when only one of the surfaces regresses.
+func AssertGostPropertyOnMetadata(bom *cdx.BOM, propertyName string, expected gost.GostValue) {
 	ExpectWithOffset(1, propertyName).To(BeElementOf(gost.PropertyAttackSurface, gost.PropertySecurityFunction),
 		"unknown GOST property name %q", propertyName)
 
-	checked := 0
-	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		mc := bom.Metadata.Component
-		val, found := findProperty(mc.Properties, propertyName)
-		ExpectWithOffset(1, found).To(BeTrue(),
-			"metadata.component %q missing GOST property %q", mc.Name, propertyName)
-		ExpectWithOffset(1, val).To(Equal(expected.String()),
-			"metadata.component %q GOST property %q: expected %q, got %q",
-			mc.Name, propertyName, expected.String(), val)
-		checked++
-	}
+	ExpectWithOffset(1, bom.Metadata).NotTo(BeNil(),
+		"BOM has no metadata")
+	ExpectWithOffset(1, bom.Metadata.Component).NotTo(BeNil(),
+		"BOM metadata has no component")
 
-	walkComponents(bom.Components, func(c *cdx.Component) {
-		val, found := findProperty(c.Properties, propertyName)
-		ExpectWithOffset(1, found).To(BeTrue(),
-			"component %s@%s missing GOST property %q", c.Name, c.Version, propertyName)
-		ExpectWithOffset(1, val).To(Equal(expected.String()),
-			"component %s@%s GOST property %q: expected %q, got %q",
-			c.Name, c.Version, propertyName, expected.String(), val)
-		checked++
-	})
-
-	ExpectWithOffset(1, checked).To(BeNumerically(">", 0),
-		"BOM has neither metadata.component nor any components to assert GOST property on")
+	mc := bom.Metadata.Component
+	val, found := findProperty(mc.Properties, propertyName)
+	ExpectWithOffset(1, found).To(BeTrue(),
+		"metadata.component %q missing GOST property %q", mc.Name, propertyName)
+	ExpectWithOffset(1, val).To(Equal(expected.String()),
+		"metadata.component %q GOST property %q: expected %q, got %q",
+		mc.Name, propertyName, expected.String(), val)
 }
 
-// AssertGostPropertyOnComponents is a variant of AssertGostProperty that skips
-// the metadata.component check. Use it for merged BOMs where metadata.component
-// is a synthetic product identity from `--app-name` and does not carry GOST.
+// AssertGostPropertyOnComponents asserts the GOST property on every entry of
+// `bom.Components` (recursively). Use it on its own for merged BOMs — the merged
+// metadata.component is a synthetic product identity built from `--app-name` and
+// does not carry GOST from source images.
 func AssertGostPropertyOnComponents(bom *cdx.BOM, propertyName string, expected gost.GostValue) {
 	ExpectWithOffset(1, propertyName).To(BeElementOf(gost.PropertyAttackSurface, gost.PropertySecurityFunction),
 		"unknown GOST property name %q", propertyName)

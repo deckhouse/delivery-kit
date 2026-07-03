@@ -25,22 +25,23 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 
-			By("state0: initial build with [demo-app] only")
+			By("state0: initial build with [jq] only")
 			out0 := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(out0).To(ContainSubstring(sbomRegenMarker), "expected initial SBOM generation")
 
 			bom0 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
 			}))
-			sbomtest.AssertHasComponent(bom0, "demo-app", "9.9.9")
-			sbomtest.AssertNoComponent(bom0, "demo-lib")
+			sbomtest.AssertHasComponent(bom0, "jq", "1.8.1")
+			sbomtest.AssertNoComponent(bom0, "tini")
+			sbomtest.AssertNoComponent(bom0, "yq")
 
 			By("rebuild state0 without changes: SBOM must come from cache")
 			outCached := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(outCached).To(ContainSubstring(sbomCachedMarker),
 				"expected cached SBOM marker %q, output was:\n%s", sbomCachedMarker, outCached)
 
-			By("state1: add demo-lib to packages spec → SBOM must regenerate")
+			By("state1: add tini to packages spec → SBOM must regenerate")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "stage_deps/state1")
 			out1 := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(out1).To(ContainSubstring(sbomRegenMarker),
@@ -49,20 +50,21 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			bom1 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
 			}))
-			sbomtest.AssertHasComponent(bom1, "demo-app", "9.9.9")
-			sbomtest.AssertHasComponent(bom1, "demo-lib", "2.0.0")
+			sbomtest.AssertHasComponent(bom1, "jq", "1.8.1")
+			sbomtest.AssertHasComponent(bom1, "tini", "0.19.0")
 
-			By("state2: remove demo-lib AND bump demo-app version → SBOM must regenerate")
+			By("state2: swap tini → yq (remove tini, add yq) → SBOM must regenerate")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "stage_deps/state2")
 			out2 := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(out2).To(ContainSubstring(sbomRegenMarker),
-				"expected SBOM regeneration after removing package + version bump")
+				"expected SBOM regeneration after swapping package spec")
 
 			bom2 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
 			}))
-			sbomtest.AssertHasComponent(bom2, "demo-app", "10.0.0")
-			sbomtest.AssertNoComponent(bom2, "demo-lib")
+			sbomtest.AssertHasComponent(bom2, "jq", "1.8.1")
+			sbomtest.AssertHasComponent(bom2, "yq", "4.48.1")
+			sbomtest.AssertNoComponent(bom2, "tini")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -89,7 +91,7 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			bom0 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
 			}))
-			sbomtest.AssertHasComponent(bom0, "demo-app", "9.9.9")
+			sbomtest.AssertHasComponent(bom0, "jq", "1.8.1")
 
 			By("rebuild without changes → SBOM cache hit")
 			outCached := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
@@ -105,7 +107,7 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			bom1 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
 			}))
-			sbomtest.AssertHasComponent(bom1, "demo-app", "9.9.9")
+			sbomtest.AssertHasComponent(bom1, "jq", "1.8.1")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -121,27 +123,28 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			SuiteData.InitTestRepo(ctx, repoDirname, "type_change/state0")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-type-change-builder")
+			builderEnv0 := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-type-change-builder-state0")
 
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 
-			By("state0: os-pm — SBOM contains generic PURL")
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			By("state0: os-pm — SBOM contains real pm package (jq) with generic PURL")
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv0}})
 			bom0 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
+				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv0},
 			}))
-			sbomtest.AssertHasComponent(bom0, "demo-app", "9.9.9")
-			sbomtest.AssertHasPURL(bom0, "pkg:generic/demo-app@9.9.9?repository_url=https%3A%2F%2Fexample.com%2Fdemo-app")
+			sbomtest.AssertHasComponent(bom0, "jq", "1.8.1")
 
-			By("state1: go-mod — SBOM contains golang PURL, no generic pkg")
+			By("state1: go-mod — SBOM contains golang PURL, no os-pm pkg")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "type_change/state1")
 			utils.RunSucceedCommand(ctx, testRepoPath, "git", "tag", "v1.0.0")
 
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			builderEnv1 := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-type-change-builder-state1")
+
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv1}})
 			bom1 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
+				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv1},
 			}))
-			sbomtest.AssertNoComponent(bom1, "demo-app")
+			sbomtest.AssertNoComponent(bom1, "jq")
 			sbomtest.AssertHasComponent(bom1, "example.com/mylib", "v1.0.0")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),

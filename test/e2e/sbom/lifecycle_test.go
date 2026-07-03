@@ -37,8 +37,8 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			})
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertHasComponent(bom, "demo-app", "9.9.9")
-			sbomtest.AssertHasComponent(bom, "demo-lib", "2.0.0")
+			sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
+			sbomtest.AssertHasComponent(bom, "openssl", "3.6.2")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -88,15 +88,15 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			})
 
 			merged := sbomtest.MustParseSBOMOutput(mergeOut)
-			sbomtest.AssertHasComponent(merged, "frontend-pkg", "1.0.0")
-			sbomtest.AssertHasComponent(merged, "backend-pkg", "2.0.0")
+			sbomtest.AssertHasComponent(merged, "jq", "1.8.1")
+			sbomtest.AssertHasComponent(merged, "yq", "4.48.1")
 
-			sbomtest.AssertHasLicense(merged, "frontend-pkg", "1.0.0", "MIT")
-			sbomtest.AssertHasLicense(merged, "backend-pkg", "2.0.0", "Apache-2.0")
-			sbomtest.AssertHasHash(merged, "frontend-pkg", "1.0.0", cdx.HashAlgoSHA256,
-				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-			sbomtest.AssertHasHash(merged, "backend-pkg", "2.0.0", cdx.HashAlgoSHA256,
-				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+			sbomtest.AssertHasLicense(merged, "jq", "1.8.1", "MIT")
+			sbomtest.AssertHasLicense(merged, "yq", "4.48.1", "MIT")
+			sbomtest.AssertHasHash(merged, "jq", "1.8.1", cdx.HashAlgoSHA256,
+				"8af7dd1115b74cd1db976b0aed6a56afef391c845b644be1652084c13a445692")
+			sbomtest.AssertHasHash(merged, "yq", "4.48.1", cdx.HashAlgoSHA256,
+				"859a44ad3bf838869f1ddc22e140622094aa49d6dc4055f4a92504038efa42dc")
 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name

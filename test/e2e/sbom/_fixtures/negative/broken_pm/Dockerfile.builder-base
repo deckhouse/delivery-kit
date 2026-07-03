@@ -1,2 +1,3 @@
 FROM registry.werf.io/base/ubuntu:22.04
 LABEL io.deckhouse.internal.builder=true
+ENV PACKAGES_VERSION=e2e-test-v1.0.0

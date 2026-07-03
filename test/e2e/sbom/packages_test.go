@@ -32,27 +32,29 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
 
-			sbomtest.AssertHasLicense(bom, "demo-app", "9.9.9", "MIT")
-			sbomtest.AssertHasLicense(bom, "demo-lib", "2.0.0", "MIT")
+			// curl is installed with its transitive dependencies (brotli, libc, libpsl, openssl, zstd).
+			sbomtest.AssertHasLicense(bom, "curl", "8.12.1", "curl")
+			sbomtest.AssertHasHash(bom, "curl", "8.12.1", cdx.HashAlgoSHA256,
+				"4004dcee97992bf7fef837ee09e678f0f5c37e6bf892de141a2716ba890ce19a")
+			// pm v1.1.11 uses a placeholder originalRepo for all packages; the real short-repo path
+			// is exposed via the werf:pm:repo property instead.
+			sbomtest.AssertHasExternalReference(bom, "curl", "8.12.1", cdx.ERTypeVCS,
+				"https://github.com/example/repo")
+			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:arch", "linux/amd64")
+			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:type", "runtime")
+			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:repo", "curl/curl")
 
-			sbomtest.AssertHasHash(bom, "demo-app", "9.9.9", cdx.HashAlgoSHA256,
-				"1111111111111111111111111111111111111111111111111111111111111111")
-			sbomtest.AssertHasHash(bom, "demo-lib", "2.0.0", cdx.HashAlgoSHA256,
-				"2222222222222222222222222222222222222222222222222222222222222222")
+			// transitive dependency openssl must be present with its own metadata.
+			sbomtest.AssertHasComponent(bom, "openssl", "3.6.2")
+			sbomtest.AssertHasLicense(bom, "openssl", "3.6.2", "Apache-2.0")
+			sbomtest.AssertHasHash(bom, "openssl", "3.6.2", cdx.HashAlgoSHA256,
+				"12d0999025b656e54caaad71eb6400be513e9e55c144d3e43896e8ce3012f54d")
 
-			sbomtest.AssertHasExternalReference(bom, "demo-app", "9.9.9", cdx.ERTypeVCS,
-				"https://example.com/demo-app")
-			sbomtest.AssertHasExternalReference(bom, "demo-lib", "2.0.0", cdx.ERTypeVCS,
-				"https://example.com/demo-lib")
-
-			sbomtest.AssertHasProperty(bom, "demo-app", "9.9.9", "werf:pm:arch", "linux/amd64")
-			sbomtest.AssertHasProperty(bom, "demo-app", "9.9.9", "werf:pm:type", "runtime")
-			sbomtest.AssertHasProperty(bom, "demo-app", "9.9.9", "werf:pm:repo", "example/demo-app")
-			sbomtest.AssertHasProperty(bom, "demo-lib", "2.0.0", "werf:pm:arch", "linux/amd64")
-
+			// dependency graph: curl depends on openssl. bom-ref uses lowercase qualifier key
+			// containerfactoryversion (werf's cyclonedx serializer lowercases keys in bom-ref).
 			sbomtest.AssertDependsOn(bom,
-				"pkg:generic/demo-app@9.9.9?repository_url=https%3A%2F%2Fexample.com%2Fdemo-app",
-				"pkg:generic/demo-lib@2.0.0?repository_url=https%3A%2F%2Fexample.com%2Fdemo-lib",
+				"pkg:generic/curl@8.12.1?containerfactoryversion=v1.1.11",
+				"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.1.11",
 			)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
@@ -83,13 +85,13 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
 
-			sbomtest.AssertHasComponent(bom, "base-pkg", "1.0.0")
-			sbomtest.AssertHasComponent(bom, "demo-app", "9.9.9")
-			sbomtest.AssertHasComponent(bom, "demo-lib", "2.0.0")
+			// child app's SBOM must contain the base-layer's jq plus its own curl.
+			sbomtest.AssertHasComponent(bom, "jq", "1.8.1")
+			sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
 
-			sbomtest.AssertHasLicense(bom, "base-pkg", "1.0.0", "MIT")
-			sbomtest.AssertHasHash(bom, "base-pkg", "1.0.0", cdx.HashAlgoSHA256,
-				"3333333333333333333333333333333333333333333333333333333333333333")
+			sbomtest.AssertHasLicense(bom, "jq", "1.8.1", "MIT")
+			sbomtest.AssertHasHash(bom, "jq", "1.8.1", cdx.HashAlgoSHA256,
+				"8af7dd1115b74cd1db976b0aed6a56afef391c845b644be1652084c13a445692")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -118,8 +120,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			})
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertHasComponent(bom, "demo-app", "9.9.9")
-			sbomtest.AssertHasComponent(bom, "demo-lib", "2.0.0")
+			// child app has NO own packages directive, but inherits parent base-builder's os-pm packages.
+			sbomtest.AssertHasComponent(bom, "jq", "1.8.1")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

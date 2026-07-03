@@ -7,25 +7,8 @@ build:
 ---
 image: app
 from: {{ env "BUILDER_BASE_IMAGE" }}
-shell:
-  beforeInstall:
-    - mkdir -p /usr/local/bin /var/lib/pm /opt
-    - |
-      cat > /opt/pm-index.json <<'IDX'
-      {
-        "demo-app": {"name":"demo-app","arch":["linux/amd64"],"default":true,"description":"e2e demo package","license":"MIT","originalRepo":"https://example.com/demo-app","repo":"example/demo-app","type":"runtime","version":"10.0.0","digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}
-      }
-      IDX
-    - |
-      cat > /usr/local/bin/pm <<'PM'
-      #!/bin/sh
-      case "$1" in
-        install) cp /opt/pm-index.json /var/lib/pm/index.json ;;
-        info) cat /var/lib/pm/index.json ;;
-      esac
-      PM
-    - chmod +x /usr/local/bin/pm
 packages:
   - type: os-pm
     spec:
-      - demo-app
+      - jq
+      - yq

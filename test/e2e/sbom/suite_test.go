@@ -27,10 +27,6 @@ func TestSuite(t *testing.T) {
 
 var SuiteData = struct {
 	suite_init.SuiteData
-
-	WerfRepo string
-
-	TempFiles []string
 }{}
 
 var (

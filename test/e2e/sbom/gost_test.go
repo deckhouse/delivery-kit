@@ -32,8 +32,12 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 			Expect(bom.Metadata.Component).NotTo(BeNil(), "scratch BOM must have metadata.component")
 			Expect(bom.Metadata.Component.Type).To(Equal(cdx.ComponentTypeContainer))
 
-			sbomtest.AssertGostProperty(bom, gost.PropertyAttackSurface, gost.GostValueYes)
-			sbomtest.AssertGostProperty(bom, gost.PropertySecurityFunction, gost.GostValueYes)
+			// Scratch image has no packages — GOST lives on metadata.component only.
+			// Project-level defaults must land there.
+			sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertyAttackSurface, gost.GostValueYes)
+			sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueYes)
+			Expect(bom.Components).To(BeNil(),
+				"scratch BOM must not carry package components")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -57,8 +61,12 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 			})
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertGostProperty(bom, gost.PropertyAttackSurface, gost.GostValueNo)
-			sbomtest.AssertGostProperty(bom, gost.PropertySecurityFunction, gost.GostValueYes)
+			// Scratch image has no packages — GOST lives on metadata.component only.
+			// Image-level attackSurface override wins; securityFunction stays at project default.
+			sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertyAttackSurface, gost.GostValueNo)
+			sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueYes)
+			Expect(bom.Components).To(BeNil(),
+				"scratch BOM must not carry package components")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -87,9 +95,13 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 			})
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertHasComponent(bom, "demo-app", "9.9.9")
-			sbomtest.AssertGostProperty(bom, gost.PropertyAttackSurface, gost.GostValueNo)
-			sbomtest.AssertGostProperty(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
+			sbomtest.AssertHasComponent(bom, "jq", "1.8.1")
+			// Image-level GOST override for an os-pm image must land on both
+			// metadata.component and every collected pm component.
+			sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertyAttackSurface, gost.GostValueNo)
+			sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
+			sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertyAttackSurface, gost.GostValueNo)
+			sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

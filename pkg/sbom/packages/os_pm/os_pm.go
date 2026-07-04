@@ -8,6 +8,8 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	packageurl "github.com/package-url/packageurl-go"
+
+	"github.com/werf/werf/v2/pkg/sbom/cpe"
 )
 
 type PmPackageInfo struct {
@@ -66,6 +68,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion s
 
 		comp.Hashes = digestToHashes(pkg.Digest)
 		comp.Properties = packageProperties(pkg)
+		setCPEEvidence(&comp, pkg)
 
 		components = append(components, comp)
 
@@ -157,4 +160,42 @@ func dependencyRefs(pkg PmPackageInfo, pkgs map[string]PmPackageInfo, containerF
 	}
 
 	return &refs
+}
+
+// setCPEEvidence attaches the most specific inferred CPE to component.cpe and
+// records the remaining candidates as identity evidence. pm binaries are typed
+// pkg:generic, which vulnerability scanners match through CPE rather than purl.
+func setCPEEvidence(comp *cdx.Component, pkg PmPackageInfo) {
+	candidates := cpe.GenerateForPmPackage(cpe.PackageInput{
+		Name:         pkg.Name,
+		Version:      pkg.Version,
+		OriginalRepo: pkg.OriginalRepo,
+		Repo:         pkg.Repo,
+	})
+	if len(candidates) == 0 {
+		return
+	}
+
+	comp.CPE = candidates[0].String()
+
+	if len(candidates) == 1 {
+		return
+	}
+
+	evidenceItems := make([]cdx.EvidenceIdentity, 0, len(candidates)-1)
+	for _, candidate := range candidates[1:] {
+		confidence := float32(0.5)
+		methods := []cdx.EvidenceIdentityMethod{{
+			Technique:  cdx.EvidenceIdentityTechniqueOther,
+			Confidence: &confidence,
+			Value:      candidate.String(),
+		}}
+		evidenceItems = append(evidenceItems, cdx.EvidenceIdentity{
+			Field:      cdx.EvidenceIdentityFieldTypeCPE,
+			Confidence: &confidence,
+			Methods:    &methods,
+		})
+	}
+
+	comp.Evidence = &cdx.Evidence{Identity: &evidenceItems}
 }

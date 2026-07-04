@@ -331,6 +331,57 @@ func AssertHasProperty(bom *cdx.BOM, name, version, propName, propValue string) 
 		name, version, propName, propValue, val)
 }
 
+// AssertHasCPE asserts that a component has the exact primary CPE 2.3 string.
+// Use for cases where vendor derivation is deterministic (curated overrides).
+func AssertHasCPE(bom *cdx.BOM, name, version, expectedCPE string) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found", name, version)
+	ExpectWithOffset(1, comp.CPE).To(Equal(expectedCPE),
+		"component %s@%s primary CPE: expected %q, got %q",
+		name, version, expectedCPE, comp.CPE)
+}
+
+// AssertHasAnyCPE asserts that a component carries a non-empty primary CPE.
+// Use when vendor derivation depends on fixture placeholders and the exact
+// value is not predictable, but any inferred CPE should still be present.
+func AssertHasAnyCPE(bom *cdx.BOM, name, version string) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found", name, version)
+	ExpectWithOffset(1, comp.CPE).NotTo(BeEmpty(),
+		"component %s@%s: expected non-empty primary CPE, got empty", name, version)
+}
+
+// AssertHasCPECandidate asserts that a component's evidence.identity contains a
+// specific CPE candidate value. Alternative candidates (beyond the primary) are
+// stored in Evidence.Identity[].Methods[].Value for downstream NVD matchers.
+func AssertHasCPECandidate(bom *cdx.BOM, name, version, expectedCPE string) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found", name, version)
+	ExpectWithOffset(1, comp.Evidence).NotTo(BeNil(),
+		"component %s@%s has no evidence", name, version)
+	ExpectWithOffset(1, comp.Evidence.Identity).NotTo(BeNil(),
+		"component %s@%s has no evidence.identity", name, version)
+
+	var got []string
+	for _, id := range *comp.Evidence.Identity {
+		if id.Field != cdx.EvidenceIdentityFieldTypeCPE || id.Methods == nil {
+			continue
+		}
+		for _, m := range *id.Methods {
+			got = append(got, m.Value)
+			if m.Value == expectedCPE {
+				return
+			}
+		}
+	}
+	ExpectWithOffset(1, got).To(ContainElement(expectedCPE),
+		"component %s@%s: expected CPE candidate %q in evidence.identity, got %v",
+		name, version, expectedCPE, got)
+}
+
 func AssertDependsOn(bom *cdx.BOM, ref, dependsOnRef string) {
 	ExpectWithOffset(1, bom.Dependencies).NotTo(BeNil(),
 		"BOM has no dependency graph")

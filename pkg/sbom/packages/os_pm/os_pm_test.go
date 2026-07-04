@@ -351,6 +351,21 @@ var _ = Describe("ConvertToCycloneDX bom-ref (AI)", func() {
 	})
 })
 
+var _ = Describe("ConvertToCycloneDX CPE integration", func() {
+	DescribeTable("primary component.cpe uses the highest-confidence vendor",
+		func(name, expectedCPE string) {
+			comp := goldenComponent(loadGoldenPmBOM(), name)
+			Expect(comp.CPE).To(Equal(expectedCPE), "component %s must expose the curated/URL-derived CPE as primary", name)
+			Expect(comp.Evidence).ToNot(BeNil(), "component %s must carry CPE evidence", name)
+			Expect(comp.Evidence.Identity).ToNot(BeNil(), "component %s must expose evidence.identity entries", name)
+		},
+		Entry("curl uses haxx curated override", "curl", "cpe:2.3:a:haxx:curl:8.12.1:*:*:*:*:*:*:*"),
+		Entry("brotli uses google URL vendor", "brotli", "cpe:2.3:a:google:brotli:1.1.0:*:*:*:*:*:*:*"),
+		Entry("jq uses jqlang homepage mapping", "jq", "cpe:2.3:a:jqlang:jq:1.8.1:*:*:*:*:*:*:*"),
+		Entry("libunistring uses gnu URL vendor", "libunistring", "cpe:2.3:a:gnu:libunistring:1.4.1:*:*:*:*:*:*:*"),
+	)
+})
+
 func loadGoldenPmBOM() *cdx.BOM {
 	data, err := os.ReadFile("testdata/pm_info_installed.json")
 	Expect(err).To(Succeed())

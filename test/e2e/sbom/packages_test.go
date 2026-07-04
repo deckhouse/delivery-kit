@@ -50,6 +50,19 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			sbomtest.AssertHasHash(bom, "openssl", "3.6.2", cdx.HashAlgoSHA256,
 				"12d0999025b656e54caaad71eb6400be513e9e55c144d3e43896e8ce3012f54d")
 
+			// CPE enrichment: curl has a curated vendor override (haxx) that must win
+			// as the primary CPE regardless of URL/repo/name-derived candidates. The
+			// name-derived alternative (curl:curl) must be preserved as an evidence
+			// candidate so downstream NVD matchers can still hit it.
+			sbomtest.AssertHasCPE(bom, "curl", "8.12.1",
+				"cpe:2.3:a:haxx:curl:8.12.1:*:*:*:*:*:*:*")
+			sbomtest.AssertHasCPECandidate(bom, "curl", "8.12.1",
+				"cpe:2.3:a:curl:curl:8.12.1:*:*:*:*:*:*:*")
+			// openssl has no curated override in the pm fixture and originalRepo is a
+			// placeholder, so the exact primary depends on URL/repo derivation; still,
+			// any inferred CPE must be present.
+			sbomtest.AssertHasAnyCPE(bom, "openssl", "3.6.2")
+
 			// dependency graph: curl depends on openssl. bom-ref uses lowercase qualifier key
 			// containerfactoryversion (werf's cyclonedx serializer lowercases keys in bom-ref).
 			sbomtest.AssertDependsOn(bom,
@@ -92,6 +105,12 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			sbomtest.AssertHasLicense(bom, "jq", "1.8.1", "MIT")
 			sbomtest.AssertHasHash(bom, "jq", "1.8.1", cdx.HashAlgoSHA256,
 				"8af7dd1115b74cd1db976b0aed6a56afef391c845b644be1652084c13a445692")
+
+			// CPE enrichment must survive base+child merge for both the child's own
+			// curl (deterministic curated haxx vendor) and the inherited jq.
+			sbomtest.AssertHasCPE(bom, "curl", "8.12.1",
+				"cpe:2.3:a:haxx:curl:8.12.1:*:*:*:*:*:*:*")
+			sbomtest.AssertHasAnyCPE(bom, "jq", "1.8.1")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
@@ -122,6 +141,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
 			// child app has NO own packages directive, but inherits parent base-builder's os-pm packages.
 			sbomtest.AssertHasComponent(bom, "jq", "1.8.1")
+			// inherited pm components must still carry CPE evidence in the child's SBOM.
+			sbomtest.AssertHasAnyCPE(bom, "jq", "1.8.1")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

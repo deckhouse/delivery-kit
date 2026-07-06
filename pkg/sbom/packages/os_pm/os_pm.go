@@ -10,6 +10,13 @@ import (
 	packageurl "github.com/package-url/packageurl-go"
 )
 
+const (
+	catalogerName      = "pm-cataloger"
+	artifactTypeBinary = "binary"
+	propFoundBy        = "werf:package:foundBy"
+	propArtifactType   = "werf:package:type"
+)
+
 type PmPackageInfo struct {
 	Name         string   `json:"name"`
 	Arch         []string `json:"arch"`
@@ -119,7 +126,10 @@ func digestToHashes(digest string) *[]cdx.Hash {
 }
 
 func packageProperties(pkg PmPackageInfo) *[]cdx.Property {
-	var props []cdx.Property
+	props := []cdx.Property{
+		{Name: propFoundBy, Value: catalogerName},
+		{Name: propArtifactType, Value: artifactTypeBinary},
+	}
 	for _, arch := range pkg.Arch {
 		props = append(props, cdx.Property{Name: "werf:pm:arch", Value: arch})
 	}
@@ -128,10 +138,6 @@ func packageProperties(pkg PmPackageInfo) *[]cdx.Property {
 	}
 	if pkg.Repo != "" {
 		props = append(props, cdx.Property{Name: "werf:pm:repo", Value: pkg.Repo})
-	}
-
-	if len(props) == 0 {
-		return nil
 	}
 
 	return &props

@@ -280,6 +280,15 @@ var _ = Describe("ConvertToCycloneDX provenance and dependency graph (AI)", func
 		Expect(*curl.Properties).To(ContainElement(cdx.Property{Name: "werf:pm:repo", Value: "curl/curl"}))
 	})
 
+	It("records cataloger name and artifact type for every pm component", func() {
+		bom := loadGoldenPmBOM()
+		for _, comp := range *bom.Components {
+			Expect(comp.Properties).ToNot(BeNil(), "component %s must have properties", comp.Name)
+			Expect(*comp.Properties).To(ContainElement(cdx.Property{Name: "werf:package:foundBy", Value: "pm-cataloger"}), "component %s must declare foundBy", comp.Name)
+			Expect(*comp.Properties).To(ContainElement(cdx.Property{Name: "werf:package:type", Value: "binary"}), "component %s must declare artifact type=binary", comp.Name)
+		}
+	})
+
 	It("sets the component description from package info", func() {
 		curl := goldenComponent(loadGoldenPmBOM(), "curl")
 		Expect(curl.Description).To(Equal("URL retrival utility and library"))

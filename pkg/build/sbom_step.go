@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -174,6 +175,9 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 			case isAlpineBuilderImage(imageInfo.Name):
 				return nil, ErrSbomNotRequired
 			default:
+				if os.Getenv("WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES") == "true" {
+					return nil, ErrSbomNotRequired
+				}
 				return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
 			}
 		}

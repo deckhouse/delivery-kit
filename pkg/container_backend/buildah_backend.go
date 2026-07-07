@@ -38,6 +38,7 @@ import (
 type BuildahBackend struct {
 	buildah        buildah.Buildah
 	pulledImageIDs sync.Map
+	pullMu         sync.Mutex
 	BuildahBackendOptions
 }
 
@@ -821,6 +822,13 @@ func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts
 }
 
 func (backend *BuildahBackend) Pull(ctx context.Context, ref string, opts PullOpts) error {
+	// Serialize pulls: libimage pulls into shared containers storage and then looks
+	// the image up by name right after copying it (libimage/pull.go). Concurrent
+	// pulls of the same ref race on that storage name and intermittently fail with
+	// "image not known", so pulls must not run in parallel.
+	backend.pullMu.Lock()
+	defer backend.pullMu.Unlock()
+
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
 		logWriter = logboek.Context(ctx).OutStream()

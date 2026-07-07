@@ -43,5 +43,8 @@ func buildTrustedBuilderBase(ctx SpecContext, testRepoPath, refSlug string) []st
 	builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), refSlug)
 	utils.RunSucceedCommand(ctx, testRepoPath, "docker", "build", "-t", builderBaseRef, "-f", "Dockerfile.builder-base", ".")
 	utils.RunSucceedCommand(ctx, testRepoPath, "docker", "push", builderBaseRef)
-	return []string{fmt.Sprintf("BUILDER_BASE_IMAGE=%s", builderBaseRef)}
+	return []string{
+		fmt.Sprintf("BUILDER_BASE_IMAGE=%s", builderBaseRef),
+		"WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES=true",
+	}
 }

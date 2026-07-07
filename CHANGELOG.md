@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.74.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.73.2-dk...v2.74.0-dk) (2026-07-07)
+
+
+### Features
+
+* **deploy:** add `werf.io/resource-policy` annotation ([#7613](https://github.com/deckhouse/delivery-kit/issues/7613)) ([72ae0f2](https://github.com/deckhouse/delivery-kit/commit/72ae0f24ea745a81c61656d1c25df8dace2538f6))
+* **sbom:** generate CPE for pm components ([b6298e6](https://github.com/deckhouse/delivery-kit/commit/b6298e6c0f378139594034fd87ac8e741cfbdca6))
+* **sbom:** generate metadata for pm components ([5608a29](https://github.com/deckhouse/delivery-kit/commit/5608a2953fac204924dc7db8d0f829173355bae5))
+
+
+### Bug Fixes
+
+* **deploy:** `werf.io/resource-policy` should only respect skip-delete from live ([#7623](https://github.com/deckhouse/delivery-kit/issues/7623)) ([f261028](https://github.com/deckhouse/delivery-kit/commit/f261028ca4b92b48ef9e26c353c0adade1e331ea))
+* **sbom:** use containerFactoryVersion purl qualifier for pm components ([#140](https://github.com/deckhouse/delivery-kit/issues/140)) ([6258e82](https://github.com/deckhouse/delivery-kit/commit/6258e82df787f799618b7dd3f8f92136b7f1aa09))
+
 ## [2.73.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.73.1-dk...v2.73.2-dk) (2026-07-02)
 
 

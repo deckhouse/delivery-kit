@@ -168,11 +168,9 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 	if err != nil {
 		if isTrustedBuilderImage(imageInfo.Labels) {
 			switch {
-			case isGolangBuilderImage(imageInfo.Name):
+			case isGolangBuilderImage(imageInfo.Name), isAlpineBuilderImage(imageInfo.Name):
 				global_warnings.GlobalWarningLn(ctx,
 					fmt.Sprintf("The builder image %q is DEPRECATED and it WILL CAUSE AN ERROR in the future. Plan your migration to an up-to-date builder image.", imageInfo.Name))
-				return nil, ErrSbomNotRequired
-			case isAlpineBuilderImage(imageInfo.Name):
 				return nil, ErrSbomNotRequired
 			default:
 				if os.Getenv("WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES") == "true" {

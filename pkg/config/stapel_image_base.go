@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
@@ -88,6 +89,15 @@ func (c *StapelImageBase) HasOSPMPackages() bool {
 		}
 	}
 	return false
+}
+
+func (c *StapelImageBase) OSPMLockPath() string {
+	for _, p := range c.Packages {
+		if p.Type == PackagesDirectiveTypeOSPM {
+			return path.Join(p.FileBased.Workdir, p.FileBased.Lock)
+		}
+	}
+	return ""
 }
 
 func (c *StapelImageBase) dependsOn() DependsOn {

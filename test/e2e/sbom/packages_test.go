@@ -35,8 +35,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			// curl is installed with its transitive dependencies (brotli, libc, libpsl, openssl, zstd).
 			sbomtest.AssertHasLicense(bom, "curl", "8.12.1", "curl")
 			sbomtest.AssertHasHash(bom, "curl", "8.12.1", cdx.HashAlgoSHA256,
-				"4004dcee97992bf7fef837ee09e678f0f5c37e6bf892de141a2716ba890ce19a")
-			// pm v1.1.11 uses a placeholder originalRepo for all packages; the real short-repo path
+				"e268b38b239a1217a8f0be27425eca1f14debb4de391b8bf8eb1a03ba0882340")
+			// pm uses a placeholder originalRepo for all packages; the real short-repo path
 			// is exposed via the werf:pm:repo property instead.
 			sbomtest.AssertHasExternalReference(bom, "curl", "8.12.1", cdx.ERTypeVCS,
 				"https://github.com/example/repo")
@@ -48,7 +48,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			sbomtest.AssertHasComponent(bom, "openssl", "3.6.2")
 			sbomtest.AssertHasLicense(bom, "openssl", "3.6.2", "Apache-2.0")
 			sbomtest.AssertHasHash(bom, "openssl", "3.6.2", cdx.HashAlgoSHA256,
-				"12d0999025b656e54caaad71eb6400be513e9e55c144d3e43896e8ce3012f54d")
+				"77f5cedc32ab27157427bee46076a1d3756f9f99785cc0be740e0b276295d688")
 
 			// CPE enrichment: curl has a curated vendor override (haxx) that must win
 			// as the primary CPE regardless of URL/repo/name-derived candidates. The
@@ -66,8 +66,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			// dependency graph: curl depends on openssl. bom-ref uses lowercase qualifier key
 			// containerfactoryversion (werf's cyclonedx serializer lowercases keys in bom-ref).
 			sbomtest.AssertDependsOn(bom,
-				"pkg:generic/curl@8.12.1?containerfactoryversion=v1.1.11",
-				"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.1.11",
+				"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
+				"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6",
 			)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
@@ -104,7 +104,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 
 			sbomtest.AssertHasLicense(bom, "jq", "1.8.1", "MIT")
 			sbomtest.AssertHasHash(bom, "jq", "1.8.1", cdx.HashAlgoSHA256,
-				"8af7dd1115b74cd1db976b0aed6a56afef391c845b644be1652084c13a445692")
+				"c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899")
 
 			// CPE enrichment must survive base+child merge for both the child's own
 			// curl (deterministic curated haxx vendor) and the inherited jq.
@@ -150,7 +150,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 
-	DescribeTable("build fails when pm script returns invalid (non-JSON) output",
+	DescribeTable("build fails when pm.lock contains invalid (non-JSON) content",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
@@ -168,9 +168,10 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 				},
 			})
 			Expect(out).To(SatisfyAny(
-				ContainSubstring("parse pm info"),
+				ContainSubstring("parse pm lock"),
 				ContainSubstring("collect os-pm SBOM"),
-			), "expected pm-info parse failure; got:\n%s", out)
+				ContainSubstring("container run failed"),
+			), "expected pm-lock parse failure or build failure; got:\n%s", out)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

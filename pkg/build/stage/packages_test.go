@@ -24,7 +24,7 @@ var _ = Describe("PackagesStage", func() {
 		)
 
 		It("returns stage when packages commands present", func(ctx context.Context) {
-			stage := generateTestPackagesStage(ctx, "cd \"/app\" && go mod download")
+			stage := generateTestPackagesStage(ctx, "cd /app && go mod download")
 			Expect(stage).NotTo(BeNil())
 		})
 	})
@@ -42,7 +42,7 @@ var _ = Describe("PackagesStage", func() {
 	)
 
 	It("Name returns packages", func(ctx context.Context) {
-		stage := generateTestPackagesStage(ctx, "cd \"/app\" && go mod download")
+		stage := generateTestPackagesStage(ctx, "cd /app && go mod download")
 		Expect(stage.Name()).To(Equal(Packages))
 	})
 
@@ -67,21 +67,21 @@ var _ = Describe("PackagesStage", func() {
 			},
 
 			Entry("same commands produce same hash",
-				[]string{"cd \"/app\" && go mod download"},
-				[]string{"cd \"/app\" && go mod download"},
+				[]string{"cd /app && go mod download"},
+				[]string{"cd /app && go mod download"},
 				true),
 			Entry("different commands produce different hash",
-				[]string{"cd \"/app\" && go mod download"},
-				[]string{"cd \"/lib\" && go mod download"},
+				[]string{"cd /app && go mod download"},
+				[]string{"cd /lib && go mod download"},
 				false),
 			Entry("different number of commands produce different hash",
-				[]string{"cd \"/app\" && go mod download"},
-				[]string{"cd \"/app\" && go mod download", "cd \"/lib\" && go mod download"},
+				[]string{"cd /app && go mod download"},
+				[]string{"cd /app && go mod download", "cd /lib && go mod download"},
 				false),
 		)
 
 		It("returns non-empty hash", func(ctx context.Context) {
-			s := generateTestPackagesStage(ctx, "cd \"/app\" && go mod download")
+			s := generateTestPackagesStage(ctx, "cd /app && go mod download")
 			digest, err := s.GetDependencies(ctx, testConveyor(), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(digest).NotTo(BeEmpty())
@@ -92,7 +92,7 @@ var _ = Describe("PackagesStage", func() {
 		It("does not affect install stage creation", func(ctx context.Context) {
 			imageBaseConfig := &config.StapelImageBase{
 				Shell: &config.Shell{
-					Packages: []string{"cd \"/app\" && go mod download"},
+					Packages: []string{"cd /app && go mod download"},
 					Install:  []string{"go build ./..."},
 				},
 			}
@@ -179,19 +179,19 @@ var _ = Describe("GeneratePackagesCommands", func() {
 
 		Entry("nil packages", []*config.PackagesDirective(nil), ([]string)(nil)),
 
-		Entry("os-pm single package", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),
+		Entry("os-pm with lock file", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"}},
+		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /pm.lock"}),
 
-		Entry("os-pm multiple packages", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "wget", "jq"}}},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "pm install wget", "pm install jq"}),
+		Entry("os-pm with workdir", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "pm.yaml", Lock: "pm.lock"}},
+		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /app/pm.lock"}),
 
 		Entry("mixed types: os-pm and go-mod skip unknown type", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveType("cargo")},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "cd \"/app\" && go mod download"}),
+		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /pm.lock", "cd \"/app\" && go mod download"}),
 
 		Entry("python-pip /app requirements.txt", []*config.PackagesDirective{
 			{
@@ -220,8 +220,8 @@ var _ = Describe("GeneratePackagesCommands", func() {
 				Type:      config.PackagesDirectiveTypePythonUV,
 				FileBased: config.FileBasedSpec{Workdir: "/lib"},
 			},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-		}, []string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen", config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"}},
+		}, []string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen", config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /pm.lock"}),
 
 		Entry("rust-cargo /app produces cargo fetch", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/app"}},
@@ -243,8 +243,8 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("mixed: rust-cargo + go-mod + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/tools"}},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"libssl-dev"}}},
-		}, []string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download", config.ContainerFactoryVersionSnapshotCmd(), "pm install libssl-dev"}),
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"}},
+		}, []string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download", config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /pm.lock"}),
 
 		Entry("lua-rock /app produces luarocks install --only-deps", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
@@ -262,8 +262,8 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("mixed: lua-rock + rust-cargo + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
 			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/native"}},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"libssl-dev"}}},
-		}, []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/native\" && cargo fetch", config.ContainerFactoryVersionSnapshotCmd(), "pm install libssl-dev"}),
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"}},
+		}, []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/native\" && cargo fetch", config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /pm.lock"}),
 	)
 })
 
@@ -300,7 +300,7 @@ var _ = Describe("Shell.Packages config field", func() {
 			}
 		},
 
-		Entry("populated", &config.Shell{Packages: []string{"cd \"/app\" && go mod download"}}, 1, "cd \"/app\" && go mod download"),
+		Entry("populated", &config.Shell{Packages: []string{"cd /app && go mod download"}}, 1, "cd /app && go mod download"),
 		Entry("empty", &config.Shell{}, 0, ""),
 	)
 
@@ -332,12 +332,12 @@ var _ = Describe("Builder interface Packages methods", func() {
 		},
 
 		Entry("same commands — same checksum",
-			[]string{"cd \"/app\" && go mod download"},
-			[]string{"cd \"/app\" && go mod download"},
+			[]string{"cd /app && go mod download"},
+			[]string{"cd /app && go mod download"},
 			true),
 		Entry("different commands — different checksum",
-			[]string{"cd \"/app\" && go mod download"},
-			[]string{"cd \"/lib\" && go mod download"},
+			[]string{"cd /app && go mod download"},
+			[]string{"cd /lib && go mod download"},
 			false),
 	)
 

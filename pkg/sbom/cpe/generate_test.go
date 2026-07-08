@@ -102,13 +102,16 @@ var _ = Describe("GenerateForPmPackage", func() {
 		data, err := os.ReadFile("../packages/os_pm/testdata/pm_info_installed.json")
 		Expect(err).To(Succeed())
 
-		var pkgs map[string]struct {
-			Name         string `json:"name"`
-			Version      string `json:"version"`
-			OriginalRepo string `json:"originalRepo"`
-			Repo         string `json:"repo"`
+		var lockFile struct {
+			Packages map[string]struct {
+				Name         string `json:"name"`
+				Version      string `json:"version"`
+				OriginalRepo string `json:"originalRepo"`
+				Repo         string `json:"repo"`
+			} `json:"packages"`
 		}
-		Expect(json.Unmarshal(data, &pkgs)).To(Succeed())
+		Expect(json.Unmarshal(data, &lockFile)).To(Succeed())
+		pkgs := lockFile.Packages
 
 		resolved := 0
 		for _, pkg := range pkgs {

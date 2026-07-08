@@ -20,45 +20,70 @@ var _ = Describe("rawPackagesDirective", func() {
 		giterminismManager = NewGiterminismManagerStub(localGitRepo)
 	})
 
+	directivesFromYaml := func(yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
+		rawYaml, err := yaml.Marshal(yamlMap)
+		Expect(err).To(Succeed())
+
+		doc := &doc{Content: rawYaml}
+		rawStapelImage := &rawStapelImage{doc: doc}
+
+		Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
+
+		stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
+		if err != nil {
+			return nil, err
+		}
+		return stapelImage.Packages, nil
+	}
+
 	DescribeTable("unmarshal and convert to directive succeed",
 		func(yamlMap map[string]interface{}, expectedPackages []*PackagesDirective) {
-			rawYaml, err := yaml.Marshal(yamlMap)
+			packages, err := directivesFromYaml(yamlMap)
 			Expect(err).To(Succeed())
 
-			doc := &doc{Content: rawYaml}
-			rawStapelImage := &rawStapelImage{doc: doc}
-
-			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
-
-			meta := &Meta{}
-
-			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
-			Expect(err).To(Succeed())
-
-			Expect(stapelImage.Packages).To(HaveLen(len(expectedPackages)))
+			Expect(packages).To(HaveLen(len(expectedPackages)))
 			for i, expected := range expectedPackages {
-				Expect(stapelImage.Packages[i].Type).To(Equal(expected.Type))
-				Expect(stapelImage.Packages[i].Spec.Packages).To(Equal(expected.Spec.Packages))
+				Expect(packages[i].Type).To(Equal(expected.Type))
+				Expect(packages[i].FileBased).To(Equal(expected.FileBased))
 			}
 		},
 
-		Entry("os-pm with inline package list",
+		Entry("os-pm with explicit workdir, spec and lock",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
-						"type": "os-pm",
-						"spec": []string{"curl", "openssl=3.3.7"},
+						"type":    "os-pm",
+						"workdir": "/app",
+						"spec":    "my-pm.yaml",
+						"lock":    "my-pm.lock",
 					},
 				},
 			},
 			[]*PackagesDirective{
 				{
-					Type: PackagesDirectiveTypeOSPM,
-					Spec: PackagesSpec{
-						Packages: []string{"curl", "openssl=3.3.7"},
+					Type:      PackagesDirectiveTypeOSPM,
+					FileBased: FileBasedSpec{Workdir: "/app", Spec: "my-pm.yaml", Lock: "my-pm.lock"},
+				},
+			},
+		),
+
+		Entry("os-pm with workdir only (defaults for spec/lock)",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type":    "os-pm",
+						"workdir": "/",
 					},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type:      PackagesDirectiveTypeOSPM,
+					FileBased: FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"},
 				},
 			},
 		),
@@ -91,172 +116,41 @@ var _ = Describe("rawPackagesDirective", func() {
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
-						"spec": "packages.txt",
-					},
-				},
-			},
-		),
-
-		Entry("packages entry without spec",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:latest",
-				"packages": []map[string]interface{}{
-					{
-						"type": "os-pm",
+						"spec": "pm.yaml",
 					},
 				},
 			},
 		),
 	)
 
-	DescribeTable("convert to directive fails with configError for invalid content",
+	DescribeTable("convert to directive fails for invalid content",
 		func(yamlMap map[string]interface{}) {
-			rawYaml, err := yaml.Marshal(yamlMap)
-			Expect(err).To(Succeed())
-
-			doc := &doc{Content: rawYaml}
-			rawStapelImage := &rawStapelImage{doc: doc}
-
-			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
-
-			meta := &Meta{}
-
-			_, err = rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
+			_, err := directivesFromYaml(yamlMap)
 			Expect(err).To(HaveOccurred())
 		},
 
-		Entry("packages entry with file spec",
+		Entry("os-pm without workdir",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": "packages.txt",
 					},
 				},
 			},
 		),
 
-		Entry("packages entry with unsupported type",
+		Entry("unsupported type",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
-						"type": "go-mod",
-						"spec": "packages.txt",
+						"type": "unsupported-pm",
 					},
 				},
 			},
-		),
-
-		Entry("packages entry with empty spec list",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine:latest",
-				"packages": []map[string]interface{}{
-					{
-						"type": "os-pm",
-						"spec": []string{},
-					},
-				},
-			},
-		),
-	)
-})
-
-var _ = Describe("normalizePackages", func() {
-	DescribeTable("flattening and deduplication",
-		func(input []*PackagesDirective, expectedLen int, expectedPackages []string) {
-			result := normalizePackages(input)
-
-			if expectedLen == 0 {
-				Expect(result).To(BeNil())
-				return
-			}
-
-			Expect(result).To(HaveLen(expectedLen))
-			Expect(result[0].Spec.Packages).To(Equal(expectedPackages))
-		},
-
-		Entry("returns nil for nil input",
-			[]*PackagesDirective(nil),
-			0,
-			[]string(nil),
-		),
-
-		Entry("returns nil for empty slice",
-			[]*PackagesDirective{},
-			0,
-			[]string(nil),
-		),
-
-		Entry("preserves single directive packages",
-			[]*PackagesDirective{
-				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
-			},
-			1,
-			[]string{"curl", "jq"},
-		),
-
-		Entry("merges multiple directives",
-			[]*PackagesDirective{
-				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
-				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq"}}},
-			},
-			1,
-			[]string{"curl", "jq"},
-		),
-
-		Entry("deduplicates across directives",
-			[]*PackagesDirective{
-				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
-				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
-			},
-			1,
-			[]string{"curl", "jq"},
-		),
-
-		Entry("sorts packages deterministically",
-			[]*PackagesDirective{
-				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq", "curl", "brotli"}}},
-			},
-			1,
-			[]string{"brotli", "curl", "jq"},
-		),
-	)
-})
-
-var _ = Describe("rawPackagesDirective python smoke", func() {
-	DescribeTable("canonical python type roundtrips through raw parser",
-		func(yamlContent string, expectedType PackagesDirectiveType, expectedSpec string) {
-			parentStack = util.NewStack()
-			localGitRepo := NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0")
-			giterminismManager := NewGiterminismManagerStub(localGitRepo)
-
-			doc := &doc{Content: []byte(yamlContent)}
-			rawStapelImage := &rawStapelImage{doc: doc}
-
-			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
-
-			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
-			Expect(err).To(Succeed())
-			Expect(stapelImage.Packages).To(HaveLen(1))
-			Expect(stapelImage.Packages[0].Type).To(Equal(expectedType))
-			Expect(stapelImage.Packages[0].FileBased.Spec).To(Equal(expectedSpec))
-		},
-
-		Entry("python-uv canonical",
-			`image: image1
-from: python:3.12
-packages:
-  - type: python-uv
-    workdir: /app
-`,
-			PackagesDirectiveTypePythonUV,
-			"pyproject.toml",
 		),
 	)
 })

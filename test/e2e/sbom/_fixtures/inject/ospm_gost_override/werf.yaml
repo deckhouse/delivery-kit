@@ -14,7 +14,9 @@ sbom:
   gost:
     attackSurface: no
     securityFunction: indirect
+git:
+  - add: /
+    to: /
 packages:
   - type: os-pm
-    spec:
-      - jq
+    workdir: /

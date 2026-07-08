@@ -1,4 +1,6 @@
 {
+  "metadata": {"timestamp": "2026-07-08T12:00:00Z", "sha256-sum": "", "source": "pm.yaml"},
+  "packages": {
   "brotli": {
     "name": "brotli",
     "arch": ["linux/amd64"],
@@ -74,4 +76,5 @@
     "version": "1.4.1",
     "digest": "sha256:2d2a7d27c1c23f4b169c58bcf0104509a28c3bd73d8293969f067fa4820fb79b"
   }
+}
 }

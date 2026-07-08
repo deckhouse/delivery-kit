@@ -12,7 +12,9 @@ func directivesFromYaml(giterminismManager *GiterminismManagerStub, yamlMap map[
 	doc := &doc{Content: rawYaml}
 	rawStapelImage := &rawStapelImage{doc: doc}
 
-	Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
+	if err := yaml.UnmarshalStrict(doc.Content, rawStapelImage); err != nil {
+		return nil, err
+	}
 
 	stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
 	if err != nil {

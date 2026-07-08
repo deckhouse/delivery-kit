@@ -94,9 +94,9 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			sbomtest.AssertHasLicense(merged, "jq", "1.8.1", "MIT")
 			sbomtest.AssertHasLicense(merged, "yq", "4.48.1", "MIT")
 			sbomtest.AssertHasHash(merged, "jq", "1.8.1", cdx.HashAlgoSHA256,
-				"8af7dd1115b74cd1db976b0aed6a56afef391c845b644be1652084c13a445692")
+				"c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899")
 			sbomtest.AssertHasHash(merged, "yq", "4.48.1", cdx.HashAlgoSHA256,
-				"859a44ad3bf838869f1ddc22e140622094aa49d6dc4055f4a92504038efa42dc")
+				"2ce3f5219fb99420eb3396da2d6d6f13e75e5f5ed0abcf038db17c2920ec426c")
 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name

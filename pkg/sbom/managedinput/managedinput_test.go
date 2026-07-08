@@ -69,8 +69,8 @@ var _ = Describe("ToCatalogers", func() {
 		Entry("os-pm entries are skipped",
 			[]*config.PackagesDirective{
 				{
-					Type: config.PackagesDirectiveTypeOSPM,
-					Spec: config.PackagesSpec{Packages: []string{"curl"}},
+					Type:      config.PackagesDirectiveTypeOSPM,
+					FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"},
 				},
 			},
 			[]scanner.Cataloger(nil),

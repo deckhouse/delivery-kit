@@ -11,6 +11,8 @@ import (
 const testContainerFactoryVersion = "v1.0.0-test"
 
 var examplePmInstalledJSON = []byte(`{
+  "metadata": {"timestamp": "2026-07-08T12:00:00Z", "sha256-sum": "", "source": "pm.yaml"},
+  "packages": {
   "brotli": {
     "name": "brotli",
     "arch": ["linux/amd64"],
@@ -86,17 +88,18 @@ var examplePmInstalledJSON = []byte(`{
     "version": "1.4.1",
     "digest": "sha256:2d2a7d27c1c23f4b169c58bcf0104509a28c3bd73d8293969f067fa4820fb79b"
   }
+}
 }`)
 
-var _ = Describe("ParsePmInstalledJSON", func() {
+var _ = Describe("ParsePmLockJSON", func() {
 	It("should parse valid pm info JSON", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 		Expect(pkgs).To(HaveLen(6))
 	})
 
 	It("should parse curl package fields correctly", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		curl, ok := pkgs["curl"]
@@ -109,7 +112,7 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 	})
 
 	It("should parse jq package fields correctly", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		jq, ok := pkgs["jq"]
@@ -122,7 +125,7 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 	})
 
 	It("should parse transitive dependency fields", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		libpsl, ok := pkgs["libpsl"]
@@ -133,7 +136,7 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 	})
 
 	It("should parse package without dependencies", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		brotli, ok := pkgs["brotli"]
@@ -144,12 +147,12 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 	})
 
 	It("should return error for invalid JSON", func() {
-		_, err := ParsePmInstalledJSON([]byte(`{invalid}`))
+		_, err := ParsePmLockJSON([]byte(`{invalid}`))
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should return an empty map for an empty JSON object", func() {
-		pkgs, err := ParsePmInstalledJSON([]byte(`{}`))
+		pkgs, err := ParsePmLockJSON([]byte(`{"packages":{}}`))
 		Expect(err).To(Succeed())
 		Expect(pkgs).To(BeEmpty())
 	})
@@ -157,7 +160,7 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 
 var _ = Describe("ConvertToCycloneDX", func() {
 	It("should generate valid CycloneDX BOM with correct component count", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
@@ -166,7 +169,7 @@ var _ = Describe("ConvertToCycloneDX", func() {
 	})
 
 	It("should set component name and version from package info", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
@@ -188,7 +191,7 @@ var _ = Describe("ConvertToCycloneDX", func() {
 	)
 
 	It("should set licenses from package info", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
@@ -225,7 +228,7 @@ var _ = Describe("ConvertToCycloneDX", func() {
 	})
 
 	It("should handle packages with SPDX license IDs correctly", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
@@ -239,12 +242,12 @@ var _ = Describe("ConvertToCycloneDX", func() {
 	})
 })
 
-var _ = Describe("ParsePmInstalledJSON golden fixture (AI)", func() {
+var _ = Describe("ParsePmLockJSON golden fixture (AI)", func() {
 	It("parses the real-world pm info --installed --json contract", func() {
 		data, err := os.ReadFile("testdata/pm_info_installed.json")
 		Expect(err).To(Succeed())
 
-		pkgs, err := ParsePmInstalledJSON(data)
+		pkgs, err := ParsePmLockJSON(data)
 		Expect(err).To(Succeed())
 		Expect(pkgs).ToNot(BeEmpty())
 
@@ -345,7 +348,7 @@ var _ = Describe("ConvertToCycloneDX bom-ref (AI)", func() {
 	)
 
 	It("produces unique bom-refs across components", func() {
-		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		pkgs, err := ParsePmLockJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
@@ -379,7 +382,7 @@ func loadGoldenPmBOM() *cdx.BOM {
 	data, err := os.ReadFile("testdata/pm_info_installed.json")
 	Expect(err).To(Succeed())
 
-	pkgs, err := ParsePmInstalledJSON(data)
+	pkgs, err := ParsePmLockJSON(data)
 	Expect(err).To(Succeed())
 
 	bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)

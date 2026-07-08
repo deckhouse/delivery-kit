@@ -13,7 +13,8 @@ git:
     stageDependencies:
       packages:
         - versions.txt
+  - add: /
+    to: /
 packages:
   - type: os-pm
-    spec:
-      - jq
+    workdir: /

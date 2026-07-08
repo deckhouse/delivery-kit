@@ -1456,6 +1456,11 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 		checksumArgsNames = append(checksumArgsNames, "BaseImage")
 	}
 
+	if conveyor.EnableSbom() {
+		checksumArgs = append(checksumArgs, "sbom_enabled")
+		checksumArgsNames = append(checksumArgsNames, "SbomEnabled")
+	}
+
 	digest := util.Sha3_224Hash(checksumArgs...)
 
 	blockMsg := fmt.Sprintf("Stage %s digest %s", stageName, digest)

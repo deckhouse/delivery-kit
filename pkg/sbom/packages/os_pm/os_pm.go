@@ -33,13 +33,17 @@ type PmPackageInfo struct {
 	Depends      []string `json:"depends,omitempty"`
 }
 
-func ParsePmInstalledJSON(data []byte) (map[string]PmPackageInfo, error) {
-	var result map[string]PmPackageInfo
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("parse pm info: %w", err)
+type pmLockFile struct {
+	Packages map[string]PmPackageInfo `json:"packages"`
+}
+
+func ParsePmLockJSON(data []byte) (map[string]PmPackageInfo, error) {
+	var lock pmLockFile
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return nil, fmt.Errorf("parse pm lock: %w", err)
 	}
 
-	return result, nil
+	return lock.Packages, nil
 }
 
 func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion string) *cdx.BOM {

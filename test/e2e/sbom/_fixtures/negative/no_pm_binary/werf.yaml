@@ -7,7 +7,9 @@ build:
 ---
 image: app
 from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
 packages:
   - type: os-pm
-    spec:
-      - demo-app
+    workdir: /

@@ -17,22 +17,15 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 	var commands []string
 	snapshotted := false
 	for _, pkg := range packages {
-		if pkg.Type == PackagesDirectiveTypeOSPM {
-			if len(pkg.Spec.Packages) == 0 {
-				continue
-			}
-			if !snapshotted {
-				commands = append(commands, ContainerFactoryVersionSnapshotCmd())
-				snapshotted = true
-			}
-			for _, p := range pkg.Spec.Packages {
-				commands = append(commands, fmt.Sprintf("pm install %s", p))
-			}
+		eco, ok := ecosystems[pkg.Type]
+		if !ok {
 			continue
 		}
-		if eco, ok := ecosystems[pkg.Type]; ok {
-			commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec))
+		if pkg.Type == PackagesDirectiveTypeOSPM && !snapshotted {
+			commands = append(commands, ContainerFactoryVersionSnapshotCmd())
+			snapshotted = true
 		}
+		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec))
 	}
 	return commands
 }

@@ -7,19 +7,12 @@ build:
 ---
 image: app
 from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
 shell:
   beforeInstall:
-    - mkdir -p /usr/local/bin /var/lib/pm
-    - |
-      cat > /usr/local/bin/pm <<'PM'
-      #!/bin/sh
-      case "$1" in
-        install) echo "ok" ;;
-        info) echo "this is not valid json at all, definitely broken output" ;;
-      esac
-      PM
-    - chmod +x /usr/local/bin/pm
+    - printf 'this is not valid json at all, definitely broken output' > /pm.lock
 packages:
   - type: os-pm
-    spec:
-      - demo-app
+    workdir: /

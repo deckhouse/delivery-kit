@@ -7,10 +7,12 @@ build:
 ---
 image: base-builder
 from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
 packages:
   - type: os-pm
-    spec:
-      - jq
+    workdir: /
 ---
 image: app
 fromImage: base-builder

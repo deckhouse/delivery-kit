@@ -33,6 +33,9 @@ func buildResolvers() []inputResolver {
 	built := make([]inputResolver, 0, len(types))
 	for _, t := range types {
 		eco := ecosystems[t]
+		if eco.CatalogerName == "" {
+			continue
+		}
 		filterMode := filterModeForEcosystem(t)
 		built = append(built, inputResolver{
 			inputType:     eco.Type,

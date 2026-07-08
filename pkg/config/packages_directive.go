@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 	"maps"
-	"sort"
+	"path"
 )
 
 type PackagesDirectiveType string
@@ -17,10 +17,6 @@ const (
 	PackagesDirectiveTypeRustCargo    PackagesDirectiveType = "rust-cargo"
 	PackagesDirectiveTypeLuaRock      PackagesDirectiveType = "lua-rock"
 )
-
-type PackagesSpec struct {
-	Packages []string
-}
 
 type FileBasedSpec struct {
 	Workdir string
@@ -83,6 +79,12 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		},
 		CatalogerName: "lua-rock-cataloger",
 	},
+	PackagesDirectiveTypeOSPM: {
+		Type:        PackagesDirectiveTypeOSPM,
+		DefaultSpec: "pm.yaml",
+		DefaultLock: "pm.lock",
+		InstallCmd:  func(workdir, _ string) string { return fmt.Sprintf("pm sync --from %s", path.Join(workdir, "pm.lock")) },
+	},
 }
 
 // Ecosystems returns a defensive copy of the file-based package ecosystems registry.
@@ -93,56 +95,18 @@ func Ecosystems() map[PackagesDirectiveType]PackageEcosystem {
 
 type PackagesDirective struct {
 	Type      PackagesDirectiveType
-	Spec      PackagesSpec
 	FileBased FileBasedSpec
 }
 
 func (d *PackagesDirective) validate() error {
-	if d.Type == PackagesDirectiveTypeOSPM {
-		if len(d.Spec.Packages) == 0 {
-			return fmt.Errorf("packages spec must not be empty for type %q", d.Type)
-		}
-		return nil
+	if _, ok := ecosystems[d.Type]; !ok {
+		return fmt.Errorf("unsupported packages type %q", d.Type)
 	}
-	if _, ok := ecosystems[d.Type]; ok {
-		if d.FileBased.Workdir == "" {
-			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
-		}
-		if d.FileBased.Spec == "" {
-			return fmt.Errorf("the `spec` is required for type %q", d.Type)
-		}
-		return nil
+	if d.FileBased.Workdir == "" {
+		return fmt.Errorf("the `workdir` is required for type %q", d.Type)
 	}
-	return fmt.Errorf("unsupported packages type %q", d.Type)
-}
-
-// normalizePackages flattens all packages across every directive, deduplicates
-// and sorts them, and returns a single directive with the normalized list.
-// This is called during config conversion so that the build stage receives
-// a ready-to-use package list without needing to re-resolve or deduplicate.
-func normalizePackages(packages []*PackagesDirective) []*PackagesDirective {
-	seen := map[string]bool{}
-	var all []string
-
-	for _, p := range packages {
-		for _, name := range p.Spec.Packages {
-			if !seen[name] {
-				seen[name] = true
-				all = append(all, name)
-			}
-		}
+	if d.FileBased.Spec == "" {
+		return fmt.Errorf("the `spec` is required for type %q", d.Type)
 	}
-
-	if len(all) == 0 {
-		return nil
-	}
-
-	sort.Strings(all)
-
-	return []*PackagesDirective{
-		{
-			Type: PackagesDirectiveTypeOSPM,
-			Spec: PackagesSpec{Packages: all},
-		},
-	}
+	return nil
 }

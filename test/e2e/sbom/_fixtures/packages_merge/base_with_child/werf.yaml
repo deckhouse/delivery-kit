@@ -7,14 +7,18 @@ build:
 ---
 image: base-layer
 from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
 packages:
-  - type: os-pm
-    spec:
-      - jq
+   - type: os-pm
+     workdir: /
 ---
 image: app
 fromImage: base-layer
+git:
+  - add: /
+    to: /
 packages:
   - type: os-pm
-    spec:
-      - curl
+    workdir: /

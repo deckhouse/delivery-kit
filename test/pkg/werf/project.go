@@ -310,6 +310,38 @@ func (p *Project) SbomMerge(ctx context.Context, opts *SbomMergeOptions) (combin
 	return string(outb)
 }
 
+func (p *Project) AttestSign(ctx context.Context, opts *AttestSignOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestSignOptions{}
+	}
+	args := append([]string{"attest", "sign"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) AttestGet(ctx context.Context, opts *AttestGetOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestGetOptions{}
+	}
+	args := append([]string{"attest", "get"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) AttestVerify(ctx context.Context, opts *AttestVerifyOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestVerifyOptions{}
+	}
+	args := append([]string{"attest", "verify"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) AttestLs(ctx context.Context, opts *AttestLsOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestLsOptions{}
+	}
+	args := append([]string{"attest", "ls"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
 func (p *Project) Verify(ctx context.Context, opts *VerifyOptions) (combinedOut string) {
 	if opts == nil {
 		opts = &VerifyOptions{}

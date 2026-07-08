@@ -40,10 +40,6 @@ func FallbackTag(parentDigest string) string {
 }
 
 func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
-	if imageName == "" {
-		return fmt.Errorf("imageName is required to attach artifact of type %q to digest %s", artifactType, parentDigest)
-	}
-
 	eb := backoff.NewExponentialBackOff()
 	eb.InitialInterval = 500 * time.Millisecond
 
@@ -140,6 +136,10 @@ func PushArtifactImage(ctx context.Context, repo string, img v1.Image, opts ...r
 	return nil
 }
 
+func PullFallbackIndex(ctx context.Context, repo, parentDigest string, opts ...remote.Option) (v1.ImageIndex, error) {
+	return pullFallbackIndex(ctx, repo, parentDigest, opts...)
+}
+
 func pullFallbackIndex(ctx context.Context, repo, parentDigest string, opts ...remote.Option) (v1.ImageIndex, error) {
 	tagRef, err := name.NewTag(repo + ":" + FallbackTag(parentDigest))
 	if err != nil {
@@ -182,7 +182,11 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 	kept := make([]v1.Descriptor, 0, len(im.Manifests)+1)
 	for _, manifest := range im.Manifests {
 		if manifest.ArtifactType == artifactType {
-			if imageName != "" && manifest.Annotations[image.WerfImageNameAnnotation] == imageName {
+			existingImageName := manifest.Annotations[image.WerfImageNameAnnotation]
+			if imageName != "" && existingImageName == imageName {
+				continue
+			}
+			if imageName == "" && existingImageName == "" {
 				continue
 			}
 		}

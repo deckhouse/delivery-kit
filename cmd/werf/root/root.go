@@ -11,6 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	attest_get "github.com/werf/werf/v2/cmd/werf/attest/get"
+	attest_ls "github.com/werf/werf/v2/cmd/werf/attest/ls"
+	attest_sign "github.com/werf/werf/v2/cmd/werf/attest/sign"
+	attest_verify "github.com/werf/werf/v2/cmd/werf/attest/verify"
 	"github.com/werf/werf/v2/cmd/werf/build"
 	bundle_apply "github.com/werf/werf/v2/cmd/werf/bundle/apply"
 	bundle_copy "github.com/werf/werf/v2/cmd/werf/bundle/copy"
@@ -116,6 +120,7 @@ func ConstructRootCmd(ctx context.Context) (*cobra.Command, error) {
 				chartCmd(ctx),
 				includesCmd(ctx),
 				sbomCmd(ctx),
+				attestCmd(ctx),
 				stagesCmd(ctx),
 				verify.NewCmd(ctx),
 			},
@@ -202,6 +207,21 @@ func sbomCmd(ctx context.Context) *cobra.Command {
 		sbom_get.NewCmd(ctx),
 		sbom_validate.NewCmd(ctx),
 		sbom_merge.NewCmd(ctx),
+	)
+
+	return cmd
+}
+
+func attestCmd(ctx context.Context) *cobra.Command {
+	cmd := common.SetCommandContext(ctx, &cobra.Command{
+		Use:   "attest",
+		Short: "Work with OCI attestations attached to images",
+	})
+	cmd.AddCommand(
+		attest_sign.NewCmd(ctx),
+		attest_get.NewCmd(ctx),
+		attest_verify.NewCmd(ctx),
+		attest_ls.NewCmd(ctx),
 	)
 
 	return cmd

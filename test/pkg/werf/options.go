@@ -72,3 +72,19 @@ type SbomMergeOptions struct {
 type VerifyOptions struct {
 	CommonOptions
 }
+
+type AttestSignOptions struct {
+	CommonOptions
+}
+
+type AttestGetOptions struct {
+	CommonOptions
+}
+
+type AttestVerifyOptions struct {
+	CommonOptions
+}
+
+type AttestLsOptions struct {
+	CommonOptions
+}

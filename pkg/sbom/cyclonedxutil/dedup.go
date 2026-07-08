@@ -68,6 +68,7 @@ func DedupBOM(bom *cdx.BOM) {
 	var removedRefs map[string]struct{}
 	bom.Components, removedRefs = dedupComponentsByPURL(bom.Components)
 	bom.Components = dedupPtrSlice(bom.Components)
+	bom.ExternalReferences = dedupPtrSlice(bom.ExternalReferences)
 	bom.Services = dedupPtrSlice(bom.Services)
 	bom.Dependencies = dedupPtrSlice(bom.Dependencies)
 	bom.Dependencies = dropDependenciesByRefs(bom.Dependencies, removedRefs)
@@ -96,7 +97,8 @@ func dropDependenciesByRefs(deps *[]cdx.Dependency, refs map[string]struct{}) *[
 }
 
 // dedupComponentsByPURL removes components that share the same normalized purl
-// (purl without the package-id query parameter). First occurrence wins.
+// (purl without the package-id query parameter) and deduplicates
+// externalReferences inside each kept component. First occurrence wins.
 // Components without a purl are always kept.
 // Returns the deduplicated slice and a set of BOMRefs that were removed.
 func dedupComponentsByPURL(components *[]cdx.Component) (*[]cdx.Component, map[string]struct{}) {
@@ -109,6 +111,8 @@ func dedupComponentsByPURL(components *[]cdx.Component) (*[]cdx.Component, map[s
 	result := make([]cdx.Component, 0, len(*components))
 
 	for _, comp := range *components {
+		comp.ExternalReferences = dedupPtrSlice(comp.ExternalReferences)
+
 		if comp.PackageURL == "" {
 			result = append(result, comp)
 			continue

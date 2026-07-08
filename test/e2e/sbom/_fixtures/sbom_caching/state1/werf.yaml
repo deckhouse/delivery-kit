@@ -1,0 +1,11 @@
+project: werf-test-e2e-sbom-caching
+configVersion: 1
+build:
+  sbom:
+    enable: false
+---
+image: app
+from: registry.werf.io/base/ubuntu:22.04
+shell:
+  setup:
+    - echo 'sbom-caching-test' > /marker

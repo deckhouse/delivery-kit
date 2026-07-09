@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.74.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.0-dk...v2.74.1-dk) (2026-07-09)
+
+
+### Bug Fixes
+
+* **build:** include sbom enable state in stage cache digest ([ba9ad93](https://github.com/deckhouse/delivery-kit/commit/ba9ad938fe161ed0dce376445513b7e96e752c9c))
+* **sbom:** dedup external references ([9922129](https://github.com/deckhouse/delivery-kit/commit/9922129e676fbbeafe6970fd6672d4fe9b030bef))
+
 ## [2.74.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.73.2-dk...v2.74.0-dk) (2026-07-07)
 
 

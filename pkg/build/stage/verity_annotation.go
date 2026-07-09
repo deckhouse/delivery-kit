@@ -57,7 +57,6 @@ func (s *VerityAnnotationStage) MutateImage(ctx context.Context, stagesStorage I
 
 	var imageDmVerityAnnotations map[string]string
 	optWithLayersMutation := api.WithLayersMutation(func(ctx context.Context, layers []v1.Layer) ([]mutate.Addendum, error) {
-		// annotate layers
 		var result []mutate.Addendum
 		for _, layer := range layers {
 			annotations, err := integrity.CalculateLayerDMVerityAnnotations(ctx, layer)
@@ -71,7 +70,6 @@ func (s *VerityAnnotationStage) MutateImage(ctx context.Context, stagesStorage I
 			})
 		}
 
-		// save dm verity annotations for image
 		{
 			image, err := mutate.Append(empty.Image, result...)
 			if err != nil {
@@ -100,7 +98,20 @@ func (s *VerityAnnotationStage) MutateImage(ctx context.Context, stagesStorage I
 		return result, nil
 	})
 
-	return registry.MutateAndPushImage(ctx, srcRef, destRef, optWithLayersMutation, optWithManifestAnnotationsFunc)
+	optLabels := api.WithConfigFileMutation(func(_ context.Context, cf *v1.ConfigFile) (*v1.ConfigFile, error) {
+		serviceLabels := stageImage.Image.GetBuildServiceLabels()
+		if len(serviceLabels) > 0 {
+			if cf.Config.Labels == nil {
+				cf.Config.Labels = make(map[string]string)
+			}
+			for k, v := range serviceLabels {
+				cf.Config.Labels[k] = v
+			}
+		}
+		return cf, nil
+	})
+
+	return registry.MutateAndPushImage(ctx, srcRef, destRef, optLabels, optWithLayersMutation, optWithManifestAnnotationsFunc)
 }
 
 // registryFromImageMutatorPusher returns docker registry interface from stages storage.

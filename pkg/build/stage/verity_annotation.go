@@ -8,6 +8,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
@@ -98,20 +99,14 @@ func (s *VerityAnnotationStage) MutateImage(ctx context.Context, stagesStorage I
 		return result, nil
 	})
 
-	optLabels := api.WithConfigFileMutation(func(_ context.Context, cf *v1.ConfigFile) (*v1.ConfigFile, error) {
-		serviceLabels := stageImage.Image.GetBuildServiceLabels()
-		if len(serviceLabels) > 0 {
-			if cf.Config.Labels == nil {
-				cf.Config.Labels = make(map[string]string)
-			}
-			for k, v := range serviceLabels {
-				cf.Config.Labels[k] = v
-			}
-		}
+	return registry.MutateAndPushImage(ctx, srcRef, destRef, serviceLabelsConfigMutation(stageImage), optWithLayersMutation, optWithManifestAnnotationsFunc)
+}
+
+func serviceLabelsConfigMutation(stageImage *StageImage) api.MutateOption {
+	return api.WithConfigFileMutation(func(_ context.Context, cf *v1.ConfigFile) (*v1.ConfigFile, error) {
+		cf.Config.Labels = lo.Assign(cf.Config.Labels, stageImage.Image.GetBuildServiceLabels())
 		return cf, nil
 	})
-
-	return registry.MutateAndPushImage(ctx, srcRef, destRef, optLabels, optWithLayersMutation, optWithManifestAnnotationsFunc)
 }
 
 // registryFromImageMutatorPusher returns docker registry interface from stages storage.

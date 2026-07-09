@@ -70,18 +70,5 @@ func (s *SignStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorP
 		return util.MergeMaps(manifest.Annotations, annotations), nil
 	})
 
-	optLabels := api.WithConfigFileMutation(func(_ context.Context, cf *v1.ConfigFile) (*v1.ConfigFile, error) {
-		serviceLabels := stageImage.Image.GetBuildServiceLabels()
-		if len(serviceLabels) > 0 {
-			if cf.Config.Labels == nil {
-				cf.Config.Labels = make(map[string]string)
-			}
-			for k, v := range serviceLabels {
-				cf.Config.Labels[k] = v
-			}
-		}
-		return cf, nil
-	})
-
-	return registry.MutateAndPushImage(ctx, srcRef, destRef, optLabels, optAnnotations)
+	return registry.MutateAndPushImage(ctx, srcRef, destRef, serviceLabelsConfigMutation(stageImage), optAnnotations)
 }

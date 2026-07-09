@@ -61,7 +61,7 @@ func (s *SignStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorP
 	srcRef := prevBuiltImage.Image.Name()
 	destRef := stageImage.Image.Name()
 
-	opt := api.WithManifestAnnotationsFunc(func(ctx context.Context, manifest *v1.Manifest) (map[string]string, error) {
+	optAnnotations := api.WithManifestAnnotationsFunc(func(ctx context.Context, manifest *v1.Manifest) (map[string]string, error) {
 		annotations, err := image.GetSignatureAnnotationsForImageManifest(ctx, s.manifestSigningOptions.Signer().SignerVerifier(), manifest)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign manifest: %w", err)
@@ -70,5 +70,18 @@ func (s *SignStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorP
 		return util.MergeMaps(manifest.Annotations, annotations), nil
 	})
 
-	return registry.MutateAndPushImage(ctx, srcRef, destRef, opt)
+	optLabels := api.WithConfigFileMutation(func(_ context.Context, cf *v1.ConfigFile) (*v1.ConfigFile, error) {
+		serviceLabels := stageImage.Image.GetBuildServiceLabels()
+		if len(serviceLabels) > 0 {
+			if cf.Config.Labels == nil {
+				cf.Config.Labels = make(map[string]string)
+			}
+			for k, v := range serviceLabels {
+				cf.Config.Labels[k] = v
+			}
+		}
+		return cf, nil
+	})
+
+	return registry.MutateAndPushImage(ctx, srcRef, destRef, optLabels, optAnnotations)
 }

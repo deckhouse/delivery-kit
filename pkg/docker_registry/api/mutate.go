@@ -102,6 +102,13 @@ func mutateImage(ctx context.Context, image v1.Image, dest name.Reference, isDes
 	}
 
 	if options.mutateImageLayersFunc != nil {
+		// Re-read config from image which may already include config-file mutations
+		// applied above, so that label changes are preserved after layer rebuild.
+		cfBeforeLayerMutation, err := image.ConfigFile()
+		if err != nil {
+			return nil, nil, fmt.Errorf("error reading config file before layer mutation: %w", err)
+		}
+
 		layers, err := image.Layers()
 		if err != nil {
 			return nil, nil, err
@@ -114,7 +121,7 @@ func mutateImage(ctx context.Context, image v1.Image, dest name.Reference, isDes
 		if err != nil {
 			return nil, nil, err
 		}
-		image, err = mutate.ConfigFile(image, cf)
+		image, err = mutate.ConfigFile(image, cfBeforeLayerMutation)
 		if err != nil {
 			return nil, nil, err
 		}

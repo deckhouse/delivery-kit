@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.74.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.1-dk...v2.74.2-dk) (2026-07-10)
+
+
+### Bug Fixes
+
+* **cleanup:** propagate service labels into mutable stage images ([bbdd116](https://github.com/deckhouse/delivery-kit/commit/bbdd116a684b027534797f591d85ca7de21709cc))
+
 ## [2.74.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.0-dk...v2.74.1-dk) (2026-07-09)
 
 

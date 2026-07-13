@@ -1,6 +1,7 @@
 package managedinput
 
 import (
+	"fmt"
 	"sort"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -142,6 +143,55 @@ var _ = Describe("FilterBOMBySourcePaths", func() {
 	)
 })
 
+var _ = Describe("ToCatalogers rust", func() {
+	DescribeTable("maps rust-cargo directive to rust-cargo-lock-cataloger",
+		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
+			Expect(ToCatalogers(packages)).To(Equal(expected))
+		},
+
+		Entry("rust-cargo maps to rust-cargo-lock-cataloger with spec and lock paths",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeRustCargo,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml", Lock: "Cargo.lock"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+			},
+		),
+
+		Entry("rust-cargo with nested workdir includes correct paths",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeRustCargo,
+					FileBased: config.FileBasedSpec{Workdir: "/src/service", Spec: "Cargo.toml", Lock: "Cargo.lock"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/service/Cargo.toml", "/src/service/Cargo.lock"}, Workdir: "/src/service"},
+			},
+		),
+
+		Entry("multiple rust-cargo entries produce multiple catalogers",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeRustCargo,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml", Lock: "Cargo.lock"},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeRustCargo,
+					FileBased: config.FileBasedSpec{Workdir: "/lib", Spec: "Cargo.toml", Lock: "Cargo.lock"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/lib/Cargo.toml", "/lib/Cargo.lock"}, Workdir: "/lib"},
+			},
+		),
+	)
+})
+
 var _ = Describe("ToCatalogers python", func() {
 	DescribeTable("maps python directives to python-package-cataloger",
 		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
@@ -260,6 +310,91 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
 			},
 			[]string{"github.com/foo/bar"},
+		),
+	)
+})
+
+var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
+	cargoProps := func(paths ...string) *[]cdx.Property {
+		props := []cdx.Property{
+			{Name: "syft:package:foundBy", Value: "rust-cargo-lock-cataloger"},
+		}
+		for i, p := range paths {
+			props = append(props, cdx.Property{
+				Name:  fmt.Sprintf("syft:location:%d:path", i),
+				Value: p,
+			})
+		}
+		return &props
+	}
+
+	goModProps := func(path string) *[]cdx.Property {
+		return &[]cdx.Property{
+			{Name: "syft:package:foundBy", Value: "go-module-file-cataloger"},
+			{Name: "syft:location:0:path", Value: path},
+		}
+	}
+
+	DescribeTable("exact-match path filtering for rust-cargo",
+		func(bom *cdx.BOM, catalogers []scanner.Cataloger, expectedNames []string) {
+			FilterBOMBySourcePaths(bom, catalogers)
+			Expect(*bom.Components).To(HaveLen(len(expectedNames)))
+			for i, name := range expectedNames {
+				Expect((*bom.Components)[i].Name).To(Equal(name))
+			}
+		},
+
+		Entry("rust component matching Cargo.toml path is kept",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "anyhow", Properties: cargoProps("/app/Cargo.toml")},
+					{Name: "serde", Properties: cargoProps("/other/Cargo.toml")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+			},
+			[]string{"anyhow"},
+		),
+
+		Entry("rust component matching Cargo.lock path is kept",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "anyhow", Properties: cargoProps("/app/Cargo.lock")},
+					{Name: "serde", Properties: cargoProps("/other/Cargo.lock")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+			},
+			[]string{"anyhow"},
+		),
+
+		Entry("rust component from different workdir is filtered out",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "anyhow", Properties: cargoProps("/app/Cargo.toml")},
+					{Name: "anyhow", Properties: cargoProps("/lib/Cargo.toml")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+			},
+			[]string{"anyhow"},
+		),
+
+		Entry("regression: go-mod exact-match still works alongside rust-cargo cataloger",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "github.com/foo/bar", Properties: goModProps("/app/go.mod")},
+					{Name: "anyhow", Properties: cargoProps("/crate/Cargo.toml")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/crate/Cargo.toml", "/crate/Cargo.lock"}, Workdir: "/crate"},
+			},
+			[]string{"github.com/foo/bar", "anyhow"},
 		),
 	)
 })

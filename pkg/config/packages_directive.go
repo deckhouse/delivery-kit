@@ -14,6 +14,7 @@ const (
 	PackagesDirectiveTypePythonUV     PackagesDirectiveType = "python-uv"
 	PackagesDirectiveTypePythonPip    PackagesDirectiveType = "python-pip"
 	PackagesDirectiveTypePythonPoetry PackagesDirectiveType = "python-poetry"
+	PackagesDirectiveTypeRustCargo    PackagesDirectiveType = "rust-cargo"
 )
 
 type PackagesSpec struct {
@@ -64,6 +65,13 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultLock:   "poetry.lock",
 		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry sync --no-root", workdir) },
 		CatalogerName: "python-package-cataloger",
+	},
+	PackagesDirectiveTypeRustCargo: {
+		Type:          PackagesDirectiveTypeRustCargo,
+		DefaultSpec:   "Cargo.toml",
+		DefaultLock:   "Cargo.lock",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && cargo fetch", workdir) },
+		CatalogerName: "rust-cargo-lock-cataloger",
 	},
 }
 

@@ -187,7 +187,7 @@ var _ = Describe("GeneratePackagesCommands", func() {
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "wget", "jq"}}},
 		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "pm install wget", "pm install jq"}),
 
-		Entry("mixed types: os-pm and go-mod skip unsupported cargo type", []*config.PackagesDirective{
+		Entry("mixed types: os-pm and go-mod skip unknown type", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveType("cargo")},
@@ -222,6 +222,29 @@ var _ = Describe("GeneratePackagesCommands", func() {
 			},
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
 		}, []string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen", config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),
+
+		Entry("rust-cargo /app produces cargo fetch", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+		}, []string{"cd \"/app\" && cargo fetch"}),
+
+		Entry("rust-cargo /src/service produces cargo fetch", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/src/service"}},
+		}, []string{"cd \"/src/service\" && cargo fetch"}),
+
+		Entry("rust-cargo workdir with spaces is quoted", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/my app/crate"}},
+		}, []string{"cd \"/my app/crate\" && cargo fetch"}),
+
+		Entry("multiple rust-cargo entries", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/lib"}},
+		}, []string{"cd \"/app\" && cargo fetch", "cd \"/lib\" && cargo fetch"}),
+
+		Entry("mixed: rust-cargo + go-mod + os-pm all produce commands", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/tools"}},
+			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"libssl-dev"}}},
+		}, []string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download", config.ContainerFactoryVersionSnapshotCmd(), "pm install libssl-dev"}),
 	)
 })
 

@@ -22,7 +22,7 @@ func (o ScanOptions) Checksum() string {
 
 func DefaultSyftScanOptions() ScanOptions {
 	return ScanOptions{
-		Image:      "anchore/syft:v1.23.1",
+		Image:      "anchore/syft:v1.45.1",
 		PullPolicy: PullIfMissing,
 		Commands: []ScanCommand{
 			NewSyftScanCommand(),

@@ -140,7 +140,13 @@ No limitations are imposed on assembly instructions. The suggested use of _user 
 
 ## Installing binary packages
 
-The `packages` directive provides a declarative way to install binary packages with the `pm` package manager. werf installs the listed packages in a dedicated `packagesInstall` stage that runs before the `install` stage. When SBOM generation is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
+The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When SBOM generation is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
+
+Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`).
+
+### OS packages
+
+The `os-pm` type installs system packages via the `pm` package manager bundled in the builder base image:
 
 ```yaml
 image: app
@@ -152,14 +158,79 @@ packages:
       - jq
 ```
 
-The directive supports the following options:
-
-- `type` — the package source type. Only `os-pm` (the `pm` package manager) is currently supported.
-- `spec` — an inline list of package names to install. File-based package lists are not supported.
+- `type: os-pm` — selects the `pm` package manager.
+- `spec` — an inline list of package names to install.
 
 The base image must provide the `pm` binary in `$PATH` (for example, a Deckhouse builder base image labeled `io.deckhouse.internal.builder=true`). Otherwise the build fails because `pm` cannot be found.
 
 Packages installed in a parent image are inherited by images based on it via `fromImage` and remain present in the child image SBOM.
+
+### File-based package ecosystems
+
+File-based types run the ecosystem's install command inside the build container and feed the resulting lock file to syft for SBOM generation. The package manager itself must be pre-installed in the builder image.
+
+**Go modules** (`go-mod`):
+
+```yaml
+packages:
+  - type: go-mod
+    workdir: /app
+```
+
+Runs `go mod download`. Default files: `go.mod` (spec) and `go.sum` (lock).
+
+**Python — uv** (`python-uv`):
+
+```yaml
+packages:
+  - type: python-uv
+    workdir: /app
+```
+
+Runs `uv sync --frozen`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock).
+
+**Python — pip** (`python-pip`):
+
+```yaml
+packages:
+  - type: python-pip
+    workdir: /app
+```
+
+Runs `pip install --no-cache-dir -r requirements.txt`. Default spec: `requirements.txt`. No lock file (pip has no lock semantics; the `lock` field is rejected).
+
+**Python — poetry** (`python-poetry`):
+
+```yaml
+packages:
+  - type: python-poetry
+    workdir: /app
+```
+
+Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
+
+**Rust — Cargo** (`rust-cargo`):
+
+```yaml
+packages:
+  - type: rust-cargo
+    workdir: /app
+```
+
+Runs `cargo fetch`. Default files: `Cargo.toml` (spec) and `Cargo.lock` (lock). syft uses the `rust-cargo-lock-cataloger` to scan the lock file.
+
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). Multiple entries of the same or different types can be combined in one image:
+
+```yaml
+packages:
+  - type: go-mod
+    workdir: /app
+  - type: rust-cargo
+    workdir: /app/native
+  - type: os-pm
+    spec:
+      - libssl-dev
+```
 
 ## Syntax
 

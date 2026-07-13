@@ -15,7 +15,9 @@ import (
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
+	filterMode    scanner.CatalogerFilterMode
 	sourcePaths   func(directive *config.PackagesDirective) []string
+	workdir       func(directive *config.PackagesDirective) string
 }
 
 var resolvers = buildResolvers()
@@ -31,15 +33,23 @@ func buildResolvers() []inputResolver {
 	built := make([]inputResolver, 0, len(types))
 	for _, t := range types {
 		eco := ecosystems[t]
+		filterMode := scanner.CatalogerFilterExactPath
+		if eco.UseWorkdirFilter {
+			filterMode = scanner.CatalogerFilterWorkdirPrefix
+		}
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
+			filterMode:    filterMode,
 			sourcePaths: func(d *config.PackagesDirective) []string {
 				paths := []string{path.Join(d.FileBased.Workdir, d.FileBased.Spec)}
 				if d.FileBased.Lock != "" {
 					paths = append(paths, path.Join(d.FileBased.Workdir, d.FileBased.Lock))
 				}
 				return paths
+			},
+			workdir: func(d *config.PackagesDirective) string {
+				return d.FileBased.Workdir
 			},
 		})
 	}
@@ -59,7 +69,9 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 
 		catalogers = append(catalogers, scanner.Cataloger{
 			Name:        res.catalogerName,
+			FilterMode:  res.filterMode,
 			SourcePaths: res.sourcePaths(directive),
+			Workdir:     res.workdir(directive),
 		})
 	}
 
@@ -71,33 +83,55 @@ func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
 		return
 	}
 
-	catalogerNames := make(map[string]struct{})
-	allowedPaths := make(map[string]struct{})
+	type catalogerFilter struct {
+		name       string
+		filterMode scanner.CatalogerFilterMode
+		paths      map[string]struct{}
+		workdir    string
+	}
+
+	filters := make([]catalogerFilter, 0, len(catalogers))
 	for _, cat := range catalogers {
-		catalogerNames[cat.Name] = struct{}{}
+		paths := make(map[string]struct{}, len(cat.SourcePaths))
 		for _, p := range cat.SourcePaths {
-			allowedPaths[p] = struct{}{}
+			paths[p] = struct{}{}
 		}
+		filters = append(filters, catalogerFilter{
+			name:       cat.Name,
+			filterMode: cat.FilterMode,
+			paths:      paths,
+			workdir:    cat.Workdir,
+		})
 	}
 
 	filtered := lo.Filter(*bom.Components, func(comp cdx.Component, _ int) bool {
-		if !componentFoundByCatalogers(comp, catalogerNames) {
-			return false
+		for _, f := range filters {
+			if !componentFoundByCataloger(comp, f.name) {
+				continue
+			}
+			if f.filterMode == scanner.CatalogerFilterWorkdirPrefix {
+				if componentMatchesWorkdirPrefix(comp, f.workdir) {
+					return true
+				}
+			} else {
+				if componentMatchesAllowedPaths(comp, f.paths) {
+					return true
+				}
+			}
 		}
-		return componentMatchesAllowedPaths(comp, allowedPaths)
+		return false
 	})
 
 	*bom.Components = filtered
 }
 
-func componentFoundByCatalogers(comp cdx.Component, catalogerNames map[string]struct{}) bool {
+func componentFoundByCataloger(comp cdx.Component, catalogerName string) bool {
 	if comp.Properties == nil {
 		return false
 	}
 	for _, prop := range *comp.Properties {
 		if prop.Name == "syft:package:foundBy" {
-			_, ok := catalogerNames[prop.Value]
-			return ok
+			return prop.Value == catalogerName
 		}
 	}
 	return false
@@ -112,6 +146,22 @@ func componentMatchesAllowedPaths(comp cdx.Component, allowedPaths map[string]st
 			continue
 		}
 		if _, ok := allowedPaths[prop.Value]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func componentMatchesWorkdirPrefix(comp cdx.Component, workdir string) bool {
+	if comp.Properties == nil {
+		return false
+	}
+	prefix := workdir + "/"
+	for _, prop := range *comp.Properties {
+		if !strings.HasPrefix(prop.Name, "syft:location:") || !strings.HasSuffix(prop.Name, ":path") {
+			continue
+		}
+		if strings.HasPrefix(prop.Value, prefix) {
 			return true
 		}
 	}

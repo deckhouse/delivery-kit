@@ -10,9 +10,6 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
-shell:
-  install:
-    - cd /app && uv sync --frozen
 packages:
   - type: python-uv
     workdir: /app

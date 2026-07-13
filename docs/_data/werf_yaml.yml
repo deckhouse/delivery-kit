@@ -593,13 +593,13 @@ sections:
           - name: workdir
             value: "string"
             description:
-              en: "Directory inside the image that contains the manifest files (required for go-mod and python-*)"
-              ru: "Директория внутри образа, содержащая файлы манифеста (обязательно для go-mod и python-*)"
+              en: "Directory inside the image that contains the spec files (required for go-mod and python-*)"
+              ru: "Директория внутри образа, содержащая файлы спецификации (обязательно для go-mod и python-*)"
           - name: spec
             value: "string"
             description:
-              en: "Manifest file name (defaults: go.mod for go-mod, pyproject.toml for python-uv/python-poetry, requirements.txt for python-pip)"
-              ru: "Имя файла манифеста (по умолчанию: go.mod для go-mod, pyproject.toml для python-uv/python-poetry, requirements.txt для python-pip)"
+              en: "Spec file name (defaults: go.mod for go-mod, pyproject.toml for python-uv/python-poetry, requirements.txt for python-pip)"
+              ru: "Имя файла спецификации (по умолчанию: go.mod для go-mod, pyproject.toml для python-uv/python-poetry, requirements.txt для python-pip)"
           - name: lock
             value: "string"
             description:

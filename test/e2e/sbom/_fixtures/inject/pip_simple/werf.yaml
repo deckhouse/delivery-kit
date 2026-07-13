@@ -10,9 +10,6 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
-shell:
-  install:
-    - cd /app && pip install -r requirements.txt
 packages:
   - type: pip
     workdir: /app

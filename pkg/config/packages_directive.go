@@ -27,29 +27,32 @@ type FileBasedSpec struct {
 }
 
 type PackageEcosystem struct {
-	Type          PackagesDirectiveType
-	Aliases       []string
-	DefaultSpec   string
-	DefaultLock   string
-	InstallCmd    func(workdir, spec string) string
-	CatalogerName string
+	Type             PackagesDirectiveType
+	Aliases          []string
+	DefaultSpec      string
+	DefaultLock      string
+	InstallCmd       func(workdir, spec string) string
+	CatalogerName    string
+	UseWorkdirFilter bool
 }
 
 var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 	PackagesDirectiveTypeGoMod: {
-		Type:          PackagesDirectiveTypeGoMod,
-		DefaultSpec:   "go.mod",
-		DefaultLock:   "go.sum",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && go mod download", workdir) },
-		CatalogerName: "go-module-file-cataloger",
+		Type:             PackagesDirectiveTypeGoMod,
+		DefaultSpec:      "go.mod",
+		DefaultLock:      "go.sum",
+		InstallCmd:       func(workdir, _ string) string { return fmt.Sprintf("cd %q && go mod download", workdir) },
+		CatalogerName:    "go-module-file-cataloger",
+		UseWorkdirFilter: false,
 	},
 	PackagesDirectiveTypePythonUV: {
-		Type:          PackagesDirectiveTypePythonUV,
-		Aliases:       []string{"uv"},
-		DefaultSpec:   "pyproject.toml",
-		DefaultLock:   "uv.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && uv sync --frozen", workdir) },
-		CatalogerName: "python-package-cataloger",
+		Type:             PackagesDirectiveTypePythonUV,
+		Aliases:          []string{"uv"},
+		DefaultSpec:      "pyproject.toml",
+		DefaultLock:      "uv.lock",
+		InstallCmd:       func(workdir, _ string) string { return fmt.Sprintf("cd %q && uv sync --frozen", workdir) },
+		CatalogerName:    "python-package-cataloger",
+		UseWorkdirFilter: true,
 	},
 	PackagesDirectiveTypePythonPip: {
 		Type:        PackagesDirectiveTypePythonPip,
@@ -59,15 +62,17 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		InstallCmd: func(workdir, spec string) string {
 			return fmt.Sprintf("cd %q && pip install --no-cache-dir -r %q", workdir, spec)
 		},
-		CatalogerName: "python-package-cataloger",
+		CatalogerName:    "python-package-cataloger",
+		UseWorkdirFilter: true,
 	},
 	PackagesDirectiveTypePythonPoetry: {
-		Type:          PackagesDirectiveTypePythonPoetry,
-		Aliases:       []string{"poetry"},
-		DefaultSpec:   "pyproject.toml",
-		DefaultLock:   "poetry.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry install --no-root", workdir) },
-		CatalogerName: "python-package-cataloger",
+		Type:             PackagesDirectiveTypePythonPoetry,
+		Aliases:          []string{"poetry"},
+		DefaultSpec:      "pyproject.toml",
+		DefaultLock:      "poetry.lock",
+		InstallCmd:       func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry install --no-root", workdir) },
+		CatalogerName:    "python-package-cataloger",
+		UseWorkdirFilter: true,
 	},
 }
 

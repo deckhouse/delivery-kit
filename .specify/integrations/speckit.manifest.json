@@ -1,6 +1,6 @@
 {
   "integration": "speckit",
-  "version": "0.12.10",
+  "version": "0.12.14",
   "installed_at": "2026-07-10T13:45:27.381232+00:00",
   "files": {
     ".specify/templates/plan-template.md": "cc7f7979cf8d8836ec26492785affd80791d3422a2b745062ec695be8c985ef7",

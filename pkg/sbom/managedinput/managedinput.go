@@ -53,13 +53,8 @@ func buildResolvers() []inputResolver {
 	return built
 }
 
-func filterModeForEcosystem(t config.PackagesDirectiveType) scanner.CatalogerFilterMode {
-	switch t {
-	case config.PackagesDirectiveTypeGoMod:
-		return scanner.CatalogerFilterExactPath
-	default:
-		return scanner.CatalogerFilterCatalogerOnly
-	}
+func filterModeForEcosystem(_ config.PackagesDirectiveType) scanner.CatalogerFilterMode {
+	return scanner.CatalogerFilterExactPath
 }
 
 func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {

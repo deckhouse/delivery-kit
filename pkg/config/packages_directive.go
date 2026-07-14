@@ -47,7 +47,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpec:   "pyproject.toml",
 		DefaultLock:   "uv.lock",
 		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && uv sync --frozen", workdir) },
-		CatalogerName: "python-installed-package-cataloger",
+		CatalogerName: "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPip: {
 		Type:        PackagesDirectiveTypePythonPip,
@@ -56,14 +56,14 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		InstallCmd: func(workdir, spec string) string {
 			return fmt.Sprintf("cd %q && pip install --no-cache-dir -r %q", workdir, spec)
 		},
-		CatalogerName: "python-installed-package-cataloger",
+		CatalogerName: "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPoetry: {
 		Type:          PackagesDirectiveTypePythonPoetry,
 		DefaultSpec:   "pyproject.toml",
 		DefaultLock:   "poetry.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry install --no-root", workdir) },
-		CatalogerName: "python-installed-package-cataloger",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry sync --no-root", workdir) },
+		CatalogerName: "python-package-cataloger",
 	},
 }
 

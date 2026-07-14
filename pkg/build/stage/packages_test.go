@@ -205,7 +205,7 @@ var _ = Describe("GeneratePackagesCommands", func() {
 				Type:      config.PackagesDirectiveTypePythonPoetry,
 				FileBased: config.FileBasedSpec{Workdir: "/svc"},
 			},
-		}, []string{"cd \"/svc\" && poetry install --no-root"}),
+		}, []string{"cd \"/svc\" && poetry sync --no-root"}),
 
 		Entry("python-uv /api", []*config.PackagesDirective{
 			{

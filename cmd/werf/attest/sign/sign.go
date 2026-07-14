@@ -76,7 +76,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupLogProjectDir(&commonCmdData, cmd)
 
 	cmd.Flags().StringVarP(&predicateFlag, "predicate", "", "", "Path to the predicate file (required)")
-	cmd.Flags().StringVarP(&typeFlag, "type", "", "", "Predicate type: openvex, cyclonedx, spdxjson, slsaprovenance, slsaprovenance1, or a full URI (required)")
+	cmd.Flags().StringVarP(&typeFlag, "type", "", "", fmt.Sprintf("Predicate type: %s, or a full URI (required)", attestation.PredicateTypeHelp()))
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the parent image (e.g. sha256:abc123)")
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the parent image (resolved to digest)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact indexing (required)")

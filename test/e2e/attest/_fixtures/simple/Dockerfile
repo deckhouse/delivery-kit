@@ -1,2 +1,2 @@
-FROM alpine:3.20
+FROM registry.werf.io/base/alpine:3.21
 RUN echo "attest-test"

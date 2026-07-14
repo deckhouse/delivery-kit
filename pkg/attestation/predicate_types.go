@@ -14,6 +14,15 @@ var WellKnownPredicateTypes = map[string]string{
 	"cyclonedx":       "https://cyclonedx.org/bom",
 }
 
+func PredicateTypeHelp() string {
+	known := make([]string, 0, len(WellKnownPredicateTypes))
+	for k := range WellKnownPredicateTypes {
+		known = append(known, k)
+	}
+	sort.Strings(known)
+	return strings.Join(known, ", ")
+}
+
 func ResolvePredicateType(shortOrURI string) (string, error) {
 	if strings.Contains(shortOrURI, "://") {
 		return shortOrURI, nil
@@ -22,11 +31,5 @@ func ResolvePredicateType(shortOrURI string) (string, error) {
 		return uri, nil
 	}
 
-	known := make([]string, 0, len(WellKnownPredicateTypes))
-	for k := range WellKnownPredicateTypes {
-		known = append(known, k)
-	}
-	sort.Strings(known)
-
-	return "", fmt.Errorf("unknown predicate type %q: use a full URI or one of: %s", shortOrURI, strings.Join(known, ", "))
+	return "", fmt.Errorf("unknown predicate type %q: use a full URI or one of: %s", shortOrURI, PredicateTypeHelp())
 }

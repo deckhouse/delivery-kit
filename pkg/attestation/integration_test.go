@@ -1,16 +1,12 @@
 package attestation
 
 import (
-	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/signature"
 )
 
 var _ = Describe("Attestation integration", func() {
-	ctx := context.Background()
-
 	var (
 		signerA, signerB     signature.Signer
 		verifierA, verifierB signature.Verifier
@@ -19,7 +15,7 @@ var _ = Describe("Attestation integration", func() {
 		envelopeJSON         []byte
 	)
 
-	BeforeEach(func() {
+	BeforeEach(func(ctx SpecContext) {
 		signerA, verifierA = generateKeyPair()
 		signerB, verifierB = generateKeyPair()
 
@@ -39,7 +35,7 @@ var _ = Describe("Attestation integration", func() {
 	})
 
 	Describe("sign → verify round-trip", func() {
-		It("should verify with correct key and return matching predicate", func() {
+		It("should verify with correct key and return matching predicate", func(ctx SpecContext) {
 			payload, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, []signature.Verifier{verifierA})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -49,13 +45,13 @@ var _ = Describe("Attestation integration", func() {
 			Expect(resultPredicate).To(MatchJSON(predicate))
 		})
 
-		It("should fail verify with wrong key", func() {
+		It("should fail verify with wrong key", func(ctx SpecContext) {
 			_, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, []signature.Verifier{verifierB})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("signature verification failed"))
 		})
 
-		It("should succeed when any of multiple verifiers matches", func() {
+		It("should succeed when any of multiple verifiers matches", func(ctx SpecContext) {
 			payload, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, []signature.Verifier{verifierB, verifierA})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -76,7 +72,7 @@ var _ = Describe("Attestation integration", func() {
 	})
 
 	Describe("unsigned envelope", func() {
-		It("should fail verification", func() {
+		It("should fail verification", func(ctx SpecContext) {
 			stmtBytes, err := WrapInInTotoStatement(predicate, resolvedType, "repo", "hex")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -91,28 +87,28 @@ var _ = Describe("Attestation integration", func() {
 	})
 
 	DescribeTable("malformed input handling",
-		func(fn func()) {
-			fn()
+		func(ctx SpecContext, fn func(SpecContext)) {
+			fn(ctx)
 		},
-		Entry("UnwrapDSSE with garbage", func() {
+		Entry("UnwrapDSSE with garbage", func(_ SpecContext) {
 			_, err := UnwrapDSSE([]byte("not json"), InTotoMediaType)
 			Expect(err).To(HaveOccurred())
 		}),
-		Entry("UnwrapInTotoStatement with garbage", func() {
+		Entry("UnwrapInTotoStatement with garbage", func(_ SpecContext) {
 			_, _, err := UnwrapInTotoStatement([]byte("not json"))
 			Expect(err).To(HaveOccurred())
 		}),
-		Entry("VerifyDSSE with garbage", func() {
+		Entry("VerifyDSSE with garbage", func(ctx SpecContext) {
 			_, v := generateKeyPair()
 			_, err := VerifyDSSE(ctx, []byte("not json"), InTotoMediaType, []signature.Verifier{v})
 			Expect(err).To(HaveOccurred())
 		}),
-		Entry("WrapInDSSE with nil signer produces unsigned envelope", func() {
+		Entry("WrapInDSSE with nil signer produces unsigned envelope", func(ctx SpecContext) {
 			envelope, err := WrapInDSSE(ctx, []byte("payload"), "type", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(HasSignatures(envelope)).To(BeFalse())
 		}),
-		Entry("WrapInDSSE with empty payload still signs", func() {
+		Entry("WrapInDSSE with empty payload still signs", func(ctx SpecContext) {
 			s, _ := generateKeyPair()
 			envelope, err := WrapInDSSE(ctx, []byte{}, "type", s)
 			Expect(err).NotTo(HaveOccurred())

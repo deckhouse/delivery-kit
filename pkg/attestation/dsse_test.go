@@ -1,7 +1,6 @@
 package attestation
 
 import (
-	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -22,10 +21,8 @@ func generateKeyPair() (signature.Signer, signature.Verifier) {
 }
 
 var _ = Describe("DSSE Envelope", func() {
-	ctx := context.Background()
-
 	DescribeTable("WrapInDSSE / UnwrapDSSE round-trip (unsigned)",
-		func(payload []byte, payloadType string) {
+		func(ctx SpecContext, payload []byte, payloadType string) {
 			envelopeJSON, err := WrapInDSSE(ctx, payload, payloadType, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(envelopeJSON).NotTo(BeEmpty())
@@ -39,7 +36,7 @@ var _ = Describe("DSSE Envelope", func() {
 		Entry("binary payload", []byte{0x00, 0x01, 0x02}, "application/vnd.test+json"),
 	)
 
-	It("should fail UnwrapDSSE with wrong payloadType", func() {
+	It("should fail UnwrapDSSE with wrong payloadType", func(ctx SpecContext) {
 		envelopeJSON, err := WrapInDSSE(ctx, []byte(`{"x":1}`), "application/correct", nil)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -54,7 +51,7 @@ var _ = Describe("DSSE Envelope", func() {
 	})
 
 	Describe("signed envelopes", func() {
-		It("should sign, then verify with correct key", func() {
+		It("should sign, then verify with correct key", func(ctx SpecContext) {
 			signer, verifier := generateKeyPair()
 			payload := []byte(`{"vulnerability":"CVE-2024-1234"}`)
 
@@ -67,7 +64,7 @@ var _ = Describe("DSSE Envelope", func() {
 			Expect(result).To(Equal(payload))
 		})
 
-		It("should fail verify with wrong key", func() {
+		It("should fail verify with wrong key", func(ctx SpecContext) {
 			signerA, _ := generateKeyPair()
 			_, verifierB := generateKeyPair()
 
@@ -79,7 +76,7 @@ var _ = Describe("DSSE Envelope", func() {
 			Expect(err.Error()).To(ContainSubstring("signature verification failed"))
 		})
 
-		It("should fail verify on unsigned envelope", func() {
+		It("should fail verify on unsigned envelope", func(ctx SpecContext) {
 			envelopeJSON, err := WrapInDSSE(ctx, []byte(`{"x":1}`), InTotoMediaType, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(HasSignatures(envelopeJSON)).To(BeFalse())
@@ -90,7 +87,7 @@ var _ = Describe("DSSE Envelope", func() {
 			Expect(err.Error()).To(ContainSubstring("no signatures"))
 		})
 
-		It("should succeed verify when any of multiple verifiers matches", func() {
+		It("should succeed verify when any of multiple verifiers matches", func(ctx SpecContext) {
 			signerA, verifierA := generateKeyPair()
 			_, verifierB := generateKeyPair()
 
@@ -102,7 +99,7 @@ var _ = Describe("DSSE Envelope", func() {
 			Expect(result).To(Equal([]byte(`{"x":"multi"}`)))
 		})
 
-		It("should fail VerifyDSSE with malformed JSON", func() {
+		It("should fail VerifyDSSE with malformed JSON", func(ctx SpecContext) {
 			_, verifier := generateKeyPair()
 			_, err := VerifyDSSE(ctx, []byte("not json"), InTotoMediaType, []signature.Verifier{verifier})
 			Expect(err).To(HaveOccurred())
@@ -110,7 +107,7 @@ var _ = Describe("DSSE Envelope", func() {
 	})
 
 	DescribeTable("HasSignatures",
-		func(signer signature.Signer, expected bool) {
+		func(ctx SpecContext, signer signature.Signer, expected bool) {
 			envelope, err := WrapInDSSE(ctx, []byte("payload"), "type", signer)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(HasSignatures(envelope)).To(Equal(expected))

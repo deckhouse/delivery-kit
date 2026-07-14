@@ -588,8 +588,8 @@ sections:
           - name: type
             value: "string"
             description:
-              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry; aliases: uv, pip, poetry)"
-              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry; алиасы: uv, pip, poetry)"
+              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry)"
+              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry)"
           - name: workdir
             value: "string"
             description:

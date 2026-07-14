@@ -33,10 +33,7 @@ func buildResolvers() []inputResolver {
 	built := make([]inputResolver, 0, len(types))
 	for _, t := range types {
 		eco := ecosystems[t]
-		filterMode := scanner.CatalogerFilterExactPath
-		if eco.UseWorkdirFilter {
-			filterMode = scanner.CatalogerFilterWorkdirPrefix
-		}
+		filterMode := filterModeForEcosystem(t)
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
@@ -54,6 +51,15 @@ func buildResolvers() []inputResolver {
 		})
 	}
 	return built
+}
+
+func filterModeForEcosystem(t config.PackagesDirectiveType) scanner.CatalogerFilterMode {
+	switch t {
+	case config.PackagesDirectiveTypeGoMod:
+		return scanner.CatalogerFilterExactPath
+	default:
+		return scanner.CatalogerFilterCatalogerOnly
+	}
 }
 
 func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
@@ -109,11 +115,14 @@ func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
 			if !componentFoundByCataloger(comp, f.name) {
 				continue
 			}
-			if f.filterMode == scanner.CatalogerFilterWorkdirPrefix {
+			switch f.filterMode {
+			case scanner.CatalogerFilterCatalogerOnly:
+				return true
+			case scanner.CatalogerFilterWorkdirPrefix:
 				if componentMatchesWorkdirPrefix(comp, f.workdir) {
 					return true
 				}
-			} else {
+			default:
 				if componentMatchesAllowedPaths(comp, f.paths) {
 					return true
 				}

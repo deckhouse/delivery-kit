@@ -49,10 +49,6 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 }
 
 func (r *rawPackagesDirective) toDirective() (*PackagesDirective, error) {
-	if canonical, ok := aliasToType[r.Type]; ok {
-		r.Type = string(canonical)
-	}
-
 	d := &PackagesDirective{
 		Type: PackagesDirectiveType(r.Type),
 	}

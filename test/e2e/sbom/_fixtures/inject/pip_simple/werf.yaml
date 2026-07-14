@@ -11,5 +11,5 @@ git:
   - add: /
     to: /app
 packages:
-  - type: pip
+  - type: python-pip
     workdir: /app

@@ -49,26 +49,6 @@ var _ = Describe("rawPackagesDirective python", func() {
 			},
 		),
 
-		Entry("uv (short alias) canonicalizes to python-uv with defaults",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "python:3.12",
-				"packages": []map[string]interface{}{
-					{"type": "uv", "workdir": "/app"},
-				},
-			},
-			[]*PackagesDirective{
-				{
-					Type: PackagesDirectiveTypePythonUV,
-					FileBased: FileBasedSpec{
-						Workdir: "/app",
-						Spec:    "pyproject.toml",
-						Lock:    "uv.lock",
-					},
-				},
-			},
-		),
-
 		Entry("python-pip with only workdir defaults spec and empty lock",
 			map[string]interface{}{
 				"image": "image1",
@@ -89,52 +69,12 @@ var _ = Describe("rawPackagesDirective python", func() {
 			},
 		),
 
-		Entry("pip (short alias) canonicalizes to python-pip",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "python:3.12",
-				"packages": []map[string]interface{}{
-					{"type": "pip", "workdir": "/app"},
-				},
-			},
-			[]*PackagesDirective{
-				{
-					Type: PackagesDirectiveTypePythonPip,
-					FileBased: FileBasedSpec{
-						Workdir: "/app",
-						Spec:    "requirements.txt",
-						Lock:    "",
-					},
-				},
-			},
-		),
-
 		Entry("python-poetry with only workdir defaults spec and lock",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "python:3.12",
 				"packages": []map[string]interface{}{
 					{"type": "python-poetry", "workdir": "/app"},
-				},
-			},
-			[]*PackagesDirective{
-				{
-					Type: PackagesDirectiveTypePythonPoetry,
-					FileBased: FileBasedSpec{
-						Workdir: "/app",
-						Spec:    "pyproject.toml",
-						Lock:    "poetry.lock",
-					},
-				},
-			},
-		),
-
-		Entry("poetry (short alias) canonicalizes to python-poetry",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "python:3.12",
-				"packages": []map[string]interface{}{
-					{"type": "poetry", "workdir": "/app"},
 				},
 			},
 			[]*PackagesDirective{

@@ -6,6 +6,7 @@ type CatalogerFilterMode int
 const (
 	CatalogerFilterExactPath     CatalogerFilterMode = iota
 	CatalogerFilterWorkdirPrefix CatalogerFilterMode = iota
+	CatalogerFilterCatalogerOnly CatalogerFilterMode = iota
 )
 
 // Cataloger is a syft cataloger to enable for a scan, together with the in-image

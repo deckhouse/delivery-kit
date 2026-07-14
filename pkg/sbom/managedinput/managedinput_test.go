@@ -144,12 +144,12 @@ var _ = Describe("FilterBOMBySourcePaths", func() {
 })
 
 var _ = Describe("ToCatalogers python", func() {
-	DescribeTable("maps python directives to python-package-cataloger",
+	DescribeTable("maps python directives to python-installed-package-cataloger",
 		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
 			Expect(ToCatalogers(packages)).To(Equal(expected))
 		},
 
-		Entry("python-pip maps to python-package-cataloger with spec path only (no lock)",
+		Entry("python-pip maps to python-installed-package-cataloger with spec path only (no lock)",
 			[]*config.PackagesDirective{
 				{
 					Type:      config.PackagesDirectiveTypePythonPip,
@@ -157,11 +157,11 @@ var _ = Describe("ToCatalogers python", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/app/requirements.txt"}, Workdir: "/app"},
+				{Name: "python-installed-package-cataloger", FilterMode: scanner.CatalogerFilterCatalogerOnly, SourcePaths: []string{"/app/requirements.txt"}, Workdir: "/app"},
 			},
 		),
 
-		Entry("python-uv maps to python-package-cataloger with spec and lock paths",
+		Entry("python-uv maps to python-installed-package-cataloger with spec and lock paths",
 			[]*config.PackagesDirective{
 				{
 					Type:      config.PackagesDirectiveTypePythonUV,
@@ -169,11 +169,11 @@ var _ = Describe("ToCatalogers python", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
+				{Name: "python-installed-package-cataloger", FilterMode: scanner.CatalogerFilterCatalogerOnly, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
 			},
 		),
 
-		Entry("python-poetry maps to python-package-cataloger with spec and lock paths",
+		Entry("python-poetry maps to python-installed-package-cataloger with spec and lock paths",
 			[]*config.PackagesDirective{
 				{
 					Type:      config.PackagesDirectiveTypePythonPoetry,
@@ -181,7 +181,7 @@ var _ = Describe("ToCatalogers python", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, Workdir: "/svc"},
+				{Name: "python-installed-package-cataloger", FilterMode: scanner.CatalogerFilterCatalogerOnly, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, Workdir: "/svc"},
 			},
 		),
 	)
@@ -190,7 +190,7 @@ var _ = Describe("ToCatalogers python", func() {
 var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 	distInfoProps := func(workdir, pkgName string, extraPaths ...string) *[]cdx.Property {
 		props := []cdx.Property{
-			{Name: "syft:package:foundBy", Value: "python-package-cataloger"},
+			{Name: "syft:package:foundBy", Value: "python-installed-package-cataloger"},
 			{Name: "syft:location:0:path", Value: workdir + "/.venv/lib/python3.12/site-packages/" + pkgName + ".dist-info/METADATA"},
 		}
 		for i, p := range extraPaths {
@@ -209,7 +209,7 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 		}
 	}
 
-	DescribeTable("workdir-prefix filtering for python, exact-match for go-mod",
+	DescribeTable("cataloger-only filtering for python, exact-match for go-mod",
 		func(bom *cdx.BOM, catalogers []scanner.Cataloger, expectedNames []string) {
 			FilterBOMBySourcePaths(bom, catalogers)
 			Expect(*bom.Components).To(HaveLen(len(expectedNames)))
@@ -218,54 +218,28 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 			}
 		},
 
-		Entry("python-uv: keeps dist-info components under workdir, drops components from other workdirs",
+		Entry("python-uv: keeps all components found by cataloger regardless of install path",
 			&cdx.BOM{
 				Components: &[]cdx.Component{
 					{Name: "requests", Properties: distInfoProps("/app", "requests-2.32.3")},
-					{Name: "flask", Properties: distInfoProps("/other", "flask-3.0.0")},
+					{Name: "flask", Properties: distInfoProps("/usr/local", "flask-3.0.0")},
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
+				{Name: "python-installed-package-cataloger", FilterMode: scanner.CatalogerFilterCatalogerOnly, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
 			},
-			[]string{"requests"},
+			[]string{"requests", "flask"},
 		),
 
-		Entry("python-pip: keeps dist-info components under workdir",
+		Entry("python-uv: drops components found by other catalogers",
 			&cdx.BOM{
 				Components: &[]cdx.Component{
 					{Name: "requests", Properties: distInfoProps("/app", "requests-2.32.3")},
-					{Name: "flask", Properties: distInfoProps("/other", "flask-3.0.0")},
+					{Name: "curl", Properties: goModProps("/var/lib/dpkg/status")},
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/app/requirements.txt"}, Workdir: "/app"},
-			},
-			[]string{"requests"},
-		),
-
-		Entry("python-poetry: keeps dist-info components under workdir",
-			&cdx.BOM{
-				Components: &[]cdx.Component{
-					{Name: "requests", Properties: distInfoProps("/svc", "requests-2.32.3")},
-					{Name: "flask", Properties: distInfoProps("/app", "flask-3.0.0")},
-				},
-			},
-			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, Workdir: "/svc"},
-			},
-			[]string{"requests"},
-		),
-
-		Entry("workdir prefix does not match exact workdir path (no trailing slash confusion)",
-			&cdx.BOM{
-				Components: &[]cdx.Component{
-					{Name: "requests", Properties: distInfoProps("/app", "requests-2.32.3")},
-					{Name: "flask", Properties: distInfoProps("/appother", "flask-3.0.0")},
-				},
-			},
-			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterWorkdirPrefix, SourcePaths: []string{"/app/pyproject.toml"}, Workdir: "/app"},
+				{Name: "python-installed-package-cataloger", FilterMode: scanner.CatalogerFilterCatalogerOnly, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
 			},
 			[]string{"requests"},
 		),

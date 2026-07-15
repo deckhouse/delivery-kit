@@ -53,13 +53,14 @@ func (r *rawPackagesDirective) toDirective() (*PackagesDirective, error) {
 		Type: PackagesDirectiveType(r.Type),
 	}
 
-	switch d.Type {
-	case PackagesDirectiveTypeOSPM:
+	if d.Type == PackagesDirectiveTypeOSPM {
 		if err := r.fillOSPMSpec(d); err != nil {
 			return nil, err
 		}
-	case PackagesDirectiveTypeGoMod:
-		r.fillGoModSpec(d)
+	} else if _, ok := ecosystems[d.Type]; ok {
+		if err := r.fillFileBasedSpec(d); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := d.validate(); err != nil {
@@ -84,16 +85,29 @@ func (r *rawPackagesDirective) fillOSPMSpec(d *PackagesDirective) error {
 	return nil
 }
 
-func (r *rawPackagesDirective) fillGoModSpec(d *PackagesDirective) {
-	d.GoMod.Workdir = r.Workdir
+func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
+	eco := ecosystems[d.Type]
 
-	d.GoMod.Spec = goModDefaultSpec
-	if spec, ok := r.Spec.(string); ok && spec != "" {
-		d.GoMod.Spec = spec
+	d.FileBased.Workdir = r.Workdir
+
+	d.FileBased.Spec = eco.DefaultSpec
+	if r.Spec != nil {
+		spec, ok := r.Spec.(string)
+		if !ok {
+			return fmt.Errorf("spec must be a string for type %q", d.Type)
+		}
+		if spec != "" {
+			d.FileBased.Spec = spec
+		}
 	}
 
-	d.GoMod.Lock = goModDefaultLock
+	d.FileBased.Lock = eco.DefaultLock
 	if r.Lock != "" {
-		d.GoMod.Lock = r.Lock
+		if eco.DefaultLock == "" {
+			return fmt.Errorf("lock is not supported for type %q", d.Type)
+		}
+		d.FileBased.Lock = r.Lock
 	}
+
+	return nil
 }

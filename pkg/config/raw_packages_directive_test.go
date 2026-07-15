@@ -168,46 +168,95 @@ var _ = Describe("rawPackagesDirective", func() {
 })
 
 var _ = Describe("normalizePackages", func() {
-	It("returns nil for nil input", func() {
-		result := normalizePackages(nil)
-		Expect(result).To(BeNil())
-	})
+	DescribeTable("flattening and deduplication",
+		func(input []*PackagesDirective, expectedLen int, expectedPackages []string) {
+			result := normalizePackages(input)
 
-	It("returns nil for empty slice", func() {
-		result := normalizePackages([]*PackagesDirective{})
-		Expect(result).To(BeNil())
-	})
+			if expectedLen == 0 {
+				Expect(result).To(BeNil())
+				return
+			}
 
-	It("preserves single directive packages", func() {
-		result := normalizePackages([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
-		})
-		Expect(result).To(HaveLen(1))
-		Expect(result[0].Spec.Packages).To(Equal([]string{"curl", "jq"}))
-	})
+			Expect(result).To(HaveLen(expectedLen))
+			Expect(result[0].Spec.Packages).To(Equal(expectedPackages))
+		},
 
-	It("merges multiple directives", func() {
-		result := normalizePackages([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq"}}},
-		})
-		Expect(result).To(HaveLen(1))
-		Expect(result[0].Spec.Packages).To(ConsistOf("curl", "jq"))
-	})
+		Entry("returns nil for nil input",
+			[]*PackagesDirective(nil),
+			0,
+			[]string(nil),
+		),
 
-	It("deduplicates across directives", func() {
-		result := normalizePackages([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
-		})
-		Expect(result).To(HaveLen(1))
-		Expect(result[0].Spec.Packages).To(ConsistOf("curl", "jq"))
-	})
+		Entry("returns nil for empty slice",
+			[]*PackagesDirective{},
+			0,
+			[]string(nil),
+		),
 
-	It("sorts packages deterministically", func() {
-		result := normalizePackages([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq", "curl", "brotli"}}},
-		})
-		Expect(result[0].Spec.Packages).To(Equal([]string{"brotli", "curl", "jq"}))
-	})
+		Entry("preserves single directive packages",
+			[]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
+			},
+			1,
+			[]string{"curl", "jq"},
+		),
+
+		Entry("merges multiple directives",
+			[]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq"}}},
+			},
+			1,
+			[]string{"curl", "jq"},
+		),
+
+		Entry("deduplicates across directives",
+			[]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+			},
+			1,
+			[]string{"curl", "jq"},
+		),
+
+		Entry("sorts packages deterministically",
+			[]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq", "curl", "brotli"}}},
+			},
+			1,
+			[]string{"brotli", "curl", "jq"},
+		),
+	)
+})
+
+var _ = Describe("rawPackagesDirective python smoke", func() {
+	DescribeTable("canonical python type roundtrips through raw parser",
+		func(yamlContent string, expectedType PackagesDirectiveType, expectedSpec string) {
+			parentStack = util.NewStack()
+			localGitRepo := NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0")
+			giterminismManager := NewGiterminismManagerStub(localGitRepo)
+
+			doc := &doc{Content: []byte(yamlContent)}
+			rawStapelImage := &rawStapelImage{doc: doc}
+
+			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
+
+			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
+			Expect(err).To(Succeed())
+			Expect(stapelImage.Packages).To(HaveLen(1))
+			Expect(stapelImage.Packages[0].Type).To(Equal(expectedType))
+			Expect(stapelImage.Packages[0].FileBased.Spec).To(Equal(expectedSpec))
+		},
+
+		Entry("python-uv canonical",
+			`image: image1
+from: python:3.12
+packages:
+  - type: python-uv
+    workdir: /app
+`,
+			PackagesDirectiveTypePythonUV,
+			"pyproject.toml",
+		),
+	)
 })

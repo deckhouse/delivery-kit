@@ -17,8 +17,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 	var commands []string
 	snapshotted := false
 	for _, pkg := range packages {
-		switch pkg.Type {
-		case PackagesDirectiveTypeOSPM:
+		if pkg.Type == PackagesDirectiveTypeOSPM {
 			if len(pkg.Spec.Packages) == 0 {
 				continue
 			}
@@ -29,8 +28,10 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			for _, p := range pkg.Spec.Packages {
 				commands = append(commands, fmt.Sprintf("pm install %s", p))
 			}
-		case PackagesDirectiveTypeGoMod:
-			commands = append(commands, fmt.Sprintf("cd %s && go mod download", pkg.GoMod.Workdir))
+			continue
+		}
+		if eco, ok := ecosystems[pkg.Type]; ok {
+			commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec))
 		}
 	}
 	return commands

@@ -24,7 +24,7 @@ var _ = Describe("PackagesStage", func() {
 		)
 
 		It("returns stage when packages commands present", func(ctx context.Context) {
-			stage := generateTestPackagesStage(ctx, "cd /app && go mod download")
+			stage := generateTestPackagesStage(ctx, "cd \"/app\" && go mod download")
 			Expect(stage).NotTo(BeNil())
 		})
 	})
@@ -42,7 +42,7 @@ var _ = Describe("PackagesStage", func() {
 	)
 
 	It("Name returns packages", func(ctx context.Context) {
-		stage := generateTestPackagesStage(ctx, "cd /app && go mod download")
+		stage := generateTestPackagesStage(ctx, "cd \"/app\" && go mod download")
 		Expect(stage.Name()).To(Equal(Packages))
 	})
 
@@ -67,21 +67,21 @@ var _ = Describe("PackagesStage", func() {
 			},
 
 			Entry("same commands produce same hash",
-				[]string{"cd /app && go mod download"},
-				[]string{"cd /app && go mod download"},
+				[]string{"cd \"/app\" && go mod download"},
+				[]string{"cd \"/app\" && go mod download"},
 				true),
 			Entry("different commands produce different hash",
-				[]string{"cd /app && go mod download"},
-				[]string{"cd /lib && go mod download"},
+				[]string{"cd \"/app\" && go mod download"},
+				[]string{"cd \"/lib\" && go mod download"},
 				false),
 			Entry("different number of commands produce different hash",
-				[]string{"cd /app && go mod download"},
-				[]string{"cd /app && go mod download", "cd /lib && go mod download"},
+				[]string{"cd \"/app\" && go mod download"},
+				[]string{"cd \"/app\" && go mod download", "cd \"/lib\" && go mod download"},
 				false),
 		)
 
 		It("returns non-empty hash", func(ctx context.Context) {
-			s := generateTestPackagesStage(ctx, "cd /app && go mod download")
+			s := generateTestPackagesStage(ctx, "cd \"/app\" && go mod download")
 			digest, err := s.GetDependencies(ctx, testConveyor(), nil, nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(digest).NotTo(BeEmpty())
@@ -92,7 +92,7 @@ var _ = Describe("PackagesStage", func() {
 		It("does not affect install stage creation", func(ctx context.Context) {
 			imageBaseConfig := &config.StapelImageBase{
 				Shell: &config.Shell{
-					Packages: []string{"cd /app && go mod download"},
+					Packages: []string{"cd \"/app\" && go mod download"},
 					Install:  []string{"go build ./..."},
 				},
 			}
@@ -157,21 +157,21 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		},
 
 		Entry("go-mod /app", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
-		}, []string{"cd /app && go mod download"}),
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+		}, []string{"cd \"/app\" && go mod download"}),
 
 		Entry("go-mod /src/backend", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/src/backend"}},
-		}, []string{"cd /src/backend && go mod download"}),
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/src/backend"}},
+		}, []string{"cd \"/src/backend\" && go mod download"}),
 
 		Entry("multiple go-mod entries", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/lib"}},
-		}, []string{"cd /app && go mod download", "cd /lib && go mod download"}),
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/lib"}},
+		}, []string{"cd \"/app\" && go mod download", "cd \"/lib\" && go mod download"}),
 
 		Entry("root workdir", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/"}},
-		}, []string{"cd / && go mod download"}),
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/"}},
+		}, []string{"cd \"/\" && go mod download"}),
 
 		Entry("unsupported type", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveType("unknown")},
@@ -187,11 +187,41 @@ var _ = Describe("GeneratePackagesCommands", func() {
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "wget", "jq"}}},
 		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "pm install wget", "pm install jq"}),
 
-		Entry("mixed types: os-pm and go-mod produce commands", []*config.PackagesDirective{
+		Entry("mixed types: os-pm and go-mod skip unsupported cargo type", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-			{Type: config.PackagesDirectiveTypeGoMod, GoMod: config.GoModSpec{Workdir: "/app"}},
-			{Type: config.PackagesDirectiveType("pip")},
-		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "cd /app && go mod download"}),
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+			{Type: config.PackagesDirectiveType("cargo")},
+		}, []string{config.ContainerFactoryVersionSnapshotCmd(), "pm install curl", "cd \"/app\" && go mod download"}),
+
+		Entry("python-pip /app requirements.txt", []*config.PackagesDirective{
+			{
+				Type:      config.PackagesDirectiveTypePythonPip,
+				FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"},
+			},
+		}, []string{"cd \"/app\" && pip install --no-cache-dir -r \"requirements.txt\""}),
+
+		Entry("python-poetry /svc", []*config.PackagesDirective{
+			{
+				Type:      config.PackagesDirectiveTypePythonPoetry,
+				FileBased: config.FileBasedSpec{Workdir: "/svc"},
+			},
+		}, []string{"cd \"/svc\" && poetry sync --no-root"}),
+
+		Entry("python-uv /api", []*config.PackagesDirective{
+			{
+				Type:      config.PackagesDirectiveTypePythonUV,
+				FileBased: config.FileBasedSpec{Workdir: "/api"},
+			},
+		}, []string{"cd \"/api\" && uv sync --frozen"}),
+
+		Entry("mixed: go-mod + python-uv + os-pm all produce commands", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+			{
+				Type:      config.PackagesDirectiveTypePythonUV,
+				FileBased: config.FileBasedSpec{Workdir: "/lib"},
+			},
+			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+		}, []string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen", config.ContainerFactoryVersionSnapshotCmd(), "pm install curl"}),
 	)
 })
 
@@ -228,7 +258,7 @@ var _ = Describe("Shell.Packages config field", func() {
 			}
 		},
 
-		Entry("populated", &config.Shell{Packages: []string{"cd /app && go mod download"}}, 1, "cd /app && go mod download"),
+		Entry("populated", &config.Shell{Packages: []string{"cd \"/app\" && go mod download"}}, 1, "cd \"/app\" && go mod download"),
 		Entry("empty", &config.Shell{}, 0, ""),
 	)
 
@@ -260,12 +290,12 @@ var _ = Describe("Builder interface Packages methods", func() {
 		},
 
 		Entry("same commands — same checksum",
-			[]string{"cd /app && go mod download"},
-			[]string{"cd /app && go mod download"},
+			[]string{"cd \"/app\" && go mod download"},
+			[]string{"cd \"/app\" && go mod download"},
 			true),
 		Entry("different commands — different checksum",
-			[]string{"cd /app && go mod download"},
-			[]string{"cd /lib && go mod download"},
+			[]string{"cd \"/app\" && go mod download"},
+			[]string{"cd \"/lib\" && go mod download"},
 			false),
 	)
 

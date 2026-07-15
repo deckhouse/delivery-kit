@@ -3,7 +3,6 @@ package config
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"gopkg.in/yaml.v2"
 
 	"github.com/werf/common-go/pkg/util"
 )
@@ -18,31 +17,15 @@ var _ = Describe("rawPackagesDirective go-mod", func() {
 		giterminismManager = NewGiterminismManagerStub(localGitRepo)
 	})
 
-	directivesFromYaml := func(yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
-		rawYaml, err := yaml.Marshal(yamlMap)
-		Expect(err).To(Succeed())
-
-		doc := &doc{Content: rawYaml}
-		rawStapelImage := &rawStapelImage{doc: doc}
-
-		Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
-
-		stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
-		if err != nil {
-			return nil, err
-		}
-		return stapelImage.Packages, nil
-	}
-
 	DescribeTable("unmarshal and convert succeed",
 		func(yamlMap map[string]interface{}, expected []*PackagesDirective) {
-			packages, err := directivesFromYaml(yamlMap)
+			packages, err := directivesFromYaml(giterminismManager, yamlMap)
 			Expect(err).To(Succeed())
 
 			Expect(packages).To(HaveLen(len(expected)))
 			for i, exp := range expected {
 				Expect(packages[i].Type).To(Equal(exp.Type))
-				Expect(packages[i].GoMod).To(Equal(exp.GoMod))
+				Expect(packages[i].FileBased).To(Equal(exp.FileBased))
 			}
 		},
 
@@ -60,7 +43,7 @@ var _ = Describe("rawPackagesDirective go-mod", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeGoMod,
-					GoMod: GoModSpec{
+					FileBased: FileBasedSpec{
 						Workdir: "/app/api",
 						Spec:    "go.mod",
 						Lock:    "go.sum",
@@ -85,7 +68,7 @@ var _ = Describe("rawPackagesDirective go-mod", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeGoMod,
-					GoMod: GoModSpec{
+					FileBased: FileBasedSpec{
 						Workdir: "/app/cli",
 						Spec:    "go.mod",
 						Lock:    "go.sum",
@@ -111,12 +94,12 @@ var _ = Describe("rawPackagesDirective go-mod", func() {
 			},
 			[]*PackagesDirective{
 				{
-					Type:  PackagesDirectiveTypeGoMod,
-					GoMod: GoModSpec{Workdir: "/app/api", Spec: "go.mod", Lock: "go.sum"},
+					Type:      PackagesDirectiveTypeGoMod,
+					FileBased: FileBasedSpec{Workdir: "/app/api", Spec: "go.mod", Lock: "go.sum"},
 				},
 				{
-					Type:  PackagesDirectiveTypeGoMod,
-					GoMod: GoModSpec{Workdir: "/app/cli", Spec: "go.mod", Lock: "go.sum"},
+					Type:      PackagesDirectiveTypeGoMod,
+					FileBased: FileBasedSpec{Workdir: "/app/cli", Spec: "go.mod", Lock: "go.sum"},
 				},
 			},
 		),
@@ -124,7 +107,7 @@ var _ = Describe("rawPackagesDirective go-mod", func() {
 
 	DescribeTable("convert to directive fails when required fields are missing",
 		func(yamlMap map[string]interface{}) {
-			_, err := directivesFromYaml(yamlMap)
+			_, err := directivesFromYaml(giterminismManager, yamlMap)
 			Expect(err).To(HaveOccurred())
 		},
 

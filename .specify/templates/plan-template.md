@@ -12,29 +12,29 @@
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+**Language/Version**: Go 1.24.10
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
+**Primary Dependencies**:
+- **Container building**: `containers/buildah` (werf fork: `werf/3p-buildah`), `containers/storage`, `containers/image`
+- **Kubernetes deployment**: `werf/nelm`, `werf/kubedog`, Helm chart primitives
+- **Kubernetes client**: `k8s.io/client-go`, `k8s.io/api`, `k8s.io/apimachinery`
+- **Container registry**: `google/go-containerregistry`, `aws/aws-sdk-go-v2` (ECR)
+- **SBOM**: `CycloneDX/cyclonedx-go`, `facebookincubator/nvdtools`
+- **Utilities**: `samber/lo`, `werf/common-go`, `go-git/go-git`, `docker/docker` (API client)
 
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+**Storage**: OCI container registry (Docker v2, ECR), local git repository, Buildah container storage
 
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+**Testing**: `testing` + `testify` (`assert`/`require`) for unit tests; Ginkgo for e2e tests
 
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
+**Target Platform**: Linux (amd64/arm64) via Buildah; Kubernetes clusters
 
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Project Type**: CLI tool (Go binary via `cmd/werf/main.go`)
 
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
+**Performance Goals**: Container build throughput, image pull/push throughput, efficient stage caching
 
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
+**Constraints**: CLI must be self-contained; no daemon dependency; POSIX filesystem operations; OCI-compatible registry interaction
 
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
-
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Scale/Scope**: Single binary CLI tool with ~30+ subcommands across build, deploy, cleanup, SBOM, and auxiliary domains
 
 ## Constitution Check
 
@@ -57,51 +57,44 @@ specs/[###-feature]/
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+cmd/werf/                    # CLI entry point and command tree (Cobra)
+├── main.go
+├── root/
+├── build/
+├── deploy/                  # converge, render, dismiss, rollback
+├── helm/                    # Helm subcommands (install, upgrade, template, lint, secret)
+├── cleanup/
+├── export/
+├── sbom/                    # get, merge, validate
+├── config/                  # graph, list, render
+├── common/                  # Shared CLI utilities and types
+└── ...
 
-tests/
-├── contract/
-├── integration/
-└── unit/
+pkg/                         # All business logic, organized by domain
+├── build/                   # Image building pipeline
+├── deploy/                  # Kubernetes deployment
+├── sbom/                    # SBOM generation & validation
+├── cleaning/                # Registry cleanup
+├── docker_registry/         # Registry operations
+├── config/                  # Configuration model
+├── container_backend/       # Buildah/Docker abstraction
+├── signature/               # Image signing
+├── storage/                 # Abstract image storage
+├── kubeutils/               # Kubernetes utilities
+├── logging/                 # Structured logging
+├── git_repo/                # Git operations
+├── telemetry/               # Usage telemetry
+└── ...
 
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+test/
+├── e2e/                     # Ginkgo end-to-end tests
+├── legacy_e2e/              # Legacy integration tests
+└── pkg/                     # Shared test helpers
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: Monolith CLI tool — `cmd/werf/` for command wiring, `pkg/...` for business logic. New feature code goes into the relevant `pkg/<domain>/` package and registers commands in `cmd/werf/<domain>/`.
 
 ## Complexity Tracking
 

@@ -3,10 +3,11 @@
   "version": "0.12.14",
   "installed_at": "2026-07-10T13:45:27.381232+00:00",
   "files": {
-    ".specify/templates/plan-template.md": "cc7f7979cf8d8836ec26492785affd80791d3422a2b745062ec695be8c985ef7",
-    ".specify/templates/spec-template.md": "3945437fc35cd30a5b2bf7beea680337c3516826d3efa5a6b92c4a7eca1ba28e",
-    ".specify/templates/constitution-template.md": "ce7549540fa45543cca797a150201d868e64495fdff39dc38246fb17bd4024b3",
-    ".specify/templates/checklist-template.md": "c37695297e5d3153d64f82c21223509940b13932046c7961c42d1d669516130c",
-    ".specify/templates/tasks-template.md": "fc29a233f6f5a27ca31f1aa46b596af6500c627441c6e62b2bc4a1d721525842"
+    ".specify/memory/constitution.md": "141ddcf3cd8b3db688fb1e036496ba331e157eda38e2c76de4d6fd55454dffa8",
+        ".specify/templates/plan-template.md": "1a10a53dcebe6b415b853e513bfc80e1e28af349b513d64321f89d477b5f28b4",
+        ".specify/templates/spec-template.md": "cc5cda81229e4999947576026fccaaa6e56b07ada9a415e280cc6f902063a111",
+        ".specify/templates/constitution-template.md": "f9c59bb645da36a7504095c40b06214eb8d85f9b146e9b51b963ba9525a6ae03",
+        ".specify/templates/checklist-template.md": "6f8ae783b6ac828ad4dd6246b5b88c6bd7e9031c03021e076bf088c6181aa68d",
+        ".specify/templates/tasks-template.md": "eecbecb2fe90a3bc22b0fe3273656b48fbd969039c091229607f8be1606b61d6"
   }
 }

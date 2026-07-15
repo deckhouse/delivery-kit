@@ -21,10 +21,20 @@ description: "Task list template for feature implementation"
 
 ## Path Conventions
 
-- **Single project**: `src/`, `tests/` at repository root
-- **Web app**: `backend/src/`, `frontend/src/`
-- **Mobile**: `api/src/`, `ios/src/` or `android/src/`
-- Paths shown below assume single project - adjust based on plan.md structure
+- **CLI commands**: `cmd/werf/<domain>/`
+- **Business logic**: `pkg/<domain>/`
+- **Unit tests**: co-located with source files as `*_test.go`
+- **AI-written tests**: `*_ai_test.go` with `TestAI_` prefix
+- **E2E tests**: `test/e2e/<domain>/`
+- **Test helpers**: `test/pkg/`
+
+## Build & Test Commands
+
+- **Build**: `task build` (produces `./bin/werf`)
+- **Unit tests**: `task test:unit -- -run TestMyFunc ./pkg/...`
+- **E2E tests**: `task test:e2e -- -labelFilter="my-label" ./test/e2e/...`
+- **Linting**: `task lint:golangci-lint -- golangciPaths="./pkg/..."` (do NOT run raw `golangci-lint`)
+- **Formatting**: `task format`
 
 <!--
   ============================================================================
@@ -50,7 +60,7 @@ description: "Task list template for feature implementation"
 **Purpose**: Project initialization and basic structure
 
 - [ ] T001 Create project structure per implementation plan
-- [ ] T002 Initialize [language] project with [framework] dependencies
+- [ ] T002 Initialize Go module with dependencies
 - [ ] T003 [P] Configure linting and formatting tools
 
 ---
@@ -63,11 +73,11 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 Setup database schema and migrations framework
-- [ ] T005 [P] Implement authentication/authorization framework
-- [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities that all stories depend on
-- [ ] T008 Configure error handling and logging infrastructure
+- [ ] T004 Create types and interfaces in `pkg/<domain>/<types>.go`
+- [ ] T005 [P] Implement core logic in `pkg/<domain>/<core>.go`
+- [ ] T006 [P] Register CLI command tree in `cmd/werf/<domain>/<command>.go`
+- [ ] T007 Create shared constants and helpers
+- [ ] T008 Configure error handling and logging
 - [ ] T009 Setup environment configuration management
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
@@ -84,15 +94,15 @@ Examples of foundational tasks (adjust based on your project):
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T010 [P] [US1] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T011 [P] [US1] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T010 [P] [US1] Unit test for [core logic] in `pkg/<domain>/<file>_test.go`
+- [ ] T011 [P] [US1] Unit test for [CLI command] in `cmd/werf/<domain>/<file>_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Create [Entity1] model in src/models/[entity1].py
-- [ ] T013 [P] [US1] Create [Entity2] model in src/models/[entity2].py
-- [ ] T014 [US1] Implement [Service] in src/services/[service].py (depends on T012, T013)
-- [ ] T015 [US1] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T012 [P] [US1] Implement [core type/interface] in `pkg/<domain>/<file>.go`
+- [ ] T013 [P] [US1] Implement [helper/utility] in `pkg/<domain>/<file>.go`
+- [ ] T014 [US1] Implement [business logic] in `pkg/<domain>/<file>.go` (depends on T012, T013)
+- [ ] T015 [US1] Implement CLI command in `cmd/werf/<domain>/<file>.go`
 - [ ] T016 [US1] Add validation and error handling
 - [ ] T017 [US1] Add logging for user story 1 operations
 
@@ -108,15 +118,14 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 2 (OPTIONAL - only if tests requested) ⚠️
 
-- [ ] T018 [P] [US2] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T019 [P] [US2] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T018 [P] [US2] Unit test for [core logic] in `pkg/<domain>/<file>_test.go`
+- [ ] T019 [P] [US2] Unit test for [CLI command] in `cmd/werf/<domain>/<file>_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Create [Entity] model in src/models/[entity].py
-- [ ] T021 [US2] Implement [Service] in src/services/[service].py
-- [ ] T022 [US2] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T023 [US2] Integrate with User Story 1 components (if needed)
+- [ ] T020 [P] [US2] Implement [core logic] in `pkg/<domain>/<file>.go`
+- [ ] T021 [US2] Implement CLI command in `cmd/werf/<domain>/<file>.go`
+- [ ] T022 [US2] Integrate with User Story 1 components (if needed)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -130,14 +139,13 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 3 (OPTIONAL - only if tests requested) ⚠️
 
-- [ ] T024 [P] [US3] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T025 [P] [US3] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T023 [P] [US3] Unit test for [core logic] in `pkg/<domain>/<file>_test.go`
+- [ ] T024 [P] [US3] Unit test for [CLI command] in `cmd/werf/<domain>/<file>_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T026 [P] [US3] Create [Entity] model in src/models/[entity].py
-- [ ] T027 [US3] Implement [Service] in src/services/[service].py
-- [ ] T028 [US3] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T025 [P] [US3] Implement [core logic] in `pkg/<domain>/<file>.go`
+- [ ] T026 [US3] Implement CLI command in `cmd/werf/<domain>/<file>.go`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -151,12 +159,13 @@ Examples of foundational tasks (adjust based on your project):
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] TXXX [P] Documentation updates in docs/
+- [ ] TXXX [P] Documentation updates in `docs/`
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
+- [ ] TXXX [P] Additional unit tests (if requested) in `pkg/<domain>/<file>_test.go`
 - [ ] TXXX Security hardening
-- [ ] TXXX Run quickstart.md validation
+- [ ] TXXX [P] CLI help text generation (`task doc:gen`)
+- [ ] TXXX [P] E2E tests in `test/e2e/<domain>/`
 
 ---
 
@@ -180,9 +189,8 @@ Examples of foundational tasks (adjust based on your project):
 ### Within Each User Story
 
 - Tests (if included) MUST be written and FAIL before implementation
-- Models before services
-- Services before endpoints
-- Core implementation before integration
+- Core types before business logic
+- Business logic before CLI commands
 - Story complete before moving to next priority
 
 ### Parallel Opportunities
@@ -191,7 +199,7 @@ Examples of foundational tasks (adjust based on your project):
 - All Foundational tasks marked [P] can run in parallel (within Phase 2)
 - Once Foundational phase completes, all user stories can start in parallel (if team capacity allows)
 - All tests for a user story marked [P] can run in parallel
-- Models within a story marked [P] can run in parallel
+- Types within a story marked [P] can run in parallel
 - Different user stories can be worked on in parallel by different team members
 
 ---
@@ -200,12 +208,12 @@ Examples of foundational tasks (adjust based on your project):
 
 ```bash
 # Launch all tests for User Story 1 together (if tests requested):
-Task: "Contract test for [endpoint] in tests/contract/test_[name].py"
-Task: "Integration test for [user journey] in tests/integration/test_[name].py"
+Task: "task test:unit -- -run TestMyFunc ./pkg/<domain>/..."
+Task: "task test:unit -- -run TestMyCommand ./cmd/werf/<domain>/..."
 
-# Launch all models for User Story 1 together:
-Task: "Create [Entity1] model in src/models/[entity1].py"
-Task: "Create [Entity2] model in src/models/[entity2].py"
+# Launch all types for User Story 1 together:
+Task: "Implement core type in pkg/<domain>/<file>.go"
+Task: "Implement helper in pkg/<domain>/<file>.go"
 ```
 
 ---

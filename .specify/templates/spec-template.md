@@ -8,6 +8,18 @@
 
 **Input**: User description: "$ARGUMENTS"
 
+## Project Context
+
+**Delivery Kit** is a Go CLI tool for full-cycle CI/CD to Kubernetes. It is built on top of werf with Deckhouse Platform extensions. Key subsystems:
+
+- **Build** (`pkg/build/`) — Container image building via Buildah
+- **Deploy** (`pkg/deploy/`) — Kubernetes deployment via werf/nelm (Helm-based)
+- **SBOM** (`pkg/sbom/`) — Software Bill of Materials generation and validation
+- **Cleanup** (`pkg/cleaning/`) — Container registry cleanup policies
+- **Signature** (`pkg/signature/`) — Container image signing and verification
+- **Docker Registry** (`pkg/docker_registry/`) — OCI registry operations
+- **Config** (`pkg/config/`) — werf.yaml configuration parsing
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -97,6 +109,14 @@
 
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
 - **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+
+### Go-Specific Requirements *(when applicable)*
+
+- All public functions MUST accept `context.Context` as the first parameter
+- Errors MUST be wrapped with `fmt.Errorf("doing something: %w", err)`
+- Use `samber/lo` helpers (`lo.Filter`, `lo.Map`, `lo.Contains`, etc.) where appropriate
+- Optional arguments use `<FunctionName>Options` struct — never functional options
+- Add `var _ Interface = (*Impl)(nil)` compile-time check for each interface implementation
 
 ### Key Entities *(include if feature involves data)*
 

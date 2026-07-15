@@ -1,19 +1,43 @@
 schema: spec-driven
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Delivery Kit is a Go CLI tool for full-cycle CI/CD to Kubernetes, built on top of werf with Deckhouse Platform extensions.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Tech stack:
+    - Language: Go 1.24.10
+    - CLI framework: Cobra
+    - Container engine: Buildah (werf fork)
+    - Kubernetes deployment: werf/nelm (Helm-based)
+    - Container registry: Docker v2, ECR (via google/go-containerregistry)
+    - Kubernetes client: k8s.io/client-go, k8s.io/api, k8s.io/apimachinery
+    - Testing: Ginkgo + Gomega (all tests)
+    - Build system: Taskfile (remote includes from werf/common-ci)
+    - Linting: golangci-lint v1.64.8, prettier
+    - Release: release-please, trdl
+
+  Architecture:
+    - Pattern: Monolith CLI tool
+    - Entry point: cmd/werf/main.go
+    - Commands: cmd/werf/ (Cobra command tree, thin wiring layer)
+    - Libraries: pkg/ (build, deploy, sbom, cleaning, signature, docker_registry, config, etc.)
+    - E2E tests: test/e2e/ (Ginkgo)
+    - Docs: docs/ (Jekyll, bilingual en/ru)
+
+  Conventions:
+    - Conventional Commits: type(scope): description
+    - Branch names: feat/*, fix/*, chore/*, deps/*
+    - File naming: snake_case.go (Go), PascalCase for exported types
+    - All public functions accept context.Context as first param
+    - Tests co-located with source, all tests use Ginkgo + Gomega
+    - Build via `task build`, test via `task test:unit`, lint via `task lint:golangci-lint`
+    - Environment: TASK_X_REMOTE_TASKFILES=1 required
+
+rules:
+  proposal:
+    - Keep proposals focused on a single subsystem (pkg/<domain>/)
+    - Always include the affected package paths and CLI command names
+    - Reference existing Go interfaces and types when proposing changes
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Include exact file paths (cmd/werf/<domain>/ or pkg/<domain>/)
+    - Test tasks reference actual commands: task test:unit, task test:e2e
+    - Build tasks reference task build

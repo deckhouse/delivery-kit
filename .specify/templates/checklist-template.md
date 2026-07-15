@@ -38,3 +38,20 @@
 - Add comments or findings inline
 - Link to relevant resources or documentation
 - Items are numbered sequentially for easy reference
+
+---
+
+## Go-Specific Checklist Items (when applicable)
+
+- [ ] G001 All public functions accept `context.Context` as first parameter
+- [ ] G002 Errors wrapped with `fmt.Errorf("doing something: %w", err)` — describe the action, not the failure
+- [ ] G003 Compile-time interface check: `var _ Interface = (*Impl)(nil)`
+- [ ] G004 Optional arguments use `<Fn>Options` struct, not functional options
+- [ ] G005 No `iota`, no named returns, no dot imports
+- [ ] G006 Tests use Ginkgo + Gomega, co-located with source
+- [ ] G007 Tests follow project conventions (no special postfixes in test names or file names)
+- [ ] G008 No `this`/`self` as receiver names (1-2 letters, consistent)
+- [ ] G009 `task build` passes (not raw `go build`)
+- [ ] G010 `task test:unit` passes for affected packages (not raw `go test`)
+- [ ] G011 `task lint:golangci-lint` passes (not raw `golangci-lint`)
+- [ ] G012 No TODOs, stubs, or partial implementations left in code

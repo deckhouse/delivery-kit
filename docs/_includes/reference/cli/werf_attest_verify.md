@@ -89,7 +89,7 @@ werf attest verify [options]
       --tmp-dir=""
             Use specified dir to store tmp files and dirs (default $WERF_TMP_DIR or system tmp dir)
       --type=""
-            Predicate type: openvex, cyclonedx, spdxjson, slsaprovenance, slsaprovenance1, or a     
+            Predicate type: cyclonedx, openvex, slsaprovenance, slsaprovenance1, spdxjson, or a     
             full URI (required)
 ```
 

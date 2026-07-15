@@ -26,13 +26,10 @@ A central `ecosystems` map (`map[PackagesDirectiveType]PackageEcosystem`) regist
 | Field | Purpose |
 |-------|---------|
 | `Type` | Canonical type constant |
-| `Aliases` | Short name variants (e.g., `uv` → `python-uv`) |
 | `DefaultSpec` | Default manifest file name |
 | `DefaultLock` | Default lock file name (empty if not applicable) |
 | `InstallCmd` | Function returning the package manager install command |
 | `CatalogerName` | syft cataloger for SBOM generation |
-
-The alias index (`aliasToType`) is built at package init time from the ecosystem registry.
 
 ### Architecture Changes
 
@@ -40,7 +37,6 @@ The alias index (`aliasToType`) is built at package init time from the ecosystem
 2. **`fillGoModSpec` → `fillFileBasedSpec`** — Reads defaults from ecosystem registry; validates lock availability; returns error on invalid spec type
 3. **`GeneratePackagesCommands`** — Refactored from `switch` to registry-based dispatch: OSPM has a dedicated `if` branch, then the rest fall through to ecosystem lookup
 4. **`buildResolvers`** in `managedinput.go` — Dynamically constructs input resolvers from `config.Ecosystems()`, sorted alphabetically for deterministic ordering
-5. **`rawPackagesDirective.toDirective`** — Added alias resolution before type canonicalization
 
 ## Project Structure
 
@@ -81,7 +77,6 @@ docs/_data/
 ## Design Decisions
 
 1. **Ecosystem registry over switch** — A map-based registry makes adding new package types purely declarative (add a constant + entry). The old switch on `PackagesDirectiveType` is replaced entirely for file-based types.
-2. **Aliases resolved at parse time** — `rawPackagesDirective.toDirective()` canonicalizes aliases before storing, so downstream code only sees canonical types.
-3. **Separate OSPM handling** — OS package manager (`os-pm`) remains distinct because its spec structure (`PackagesSpec.Packages` list) is incompatible with the file-based model.
-4. **Deterministic resolver ordering** — `buildResolvers()` sorts types alphabetically so that SBOM cataloger order is stable across invocations and builds.
-5. **Quoted `workdir` in shell commands** — All generated `cd` commands now use `%q` formatting (`cd "/app" && ...`) to handle paths with spaces or special characters.
+2. **Separate OSPM handling** — OS package manager (`os-pm`) remains distinct because its spec structure (`PackagesSpec.Packages` list) is incompatible with the file-based model.
+3. **Deterministic resolver ordering** — `buildResolvers()` sorts types alphabetically so that SBOM cataloger order is stable across invocations and builds.
+4. **Quoted `workdir` in shell commands** — All generated `cd` commands now use `%q` formatting (`cd "/app" && ...`) to handle paths with spaces or special characters.

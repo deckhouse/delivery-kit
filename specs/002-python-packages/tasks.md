@@ -21,15 +21,11 @@ All tasks are completed — this feature was built incrementally on the branch a
 
 - [x] **T1.3** Implement `PackageEcosystem` struct and `ecosystems` map registry
   - Files: `pkg/config/packages_directive.go`
-  - Status: Registry with Type, Aliases, DefaultSpec, DefaultLock, InstallCmd, CatalogerName
-
-- [x] **T1.4** Implement alias resolution (`aliasToType` index) and `Ecosystems()` accessor
-  - Files: `pkg/config/packages_directive.go`
-  - Status: Aliases `uv/pip/poetry` canonicalized at parse time
+  - Status: Registry with Type, DefaultSpec, DefaultLock, InstallCmd, CatalogerName; `Ecosystems()` accessor
 
 ## Task Group 2: Config Parsing and Validation
 
-- [x] **T2.1** Refactor `rawPackagesDirective.toDirective()` with alias resolution and ecosystem dispatch
+- [x] **T2.1** Refactor `rawPackagesDirective.toDirective()` with ecosystem dispatch
   - Files: `pkg/config/raw_packages_directive.go`
   - Status: OSPM handled via `if`; file-based types delegated to `fillFileBasedSpec`
 
@@ -47,9 +43,9 @@ All tasks are completed — this feature was built incrementally on the branch a
   - Files: `pkg/config/packages_commands.go`
   - Status: OSPM has dedicated `if`; other types dispatch via `ecosystems[pkg.Type].InstallCmd`
 
-- [x] **T3.2** Add Python install commands with `--frozen` determinism for uv and `--no-root` for poetry
+- [x] **T3.2** Add Python install commands with determinism: `--frozen` for uv, `poetry sync` for poetry
   - Files: `pkg/config/packages_directive.go` (ecosystem entries)
-  - Status: `uv sync --frozen`, `pip install --no-cache-dir -r <spec>`, `poetry install --no-root`
+  - Status: `uv sync --frozen`, `pip install --no-cache-dir -r <spec>`, `poetry sync`
 
 ## Task Group 4: SBOM Integration
 
@@ -71,9 +67,9 @@ All tasks are completed — this feature was built incrementally on the branch a
   - Files: `pkg/config/helpers_test.go`
   - Status: Shared between go-mod and python test files
 
-- [x] **T5.2** Write `packages_directive_python_test.go` — unmarshal, defaults, aliases, error cases
+- [x] **T5.2** Write `packages_directive_python_test.go` — unmarshal, defaults, error cases
   - Files: `pkg/config/packages_directive_python_test.go`
-  - Status: 14 entries covering all types, aliases, explicit overrides, missing workdir, invalid spec type, unknown type, lock rejection for pip
+  - Status: 14 entries covering all types, explicit overrides, missing workdir, invalid spec type, unknown type, lock rejection for pip
 
 - [x] **T5.3** Refactor `packages_directive_go_mod_test.go` to use `FileBasedSpec` and shared helper
   - Files: `pkg/config/packages_directive_go_mod_test.go`
@@ -99,7 +95,7 @@ All tasks are completed — this feature was built incrementally on the branch a
 
 - [x] **T6.2** Create poetry e2e test with fixture (`poetry_simple`)
   - Files: `test/e2e/sbom/poetry_test.go` + `_fixtures/inject/poetry_simple/`
-  - Status: Validates `requests@2.32.3` in BOM after `poetry install --no-root`
+  - Status: Validates `requests@2.32.3` in BOM after `poetry sync`
 
 - [x] **T6.3** Create uv e2e test with fixture (`uv_simple`)
   - Files: `test/e2e/sbom/uv_test.go` + `_fixtures/inject/uv_simple/`
@@ -107,7 +103,7 @@ All tasks are completed — this feature was built incrementally on the branch a
 
 ## Task Group 7: Documentation
 
-- [x] **T7.1** Update `docs/_data/werf_yaml.yml` with Python type descriptions, aliases, defaults
+- [x] **T7.1** Update `docs/_data/werf_yaml.yml` with Python type descriptions, defaults
   - Files: `docs/_data/werf_yaml.yml`
   - Status: `type`, `workdir`, `spec`, `lock` fields updated for all three Python ecosystems
 
@@ -127,5 +123,4 @@ All tasks are completed — this feature was built incrementally on the branch a
 
 ## Gaps Identified
 
-1. ⚠️ **poetry lock enforcement** — Unlike `uv --frozen`, poetry's `install --no-root` doesn't have a built-in flag to reject a missing or outdated `poetry.lock`. The lock file existence is expected but not enforced at the package manager level.
-2. ⚠️ **E2E tests with native Buildah** — The e2e tests have `XEntry` (pending) for `native-chroot` and `native-rootless` container backends, indicating these aren't yet validated for Python SBOM scenarios.
+1. ⚠️ **E2E tests with native Buildah** — The e2e tests have `XEntry` (pending) for `native-chroot` and `native-rootless` container backends, indicating these aren't yet validated for Python SBOM scenarios.

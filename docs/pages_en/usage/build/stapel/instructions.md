@@ -142,7 +142,7 @@ No limitations are imposed on assembly instructions. The suggested use of _user 
 
 The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When SBOM generation is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
 
-Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`).
+Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`).
 
 ### OS packages
 
@@ -219,7 +219,18 @@ packages:
 
 Runs `cargo fetch`. Default files: `Cargo.toml` (spec) and `Cargo.lock` (lock). syft uses the `rust-cargo-lock-cataloger` to scan the lock file.
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). Multiple entries of the same or different types can be combined in one image:
+**Lua — LuaRocks** (`lua-rock`):
+
+```yaml
+packages:
+  - type: lua-rock
+    workdir: /app
+    spec: app-0.1-1.rockspec
+```
+
+Runs `luarocks install --only-deps <spec>`. Unlike the other ecosystems, `lua-rock` has no default spec: `spec` is required and must point to the `.rockspec` file (rockspec filenames follow the `<name>-<version>-<revision>.rockspec` convention). LuaRocks has no lock file, so the `lock` field is rejected. syft uses the `lua-rock-cataloger` to scan the rockspec.
+
+All file-based types support `workdir` (required), `spec` (overrides the default manifest filename; required for `lua-rock`), and `lock` (optional, overrides the default lock filename; not supported for `python-pip` and `lua-rock`). Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:
@@ -227,6 +238,9 @@ packages:
     workdir: /app
   - type: rust-cargo
     workdir: /app/native
+  - type: lua-rock
+    workdir: /app/scripts
+    spec: app-0.1-1.rockspec
   - type: os-pm
     spec:
       - libssl-dev

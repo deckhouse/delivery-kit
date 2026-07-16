@@ -245,6 +245,25 @@ var _ = Describe("GeneratePackagesCommands", func() {
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/tools"}},
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"libssl-dev"}}},
 		}, []string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download", config.ContainerFactoryVersionSnapshotCmd(), "pm install libssl-dev"}),
+
+		Entry("lua-rock /app produces luarocks install --only-deps", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
+		}, []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\""}),
+
+		Entry("lua-rock workdir with spaces is quoted", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/my app/rock", Spec: "app-0.1-1.rockspec"}},
+		}, []string{"cd \"/my app/rock\" && luarocks install --only-deps \"app-0.1-1.rockspec\""}),
+
+		Entry("multiple lua-rock entries", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
+			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/lib", Spec: "lib-2.0-1.rockspec"}},
+		}, []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/lib\" && luarocks install --only-deps \"lib-2.0-1.rockspec\""}),
+
+		Entry("mixed: lua-rock + rust-cargo + os-pm all produce commands", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
+			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/native"}},
+			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"libssl-dev"}}},
+		}, []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/native\" && cargo fetch", config.ContainerFactoryVersionSnapshotCmd(), "pm install libssl-dev"}),
 	)
 })
 

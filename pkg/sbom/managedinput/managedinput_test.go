@@ -192,6 +192,55 @@ var _ = Describe("ToCatalogers rust", func() {
 	)
 })
 
+var _ = Describe("ToCatalogers lua", func() {
+	DescribeTable("maps lua-rock directive to lua-rock-cataloger",
+		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
+			Expect(ToCatalogers(packages)).To(Equal(expected))
+		},
+
+		Entry("lua-rock maps to lua-rock-cataloger with spec path only (no lock)",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeLuaRock,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec", Lock: ""},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+			},
+		),
+
+		Entry("lua-rock with nested spec path includes correct path",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeLuaRock,
+					FileBased: config.FileBasedSpec{Workdir: "/src", Spec: "rockspecs/app-0.1-1.rockspec", Lock: ""},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/rockspecs/app-0.1-1.rockspec"}, Workdir: "/src"},
+			},
+		),
+
+		Entry("multiple lua-rock entries produce multiple catalogers",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeLuaRock,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec", Lock: ""},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeLuaRock,
+					FileBased: config.FileBasedSpec{Workdir: "/lib", Spec: "lib-2.0-1.rockspec", Lock: ""},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/lib/lib-2.0-1.rockspec"}, Workdir: "/lib"},
+			},
+		),
+	)
+})
+
 var _ = Describe("ToCatalogers python", func() {
 	DescribeTable("maps python directives to python-package-cataloger",
 		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
@@ -395,6 +444,78 @@ var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
 				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/crate/Cargo.toml", "/crate/Cargo.lock"}, Workdir: "/crate"},
 			},
 			[]string{"github.com/foo/bar", "anyhow"},
+		),
+	)
+})
+
+var _ = Describe("FilterBOMBySourcePaths lua-rock declared", func() {
+	luaProps := func(paths ...string) *[]cdx.Property {
+		props := []cdx.Property{
+			{Name: "syft:package:foundBy", Value: "lua-rock-cataloger"},
+		}
+		for i, p := range paths {
+			props = append(props, cdx.Property{
+				Name:  fmt.Sprintf("syft:location:%d:path", i),
+				Value: p,
+			})
+		}
+		return &props
+	}
+
+	goModProps := func(path string) *[]cdx.Property {
+		return &[]cdx.Property{
+			{Name: "syft:package:foundBy", Value: "go-module-file-cataloger"},
+			{Name: "syft:location:0:path", Value: path},
+		}
+	}
+
+	DescribeTable("exact-match path filtering for lua-rock",
+		func(bom *cdx.BOM, catalogers []scanner.Cataloger, expectedNames []string) {
+			FilterBOMBySourcePaths(bom, catalogers)
+			Expect(*bom.Components).To(HaveLen(len(expectedNames)))
+			for i, name := range expectedNames {
+				Expect((*bom.Components)[i].Name).To(Equal(name))
+			}
+		},
+
+		Entry("lua component matching rockspec path is kept",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "app", Properties: luaProps("/app/app-0.1-1.rockspec")},
+					{Name: "other", Properties: luaProps("/other/other-0.1-1.rockspec")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+			},
+			[]string{"app"},
+		),
+
+		Entry("lua component from different workdir is filtered out",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "app", Properties: luaProps("/app/app-0.1-1.rockspec")},
+					{Name: "app", Properties: luaProps("/lib/app-0.1-1.rockspec")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+			},
+			[]string{"app"},
+		),
+
+		Entry("regression: go-mod exact-match still works alongside lua-rock cataloger",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "github.com/foo/bar", Properties: goModProps("/app/go.mod")},
+					{Name: "app", Properties: luaProps("/rock/app-0.1-1.rockspec")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/rock/app-0.1-1.rockspec"}, Workdir: "/rock"},
+			},
+			[]string{"github.com/foo/bar", "app"},
 		),
 	)
 })

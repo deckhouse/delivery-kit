@@ -15,6 +15,7 @@ const (
 	PackagesDirectiveTypePythonPip    PackagesDirectiveType = "python-pip"
 	PackagesDirectiveTypePythonPoetry PackagesDirectiveType = "python-poetry"
 	PackagesDirectiveTypeRustCargo    PackagesDirectiveType = "rust-cargo"
+	PackagesDirectiveTypeLuaRock      PackagesDirectiveType = "lua-rock"
 )
 
 type PackagesSpec struct {
@@ -73,6 +74,15 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && cargo fetch", workdir) },
 		CatalogerName: "rust-cargo-lock-cataloger",
 	},
+	PackagesDirectiveTypeLuaRock: {
+		Type:        PackagesDirectiveTypeLuaRock,
+		DefaultSpec: "",
+		DefaultLock: "",
+		InstallCmd: func(workdir, spec string) string {
+			return fmt.Sprintf("cd %q && luarocks install --only-deps %q", workdir, spec)
+		},
+		CatalogerName: "lua-rock-cataloger",
+	},
 }
 
 // Ecosystems returns a defensive copy of the file-based package ecosystems registry.
@@ -97,6 +107,9 @@ func (d *PackagesDirective) validate() error {
 	if _, ok := ecosystems[d.Type]; ok {
 		if d.FileBased.Workdir == "" {
 			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
+		}
+		if d.FileBased.Spec == "" {
+			return fmt.Errorf("the `spec` is required for type %q", d.Type)
 		}
 		return nil
 	}

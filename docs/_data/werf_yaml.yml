@@ -588,23 +588,23 @@ sections:
           - name: type
             value: "string"
             description:
-              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry, rust-cargo)"
-              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry, rust-cargo)"
+              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock)"
+              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock)"
           - name: workdir
             value: "string"
             description:
-              en: "Directory inside the image that contains the spec files (required for go-mod, python-*, and rust-cargo)"
-              ru: "Директория внутри образа, содержащая файлы спецификации (обязательно для go-mod, python-* и rust-cargo)"
+              en: "Directory inside the image that contains the spec files (required for go-mod, python-*, rust-cargo, and lua-rock)"
+              ru: "Директория внутри образа, содержащая файлы спецификации (обязательно для go-mod, python-*, rust-cargo и lua-rock)"
           - name: spec
             value: "string"
             description:
-              en: "Spec file name (defaults: go.mod for go-mod, pyproject.toml for python-uv/python-poetry, requirements.txt for python-pip, Cargo.toml for rust-cargo)"
-              ru: "Имя файла спецификации (по умолчанию: go.mod для go-mod, pyproject.toml для python-uv/python-poetry, requirements.txt для python-pip, Cargo.toml для rust-cargo)"
+              en: "Spec file name (defaults: go.mod for go-mod, pyproject.toml for python-uv/python-poetry, requirements.txt for python-pip, Cargo.toml for rust-cargo; required with no default for lua-rock, e.g. app-0.1-1.rockspec)"
+              ru: "Имя файла спецификации (по умолчанию: go.mod для go-mod, pyproject.toml для python-uv/python-poetry, requirements.txt для python-pip, Cargo.toml для rust-cargo; для lua-rock обязательно и без значения по умолчанию, например app-0.1-1.rockspec)"
           - name: lock
             value: "string"
             description:
-              en: "Lock file name (defaults: go.sum for go-mod, uv.lock for python-uv, poetry.lock for python-poetry, Cargo.lock for rust-cargo; empty for python-pip)"
-              ru: "Имя lock-файла (по умолчанию: go.sum для go-mod, uv.lock для python-uv, poetry.lock для python-poetry, Cargo.lock для rust-cargo; пусто для python-pip)"
+              en: "Lock file name (defaults: go.sum for go-mod, uv.lock for python-uv, poetry.lock for python-poetry, Cargo.lock for rust-cargo; empty for python-pip and lua-rock)"
+              ru: "Имя lock-файла (по умолчанию: go.sum для go-mod, uv.lock для python-uv, poetry.lock для python-poetry, Cargo.lock для rust-cargo; пусто для python-pip и lua-rock)"
       - <<: *meta-section-build-cache-version
       - name: platform
         description:

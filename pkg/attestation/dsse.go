@@ -83,9 +83,11 @@ func VerifyDSSE(ctx context.Context, envelopeJSON []byte, expectedPayloadType st
 
 	pae := dsse.PAE(envelope.PayloadType, payload)
 
+	var decodeErrs int
 	for _, envSig := range envelope.Signatures {
 		sigBytes, err := base64.StdEncoding.DecodeString(envSig.Sig)
 		if err != nil {
+			decodeErrs++
 			continue
 		}
 
@@ -96,13 +98,17 @@ func VerifyDSSE(ctx context.Context, envelopeJSON []byte, expectedPayloadType st
 		}
 	}
 
+	if decodeErrs > 0 {
+		return nil, fmt.Errorf("DSSE signature verification failed: no matching verifier found (%d of %d signatures had invalid base64 encoding)", decodeErrs, len(envelope.Signatures))
+	}
+
 	return nil, fmt.Errorf("DSSE signature verification failed: no matching verifier found")
 }
 
-func HasSignatures(envelopeJSON []byte) bool {
+func HasSignatures(envelopeJSON []byte) (bool, error) {
 	var envelope dsse.Envelope
 	if err := json.Unmarshal(envelopeJSON, &envelope); err != nil {
-		return false
+		return false, fmt.Errorf("unmarshal DSSE envelope: %w", err)
 	}
-	return len(envelope.Signatures) > 0
+	return len(envelope.Signatures) > 0, nil
 }

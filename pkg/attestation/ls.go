@@ -47,7 +47,11 @@ func List(ctx context.Context, repo, parentDigest string) ([]AttestationInfo, er
 			continue
 		}
 
-		info.Signed = HasSignatures(content)
+		signed, err := HasSignatures(content)
+		if err != nil {
+			return nil, fmt.Errorf("check signatures for %s: %w", desc.Digest.String(), err)
+		}
+		info.Signed = signed
 
 		if stmtBytes, err := UnwrapDSSE(content, InTotoMediaType); err == nil {
 			if _, predicateType, err := UnwrapInTotoStatement(stmtBytes); err == nil {

@@ -230,7 +230,37 @@ packages:
 
 Runs `luarocks install --only-deps <spec>`. Unlike the other ecosystems, `lua-rock` has no default spec: `spec` is required and must point to the `.rockspec` file (rockspec filenames follow the `<name>-<version>-<revision>.rockspec` convention). LuaRocks has no lock file, so the `lock` field is rejected. syft uses the `lua-rock-cataloger` to scan the rockspec.
 
-All file-based types support `workdir` (required), `spec` (overrides the default manifest filename; required for `lua-rock`), and `lock` (optional, overrides the default lock filename; not supported for `python-pip` and `lua-rock`). Multiple entries of the same or different types can be combined in one image:
+**JavaScript — npm** (`javascript-npm`):
+
+```yaml
+packages:
+  - type: javascript-npm
+    workdir: /app
+```
+
+Runs `npm ci`. Default files: `package.json` (spec) and `package-lock.json` (lock).
+
+**JavaScript — Yarn** (`javascript-yarn`):
+
+```yaml
+packages:
+  - type: javascript-yarn
+    workdir: /app
+```
+
+Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock).
+
+**JavaScript — pnpm** (`javascript-pnpm`):
+
+```yaml
+packages:
+  - type: javascript-pnpm
+    workdir: /app
+```
+
+Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
+
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:

@@ -222,6 +222,36 @@ packages:
 
 Выполняет `poetry install --no-root`. Файлы по умолчанию: `pyproject.toml` (spec) и `poetry.lock` (lock).
 
+**JavaScript — npm** (`javascript-npm`):
+
+```yaml
+packages:
+  - type: javascript-npm
+    workdir: /app
+```
+
+Выполняет `npm ci`. Файлы по умолчанию: `package.json` (spec) и `package-lock.json` (lock).
+
+**JavaScript — Yarn** (`javascript-yarn`):
+
+```yaml
+packages:
+  - type: javascript-yarn
+    workdir: /app
+```
+
+Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock).
+
+**JavaScript — pnpm** (`javascript-pnpm`):
+
+```yaml
+packages:
+  - type: javascript-pnpm
+    workdir: /app
+```
+
+Выполняет `pnpm install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `pnpm-lock.yaml` (lock).
+
 **Rust — Cargo** (`rust-cargo`):
 
 ```yaml
@@ -243,7 +273,7 @@ packages:
 
 Выполняет `luarocks install --only-deps <spec>`. В отличие от остальных экосистем, у `lua-rock` нет значения `spec` по умолчанию: поле `spec` обязательно и должно указывать на файл `.rockspec` (имена rockspec-файлов следуют соглашению `<имя>-<версия>-<ревизия>.rockspec`). У LuaRocks нет lock-файла, поэтому поле `lock` отклоняется с ошибкой. Для генерации SBOM syft использует каталогизатор `lua-rock-cataloger`.
 
-Все файловые типы поддерживают поля `workdir` (обязательно), `spec` (переопределяет имя файла манифеста; обязательно для `lua-rock`) и `lock` (опционально, переопределяет имя lock-файла; не поддерживается для `python-pip` и `lua-rock`). В одном образе можно комбинировать несколько записей одного или разных типов:
+Все файловые типы поддерживают поля `workdir` (обязательно), `spec` (опционально, переопределяет имя файла манифеста) и `lock` (опционально, переопределяет имя lock-файла). В одном образе можно комбинировать несколько записей одного или разных типов:
 
 ```yaml
 packages:

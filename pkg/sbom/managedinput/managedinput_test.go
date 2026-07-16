@@ -192,6 +192,79 @@ var _ = Describe("ToCatalogers rust", func() {
 	)
 })
 
+var _ = Describe("ToCatalogers javascript", func() {
+	DescribeTable("maps javascript directives to javascript-lock-cataloger",
+		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
+			Expect(ToCatalogers(packages)).To(Equal(expected))
+		},
+
+		Entry("javascript-npm maps to javascript-lock-cataloger with spec and lock paths",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "package-lock.json"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+			},
+		),
+
+		Entry("javascript-yarn maps to javascript-lock-cataloger with spec and yarn.lock paths",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptYarn,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "yarn.lock"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/yarn.lock"}, Workdir: "/app"},
+			},
+		),
+
+		Entry("javascript-pnpm maps to javascript-lock-cataloger with spec and pnpm-lock.yaml paths",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptPnpm,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "pnpm-lock.yaml"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/pnpm-lock.yaml"}, Workdir: "/app"},
+			},
+		),
+
+		Entry("javascript-npm with nested workdir includes correct paths",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: config.FileBasedSpec{Workdir: "/src/web", Spec: "package.json", Lock: "package-lock.json"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/web/package.json", "/src/web/package-lock.json"}, Workdir: "/src/web"},
+			},
+		),
+
+		Entry("multiple javascript entries produce multiple catalogers",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "package-lock.json"},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptPnpm,
+					FileBased: config.FileBasedSpec{Workdir: "/sdk", Spec: "package.json", Lock: "pnpm-lock.yaml"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/sdk/package.json", "/sdk/pnpm-lock.yaml"}, Workdir: "/sdk"},
+			},
+		),
+	)
+})
+
 var _ = Describe("ToCatalogers lua", func() {
 	DescribeTable("maps lua-rock directive to lua-rock-cataloger",
 		func(packages []*config.PackagesDirective, expected []scanner.Cataloger) {
@@ -444,6 +517,104 @@ var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
 				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/crate/Cargo.toml", "/crate/Cargo.lock"}, Workdir: "/crate"},
 			},
 			[]string{"github.com/foo/bar", "anyhow"},
+		),
+	)
+})
+
+var _ = Describe("FilterBOMBySourcePaths javascript declared", func() {
+	javascriptProps := func(paths ...string) *[]cdx.Property {
+		props := []cdx.Property{
+			{Name: "syft:package:foundBy", Value: "javascript-lock-cataloger"},
+		}
+		for i, p := range paths {
+			props = append(props, cdx.Property{
+				Name:  fmt.Sprintf("syft:location:%d:path", i),
+				Value: p,
+			})
+		}
+		return &props
+	}
+
+	goModProps := func(path string) *[]cdx.Property {
+		return &[]cdx.Property{
+			{Name: "syft:package:foundBy", Value: "go-module-file-cataloger"},
+			{Name: "syft:location:0:path", Value: path},
+		}
+	}
+
+	DescribeTable("exact-match path filtering for javascript",
+		func(bom *cdx.BOM, catalogers []scanner.Cataloger, expectedNames []string) {
+			FilterBOMBySourcePaths(bom, catalogers)
+			Expect(*bom.Components).To(HaveLen(len(expectedNames)))
+			for i, name := range expectedNames {
+				Expect((*bom.Components)[i].Name).To(Equal(name))
+			}
+		},
+
+		Entry("javascript-npm component matching package.json path is kept",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Properties: javascriptProps("/app/package.json")},
+					{Name: "express", Properties: javascriptProps("/other/package.json")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+			},
+			[]string{"lodash"},
+		),
+
+		Entry("javascript-yarn component matching yarn.lock path is kept",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Properties: javascriptProps("/app/yarn.lock")},
+					{Name: "express", Properties: javascriptProps("/other/yarn.lock")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/yarn.lock"}, Workdir: "/app"},
+			},
+			[]string{"lodash"},
+		),
+
+		Entry("javascript-pnpm component matching pnpm-lock.yaml path is kept",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Properties: javascriptProps("/app/pnpm-lock.yaml")},
+					{Name: "express", Properties: javascriptProps("/other/pnpm-lock.yaml")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/pnpm-lock.yaml"}, Workdir: "/app"},
+			},
+			[]string{"lodash"},
+		),
+
+		Entry("javascript component from different workdir is filtered out",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Properties: javascriptProps("/app/package.json")},
+					{Name: "lodash", Properties: javascriptProps("/lib/package.json")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+			},
+			[]string{"lodash"},
+		),
+
+		Entry("regression: go-mod exact-match still works alongside javascript cataloger",
+			&cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "github.com/foo/bar", Properties: goModProps("/app/go.mod")},
+					{Name: "lodash", Properties: javascriptProps("/app/package.json")},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+			},
+			[]string{"github.com/foo/bar", "lodash"},
 		),
 	)
 })

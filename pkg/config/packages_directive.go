@@ -9,13 +9,16 @@ import (
 type PackagesDirectiveType string
 
 const (
-	PackagesDirectiveTypeOSPM         PackagesDirectiveType = "os-pm"
-	PackagesDirectiveTypeGoMod        PackagesDirectiveType = "go-mod"
-	PackagesDirectiveTypePythonUV     PackagesDirectiveType = "python-uv"
-	PackagesDirectiveTypePythonPip    PackagesDirectiveType = "python-pip"
-	PackagesDirectiveTypePythonPoetry PackagesDirectiveType = "python-poetry"
-	PackagesDirectiveTypeRustCargo    PackagesDirectiveType = "rust-cargo"
-	PackagesDirectiveTypeLuaRock      PackagesDirectiveType = "lua-rock"
+	PackagesDirectiveTypeOSPM           PackagesDirectiveType = "os-pm"
+	PackagesDirectiveTypeGoMod          PackagesDirectiveType = "go-mod"
+	PackagesDirectiveTypePythonUV       PackagesDirectiveType = "python-uv"
+	PackagesDirectiveTypePythonPip      PackagesDirectiveType = "python-pip"
+	PackagesDirectiveTypePythonPoetry   PackagesDirectiveType = "python-poetry"
+	PackagesDirectiveTypeRustCargo      PackagesDirectiveType = "rust-cargo"
+	PackagesDirectiveTypeJavaScriptNpm  PackagesDirectiveType = "javascript-npm"
+	PackagesDirectiveTypeJavaScriptYarn PackagesDirectiveType = "javascript-yarn"
+	PackagesDirectiveTypeJavaScriptPnpm PackagesDirectiveType = "javascript-pnpm"
+	PackagesDirectiveTypeLuaRock        PackagesDirectiveType = "lua-rock"
 )
 
 type FileBasedSpec struct {
@@ -69,6 +72,27 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultLock:   "Cargo.lock",
 		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && cargo fetch", workdir) },
 		CatalogerName: "rust-cargo-lock-cataloger",
+	},
+	PackagesDirectiveTypeJavaScriptNpm: {
+		Type:          PackagesDirectiveTypeJavaScriptNpm,
+		DefaultSpec:   "package.json",
+		DefaultLock:   "package-lock.json",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && npm ci", workdir) },
+		CatalogerName: "javascript-lock-cataloger",
+	},
+	PackagesDirectiveTypeJavaScriptYarn: {
+		Type:          PackagesDirectiveTypeJavaScriptYarn,
+		DefaultSpec:   "package.json",
+		DefaultLock:   "yarn.lock",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && yarn install --frozen-lockfile", workdir) },
+		CatalogerName: "javascript-lock-cataloger",
+	},
+	PackagesDirectiveTypeJavaScriptPnpm: {
+		Type:          PackagesDirectiveTypeJavaScriptPnpm,
+		DefaultSpec:   "package.json",
+		DefaultLock:   "pnpm-lock.yaml",
+		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && pnpm install --frozen-lockfile", workdir) },
+		CatalogerName: "javascript-lock-cataloger",
 	},
 	PackagesDirectiveTypeLuaRock: {
 		Type:        PackagesDirectiveTypeLuaRock,

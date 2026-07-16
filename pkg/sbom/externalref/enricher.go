@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/werf/logboek"
@@ -57,64 +58,42 @@ func NewEnricher(resolve func(ctx context.Context, purl string) (*ResolveResult,
 	return &Enricher{resolve: resolve}
 }
 
+type componentError struct {
+	name string
+	purl string
+	err  error
+}
+
 func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	if bom == nil || bom.Components == nil {
 		return nil
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
+	var g errgroup.Group
 	g.SetLimit(10)
 
 	var seen sync.Map
 
 	components := *bom.Components
+	compErrs := make([]*componentError, len(components))
 	for i := range components {
 		comp := &components[i]
 		g.Go(func() error {
-			if comp.ExternalReferences != nil && len(*comp.ExternalReferences) > 0 {
-				for _, ref := range *comp.ExternalReferences {
-					seen.Store(ref.URL+"|"+string(ref.Type), ref)
-				}
+			if err := e.enrichComponent(ctx, comp, &seen); err != nil {
+				compErrs[i] = &componentError{name: comp.Name, purl: comp.PackageURL, err: err}
 			}
-
-			if comp.PackageURL == "" {
-				if purlNotExpected(comp.Type) {
-					return nil
-				}
-				return fmt.Errorf("enrich: component %q (type %q) has no purl", comp.Name, comp.Type)
-			}
-
-			if comp.Version == "(devel)" {
-				return nil
-			}
-
-			res, err := e.resolve(ctx, comp.PackageURL)
-			if err != nil {
-				return fmt.Errorf("enrich %q: %w", comp.PackageURL, err)
-			}
-
-			if err := validateRefKind(res.Kind); err != nil {
-				return fmt.Errorf("enrich %q: %w", comp.PackageURL, err)
-			}
-
-			extRef := cdx.ExternalReference{
-				URL:  res.URL,
-				Type: cdx.ExternalReferenceType(res.Kind),
-			}
-
-			if comp.ExternalReferences == nil {
-				comp.ExternalReferences = &[]cdx.ExternalReference{}
-			}
-			*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
-
-			seen.Store(res.URL+"|"+res.Kind, extRef)
-
 			return nil
 		})
 	}
 
-	if err := g.Wait(); err != nil {
-		return err
+	_ = g.Wait()
+
+	if failed := lo.Compact(compErrs); len(failed) > 0 {
+		logboek.Context(ctx).Error().LogF("Failed to enrich %d of %d SBOM components with external references:\n", len(failed), len(components))
+		for _, ce := range failed {
+			logboek.Context(ctx).Error().LogF("  - %s (%s): %s\n", ce.name, ce.purl, ce.err)
+		}
+		return fmt.Errorf("resolve external references: %d of %d components failed", len(failed), len(components))
 	}
 
 	var bomRefs []cdx.ExternalReference
@@ -127,6 +106,48 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		bom.ExternalReferences = &bomRefs
 		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
 	}
+
+	return nil
+}
+
+func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, seen *sync.Map) error {
+	if comp.ExternalReferences != nil && len(*comp.ExternalReferences) > 0 {
+		for _, ref := range *comp.ExternalReferences {
+			seen.Store(ref.URL+"|"+string(ref.Type), ref)
+		}
+	}
+
+	if comp.PackageURL == "" {
+		if purlNotExpected(comp.Type) {
+			return nil
+		}
+		return fmt.Errorf("component %q (type %q) has no purl", comp.Name, comp.Type)
+	}
+
+	if comp.Version == "(devel)" {
+		return nil
+	}
+
+	res, err := e.resolve(ctx, comp.PackageURL)
+	if err != nil {
+		return err
+	}
+
+	if err := validateRefKind(res.Kind); err != nil {
+		return err
+	}
+
+	extRef := cdx.ExternalReference{
+		URL:  res.URL,
+		Type: cdx.ExternalReferenceType(res.Kind),
+	}
+
+	if comp.ExternalReferences == nil {
+		comp.ExternalReferences = &[]cdx.ExternalReference{}
+	}
+	*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
+
+	seen.Store(res.URL+"|"+res.Kind, extRef)
 
 	return nil
 }

@@ -77,7 +77,7 @@ var _ = Describe("Enricher", func() {
 					Expect(err).NotTo(HaveOccurred())
 				},
 			}),
-			Entry("returns error on library without purl", enrichCase{
+			Entry("returns aggregated error on library without purl", enrichCase{
 				bom: &cdx.BOM{
 					Components: &[]cdx.Component{
 						{Name: "no-purl-lib", Version: "1.0.0", Type: cdx.ComponentTypeLibrary},
@@ -85,10 +85,10 @@ var _ = Describe("Enricher", func() {
 				},
 				check: func(err error) {
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("has no purl"))
+					Expect(err.Error()).To(ContainSubstring("1 of 1 components failed"))
 				},
 			}),
-			Entry("returns error on first failed resolve", enrichCase{
+			Entry("keeps enriching after a failed resolve", enrichCase{
 				bom: &cdx.BOM{
 					Components: &[]cdx.Component{
 						{Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
@@ -97,6 +97,19 @@ var _ = Describe("Enricher", func() {
 				},
 				check: func(err error) {
 					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("1 of 2 components failed"))
+				},
+			}),
+			Entry("collects every failed component instead of stopping at the first", enrichCase{
+				bom: &cdx.BOM{
+					Components: &[]cdx.Component{
+						{Name: "unknown", Version: "0.0.0", PackageURL: "pkg:npm/unknown@0.0.0", Type: cdx.ComponentTypeLibrary},
+						{Name: "missing", Version: "0.0.0", PackageURL: "pkg:npm/missing@0.0.0", Type: cdx.ComponentTypeLibrary},
+					},
+				},
+				check: func(err error) {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("2 of 2 components failed"))
 				},
 			}),
 			Entry("returns no error on nil components", enrichCase{

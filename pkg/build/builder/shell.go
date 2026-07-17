@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -103,6 +104,10 @@ func (b *Shell) stage(cr container_backend.ContainerBackend, stageBuilder stage_
 			return fmt.Errorf("unable to add volumes: %w", err)
 		}
 
+		if envs := b.envSecretsForStage(userStageName); len(envs) > 0 {
+			container.AddEnv(envs)
+		}
+
 		container.AddServiceRunCommands(containerTmpScriptFilePath)
 
 	} else {
@@ -115,9 +120,37 @@ func (b *Shell) stage(cr container_backend.ContainerBackend, stageBuilder stage_
 		if err != nil {
 			return fmt.Errorf("unable to add volumes: %w", err)
 		}
+
+		if envs := b.envSecretsForStage(userStageName); len(envs) > 0 {
+			stageBuilder.StapelStageBuilder().AddEnvs(envs)
+		}
 	}
 
 	return nil
+}
+
+// envSecretsForStage exposes declared env-type build secrets as real environment
+// variables for the Packages stage. The os-pm SBOM provenance snapshot and the
+// generated `pm sync` command read PACKAGES_VERSION and REGISTRY via the shell
+// and via os.Getenv respectively; build secrets alone are only mounted as files
+// under /run/secrets and are therefore invisible to both. Injecting them as
+// container run env vars (like the ansible builder does) makes them available
+// without baking the values into the committed image layer.
+func (b *Shell) envSecretsForStage(userStageName string) map[string]string {
+	if userStageName != "Packages" {
+		return nil
+	}
+
+	envs := map[string]string{}
+	for _, s := range b.secrets {
+		if s.ValueFromEnv == "" {
+			continue
+		}
+		if value, ok := os.LookupEnv(s.ValueFromEnv); ok {
+			envs[s.ValueFromEnv] = value
+		}
+	}
+	return envs
 }
 
 func (b *Shell) stageChecksum(ctx context.Context, userStageName string) string {

@@ -18,10 +18,15 @@ var _ = Describe("ContainerFactoryVersionSnapshotCmd", func() {
 		Expect(cmd).To(ContainSubstring(ContainerFactoryVersionFile))
 	})
 
+	It("uses stapel-embedded coreutils so scratch-based images work", func() {
+		Expect(cmd).To(ContainSubstring(`/.werf/stapel/embedded/bin/mkdir -p `))
+		Expect(cmd).NotTo(MatchRegexp(`(^|[^/])\bcat /run/secrets/`))
+	})
+
 	DescribeTable("resolves pm env vars from build secrets mounted under /run/secrets",
 		func(envName string) {
 			Expect(cmd).To(ContainSubstring(
-				`export ` + envName + `="${` + envName + `:-$(cat /run/secrets/` + envName + ` 2>/dev/null || true)}"`,
+				`export ` + envName + `="${` + envName + `:-$(/.werf/stapel/embedded/bin/cat /run/secrets/` + envName + ` 2>/dev/null || true)}"`,
 			))
 		},
 

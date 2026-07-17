@@ -139,15 +139,9 @@ description: "Task list for OCI Attestation Commands feature"
 
 The following gaps were found during reverse-engineering:
 
-1. ⚠️ **`VerifyDSSE` silently continues on base64 decode errors**: When a signature's base64 decoding fails, the loop uses `continue` instead of returning an error or accumulating failures. Malformed signatures are silently skipped, which could mask data corruption.
+1. ⚠️ **`--image` required for `sign` but not validated**: The `--image` flag for `werf attest sign` is documented as required but the CLI command does not validate its presence. The `Sign` function will proceed with an empty `imageName`, creating an attestation artifact without image name indexing.
 
-2. ⚠️ **No `--image` flag in `werf attest ls`**: The `ls` command does not support `--image` for filtering by image name. All attestations for a digest are listed regardless of which image name they were attached under. The underlying `List` function also doesn't filter by image name.
-
-3. ⚠️ **`HasSignatures` returns false on malformed JSON**: If the envelope JSON is malformed, `HasSignatures` returns `false` instead of an error. This is a silent failure that could hide data issues.
-
-4. ⚠️ **No integration tests for `ls` with actual OCI registry**: The `attest ls` command is only tested via E2E tests. There are no unit-level integration tests for the `List` function against a real or mock OCI registry.
-
-5. ⚠️ **No integration tests for `pkg/oci/artifact/fallback.go` changes**: The `Attach` and `PullFallbackIndex` functions were made public but have no direct tests beyond the E2E attestation tests.
+2. ⚠️ **`List` function returns the same content for every attestation entry**: The `List` function in `pkg/attestation/ls.go` (lines 44–48) iterates through each manifest descriptor from the fallback index but calls `store.GetAttachedContentAny` with the same parameters on every iteration. The `Signed` status and `PredicateType` for every entry reflect only the first matching DSSE artifact, not the individual descriptor. Each iteration should fetch content keyed to the specific descriptor's digest.
 
 ## Dependencies & Execution Order
 

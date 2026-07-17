@@ -169,6 +169,8 @@ A user wants to see all attestations attached to an image in a table format show
 - The OCI fallback index mechanism is the standard way werf attaches artifacts to images (pre-existing mechanism)
 - Predicate files are plain text or JSON files on the local filesystem
 - Parent images must already exist in the registry before attestation commands can be used
-- `--image` flag is required for `sign` but optional for `get`/`verify` — when omitted, the first matching attestation of the requested type is returned
+- `--image` flag is required for `sign` to index the attestation artifact by image name
+- `--image` is optional for `get`/`verify` — when omitted, the first matching attestation of the requested type is returned
 - `--image` is not supported by `ls` — all attestations for the digest are listed regardless of image name
 - The `VerifyDSSE` function returns the first matching signature payload; it does not require all verifiers to match
+

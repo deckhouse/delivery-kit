@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.75.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.75.0-dk...v2.75.1-dk) (2026-07-17)
+
+
+### Bug Fixes
+
+* **config:** resolve pm env vars from build secrets in packages stage ([6a744aa](https://github.com/deckhouse/delivery-kit/commit/6a744aaf6e3ba32fbd1e1a2b25bdb9cd1c7646c1))
+
 ## [2.75.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.2-dk...v2.75.0-dk) (2026-07-17)
 
 

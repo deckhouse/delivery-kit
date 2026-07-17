@@ -41,7 +41,7 @@ func List(ctx context.Context, repo, parentDigest string) ([]AttestationInfo, er
 			Digest: desc.Digest.String(),
 		}
 
-		content, err := store.GetAttachedContentAny(ctx, parentDigest, DSSEMediaType)
+		content, err := store.GetContentByDigest(ctx, desc.Digest.String())
 		if err != nil {
 			result = append(result, info)
 			continue

@@ -79,7 +79,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&typeFlag, "type", "", "", fmt.Sprintf("Predicate type: %s, or a full URI (required)", attestation.PredicateTypeHelp()))
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the parent image (e.g. sha256:abc123)")
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the parent image (resolved to digest)")
-	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact indexing (required)")
+	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact indexing (optional; disambiguates images sharing the same digest)")
 
 	return cmd
 }

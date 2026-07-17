@@ -27,7 +27,8 @@ werf attest sign [options]
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
       --image=""
-            Image name for artifact indexing (required)
+            Image name for artifact indexing (optional; disambiguates images sharing the same       
+            digest)
       --insecure-registry=false
             Use plain HTTP requests when accessing a registry (default $WERF_INSECURE_REGISTRY)
       --log-color-mode="auto"

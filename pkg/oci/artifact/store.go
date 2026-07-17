@@ -131,6 +131,13 @@ func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, arti
 	return s.pullLayerContent(ctx, desc.Digest.String())
 }
 
+// GetContentByDigest returns the content of the artifact image identified by the
+// exact digest. Use this when the descriptor is already known (e.g. iterating the
+// fallback index), instead of re-resolving by (parentDigest, artifactType).
+func (s *OCIStore) GetContentByDigest(ctx context.Context, digest string) ([]byte, error) {
+	return s.pullLayerContent(ctx, digest)
+}
+
 func (s *OCIStore) pullLayerContent(ctx context.Context, digest string) ([]byte, error) {
 	imageRef, err := name.NewDigest(s.repo + "@" + digest)
 	if err != nil {

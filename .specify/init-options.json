@@ -5,5 +5,5 @@
   "here": true,
   "integration": "zed",
   "script": "py",
-  "speckit_version": "0.12.14"
+  "speckit_version": "0.12.17"
 }

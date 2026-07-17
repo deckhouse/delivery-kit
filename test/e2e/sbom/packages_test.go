@@ -209,4 +209,47 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
+
+	DescribeTable("resolves pm env from build secrets on a scratch base image without own coreutils",
+		func(ctx SpecContext, testOpts sbomTestOptions) {
+			setupSbomBuildEnv(testOpts.setupEnvOptions)
+
+			repoDirname := "repo_sbom_packages_scratch_secrets"
+			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_scratch_secrets")
+			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-scratch-secrets-builder")
+			// The app image is built from scratch, so PACKAGES_VERSION and REGISTRY
+			// reach the packages stage only as build secrets mounted under
+			// /run/secrets, resolved by the snapshot command via stapel coreutils.
+			buildEnv := append(builderEnv,
+				"PACKAGES_VERSION=v1.3.6",
+				"REGISTRY=registry.deckhouse.io/container-factory",
+			)
+
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: buildEnv}})
+
+			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{
+					ExtraArgs: []string{"app"},
+					Envs:      buildEnv,
+				},
+			})
+
+			bom := sbomtest.MustParseSBOMOutput(sbomOut)
+
+			sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
+			// the containerfactoryversion purl qualifier proves the secret value made
+			// it into /var/lib/pm/container-factory-version inside the scratch image.
+			sbomtest.AssertDependsOn(bom,
+				"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
+				"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6",
+			)
+		},
+		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
+		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
+		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
+		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
+	)
 })

@@ -1,7 +1,7 @@
 package container_backend
 
 import (
-	"bytes"
+	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
@@ -223,21 +223,50 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 	return docker.NewInfoFromInspect(ref, inspect), nil
 }
 
-func (backend *DockerServerBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error) {
-	var stdout, stderr bytes.Buffer
+func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
+	containerName := fmt.Sprintf("werf.read_file.%s", uuid.New().String())
 
-	args := []string{"--rm", "--entrypoint", ""}
+	args := []string{"--name", containerName, "--entrypoint", ""}
 	if opts.TargetPlatform != "" {
 		args = append(args, "--platform", opts.TargetPlatform)
 	}
-	args = append(args, imageRef)
-	args = append(args, command...)
+	args = append(args, imageRef, "werf-read-file-from-image-placeholder")
 
-	if err := docker.CliRun_ProvidedOutput(ctx, &stdout, &stderr, args...); err != nil {
-		return nil, fmt.Errorf("run command %v in image %q: %w (stderr: %s)", command, imageRef, err, strings.TrimSpace(stderr.String()))
+	if err := docker.CliCreate(ctx, args...); err != nil {
+		return nil, fmt.Errorf("create container from image %q: %w", imageRef, err)
+	}
+	defer func() {
+		if err := docker.CliRm(ctx, "--force", containerName); err != nil {
+			logboek.Context(ctx).Warn().LogF("WARNING: unable to remove container %q: %s\n", containerName, err)
+		}
+	}()
+
+	reader, err := docker.ContainerCopyFrom(ctx, containerName, path)
+	if err != nil {
+		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
+	}
+	defer reader.Close()
+
+	tr := tar.NewReader(reader)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read %s tar stream from image %q: %w", path, imageRef, err)
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("read %s content from image %q: %w", path, imageRef, err)
+		}
+		return data, nil
 	}
 
-	return stdout.Bytes(), nil
+	return nil, fmt.Errorf("no regular file at %s in image %q", path, imageRef)
 }
 
 // GetImageInspect only available for DockerServerBackend

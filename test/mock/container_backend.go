@@ -341,6 +341,21 @@ func (mr *MockContainerBackendMockRecorder) Push(ctx, ref, opts any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Push", reflect.TypeOf((*MockContainerBackend)(nil).Push), ctx, ref, opts)
 }
 
+// ReadFileFromImage mocks base method.
+func (m *MockContainerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts container_backend.ReadFileFromImageOpts) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileFromImage", ctx, imageRef, path, opts)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileFromImage indicates an expected call of ReadFileFromImage.
+func (mr *MockContainerBackendMockRecorder) ReadFileFromImage(ctx, imageRef, path, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileFromImage", reflect.TypeOf((*MockContainerBackend)(nil).ReadFileFromImage), ctx, imageRef, path, opts)
+}
+
 // RefreshImageObject mocks base method.
 func (m *MockContainerBackend) RefreshImageObject(ctx context.Context, img container_backend.LegacyImageInterface) error {
 	m.ctrl.T.Helper()
@@ -423,21 +438,6 @@ func (m *MockContainerBackend) Rmi(ctx context.Context, ref string, opts contain
 func (mr *MockContainerBackendMockRecorder) Rmi(ctx, ref, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rmi", reflect.TypeOf((*MockContainerBackend)(nil).Rmi), ctx, ref, opts)
-}
-
-// RunCommandInImage mocks base method.
-func (m *MockContainerBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts container_backend.RunCommandInImageOpts) ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RunCommandInImage", ctx, imageRef, command, opts)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// RunCommandInImage indicates an expected call of RunCommandInImage.
-func (mr *MockContainerBackendMockRecorder) RunCommandInImage(ctx, imageRef, command, opts any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunCommandInImage", reflect.TypeOf((*MockContainerBackend)(nil).RunCommandInImage), ctx, imageRef, command, opts)
 }
 
 // SaveImageToStream mocks base method.

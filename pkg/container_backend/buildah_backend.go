@@ -775,7 +775,7 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 	}, nil
 }
 
-func (backend *BuildahBackend) RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error) {
+func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
 	containers, err := backend.createContainers(ctx, []string{imageRef}, CommonOpts(opts))
 	if err != nil {
 		return nil, err
@@ -787,17 +787,21 @@ func (backend *BuildahBackend) RunCommandInImage(ctx context.Context, imageRef s
 		}
 	}()
 
-	var stdout bytes.Buffer
-	if err := backend.buildah.RunCommand(ctx, container.Name, command, buildah.RunCommandOpts{
-		CommonOpts: backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform),
-		User:       "0:0",
-		WorkingDir: "/",
-		Stdout:     &stdout,
-	}); err != nil {
-		return nil, fmt.Errorf("run command %v in image %q: %w", command, imageRef, err)
+	if err := backend.mountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
+		return nil, fmt.Errorf("mount container %q: %w", container.Name, err)
+	}
+	defer func() {
+		if err := backend.unmountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
+			logboek.Context(ctx).Error().LogF("ERROR: unable to unmount container %q: %s\n", container.Name, err)
+		}
+	}()
+
+	data, err := os.ReadFile(filepath.Join(container.RootMount, path))
+	if err != nil {
+		return nil, fmt.Errorf("read %s from image %q: %w", path, imageRef, err)
 	}
 
-	return stdout.Bytes(), nil
+	return data, nil
 }
 
 func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) error {

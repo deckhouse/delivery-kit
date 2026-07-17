@@ -33,7 +33,7 @@ func CollectBOM(ctx context.Context, containerBackend container_backend.Containe
 }
 
 func collectPacketsFromLock(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef, lockPath string) (map[string]PmPackageInfo, error) {
-	stdout, err := containerBackend.RunCommandInImage(ctx, imageRef, []string{"cat", lockPath}, container_backend.RunCommandInImageOpts{})
+	stdout, err := containerBackend.ReadFileFromImage(ctx, imageRef, lockPath, container_backend.ReadFileFromImageOpts{})
 	if err != nil {
 		return nil, fmt.Errorf("read pm lock %s from image %q: %w", lockPath, imageRef, err)
 	}
@@ -47,7 +47,7 @@ func collectPacketsFromLock(ctx context.Context, containerBackend container_back
 }
 
 func readContainerFactoryVersion(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (string, error) {
-	stdout, err := containerBackend.RunCommandInImage(ctx, imageRef, []string{"cat", config.ContainerFactoryVersionFile}, container_backend.RunCommandInImageOpts{})
+	stdout, err := containerBackend.ReadFileFromImage(ctx, imageRef, config.ContainerFactoryVersionFile, container_backend.ReadFileFromImageOpts{})
 	if err != nil {
 		return "", fmt.Errorf("read %s from image %q: %w", config.ContainerFactoryVersionFile, imageRef, err)
 	}

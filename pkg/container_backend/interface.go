@@ -22,7 +22,7 @@ type (
 	PullOpts                          CommonOpts
 	GetImageInfoOpts                  CommonOpts
 	CalculateDependencyImportChecksum CommonOpts
-	RunCommandInImageOpts             CommonOpts
+	ReadFileFromImageOpts             CommonOpts
 )
 
 type RmOpts struct {
@@ -93,9 +93,10 @@ type ContainerBackend interface {
 
 	GetImageInfo(ctx context.Context, ref string, opts GetImageInfoOpts) (*image.Info, error)
 
-	// RunCommandInImage executes command inside a throwaway container created
-	// from imageRef (entrypoint bypassed) and returns its captured stdout.
-	RunCommandInImage(ctx context.Context, imageRef string, command []string, opts RunCommandInImageOpts) ([]byte, error)
+	// ReadFileFromImage returns the content of a regular file at path inside
+	// imageRef without executing anything from the image, so it works for
+	// scratch/distroless images that have no shell or coreutils.
+	ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error)
 
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)

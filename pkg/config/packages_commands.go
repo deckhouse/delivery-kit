@@ -6,17 +6,23 @@ const (
 	ContainerFactoryVersionDir  = "/var/lib/pm"
 	ContainerFactoryVersionFile = ContainerFactoryVersionDir + "/container-factory-version"
 
+	// stapelEmbeddedBinDir points to coreutils provided by the always-mounted stapel
+	// volume. The packages stage may run on scratch/distroless images that have no
+	// cat/mkdir of their own, so relying on PATH lookup would silently produce an
+	// empty value (cat failure is muted by `|| true`) and trip the guard below.
+	stapelEmbeddedBinDir = "/.werf/stapel/embedded/bin"
+
 	// resolvePmEnvFromSecrets makes PACKAGES_VERSION and REGISTRY available as shell
 	// environment variables when they are provided via werf build secrets, which are
 	// mounted as files under /run/secrets/<id> instead of being exported into the shell.
 	// If the variable is already set (e.g. via the base image ENV) it is kept as is.
 	// The exported values persist for the rest of the packages stage script, so the
 	// snapshot guard below and the subsequent `pm sync` invocation both see them.
-	resolvePmEnvFromSecrets = `export PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat /run/secrets/PACKAGES_VERSION 2>/dev/null || true)}"; ` +
-		`export REGISTRY="${REGISTRY:-$(cat /run/secrets/REGISTRY 2>/dev/null || true)}"`
+	resolvePmEnvFromSecrets = `export PACKAGES_VERSION="${PACKAGES_VERSION:-$(` + stapelEmbeddedBinDir + `/cat /run/secrets/PACKAGES_VERSION 2>/dev/null || true)}"; ` +
+		`export REGISTRY="${REGISTRY:-$(` + stapelEmbeddedBinDir + `/cat /run/secrets/REGISTRY 2>/dev/null || true)}"`
 
 	containerFactoryVersionSnapshotCmdTmpl = resolvePmEnvFromSecrets +
-		`; : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && mkdir -p %s && printf '%%s\n' "$PACKAGES_VERSION" > %s`
+		`; : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && ` + stapelEmbeddedBinDir + `/mkdir -p %s && printf '%%s\n' "$PACKAGES_VERSION" > %s`
 )
 
 func ContainerFactoryVersionSnapshotCmd() string {

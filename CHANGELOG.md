@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.75.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.2-dk...v2.75.0-dk) (2026-07-17)
+
+
+### Features
+
+* **config:** enforce determinism for os-pm via spec+lock files ([6cab174](https://github.com/deckhouse/delivery-kit/commit/6cab17481ff9b779ca0793eda098a74635a58654))
+* **sbom:** add support for rust-cargo package type ([0411d0b](https://github.com/deckhouse/delivery-kit/commit/0411d0b932497d117048096f9bf2f68c8444d0f6))
+* **sbom:** declare lua dependencies via packages directive ([6627dae](https://github.com/deckhouse/delivery-kit/commit/6627daec1f87adb34789ec9024950a6282b46682))
+* **sbom:** declare python dependencies via packages directive ([#144](https://github.com/deckhouse/delivery-kit/issues/144)) ([409791c](https://github.com/deckhouse/delivery-kit/commit/409791cbbb510cd052c8731ab351c0b7ec8e8b9a))
+
+
+### Bug Fixes
+
+* **build:** forward include.path to submodule sync/update commands ([#7660](https://github.com/deckhouse/delivery-kit/issues/7660)) ([5ab32d2](https://github.com/deckhouse/delivery-kit/commit/5ab32d2fd7598bfcdb598f1f1217138e15a9e4b2))
+* **sbom:** prevent lack of SBOM completeness in context of trusted ([9fd5088](https://github.com/deckhouse/delivery-kit/commit/9fd508827d2beb720118814705943094ea987a76))
+* **sbom:** report all failing components during external ref enrichment ([#177](https://github.com/deckhouse/delivery-kit/issues/177)) ([29f2634](https://github.com/deckhouse/delivery-kit/commit/29f2634a904454f1be9af0299a50258202e0f61c))
+* **sbom:** show deprecation warning for alpine builder images ([98df913](https://github.com/deckhouse/delivery-kit/commit/98df91381d394e4e5a4bdc9406684ffecb242b91))
+
 ## [2.74.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.1-dk...v2.74.2-dk) (2026-07-10)
 
 

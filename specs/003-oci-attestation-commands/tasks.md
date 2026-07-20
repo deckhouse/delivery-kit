@@ -137,11 +137,7 @@ description: "Task list for OCI Attestation Commands feature"
 
 ## Gaps Identified
 
-The following gaps were found during reverse-engineering:
-
-1. ⚠️ **`--image` required for `sign` but not validated**: The `--image` flag for `werf attest sign` is documented as required but the CLI command does not validate its presence. The `Sign` function will proceed with an empty `imageName`, creating an attestation artifact without image name indexing.
-
-2. ⚠️ **`List` function returns the same content for every attestation entry**: The `List` function in `pkg/attestation/ls.go` (lines 44–48) iterates through each manifest descriptor from the fallback index but calls `store.GetAttachedContentAny` with the same parameters on every iteration. The `Signed` status and `PredicateType` for every entry reflect only the first matching DSSE artifact, not the individual descriptor. Each iteration should fetch content keyed to the specific descriptor's digest.
+No gaps found. All identified issues have been addressed in the implementation.
 
 ## Dependencies & Execution Order
 

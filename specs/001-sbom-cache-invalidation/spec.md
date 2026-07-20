@@ -4,9 +4,9 @@
 
 **Created**: 2026-07-15
 
-**Status**: Draft
+**Status**: Migrated
 
-**Input**: User description: "Migrate existing OpenSpec SBOM cache invalidation spec to spec-kit format"
+**Input**: User description: "Conditionally include SBOM enable state in stage digest calculation to invalidate build cache when SBOM generation is toggled"
 
 ## Project Context
 
@@ -22,7 +22,20 @@
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - SBOM Toggle Invalidates Build Cache (Priority: P1)
+<!--
+  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
+  Each user story/journey must be INDEPENDENTLY TESTABLE — meaning if you implement just ONE of them,
+  you should still have a viable MVP (Minimum Viable Product) that delivers value.
+
+  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
+  Think of each story as a standalone slice of functionality that can be:
+  - Developed independently
+  - Tested independently
+  - Deployed independently
+  - Demonstrated to users independently
+-->
+
+### User Story 1 — SBOM Toggle Invalidates Build Cache (Priority: P1)
 
 A user who has been building images without SBOM decides to enable SBOM generation. They expect the build to detect the configuration change, invalidate the cached stages, rebuild with SBOM enabled, and produce images with SBOM artifacts attached.
 
@@ -38,7 +51,7 @@ A user who has been building images without SBOM decides to enable SBOM generati
 
 ---
 
-### User Story 2 - SBOM Disabled Build Reuses Cache (Priority: P2)
+### User Story 2 — SBOM Disabled Build Reuses Cache (Priority: P2)
 
 A user who has never enabled SBOM continues building images. They expect that existing cached stages are reused and no SBOM artifacts are generated, preserving build performance.
 
@@ -54,7 +67,7 @@ A user who has never enabled SBOM continues building images. They expect that ex
 
 ---
 
-### User Story 3 - SBOM Enabled Build Preserves Cache (Priority: P3)
+### User Story 3 — SBOM Enabled Build Preserves Cache (Priority: P3)
 
 A user who has SBOM enabled rebuilds an image without configuration changes. They expect that all cached stages are reused and SBOM artifacts from the cached build are preserved, avoiding unnecessary rebuilds.
 
@@ -70,7 +83,7 @@ A user who has SBOM enabled rebuilds an image without configuration changes. The
 
 ---
 
-### User Story 4 - GOST Changes Without Cache Invalidation (Priority: P4)
+### User Story 4 — GOST Changes Without Cache Invalidation (Priority: P4)
 
 A user who has SBOM enabled modifies GOST (Government SBOM standard) configuration settings. They expect that stage caches remain valid (since only the SBOM enable flag affects cache), but SBOM artifacts are regenerated with the new GOST requirements during the converge step.
 
@@ -83,8 +96,6 @@ A user who has SBOM enabled modifies GOST (Government SBOM standard) configurati
 1. **Given** an image was previously built with `build.sbom.enable: true` and specific GOST settings, **When** a user modifies `build.sbom.gost` settings in `werf.yaml` (while `build.sbom.enable` remains `true`), **Then** the stage digest SHALL NOT change
 2. **Given** the stage digest did not change, **When** the build proceeds, **Then** cached stages remain valid and are reused
 3. **Given** cached stages are reused, **When** the converge step runs, **Then** SBOM artifact checksums SHALL change and SBOM artifacts SHALL be regenerated
-
----
 
 ### Edge Cases
 
@@ -116,7 +127,7 @@ A user who has SBOM enabled modifies GOST (Government SBOM standard) configurati
 - Optional arguments use `<FunctionName>Options` struct — never functional options
 - Add `var _ Interface = (*Impl)(nil)` compile-time check for each interface implementation
 
-### Key Entities
+### Key Entities *(include if feature involves data)*
 
 - **Stage Digest**: A hash computed per build stage that determines whether a cached stage can be reused. Now conditionally includes an SBOM enable marker.
 - **SBOM Enable Marker**: A token incorporated into the stage digest when SBOM generation is enabled. Absent when SBOM is disabled.

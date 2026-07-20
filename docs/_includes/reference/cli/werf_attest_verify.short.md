@@ -1,0 +1,1 @@
+verify a signed attestation attached to an image

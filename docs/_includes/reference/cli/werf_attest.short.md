@@ -1,0 +1,1 @@
+work with OCI attestations attached to images

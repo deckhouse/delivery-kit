@@ -28,7 +28,6 @@ Helper commands:
  - [werf chart]({{ "/reference/cli/werf_chart_ts.html" | true_relative_url }}) — {% include /reference/cli/werf_chart_ts.short.md %}.
  - [werf includes]({{ "/reference/cli/werf_includes_get_file.html" | true_relative_url }}) — {% include /reference/cli/werf_includes_get_file.short.md %}.
  - [werf sbom]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) — {% include /reference/cli/werf_sbom_get.short.md %}.
- - [werf attest]({{ "/reference/cli/werf_attest_get.html" | true_relative_url }}) — {% include /reference/cli/werf_attest_get.short.md %}.
  - [werf stages]({{ "/reference/cli/werf_stages_copy.html" | true_relative_url }}) — {% include /reference/cli/werf_stages_copy.short.md %}.
  - [werf verify]({{ "/reference/cli/werf_verify.html" | true_relative_url }}) — {% include /reference/cli/werf_verify.short.md %}.
 

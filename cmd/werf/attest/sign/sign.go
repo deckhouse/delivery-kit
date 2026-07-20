@@ -32,6 +32,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 		Short:                 "Create a signed attestation and attach it to an image",
 		Long:                  common.GetLongCommandDescription(GetDocs().Long),
 		DisableFlagsInUseLine: true,
+		Hidden:                true,
 		Annotations: map[string]string{
 			common.DocsLongMD: GetDocs().LongMD,
 		},

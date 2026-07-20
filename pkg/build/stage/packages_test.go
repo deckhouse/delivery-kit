@@ -270,8 +270,8 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("mixed: javascript-npm + go-mod + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptNpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/tools"}},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"nodejs"}}},
-		}, []string{"cd \"/app\" && npm ci", "cd \"/tools\" && go mod download", config.ContainerFactoryVersionSnapshotCmd(), "pm install nodejs"}),
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"}},
+		}, []string{"cd \"/app\" && npm ci", "cd \"/tools\" && go mod download", config.ContainerFactoryVersionSnapshotCmd(), "pm sync --from /pm.lock"}),
 
 		Entry("lua-rock /app produces luarocks install --only-deps", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},

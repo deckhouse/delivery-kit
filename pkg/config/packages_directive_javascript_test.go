@@ -242,7 +242,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				"packages": []map[string]interface{}{
 					{"type": "go-mod", "workdir": "/app"},
 					{"type": "javascript-npm", "workdir": "/app/web"},
-					{"type": "os-pm", "spec": []string{"nodejs"}},
+					{"type": "os-pm", "workdir": "/", "spec": "pm.yaml", "lock": "pm.lock"},
 				},
 			},
 			[]*PackagesDirective{

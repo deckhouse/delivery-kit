@@ -242,7 +242,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				"packages": []map[string]interface{}{
 					{"type": "go-mod", "workdir": "/app"},
 					{"type": "javascript-npm", "workdir": "/app/web"},
-					{"type": "os-pm", "spec": []string{"nodejs"}},
+					{"type": "os-pm", "workdir": "/", "spec": "pm.yaml", "lock": "pm.lock"},
 				},
 			},
 			[]*PackagesDirective{
@@ -264,7 +264,11 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				},
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					Spec: PackagesSpec{Packages: []string{"nodejs"}},
+					FileBased: FileBasedSpec{
+						Workdir: "/",
+						Spec:    "pm.yaml",
+						Lock:    "pm.lock",
+					},
 				},
 			},
 		),
@@ -306,7 +310,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 					{"type": "go-mod", "workdir": "/app"},
 					{"type": "rust-cargo", "workdir": "/app/native"},
 					{"type": "javascript-yarn", "workdir": "/app/web"},
-					{"type": "os-pm", "spec": []string{"libssl-dev"}},
+					{"type": "os-pm", "workdir": "/", "spec": "pm.yaml", "lock": "pm.lock"},
 				},
 			},
 			[]*PackagesDirective{
@@ -336,7 +340,11 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				},
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					Spec: PackagesSpec{Packages: []string{"libssl-dev"}},
+					FileBased: FileBasedSpec{
+						Workdir: "/",
+						Spec:    "pm.yaml",
+						Lock:    "pm.lock",
+					},
 				},
 			},
 		),

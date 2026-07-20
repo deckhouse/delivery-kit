@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.76.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.75.1-dk...v2.76.0-dk) (2026-07-20)
+
+
+### Features
+
+* **build, oci:** add commands to manage oci artifacts ([#162](https://github.com/deckhouse/delivery-kit/issues/162)) ([61e83fb](https://github.com/deckhouse/delivery-kit/commit/61e83fba05b23ce54527498ce5cb316d57cbfca2))
+
+
+### Bug Fixes
+
+* **config:** use stapel coreutils in pm snapshot command ([a39429c](https://github.com/deckhouse/delivery-kit/commit/a39429c41524945ee7fffa6c938a3d7f23d497a1))
+* **sbom:** read pm files from image without executing coreutils ([252d0c1](https://github.com/deckhouse/delivery-kit/commit/252d0c1a4c41eda79d4217ac4d1f24770bba9d3f))
+
 ## [2.75.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.75.0-dk...v2.75.1-dk) (2026-07-17)
 
 

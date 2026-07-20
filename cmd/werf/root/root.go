@@ -214,8 +214,9 @@ func sbomCmd(ctx context.Context) *cobra.Command {
 
 func attestCmd(ctx context.Context) *cobra.Command {
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
-		Use:   "attest",
-		Short: "Work with OCI attestations attached to images",
+		Use:    "attest",
+		Short:  "Work with OCI attestations attached to images",
+		Hidden: true,
 	})
 	cmd.AddCommand(
 		attest_sign.NewCmd(ctx),

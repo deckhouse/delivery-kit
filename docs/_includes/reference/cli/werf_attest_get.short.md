@@ -1,1 +1,0 @@
-get an attestation attached to an image

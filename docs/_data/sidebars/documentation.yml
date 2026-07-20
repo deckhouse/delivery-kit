@@ -121,20 +121,6 @@ cli: &cli
           - title: werf sbom validate
             url: /reference/cli/werf_sbom_validate.html
 
-      - title: werf attest
-        f:
-          - title: werf attest get
-            url: /reference/cli/werf_attest_get.html
-
-          - title: werf attest ls
-            url: /reference/cli/werf_attest_ls.html
-
-          - title: werf attest sign
-            url: /reference/cli/werf_attest_sign.html
-
-          - title: werf attest verify
-            url: /reference/cli/werf_attest_verify.html
-
       - title: werf stages
         f:
           - title: werf stages copy

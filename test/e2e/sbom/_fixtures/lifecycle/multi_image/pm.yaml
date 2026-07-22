@@ -1,5 +1,0 @@
-packages:
-  - name: jq
-    version: "1.8.1"
-  - name: yq
-    version: "4.48.1"

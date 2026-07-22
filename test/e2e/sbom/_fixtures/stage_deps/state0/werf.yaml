@@ -11,5 +11,6 @@ git:
   - add: /
     to: /
 packages:
-  - type: os-pm
-    workdir: /
+   - type: os-pm
+     spec:
+       - jq==1.8.1

@@ -12,4 +12,5 @@ git:
     to: /
 packages:
   - type: os-pm
-    workdir: /
+    spec:
+      - demo-app==1.0.0

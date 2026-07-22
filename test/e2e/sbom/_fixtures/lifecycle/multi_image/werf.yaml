@@ -14,14 +14,18 @@ git:
   - add: /
     to: /
 packages:
-   - type: os-pm
-     workdir: /
+ - type: os-pm
+   spec:
+     - jq==1.8.1
+     - yq==4.48.1
 ---
 image: backend
 from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
-  - add: /
-    to: /
+- add: /
+  to: /
 packages:
-  - type: os-pm
-    workdir: /
+- type: os-pm
+  spec:
+    - jq==1.8.1
+    - yq==4.48.1

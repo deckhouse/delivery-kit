@@ -11,12 +11,12 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 )
 
-func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef, lockPath string) (*cdx.BOM, error) {
+func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (*cdx.BOM, error) {
 	if imageRef == "" {
 		return nil, nil
 	}
 
-	pkgs, err := collectPacketsFromLock(ctx, containerBackend, imageRef, lockPath)
+	pkgs, err := collectInstalledPackets(ctx, containerBackend, imageRef)
 	if err != nil {
 		return nil, err
 	}
@@ -32,15 +32,15 @@ func CollectBOM(ctx context.Context, containerBackend container_backend.Containe
 	return ConvertToCycloneDX(pkgs, version), nil
 }
 
-func collectPacketsFromLock(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef, lockPath string) (map[string]PmPackageInfo, error) {
-	stdout, err := containerBackend.ReadFileFromImage(ctx, imageRef, lockPath, container_backend.ReadFileFromImageOpts{})
+func collectInstalledPackets(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (map[string]PmPackageInfo, error) {
+	stdout, err := containerBackend.ReadFileFromImage(ctx, imageRef, config.ContainerFactoryVersionIndexFile, container_backend.ReadFileFromImageOpts{})
 	if err != nil {
-		return nil, fmt.Errorf("read pm lock %s from image %q: %w", lockPath, imageRef, err)
+		return nil, fmt.Errorf("read pm index from image %q: %w", imageRef, err)
 	}
 
-	pkgs, err := ParsePmLockJSON(stdout)
+	pkgs, err := ParsePmInstalledJSON(stdout)
 	if err != nil {
-		return nil, fmt.Errorf("parse pm lock from image %q: %w", imageRef, err)
+		return nil, fmt.Errorf("parse pm index from image %q: %w", imageRef, err)
 	}
 
 	return pkgs, nil

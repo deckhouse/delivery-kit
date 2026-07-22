@@ -44,46 +44,48 @@ var _ = Describe("rawPackagesDirective", func() {
 			Expect(packages).To(HaveLen(len(expectedPackages)))
 			for i, expected := range expectedPackages {
 				Expect(packages[i].Type).To(Equal(expected.Type))
-				Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				if packages[i].Type == PackagesDirectiveTypeOSPM {
+					Expect(packages[i].Spec.Packages).To(Equal(expected.Spec.Packages))
+				} else {
+					Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				}
 			}
 		},
 
-		Entry("os-pm with explicit workdir, spec and lock",
+		Entry("os-pm with inline spec list",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
-						"type":    "os-pm",
-						"workdir": "/app",
-						"spec":    "my-pm.yaml",
-						"lock":    "my-pm.lock",
+						"type": "os-pm",
+						"spec": []string{"curl", "jq"},
 					},
 				},
 			},
 			[]*PackagesDirective{
 				{
-					Type:      PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{Workdir: "/app", Spec: "my-pm.yaml", Lock: "my-pm.lock"},
+					Type: PackagesDirectiveTypeOSPM,
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 				},
 			},
 		),
 
-		Entry("os-pm with workdir only (defaults for spec/lock)",
+		Entry("os-pm with single package in spec",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
-						"type":    "os-pm",
-						"workdir": "/",
+						"type": "os-pm",
+						"spec": []string{"curl"},
 					},
 				},
 			},
 			[]*PackagesDirective{
 				{
-					Type:      PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"},
+					Type: PackagesDirectiveTypeOSPM,
+					Spec: PackagesSpec{Packages: []string{"curl"}},
 				},
 			},
 		),
@@ -129,7 +131,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			Expect(err).To(HaveOccurred())
 		},
 
-		Entry("os-pm without workdir",
+		Entry("os-pm without packages",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
@@ -147,7 +149,10 @@ var _ = Describe("rawPackagesDirective", func() {
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
-						"type": "unsupported-pm",
+						"type":    "unsupported-pm",
+						"workdir": "/app",
+						"spec":    "pm.yaml",
+						"lock":    "pm.lock",
 					},
 				},
 			},

@@ -3,10 +3,10 @@ package config
 import "fmt"
 
 type rawPackagesDirective struct {
-	Type    string `yaml:"type,omitempty"`
-	Spec    string `yaml:"spec,omitempty"`
-	Workdir string `yaml:"workdir,omitempty"`
-	Lock    string `yaml:"lock,omitempty"`
+	Type    string      `yaml:"type,omitempty"`
+	Spec    interface{} `yaml:"spec,omitempty"`
+	Workdir string      `yaml:"workdir,omitempty"`
+	Lock    string      `yaml:"lock,omitempty"`
 
 	rawStapelImage *rawStapelImage `yaml:"-"`
 
@@ -66,16 +66,33 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 		return fmt.Errorf("unsupported packages type %q", d.Type)
 	}
 
-	d.FileBased.Workdir = r.Workdir
-
-	d.FileBased.Spec = eco.DefaultSpec
-	if r.Spec != "" {
-		d.FileBased.Spec = r.Spec
+	if d.Type == PackagesDirectiveTypeOSPM {
+		rawPkgs, ok := r.Spec.([]interface{})
+		if !ok {
+			return fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a list of package names", r.Spec, d.Type)
+		}
+		pkgs := make([]string, len(rawPkgs))
+		for i, v := range rawPkgs {
+			pkgs[i] = fmt.Sprint(v)
+		}
+		d.Spec.Packages = pkgs
+		return nil
 	}
 
-	d.FileBased.Lock = eco.DefaultLock
+	d.FileBased.Workdir = r.Workdir
+
+	d.FileBased.Spec = eco.DefaultSpecFile
+	if r.Spec != nil {
+		specStr, ok := r.Spec.(string)
+		if !ok {
+			return fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a string", r.Spec, d.Type)
+		}
+		d.FileBased.Spec = specStr
+	}
+
+	d.FileBased.Lock = eco.DefaultLockFile
 	if r.Lock != "" {
-		if eco.DefaultLock == "" {
+		if eco.DefaultLockFile == "" {
 			return fmt.Errorf("lock is not supported for type %q", d.Type)
 		}
 		d.FileBased.Lock = r.Lock

@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"maps"
-	"path"
 )
 
 type PackagesDirectiveType string
@@ -21,6 +20,10 @@ const (
 	PackagesDirectiveTypeLuaRock        PackagesDirectiveType = "lua-rock"
 )
 
+type PackagesSpec struct {
+	Packages []string
+}
+
 type FileBasedSpec struct {
 	Workdir string
 	Spec    string
@@ -28,91 +31,96 @@ type FileBasedSpec struct {
 }
 
 type PackageEcosystem struct {
-	Type          PackagesDirectiveType
-	DefaultSpec   string
-	DefaultLock   string
-	InstallCmd    func(workdir, spec string) string
-	CatalogerName string
+	Type            PackagesDirectiveType
+	DefaultSpecFile string
+	DefaultLockFile string
+	InstallCmd      func(workdir, specFile string, specList []string) string
+	CatalogerName   string
 }
 
 var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 	PackagesDirectiveTypeGoMod: {
-		Type:          PackagesDirectiveTypeGoMod,
-		DefaultSpec:   "go.mod",
-		DefaultLock:   "go.sum",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && go mod download", workdir) },
-		CatalogerName: "go-module-file-cataloger",
+		Type:            PackagesDirectiveTypeGoMod,
+		DefaultSpecFile: "go.mod",
+		DefaultLockFile: "go.sum",
+		InstallCmd:      func(workdir, _ string, _ []string) string { return fmt.Sprintf("cd %q && go mod download", workdir) },
+		CatalogerName:   "go-module-file-cataloger",
 	},
 	PackagesDirectiveTypePythonUV: {
-		Type:          PackagesDirectiveTypePythonUV,
-		DefaultSpec:   "pyproject.toml",
-		DefaultLock:   "uv.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && uv sync --frozen", workdir) },
-		CatalogerName: "python-package-cataloger",
+		Type:            PackagesDirectiveTypePythonUV,
+		DefaultSpecFile: "pyproject.toml",
+		DefaultLockFile: "uv.lock",
+		InstallCmd:      func(workdir, _ string, _ []string) string { return fmt.Sprintf("cd %q && uv sync --frozen", workdir) },
+		CatalogerName:   "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPip: {
-		Type:        PackagesDirectiveTypePythonPip,
-		DefaultSpec: "requirements.txt",
-		DefaultLock: "",
-		InstallCmd: func(workdir, spec string) string {
+		Type:            PackagesDirectiveTypePythonPip,
+		DefaultSpecFile: "requirements.txt",
+		DefaultLockFile: "",
+		InstallCmd: func(workdir, spec string, _ []string) string {
 			return fmt.Sprintf("cd %q && pip install --no-cache-dir -r %q", workdir, spec)
 		},
 		CatalogerName: "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPoetry: {
-		Type:          PackagesDirectiveTypePythonPoetry,
-		DefaultSpec:   "pyproject.toml",
-		DefaultLock:   "poetry.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && poetry sync --no-root", workdir) },
+		Type:            PackagesDirectiveTypePythonPoetry,
+		DefaultSpecFile: "pyproject.toml",
+		DefaultLockFile: "poetry.lock",
+		InstallCmd: func(workdir, _ string, _ []string) string {
+			return fmt.Sprintf("cd %q && poetry sync --no-root", workdir)
+		},
 		CatalogerName: "python-package-cataloger",
 	},
 	PackagesDirectiveTypeRustCargo: {
-		Type:          PackagesDirectiveTypeRustCargo,
-		DefaultSpec:   "Cargo.toml",
-		DefaultLock:   "Cargo.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && cargo fetch", workdir) },
-		CatalogerName: "rust-cargo-lock-cataloger",
+		Type:            PackagesDirectiveTypeRustCargo,
+		DefaultSpecFile: "Cargo.toml",
+		DefaultLockFile: "Cargo.lock",
+		InstallCmd:      func(workdir, _ string, _ []string) string { return fmt.Sprintf("cd %q && cargo fetch", workdir) },
+		CatalogerName:   "rust-cargo-lock-cataloger",
 	},
 	PackagesDirectiveTypeJavaScriptNpm: {
-		Type:          PackagesDirectiveTypeJavaScriptNpm,
-		DefaultSpec:   "package.json",
-		DefaultLock:   "package-lock.json",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && npm ci", workdir) },
-		CatalogerName: "javascript-lock-cataloger",
+		Type:            PackagesDirectiveTypeJavaScriptNpm,
+		DefaultSpecFile: "package.json",
+		DefaultLockFile: "package-lock.json",
+		InstallCmd:      func(workdir, _ string, _ []string) string { return fmt.Sprintf("cd %q && npm ci", workdir) },
+		CatalogerName:   "javascript-lock-cataloger",
 	},
 	PackagesDirectiveTypeJavaScriptYarn: {
-		Type:          PackagesDirectiveTypeJavaScriptYarn,
-		DefaultSpec:   "package.json",
-		DefaultLock:   "yarn.lock",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && yarn install --frozen-lockfile", workdir) },
+		Type:            PackagesDirectiveTypeJavaScriptYarn,
+		DefaultSpecFile: "package.json",
+		DefaultLockFile: "yarn.lock",
+		InstallCmd: func(workdir, _ string, _ []string) string {
+			return fmt.Sprintf("cd %q && yarn install --frozen-lockfile", workdir)
+		},
 		CatalogerName: "javascript-lock-cataloger",
 	},
 	PackagesDirectiveTypeJavaScriptPnpm: {
-		Type:          PackagesDirectiveTypeJavaScriptPnpm,
-		DefaultSpec:   "package.json",
-		DefaultLock:   "pnpm-lock.yaml",
-		InstallCmd:    func(workdir, _ string) string { return fmt.Sprintf("cd %q && pnpm install --frozen-lockfile", workdir) },
+		Type:            PackagesDirectiveTypeJavaScriptPnpm,
+		DefaultSpecFile: "package.json",
+		DefaultLockFile: "pnpm-lock.yaml",
+		InstallCmd: func(workdir, _ string, _ []string) string {
+			return fmt.Sprintf("cd %q && pnpm install --frozen-lockfile", workdir)
+		},
 		CatalogerName: "javascript-lock-cataloger",
 	},
 	PackagesDirectiveTypeLuaRock: {
-		Type:        PackagesDirectiveTypeLuaRock,
-		DefaultSpec: "",
-		DefaultLock: "",
-		InstallCmd: func(workdir, spec string) string {
+		Type:            PackagesDirectiveTypeLuaRock,
+		DefaultSpecFile: "",
+		DefaultLockFile: "",
+		InstallCmd: func(workdir, spec string, _ []string) string {
 			return fmt.Sprintf("cd %q && luarocks install --only-deps %q", workdir, spec)
 		},
 		CatalogerName: "lua-rock-cataloger",
 	},
 	PackagesDirectiveTypeOSPM: {
-		Type:        PackagesDirectiveTypeOSPM,
-		DefaultSpec: "pm.yaml",
-		DefaultLock: "pm.lock",
-		InstallCmd:  func(workdir, _ string) string { return fmt.Sprintf("pm sync --from %s", path.Join(workdir, "pm.lock")) },
+		Type: PackagesDirectiveTypeOSPM,
+		InstallCmd: func(_, _ string, specList []string) string {
+			return fmt.Sprintf("%s; %s; %s", formatMkdirCommand(), formatVersionFileCommand(), formatInstallCommand(specList))
+		},
 	},
 }
 
-// Ecosystems returns a defensive copy of the file-based package ecosystems registry.
-// The returned map is safe to iterate; mutating it does not affect the internal registry.
+// Ecosystems returns a defensive copy of the package ecosystems registry.
 func Ecosystems() map[PackagesDirectiveType]PackageEcosystem {
 	return maps.Clone(ecosystems)
 }
@@ -120,12 +128,21 @@ func Ecosystems() map[PackagesDirectiveType]PackageEcosystem {
 type PackagesDirective struct {
 	Type      PackagesDirectiveType
 	FileBased FileBasedSpec
+	Spec      PackagesSpec
 }
 
 func (d *PackagesDirective) validate() error {
 	if _, ok := ecosystems[d.Type]; !ok {
 		return fmt.Errorf("unsupported packages type %q", d.Type)
 	}
+
+	if d.Type == PackagesDirectiveTypeOSPM {
+		if len(d.Spec.Packages) == 0 {
+			return fmt.Errorf("packages spec must not be empty for type %q", d.Type)
+		}
+		return nil
+	}
+
 	if d.FileBased.Workdir == "" {
 		return fmt.Errorf("the `workdir` is required for type %q", d.Type)
 	}

@@ -150,7 +150,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 
-	DescribeTable("build fails when pm.lock contains invalid (non-JSON) content",
+	DescribeTable("build fails when pm binary is missing in the image despite os-pm packages declared",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
@@ -168,10 +168,9 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 				},
 			})
 			Expect(out).To(SatisfyAny(
-				ContainSubstring("parse pm lock"),
-				ContainSubstring("collect os-pm SBOM"),
+				ContainSubstring("Code: 127"),
 				ContainSubstring("container run failed"),
-			), "expected pm-lock parse failure or build failure; got:\n%s", out)
+			), "expected pm binary missing or build failure; got:\n%s", out)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

@@ -12,7 +12,9 @@ git:
     to: /
 packages:
    - type: os-pm
-     workdir: /
+     spec:
+       - jq==1.8.1
+       - curl==8.12.1
 ---
 image: app
 fromImage: base-layer
@@ -21,4 +23,5 @@ git:
     to: /
 packages:
   - type: os-pm
-    workdir: /
+    spec:
+      - curl==8.12.1

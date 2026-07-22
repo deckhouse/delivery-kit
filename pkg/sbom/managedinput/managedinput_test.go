@@ -66,16 +66,6 @@ var _ = Describe("ToCatalogers", func() {
 			},
 		),
 
-		Entry("os-pm entries are skipped",
-			[]*config.PackagesDirective{
-				{
-					Type:      config.PackagesDirectiveTypeOSPM,
-					FileBased: config.FileBasedSpec{Workdir: "/", Spec: "pm.yaml", Lock: "pm.lock"},
-				},
-			},
-			[]scanner.Cataloger(nil),
-		),
-
 		Entry("nil packages yield no catalogers",
 			[]*config.PackagesDirective(nil),
 			[]scanner.Cataloger(nil),

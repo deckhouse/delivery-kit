@@ -27,4 +27,5 @@ import:
     before: install
 packages:
   - type: os-pm
-    workdir: /
+    spec:
+      - curl==8.12.1

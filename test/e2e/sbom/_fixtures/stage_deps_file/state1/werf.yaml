@@ -17,4 +17,5 @@ git:
     to: /
 packages:
   - type: os-pm
-    workdir: /
+    spec:
+      - jq==1.8.1

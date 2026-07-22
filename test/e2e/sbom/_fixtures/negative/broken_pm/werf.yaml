@@ -15,4 +15,5 @@ shell:
     - printf 'this is not valid json at all, definitely broken output' > /pm.lock
 packages:
   - type: os-pm
-    workdir: /
+    spec:
+      - demo-app==1.0.0

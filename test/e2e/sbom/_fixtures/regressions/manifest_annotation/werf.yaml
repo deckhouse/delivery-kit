@@ -1,0 +1,26 @@
+project: werf-test-e2e-sbom-annotation-regression
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: frontend
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+ - type: os-pm
+   spec:
+     - jq==1.8.1
+---
+image: backend
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+ - type: os-pm
+   spec:
+     - jq==1.8.1

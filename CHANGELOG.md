@@ -1,5 +1,8 @@
 # Changelog
 
+## [2.77.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.76.0-dk...v2.77.0-dk) (2026-07-24)
+
+
 ### Features
 
 * **sbom:** add JavaScript package ecosystem types (npm, yarn, pnpm) ([c70ec68](https://github.com/deckhouse/delivery-kit/commit/c70ec687e5e9b5c2e0966479185801162fb5e336))

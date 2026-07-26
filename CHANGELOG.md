@@ -14,6 +14,21 @@
 * **deploy:** create release namespace under strict RBAC, `--no-create-namespace` flag ([#7668](https://github.com/werf/werf/issues/7668)) ([5c9d62a](https://github.com/werf/werf/commit/5c9d62a0c8b73fd13e861136961537a5470679c1))
 
 
+## [2.77.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.76.0-dk...v2.77.0-dk) (2026-07-26)
+
+
+### Features
+
+* **sbom:** add JavaScript package ecosystem types (npm, yarn, pnpm) ([c70ec68](https://github.com/deckhouse/delivery-kit/commit/c70ec687e5e9b5c2e0966479185801162fb5e336))
+* **sbom:** don't enforce pm determnism ([c22beb5](https://github.com/deckhouse/delivery-kit/commit/c22beb5ac70ec3967909ba455bfb7b23617c358b))
+
+
+### Bug Fixes
+
+* **build, oci:** hide OCI attestation commands from help output ([5a17940](https://github.com/deckhouse/delivery-kit/commit/5a179403d01fb078ebbedf7535875eafb355167e))
+* **deploy:** create release namespace under strict RBAC, `--no-create-namespace` flag ([#7668](https://github.com/deckhouse/delivery-kit/issues/7668)) ([5c9d62a](https://github.com/deckhouse/delivery-kit/commit/5c9d62a0c8b73fd13e861136961537a5470679c1))
+* **deploy:** don't block deploy when Helm managed fields reconstruction hits incompatible historical manifest ([#7673](https://github.com/deckhouse/delivery-kit/issues/7673)) ([c7f3677](https://github.com/deckhouse/delivery-kit/commit/c7f3677b80ddf34b98182ff00a7a622994dbf05c))
+
 ## [2.76.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.75.1-dk...v2.76.0-dk) (2026-07-20)
 
 

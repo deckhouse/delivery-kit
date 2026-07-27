@@ -278,7 +278,10 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 			err := phase.convergeImageSbom(ctx, name, images)
 			if err != nil {
 				if errors.Is(err, externalref.ErrExternalRefEnrich) {
-					purlErrors.Store(name, err)
+					var compErr *externalref.ComponentError
+					if errors.As(err, &compErr) {
+						purlErrors.Store(name, compErr.ComponentDetails())
+					}
 					return nil
 				}
 				return err
@@ -289,13 +292,8 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		}
 	}
 
-	var errs []error
-	purlErrors.Range(func(key, value interface{}) bool {
-		errs = append(errs, value.(error))
-		return true
-	})
-	if len(errs) > 0 {
-		return fmt.Errorf("resolve external references: %d of %d images failed: %w", len(errs), totalImages, errors.Join(errs...))
+	if err := buildAggregatedPurlError(&purlErrors, totalImages); err != nil {
+		return err
 	}
 
 	return nil
@@ -1641,4 +1639,28 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
+}
+
+// buildAggregatedPurlError builds a hierarchical aggregated error from accumulated PURL errors.
+func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
+	var errorCount int
+	var sb strings.Builder
+	purlErrors.Range(func(key, value interface{}) bool {
+		errorCount++
+		imageName := key.(string)
+		details := value.(string)
+		sb.WriteString(fmt.Sprintf("\n  - image: %s:\n", imageName))
+		for _, line := range strings.Split(details, "\n") {
+			if line != "" {
+				sb.WriteString(line + "\n")
+			}
+		}
+		return true
+	})
+
+	if errorCount > 0 {
+		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
+	}
+
+	return nil
 }

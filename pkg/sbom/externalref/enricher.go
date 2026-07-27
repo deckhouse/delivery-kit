@@ -2,7 +2,9 @@ package externalref
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -51,17 +53,40 @@ func purlNotExpected(ct cdx.ComponentType) bool {
 }
 
 type Enricher struct {
-	resolve func(ctx context.Context, purl string) (*ResolveResult, error)
+	Resolve func(ctx context.Context, purl string) (*ResolveResult, error)
 }
 
 func NewEnricher(resolve func(ctx context.Context, purl string) (*ResolveResult, error)) *Enricher {
-	return &Enricher{resolve: resolve}
+	return &Enricher{Resolve: resolve}
 }
 
 type componentError struct {
 	name string
 	purl string
 	err  error
+}
+
+// ComponentError carries per-component failure details for enrichment.
+// The details field contains the formatted component failure lines
+// (e.g., "- apk-tools (pkg:apk/...): empty url\n") without any header prefix.
+// Use ComponentDetails() to extract them without text parsing.
+type ComponentError struct {
+	err     error  // private: joined component errors
+	details string // private: "- name (purl): err\n- ..."
+}
+
+func (e *ComponentError) Error() string {
+	return fmt.Sprintf("resolve external references: components failed:\n%s", e.details)
+}
+
+func (e *ComponentError) Unwrap() error {
+	return e.err
+}
+
+// ComponentDetails returns only the per-component failure lines
+// without any header, ready for build-level aggregation.
+func (e *ComponentError) ComponentDetails() string {
+	return e.details
 }
 
 func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
@@ -89,11 +114,16 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	_ = g.Wait()
 
 	if failed := lo.Compact(compErrs); len(failed) > 0 {
-		logboek.Context(ctx).Error().LogF("Failed to enrich %d of %d SBOM components with external references:\n", len(failed), len(components))
+		var details strings.Builder
+		var innerErrs []error
 		for _, ce := range failed {
-			logboek.Context(ctx).Error().LogF("  - %s (%s): %s\n", ce.name, ce.purl, ce.err)
+			fmt.Fprintf(&details, "    - component: %s: %s\n", ce.name, ce.err)
+			innerErrs = append(innerErrs, ce.err)
 		}
-		return fmt.Errorf("resolve external references: %d of %d components failed", len(failed), len(components))
+		return &ComponentError{
+			err:     errors.Join(innerErrs...),
+			details: details.String(),
+		}
 	}
 
 	var bomRefs []cdx.ExternalReference
@@ -128,7 +158,7 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 		return nil
 	}
 
-	res, err := e.resolve(ctx, comp.PackageURL)
+	res, err := e.Resolve(ctx, comp.PackageURL)
 	if err != nil {
 		return err
 	}

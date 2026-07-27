@@ -1,58 +1,65 @@
 # Implementation Plan: Batch Purl-Resolver Errors
 
-**Branch**: `feat/build/batch-purl-resolver-errors` | **Date**: 2026-07-27 | **Spec**: `specs/011-batch-purl-resolver-errors/spec.md`
+**Branch**: `fix/sbom/group-purl-resolver-errors` | **Date**: 2026-07-27 | **Spec**: `specs/011-batch-purl-resolver-errors/spec.md`
 
 **Input**: Feature specification from `/specs/011-batch-purl-resolver-errors/spec.md`
 
-**Note**: This template is filled in by the `/speckit-plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
-
 ## Summary
 
-Currently, when the PURL resolver (`ExternalRefPatcher.Apply`) fails for any image during SBOM generation, `parallel.DoTasks` returns the error immediately, cancels the remaining workers, and the build stops. With N images and M of them having unresolvable PURLs, the user needs up to M rebuild cycles to discover all failures.
+Currently, PURL resolution operates at two levels:
+- **Component level** (`Enricher.Enrich`): resolves PURLs per component within a BOM, logs failures via `logboek` but returns only an aggregated count, losing detail.
+- **Image level** (`convergeImageSbom` → `ExternalRefPatcher.Apply`): the first image failure stops the entire build.
 
-This feature aggregates PURL resolution errors across ALL image sets in a single build: each image is still attempted, and a single aggregated error (`"resolve external references: N of M images failed"`) is returned once at the end of the entire build.
+This feature:
+1. Introduces `ComponentError` type in `pkg/sbom/externalref/` — a proper Go error with `ComponentDetails()` accessor, carrying per-component failure details inline. `logboek.Error()` calls are removed (FR-003, FR-004).
+2. Adds sentinel `ErrExternalRefEnrich` in `ExternalRefPatcher.Apply` via `errors.Join(err, ErrExternalRefEnrich)` for reliable detection.
+3. Modifies `convergeSbomByImagesSets` to accumulate PURL errors across ALL image sets and return a single aggregated error for the entire build, with hierarchical format: image name → component details.
+4. Adds an e2e test at `test/e2e/sbom/purl_resolver_errors_test.go` with a 3-image scenario using `httptest` mock server.
 
-**Approach**: Define a sentinel error `ErrExternalRefEnrich` in `pkg/sbom/externalref/` and detect it via `errors.Is` in the `convergeSbomByImagesSets` closure. PURL resolution errors are accumulated across all image sets throughout the entire build. Non-PURL errors (base image collection failure, env var missing, etc.) propagate as-is and stop the build immediately. After all image sets are processed, a single aggregated error is returned if any PURL failures were collected.
+**Detailed error format**:
+- Component level: `resolve external references: components failed:\n    - component: <name>: <err>`
+- Image level: `  - image: <name>:\n      - component: <name>: <err>`
+- Build level: `resolve external references: N of M images failed:\n  - image: <name>:\n      - component: <name>: <err>`
 
 ## Technical Context
 
 **Language/Version**: Go 1.24.10
 
 **Primary Dependencies**:
-- **SBOM patching**: `pkg/sbom/externalref/` — `ExternalRefPatcher`, `Enricher`
+- **SBOM patching**: `pkg/sbom/externalref/` — `ExternalRefPatcher`, `Enricher`, `ComponentError`, `ErrExternalRefEnrich`
 - **Parallel execution**: `pkg/util/parallel/` — `DoTasks` (errgroup-based)
-- **Error handling**: `errors` (sentinel checks), `fmt.Errorf` (wrapping)
-- **Utilities**: `samber/lo` — `lo.Compact`, `lo.Map` for error aggregation
+- **Error handling**: `errors` (sentinel checks, `Join`, `As`), `fmt.Errorf` (wrapping), `strings.Builder` for structured error formatting
+- **Utilities**: `samber/lo` — `lo.Compact` for error aggregation
 
 **Storage**: OCI container registry (Docker v2, ECR) — SBOM artifacts attached to images
 
-**Testing**: Ginkgo + Gomega for unit tests; co-located `*_test.go` files
+**Testing**: Ginkgo + Gomega for unit tests; co-located `*_test.go` files. E2e tests at `test/e2e/sbom/` use Ginkgo + `httptest` mock server.
 
 **Target Platform**: Linux (amd64/arm64) via Buildah
 
 **Project Type**: CLI tool (Go binary via `cmd/werf/main.go`)
 
-### Unknowns (NEEDS CLARIFICATION)
+### Design Decisions (previously NEEDS CLARIFICATION, now resolved by implementation)
 
-1. **PURL error detection mechanism**: How to reliably distinguish PURL resolution errors from other errors in the call chain from the `parallel.DoTasks` closure.
-   - *Resolution*: Define a sentinel `var ErrExternalRefEnrich = errors.New("enrich external references")` in `pkg/sbom/externalref/patcher.go` and detect it in the build closure via `errors.Is(err, externalref.ErrExternalRefEnrich)`. The error chain propagates as `ConvergeWithMerge` → `convergeImageSbom` → `parallel.DoTasks` closure. `ExternalRefPatcher.Apply` wraps the underlying error with `fmt.Errorf("enrich external references: %w", err)`, so the sentinel appears in the error chain regardless of wrapping.
+1. **PURL error detection mechanism**: Sentinel `ErrExternalRefEnrich` added in `externalref/patcher.go`. `ExternalRefPatcher.Apply` wraps the enricher error with `fmt.Errorf("enrich external references: %w", err)` and joins with `errors.Join(err, ErrExternalRefEnrich)`, so `errors.Is` reliably detects PURL errors through the chain.
 
-2. **Error propagation behavior**: Where to return the single aggregated error.
-   - *Resolution*: Return from `convergeSbomByImagesSets` after ALL image sets are processed. The function iterates over all image sets, accumulates PURL errors across all of them, and returns a single aggregated error once at the end. Non-PURL errors from `parallel.DoTasks` still propagate immediately (stop the build for that set).
+2. **Error propagation boundary**: `convergeSbomByImagesSets` accumulates errors across ALL image sets using a `sync.Map` and returns a single aggregated error via `buildAggregatedPurlError` helper. Non-PURL errors still propagate immediately.
+
+3. **Component-level error format**: `ComponentError` struct with `Error()` returning `"resolve external references: components failed:\n    - component: <name>: <err>"` and `ComponentDetails()` extracting just the details lines. `logboek` calls removed.
+
+4. **E2e test mocking**: Uses `httptest` HTTP mock server returning 404 for specific packages (curl, openssl) and 200 for others (jq). The `Enricher.Resolve` public field enables unit test mocking but the e2e test uses HTTP-level mocking.
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
-
 | Principle | Assessment | Notes |
 |-----------|-----------|-------|
-| I. Simplicity Over Abstraction | ✅ PASS | Minimal addition of one sentinel error in the `externalref` package. No new interfaces, generics, or abstractions. |
-| II. Go Idiomatic Code | ✅ PASS | Uses `errors.Is` for sentinel detection, `fmt.Errorf` wrapping, guard clauses. |
-| III. Minimal Public Surface | ✅ PASS | `ErrExternalRefEnrich` is the only new exported symbol, justified by the need for reliable cross-package detection. |
-| IV. Test-Before-Merge | ⚠️ GATE | New tests required in `pkg/build/build_phase_test.go`. Must pass `task test:unit`. |
-| V. Conventional Commits | ✅ PASS | Single commit: `feat(build): batch PURL resolver errors across image set`. |
+| I. Simplicity Over Abstraction | ✅ PASS | `ComponentError` struct with two private fields + 3 methods. `buildAggregatedPurlError` helper function. No interfaces, generics, or embedding. |
+| II. Go Idiomatic Code | ✅ PASS | Uses `errors.Is`/`As`, `errors.Join`, `fmt.Errorf`, `strings.Builder`, guard clauses. Public `Resolve` field over getter/setter. |
+| III. Minimal Public Surface | ✅ PASS | `ErrExternalRefEnrich` sentinel, public `Resolve` field, and `ComponentError` type (with `ComponentDetails()` for builder) — all justified by cross-package detection and testability. |
+| IV. Test-Before-Merge | ⚠️ GATE | `build_phase_purl_test.go` and `enricher_test.go` cover unit tests. `purl_resolver_errors_test.go` covers e2e. Must pass `task test:unit` and `task test:e2e` with label `purl-resolver-errors`. |
+| V. Conventional Commits | ✅ PASS | Single commit: `fix(sbom): carry component failure details inline in PURL error text`. |
 
-**Complexity Tracking**: No constitution violations — the sentinel error is a small, justified addition.
+**Complexity Tracking**: No constitution violations.
 
 ## Project Structure
 
@@ -60,30 +67,35 @@ This feature aggregates PURL resolution errors across ALL image sets in a single
 
 ```text
 specs/011-batch-purl-resolver-errors/
-├── spec.md              # Feature specification
-├── plan.md              # This file
-├── research.md          # Phase 0 output — resolved unknowns
-├── data-model.md        # Phase 1 output — entity definitions
-├── quickstart.md        # Phase 1 output — validation scenarios
-├── contracts/           # Phase 1 output — interface contracts
-├── checklists/          # Feature-specific checklists
-└── tasks.md             # Generated by /speckit-tasks
+├── spec.md                  # Feature specification
+├── plan.md                  # This file
+├── research.md              # Design decisions
+├── data-model.md            # Entity definitions
+├── quickstart.md            # Validation scenarios
+├── contracts/               # Interface contracts
+├── checklists/              # Feature-specific checklists
+└── tasks.md                 # Implementation tasks
 ```
 
 ### Source Code (repository root)
 
 ```text
-pkg/build/                  # Build phase logic
-├── build_phase.go          # convergeSbomByImagesSets — MODIFIED
-├── build_phase_test.go     # NEW: tests for error aggregation
-├── sbom_step.go            # Unchanged
+pkg/build/                              # Build phase logic
+├── build_phase.go                      # convergeSbomByImagesSets + buildAggregatedPurlError — MODIFIED
+├── build_phase_purl_test.go            # Unit tests for PURL error aggregation
+├── sbom_step.go                        # Unchanged
 │
-pkg/sbom/externalref/       # External reference patcher
-├── patcher.go              # MODIFIED: added ErrExternalRefEnrich sentinel
-├── enricher.go             # Unchanged
+pkg/sbom/externalref/                   # External reference patcher
+├── patcher.go                          # MODIFIED: added ErrExternalRefEnrich sentinel, errors.Join in Apply
+├── enricher.go                         # MODIFIED: resolve→Resolve (public), ComponentError type, logboek removed
+├── enricher_test.go                    # Tests for component-level error format
 │
-pkg/util/parallel/          # Parallel execution
-├── parallel.go             # Unchanged
+test/e2e/sbom/                          # E2E tests
+├── purl_resolver_errors_test.go        # NEW: 3-image scenario with httptest mock server
+├── _fixtures/purl_resolver_errors/     # NEW: werf.yaml, Dockerfile, giterminism config
+│
+pkg/util/parallel/                      # Parallel execution
+├── parallel.go                         # Unchanged
 ```
 
 ## Complexity Tracking

@@ -3,6 +3,7 @@ package build
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -42,10 +43,11 @@ var _ = Describe("PURL error aggregation", func() {
 			[]testImageSetData{
 				{
 					names: []string{"img1", "img2", "img3"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
-						nil,
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich), nil, fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+					compDetail: []string{
+						"  - component: apk-tools: empty url",
+						"",
+						"  - component: autoconf: empty url",
 					},
 				},
 			},
@@ -55,15 +57,17 @@ var _ = Describe("PURL error aggregation", func() {
 			[]testImageSetData{
 				{
 					names: []string{"img1", "img2"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
-						nil,
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich), nil},
+					compDetail: []string{
+						"  - component: apk-tools: empty url",
+						"",
 					},
 				},
 				{
 					names: []string{"img3"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+					compDetail: []string{
+						"  - component: busybox: empty url",
 					},
 				},
 			},
@@ -73,14 +77,16 @@ var _ = Describe("PURL error aggregation", func() {
 			[]testImageSetData{
 				{
 					names: []string{"img1"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+					compDetail: []string{
+						"  - component: apk-tools: empty url",
 					},
 				},
 				{
 					names: []string{"img2"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+					compDetail: []string{
+						"  - component: autoconf: empty url",
 					},
 				},
 			},
@@ -90,8 +96,9 @@ var _ = Describe("PURL error aggregation", func() {
 			[]testImageSetData{
 				{
 					names: []string{"img1"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+					compDetail: []string{
+						"  - component: apk-tools: empty url",
 					},
 				},
 			},
@@ -101,9 +108,7 @@ var _ = Describe("PURL error aggregation", func() {
 			[]testImageSetData{
 				{
 					names: []string{"img1"},
-					errs: []error{
-						fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required"),
-					},
+					errs:  []error{fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required")},
 				},
 			},
 			"WERF_EXTERNAL_REFS_SERVER_URL env var is required",
@@ -112,15 +117,14 @@ var _ = Describe("PURL error aggregation", func() {
 			[]testImageSetData{
 				{
 					names: []string{"img1"},
-					errs: []error{
-						fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+					errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+					compDetail: []string{
+						"  - component: apk-tools: empty url",
 					},
 				},
 				{
 					names: []string{"img2"},
-					errs: []error{
-						fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required"),
-					},
+					errs:  []error{fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required")},
 				},
 			},
 			"WERF_EXTERNAL_REFS_SERVER_URL env var is required",
@@ -134,9 +138,7 @@ var _ = Describe("PURL error aggregation", func() {
 				{names: []string{}, errs: []error{}},
 				{
 					names: []string{"img1"},
-					errs: []error{
-						fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required"),
-					},
+					errs:  []error{fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required")},
 				},
 			},
 			"WERF_EXTERNAL_REFS_SERVER_URL env var is required",
@@ -185,10 +187,11 @@ var _ = Describe("PURL error aggregation", func() {
 		sets := []testImageSetData{
 			{
 				names: []string{"img1", "img2", "img3"},
-				errs: []error{
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
-					nil,
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+				errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich), nil, fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+				compDetail: []string{
+					"  - component: apk-tools: empty url",
+					"",
+					"  - component: autoconf: empty url",
 				},
 			},
 		}
@@ -196,6 +199,8 @@ var _ = Describe("PURL error aggregation", func() {
 		failures, err := testCollectFailuresAcrossSets(sets)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("resolve external references: 2 of 3 images failed"))
+		Expect(err.Error()).To(ContainSubstring("image: img1"))
+		Expect(err.Error()).To(ContainSubstring("image: img3"))
 		Expect(failures).To(HaveLen(2))
 		Expect(failures[0].imageName).To(Equal("img1"))
 		Expect(failures[1].imageName).To(Equal("img3"))
@@ -205,9 +210,10 @@ var _ = Describe("PURL error aggregation", func() {
 		sets := []testImageSetData{
 			{
 				names: []string{"img1", "img2"},
-				errs: []error{
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
-					fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required"),
+				errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich), fmt.Errorf("WERF_EXTERNAL_REFS_SERVER_URL env var is required")},
+				compDetail: []string{
+					"  - component: apk-tools: empty url",
+					"",
 				},
 			},
 		}
@@ -220,15 +226,17 @@ var _ = Describe("PURL error aggregation", func() {
 		sets := []testImageSetData{
 			{
 				names: []string{"img1", "img2"},
-				errs: []error{
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
-					nil,
+				errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich), nil},
+				compDetail: []string{
+					"  - component: apk-tools: empty url",
+					"",
 				},
 			},
 			{
 				names: []string{"img3"},
-				errs: []error{
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+				errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+				compDetail: []string{
+					"  - component: busybox: empty url",
 				},
 			},
 		}
@@ -236,20 +244,21 @@ var _ = Describe("PURL error aggregation", func() {
 		failures, err := testCollectFailuresAcrossSets(sets)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("resolve external references: 2 of 3 images failed"))
+		Expect(err.Error()).To(ContainSubstring("image: img1"))
+		Expect(err.Error()).To(ContainSubstring("image: img3"))
 		Expect(failures).To(HaveLen(2))
 		Expect(failures[0].imageName).To(Equal("img1"))
-		Expect(errors.Is(failures[0].err, externalref.ErrExternalRefEnrich)).To(BeTrue())
 		Expect(failures[1].imageName).To(Equal("img3"))
-		Expect(errors.Is(failures[1].err, externalref.ErrExternalRefEnrich)).To(BeTrue())
 	})
 
-	It("aggregated error contains individual error messages via errors.Join", func() {
+	It("aggregated error has hierarchical format with image names", func() {
 		sets := []testImageSetData{
 			{
 				names: []string{"img1", "img2"},
-				errs: []error{
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
-					fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich),
+				errs:  []error{fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich), fmt.Errorf("enrich external references: %w", externalref.ErrExternalRefEnrich)},
+				compDetail: []string{
+					"  - component: apk-tools: empty url",
+					"  - component: openssl: empty url",
 				},
 			},
 		}
@@ -258,16 +267,8 @@ var _ = Describe("PURL error aggregation", func() {
 		Expect(err).To(HaveOccurred())
 		errMsg := err.Error()
 		Expect(errMsg).To(ContainSubstring("resolve external references: 2 of 2 images failed"))
-		Expect(errMsg).To(ContainSubstring("enrich external references"))
-	})
-
-	It("does not import cdx in package-level test types", func() {
-		// Verify that cdx imports are only in test bodies, not at package level
-		// This test exists because the mock is now imported from test/mock/
-		ctrl := gomock.NewController(GinkgoT())
-		defer ctrl.Finish()
-		patcher := mock.NewMockBOMPatcher(ctrl)
-		Expect(patcher).ToNot(BeNil())
+		Expect(errMsg).To(ContainSubstring("image: img1"))
+		Expect(errMsg).To(ContainSubstring("image: img2"))
 	})
 })
 
@@ -277,8 +278,9 @@ type testImagePurlFailure struct {
 }
 
 type testImageSetData struct {
-	names []string
-	errs  []error
+	names      []string
+	errs       []error
+	compDetail []string
 }
 
 func testCollectFailuresAcrossSets(sets []testImageSetData) ([]testImagePurlFailure, error) {
@@ -292,7 +294,11 @@ func testCollectFailuresAcrossSets(sets []testImageSetData) ([]testImagePurlFail
 			err := set.errs[i]
 			if err != nil {
 				if errors.Is(err, externalref.ErrExternalRefEnrich) {
-					failures = append(failures, testImagePurlFailure{imageName: name, err: err})
+					details := set.compDetail[i]
+					failures = append(failures, testImagePurlFailure{
+						imageName: name,
+						err:       fmt.Errorf("  - image: %s:\n%s", name, details),
+					})
 				} else {
 					return nil, err
 				}
@@ -301,12 +307,13 @@ func testCollectFailuresAcrossSets(sets []testImageSetData) ([]testImagePurlFail
 	}
 
 	if len(failures) > 0 {
-		var errs []error
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("resolve external references: %d of %d images failed:", len(failures), totalImages))
 		for _, f := range failures {
-			errs = append(errs, f.err)
+			sb.WriteString("\n")
+			sb.WriteString(strings.TrimRight(f.err.Error(), "\n"))
 		}
-		joined := errors.Join(errs...)
-		return failures, fmt.Errorf("resolve external references: %d of %d images failed: %w", len(failures), totalImages, joined)
+		return failures, errors.New(sb.String())
 	}
 
 	return nil, nil

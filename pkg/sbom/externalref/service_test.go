@@ -31,6 +31,16 @@ var _ = Describe("Service", func() {
 		ts.Close()
 	})
 
+	Describe("default constants", func() {
+		It("has default HTTP client timeout of 5 seconds", func() {
+			Expect(defaultServiceTimeout).To(Equal(5 * time.Second))
+		})
+
+		It("has MaxElapsedTime of 10 seconds", func() {
+			Expect(defaultMaxElapsedTime).To(Equal(10 * time.Second))
+		})
+	})
+
 	Describe("Resolve", func() {
 		type resolveCase struct {
 			purl  string

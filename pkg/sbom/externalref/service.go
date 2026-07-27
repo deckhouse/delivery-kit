@@ -16,6 +16,11 @@ import (
 	"github.com/werf/werf/v2/pkg/werf"
 )
 
+const (
+	defaultServiceTimeout = 5 * time.Second
+	defaultMaxElapsedTime = 10 * time.Second
+)
+
 type ServiceConfig struct {
 	ServerURL  string
 	Timeout    time.Duration
@@ -32,7 +37,7 @@ func NewService(cfg ServiceConfig) *Service {
 
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = defaultServiceTimeout
 	}
 
 	httpClient := cfg.HTTPClient
@@ -56,7 +61,7 @@ func (s *Service) Resolve(ctx context.Context, purl string) (*ResolveResult, err
 		return s.doResolve(ctx, u, purl)
 	},
 		backoff.WithBackOff(backoff.NewExponentialBackOff()),
-		backoff.WithMaxElapsedTime(30*time.Second),
+		backoff.WithMaxElapsedTime(defaultMaxElapsedTime),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			logboek.Context(ctx).Warn().LogF(
 				"WARNING: resolve PURL failed, retrying in %v: %s\n",

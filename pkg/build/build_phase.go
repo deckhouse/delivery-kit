@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -252,6 +253,9 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
 	}
 
+	var purlErrors sync.Map
+	var totalImages int
+
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
 		imagesByName := make(map[string][]*image.Image)
 		for _, img := range imagesInSet {
@@ -263,16 +267,35 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 			names = append(names, name)
 		}
 
+		totalImages += len(names)
+
 		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
 			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
 			InitDockerCLIForEachWorker: true,
 		}, func(ctx context.Context, taskId int) error {
 			name := names[taskId]
 			images := imagesByName[name]
-			return phase.convergeImageSbom(ctx, name, images)
+			err := phase.convergeImageSbom(ctx, name, images)
+			if err != nil {
+				if errors.Is(err, externalref.ErrExternalRefEnrich) {
+					purlErrors.Store(name, err)
+					return nil
+				}
+				return err
+			}
+			return nil
 		}); err != nil {
 			return err
 		}
+	}
+
+	var errs []error
+	purlErrors.Range(func(key, value interface{}) bool {
+		errs = append(errs, value.(error))
+		return true
+	})
+	if len(errs) > 0 {
+		return fmt.Errorf("resolve external references: %d of %d images failed: %w", len(errs), totalImages, errors.Join(errs...))
 	}
 
 	return nil

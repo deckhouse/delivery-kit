@@ -2,11 +2,14 @@ package externalref
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
+
+var ErrExternalRefEnrich = errors.New("enrich external references")
 
 const EnvName = "WERF_EXTERNAL_REFS_SERVER_URL"
 

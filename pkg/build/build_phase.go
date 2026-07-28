@@ -1482,12 +1482,12 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 
 	digest := util.Sha3_224Hash(checksumArgs...)
 
-	blockMsg := fmt.Sprintf("Stage %s digest %s", stageName, digest)
-	logboek.Context(ctx).Debug().LogBlock(blockMsg).Do(func() {
+	logboek.Context(ctx).Debug().LogF("Stage %s digest %s\n", stageName, digest)
+	if debugStageDigest() {
 		for ind, checksumArg := range checksumArgs {
 			logboek.Context(ctx).Debug().LogF("%s => %q\n", checksumArgsNames[ind], checksumArg)
 		}
-	})
+	}
 
 	return digest, nil
 }
@@ -1661,4 +1661,8 @@ func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
 	}
 
 	return nil
+}
+
+func debugStageDigest() bool {
+	return os.Getenv("WERF_DEBUG_STAGE_DIGEST") == "1"
 }

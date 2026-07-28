@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -252,6 +253,9 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
 	}
 
+	var purlErrors sync.Map
+	var totalImages int
+
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
 		imagesByName := make(map[string][]*image.Image)
 		for _, img := range imagesInSet {
@@ -263,16 +267,33 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 			names = append(names, name)
 		}
 
+		totalImages += len(names)
+
 		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
 			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
 			InitDockerCLIForEachWorker: true,
 		}, func(ctx context.Context, taskId int) error {
 			name := names[taskId]
 			images := imagesByName[name]
-			return phase.convergeImageSbom(ctx, name, images)
+			err := phase.convergeImageSbom(ctx, name, images)
+			if err != nil {
+				if errors.Is(err, externalref.ErrExternalRefEnrich) {
+					var compErr *externalref.ComponentError
+					if errors.As(err, &compErr) {
+						purlErrors.Store(name, compErr.ComponentDetails())
+					}
+					return nil
+				}
+				return err
+			}
+			return nil
 		}); err != nil {
 			return err
 		}
+	}
+
+	if err := buildAggregatedPurlError(&purlErrors, totalImages); err != nil {
+		return err
 	}
 
 	return nil
@@ -1618,4 +1639,28 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
+}
+
+// buildAggregatedPurlError builds a hierarchical aggregated error from accumulated PURL errors.
+func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
+	var errorCount int
+	var sb strings.Builder
+	purlErrors.Range(func(key, value interface{}) bool {
+		errorCount++
+		imageName := key.(string)
+		details := value.(string)
+		sb.WriteString(fmt.Sprintf("\n  - image: %s:\n", imageName))
+		for _, line := range strings.Split(details, "\n") {
+			if line != "" {
+				sb.WriteString(line + "\n")
+			}
+		}
+		return true
+	})
+
+	if errorCount > 0 {
+		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
+	}
+
+	return nil
 }

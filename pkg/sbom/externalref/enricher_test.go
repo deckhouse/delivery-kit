@@ -2,6 +2,7 @@ package externalref
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -77,7 +78,7 @@ var _ = Describe("Enricher", func() {
 					Expect(err).NotTo(HaveOccurred())
 				},
 			}),
-			Entry("returns aggregated error on library without purl", enrichCase{
+			Entry("returns aggregated error with component details on library without purl", enrichCase{
 				bom: &cdx.BOM{
 					Components: &[]cdx.Component{
 						{Name: "no-purl-lib", Version: "1.0.0", Type: cdx.ComponentTypeLibrary},
@@ -85,7 +86,10 @@ var _ = Describe("Enricher", func() {
 				},
 				check: func(err error) {
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("1 of 1 components failed"))
+					errMsg := err.Error()
+					Expect(errMsg).To(ContainSubstring("components failed:"))
+					Expect(errMsg).To(ContainSubstring("no-purl-lib"))
+					Expect(errMsg).To(ContainSubstring("has no purl"))
 				},
 			}),
 			Entry("keeps enriching after a failed resolve", enrichCase{
@@ -97,7 +101,9 @@ var _ = Describe("Enricher", func() {
 				},
 				check: func(err error) {
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("1 of 2 components failed"))
+					errMsg := err.Error()
+					Expect(errMsg).To(ContainSubstring("components failed:"))
+					Expect(errMsg).To(ContainSubstring("unknown"))
 				},
 			}),
 			Entry("collects every failed component instead of stopping at the first", enrichCase{
@@ -109,7 +115,10 @@ var _ = Describe("Enricher", func() {
 				},
 				check: func(err error) {
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("2 of 2 components failed"))
+					errMsg := err.Error()
+					Expect(errMsg).To(ContainSubstring("components failed:"))
+					Expect(errMsg).To(ContainSubstring("unknown"))
+					Expect(errMsg).To(ContainSubstring("missing"))
 				},
 			}),
 			Entry("returns no error on nil components", enrichCase{
@@ -178,6 +187,56 @@ var _ = Describe("Enricher", func() {
 			Expect(refs).To(HaveLen(2))
 			Expect(refs[0].URL).To(Equal("https://example.com"))
 			Expect(refs[1].URL).To(Equal("https://github.com/lodash/lodash"))
+		})
+
+		It("error string contains component details format: '- <name> (<purl>): <error>'", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return nil, fmt.Errorf("resolve failed")
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "pkg-b", Version: "2.0", PackageURL: "pkg:npm/pkg-b@2.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			errMsg := err.Error()
+			Expect(errMsg).To(ContainSubstring("components failed:"))
+			Expect(errMsg).To(ContainSubstring("- component: pkg-a: resolve failed"))
+			Expect(errMsg).To(ContainSubstring("- component: pkg-b: resolve failed"))
+		})
+
+		It("uses public Resolve field for custom mock", func() {
+			called := false
+			enricher := &Enricher{
+				Resolve: func(ctx context.Context, purl string) (*ResolveResult, error) {
+					called = true
+					return &ResolveResult{
+						URL:  "https://example.com/" + purl,
+						Kind: "website",
+					}, nil
+				},
+			}
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(called).To(BeTrue())
+		})
+
+		It("Resolve field can be injected via NewEnricher", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "website"}, nil
+			})
+			Expect(enricher.Resolve).NotTo(BeNil())
 		})
 	})
 

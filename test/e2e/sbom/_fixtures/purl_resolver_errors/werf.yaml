@@ -1,0 +1,38 @@
+project: werf-test-e2e-sbom-batch-purl-errors
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: image-fail-all
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+  - type: os-pm
+    spec:
+      - curl==8.12.1
+      - openssl==3.6.2
+---
+image: image-fail-partial
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+  - type: os-pm
+    spec:
+      - curl==8.12.1
+      - jq==1.8.1
+---
+image: image-ok
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+  - type: os-pm
+    spec:
+      - jq==1.8.1

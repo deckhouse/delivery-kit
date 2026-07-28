@@ -18,12 +18,35 @@ jobs:
   release-please:
     runs-on: [self-hosted, regular]
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute next -dk version
+        id: version
+        run: |
+          last="$(jq -r '."."' .release-please-manifest.json)"
+          range="HEAD"
+          git rev-parse -q --verify "refs/tags/v${last}" >/dev/null && range="v${last}..HEAD"
+          if git log --format=%B "$range" | grep -qi '^Release-As:'; then
+            echo "next=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! $last =~ ^(.+)-dk\.([0-9]+)$ ]]; then
+            echo "manifest version '$last' is not <semver>-dk.<N>: pin the next one with a Release-As footer" >&2
+            exit 1
+          fi
+          echo "next=${BASH_REMATCH[1]}-dk.$(( BASH_REMATCH[2] + 1 ))" >> "$GITHUB_OUTPUT"
+
       - name: Release
         id: release
         uses: googleapis/release-please-action@v5
         with:
           target-branch: ${{github.ref_name}}
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          release-as: ${{ steps.version.outputs.next }}
   notify:
     if: failure()
     needs: release-please

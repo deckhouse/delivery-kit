@@ -91,7 +91,7 @@ func Patch(ctx context.Context, out io.Writer, gitDir, workTreeCacheDir string, 
 }
 
 func debugPatch() bool {
-	return os.Getenv("WERF_TRUE_GIT_DEBUG_PATCH") == "1"
+	return os.Getenv("WERF_DEBUG_TRUE_GIT_PATCH") == "1" || os.Getenv("WERF_TRUE_GIT_DEBUG_PATCH") == "1"
 }
 
 func writePatch(ctx context.Context, out io.Writer, gitDir, workTreeCacheDir string, withSubmodules bool, opts PatchOptions) (*PatchDescriptor, error) {
@@ -156,6 +156,12 @@ func writePatch(ctx context.Context, out io.Writer, gitDir, workTreeCacheDir str
 		gitArgs = append(gitArgs, "diff")
 		gitArgs = append(gitArgs, diffOpts...)
 		gitArgs = append(gitArgs, opts.FromCommit, opts.ToCommit)
+
+		// Limit diff computation to the path scope. Not used with submodules: pathspec is
+		// evaluated at the superproject level and would not match paths inside submodules.
+		if pathScope := filepath.ToSlash(filepath.Clean(opts.PathScope)); pathScope != "." && pathScope != "/" && !strings.HasPrefix(pathScope, ":") {
+			gitArgs = append(gitArgs, "--", ":(literal)"+pathScope)
+		}
 
 		if debugPatch() {
 			fmt.Printf("# git %s\n", strings.Join(gitArgs, " "))

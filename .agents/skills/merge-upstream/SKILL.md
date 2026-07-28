@@ -64,19 +64,21 @@ git add -u && git commit --no-edit
 
 Do NOT author or prepend anything in `CHANGELOG.md` — release-please generates it on push to
 `main`. The only release artifact the agent adds is an empty `Release-As` commit that pins the
-exact `-dk` version (release-please would otherwise infer it from commit history).
+version to the upstream base being merged.
 
-**Determine the next `-dk` version** from the upstream base being merged: if upstream moved
-`2.72.x → 2.73.0`, it is `2.73.0-dk`; if the upstream base is unchanged and you add only fork-side
-fixes, bump the `-dk` patch. Never blindly +1 the latest `-dk` patch across an upstream minor/major.
+Fork versions are `<upstream semver>-dk.<N>`: the base is exactly the werf version merged in Step 1,
+`N` starts at 1 for each new base. So if this merge brings upstream `2.76.0`, the version is
+`2.76.0-dk.1` — never a base werf never released. Releases made between upstream merges (fork-side
+fixes only) need no commit here: `release_release-please.yml` increments `N` from
+`.release-please-manifest.json` on its own, and skips that when it sees a `Release-As:` footer.
 
 ```bash
-git commit --allow-empty -m "chore: force release X.Y.Z-dk
+git commit --allow-empty -m "chore: force release X.Y.Z-dk.1
 
-Release-As: vX.Y.Z-dk"
+Release-As: vX.Y.Z-dk.1"
 ```
 
-`Release-As: vX.Y.Z-dk` must be in the **commit body** (blank line after subject), not the subject
+`Release-As: vX.Y.Z-dk.1` must be in the **commit body** (blank line after subject), not the subject
 line. The value must include the `v` prefix.
 
 ### 3. Regenerate docs, build, test
@@ -101,8 +103,8 @@ git status                                                             # MUST be
 git push -u "$FORK" chore/release/merge-werf-upstream
 gh pr create --repo deckhouse/delivery-kit --base main \
   --head chore/release/merge-werf-upstream \
-  --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk)" \
-  --body "Sync werf upstream. CHANGELOG.md unchanged; release-please generates it on merge. Release pinned to X.Y.Z-dk via Release-As."
+  --title "chore(release): merge werf upstream into delivery-kit (X.Y.Z-dk.1)" \
+  --body "Sync werf upstream. CHANGELOG.md unchanged; release-please generates it on merge. Release pinned to X.Y.Z-dk.1 via Release-As."
 ```
 
 The agent stops after opening the PR; a maintainer reviews and merges.
@@ -117,6 +119,6 @@ To recover before pushing: `git merge --abort`, or discard the branch with
 - ALWAYS work on the `chore/release/...` branch and finish with a PR; NEVER push to the fork's `main`.
 - ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
 - CHANGELOG: NEVER copy, author, prepend, or reorder any entry; take ours (`--ours`) on conflict and leave it byte-identical to `$FORK/main`. The changelog is release-please's job.
-- ALWAYS add an empty `Release-As: vX.Y.Z-dk` commit (Step 2) so release-please pins the correct version; NEVER author a changelog entry for it — release-please generates the changelog on push to `main`.
+- ALWAYS add an empty `Release-As: v<upstream semver>-dk.1` commit (Step 2) so release-please pins the merged upstream base; NEVER invent a base werf has not released, and NEVER author a changelog entry for it — release-please generates the changelog on push to `main`.
 - NEVER `git add .`; stage only resolved tracked files.
 - NEVER blanket-resolve non-CHANGELOG conflicts toward upstream; stop and ask a human.

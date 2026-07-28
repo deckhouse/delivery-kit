@@ -1,43 +1,5 @@
 # Changelog
 
-## [2.77.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk...v2.77.1-dk) (2026-07-28)
-
-
-### Bug Fixes
-
-* **sbom:** batch PURL resolver errors across image sets ([#196](https://github.com/deckhouse/delivery-kit/issues/196)) ([b514e96](https://github.com/deckhouse/delivery-kit/commit/b514e968c0e6d2c0213124e2b9450e19489ed6e7))
-* **sbom:** reduce PURL resolver retry duration to 10s and HTTP timeout ([11cea67](https://github.com/deckhouse/delivery-kit/commit/11cea67e55a5b07399a115f1150e8fe54b58b156))
-
-## [2.77.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.76.0-dk...v2.77.0-dk) (2026-07-24)
-
-
-### Features
-
-* **sbom:** add JavaScript package ecosystem types (npm, yarn, pnpm) ([c70ec68](https://github.com/deckhouse/delivery-kit/commit/c70ec687e5e9b5c2e0966479185801162fb5e336))
-* **sbom:** don't enforce pm determnism ([c22beb5](https://github.com/deckhouse/delivery-kit/commit/c22beb5ac70ec3967909ba455bfb7b23617c358b))
-* **deploy:** add --lookup-resources flag for offline lookup in render/lint commands ([#7666](https://github.com/werf/werf/issues/7666)) ([3b0f422](https://github.com/werf/werf/commit/3b0f42205264a8aea563f881c9b9378aeba1d351))
-
-### Bug Fixes
-
-* **build, oci:** hide OCI attestation commands from help output ([5a17940](https://github.com/deckhouse/delivery-kit/commit/5a179403d01fb078ebbedf7535875eafb355167e))
-* **deploy:** don't block deploy when Helm managed fields reconstruction hits incompatible historical manifest ([#7673](https://github.com/werf/werf/issues/7673)) ([c7f3677](https://github.com/werf/werf/commit/c7f3677b80ddf34b98182ff00a7a622994dbf05c))
-* `werf.io/deploy-dependency` didn't work if no readiness operation in plan or if `namespace=releasens` ([284d18d](https://github.com/werf/werf/commit/284d18deff57f0496cbdffddba44716c0e43de60))
-* **deploy:** create release namespace under strict RBAC, `--no-create-namespace` flag ([#7668](https://github.com/werf/werf/issues/7668)) ([5c9d62a](https://github.com/werf/werf/commit/5c9d62a0c8b73fd13e861136961537a5470679c1))
-
-
-## [2.76.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.75.1-dk...v2.76.0-dk) (2026-07-20)
-
-
-### Features
-
-* **build, oci:** add commands to manage oci artifacts ([#162](https://github.com/deckhouse/delivery-kit/issues/162)) ([61e83fb](https://github.com/deckhouse/delivery-kit/commit/61e83fba05b23ce54527498ce5cb316d57cbfca2))
-
-
-### Bug Fixes
-
-* **config:** use stapel coreutils in pm snapshot command ([a39429c](https://github.com/deckhouse/delivery-kit/commit/a39429c41524945ee7fffa6c938a3d7f23d497a1))
-* **sbom:** read pm files from image without executing coreutils ([252d0c1](https://github.com/deckhouse/delivery-kit/commit/252d0c1a4c41eda79d4217ac4d1f24770bba9d3f))
-
 ## [2.75.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.75.0-dk...v2.75.1-dk) (2026-07-17)
 
 

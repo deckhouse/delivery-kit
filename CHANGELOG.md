@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.77.1-dk](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk...v2.77.1-dk) (2026-07-28)
+
+
+### Bug Fixes
+
+* **sbom:** batch PURL resolver errors across image sets ([#196](https://github.com/deckhouse/delivery-kit/issues/196)) ([b514e96](https://github.com/deckhouse/delivery-kit/commit/b514e968c0e6d2c0213124e2b9450e19489ed6e7))
+* **sbom:** reduce PURL resolver retry duration to 10s and HTTP timeout ([11cea67](https://github.com/deckhouse/delivery-kit/commit/11cea67e55a5b07399a115f1150e8fe54b58b156))
+
 ## [2.77.0-dk](https://github.com/deckhouse/delivery-kit/compare/v2.76.0-dk...v2.77.0-dk) (2026-07-24)
 
 

@@ -378,8 +378,6 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 		img.stages = append(img.stages, stage.GenerateSignStage(baseStageOptions, opts.ManifestSigningOptions))
 	}
 
-	logboek.Context(ctx).Info().LogFDetails("Using stage %s\n", dockerfileStage.Name())
-
 	return img, nil
 }
 

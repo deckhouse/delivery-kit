@@ -30,7 +30,7 @@ jobs:
           last="$(jq -r '."."' .release-please-manifest.json)"
           range="HEAD"
           git rev-parse -q --verify "refs/tags/v${last}" >/dev/null && range="v${last}..HEAD"
-          if git log --format=%B "$range" | grep -qi '^Release-As:'; then
+          if grep -qi '^Release-As:' <<<"$(git log --format=%B "$range")"; then
             echo "next=" >> "$GITHUB_OUTPUT"
             exit 0
           fi

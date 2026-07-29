@@ -44,10 +44,8 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
 
 - **Build**: `task build` (NOT raw `go build`)
 - **Unit tests**: `task test:unit` (NOT raw `go test`)
-- **E2E tests**: `task test:e2e` with Ginkgo label filters
-- **Linting**: `task lint:golangci-lint` (NOT raw `golangci-lint`)
+- **E2E tests**: `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
 - **Formatting**: `task format` (NOT raw `go fmt`)
-- **Environment**: `TASK_X_REMOTE_TASKFILES=1` MUST be set for task commands
 - **Documentation**: `task doc:gen` after changing CLI help text
 
 ## Governance

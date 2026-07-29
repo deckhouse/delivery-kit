@@ -110,14 +110,6 @@
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
 - **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
-### Go-Specific Requirements *(when applicable)*
-
-- All public functions MUST accept `context.Context` as the first parameter
-- Errors MUST be wrapped with `fmt.Errorf("doing something: %w", err)`
-- Use `samber/lo` helpers (`lo.Filter`, `lo.Map`, `lo.Contains`, etc.) where appropriate
-- Optional arguments use `<FunctionName>Options` struct — never functional options
-- Add `var _ Interface = (*Impl)(nil)` compile-time check for each interface implementation
-
 ### Key Entities *(include if feature involves data)*
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]

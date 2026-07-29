@@ -56,3 +56,4 @@ buildah-test
 /.opencode
 /.pp
 /.pi
+.specify/extensions/.cache/

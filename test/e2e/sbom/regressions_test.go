@@ -17,6 +17,7 @@ import (
 
 var _ = Describe("SBOM regression", Label("e2e", "sbom", "regression", "simple"), func() {
 	DescribeTable("manifest annotation preservation: fallback index descriptors carry image-name annotation",
+		Label("annotation-consistency"),
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 

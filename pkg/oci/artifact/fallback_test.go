@@ -1,14 +1,13 @@
 package artifact
 
 import (
-	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo/parallel"
 )
 
 var _ = Describe("getTagMutex", func() {
@@ -39,33 +38,29 @@ var _ = Describe("getTagMutex", func() {
 	})
 
 	It("should be safe under concurrent calls", func() {
-		var wg sync.WaitGroup
 		keys := []string{"a", "b", "c", "d", "e"}
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_ = getTagMutex(keys[i%len(keys)])
-			}()
-		}
-		wg.Wait()
+		parallel.Times(100, func(i int) struct{} {
+			_ = getTagMutex(keys[i%len(keys)])
+			return struct{}{}
+		})
 	})
 })
 
 var _ = Describe("retry timeout", func() {
-	It("should return an error when retry budget is exhausted for a failing CAS loop", func() {
+	It("should return an error when retry budget is exhausted for a failing CAS loop", func(ctx SpecContext) {
 		eb := backoff.NewExponentialBackOff()
 		eb.InitialInterval = 100 * time.Millisecond
 
 		calls := 0
-		_, err := backoff.Retry(context.Background(), func() (bool, error) {
+		_, err := backoff.Retry(ctx, func() (bool, error) {
 			calls++
-			return false, fmt.Errorf("always fail")
+			return false, fmt.Errorf("consistency check failed: digest mismatch")
 		},
 			backoff.WithBackOff(eb),
 			backoff.WithMaxElapsedTime(1*time.Second),
 		)
 		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("consistency check failed: digest mismatch"))
 		Expect(calls).To(BeNumerically(">", 1))
 	})
 })

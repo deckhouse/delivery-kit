@@ -8,9 +8,9 @@
 
 ## Validation Scenarios
 
-### 1. Unit Tests — `fallback_test.go`
+### 1. Mutex Serialization Unit Tests — `fallback_test.go`
 
-**What it validates**: The per-tag mutex correctly serializes concurrent calls.
+**What it validates**: The per-tag mutex correctly serializes concurrent calls, the blocking behavior, and concurrent `getTagMutex` access without races.
 
 ```bash
 task test:unit paths="./pkg/oci/artifact/..." -- -run "TestArtifact" -race
@@ -37,7 +37,6 @@ zero data races detected.
 
 - Returns correct descriptor for known annotations
 - Returns `(empty, false)` for non-existing index
-- No performance regression per SC-004
 
 ```bash
 task test:unit paths="./pkg/oci/artifact/..." -- -run "TestArtifact"
@@ -48,7 +47,7 @@ task test:unit paths="./pkg/oci/artifact/..." -- -run "TestArtifact"
 ### 4. Full Unit Test Suite
 
 ```bash
-task test:unit paths="./pkg/oci/artifact/..."
+task test:unit
 ```
 
 **Expected outcome**: All tests pass.
@@ -61,20 +60,37 @@ task build
 
 **Expected outcome**: Binary compiles without errors.
 
-## Manual Verification (Optional)
+### 6. E2E Tests (mandatory)
 
-If an in-memory registry test pass seems insufficient:
+Two existing e2e test suites validate the fix end-to-end. Both get a dedicated Ginkgo label
+`"annotation-consistency"` on the `Describe` / `DescribeTable` level for precise targeting.
 
-1. Start an OCI-compatible registry (e.g., `docker run -p 5000:5000 registry:2`)
-2. Build an image and push it
-3. Attach SBOMs for multiple image names pointing to the same parent digest
-4. Verify all annotations are present using `PullFallbackIndex`
+**Regression test** — from `specs/010-sbom-fallback-annotation-loss`, builds two images
+(`frontend`, `backend`) sharing the same parent digest and asserts that
+`io.werf.image-name` annotations survive in the fallback index descriptors.
+
+**Multi-image lifecycle test** — builds two images, merges their SBOMs into a product
+SBOM, and validates component/license/hash assertions. Annotation loss would cause
+"artifact not found" errors during merge.
+
+```bash
+# Run 3 times because the race condition is stochastic
+for i in 1 2 3; do
+    echo "--- Run $i/3 ---"
+    task test:e2e paths="./test/e2e/sbom/regressions_test.go,./test/e2e/sbom/lifecycle_test.go" labelFilter="annotation-consistency"
+done
+```
+
+**Expected outcome**: All 3 runs pass.
+
+**Note**: E2E tests require Linux with Docker and kind. Run `task test:setup:environment`
+first if the environment hasn't been provisioned.
 
 ## Edge Cases to Verify
 
 | Scenario | How to Test | Expected |
 |----------|-------------|----------|
 | Single-image push (no concurrency) | Run existing `attach_integration_test.go` tests | All pass, identical to pre-fix behavior |
-| Cross-process concurrency | Not tested (out of scope) | CAS loop handles via retry |
-| Registry returns stale data | Simulation via mock/controlled retry | Eventual convergence within 30s |
-| Registry never converges | Use `backoff.WithMaxElapsedTime(1*time.Second)` in unit test | Error returned within timeout |
+| Cross-process concurrency | Not tested in isolation (out of scope) | Consistency-wait loop handles via retry |
+| Registry returns stale data | In-memory registry + controlled timing | Eventual convergence within 30s |
+| Registry never converges | `backoff.WithMaxElapsedTime(1*time.Second)` in unit test | Error returned within timeout |

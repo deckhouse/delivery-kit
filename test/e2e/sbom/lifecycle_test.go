@@ -47,6 +47,7 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 	)
 
 	DescribeTable("multi-image: build + merge two image SBOMs into a product SBOM",
+		Label("annotation-consistency"),
 		func(ctx SpecContext, testOpts sbomTestOptions, isprasFormat string) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 

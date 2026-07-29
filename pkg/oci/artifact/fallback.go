@@ -63,28 +63,33 @@ func FallbackTag(parentDigest string) string {
 }
 
 func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
-	eb := backoff.NewExponentialBackOff()
-	eb.InitialInterval = 500 * time.Millisecond
-
-	notify := func(err error, duration time.Duration) {
-		logboek.Context(ctx).Warn().LogF("SBOM attach CAS attempt failed: %s. Retrying in %v...\n", err, duration)
-	}
-
 	m := getTagMutex(tagMutexKey(repo, parentDigest))
 	m.Lock()
 	defer m.Unlock()
 
+	// RMW: read current index, update, push
+	current, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
+	if err != nil {
+		return fmt.Errorf("pull fallback index before attach: %w", err)
+	}
+
+	next := updateFallbackIndex(current, artifactDesc, artifactType, imageName)
+	if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
+		return fmt.Errorf("push fallback index: %w", err)
+	}
+
+	return waitForConsistency(ctx, repo, parentDigest, next, opts...)
+}
+
+func waitForConsistency(ctx context.Context, repo, parentDigest string, next v1.ImageIndex, opts ...remote.Option) error {
+	eb := backoff.NewExponentialBackOff()
+	eb.InitialInterval = 500 * time.Millisecond
+
+	notify := func(err error, duration time.Duration) {
+		logboek.Context(ctx).Warn().LogF("SBOM attach consistency wait failed: %s. Retrying in %v...\n", err, duration)
+	}
+
 	_, err := backoff.Retry(ctx, func() (bool, error) {
-		current, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
-		if err != nil {
-			return false, err
-		}
-
-		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName)
-		if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
-			return false, err
-		}
-
 		verified, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 		if err != nil {
 			return false, err
@@ -100,7 +105,7 @@ func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Desc
 		}
 
 		if verifiedDigest != nextDigest {
-			return false, fmt.Errorf("CAS mismatch: concurrent write detected")
+			return false, fmt.Errorf("consistency check failed: digest mismatch")
 		}
 
 		return true, nil

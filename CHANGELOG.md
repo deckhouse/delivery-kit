@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.75.3-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.2-dk.1...v2.75.3-dk.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* **ci:** force -dk increment via release-please CLI ([ad15030](https://github.com/deckhouse/delivery-kit/commit/ad150308d6f3d5ee151d016797fbfa5b835de578))
+* **ci:** force -dk increment via release-please CLI ([b539916](https://github.com/deckhouse/delivery-kit/commit/b53991668d3d808d9c0d5f4c807ff2b0e41090ae))
+* **host-cleanup:** stop wiping other werf versions' live git cache ([#7699](https://github.com/deckhouse/delivery-kit/issues/7699)) ([3e43c28](https://github.com/deckhouse/delivery-kit/commit/3e43c28ba80c0cc2d8ea1f52e5e2fb314977b6f1))
+
+
+### Miscellaneous Chores
+
+* force release 2.75.3-dk.1 ([c88fd8e](https://github.com/deckhouse/delivery-kit/commit/c88fd8e699a6eee3869c153821797add90a06657))
+
 ## [2.75.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.1-dk...v2.75.2-dk.1) (2026-07-28)
 
 

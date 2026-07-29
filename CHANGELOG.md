@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.75.3-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.2-dk.1...v2.75.3-dk.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* **ci:** smoke-test release automation increment ([a6faa19](https://github.com/deckhouse/delivery-kit/commit/a6faa19e8b0b871b3477734a5389709ec175a455))
+
 ## [2.75.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.1-dk...v2.75.2-dk.1) (2026-07-28)
 
 

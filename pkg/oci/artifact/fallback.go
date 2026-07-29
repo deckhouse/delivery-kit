@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -27,7 +28,29 @@ const (
 	EmptyConfigMediaType = "application/vnd.oci.empty.v1+json"
 )
 
-var maxRetries = 3
+var (
+	tagMutexes    map[string]*sync.Mutex
+	tagMutexGuard sync.Mutex
+)
+
+func getTagMutex(key string) *sync.Mutex {
+	tagMutexGuard.Lock()
+	defer tagMutexGuard.Unlock()
+
+	if tagMutexes == nil {
+		tagMutexes = make(map[string]*sync.Mutex)
+	}
+	m, ok := tagMutexes[key]
+	if !ok {
+		m = &sync.Mutex{}
+		tagMutexes[key] = m
+	}
+	return m
+}
+
+func tagMutexKey(repo, parentDigest string) string {
+	return repo + "/" + FallbackTag(parentDigest)
+}
 
 func FallbackTag(parentDigest string) string {
 	hex, err := DigestHex(parentDigest)
@@ -46,6 +69,10 @@ func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Desc
 	notify := func(err error, duration time.Duration) {
 		logboek.Context(ctx).Warn().LogF("SBOM attach CAS attempt failed: %s. Retrying in %v...\n", err, duration)
 	}
+
+	m := getTagMutex(tagMutexKey(repo, parentDigest))
+	m.Lock()
+	defer m.Unlock()
 
 	_, err := backoff.Retry(ctx, func() (bool, error) {
 		current, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
@@ -79,7 +106,7 @@ func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Desc
 		return true, nil
 	},
 		backoff.WithBackOff(eb),
-		backoff.WithMaxTries(uint(maxRetries)),
+		backoff.WithMaxElapsedTime(30*time.Second),
 		backoff.WithNotify(notify),
 	)
 	return err

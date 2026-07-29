@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"strings"
+	"sync"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -63,6 +64,12 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		return im
 	}
 
+	// attachE is like attach but returns an error instead of failing the test.
+	attachE := func(ctx context.Context, payload []byte, imageName string) error {
+		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
+		return store.Attach(ctx, parentDigest, artifactType, payload, "", "")
+	}
+
 	// werfEntries returns only werf-managed descriptors, ignoring entries that
 	// go-containerregistry writes into the same fallback tag when the registry
 	// lacks Referrers API support (they carry the empty-config artifactType).
@@ -111,6 +118,28 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"vex":"data"}`))
+	})
+
+	It("should retain all annotations under concurrent push", func(ctx SpecContext) {
+		var wg sync.WaitGroup
+		errs := make([]error, 3)
+		names := []string{"app-a", "app-b", "app-c"}
+
+		for i, name := range names {
+			wg.Add(1)
+			go func(i int, name string) {
+				defer wg.Done()
+				errs[i] = attachE(ctx, []byte(`{"img":"`+name+`"}`), name)
+			}(i, name)
+		}
+		wg.Wait()
+
+		for i, name := range names {
+			Expect(errs[i]).To(Succeed(), "Attach for %s should succeed", name)
+		}
+
+		im := pullIndex(ctx)
+		Expect(werfEntries(im)).To(HaveLen(3))
 	})
 
 	It("should return empty index for a digest with no attachments", func(ctx SpecContext) {

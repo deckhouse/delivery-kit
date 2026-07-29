@@ -13,11 +13,13 @@ werf is a CNCF Sandbox CLI tool to implement full-cycle CI/CD to Kubernetes. wer
 - `pkg/deploy` — bundles and Helm chart extenders; the deployment itself is driven by nelm.
 - `pkg/config`, `pkg/giterminism_manager`, `pkg/git_repo`, `pkg/true_git` — `werf.yaml` parsing, giterminism, git access.
 - `test/e2e` — e2e suites, `test/legacy_e2e` — what `task test:integration` runs, `test/pkg` — shared test helpers.
+- `.agents/skills` — mandatory agent skills: branch and commit conventions, PR format, code review. `.claude/skills` is a symlink to it.
 
 ## Highest-priority rule (MANDATORY)
 
 - NEVER add comments unless they document a non-obvious public API or explain genuinely non-obvious logic. NEVER add comments that restate what the code does, repeat the field/function name, describe obvious error handling, or act as section separators. When in doubt, don't comment.
 - ALWAYS use `task` commands for build/test/lint/format — NEVER raw `go build`, `go test`, `go vet`, `go fmt`, or `golangci-lint` directly.
+- ALWAYS read the matching skill in `.agents/skills/` BEFORE the action it governs and follow it verbatim: `git-conventions/SKILL.md` before naming a branch or writing a commit message, `pull-request/SKILL.md` before creating or updating a PR (title, description, draft by default), `review/SKILL.md` before reviewing code. These files are the source of truth and are NOT duplicated here.
 - ALWAYS verify, don't assume — check the actual state before making changes.
 - ALWAYS start with the simplest possible solution. If it works, stop. Add complexity only when justified by a concrete, current requirement — NEVER for hypothetical future needs.
 - NEVER leave TODOs, stubs, or partial implementations.
@@ -27,6 +29,7 @@ werf is a CNCF Sandbox CLI tool to implement full-cycle CI/CD to Kubernetes. wer
 - When removing content, ALWAYS clean up orphaned structural elements (comment separators, section headers, blank-line groups) that no longer serve a purpose.
 - When renaming a type, function, or constant, ALWAYS rename all related local variables, parameters, and error messages that reference the old name. A rename is not complete until grep for the old name returns zero hits in affected packages.
 - When removing a feature that has documentation in multiple languages (e.g. `pages_en/`, `pages_ru/`), ALWAYS apply the same removal to ALL language versions. NEVER assume English-only cleanup is sufficient.
+- If a package has a doc.go, ALWAYS read it before changing that package or the on-disk data it owns — invariants and compatibility contracts live there (e.g. pkg/git_repo/gitdata owns the shared $WERF_HOME/local_cache).
 
 ## Code style (MANDATORY)
 

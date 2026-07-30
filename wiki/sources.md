@@ -15,3 +15,4 @@ Sources are immutable inputs — the wiki never edits them.
 | S008 | specs/003-oci-attestation-commands/ | feature-artifact | 2026-07-29 | 2026-07-29 | attestation-subsystem.md, werf-attest-commands.md |
 | S009 | specs/008-hide-oci-attest-commands/ | feature-artifact | 2026-07-29 | 2026-07-29 | werf-attest-commands.md |
 | S010 | specs/001-sbom-cache-invalidation/ | feature-artifact | 2026-07-29 | 2026-07-29 | sbom-cache-invalidation.md |
+| S011 | pkg/config/secrets.go, pkg/config/raw_secrets.go, pkg/build/secrets/build_secrets.go, pkg/config/packages_commands.go, pkg/giterminism_manager/inspector/config_secrets.go | file | 2026-07-30 | 2026-07-30 | build-secrets.md |

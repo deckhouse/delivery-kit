@@ -6,6 +6,8 @@ page files, not here.
 
 ## concept
 
+- [werf-yaml-env](./pages/werf-yaml-env.md) — `.Env` variable for multi-environment config and `env` function for OS environment variables
+- [werf-yaml-image-env](./pages/werf-yaml-image-env.md) — `imageSpec.config.env` directive for setting environment variables in the final image
 - [purl-resolution](./pages/purl-resolution.md) — how PURL resolution errors flow through the system
 - [fallback-index-mechanism](./pages/fallback-index-mechanism.md) — how the fallback OCI Image Index tag stores SBOM artifacts for multi-image builds
 - [os-pm-package-management](./pages/os-pm-package-management.md) — OS-level package management via `os-pm` type with inline syntax and unified ecosystem registry
@@ -25,6 +27,11 @@ page files, not here.
 - [sbom-e2e-test-strategy](./pages/sbom-e2e-test-strategy.md) — HTTP-level mocking with `httptest` for SBOM e2e tests
 - [fallback-annotation-loss](./pages/fallback-annotation-loss.md) — Docker Distribution drops annotations on OCI Image Index descriptors, causing SBOM lookup failures
 - [pm-sbom-collection](./pages/pm-sbom-collection.md) — SBOM state collection for `os-pm` via `/var/lib/pm/index.json`
+
+## reference
+
+- [werf-yaml-template-engine](./pages/werf-yaml-template-engine.md) — template engine reference: Sprig, commit info, `include`/`tpl`, file access, utility functions, template directory
+- [werf-yaml-image-spec](./pages/werf-yaml-image-spec.md) — `imageSpec` directive reference: global config, per-image config, directives for CMD, env, labels, entrypoint, etc.
 
 ## component
 

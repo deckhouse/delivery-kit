@@ -16,3 +16,5 @@ Sources are immutable inputs — the wiki never edits them.
 | S009 | specs/008-hide-oci-attest-commands/ | feature-artifact | 2026-07-29 | 2026-07-29 | werf-attest-commands.md |
 | S010 | specs/001-sbom-cache-invalidation/ | feature-artifact | 2026-07-29 | 2026-07-29 | sbom-cache-invalidation.md |
 | S011 | pkg/config/secrets.go, pkg/config/raw_secrets.go, pkg/build/secrets/build_secrets.go, pkg/config/packages_commands.go, pkg/giterminism_manager/inspector/config_secrets.go | file | 2026-07-30 | 2026-07-30 | build-secrets.md |
+| S012 | docs/pages_en/usage/project_configuration/werf_yaml_template_engine.md | file | 2026-07-30 | 2026-07-30 | werf-yaml-env.md, werf-yaml-template-engine.md |
+| S013 | docs/pages_en/usage/build/images.md | file | 2026-07-30 | 2026-07-30 | werf-yaml-image-env.md, werf-yaml-image-spec.md |

@@ -42,9 +42,9 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T001 Add `Env map[string]string` field with `yaml:"env,omitempty"` tag to `rawPackagesDirective` struct in `pkg/config/raw_packages_directive.go`
-- [ ] T002 Add `Env map[string]string` field to `PackagesDirective` struct in `pkg/config/packages_directive.go`
-- [ ] T003 Implement POSIX env var name validation (`^[a-zA-Z_][a-zA-Z0-9_]*$`) in `rawPackagesDirective.toDirective()` in `pkg/config/raw_packages_directive.go` — validate each key in `Env`, return error like `invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*` for invalid names
+- [X] T001 Add `Env map[string]string` field with `yaml:"env,omitempty"` tag to `rawPackagesDirective` struct in `pkg/config/raw_packages_directive.go`
+- [X] T002 Add `Env map[string]string` field to `PackagesDirective` struct in `pkg/config/packages_directive.go`
+- [X] T003 Implement POSIX env var name validation (`^[a-zA-Z_][a-zA-Z0-9_]*$`) in `rawPackagesDirective.toDirective()` in `pkg/config/raw_packages_directive.go` — validate each key in `Env`, return error like `invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*` for invalid names
 
 **Checkpoint**: Foundation ready — user story implementation can now begin
 
@@ -58,10 +58,10 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Add `formatEnvVars` helper function in `pkg/config/packages_commands.go` that formats a `map[string]string` into inline env prefix format (`KEY="VALUE" KEY2="VALUE2"`) — double-quote values for safety, sort keys for deterministic output
-- [ ] T005 [US1] Modify `GeneratePackagesCommands` in `pkg/config/packages_commands.go` to prepend user-defined env vars as inline prefix before `pm install` for os-pm type (only when `Env` is non-empty) — use `strings.Replace(cmd, "pm install", envPrefix+" pm install", 1)` to insert env vars alongside existing `PACKAGES_VERSION` and `REGISTRY` vars
-- [ ] T006 [US1] Add unit tests for basic env var passthrough in `pkg/config/packages_commands_test.go` — verify that `CUSTOM_VAR="hello-world"` appears as inline prefix before `pm install`, and backward compatibility when `Env` is nil/empty
-- [ ] T007 [US1] Add unit tests for DOCKER_CONFIG scenario in `pkg/config/packages_commands_test.go` — verify `DOCKER_CONFIG="/run/secrets/docker-config"` appears before `pm install`, and multiple env vars are all present
+- [X] T004 [US1] Add `formatEnvVars` helper function in `pkg/config/packages_commands.go` that formats a `map[string]string` into inline env prefix format (`KEY="VALUE" KEY2="VALUE2"`) — double-quote values for safety, sort keys for deterministic output
+- [X] T005 [US1] Modify `GeneratePackagesCommands` in `pkg/config/packages_commands.go` to prepend user-defined env vars as inline prefix before `pm install` for os-pm type (only when `Env` is non-empty) — use `strings.Replace(cmd, "pm install", envPrefix+" pm install", 1)` to insert env vars alongside existing `PACKAGES_VERSION` and `REGISTRY` vars
+- [X] T006 [US1] Add unit tests for basic env var passthrough in `pkg/config/packages_commands_test.go` — verify that `CUSTOM_VAR="hello-world"` appears as inline prefix before `pm install`, and backward compatibility when `Env` is nil/empty
+- [X] T007 [US1] Add unit tests for DOCKER_CONFIG scenario in `pkg/config/packages_commands_test.go` — verify `DOCKER_CONFIG="/run/secrets/docker-config"` appears before `pm install`, and multiple env vars are all present
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -75,7 +75,7 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 ### Implementation for User Story 2
 
-- [ ] T008 [US2] Add unit tests for proxy env vars in `pkg/config/packages_commands_test.go` — verify `HTTP_PROXY="http://proxy.example.com:8080" HTTPS_PROXY="http://proxy.example.com:8080"` appears before `pm install`
+- [X] T008 [US2] Add unit tests for proxy env vars in `pkg/config/packages_commands_test.go` — verify `HTTP_PROXY="http://proxy.example.com:8080" HTTPS_PROXY="http://proxy.example.com:8080"` appears before `pm install`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -89,7 +89,7 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 ### Implementation for User Story 3
 
-- [ ] T009 [US3] Add unit tests for DEBIAN_FRONTEND env var in `pkg/config/packages_commands_test.go` — verify `DEBIAN_FRONTEND="noninteractive"` appears before `pm install`, and multiple custom env vars are all present
+- [X] T009 [US3] Add unit tests for DEBIAN_FRONTEND env var in `pkg/config/packages_commands_test.go` — verify `DEBIAN_FRONTEND="noninteractive"` appears before `pm install`, and multiple custom env vars are all present
 
 **Checkpoint**: At this point, all user stories should be independently functional
 
@@ -99,11 +99,11 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 **Purpose**: Edge cases, validation, and quality assurance
 
-- [ ] T010 [P] Add unit tests for empty env map (`env: {}`) in `pkg/config/packages_commands_test.go` — verify backward compatibility (same output as no env)
-- [ ] T011 [P] Add unit tests for invalid env var names (POSIX validation) in `pkg/config/raw_packages_directive_test.go` — verify config parse error for names like `1INVALID`, `has=equals`, empty key, special chars; verify valid names like `_MY_VAR`, `HTTP_PROXY`, `DOCKER_CONFIG` pass
-- [ ] T012 [P] Add unit tests for non-os-pm package types in `pkg/config/packages_commands_test.go` — verify `env` is silently ignored for go-mod, python-pip, etc.
-- [ ] T013 [P] Add unit tests for empty string values in env in `pkg/config/packages_commands_test.go` — verify `SOME_VAR=""` is passed as-is
-- [ ] T014 Run `task format`, `task build`, `task lint:golangci-lint golangciPaths="./pkg/config/..."`, and `task test:unit paths="./pkg/config/..."` to verify all changes
+- [X] T010 [P] Add unit tests for empty env map (`env: {}`) in `pkg/config/packages_commands_test.go` — verify backward compatibility (same output as no env)
+- [X] T011 [P] Add unit tests for invalid env var names (POSIX validation) in `pkg/config/raw_packages_directive_test.go` — verify config parse error for names like `1INVALID`, `has=equals`, empty key, special chars; verify valid names like `_MY_VAR`, `HTTP_PROXY`, `DOCKER_CONFIG` pass
+- [X] T012 [P] Add unit tests for non-os-pm package types in `pkg/config/packages_commands_test.go` — verify `env` is silently ignored for go-mod, python-pip, etc.
+- [X] T013 [P] Add unit tests for empty string values in env in `pkg/config/packages_commands_test.go` — verify `SOME_VAR=""` is passed as-is
+- [X] T014 Run `task format`, `task build`, `task lint:golangci-lint golangciPaths="./pkg/config/..."`, and `task test:unit paths="./pkg/config/..."` to verify all changes
 
 ---
 

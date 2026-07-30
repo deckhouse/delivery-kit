@@ -129,6 +129,7 @@ type PackagesDirective struct {
 	Type      PackagesDirectiveType
 	FileBased FileBasedSpec
 	Spec      PackagesSpec
+	Env       map[string]string
 }
 
 func (d *PackagesDirective) validate() error {

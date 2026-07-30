@@ -2,10 +2,29 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/werf/werf/v2/pkg/stapel"
 )
+
+func formatEnvVars(env map[string]string) string {
+	if len(env) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf(`%s=%q`, k, env[k]))
+	}
+	return strings.Join(parts, " ")
+}
 
 const (
 	ContainerFactoryVersionDir       = "/var/lib/pm"
@@ -43,7 +62,14 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.Spec.Packages))
+		cmd := eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.Spec.Packages)
+
+		if pkg.Type == PackagesDirectiveTypeOSPM && len(pkg.Env) > 0 {
+			envPrefix := formatEnvVars(pkg.Env)
+			cmd = strings.Replace(cmd, "pm install", envPrefix+" pm install", 1)
+		}
+
+		commands = append(commands, cmd)
 	}
 	return commands
 }

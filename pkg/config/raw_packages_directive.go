@@ -1,12 +1,16 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 type rawPackagesDirective struct {
-	Type    string      `yaml:"type,omitempty"`
-	Spec    interface{} `yaml:"spec,omitempty"`
-	Workdir string      `yaml:"workdir,omitempty"`
-	Lock    string      `yaml:"lock,omitempty"`
+	Type    string            `yaml:"type,omitempty"`
+	Spec    interface{}       `yaml:"spec,omitempty"`
+	Workdir string            `yaml:"workdir,omitempty"`
+	Lock    string            `yaml:"lock,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty"`
 
 	rawStapelImage *rawStapelImage `yaml:"-"`
 
@@ -44,13 +48,23 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 	return &doc{Content: []byte{}}
 }
 
-func (r *rawPackagesDirective) toDirective() (*PackagesDirective, error) {
+var posixEnvNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error) {
 	d := &PackagesDirective{
 		Type: PackagesDirectiveType(r.Type),
 	}
 
 	if err := r.fillFileBasedSpec(d); err != nil {
 		return nil, err
+	}
+
+	d.Env = r.Env
+
+	for key := range d.Env {
+		if !posixEnvNameRe.MatchString(key) {
+			return nil, fmt.Errorf("invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*", key, index)
+		}
 	}
 
 	if err := d.validate(); err != nil {

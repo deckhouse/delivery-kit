@@ -28,4 +28,5 @@ page files, not here.
 
 ## component
 
+- [build-secrets](./pages/build-secrets.md) — how the `secrets:` directive in werf.yaml is parsed, validated, and mounted into build containers
 - [component-error-type](./pages/component-error-type.md) — the `ComponentError` struct with structured details accessor

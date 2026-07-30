@@ -40,31 +40,24 @@ type rawPackagesDirective struct {
 // File: pkg/config/packages_commands.go
 
 // Generates shell commands for each package directive.
-// For os-pm type, if the directive has non-empty Env, the command
-// is prefixed with 'export KEY1="VAL1" KEY2="VAL2" &&'.
+// For os-pm type, if the directive has non-empty Env, the env vars
+// are prepended as inline prefix before `pm install`:
+//   KEY="VAL1" KEY2="VAL2" pm install ...
 // For nil/empty Env, the behavior is unchanged (backward compatible).
 func GeneratePackagesCommands(packages []*PackagesDirective) []string
 ```
 
-### New helper: `formatEnvExportCommand`
+### Updated helper: `formatInstallCommand`
 
-```go
-// File: pkg/config/packages_commands.go
+The existing function gains env vars support. User-defined env vars from `PackagesDirective.Env` are prepended inline alongside the existing `PACKAGES_VERSION` and `REGISTRY` vars:
 
-// formatEnvExportCommand generates "export KEY1="VAL1" KEY2="VAL2" && ",
-// or returns "" if env is nil or empty.
-func formatEnvExportCommand(env map[string]string) string
+```
+PACKAGES_VERSION="${...}" REGISTRY="${...}" USER_VAR1="val1" USER_VAR2="val2" pm install pkg1 pkg2
 ```
 
-### New helper: `validateEnvNames` (or inline in `toDirective`)
+### No new helper needed
 
-```go
-// File: pkg/config/raw_packages_directive.go or packages_directive.go
-
-// validateEnvNames checks each key against POSIX ^[a-zA-Z_][a-zA-Z0-9_]*$
-// Returns an error with the index of the offending entry.
-func validateEnvNames(env map[string]string) error
-```
+The env vars are merged directly into the existing `formatInstallCommand` call — no new public or internal function is required. The generation code prepends each `key="value"` from `Env` to the existing env var prefix of the `pm install` command.
 
 ## No Public API Changes
 

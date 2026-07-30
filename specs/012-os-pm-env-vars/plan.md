@@ -40,15 +40,15 @@ Add support for environment variables in the `packages[].env` field of `werf.yam
 |------|---------|
 | `pkg/config/raw_packages_directive.go` | Raw YAML model for `packages[].env` — parse and validate |
 | `pkg/config/packages_directive.go` | Validated `PackagesDirective` struct — add `Env` field, POSIX name validation |
-| `pkg/config/packages_commands.go` | Shell command generation — export env vars before `pm install` |
+| `pkg/config/packages_commands.go` | Shell command generation — inline env prefix before `pm install` |
 | `pkg/config/raw_stapel_image.go` | Bridge — passes `PackagesDirective` to `GeneratePackagesCommands` |
 | `pkg/build/builder/shell.go` | Shell builder — runs the generated commands in the container |
 | `pkg/build/stage/packages.go` | Packages build stage — `NeedsNetwork = true` |
 
-**NEEDS CLARIFICATION**:
-- How does the `pm install` command handle env vars? Does it honor them directly, or does the shell need to `export` them first?
-- Can env vars be passed directly to the `pm install` command via `env` prefix, or do they need to be set in the shell environment before the command?
-- Are there any existing tests for `GeneratePackagesCommands` that we need to update?
+**Resolved**:
+- `pm install` accepts env vars directly via inline prefix (`KEY=VALUE pm install ...`), exactly like the existing `PACKAGES_VERSION` and `REGISTRY` vars in `formatInstallCommand` (see `packages_commands.go:34-36`)
+- Target solution: `ENV=value pm install ...` — inline env prefix, same as `envVarTmpl` pattern
+- Existing tests: `packages_commands_test.go` has Ginkgo tests for `GeneratePackagesCommands` — they will need updating to add env var test cases
 
 ## Constitution Check
 

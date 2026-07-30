@@ -53,8 +53,8 @@ rawPackagesDirective.Env  ──validate──▶  PackagesDirective.Env
 
 **Build time** (directive → shell command):
 ```
-PackagesDirective.Env  ──▶  export KEY="VALUE" && pm install ...
-(PackagesDirective.Env != nil && len > 0)  →  prepend export
+PackagesDirective.Env  ──▶  KEY="VALUE" KEY2="VALUE2" pm install ...
+(PackagesDirective.Env != nil && len > 0)  →  prepend inline env vars before pm install
 (PackagesDirective.Env == nil || len == 0) →  no change (backward compatible)
 ```
 
@@ -84,7 +84,7 @@ type PackagesSpec struct {
 | `rawStapelImage` → `rawPackagesDirective` | Has-many via `RawPackages` |
 | `rawPackagesDirective` → `PackagesDirective` | Converted via `toDirective()` |
 | `StapelImageBase.Packages` → `PackagesDirective` | Stored as `[]*PackagesDirective` |
-| `PackagesDirective.Env` → shell command | Used in command generation only for `os-pm` type |
+| `PackagesDirective.Env` → shell command | Used in command generation only for `os-pm` type — inline env prefix before `pm install` |
 
 ## Validation Flow
 
@@ -102,7 +102,7 @@ PackagesDirective
     │  ── Env field populated
     ▼
 GeneratePackagesCommands()
-    │  ── For os-pm: include env vars in shell command
+    │  ── For os-pm: include env vars as inline prefix before `pm install`
     ▼
-Shell.Packages []string (commands with export prefix)
+Shell.Packages []string (commands with inline env prefix)
 ```

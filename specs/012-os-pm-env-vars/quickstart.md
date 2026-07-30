@@ -44,7 +44,7 @@ packages:
 werf build --dev
 ```
 
-**Expected**: Build log contains `export CUSTOM_VAR="hello-world"` before the `pm install` command.
+**Expected**: Build log contains `CUSTOM_VAR="hello-world"` before the `pm install` command (as inline env prefix).
 
 ---
 
@@ -108,7 +108,7 @@ packages:
 werf build --dev
 ```
 
-**Expected**: Build log contains `export HTTP_PROXY="http://proxy.example.com:8080" HTTPS_PROXY="http://proxy.example.com:8080"` before `pm install`. Package downloads are routed through the proxy.
+**Expected**: Build log contains `HTTP_PROXY="http://proxy.example.com:8080" HTTPS_PROXY="http://proxy.example.com:8080"` before `pm install` (as inline env prefix). Package downloads are routed through the proxy.
 
 ---
 
@@ -227,7 +227,7 @@ packages:
 
 2. Attempt to build:
 
-**Expected**: The config is parsed without errors. The `env` field is stored in the `PackagesDirective` but silently ignored at runtime (no `export` prefix in the go-mod command).
+**Expected**: The config is parsed without errors. The `env` field is stored in the `PackagesDirective` but silently ignored at runtime (no env var prefix in the go-mod command).
 
 ---
 

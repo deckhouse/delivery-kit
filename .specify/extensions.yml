@@ -1,44 +1,44 @@
 installed:
-- brownfield
-- bug
-- reconcile
-- verify
-- wiki
+  - brownfield
+  - bug
+  - reconcile
+  - verify
+  - wiki
 settings:
   auto_execute_hooks: true
 hooks:
   after_init:
-  - extension: brownfield
-    command: speckit.brownfield.scan
-    enabled: true
-    optional: true
-    priority: 10
-    prompt: Scan this existing project to customize spec-kit configuration?
-    description: Auto-scan project after spec-kit init to detect tech stack and conventions
-    condition: null
+    - extension: brownfield
+      command: speckit.brownfield.scan
+      enabled: true
+      optional: true
+      priority: 10
+      prompt: Scan this existing project to customize spec-kit configuration?
+      description: Auto-scan project after spec-kit init to detect tech stack and conventions
+      condition: null
   after_plan:
-  - extension: wiki
-    command: speckit.wiki.ingest
-    enabled: true
-    optional: true
-    priority: 10
-    prompt: Ingest this feature's research and plan decisions into the project wiki?
-    description: Compound the feature's verified research into the wiki after planning
-    condition: null
+    - extension: wiki
+      command: speckit.wiki.ingest
+      enabled: true
+      optional: true
+      priority: 10
+      prompt: Ingest this feature's research and plan decisions into the project wiki?
+      description: Compound the feature's verified research into the wiki after planning
+      condition: null
   after_implement:
-  - extension: wiki
-    command: speckit.wiki.ingest
-    enabled: true
-    optional: true
-    priority: 10
-    prompt: Record what this implementation taught into the project wiki?
-    description: Capture implementation learnings into the wiki after implementation
-    condition: null
-  - extension: verify
-    command: speckit.verify.run
-    enabled: true
-    optional: true
-    priority: 10
-    prompt: Run verify to validate implementation against specification?
-    description: Post-implementation verification gate
-    condition: null
+    - extension: wiki
+      command: speckit.wiki.ingest
+      enabled: true
+      optional: true
+      priority: 10
+      prompt: Record what this implementation taught into the project wiki?
+      description: Capture implementation learnings into the wiki after implementation
+      condition: null
+    - extension: verify
+      command: speckit.verify.run
+      enabled: true
+      optional: true
+      priority: 10
+      prompt: Run verify to validate implementation against specification?
+      description: Post-implementation verification gate
+      condition: null

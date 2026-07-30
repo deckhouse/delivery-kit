@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo/parallel"
 
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 )
@@ -63,6 +64,11 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		return im
 	}
 
+	attachE := func(ctx context.Context, payload []byte, imageName string) error {
+		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
+		return store.Attach(ctx, parentDigest, artifactType, payload, "", "")
+	}
+
 	// werfEntries returns only werf-managed descriptors, ignoring entries that
 	// go-containerregistry writes into the same fallback tag when the registry
 	// lacks Referrers API support (they carry the empty-config artifactType).
@@ -111,6 +117,22 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"vex":"data"}`))
+	})
+
+	It("should retain all annotations under concurrent push", func(ctx SpecContext) {
+		names := []string{"app-a", "app-b", "app-c"}
+		errs := make([]error, 3)
+
+		parallel.ForEach(names, func(name string, i int) {
+			errs[i] = attachE(ctx, []byte(`{"img":"`+name+`"}`), name)
+		})
+
+		for i, name := range names {
+			Expect(errs[i]).To(Succeed(), "Attach for %s should succeed", name)
+		}
+
+		im := pullIndex(ctx)
+		Expect(werfEntries(im)).To(HaveLen(3))
 	})
 
 	It("should return empty index for a digest with no attachments", func(ctx SpecContext) {

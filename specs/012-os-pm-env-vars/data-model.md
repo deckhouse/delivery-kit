@@ -25,7 +25,7 @@ packages:
       - curl
       - jq
     env:                          # NEW — optional
-      DOCKER_CONFIG: /run/secrets/docker-config
+      DOCKER_CONFIG: /run/secrets/config.json
       HTTP_PROXY: http://proxy.example.com:8080
       DEBIAN_FRONTEND: noninteractive
 ```
@@ -39,7 +39,7 @@ packages:
    invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*
    ```
 
-3. **Value validation**: No validation on values — empty strings are allowed. Values are passed as-is to the shell `export` command, double-quoted for safety.
+3. **Value validation**: No validation on values — empty strings are allowed. Values are passed as-is to the shell inline env prefix, double-quoted for safety.
 
 4. **Empty map**: An empty `env: {}` is equivalent to no `env` — treated as backward compatible.
 
@@ -77,16 +77,44 @@ type PackagesSpec struct {
 }
 ```
 
-## Relationships
+## Key formatting functions
 
-| Entity | Relationship |
-|--------|-------------|
-| `rawStapelImage` → `rawPackagesDirective` | Has-many via `RawPackages` |
-| `rawPackagesDirective` → `PackagesDirective` | Converted via `toDirective()` |
-| `StapelImageBase.Packages` → `PackagesDirective` | Stored as `[]*PackagesDirective` |
-| `PackagesDirective.Env` → shell command | Used in command generation only for `os-pm` type — inline env prefix before `pm install` |
+Two formatting functions produce the shell prefix:
 
-## Validation Flow
+- **`formatEnvVars(env map[string]string) string`**: formats user-defined env vars as inline shell prefix using `lo.Map` for key→string mapping and `sort.Strings` for deterministic ordering.
+  Produces: `KEY1="val1" KEY2="val2"`
+
+- **`formatSecretVar(name string) string`**: generates the existing secret-resolution template (renamed from `envVarTmpl` for clarity):
+  `NAME="${NAME:-$(cat /run/secrets/NAME 2>/dev/null || true)}"`
+
+### Command generation flow (os-pm)
+
+```
+PackagesDirective.Env
+    │  ── formatEnvVars ──▶  KEY="val" KEY2="val2"
+    │
+PackagesDirective (PACKAGES_VERSION, REGISTRY)
+    │  ── formatSecretVar ──▶  PACKAGES_VERSION="${...}" REGISTRY="${...}"
+    │
+    ▼
+formatInstallCommand()
+    │  ── composes: formatEnvVars + formatSecretVar + "pm install <pkgs>"
+    ▼
+complete command: KEY="val" PACKAGES_VERSION="${...}" REGISTRY="${...}" pm install pkg1 pkg2
+```
+
+No post-processing: `formatInstallCommand` builds the entire command in a single composition.
+
+### Key code path (GeneratePackagesCommands)
+
+```go
+// For each package directive:
+cmd := eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.Spec.Packages, pkg.Env)
+commands = append(commands, cmd)
+```
+
+The `InstallCmd` signature changed: `func(workdir, specFile string, specList []string, env map[string]string) string`.
+The `env` parameter is only consumed by `os-pm` ecosystem.
 
 ```
 YAML input
@@ -102,7 +130,9 @@ PackagesDirective
     │  ── Env field populated
     ▼
 GeneratePackagesCommands()
-    │  ── For os-pm: include env vars as inline prefix before `pm install`
+    │  ── Calls eco.InstallCmd(workdir, specFile, specList, env) for each directive
+    │  ── For os-pm: InstallCmd → formatInstallCommand(pkgs, env) → formatEnvVars(env) + formatSecretVar + "pm install"
+    │  ── No post-processing: the complete command comes from InstallCmd alone
     ▼
 Shell.Packages []string (commands with inline env prefix)
 ```

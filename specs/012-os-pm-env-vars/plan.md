@@ -40,15 +40,15 @@ Add support for environment variables in the `packages[].env` field of `werf.yam
 |------|---------|
 | `pkg/config/raw_packages_directive.go` | Raw YAML model for `packages[].env` — parse and validate |
 | `pkg/config/packages_directive.go` | Validated `PackagesDirective` struct — add `Env` field, POSIX name validation |
-| `pkg/config/packages_commands.go` | Shell command generation — inline env prefix before `pm install` |
+| `pkg/config/packages_commands.go` | Shell command generation — `formatEnvVars` + `formatSecretVar` + `formatInstallCommand` using `lo.Map` |
 | `pkg/config/raw_stapel_image.go` | Bridge — passes `PackagesDirective` to `GeneratePackagesCommands` |
 | `pkg/build/builder/shell.go` | Shell builder — runs the generated commands in the container |
 | `pkg/build/stage/packages.go` | Packages build stage — `NeedsNetwork = true` |
 
 **Resolved**:
-- `pm install` accepts env vars directly via inline prefix (`KEY=VALUE pm install ...`), exactly like the existing `PACKAGES_VERSION` and `REGISTRY` vars in `formatInstallCommand` (see `packages_commands.go:34-36`)
-- Target solution: `ENV=value pm install ...` — inline env prefix, same as `envVarTmpl` pattern
-- Existing tests: `packages_commands_test.go` has Ginkgo tests for `GeneratePackagesCommands` — they will need updating to add env var test cases
+- `pm install` accepts env vars directly via inline prefix — `formatInstallCommand(pkgs, env)` builds the full command using `formatEnvVars(env)` + `formatSecretVar` + `"pm install <pkgs>"`
+- Target solution: `ENV=value pm install ...` — no post-processing, the entire command is produced by `eco.InstallCmd(...)` alone
+- Existing tests: `packages_commands_test.go` has Ginkgo tests — all new env var tests prefer `DescribeTable` (table-driven) over individual `It` blocks
 
 ## Constitution Check
 

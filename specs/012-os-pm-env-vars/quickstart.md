@@ -68,7 +68,7 @@ packages:
     spec:
       - private-package-name
     env:
-      DOCKER_CONFIG: /run/secrets/docker-config
+      DOCKER_CONFIG: /run/secrets/config.json
 ```
 
 2. Build the image:

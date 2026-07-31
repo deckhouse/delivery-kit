@@ -4,7 +4,7 @@
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: Tests are included because the spec defines acceptance scenarios and the plan explicitly requires test updates. Existing tests in `pkg/config/packages_commands_test.go` need updating.
+**Tests**: Tests are included because the spec defines acceptance scenarios and the plan explicitly requires test updates. Existing tests in `pkg/config/packages_commands_test.go` need updating. All new env var tests prefer `DescribeTable` (table-driven Ginkgo) over individual `It` blocks.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -42,9 +42,9 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T001 Add `Env map[string]string` field with `yaml:"env,omitempty"` tag to `rawPackagesDirective` struct in `pkg/config/raw_packages_directive.go`
-- [X] T002 Add `Env map[string]string` field to `PackagesDirective` struct in `pkg/config/packages_directive.go`
-- [X] T003 Implement POSIX env var name validation (`^[a-zA-Z_][a-zA-Z0-9_]*$`) in `rawPackagesDirective.toDirective()` in `pkg/config/raw_packages_directive.go` — validate each key in `Env`, return error like `invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*` for invalid names
+- [ ] T001 Add `Env map[string]string` field with `yaml:"env,omitempty"` tag to `rawPackagesDirective` struct in `pkg/config/raw_packages_directive.go`
+- [ ] T002 Add `Env map[string]string` field to `PackagesDirective` struct in `pkg/config/packages_directive.go`
+- [ ] T003 Implement POSIX env var name validation (`^[a-zA-Z_][a-zA-Z0-9_]*$`) in `rawPackagesDirective.toDirective()` in `pkg/config/raw_packages_directive.go` — validate each key in `Env`, return error like `invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*` for invalid names
 
 **Checkpoint**: Foundation ready — user story implementation can now begin
 
@@ -58,10 +58,12 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 ### Implementation for User Story 1
 
-- [X] T004 [US1] Add `formatEnvVars` helper function in `pkg/config/packages_commands.go` that formats a `map[string]string` into inline env prefix format (`KEY="VALUE" KEY2="VALUE2"`) — double-quote values for safety, sort keys for deterministic output
-- [X] T005 [US1] Modify `GeneratePackagesCommands` in `pkg/config/packages_commands.go` to prepend user-defined env vars as inline prefix before `pm install` for os-pm type (only when `Env` is non-empty) — use `strings.Replace(cmd, "pm install", envPrefix+" pm install", 1)` to insert env vars alongside existing `PACKAGES_VERSION` and `REGISTRY` vars
-- [X] T006 [US1] Add unit tests for basic env var passthrough in `pkg/config/packages_commands_test.go` — verify that `CUSTOM_VAR="hello-world"` appears as inline prefix before `pm install`, and backward compatibility when `Env` is nil/empty
-- [X] T007 [US1] Add unit tests for DOCKER_CONFIG scenario in `pkg/config/packages_commands_test.go` — verify `DOCKER_CONFIG="/run/secrets/docker-config"` appears before `pm install`, and multiple env vars are all present
+- [ ] T004 [US1] Add `formatEnvVars(env map[string]string) string` helper in `pkg/config/packages_commands.go` — formats user-defined env vars as inline shell prefix using `lo.Map` for key→string mapping and `sort.Strings` for deterministic ordering. Produces: `KEY1="val1" KEY2="val2"`
+- [ ] T005 [P] [US1] Rename existing `envVarTmpl` to `formatSecretVar` in `pkg/config/packages_commands.go` — same behavior (secret-resolution template: `NAME="${NAME:-$(cat /run/secrets/NAME 2>/dev/null || true)}"`), update all internal references
+- [ ] T006 [P] [US1] Change `formatInstallCommand` signature to `formatInstallCommand(pkgs []string, env map[string]string) string` in `pkg/config/packages_commands.go` — build full command by composing `formatEnvVars(env)` + `formatSecretVar` (for PACKAGES_VERSION and REGISTRY) + `"pm install <pkgs>"`. Update all call sites inside the file
+- [ ] T007 [US1] Change `InstallCmd` field type in `PackageEcosystem` struct in `pkg/config/packages_directive.go` to accept `env map[string]string`: `func(workdir, specFile string, specList []string, env map[string]string) string`. Update all ecosystem lambdas to accept the new parameter (they will ignore it for non-os-pm types). Update the os-pm lambda to pass `env` to `formatInstallCommand(specList, env)`. In `GeneratePackagesCommands` in `pkg/config/packages_commands.go`, pass `pkg.Env` to `eco.InstallCmd(...)`
+- [ ] T008 [US1] Add table-driven unit tests (`DescribeTable`) for basic env var passthrough in `pkg/config/packages_commands_test.go` — verify that `CUSTOM_VAR="hello-world"` appears as inline prefix before `pm install`, and backward compatibility when `Env` is nil/empty
+- [ ] T009 [US1] Add table-driven unit tests (`DescribeTable`) for DOCKER_CONFIG scenario in `pkg/config/packages_commands_test.go` — verify `DOCKER_CONFIG="/run/secrets/docker-config"` appears before `pm install`, and multiple env vars are all present
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -75,7 +77,7 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 ### Implementation for User Story 2
 
-- [X] T008 [US2] Add unit tests for proxy env vars in `pkg/config/packages_commands_test.go` — verify `HTTP_PROXY="http://proxy.example.com:8080" HTTPS_PROXY="http://proxy.example.com:8080"` appears before `pm install`
+- [ ] T010 [US2] Add table-driven unit tests (`DescribeTable`) for proxy env vars in `pkg/config/packages_commands_test.go` — verify `HTTP_PROXY="http://proxy.example.com:8080" HTTPS_PROXY="http://proxy.example.com:8080"` appears before `pm install`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -89,7 +91,7 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 ### Implementation for User Story 3
 
-- [X] T009 [US3] Add unit tests for DEBIAN_FRONTEND env var in `pkg/config/packages_commands_test.go` — verify `DEBIAN_FRONTEND="noninteractive"` appears before `pm install`, and multiple custom env vars are all present
+- [ ] T011 [US3] Add table-driven unit tests (`DescribeTable`) for DEBIAN_FRONTEND env var in `pkg/config/packages_commands_test.go` — verify `DEBIAN_FRONTEND="noninteractive"` appears before `pm install`, and multiple custom env vars are all present
 
 **Checkpoint**: At this point, all user stories should be independently functional
 
@@ -99,11 +101,11 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 
 **Purpose**: Edge cases, validation, and quality assurance
 
-- [X] T010 [P] Add unit tests for empty env map (`env: {}`) in `pkg/config/packages_commands_test.go` — verify backward compatibility (same output as no env)
-- [X] T011 [P] Add unit tests for invalid env var names (POSIX validation) in `pkg/config/raw_packages_directive_test.go` — verify config parse error for names like `1INVALID`, `has=equals`, empty key, special chars; verify valid names like `_MY_VAR`, `HTTP_PROXY`, `DOCKER_CONFIG` pass
-- [X] T012 [P] Add unit tests for non-os-pm package types in `pkg/config/packages_commands_test.go` — verify `env` is silently ignored for go-mod, python-pip, etc.
-- [X] T013 [P] Add unit tests for empty string values in env in `pkg/config/packages_commands_test.go` — verify `SOME_VAR=""` is passed as-is
-- [X] T014 Run `task format`, `task build`, `task lint:golangci-lint golangciPaths="./pkg/config/..."`, and `task test:unit paths="./pkg/config/..."` to verify all changes
+- [ ] T012 [P] Add unit tests for empty env map (`env: {}`) in `pkg/config/packages_commands_test.go` — verify backward compatibility (same output as no env), use `DescribeTable`
+- [ ] T013 [P] Add unit tests for invalid env var names (POSIX validation) in `pkg/config/raw_packages_directive_test.go` — verify config parse error for names like `1INVALID`, `has=equals`, empty key, special chars; verify valid names like `_MY_VAR`, `HTTP_PROXY`, `DOCKER_CONFIG` pass (use `DescribeTable`)
+- [ ] T014 [P] Add unit tests for non-os-pm package types in `pkg/config/packages_commands_test.go` — verify `env` is silently ignored for go-mod, python-pip, etc. (use `DescribeTable`)
+- [ ] T015 [P] Add unit tests for empty string values in env in `pkg/config/packages_commands_test.go` — verify `SOME_VAR=""` is passed as-is (use `DescribeTable`)
+- [ ] T016 Run `task format`, `task build`, `task lint:golangci-lint golangciPaths="./pkg/config/..."`, and `task test:unit paths="./pkg/config/..."` to verify all changes
 
 ---
 
@@ -132,18 +134,19 @@ No setup tasks needed — this is an existing project. The feature branch `012-o
 ### Parallel Opportunities
 
 - All Foundational tasks are sequential (data model changes build on each other)
-- T004 and T005 modify the same file (`packages_commands.go`) — best done sequentially by one developer
-- T008 (US2) and T009 (US3) can run in parallel with each other (different test scenarios in same file, but additive)
+- T005 (rename `envVarTmpl` → `formatSecretVar`) and T006 (change `formatInstallCommand` signature) modify the same file but are independent — can run in parallel, but sequential recommended to avoid merge conflicts
+- T004, T005, T006 are all in `packages_commands.go` — best done sequentially by one developer
+- T008 (US1) and T009 (US1 tests) can run in parallel as test additions
+- T010 (US2) and T011 (US3) can run in parallel with each other (different test scenarios in same file, but additive)
 - All Polish phase tasks marked [P] can run in parallel (different test files or different scenarios)
-- Different user stories can be worked on in parallel by different team members (implementation is complete after US1, US2 and US3 are just test additions)
 
 ---
 
 ## Parallel Example: User Story 1
 
 ```bash
-# Launch all implementation tasks for US1:
-# After T004 + T005 are done, run tests:
+# T004, T005, T006, T007 are implementation — sequential recommended (same file)
+# After T007 is done, run tests:
 task test:unit paths="./pkg/config/..."
 ```
 
@@ -174,6 +177,7 @@ task test:unit paths="./pkg/config/..."
 - [P] tasks = different files, no dependencies
 - [Story] label maps task to specific user story for traceability
 - Each user story should be independently completable and testable
+- All new env var tests MUST use Ginkgo `DescribeTable` (table-driven) over individual `It` blocks
 - Verify tests fail before implementing
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently

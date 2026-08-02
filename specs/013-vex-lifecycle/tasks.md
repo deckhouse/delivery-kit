@@ -129,6 +129,17 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ---
 
+## Phase 7: Convergence
+
+**Purpose**: Close gaps identified by converge assessment — Git-tracking validation for VEX files and code quality cleanup
+
+- [ ] T026 Add `ReadVEXFile` method to giterminism manager's `FileReader` interface and implementation — reads VEX file content through `ReadAndCheckConfigurationFile`, validates file is tracked by Git (FR-003, FR-010, partial)
+- [ ] T027 Add `InspectConfigVexFilePath` method to giterminism manager's `Inspector` interface for VEX file path validation (FR-003)
+- [ ] T028 Update `convergeImageVex()` in `pkg/build/build_phase.go` to read VEX files via `giterminismManager.FileReader().ReadVEXFile()` instead of `os.ReadFile` (FR-003)
+- [ ] T029 Remove duplicate `ValidateVEXDocument(vexContent)` call at line 1637 of `pkg/build/build_phase.go` (unrequested)
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

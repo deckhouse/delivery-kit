@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1632,15 +1631,16 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return nil
 	}
 
-	// Read VEX file from the project directory.
+	// Read VEX file from the project directory through giterminism manager.
 	giterminismManager := phase.Conveyor.GiterminismManager()
-	vexContent, err := os.ReadFile(filepath.Join(giterminismManager.ProjectDir(), vexConfig.Document))
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, vexConfig.Document)
 	if err != nil {
 		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
 	}
 
-	if err := vex.ValidateVEXDocument(vexContent); err != nil {
-		return fmt.Errorf("image %q: invalid VEX document %q: %w", name, vexConfig.Document, err)
+	// Validate VEX file path via giterminism inspector.
+	if err := giterminismManager.Inspector().InspectConfigVexFilePath(vexConfig.Document); err != nil {
+		return fmt.Errorf("image %q: VEX file %q giterminism error: %w", name, vexConfig.Document, err)
 	}
 
 	if err := vex.ValidateVEXDocument(vexContent); err != nil {

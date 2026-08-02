@@ -87,6 +87,10 @@ func (c Config) IsConfigStapelMountFromPathAccepted(fromPath string) bool {
 	return c.Config.Stapel.Mount.IsFromPathAccepted(fromPath)
 }
 
+func (c Config) IsConfigVexFileAccepted(relPath string) bool {
+	return false
+}
+
 func (c Config) IsConfigDockerfileContextAddFileAccepted(relPath string) bool {
 	return c.Config.Dockerfile.IsContextAddFileAccepted(relPath)
 }

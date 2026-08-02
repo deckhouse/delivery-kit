@@ -5,6 +5,20 @@ import (
 	"path/filepath"
 )
 
+func (i Inspector) InspectConfigVexFilePath(relPath string) error {
+	if i.sharedOptions.LooseGiterminism() {
+		return nil
+	}
+
+	if i.giterminismConfig.IsConfigVexFileAccepted(relPath) {
+		return nil
+	}
+
+	return NewExternalDependencyFoundError(fmt.Sprintf(`VEX file %q not allowed by giterminism
+
+The use of the VEX directive in the configuration requires that the VEX file exists in the local filesystem and must be tracked by Git.`, filepath.ToSlash(relPath)))
+}
+
 func (i Inspector) InspectConfigDockerfileContextAddFile(relPath string) error {
 	if i.sharedOptions.LooseGiterminism() {
 		return nil

@@ -27,6 +27,7 @@ type FileReader interface {
 	ConfigGoTemplateFilesGlob(ctx context.Context, pattern string) (map[string]interface{}, error)
 	ConfigGoTemplateFilesIsDir(ctx context.Context, relPath string) (bool, error)
 	ReadDockerfile(ctx context.Context, relPath string) ([]byte, error)
+	ReadVEXFile(ctx context.Context, relPath string) ([]byte, error)
 	IsDockerignoreExistAnywhere(ctx context.Context, relPath string) (bool, error)
 	ReadDockerignore(ctx context.Context, relPath string) ([]byte, error)
 
@@ -250,6 +251,24 @@ func (f *FileManager) ReadDockerfile(ctx context.Context, relPath string) ([]byt
 		}
 	}
 	return nil, fmt.Errorf("unable to read dockerfile %q: file not found", filepath.ToSlash(relPath))
+}
+
+func (f *FileManager) ReadVEXFile(ctx context.Context, relPath string) ([]byte, error) {
+	if data, ok := f.caches.dockerFiles[relPath]; ok {
+		return data, nil
+	}
+
+	localPath := getDirAbsPath(relPath, f.customProjectDir)
+	if exist, _ := util.FileExists(localPath); exist {
+		vexData, err := f.fileReader.ReadVEXFile(ctx, relPath)
+		if err != nil {
+			return nil, err
+		}
+		f.caches.dockerFiles[relPath] = vexData
+		return vexData, nil
+	}
+
+	return nil, fmt.Errorf("unable to read VEX file %q: file not found", filepath.ToSlash(relPath))
 }
 
 func (f *FileManager) IsDockerignoreExistAnywhere(ctx context.Context, relPath string) (bool, error) {

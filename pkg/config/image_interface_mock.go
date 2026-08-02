@@ -137,6 +137,18 @@ func (mr *MockImageInterfaceMockRecorder) Sbom() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sbom", reflect.TypeOf((*MockImageInterface)(nil).Sbom))
 }
 
+// SetFromExternal mocks base method.
+func (m *MockImageInterface) SetFromExternal() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetFromExternal")
+}
+
+// SetFromExternal indicates an expected call of SetFromExternal.
+func (mr *MockImageInterfaceMockRecorder) SetFromExternal() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFromExternal", reflect.TypeOf((*MockImageInterface)(nil).SetFromExternal))
+}
+
 // Vex mocks base method.
 func (m *MockImageInterface) Vex() *Vex {
 	m.ctrl.T.Helper()
@@ -149,18 +161,6 @@ func (m *MockImageInterface) Vex() *Vex {
 func (mr *MockImageInterfaceMockRecorder) Vex() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Vex", reflect.TypeOf((*MockImageInterface)(nil).Vex))
-}
-
-// SetFromExternal mocks base method.
-func (m *MockImageInterface) SetFromExternal() {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetFromExternal")
-}
-
-// SetFromExternal indicates an expected call of SetFromExternal.
-func (mr *MockImageInterfaceMockRecorder) SetFromExternal() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFromExternal", reflect.TypeOf((*MockImageInterface)(nil).SetFromExternal))
 }
 
 // dependsOn mocks base method.

@@ -1638,11 +1638,6 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
 	}
 
-	// Validate VEX file path via giterminism inspector.
-	if err := giterminismManager.Inspector().InspectConfigVexFilePath(vexConfig.Document); err != nil {
-		return fmt.Errorf("image %q: VEX file %q giterminism error: %w", name, vexConfig.Document, err)
-	}
-
 	if err := vex.ValidateVEXDocument(vexContent); err != nil {
 		return fmt.Errorf("image %q: invalid VEX document %q: %w", name, vexConfig.Document, err)
 	}

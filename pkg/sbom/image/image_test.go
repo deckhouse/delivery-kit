@@ -30,10 +30,11 @@ var _ = Describe("Image", func() {
 	)
 
 	DescribeTable("FallbackTag",
-		func(digest, expected string) {
-			Expect(FallbackTag(digest)).To(Equal(expected))
+		func(digest, imageName, expected string) {
+			Expect(FallbackTag(digest, imageName)).To(Equal(expected))
 		},
-		Entry("standard digest", "sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", "sha256-5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a"),
-		Entry("alternate digest", "sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1", "sha256-abc123def456abc123def456abc123def456abc123def456abc123def456abc1"),
+		Entry("standard digest without image name", "sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", "", "sha256-5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a"),
+		Entry("alternate digest without image name", "sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1", "", "sha256-abc123def456abc123def456abc123def456abc123def456abc123def456abc1"),
+		Entry("digest with image name", "sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", "frontend", "sha256-5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a-frontend"),
 	)
 })

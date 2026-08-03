@@ -49,41 +49,38 @@ var _ = Describe("SBOM regression", Label("e2e", "sbom", "regression", "simple")
 				"expected frontend and backend to share the same digest; frontend=%q backend=%q",
 				sharedDigest, digests["backend"])
 
-			// Pull the fallback index and verify annotations directly
-			// via go-containerregistry, without relying on werf commands.
+			// Each image keeps its own fallback index tag, so that images sharing a
+			// digest cannot overwrite each other's SBOM entry. Verify the tags
+			// directly via go-containerregistry, without relying on werf commands.
 			repo := os.Getenv("WERF_REPO")
 			Expect(repo).NotTo(BeEmpty(), "WERF_REPO must be set")
-
-			tagRef, err := name.NewTag(repo+":"+sbomImage.FallbackTag(sharedDigest), name.Insecure)
-			Expect(err).NotTo(HaveOccurred())
 
 			ropts := []remote.Option{
 				remote.WithContext(ctx),
 				remote.WithAuth(authn.Anonymous),
 			}
 
-			idx, err := remote.Index(tagRef, ropts...)
-			Expect(err).NotTo(HaveOccurred(),
-				"failed to pull fallback index tag %q", tagRef)
+			for _, imageName := range []string{"frontend", "backend"} {
+				tagRef, err := name.NewTag(repo+":"+sbomImage.FallbackTag(sharedDigest, imageName), name.Insecure)
+				Expect(err).NotTo(HaveOccurred())
 
-			im, err := idx.IndexManifest()
-			Expect(err).NotTo(HaveOccurred())
+				idx, err := remote.Index(tagRef, ropts...)
+				Expect(err).NotTo(HaveOccurred(),
+					"failed to pull fallback index tag %q for image %q", tagRef, imageName)
 
-			// Build a lookup of image-name annotations from the index manifest.
-			entries := map[string]bool{}
-			for _, desc := range im.Manifests {
-				if desc.ArtifactType == sbomImage.DSSEMediaType {
-					imgName := desc.Annotations[image.WerfImageNameAnnotation]
-					entries[imgName] = true
+				im, err := idx.IndexManifest()
+				Expect(err).NotTo(HaveOccurred())
+
+				entries := map[string]bool{}
+				for _, desc := range im.Manifests {
+					if desc.ArtifactType == sbomImage.DSSEMediaType {
+						entries[desc.Annotations[image.WerfImageNameAnnotation]] = true
+					}
 				}
-			}
 
-			Expect(entries).To(HaveLen(2),
-				"expected 2 annotated entries in fallback index, got %d", len(entries))
-			Expect(entries).To(HaveKey("frontend"),
-				"fallback index missing annotation for frontend")
-			Expect(entries).To(HaveKey("backend"),
-				"fallback index missing annotation for backend")
+				Expect(entries).To(HaveKey(imageName),
+					"fallback index %q missing annotated entry for image %q, got %v", tagRef, imageName, entries)
+			}
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

@@ -66,21 +66,27 @@ var _ = Describe("retry timeout", func() {
 })
 
 var _ = Describe("tagMutexKey", func() {
-	It("should produce deterministic key from repo and parentDigest", func() {
-		key1 := tagMutexKey("registry.example.com/app", "sha256:abc123def456")
-		key2 := tagMutexKey("registry.example.com/app", "sha256:abc123def456")
+	It("should produce deterministic key from repo, parentDigest and imageName", func() {
+		key1 := tagMutexKey("registry.example.com/app", "sha256:abc123def456", "frontend")
+		key2 := tagMutexKey("registry.example.com/app", "sha256:abc123def456", "frontend")
 		Expect(key1).To(Equal(key2))
 	})
 
 	It("should produce different keys for different repositories", func() {
-		key1 := tagMutexKey("registry.example.com/app-a", "sha256:abc123")
-		key2 := tagMutexKey("registry.example.com/app-b", "sha256:abc123")
+		key1 := tagMutexKey("registry.example.com/app-a", "sha256:abc123", "frontend")
+		key2 := tagMutexKey("registry.example.com/app-b", "sha256:abc123", "frontend")
 		Expect(key1).ToNot(Equal(key2))
 	})
 
 	It("should produce different keys for different parent digests", func() {
-		key1 := tagMutexKey("registry.example.com/app", "sha256:abc123")
-		key2 := tagMutexKey("registry.example.com/app", "sha256:def456")
+		key1 := tagMutexKey("registry.example.com/app", "sha256:abc123", "frontend")
+		key2 := tagMutexKey("registry.example.com/app", "sha256:def456", "frontend")
+		Expect(key1).ToNot(Equal(key2))
+	})
+
+	It("should produce different keys for different image names sharing a digest", func() {
+		key1 := tagMutexKey("registry.example.com/app", "sha256:abc123", "frontend")
+		key2 := tagMutexKey("registry.example.com/app", "sha256:abc123", "backend")
 		Expect(key1).ToNot(Equal(key2))
 	})
 })

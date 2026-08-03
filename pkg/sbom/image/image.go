@@ -38,8 +38,8 @@ func IsScratchRef(imageRef string) bool {
 	return path == scratchImageName || strings.HasSuffix(path, "/"+scratchImageName)
 }
 
-func FallbackTag(parentDigest string) string {
-	return artifact.FallbackTag(parentDigest)
+func FallbackTag(parentDigest, imageName string) string {
+	return artifact.FallbackTag(parentDigest, imageName)
 }
 
 func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string) error {

@@ -157,5 +157,166 @@ var _ = Describe("rawPackagesDirective", func() {
 				},
 			},
 		),
+
+		Entry("invalid env var name 1INVALID",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"1INVALID": "value",
+						},
+					},
+				},
+			},
+		),
+
+		Entry("invalid env var name has=equals",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"has=equals": "value",
+						},
+					},
+				},
+			},
+		),
+
+		Entry("invalid env var name with special chars",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"MY-VAR": "value",
+						},
+					},
+				},
+			},
+		),
+	)
+
+	DescribeTable("convert to directive succeeds with valid env var names",
+		func(yamlMap map[string]interface{}, expectedPackages []*PackagesDirective) {
+			packages, err := directivesFromYaml(yamlMap)
+			Expect(err).To(Succeed())
+			Expect(packages).To(HaveLen(len(expectedPackages)))
+			for i, expected := range expectedPackages {
+				Expect(packages[i].Type).To(Equal(expected.Type))
+				Expect(packages[i].Spec.Packages).To(Equal(expected.Spec.Packages))
+				Expect(packages[i].Env).To(Equal(expected.Env))
+			}
+		},
+
+		Entry("valid env var _MY_VAR",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"_MY_VAR": "value",
+						},
+					},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeOSPM,
+					Spec: PackagesSpec{Packages: []string{"curl"}},
+					Env: map[string]string{
+						"_MY_VAR": "value",
+					},
+				},
+			},
+		),
+
+		Entry("valid env var HTTP_PROXY",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"HTTP_PROXY": "http://proxy:8080",
+						},
+					},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeOSPM,
+					Spec: PackagesSpec{Packages: []string{"curl"}},
+					Env: map[string]string{
+						"HTTP_PROXY": "http://proxy:8080",
+					},
+				},
+			},
+		),
+
+		Entry("valid env var DOCKER_CONFIG",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"DOCKER_CONFIG": "/run/secrets/docker",
+						},
+					},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeOSPM,
+					Spec: PackagesSpec{Packages: []string{"curl"}},
+					Env: map[string]string{
+						"DOCKER_CONFIG": "/run/secrets/docker",
+					},
+				},
+			},
+		),
+
+		Entry("valid env var DEBIAN_FRONTEND",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"DEBIAN_FRONTEND": "noninteractive",
+						},
+					},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeOSPM,
+					Spec: PackagesSpec{Packages: []string{"curl"}},
+					Env: map[string]string{
+						"DEBIAN_FRONTEND": "noninteractive",
+					},
+				},
+			},
+		),
 	)
 })

@@ -317,8 +317,8 @@ func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager gitermini
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
 	}
 
-	for _, rawPkg := range c.RawPackages {
-		pkgDirective, err := rawPkg.toDirective()
+	for i, rawPkg := range c.RawPackages {
+		pkgDirective, err := rawPkg.toDirective(i)
 		if err != nil {
 			return nil, err
 		}

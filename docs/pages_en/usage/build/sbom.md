@@ -43,6 +43,43 @@ Currently, this option uses the following _defaults_:
 | **Output Standard**               | `CycloneDX@1.6`                                                                        |
 | **Output Format**                 | `JSON`                                                                                 |
 
+## Base image requirements
+
+When SBOM generation is enabled, every base image referenced via `from` or `fromImage` and every image referenced via `import` **must have an SBOM artifact attached in the registry**. There is no alternative to this requirement; the only exception is described below.
+
+If an image has no attached SBOM and doesn't carry the label `io.deckhouse.internal.builder=true`, the build fails with:
+
+```
+the base image "example.registry.io/myimage:latest" must either have the label
+"io.deckhouse.internal.builder" set to "true" or have an SBOM artifact attached;
+to generate an SBOM for the base image, rebuild it with SBOM generation enabled
+```
+
+Rebuild the base image with `build.sbom.enable: true` to resolve this.
+
+If the base image is `scratch`, it produces an empty SBOM with no components.
+
+**Legacy exception (deprecated).** Two families of older Deckhouse builder images carry the `io.deckhouse.internal.builder=true` label but have no attached SBOM:
+
+- `registry.deckhouse.io/container-factory/builder/golang` (and its tags)
+- `registry.deckhouse.io/container-factory/builder/alpine` (and its tags)
+
+Builds using these images still succeed today, but emit a deprecation warning:
+
+```
+The builder image "..." is DEPRECATED and it WILL CAUSE AN ERROR in the future.
+Plan your migration to an up-to-date builder image.
+```
+
+Any other image that carries `io.deckhouse.internal.builder=true` but has no SBOM — including newer `container-factory` builder images — will fail with:
+
+```
+the base image "..." must have an SBOM artifact attached;
+the image is a builder image but SBOM is required
+```
+
+Rebuild such images with `build.sbom.enable: true` to attach an SBOM.
+
 ## GOST security properties (`sbom.gost`)
 
 To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into all direct components of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.

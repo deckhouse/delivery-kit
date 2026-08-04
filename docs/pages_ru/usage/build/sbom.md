@@ -101,3 +101,11 @@ build:
       attackSurface: yes
       securityFunction: no
 ```
+
+## Просмотр и объединение SBOM
+
+[`werf sbom get`]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) получает SBOM образа, описанного в `werf.yaml`, и выводит его в stdout. SBOM читается как OCI-артефакт из container registry, поэтому флаг `--repo` обязателен. Если SBOM для запрошенного образа не найден, команда автоматически запускает сборку для его генерации. Для выбора конкретной версии поддерживаются флаги `--tag` и `--digest`; они взаимоисключающие.
+
+[`werf sbom merge`]({{ "/reference/cli/werf_sbom_merge.html" | true_relative_url }}) собирает SBOM уровня продукта из нескольких пообразных SBOM. На вход принимается JSON-файл с соответствием «имя образа → sha256-дайджест»; команда скачивает отдельные SBOM из registry и объединяет их в один CycloneDX-документ с сохранением графов зависимостей. Поддерживаются два выходных формата ИСПРАС: `container` (иерархический, каждый образ становится компонентом верхнего уровня с вложенными пакетами) и `oss` (плоский, все пакеты дедуплицируются в один список). Свойства ГОСТ `attack_surface` и `security_function` агрегируются снизу вверх по приоритету `yes > indirect > no`.
+
+[`werf sbom validate`]({{ "/reference/cli/werf_sbom_validate.html" | true_relative_url }}) проверяет CycloneDX JSON-файл по схемам ИСПРАС. Команда запускает sbom-checker в Docker-контейнере и выводит обнаруженные нарушения. Поддерживаются типы SBOM `oss` и `container`.

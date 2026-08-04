@@ -16,11 +16,13 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	gcrtypes "github.com/google/go-containerregistry/pkg/v1/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo/parallel"
 
 	"github.com/werf/werf/v2/pkg/docker_registry"
+	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 )
 
@@ -75,24 +77,42 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		return store.Attach(ctx, parentDigest, artifactType, payload, "", "")
 	}
 
-	// werfEntries returns only werf-managed descriptors, ignoring entries that
-	// go-containerregistry writes into the same fallback tag when the registry
-	// lacks Referrers API support (they carry the empty-config artifactType).
-	werfEntries := func(im *v1.IndexManifest) []v1.Descriptor {
-		var out []v1.Descriptor
-		for _, m := range im.Manifests {
-			if m.ArtifactType == artifactType {
-				out = append(out, m)
-			}
-		}
-		return out
-	}
-
 	It("should attach an artifact without imageName", func(ctx SpecContext) {
 		attach(ctx, []byte(`{"a":1}`), "")
 
 		im := pullIndex(ctx)
-		Expect(werfEntries(im)).To(HaveLen(1))
+		Expect(im.Manifests).To(HaveLen(1))
+	})
+
+	It("should not leave a duplicate entry written by go-containerregistry", func(ctx SpecContext) {
+		attach(ctx, []byte(`{"a":1}`), "my-app")
+
+		im := pullIndex(ctx)
+		Expect(im.Manifests).To(HaveLen(1))
+		Expect(im.Manifests[0].ArtifactType).To(Equal(artifactType))
+		Expect(im.Manifests[0].Annotations[image.WerfImageNameAnnotation]).To(Equal("my-app"))
+	})
+
+	It("should write werf annotations into the artifact manifest itself", func(ctx SpecContext) {
+		store := artifact.NewOCIStore(repo, "my-app", remoteOpts...)
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"a":1}`), "checksum-v1", "linux/amd64")).To(Succeed())
+
+		im := pullIndex(ctx)
+		Expect(im.Manifests).To(HaveLen(1))
+
+		artifactRef, err := name.NewDigest(repo + "@" + im.Manifests[0].Digest.String())
+		Expect(err).To(Succeed())
+		img, err := remote.Image(artifactRef, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+		Expect(err).To(Succeed())
+
+		manifest, err := img.Manifest()
+		Expect(err).To(Succeed())
+		Expect(manifest.Annotations).To(HaveKeyWithValue(image.WerfImageNameAnnotation, "my-app"))
+		Expect(manifest.Annotations).To(HaveKeyWithValue(image.WerfChecksumAnnotation, "checksum-v1"))
+		Expect(manifest.Annotations).To(HaveKeyWithValue(image.WerfPlatformAnnotation, "linux/amd64"))
+		Expect(manifest.Config.MediaType).To(Equal(gcrtypes.MediaType(artifactType)))
+		Expect(manifest.Subject).ToNot(BeNil())
+		Expect(manifest.Subject.Digest.String()).To(Equal(parentDigest))
 	})
 
 	It("should deduplicate artifacts of the same type when imageName is empty", func(ctx SpecContext) {
@@ -100,7 +120,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		attach(ctx, []byte(`{"v":2}`), "")
 
 		im := pullIndex(ctx)
-		Expect(werfEntries(im)).To(HaveLen(1))
+		Expect(im.Manifests).To(HaveLen(1))
 
 		store := artifact.NewOCIStore(repo, "", remoteOpts...)
 		content, err := store.GetAttachedContentAny(ctx, parentDigest, artifactType)
@@ -113,7 +133,28 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		attach(ctx, []byte(`{"img":"b"}`), "app-b")
 
 		im := pullIndex(ctx)
-		Expect(werfEntries(im)).To(HaveLen(2))
+		Expect(im.Manifests).To(HaveLen(2))
+	})
+
+	It("should keep separate entries for different imageNames sharing identical payload", func(ctx SpecContext) {
+		payload := []byte(`{"identical":"payload"}`)
+
+		attach(ctx, payload, "app-a")
+		attach(ctx, payload, "app-b")
+
+		im := pullIndex(ctx)
+		Expect(im.Manifests).To(HaveLen(2))
+		Expect(im.Manifests[0].Digest).ToNot(Equal(im.Manifests[1].Digest))
+
+		storeA := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
+		contentA, err := storeA.GetAttachedContent(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(contentA).To(MatchJSON(`{"identical":"payload"}`))
+
+		storeB := artifact.NewOCIStore(repo, "app-b", remoteOpts...)
+		contentB, err := storeB.GetAttachedContent(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(contentB).To(MatchJSON(`{"identical":"payload"}`))
 	})
 
 	It("should round-trip artifact content via GetAttachedContent", func(ctx SpecContext) {
@@ -138,7 +179,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		}
 
 		im := pullIndex(ctx)
-		Expect(werfEntries(im)).To(HaveLen(3))
+		Expect(im.Manifests).To(HaveLen(3))
 	})
 
 	It("should return empty index for a digest with no attachments", func(ctx SpecContext) {

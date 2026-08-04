@@ -201,7 +201,7 @@ func bundleCmd(ctx context.Context) *cobra.Command {
 func sbomCmd(ctx context.Context) *cobra.Command {
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:   "sbom",
-		Short: "Work with werf SBOM images",
+		Short: "Work with SBOM artifacts",
 	})
 	cmd.AddCommand(
 		sbom_get.NewCmd(ctx),

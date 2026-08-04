@@ -1,1 +1,1 @@
-work with werf SBOM images
+work with SBOM artifacts

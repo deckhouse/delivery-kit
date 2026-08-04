@@ -56,7 +56,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupRepoOptions(&commonCmdData, cmd, common.RepoDataOptions{OptionalRepo: false})
 
-	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to pull SBOM images from the specified repo")
+	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to pull SBOM artifacts from the specified repo")
 	common.SetupInsecureRegistry(&commonCmdData, cmd)
 	common.SetupSkipTlsVerifyRegistry(&commonCmdData, cmd)
 	common.SetupContainerRegistryMirror(&commonCmdData, cmd)

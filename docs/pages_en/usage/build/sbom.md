@@ -80,6 +80,24 @@ the image is a builder image but SBOM is required
 
 Rebuild such images with `build.sbom.enable: true` to attach an SBOM.
 
+## How the SBOM is stored
+
+The SBOM is stored as an OCI artifact whose subject is the manifest of the target image. This makes it discoverable by any tool that understands the OCI referrers relationship.
+
+**Artifact structure.** The CycloneDX document is wrapped in an [in-toto](https://in-toto.io/) statement and then in a [DSSE](https://github.com/secure-systems-lab/dsse) envelope before being stored. The layer carrying the envelope has the media type `application/vnd.dsse.envelope.v1+json`; the in-toto predicate type is `https://cyclonedx.org/bom/v1.6`.
+
+**Registry compatibility.** werf always uses a tag-based index to store and retrieve SBOM artifacts, regardless of whether the registry supports the OCI referrers API. No registry-specific configuration is required. Additionally, werf sets the OCI `subject` field on the artifact manifest, which allows external tools that understand the OCI referrers specification to discover and access the SBOM directly. Both access paths are maintained automatically on every push.
+
+**Artifact annotations.** Each SBOM artifact carries the following annotations on its descriptor in the index:
+
+| Annotation | Contents |
+|---|---|
+| `io.werf.image-name` | Name of the image this SBOM belongs to |
+| `io.werf.checksum` | Content checksum of the image |
+| `io.werf.target-platform` | Target CPU/OS platform (e.g. `linux/amd64`) |
+
+**Multi-platform images.** When building a multi-platform image, werf generates a separate SBOM artifact for each platform. Each platform SBOM is annotated with its `io.werf.target-platform` value so that tooling can retrieve the correct one.
+
 ## GOST security properties (`sbom.gost`)
 
 To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into all direct components of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -129,37 +131,294 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 	)
 })
 
-var _ = Describe("GeneratePackagesCommands non-os-pm ignores env", func() {
+var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func() {
+	type backwardCompatEntry struct {
+		directive *PackagesDirective
+		substring string
+	}
+
+	DescribeTable("produces unchanged command when env is nil or empty",
+		func(entry backwardCompatEntry) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			Expect(cmds).To(HaveLen(1))
+			Expect(cmds[0]).To(Equal(entry.substring))
+		},
+
+		Entry("GoMod env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}},
+			substring: `cd "/app" && go mod download`,
+		}),
+		Entry("GoMod env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}, Env: map[string]string{}},
+			substring: `cd "/app" && go mod download`,
+		}),
+		Entry("PythonUV env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
+			substring: `cd "/app" && uv sync --frozen`,
+		}),
+		Entry("PythonUV env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
+			substring: `cd "/app" && uv sync --frozen`,
+		}),
+		Entry("PythonPip env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
+			substring: `cd "/app" && pip install --no-cache-dir -r "requirements.txt"`,
+		}),
+		Entry("PythonPip env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{}},
+			substring: `cd "/app" && pip install --no-cache-dir -r "requirements.txt"`,
+		}),
+		Entry("PythonPoetry env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
+			substring: `cd "/app" && poetry sync --no-root`,
+		}),
+		Entry("PythonPoetry env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
+			substring: `cd "/app" && poetry sync --no-root`,
+		}),
+		Entry("RustCargo env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}},
+			substring: `cd "/app" && cargo fetch`,
+		}),
+		Entry("RustCargo env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}, Env: map[string]string{}},
+			substring: `cd "/app" && cargo fetch`,
+		}),
+		Entry("JavaScriptNpm env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
+			substring: `cd "/app" && npm ci`,
+		}),
+		Entry("JavaScriptNpm env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
+			substring: `cd "/app" && npm ci`,
+		}),
+		Entry("JavaScriptYarn env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
+			substring: `cd "/app" && yarn install --frozen-lockfile`,
+		}),
+		Entry("JavaScriptYarn env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
+			substring: `cd "/app" && yarn install --frozen-lockfile`,
+		}),
+		Entry("JavaScriptPnpm env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
+			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+		}),
+		Entry("JavaScriptPnpm env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
+			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+		}),
+		Entry("LuaRock env is nil", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeLuaRock, FileBased: FileBasedSpec{Workdir: "/app", Spec: "rockspec"}},
+			substring: `cd "/app" && luarocks install --only-deps "rockspec"`,
+		}),
+		Entry("LuaRock env is empty", backwardCompatEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeLuaRock, FileBased: FileBasedSpec{Workdir: "/app", Spec: "rockspec"}, Env: map[string]string{}},
+			substring: `cd "/app" && luarocks install --only-deps "rockspec"`,
+		}),
+	)
+})
+
+var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 	type nonOsPmEntry struct {
 		directive *PackagesDirective
 		substring string
-		notSubstr string
+		envPrefix string
 	}
 
-	DescribeTable("ignores env for non-os-pm package types",
+	DescribeTable("passes env vars as inline prefix for non-os-pm package types",
 		func(entry nonOsPmEntry) {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
 			Expect(cmds).To(HaveLen(1))
 			Expect(cmds[0]).To(ContainSubstring(entry.substring))
-			Expect(cmds[0]).ToNot(ContainSubstring(entry.notSubstr))
+			Expect(cmds[0]).To(ContainSubstring(entry.envPrefix))
 		},
 
-		Entry("go-mod ignores GOPROXY", nonOsPmEntry{
+		Entry("go-mod passes GOPROXY", nonOsPmEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}, Env: map[string]string{"GOPROXY": "http://proxy:8080"}},
 			substring: "go mod download",
-			notSubstr: "GOPROXY",
+			envPrefix: `GOPROXY="http://proxy:8080"`,
 		}),
 
-		Entry("python-pip ignores PIP_INDEX_URL", nonOsPmEntry{
+		Entry("python-pip passes PIP_INDEX_URL", nonOsPmEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{"PIP_INDEX_URL": "http://private-pypi"}},
 			substring: "pip install",
-			notSubstr: "PIP_INDEX_URL",
+			envPrefix: `PIP_INDEX_URL="http://private-pypi"`,
 		}),
 
-		Entry("rust-cargo ignores CARGO_NET_GIT_FETCH_WITH_CLI", nonOsPmEntry{
+		Entry("rust-cargo passes CARGO_NET_GIT_FETCH_WITH_CLI", nonOsPmEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}, Env: map[string]string{"CARGO_NET_GIT_FETCH_WITH_CLI": "true"}},
 			substring: "cargo fetch",
-			notSubstr: "CARGO_NET_GIT_FETCH_WITH_CLI",
+			envPrefix: `CARGO_NET_GIT_FETCH_WITH_CLI="true"`,
+		}),
+	)
+
+	type langEnvVarEntry struct {
+		directive  *PackagesDirective
+		substring  string
+		envVarName string
+		envValue   string
+	}
+
+	DescribeTable("prepends language-specific env vars as inline prefix",
+		func(entry langEnvVarEntry) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			Expect(cmds).To(HaveLen(1))
+			Expect(cmds[0]).To(ContainSubstring(entry.substring))
+			Expect(cmds[0]).To(ContainSubstring(entry.envVarName + `="` + entry.envValue + `"`))
+		},
+
+		Entry("GoMod with GOPROXY=direct", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}, Env: map[string]string{"GOPROXY": "direct"}},
+			substring:  `cd "/app" && go mod download`,
+			envVarName: "GOPROXY",
+			envValue:   "direct",
+		}),
+
+		Entry("PythonUV with UV_EXTRA_INDEX_URL", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"UV_EXTRA_INDEX_URL": "http://pypi:8080"}},
+			substring:  `cd "/app" && uv sync --frozen`,
+			envVarName: "UV_EXTRA_INDEX_URL",
+			envValue:   "http://pypi:8080",
+		}),
+
+		Entry("PythonPip with PIP_INDEX_URL", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{"PIP_INDEX_URL": "http://pypi:8080"}},
+			substring:  `cd "/app" && pip install --no-cache-dir -r "requirements.txt"`,
+			envVarName: "PIP_INDEX_URL",
+			envValue:   "http://pypi:8080",
+		}),
+
+		Entry("PythonPoetry with POETRY_HTTP_BASIC_MYREGISTRY_USERNAME", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"POETRY_HTTP_BASIC_MYREGISTRY_USERNAME": "user"}},
+			substring:  `cd "/app" && poetry sync --no-root`,
+			envVarName: "POETRY_HTTP_BASIC_MYREGISTRY_USERNAME",
+			envValue:   "user",
+		}),
+
+		Entry("RustCargo with CARGO_NET_RETRY", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}, Env: map[string]string{"CARGO_NET_RETRY": "3"}},
+			substring:  `cd "/app" && cargo fetch`,
+			envVarName: "CARGO_NET_RETRY",
+			envValue:   "3",
+		}),
+
+		Entry("JavaScriptNpm with npm_config__authtoken", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"npm_config__authtoken": "token"}},
+			substring:  `cd "/app" && npm ci`,
+			envVarName: "npm_config__authtoken",
+			envValue:   "token",
+		}),
+
+		Entry("JavaScriptYarn with YARN_ENABLE_IMMUTABLE_INSTALLS", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"YARN_ENABLE_IMMUTABLE_INSTALLS": "false"}},
+			substring:  `cd "/app" && yarn install --frozen-lockfile`,
+			envVarName: "YARN_ENABLE_IMMUTABLE_INSTALLS",
+			envValue:   "false",
+		}),
+
+		Entry("JavaScriptPnpm with PNPM_HOME", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"PNPM_HOME": "/custom/path"}},
+			substring:  `cd "/app" && pnpm install --frozen-lockfile`,
+			envVarName: "PNPM_HOME",
+			envValue:   "/custom/path",
+		}),
+
+		Entry("LuaRock with LUAROCKS_PROXY", langEnvVarEntry{
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeLuaRock, FileBased: FileBasedSpec{Workdir: "/app", Spec: "rockspec"}, Env: map[string]string{"LUAROCKS_PROXY": "http://proxy:8080"}},
+			substring:  `cd "/app" && luarocks install --only-deps "rockspec"`,
+			envVarName: "LUAROCKS_PROXY",
+			envValue:   "http://proxy:8080",
+		}),
+	)
+})
+
+var _ = Describe("GeneratePackagesCommands non-os-pm multiple env vars", func() {
+	type multiEnvVarEntry struct {
+		directive *PackagesDirective
+		substring string
+		checks    []func(cmd string)
+	}
+
+	DescribeTable("prepends multiple env vars sorted alphabetically",
+		func(entry multiEnvVarEntry) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			Expect(cmds).To(HaveLen(1))
+			cmd := cmds[0]
+			Expect(cmd).To(ContainSubstring(entry.substring))
+			for _, check := range entry.checks {
+				check(cmd)
+			}
+		},
+
+		Entry("GoMod with A_VAR and Z_VAR are sorted alphabetically", multiEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}, Env: map[string]string{"Z_VAR": "z", "A_VAR": "a"}},
+			substring: `cd "/app" && go mod download`,
+			checks: []func(cmd string){
+				func(cmd string) {
+					Expect(strings.Index(cmd, `A_VAR="a"`)).To(BeNumerically("<", strings.Index(cmd, `Z_VAR="z"`)))
+				},
+			},
+		}),
+
+		Entry("PythonUV with two env vars sorted alphabetically", multiEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"BBB": "two", "AAA": "one"}},
+			substring: `cd "/app" && uv sync --frozen`,
+			checks: []func(cmd string){
+				func(cmd string) { Expect(cmd).To(HavePrefix(`AAA="one" BBB="two"`)) },
+			},
+		}),
+
+		Entry("JavaScriptNpm with three env vars sorted alphabetically", multiEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"Z_LAST": "3", "M_MID": "2", "A_FIRST": "1"}},
+			substring: `cd "/app" && npm ci`,
+			checks: []func(cmd string){
+				func(cmd string) { Expect(cmd).To(HavePrefix(`A_FIRST="1"`)) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring(`A_FIRST="1" M_MID="2" Z_LAST="3"`)) },
+			},
+		}),
+	)
+})
+
+var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
+	type proxyEnvVarEntry struct {
+		directive *PackagesDirective
+		substring string
+	}
+
+	DescribeTable("prepends HTTP_PROXY and HTTPS_PROXY as inline prefix",
+		func(entry proxyEnvVarEntry) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			Expect(cmds).To(HaveLen(1))
+			cmd := cmds[0]
+			Expect(cmd).To(ContainSubstring(entry.substring))
+			Expect(cmd).To(ContainSubstring(`HTTP_PROXY="http://proxy:8080"`))
+			Expect(cmd).To(ContainSubstring(`HTTPS_PROXY="https://proxy:8443"`))
+		},
+
+		Entry("GoMod with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
+			substring: `cd "/app" && go mod download`,
+		}),
+
+		Entry("PythonPip with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
+			substring: `cd "/app" && pip install --no-cache-dir -r "requirements.txt"`,
+		}),
+
+		Entry("RustCargo with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
+			substring: `cd "/app" && cargo fetch`,
+		}),
+
+		Entry("JavaScriptNpm with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
+			substring: `cd "/app" && npm ci`,
+		}),
+
+		Entry("JavaScriptYarn with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
+			substring: `cd "/app" && yarn install --frozen-lockfile`,
 		}),
 	)
 })

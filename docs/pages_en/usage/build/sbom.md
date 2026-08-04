@@ -120,6 +120,14 @@ build:
       securityFunction: no
 ```
 
+## Caching and rebuilds
+
+Toggling `build.sbom.enable` changes the stage digest, so enabling or disabling SBOM generation invalidates the cache and triggers a full rebuild.
+
+While SBOM generation is off (the default), stage digests are identical to those of a project that has never used this feature. Caches built before SBOM support was introduced remain valid and continue to be reused. If you enable the feature and later turn it off again, digests return to their original values.
+
+Changing GOST properties (`sbom.gost`) does not affect stage digests. Cached stages are reused, and the SBOM document is regenerated with the updated properties during the SBOM step.
+
 ## Inspecting and merging SBOMs
 
 [`werf sbom get`]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) retrieves the SBOM for an image described in `werf.yaml` and prints it to stdout. The SBOM is read as an OCI artifact from the container registry, so `--repo` is required. If no SBOM is found for the requested image, the command automatically triggers a build to generate one. You can select a specific version with `--tag` or `--digest`; these flags are mutually exclusive.

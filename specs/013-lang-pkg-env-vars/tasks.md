@@ -34,7 +34,7 @@
 
 **Purpose**: Project initialization and branch setup
 
-- [ ] T001 Create feature branch `013-lang-pkg-env-vars` from main
+- [X] T001 Create feature branch `013-lang-pkg-env-vars` from main
 
 ---
 
@@ -50,15 +50,15 @@
 
 All 9 tasks are marked `[P]` — they modify different functions in the same file but have no logical dependencies on one another.
 
-- [ ] T002 [P] Wire `env` into `GoMod.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `go mod download` command when env is non-empty
-- [ ] T003 [P] Wire `env` into `PythonUV.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `uv sync --frozen` command when env is non-empty
-- [ ] T004 [P] Wire `env` into `PythonPip.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `pip install --no-cache-dir -r <spec>` command when env is non-empty
-- [ ] T005 [P] Wire `env` into `PythonPoetry.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `poetry sync --no-root` command when env is non-empty
-- [ ] T006 [P] Wire `env` into `RustCargo.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `cargo fetch` command when env is non-empty
-- [ ] T007 [P] Wire `env` into `JavaScriptNpm.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `npm ci` command when env is non-empty
-- [ ] T008 [P] Wire `env` into `JavaScriptYarn.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `yarn install --frozen-lockfile` command when env is non-empty
-- [ ] T009 [P] Wire `env` into `JavaScriptPnpm.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `pnpm install --frozen-lockfile` command when env is non-empty
-- [ ] T010 [P] Wire `env` into `LuaRock.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `luarocks install --only-deps <spec>` command when env is non-empty
+- [X] T002 [P] Wire `env` into `GoMod.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `go mod download` command when env is non-empty
+- [X] T003 [P] Wire `env` into `PythonUV.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `uv sync --frozen` command when env is non-empty
+- [X] T004 [P] Wire `env` into `PythonPip.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `pip install --no-cache-dir -r <spec>` command when env is non-empty
+- [X] T005 [P] Wire `env` into `PythonPoetry.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `poetry sync --no-root` command when env is non-empty
+- [X] T006 [P] Wire `env` into `RustCargo.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `cargo fetch` command when env is non-empty
+- [X] T007 [P] Wire `env` into `JavaScriptNpm.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `npm ci` command when env is non-empty
+- [X] T008 [P] Wire `env` into `JavaScriptYarn.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `yarn install --frozen-lockfile` command when env is non-empty
+- [X] T009 [P] Wire `env` into `JavaScriptPnpm.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `pnpm install --frozen-lockfile` command when env is non-empty
+- [X] T010 [P] Wire `env` into `LuaRock.InstallCmd` in `pkg/config/packages_directive.go` — prepend `formatEnvVars(env)` to `luarocks install --only-deps <spec>` command when env is non-empty
 
 **Checkpoint**: Foundation ready — all 9 language types now pass env vars to the package manager process. User story testing can begin.
 
@@ -74,22 +74,22 @@ All 9 tasks are marked `[P]` — they modify different functions in the same fil
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation (before Phase 2)**
 
-- [ ] T011 [P] [US1] Update "ignores env for non-os-pm package types" test in `pkg/config/packages_commands_test.go` to expect env vars in generated commands instead of discarding them (update existing `nonOsPmEntry` DescribeTable entries or replace them)
-- [ ] T012 [P] [US1] Add test for GoMod with `GOPROXY=direct` in `pkg/config/packages_commands_test.go` — expect `GOPROXY="direct" cd "/app" && go mod download`
-- [ ] T013 [P] [US1] Add test for PythonPip with `PIP_INDEX_URL=http://pypi:8080` in `pkg/config/packages_commands_test.go` — expect `PIP_INDEX_URL="http://pypi:8080" cd "/app" && pip install --no-cache-dir -r "requirements.txt"`
-- [ ] T014 [P] [US1] Add test for JavaScriptNpm with `npm_config__authtoken=token` in `pkg/config/packages_commands_test.go` — expect `npm_config__authtoken="token" cd "/app" && npm ci`
-- [ ] T015 [P] [US1] Add test for JavaScriptYarn with `YARN_ENABLE_IMMUTABLE_INSTALLS=false` in `pkg/config/packages_commands_test.go` — expect `YARN_ENABLE_IMMUTABLE_INSTALLS="false" cd "/app" && yarn install --frozen-lockfile`
-- [ ] T016 [P] [US1] Add test for JavaScriptPnpm with `PNPM_HOME=/custom/path` in `pkg/config/packages_commands_test.go` — expect `PNPM_HOME="/custom/path" cd "/app" && pnpm install --frozen-lockfile`
-- [ ] T017 [P] [US1] Add test for PythonUV with `UV_EXTRA_INDEX_URL=http://pypi:8080` in `pkg/config/packages_commands_test.go` — expect `UV_EXTRA_INDEX_URL="http://pypi:8080" cd "/app" && uv sync --frozen`
-- [ ] T018 [P] [US1] Add test for RustCargo with `CARGO_NET_RETRY=3` in `pkg/config/packages_commands_test.go` — expect `CARGO_NET_RETRY="3" cd "/app" && cargo fetch`
-- [ ] T019 [P] [US1] Add test for PythonPoetry with `POETRY_HTTP_BASIC_MYREGISTRY_USERNAME=user` in `pkg/config/packages_commands_test.go` — expect `POETRY_HTTP_BASIC_MYREGISTRY_USERNAME="user" cd "/app" && poetry sync --no-root`
-- [ ] T020 [P] [US1] Add test for LuaRock with `LUAROCKS_PROXY=http://proxy:8080` in `pkg/config/packages_commands_test.go` — expect `LUAROCKS_PROXY="http://proxy:8080" cd "/app" && luarocks install --only-deps "rockspec"`
+- [X] T011 [P] [US1] Update "ignores env for non-os-pm package types" test in `pkg/config/packages_commands_test.go` to expect env vars in generated commands instead of discarding them (update existing `nonOsPmEntry` DescribeTable entries or replace them)
+- [X] T012 [P] [US1] Add test for GoMod with `GOPROXY=direct` in `pkg/config/packages_commands_test.go` — expect `GOPROXY="direct" cd "/app" && go mod download`
+- [X] T013 [P] [US1] Add test for PythonPip with `PIP_INDEX_URL=http://pypi:8080` in `pkg/config/packages_commands_test.go` — expect `PIP_INDEX_URL="http://pypi:8080" cd "/app" && pip install --no-cache-dir -r "requirements.txt"`
+- [X] T014 [P] [US1] Add test for JavaScriptNpm with `npm_config__authtoken=token` in `pkg/config/packages_commands_test.go` — expect `npm_config__authtoken="token" cd "/app" && npm ci`
+- [X] T015 [P] [US1] Add test for JavaScriptYarn with `YARN_ENABLE_IMMUTABLE_INSTALLS=false` in `pkg/config/packages_commands_test.go` — expect `YARN_ENABLE_IMMUTABLE_INSTALLS="false" cd "/app" && yarn install --frozen-lockfile`
+- [X] T016 [P] [US1] Add test for JavaScriptPnpm with `PNPM_HOME=/custom/path` in `pkg/config/packages_commands_test.go` — expect `PNPM_HOME="/custom/path" cd "/app" && pnpm install --frozen-lockfile`
+- [X] T017 [P] [US1] Add test for PythonUV with `UV_EXTRA_INDEX_URL=http://pypi:8080` in `pkg/config/packages_commands_test.go` — expect `UV_EXTRA_INDEX_URL="http://pypi:8080" cd "/app" && uv sync --frozen`
+- [X] T018 [P] [US1] Add test for RustCargo with `CARGO_NET_RETRY=3` in `pkg/config/packages_commands_test.go` — expect `CARGO_NET_RETRY="3" cd "/app" && cargo fetch`
+- [X] T019 [P] [US1] Add test for PythonPoetry with `POETRY_HTTP_BASIC_MYREGISTRY_USERNAME=user` in `pkg/config/packages_commands_test.go` — expect `POETRY_HTTP_BASIC_MYREGISTRY_USERNAME="user" cd "/app" && poetry sync --no-root`
+- [X] T020 [P] [US1] Add test for LuaRock with `LUAROCKS_PROXY=http://proxy:8080` in `pkg/config/packages_commands_test.go` — expect `LUAROCKS_PROXY="http://proxy:8080" cd "/app" && luarocks install --only-deps "rockspec"`
 
 ### Implementation for User Story 1
 
 The implementation IS Phase 2 (T002–T010). These tests validate that the implementation works for the auth/registry scenario.
 
-- [ ] T021 [US1] Run all Phase 2 + Phase 3 tests and verify they pass: `task test:unit -- paths="./pkg/config/..."`
+- [X] T021 [US1] Run all Phase 2 + Phase 3 tests and verify they pass: `task test:unit -- paths="./pkg/config/..."`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently.
 
@@ -103,13 +103,13 @@ The implementation IS Phase 2 (T002–T010). These tests validate that the imple
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T022 [US2] Add backward compatibility test: `env` nil/empty produces identical command to pre-feature for all 9 language types in `pkg/config/packages_commands_test.go`
-- [ ] T023 [US2] Add test for multiple env vars with alphabetical sorting in `pkg/config/packages_commands_test.go` (verify `formatEnvVars` sorts keys: `A_VAR="a" Z_VAR="z" cd "/app" && command`)
+- [X] T022 [US2] Add backward compatibility test: `env` nil/empty produces identical command to pre-feature for all 9 language types in `pkg/config/packages_commands_test.go`
+- [X] T023 [US2] Add test for multiple env vars with alphabetical sorting in `pkg/config/packages_commands_test.go` (verify `formatEnvVars` sorts keys: `A_VAR="a" Z_VAR="z" cd "/app" && command`)
 
 ### Implementation for User Story 2
 
 - No additional code changes needed — Phase 2 already implements this.
-- [ ] T024 [US2] Run all tests: `task test:unit -- paths="./pkg/config/..."`
+- [X] T024 [US2] Run all tests: `task test:unit -- paths="./pkg/config/..."`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently.
 
@@ -123,12 +123,12 @@ The implementation IS Phase 2 (T002–T010). These tests validate that the imple
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T025 [US3] Add test for proxy env vars (`HTTP_PROXY=http://proxy:8080` and `HTTPS_PROXY=https://proxy:8443`) across multiple language types in `pkg/config/packages_commands_test.go` — verify both vars appear as inline prefix
+- [X] T025 [US3] Add test for proxy env vars (`HTTP_PROXY=http://proxy:8080` and `HTTPS_PROXY=https://proxy:8443`) across multiple language types in `pkg/config/packages_commands_test.go` — verify both vars appear as inline prefix
 
 ### Implementation for User Story 3
 
 - No additional code changes needed — Phase 2 already implements this.
-- [ ] T026 [US3] Run all tests: `task test:unit -- paths="./pkg/config/..."`
+- [X] T026 [US3] Run all tests: `task test:unit -- paths="./pkg/config/..."`
 
 **Checkpoint**: All user stories should now be independently functional.
 
@@ -138,10 +138,10 @@ The implementation IS Phase 2 (T002–T010). These tests validate that the imple
 
 **Purpose**: Quality gates — format, build, lint
 
-- [ ] T027 [P] Run `task format` to format all modified Go files
-- [ ] T028 Run `task build` to verify the binary compiles
-- [ ] T029 Run `task lint:golangci-lint golangciPaths="./pkg/config/..."` to verify no linting issues
-- [ ] T030 Run full config test suite: `task test:unit -- paths="./pkg/config/..."` to confirm all tests pass
+- [X] T027 [P] Run `task format` to format all modified Go files
+- [X] T028 Run `task build` to verify the binary compiles
+- [ ] T029 Run `task lint:golangci-lint golangciPaths="./pkg/config/..."` to verify no linting issues (timed out - pre-existing CI tooling issue)
+- [X] T030 Run full config test suite: `task test:unit -- paths="./pkg/config/..."` to confirm all tests pass
 
 ---
 
@@ -237,3 +237,15 @@ Task: "task test:unit -- paths='./pkg/config/'"
 - **`formatEnvVars()` helper already exists**: Package-private in `packages_commands.go` — no new utility code needed.
 - **The existing "ignores env" test must be updated**: It tests the current behavior (env discarded). After Phase 2, it must test that env vars ARE passed.
 - **Single commit strategy**: `feat(config): wire env vars into language package manager install commands`
+
+---
+
+## Phase 7: Convergence
+
+**Purpose**: Close the gap between the completed implementation and the full test coverage and quality gates specified in the plan.
+
+- [X] T031 [US2] Add backward compatibility test for all 9 language types in `pkg/config/packages_commands_test.go` — verify that `env` nil/empty produces identical command to pre-feature for `go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `javascript-npm`, `javascript-yarn`, `javascript-pnpm`, `lua-rock` per T022
+- [X] T032 [US2] Add alphabetical sorting test for language types in `pkg/config/packages_commands_test.go` — verify `formatEnvVars` sorts keys (e.g. `A_VAR="a" Z_VAR="z" cd "/app" && command`) per T023
+- [X] T033 [US3] Add proxy env vars test for language types in `pkg/config/packages_commands_test.go` — verify `HTTP_PROXY` and `HTTPS_PROXY` appear as inline prefix for multiple language types per T025
+- [X] T034 Run all tests: `task test:unit -- paths="./pkg/config/..."` to confirm all tests pass
+- [X] T035 Run `task build` to verify the binary compiles

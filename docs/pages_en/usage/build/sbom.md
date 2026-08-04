@@ -3,7 +3,7 @@ title: SBOM
 permalink: usage/build/sbom.html
 ---
 
-> **EXPERIMENTAL:** SBOM scanning and artifact generation is an experimental feature. The behavior and configuration options may change in future releases.
+> **Note**: SBOM scanning and artifact generation is an experimental feature. Its behavior and configuration options may change in future releases.
 
 To enable scanning and generation of SBOM artifacts during the build process, you need to configure the global `build.sbom` section and, optionally, per-image components.
 
@@ -59,7 +59,9 @@ Rebuild the base image with `build.sbom.enable: true` to resolve this.
 
 If the base image is `scratch`, it produces an empty SBOM with no components.
 
-**Legacy exception (deprecated).** Two families of older Deckhouse builder images carry the `io.deckhouse.internal.builder=true` label but have no attached SBOM:
+### Legacy exception (deprecated)
+
+Two families of older Deckhouse builder images carry the `io.deckhouse.internal.builder=true` label but have no attached SBOM:
 
 - `registry.deckhouse.io/container-factory/builder/golang` (and its tags)
 - `registry.deckhouse.io/container-factory/builder/alpine` (and its tags)
@@ -84,11 +86,17 @@ Rebuild such images with `build.sbom.enable: true` to attach an SBOM.
 
 The SBOM is stored as an OCI artifact whose subject is the manifest of the target image. This makes it discoverable by any tool that understands the OCI referrers relationship.
 
-**Artifact structure.** The CycloneDX document is wrapped in an [in-toto](https://in-toto.io/) statement and then in a [DSSE](https://github.com/secure-systems-lab/dsse) envelope before being stored. The layer carrying the envelope has the media type `application/vnd.dsse.envelope.v1+json`; the in-toto predicate type is `https://cyclonedx.org/bom/v1.6`.
+### Artifact structure
 
-**Registry compatibility.** werf always uses a tag-based index to store and retrieve SBOM artifacts, regardless of whether the registry supports the OCI referrers API. No registry-specific configuration is required. Additionally, werf sets the OCI `subject` field on the artifact manifest, which allows external tools that understand the OCI referrers specification to discover and access the SBOM directly. Both access paths are maintained automatically on every push.
+The CycloneDX document is wrapped in an [in-toto](https://in-toto.io/) statement and then in a [DSSE](https://github.com/secure-systems-lab/dsse) envelope before being stored. The layer carrying the envelope has the media type `application/vnd.dsse.envelope.v1+json`; the in-toto predicate type is `https://cyclonedx.org/bom/v1.6`.
 
-**Artifact annotations.** Each SBOM artifact carries the following annotations on its descriptor in the index:
+### Registry compatibility
+
+werf always uses a tag-based index to store and retrieve SBOM artifacts, regardless of whether the registry supports the OCI referrers API. No registry-specific configuration is required. Additionally, werf sets the OCI `subject` field on the artifact manifest, which allows external tools that understand the OCI referrers specification to discover and access the SBOM directly. Both access paths are maintained automatically on every push.
+
+### Artifact annotations
+
+Each SBOM artifact carries the following annotations on its descriptor in the index:
 
 | Annotation | Contents |
 |---|---|
@@ -96,7 +104,9 @@ The SBOM is stored as an OCI artifact whose subject is the manifest of the targe
 | `io.werf.checksum` | Content checksum of the image |
 | `io.werf.target-platform` | Target CPU/OS platform (e.g. `linux/amd64`) |
 
-**Multi-platform images.** When building a multi-platform image, werf generates a separate SBOM artifact for each platform. Each platform SBOM is annotated with its `io.werf.target-platform` value so that tooling can retrieve the correct one.
+### Multi-platform images
+
+When building a multi-platform image, werf generates a separate SBOM artifact for each platform. Each platform SBOM is annotated with its `io.werf.target-platform` value so that tooling can retrieve the correct one.
 
 ## GOST security properties (`sbom.gost`)
 

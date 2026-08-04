@@ -23,10 +23,7 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
-const (
-	FallbackTagPrefix    = "sha256-"
-	EmptyConfigMediaType = "application/vnd.oci.empty.v1+json"
-)
+const FallbackTagPrefix = "sha256-"
 
 var (
 	tagMutexes    map[string]*sync.Mutex
@@ -213,6 +210,13 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 
 	kept := make([]v1.Descriptor, 0, len(im.Manifests)+1)
 	for _, manifest := range im.Manifests {
+		// go-containerregistry writes its own entry for the same manifest whenever the
+		// pushed artifact carries a subject and the registry has no Referrers API. That
+		// entry describes the manifest we are about to add, but without artifactType or
+		// werf annotations, so it is matched by digest rather than by artifactType.
+		if manifest.Digest == artifactDesc.Digest {
+			continue
+		}
 		if manifest.ArtifactType == artifactType {
 			existingImageName := manifest.Annotations[image.WerfImageNameAnnotation]
 			if imageName != "" && existingImageName == imageName {
@@ -233,6 +237,8 @@ type staticIndex struct {
 	manifest *v1.IndexManifest
 	raw      []byte
 }
+
+var _ v1.ImageIndex = (*staticIndex)(nil)
 
 func newStaticIndex(manifests []v1.Descriptor) v1.ImageIndex {
 	im := &v1.IndexManifest{

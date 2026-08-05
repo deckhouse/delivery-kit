@@ -342,6 +342,10 @@ func (i *Image) GetImportImagesInfo() []ImportImageInfo {
 }
 
 func (i *Image) GetLastNonEmptyStageImageInfo() *image.Info {
+	if i.contentTagDesc != nil && i.contentTagDesc.Info != nil {
+		return i.contentTagDesc.Info
+	}
+
 	lastStage := i.GetLastNonEmptyStage()
 	if lastStage == nil {
 		return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/werf/werf/v2/pkg/build/signing"
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
+	imagePkg "github.com/werf/werf/v2/pkg/image"
 )
 
 var _ = Describe("BuildPhase", func() {
@@ -122,6 +123,14 @@ var _ = Describe("BuildPhase", func() {
 		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
 	})
 
+	It("uses content tag image info for a reused image", func() {
+		expected := &imagePkg.Info{Name: "repo:image"}
+		img := &image.Image{}
+		img.SetContentTagDesc(&imagePkg.StageDesc{Info: expected})
+
+		Expect(img.GetLastNonEmptyStageImageInfo()).To(BeIdenticalTo(expected))
+	})
+
 	Describe("calculateDigest", func() {
 		It("digest is unchanged when EnableSbom() returns false (backward compatibility)", func(ctx SpecContext) {
 			conveyorNoSbom := &Conveyor{
@@ -173,6 +182,19 @@ var _ = Describe("BuildPhase", func() {
 			Expect(err).To(Succeed())
 
 			Expect(digestEnabled).NotTo(Equal(digestDisabled))
+		})
+
+		It("anchor digest changes when SBOM is enabled", func(ctx SpecContext) {
+			disabled := &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{}}}
+			enabled := &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}}}
+			opts := calculateDigestOptions{TargetPlatform: "linux/amd64", Anchor: true, HolisticInputs: []string{"from:digest"}}
+
+			disabledDigest, err := calculateDigest(ctx, "anchor", "", nil, disabled, opts)
+			Expect(err).To(Succeed())
+			enabledDigest, err := calculateDigest(ctx, "anchor", "", nil, enabled, opts)
+			Expect(err).To(Succeed())
+
+			Expect(enabledDigest).NotTo(Equal(disabledDigest))
 		})
 
 		It("digest returns to its original value when EnableSbom() goes back to false", func(ctx SpecContext) {

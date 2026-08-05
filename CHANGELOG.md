@@ -1,5 +1,50 @@
 # Changelog
 
+## [3.1.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.3-dk.1...v3.1.0-dk.1) (2026-08-05)
+
+
+### Features
+
+* `--no-values-schema-validation`; don't break values.schema.json with service values ([#7756](https://github.com/deckhouse/delivery-kit/issues/7756)) ([01eeb94](https://github.com/deckhouse/delivery-kit/commit/01eeb94fd129f01ce0c72176a61e3b5ad42f4f91))
+* add support for additional patches files and disable default patches ([#7735](https://github.com/deckhouse/delivery-kit/issues/7735)) ([01aa2e5](https://github.com/deckhouse/delivery-kit/commit/01aa2e5c95689aaaeceff151df1b8760938be43c))
+* **build:** add per-project meta-repo safeguard and migration ([#7739](https://github.com/deckhouse/delivery-kit/issues/7739)) ([4f7de94](https://github.com/deckhouse/delivery-kit/commit/4f7de9471e73996cd7676cd02b7d4fe2b3aeb7ff))
+* bump nelm version ([#7731](https://github.com/deckhouse/delivery-kit/issues/7731)) ([ca44562](https://github.com/deckhouse/delivery-kit/commit/ca44562abe4986a1e66914a5fde8c6e49d5d4c57))
+* embed kubeconform schemas ([#7729](https://github.com/deckhouse/delivery-kit/issues/7729)) ([23bcaf1](https://github.com/deckhouse/delivery-kit/commit/23bcaf185d1034a376a1a692228408f81ceeb562))
+* **sbom:** add language pkg env vars ([#220](https://github.com/deckhouse/delivery-kit/issues/220)) ([e42596e](https://github.com/deckhouse/delivery-kit/commit/e42596ee08f300cc914743165fa7ffe3cd5bb6e6))
+* **sbom:** support environment variables for os-pm ([#217](https://github.com/deckhouse/delivery-kit/issues/217)) ([8bc1d20](https://github.com/deckhouse/delivery-kit/commit/8bc1d204d0fd54037b4a6285aa6d75f892178d4b))
+
+
+### Bug Fixes
+
+* **build, buildah:** serialize concurrent base image pulls ([#7664](https://github.com/deckhouse/delivery-kit/issues/7664)) ([6eb9144](https://github.com/deckhouse/delivery-kit/commit/6eb9144a1f0b71b6c6df3d5ec8ba8b6d3bd14b82))
+* **build, dockerfile:** allow dockerfile outside the build context ([#7722](https://github.com/deckhouse/delivery-kit/issues/7722)) ([a5c2011](https://github.com/deckhouse/delivery-kit/commit/a5c2011e32b9764405ec935c811d7bf6bd3c19e1))
+* **build, sbom:** preserve cache behavior with content anchors ([e4d6cd1](https://github.com/deckhouse/delivery-kit/commit/e4d6cd1937a39b7c60992ada2aabe21e5061aa65))
+* **build, sbom:** reject inert packages stage dependencies ([fda6ac3](https://github.com/deckhouse/delivery-kit/commit/fda6ac3f3531d09b6c78a1859aae68a0c31cf472))
+* **build, sbom:** stop SBOM builds panicking on v3 ([ece4cc6](https://github.com/deckhouse/delivery-kit/commit/ece4cc6aaa0fa19598584fa313ba7f02a53b11c6))
+* **build, signing:** stop signed builds panicking on v3 ([b41f07d](https://github.com/deckhouse/delivery-kit/commit/b41f07de439c92303f28711bbdae31c002d54115))
+* **build, stapel, git:** remove git commit ancestry check on reuse ([#7746](https://github.com/deckhouse/delivery-kit/issues/7746)) ([544a07d](https://github.com/deckhouse/delivery-kit/commit/544a07d58a4ddb1ad4d2cc94b135571d895a38bb))
+* **build, stapel:** make service script executable regardless of umask ([#7720](https://github.com/deckhouse/delivery-kit/issues/7720)) ([8b67264](https://github.com/deckhouse/delivery-kit/commit/8b67264f781b361119a9d6be0a390afec616e258)), closes [#2339](https://github.com/deckhouse/delivery-kit/issues/2339)
+* **build:** assign per-image build-log progress index by real start order ([#7703](https://github.com/deckhouse/delivery-kit/issues/7703)) ([7420f5f](https://github.com/deckhouse/delivery-kit/commit/7420f5f5adee048916eb753dcd5e01d6b352e61e))
+* **build:** drop empty image digest warnings from the build report ([#7717](https://github.com/deckhouse/delivery-kit/issues/7717)) ([24babbb](https://github.com/deckhouse/delivery-kit/commit/24babbbbb2bde473e45a1a8bd72c3ff4c64ea532)), closes [#7667](https://github.com/deckhouse/delivery-kit/issues/7667)
+* **build:** reuse content anchors without git commits ([#7764](https://github.com/deckhouse/delivery-kit/issues/7764)) ([5df466c](https://github.com/deckhouse/delivery-kit/commit/5df466c618c91083d17ecd919c04df79b5eb7522))
+* **build:** reuse content anchors without git commits ([#7764](https://github.com/deckhouse/delivery-kit/issues/7764)) ([ea66ed8](https://github.com/deckhouse/delivery-kit/commit/ea66ed8b9980e3af6f463232e505562f25df8857))
+* **build:** stop re-fetching submodules the checkout already has ([#7736](https://github.com/deckhouse/delivery-kit/issues/7736)) ([8ff0bf3](https://github.com/deckhouse/delivery-kit/commit/8ff0bf37050bae2837111a71a34cb15365033631))
+* **build:** validate image names in werf.yaml ([#7711](https://github.com/deckhouse/delivery-kit/issues/7711)) ([cd993db](https://github.com/deckhouse/delivery-kit/commit/cd993dbc6144c88bf10e852fd9406dac117718e1))
+* **deploy:** optimize local validation args ([#7760](https://github.com/deckhouse/delivery-kit/issues/7760)) ([6a4c6c4](https://github.com/deckhouse/delivery-kit/commit/6a4c6c48f9a06d0f44a84754974848ad93cae206))
+* **deploy:** optimize local validation args ([#7760](https://github.com/deckhouse/delivery-kit/issues/7760)) ([beb4de1](https://github.com/deckhouse/delivery-kit/commit/beb4de16867e49b75d53de21d795e6043ac23ad8))
+* **dev:** make CLI docs generation environment-independent ([572168c](https://github.com/deckhouse/delivery-kit/commit/572168c082107de4f5233a5ebe36cfe552ad77ad))
+* **dev:** self-heal a stale worktree index.lock left by a killed run ([#7733](https://github.com/deckhouse/delivery-kit/issues/7733)) ([ca0e803](https://github.com/deckhouse/delivery-kit/commit/ca0e80365bc5ed06ebd112fdfca9ea82ad3328a3))
+* **dev:** warm a persistent dev-index so --dev stops re-reading unchanged files ([#7732](https://github.com/deckhouse/delivery-kit/issues/7732)) ([f0b13cc](https://github.com/deckhouse/delivery-kit/commit/f0b13cc264af219d19b04ecfcb40fa2383c94aa5))
+* **sbom:** prevent storage fallback inconsistency ([#210](https://github.com/deckhouse/delivery-kit/issues/210)) ([c690a26](https://github.com/deckhouse/delivery-kit/commit/c690a26cc79251ac01c8b1ffa99fd973a93360a6))
+* **sbom:** read os-pm secrets with stapel head, not the removed cat ([2a33672](https://github.com/deckhouse/delivery-kit/commit/2a3367286ae6f64a6633b0f36c9ec8dae5123b06))
+
+
+### Miscellaneous Chores
+
+* force release 3.0.0-test.1-dk.1 ([4da7b3d](https://github.com/deckhouse/delivery-kit/commit/4da7b3deb43796a4e114fdacf9e1f2b244db1a89))
+* force release 3.1.0-dk.1 ([37c8c65](https://github.com/deckhouse/delivery-kit/commit/37c8c65b99bcfab2192e0f71481f23cd83d0ee41))
+* **release:** test release ([#7759](https://github.com/deckhouse/delivery-kit/issues/7759)) ([c4d8079](https://github.com/deckhouse/delivery-kit/commit/c4d80799894e5ac8f2ac6a89f99f54221bc7a3b1))
+
 ## [3.0.0-test.1](https://github.com/werf/werf/compare/v3.0.2...v3.0.0-test.1) (2026-08-05)
 
 

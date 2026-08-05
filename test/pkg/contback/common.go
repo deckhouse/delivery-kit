@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 
 	"github.com/werf/werf/v2/pkg/buildah"
@@ -38,8 +39,9 @@ type ContainerBackend interface {
 	Rm(ctx context.Context, containerName string)
 
 	RunSleepingContainer(ctx context.Context, containerName, image string)
-	GetImageInspect(ctx context.Context, image string) DockerImageInspect
 	ExpectCmdsToSucceed(ctx context.Context, image string, cmds ...string)
+	GetImageInspect(ctx context.Context, image string) DockerImageInspect
+	SaveImageToStream(ctx context.Context, image string) io.ReadCloser
 }
 
 type DockerImageInspect struct {

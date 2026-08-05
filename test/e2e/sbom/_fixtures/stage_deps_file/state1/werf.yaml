@@ -1,0 +1,21 @@
+project: werf-test-e2e-sbom-stage-deps-file
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - versions.txt
+  - add: /
+    to: /
+packages:
+  - type: os-pm
+    spec:
+      - jq==1.8.1

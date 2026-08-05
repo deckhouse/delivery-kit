@@ -1,6 +1,7 @@
 package e2e_build_test
 
 import (
+	"github.com/werf/werf/v2/test/pkg/externalrefmock"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 )
 
@@ -10,6 +11,10 @@ type setupEnvOptions struct {
 	WithFinalRepo               bool
 	WithStagedDockerfileBuilder bool
 	State                       string
+}
+
+type simpleTestOptions struct {
+	setupEnvOptions
 }
 
 func setupEnv(opts setupEnvOptions) {
@@ -46,6 +51,8 @@ func setupEnv(opts setupEnvOptions) {
 	} else {
 		SuiteData.Stubs.UnsetEnv("WERF_FORCE_STAGED_DOCKERFILE")
 	}
+
+	SuiteData.Stubs.SetEnv("WERF_EXTERNAL_REFS_SERVER_URL", externalrefmock.Start().URL)
 
 	SuiteData.Stubs.SetEnv("ENV_SECRET", "WERF_BUILD_SECRET")
 }

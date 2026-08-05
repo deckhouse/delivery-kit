@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 
 	registry_api "github.com/werf/werf/v2/pkg/docker_registry/api"
 	"github.com/werf/werf/v2/pkg/image"
@@ -85,7 +86,7 @@ func (api *genericApi) GetRepoImageConfigFile(ctx context.Context, reference str
 }
 
 func (api *genericApi) getRepoImageConfigFile(ctx context.Context, reference string) (*v1.ConfigFile, error) {
-	desc, _, err := api.commonApi.getImageDesc(ctx, reference)
+	desc, err := api.GetRepoImageDesc(ctx, reference)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +97,18 @@ func (api *genericApi) getRepoImageConfigFile(ctx context.Context, reference str
 	}
 
 	return img.ConfigFile()
+}
+
+func (api *genericApi) GetRepoImageDesc(ctx context.Context, reference string) (*remote.Descriptor, error) {
+	desc, _, err := api.commonApi.getImageDesc(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	return desc, nil
+}
+
+func (api *genericApi) RemoteOptionsForHost(ctx context.Context, reference string) []remote.Option {
+	return api.commonApi.defaultRemoteOptionsForHost(ctx, reference)
 }
 
 func (api *genericApi) GetRepoImage(ctx context.Context, reference string) (*image.Info, error) {

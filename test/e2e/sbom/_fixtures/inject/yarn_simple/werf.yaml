@@ -1,0 +1,15 @@
+project: werf-test-e2e-sbom-yarn-simple
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /app
+packages:
+  - type: javascript-yarn
+    workdir: /app

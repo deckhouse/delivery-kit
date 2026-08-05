@@ -140,6 +140,144 @@ This stage deals with the application settings. A typical set of actions include
 
 No limitations are imposed on assembly instructions. The suggested use of _user stages_ is only a recommendation based on our experience with real-world applications. You can use just one _user stage_, or you can design your own instruction grouping strategy to take advantage of caching and dependency changes in the Git repositories tailored to how your application is built.
 
+## Installing binary packages
+
+The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When SBOM generation is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
+
+Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`).
+
+### OS packages
+
+The `os-pm` type installs system packages via the `pm` package manager bundled in the builder base image:
+
+```yaml
+image: app
+from: registry.example.com/base/ubuntu:22.04
+packages:
+  - type: os-pm
+    spec:
+      - curl
+      - jq
+```
+
+- `type: os-pm` — selects the `pm` package manager.
+- `spec` — an inline list of package names to install.
+
+The base image must provide the `pm` binary in `$PATH` (for example, a Deckhouse builder base image labeled `io.deckhouse.internal.builder=true`). Otherwise the build fails because `pm` cannot be found.
+
+Packages installed in a parent image are inherited by images based on it via `fromImage` and remain present in the child image SBOM.
+
+### File-based package ecosystems
+
+File-based types run the ecosystem's install command inside the build container and feed the resulting lock file to syft for SBOM generation. The package manager itself must be pre-installed in the builder image.
+
+**Go modules** (`go-mod`):
+
+```yaml
+packages:
+  - type: go-mod
+    workdir: /app
+```
+
+Runs `go mod download`. Default files: `go.mod` (spec) and `go.sum` (lock).
+
+**Python — uv** (`python-uv`):
+
+```yaml
+packages:
+  - type: python-uv
+    workdir: /app
+```
+
+Runs `uv sync --frozen`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock).
+
+**Python — pip** (`python-pip`):
+
+```yaml
+packages:
+  - type: python-pip
+    workdir: /app
+```
+
+Runs `pip install --no-cache-dir -r requirements.txt`. Default spec: `requirements.txt`. No lock file (pip has no lock semantics; the `lock` field is rejected).
+
+**Python — poetry** (`python-poetry`):
+
+```yaml
+packages:
+  - type: python-poetry
+    workdir: /app
+```
+
+Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
+
+**Rust — Cargo** (`rust-cargo`):
+
+```yaml
+packages:
+  - type: rust-cargo
+    workdir: /app
+```
+
+Runs `cargo fetch`. Default files: `Cargo.toml` (spec) and `Cargo.lock` (lock). syft uses the `rust-cargo-lock-cataloger` to scan the lock file.
+
+**Lua — LuaRocks** (`lua-rock`):
+
+```yaml
+packages:
+  - type: lua-rock
+    workdir: /app
+    spec: app-0.1-1.rockspec
+```
+
+Runs `luarocks install --only-deps <spec>`. Unlike the other ecosystems, `lua-rock` has no default spec: `spec` is required and must point to the `.rockspec` file (rockspec filenames follow the `<name>-<version>-<revision>.rockspec` convention). LuaRocks has no lock file, so the `lock` field is rejected. syft uses the `lua-rock-cataloger` to scan the rockspec.
+
+**JavaScript — npm** (`javascript-npm`):
+
+```yaml
+packages:
+  - type: javascript-npm
+    workdir: /app
+```
+
+Runs `npm ci`. Default files: `package.json` (spec) and `package-lock.json` (lock).
+
+**JavaScript — Yarn** (`javascript-yarn`):
+
+```yaml
+packages:
+  - type: javascript-yarn
+    workdir: /app
+```
+
+Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock).
+
+**JavaScript — pnpm** (`javascript-pnpm`):
+
+```yaml
+packages:
+  - type: javascript-pnpm
+    workdir: /app
+```
+
+Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
+
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). Multiple entries of the same or different types can be combined in one image:
+
+```yaml
+packages:
+  - type: go-mod
+    workdir: /app
+  - type: rust-cargo
+    workdir: /app/native
+  - type: lua-rock
+    workdir: /app/scripts
+    spec: app-0.1-1.rockspec
+  - type: os-pm
+    spec:
+      - libssl-dev
+```
+
 ## Syntax
 
 The top-level ***builder directive*** for assembly instructions is `shell`. You build an image via ***shell instructions***.

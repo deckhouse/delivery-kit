@@ -56,6 +56,12 @@ func ContainerRemove(ctx context.Context, ref string, options dockercontainer.Re
 	return apiCli(ctx).ContainerRemove(ctx, ref, options)
 }
 
+// ContainerCopyFrom returns a tar stream with the resource at srcPath inside the container.
+func ContainerCopyFrom(ctx context.Context, ref, srcPath string) (io.ReadCloser, error) {
+	reader, _, err := apiCli(ctx).CopyFromContainer(ctx, ref, srcPath)
+	return reader, err
+}
+
 func doCliCreate(ctx context.Context, c command.Cli, args ...string) error {
 	cmd, err := lookupCliCommand(c, "create")
 	if err != nil {

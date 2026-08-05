@@ -23,7 +23,9 @@ import (
 	"github.com/werf/logboek/pkg/types"
 	"github.com/werf/werf/v2/pkg/build/image"
 	"github.com/werf/werf/v2/pkg/build/import_server"
+	"github.com/werf/werf/v2/pkg/build/signing"
 	"github.com/werf/werf/v2/pkg/build/stage"
+	"github.com/werf/werf/v2/pkg/build/verify_annotation"
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/thirdparty/platformutil"
@@ -77,13 +79,15 @@ func stageImageCacheKey(name, targetPlatform string) string {
 type ConveyorCleanupFunc func(context.Context) error
 
 type ConveyorOptions struct {
-	Parallel           bool
-	ParallelTasksLimit int64
-	TargetPlatforms    []string
-	DeferBuildLog      bool
-	ImagesToProcess    config.ImagesToProcess
-	UseBuildReport     bool
-	BuildReportPath    string
+	Parallel                bool
+	ParallelTasksLimit      int64
+	TargetPlatforms         []string
+	DeferBuildLog           bool
+	ImagesToProcess         config.ImagesToProcess
+	ManifestSigningOptions  signing.ManifestSigningOptions
+	VerityAnnotationOptions verify_annotation.Options
+	UseBuildReport          bool
+	BuildReportPath         string
 }
 
 func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_manager.Interface, projectDir, baseTmpDir string, containerBackend container_backend.ContainerBackend, storageManager manager.StorageManagerInterface, opts ConveyorOptions) *Conveyor {
@@ -114,14 +118,16 @@ func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_m
 
 	c.imagesTree = image.NewImagesTree(werfConfig, image.ImagesTreeOptions{
 		CommonImageOptions: image.CommonImageOptions{
-			Conveyor:           c,
-			GiterminismManager: c.GiterminismManager().(*giterminism_manager.Manager),
-			ContainerBackend:   c.ContainerBackend,
-			StorageManager:     c.StorageManager,
-			ProjectDir:         c.projectDir,
-			ProjectName:        c.ProjectName(),
-			ContainerWerfDir:   c.containerWerfDir,
-			TmpDir:             c.tmpDir,
+			Conveyor:                c,
+			GiterminismManager:      c.GiterminismManager().(*giterminism_manager.Manager),
+			ContainerBackend:        c.ContainerBackend,
+			StorageManager:          c.StorageManager,
+			ProjectDir:              c.projectDir,
+			ProjectName:             c.ProjectName(),
+			ContainerWerfDir:        c.containerWerfDir,
+			TmpDir:                  c.tmpDir,
+			ManifestSigningOptions:  opts.ManifestSigningOptions,
+			VerityAnnotationOptions: opts.VerityAnnotationOptions,
 		},
 		ImagesToProcess: opts.ImagesToProcess,
 	})
@@ -375,6 +381,14 @@ func (c *Conveyor) GetRemoteGitRepo(key string) *git_repo.Remote {
 	return c.remoteGitRepos[key]
 }
 
+func (c *Conveyor) EnableSbom() bool {
+	if c.werfConfig.Meta.Build.Sbom == nil {
+		return false
+	}
+
+	return c.werfConfig.Meta.Build.Sbom.Enable
+}
+
 func (c *Conveyor) SetShouldAddManagedImagesRecords() {
 	c.GetServiceRWMutex("ShouldAddManagedImagesRecords").Lock()
 	defer c.GetServiceRWMutex("ShouldAddManagedImagesRecords").Unlock()
@@ -610,6 +624,12 @@ func (c *Conveyor) printDeferredBuildLog(_ context.Context, buf *bytes.Buffer) {
 }
 
 func (c *Conveyor) Build(ctx context.Context, opts BuildOptions) ([]*ImagesReport, error) {
+	if _, isBuildah := c.ContainerBackend.(*container_backend.BuildahBackend); isBuildah && c.EnableSbom() {
+		return nil, fmt.Errorf(`SBOM feature is not supported with Buildah container backend.
+
+Please use Docker backend instead by unsetting WERF_BUILDAH_MODE environment variable or setting it to "docker".`)
+	}
+
 	if opts.ImageBuildOptions.Network != "" {
 		if _, isBuildah := c.ContainerBackend.(*container_backend.BuildahBackend); isBuildah {
 			return nil, fmt.Errorf("--network option is not supported with Buildah backend")

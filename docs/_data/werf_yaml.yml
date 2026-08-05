@@ -39,6 +39,61 @@ sections:
             description:
               en: "Enable layer-by-layer caching of Dockerfile instructions in container registry globally for all images"
               ru: "Включить послойное кеширование инструкций Dockerfile в container registry глобально для всех образов"
+          - &meta-section-sbom
+            name: sbom
+            description:
+              en: "SBOM scanning and generation (EXPERIMENTAL)"
+              ru: "Сканирование и генерация SBOM (ЭКСПЕРИМЕНТАЛЬНО)"
+            collapsible: true
+            isCollapsedByDefault: false
+            detailsArticle:
+              en: "/usage/build/process.html#scanning-and-generation-of-sbom-artifacts-experimental"
+              ru: "/usage/build/process.html#сканирование-и-генерация-sbom-артефактов-experimental"
+            directives:
+              - name: enable
+                value: bool
+                default: false
+                description:
+                  en: "Enable SBOM scanning and generation"
+                  ru: "Включить сканирование и генерацию SBOM"
+              - name: standard
+                value: "string"
+                default: "cyclonedx@1.6"
+                description:
+                  en: "SBOM standard (currently only cyclonedx@1.6 is supported)"
+                  ru: "Стандарт SBOM (на данный момент поддерживается только cyclonedx@1.6)"
+              - &gost-directive
+                name: gost
+                description:
+                  en: "GOST security properties"
+                  ru: "Свойства безопасности ГОСТ"
+                collapsible: true
+                isCollapsedByDefault: false
+                directives:
+                  - name: attackSurface
+                    value: "string"
+                    default: "yes"
+                    description:
+                      en: "Attack surface property (yes | no | indirect). Default: yes"
+                      ru: "Свойство поверхности атаки (yes | no | indirect). По умолчанию: yes"
+                  - name: securityFunction
+                    value: "string"
+                    default: "yes"
+                    description:
+                      en: "Security function property (yes | no | indirect). Default: yes"
+                      ru: "Свойство функции безопасности (yes | no | indirect). По умолчанию: yes"
+          - &image-section-sbom
+            name: sbom
+            description:
+              en: "SBOM scanning and generation (EXPERIMENTAL)"
+              ru: "Сканирование и генерация SBOM (ЭКСПЕРИМЕНТАЛЬНО)"
+            collapsible: true
+            isCollapsedByDefault: false
+            detailsArticle:
+              en: "/usage/build/process.html#scanning-and-generation-of-sbom-artifacts-experimental"
+              ru: "/usage/build/process.html#сканирование-и-генерация-sbom-артефактов-experimental"
+            directives:
+              - <<: *gost-directive
           - name: imageSpec
             description:
               en: Global image configuration options according to the OCI specification, which will be applied to all images
@@ -268,6 +323,7 @@ sections:
         detailsArticle:
           en: "/usage/build/images.html#using-intermediate-and-final-images"
           ru: "/usage/build/images.html#использование-промежуточных-и-конечных-образов"
+      - <<: *image-section-sbom
       - name: dockerfile
         value: "string"
         description:
@@ -279,7 +335,7 @@ sections:
         description:
           en: "Enable layer-by-layer caching of Dockerfile instructions in container registry"
           ru: "Включить послойное кеширование Dockerfile-инструкций в container registry"
-      - << : *meta-section-build-cache-version
+      - <<: *meta-section-build-cache-version
       - name: context
         value: "string"
         description:
@@ -376,16 +432,16 @@ sections:
             collapsible: false
             isCollapsedByDefault: false
             directiveList:
-            - name: type
-              value: "string"
-              description:
-                en: "Type of image info: ImageName, ImageDigest, ImageRepo or ImageTag"
-                ru: "Тип импортируемой информации об образе: ImageName, ImageDigest, ImageRepo или ImageTag"
-            - name: targetBuildArg
-              value: "string"
-              description:
-                en: "Name of build argument which will contain specified type of information about image"
-                ru: "Имя аргумента (Dockerfile build-args), который будет содержать указанный тип информации об образе"
+              - name: type
+                value: "string"
+                description:
+                  en: "Type of image info: ImageName, ImageDigest, ImageRepo or ImageTag"
+                  ru: "Тип импортируемой информации об образе: ImageName, ImageDigest, ImageRepo или ImageTag"
+              - name: targetBuildArg
+                value: "string"
+                description:
+                  en: "Name of build argument which will contain specified type of information about image"
+                  ru: "Имя аргумента (Dockerfile build-args), который будет содержать указанный тип информации об образе"
       - &common_image_spec_config
         name: imageSpec
         description:
@@ -519,6 +575,34 @@ sections:
     directives:
       - << : *dockerfile-image-section-image
       - <<: *dockerfile-image-section-final
+      - <<: *image-section-sbom
+      - name: packages
+        description:
+          en: "Set of directives to catalog language package manifests into the SBOM"
+          ru: "Набор директив для каталогизации манифестов пакетов языков в SBOM"
+        collapsible: true
+        isCollapsedByDefault: false
+        directiveList:
+          - name: type
+            value: "string"
+            description:
+              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock, javascript-npm, javascript-yarn, javascript-pnpm)"
+              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock, javascript-npm, javascript-yarn, javascript-pnpm)"
+          - name: workdir
+            value: "string"
+            description:
+              en: "Directory inside the image that contains the spec files (required for go-mod, python-*, rust-cargo, lua-rock, and javascript-*)"
+              ru: "Директория внутри образа, содержащая файлы спецификации (обязательно для go-mod, python-*, rust-cargo, lua-rock и javascript-*)"
+          - name: spec
+            value: "string"
+            description:
+              en: "Spec file name (defaults: go.mod for go-mod, pyproject.toml for python-uv/python-poetry, requirements.txt for python-pip, Cargo.toml for rust-cargo, package.json for javascript-*; required with no default for lua-rock, e.g. app-0.1-1.rockspec)"
+              ru: "Имя файла спецификации (по умолчанию: go.mod для go-mod, pyproject.toml для python-uv/python-poetry, requirements.txt для python-pip, Cargo.toml для rust-cargo, package.json для javascript-*; для lua-rock обязательно и без значения по умолчанию, например app-0.1-1.rockspec)"
+          - name: lock
+            value: "string"
+            description:
+              en: "Lock file name (defaults: go.sum for go-mod, uv.lock for python-uv, poetry.lock for python-poetry, Cargo.lock for rust-cargo, package-lock.json for javascript-npm, yarn.lock for javascript-yarn, pnpm-lock.yaml for javascript-pnpm; empty for python-pip and lua-rock)"
+              ru: "Имя lock-файла (по умолчанию: go.sum для go-mod, uv.lock для python-uv, poetry.lock для python-poetry, Cargo.lock для rust-cargo, package-lock.json для javascript-npm, yarn.lock для javascript-yarn, pnpm-lock.yaml для javascript-pnpm; пусто для python-pip и lua-rock)"
       - << : *meta-section-build-cache-version
       - name: platform
         description:
@@ -878,14 +962,13 @@ sections:
             collapsible: false
             isCollapsedByDefault: false
             directiveList:
-            - name: type
-              value: "string"
-              description:
-                en: "Type of image info: ImageName, ImageDigest, ImageRepo or ImageTag"
-                ru: "Тип импортируемой информации об образе: ImageName, ImageDigest, ImageRepo или ImageTag"
-            - name: targetEnv
-              value: "string"
-              description:
-                en: "Name of environment variable which will contain specified type of information about image"
-                ru: "Имя переменной окружения, которая будет содержать указанный тип информации об образе"
-
+              - name: type
+                value: "string"
+                description:
+                  en: "Type of image info: ImageName, ImageDigest, ImageRepo or ImageTag"
+                  ru: "Тип импортируемой информации об образе: ImageName, ImageDigest, ImageRepo или ImageTag"
+              - name: targetEnv
+                value: "string"
+                description:
+                  en: "Name of environment variable which will contain specified type of information about image"
+                  ru: "Имя переменной окружения, которая будет содержать указанный тип информации об образе"

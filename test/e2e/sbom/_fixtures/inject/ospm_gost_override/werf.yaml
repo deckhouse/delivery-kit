@@ -1,0 +1,23 @@
+project: werf-test-e2e-sbom-inject-ospm-gost
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+    gost:
+      attackSurface: yes
+      securityFunction: yes
+---
+image: app
+from: {{ env "BUILDER_BASE_IMAGE" }}
+sbom:
+  gost:
+    attackSurface: no
+    securityFunction: indirect
+git:
+  - add: /
+    to: /
+packages:
+  - type: os-pm
+    spec:
+      - jq==1.8.1

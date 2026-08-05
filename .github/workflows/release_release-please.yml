@@ -16,16 +16,50 @@ defaults:
 
 jobs:
   release-please:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, regular]
     steps:
-      - name: Release
-        id: release
-        uses: googleapis/release-please-action@v5
+      - name: Checkout code
+        uses: actions/checkout@v6
         with:
-          target-branch: ${{github.ref_name}}
-          release-type: go
-          skip-github-release: true
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute next -dk version
+        id: version
+        run: |
+          last="$(jq -r '."."' .release-please-manifest.json)"
+          range="HEAD"
+          git rev-parse -q --verify "refs/tags/v${last}" >/dev/null && range="v${last}..HEAD"
+          if grep -qi '^Release-As:' <<<"$(git log --format=%B "$range")"; then
+            echo "next=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! $last =~ ^(.+)-dk\.([0-9]+)$ ]]; then
+            echo "manifest version '$last' is not <semver>-dk.<N>: pin the next one with a Release-As footer" >&2
+            exit 1
+          fi
+          echo "next=${BASH_REMATCH[1]}-dk.$(( BASH_REMATCH[2] + 1 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      # release-please-action@v5 drops its release-as input in manifest mode
+      # (googleapis/release-please-action src/index.ts loadOrBuildManifest),
+      # the CLI passes it through.
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          args=(
+            --repo-url="${{ github.repository }}"
+            --target-branch="${{ github.ref_name }}"
+            --token="$GITHUB_TOKEN"
+          )
+          npx --yes release-please@17.6.0 github-release "${args[@]}"
+          npx --yes release-please@17.6.0 release-pr "${args[@]}" ${NEXT_VERSION:+--release-as="$NEXT_VERSION"}
   notify:
     if: failure()
     needs: release-please

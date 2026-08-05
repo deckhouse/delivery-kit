@@ -1,0 +1,27 @@
+project: werf-test-e2e-sbom-packages-base
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: base-layer
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+   - type: os-pm
+     spec:
+       - jq==1.8.1
+       - curl==8.12.1
+---
+image: app
+fromImage: base-layer
+git:
+  - add: /
+    to: /
+packages:
+  - type: os-pm
+    spec:
+      - curl==8.12.1

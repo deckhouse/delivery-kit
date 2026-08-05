@@ -37,14 +37,16 @@ var _ = Describe("rawStapelImage", func() {
 
 			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
 
-			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, "image1")
+			meta := &Meta{}
+
+			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			stapelImage.StapelImageBase.raw = nil // set to nil for correct deep comparison
 			Expect(&stapelImage).To(Equal(&expectedImage))
 		},
 		Entry(
-			"simple case",
+			"should handle cacheVersion",
 			map[string]interface{}{
 				"image":        "image1",
 				"from":         "alpine:latest",
@@ -81,7 +83,9 @@ var _ = Describe("rawStapelImage", func() {
 			rawStapelImage := &rawStapelImage{doc: doc}
 			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
 
-			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, "image1")
+			meta := &Meta{}
+
+			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			for i, expectedDep := range expected {
@@ -242,7 +246,9 @@ var _ = Describe("rawStapelImage", func() {
 			Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
 
 			var errConf *configError
-			_, err = rawStapelImage.toStapelImageDirective(giterminismManager, "image1")
+			meta := &Meta{}
+
+			_, err = rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
 			Expect(errors.As(err, &errConf)).To(BeTrue())
 		},
 		Entry(

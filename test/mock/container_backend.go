@@ -18,6 +18,7 @@ import (
 	info "github.com/werf/werf/v2/pkg/container_backend/info"
 	prune "github.com/werf/werf/v2/pkg/container_backend/prune"
 	image "github.com/werf/werf/v2/pkg/image"
+	scanner "github.com/werf/werf/v2/pkg/sbom/scanner"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -108,6 +109,21 @@ func (m *MockContainerBackend) Containers(ctx context.Context, opts container_ba
 func (mr *MockContainerBackendMockRecorder) Containers(ctx, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Containers", reflect.TypeOf((*MockContainerBackend)(nil).Containers), ctx, opts)
+}
+
+// GenerateSBOM mocks base method.
+func (m *MockContainerBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GenerateSBOM", ctx, scanOpts)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GenerateSBOM indicates an expected call of GenerateSBOM.
+func (mr *MockContainerBackendMockRecorder) GenerateSBOM(ctx, scanOpts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateSBOM", reflect.TypeOf((*MockContainerBackend)(nil).GenerateSBOM), ctx, scanOpts)
 }
 
 // GetDefaultPlatform mocks base method.
@@ -296,6 +312,21 @@ func (m *MockContainerBackend) Push(ctx context.Context, ref string, opts contai
 func (mr *MockContainerBackendMockRecorder) Push(ctx, ref, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Push", reflect.TypeOf((*MockContainerBackend)(nil).Push), ctx, ref, opts)
+}
+
+// ReadFileFromImage mocks base method.
+func (m *MockContainerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts container_backend.ReadFileFromImageOpts) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileFromImage", ctx, imageRef, path, opts)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileFromImage indicates an expected call of ReadFileFromImage.
+func (mr *MockContainerBackendMockRecorder) ReadFileFromImage(ctx, imageRef, path, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileFromImage", reflect.TypeOf((*MockContainerBackend)(nil).ReadFileFromImage), ctx, imageRef, path, opts)
 }
 
 // RefreshImageObject mocks base method.

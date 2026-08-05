@@ -153,6 +153,144 @@ shell:
 
 Несмотря на изложенную четкую стратегию шаблона _пользовательских стадий_ и функции каждой стадии, по сути для пользователя нет никаких ограничений. Предложенное использование стадий является лишь рекомендацией, которая основана на нашем опыте с реальными приложениями. Вы можете использовать только одну пользовательскую стадию, либо определить свою стратегию группировки инструкций, чтобы получить преимущества кэширования и зависимостей от изменений в Git-репозиториях с учетом особенностей сборки вашего приложения.
 
+## Установка бинарных пакетов
+
+Директива `packages` позволяет декларативно объявлять зависимости от пакетов. werf обрабатывает каждую запись в отдельной стадии `packagesInstall`, которая выполняется до стадии `install`. Если включена генерация SBOM (`build.sbom.enable: true`), установленные пакеты — вместе с их транзитивными зависимостями — попадают в итоговый SBOM образа.
+
+Поддерживаются два вида источников пакетов: менеджер системных пакетов (`os-pm`) и файловые экосистемы (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`).
+
+### Системные пакеты
+
+Тип `os-pm` устанавливает системные пакеты через пакетный менеджер `pm`, входящий в состав базового образа сборщика:
+
+```yaml
+image: app
+from: registry.example.com/base/ubuntu:22.04
+packages:
+  - type: os-pm
+    spec:
+      - curl
+      - jq
+```
+
+- `type: os-pm` — выбирает пакетный менеджер `pm`.
+- `spec` — inline-список имён пакетов для установки.
+
+Базовый образ должен предоставлять бинарь `pm` в `$PATH` (например, базовый образ Deckhouse с меткой `io.deckhouse.internal.builder=true`). Иначе сборка завершится ошибкой, так как `pm` не будет найден.
+
+Пакеты, установленные в родительском образе, наследуются образами, построенными на его основе через `fromImage`, и остаются в SBOM дочернего образа.
+
+### Файловые экосистемы пакетов
+
+Файловые типы запускают команду установки экосистемы внутри контейнера сборки и передают полученный lock-файл в syft для генерации SBOM. Пакетный менеджер должен быть предустановлен в образе сборщика.
+
+**Go-модули** (`go-mod`):
+
+```yaml
+packages:
+  - type: go-mod
+    workdir: /app
+```
+
+Выполняет `go mod download`. Файлы по умолчанию: `go.mod` (spec) и `go.sum` (lock).
+
+**Python — uv** (`python-uv`):
+
+```yaml
+packages:
+  - type: python-uv
+    workdir: /app
+```
+
+Выполняет `uv sync --frozen`. Файлы по умолчанию: `pyproject.toml` (spec) и `uv.lock` (lock).
+
+**Python — pip** (`python-pip`):
+
+```yaml
+packages:
+  - type: python-pip
+    workdir: /app
+```
+
+Выполняет `pip install --no-cache-dir -r requirements.txt`. Spec по умолчанию: `requirements.txt`. Lock-файл не поддерживается (pip не имеет семантики lock; поле `lock` отклоняется с ошибкой).
+
+**Python — poetry** (`python-poetry`):
+
+```yaml
+packages:
+  - type: python-poetry
+    workdir: /app
+```
+
+Выполняет `poetry install --no-root`. Файлы по умолчанию: `pyproject.toml` (spec) и `poetry.lock` (lock).
+
+**JavaScript — npm** (`javascript-npm`):
+
+```yaml
+packages:
+  - type: javascript-npm
+    workdir: /app
+```
+
+Выполняет `npm ci`. Файлы по умолчанию: `package.json` (spec) и `package-lock.json` (lock).
+
+**JavaScript — Yarn** (`javascript-yarn`):
+
+```yaml
+packages:
+  - type: javascript-yarn
+    workdir: /app
+```
+
+Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock).
+
+**JavaScript — pnpm** (`javascript-pnpm`):
+
+```yaml
+packages:
+  - type: javascript-pnpm
+    workdir: /app
+```
+
+Выполняет `pnpm install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `pnpm-lock.yaml` (lock).
+
+**Rust — Cargo** (`rust-cargo`):
+
+```yaml
+packages:
+  - type: rust-cargo
+    workdir: /app
+```
+
+Выполняет `cargo fetch`. Файлы по умолчанию: `Cargo.toml` (spec) и `Cargo.lock` (lock). Для генерации SBOM syft использует каталогизатор `rust-cargo-lock-cataloger`.
+
+**Lua — LuaRocks** (`lua-rock`):
+
+```yaml
+packages:
+  - type: lua-rock
+    workdir: /app
+    spec: app-0.1-1.rockspec
+```
+
+Выполняет `luarocks install --only-deps <spec>`. В отличие от остальных экосистем, у `lua-rock` нет значения `spec` по умолчанию: поле `spec` обязательно и должно указывать на файл `.rockspec` (имена rockspec-файлов следуют соглашению `<имя>-<версия>-<ревизия>.rockspec`). У LuaRocks нет lock-файла, поэтому поле `lock` отклоняется с ошибкой. Для генерации SBOM syft использует каталогизатор `lua-rock-cataloger`.
+
+Все файловые типы поддерживают поля `workdir` (обязательно), `spec` (опционально, переопределяет имя файла манифеста) и `lock` (опционально, переопределяет имя lock-файла). В одном образе можно комбинировать несколько записей одного или разных типов:
+
+```yaml
+packages:
+  - type: go-mod
+    workdir: /app
+  - type: rust-cargo
+    workdir: /app/native
+  - type: lua-rock
+    workdir: /app/scripts
+    spec: app-0.1-1.rockspec
+  - type: os-pm
+    spec:
+      - libssl-dev
+```
+
 ## Синтаксис
 
 Пользовательские стадии и инструкции сборки определяются внутри директивы `shell`. Каждый образ собирается используя сборочные инструкции ***shell***, описанные в соответствующей директиве.

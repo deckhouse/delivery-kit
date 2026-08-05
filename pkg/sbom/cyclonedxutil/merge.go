@@ -1,0 +1,366 @@
+package cyclonedxutil
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/google/uuid"
+
+	"github.com/werf/common-go/pkg/util"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+)
+
+type MergeOpts struct {
+	BaseBOM    *cdx.BOM
+	ImportBOMs []*cdx.BOM
+	Gost       gost.Config
+}
+
+func (o MergeOpts) IsEmpty() bool {
+	return o.BaseBOM == nil && len(o.ImportBOMs) == 0
+}
+
+func (o MergeOpts) Checksum() string {
+	var parts []string
+	for _, bom := range append([]*cdx.BOM{o.BaseBOM}, o.ImportBOMs...) {
+		if cs := StableBOMChecksum(bom); cs != "" {
+			parts = append(parts, cs)
+		}
+	}
+
+	return strings.Join(parts, "-")
+}
+
+func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
+	boms := make([]*cdx.BOM, 0, len(o.ImportBOMs)+2)
+	boms = append(boms, o.BaseBOM)
+	boms = append(boms, o.ImportBOMs...)
+	boms = append(boms, target)
+
+	return boms
+}
+
+func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
+	if err := validateBOMSpecVersions(target, opts); err != nil {
+		return nil, err
+	}
+
+	result := NewBOM()
+
+	if target != nil && target.Metadata != nil {
+		result.Metadata = target.Metadata
+	}
+
+	boms := opts.mergeOrder(target)
+
+	result.Components = mergeComponents(boms)
+	result.Services = mergeServices(boms)
+	result.Vulnerabilities = mergeVulnerabilities(boms)
+	result.ExternalReferences = mergeExternalReferences(boms)
+	result.Dependencies = mergeDependencies(boms)
+	result.Compositions = mergeCompositions(boms)
+	result.Properties = mergeProperties(boms)
+	result.Annotations = mergeAnnotations(boms)
+	result.Formulation = mergeFormulation(boms)
+	result.Declarations = mergeDeclarations(boms)
+
+	ensureUniqueBOMRefs(result)
+
+	DedupBOM(result)
+
+	return result, nil
+}
+
+func mergeComponents(boms []*cdx.BOM) *[]cdx.Component {
+	var components []cdx.Component
+	for _, bom := range boms {
+		components = appendBOMComponents(components, bom)
+	}
+	if len(components) > 0 {
+		return &components
+	}
+
+	return nil
+}
+
+func mergeServices(boms []*cdx.BOM) *[]cdx.Service {
+	var services []cdx.Service
+	for _, bom := range boms {
+		services = appendBOMServices(services, bom)
+	}
+	if len(services) > 0 {
+		return &services
+	}
+
+	return nil
+}
+
+func mergeVulnerabilities(boms []*cdx.BOM) *[]cdx.Vulnerability {
+	var vulnerabilities []cdx.Vulnerability
+	for _, bom := range boms {
+		vulnerabilities = appendBOMVulnerabilities(vulnerabilities, bom)
+	}
+	if len(vulnerabilities) > 0 {
+		return &vulnerabilities
+	}
+
+	return nil
+}
+
+func mergeExternalReferences(boms []*cdx.BOM) *[]cdx.ExternalReference {
+	var externalReferences []cdx.ExternalReference
+	for _, bom := range boms {
+		externalReferences = appendBOMExternalReferences(externalReferences, bom)
+	}
+	if len(externalReferences) > 0 {
+		return &externalReferences
+	}
+
+	return nil
+}
+
+func mergeCompositions(boms []*cdx.BOM) *[]cdx.Composition {
+	var compositions []cdx.Composition
+	for _, bom := range boms {
+		compositions = appendBOMCompositions(compositions, bom)
+	}
+	if len(compositions) > 0 {
+		return &compositions
+	}
+
+	return nil
+}
+
+func mergeProperties(boms []*cdx.BOM) *[]cdx.Property {
+	var properties []cdx.Property
+	for _, bom := range boms {
+		properties = appendBOMProperties(properties, bom)
+	}
+	if len(properties) > 0 {
+		return &properties
+	}
+
+	return nil
+}
+
+func mergeAnnotations(boms []*cdx.BOM) *[]cdx.Annotation {
+	var annotations []cdx.Annotation
+	for _, bom := range boms {
+		annotations = appendBOMAnnotations(annotations, bom)
+	}
+	if len(annotations) > 0 {
+		return &annotations
+	}
+
+	return nil
+}
+
+func mergeFormulation(boms []*cdx.BOM) *[]cdx.Formula {
+	var formulation []cdx.Formula
+	for _, bom := range boms {
+		formulation = appendBOMFormulation(formulation, bom)
+	}
+	if len(formulation) > 0 {
+		return &formulation
+	}
+
+	return nil
+}
+
+func mergeDependencies(boms []*cdx.BOM) *[]cdx.Dependency {
+	var dependencies []cdx.Dependency
+	for _, bom := range boms {
+		dependencies = appendBOMDependencies(dependencies, bom)
+	}
+	if len(dependencies) > 0 {
+		return &dependencies
+	}
+
+	return nil
+}
+
+func mergeDeclarations(boms []*cdx.BOM) *cdx.Declarations {
+	var result cdx.Declarations
+	var found bool
+
+	for _, bom := range boms {
+		if bom == nil || bom.Declarations == nil {
+			continue
+		}
+		found = true
+		appendBOMDeclarations(&result, bom.Declarations)
+	}
+
+	if !found {
+		return nil
+	}
+
+	return &result
+}
+
+// NewBOM creates a new empty CycloneDX 1.6 BOM with standard fields initialized.
+func NewBOM() *cdx.BOM {
+	return &cdx.BOM{
+		BOMFormat:    cdx.BOMFormat,
+		SpecVersion:  cdx.SpecVersion1_6,
+		Version:      1,
+		SerialNumber: newSerialNumber(),
+	}
+}
+
+func newSerialNumber() string {
+	return "urn:uuid:" + uuid.New().String()
+}
+
+func appendBOMComponents(dest []cdx.Component, bom *cdx.BOM) []cdx.Component {
+	if bom != nil && bom.Components != nil {
+		return append(dest, *bom.Components...)
+	}
+
+	return dest
+}
+
+func appendBOMServices(dest []cdx.Service, bom *cdx.BOM) []cdx.Service {
+	if bom != nil && bom.Services != nil {
+		return append(dest, *bom.Services...)
+	}
+
+	return dest
+}
+
+func appendBOMVulnerabilities(dest []cdx.Vulnerability, bom *cdx.BOM) []cdx.Vulnerability {
+	if bom != nil && bom.Vulnerabilities != nil {
+		return append(dest, *bom.Vulnerabilities...)
+	}
+
+	return dest
+}
+
+func appendBOMExternalReferences(dest []cdx.ExternalReference, bom *cdx.BOM) []cdx.ExternalReference {
+	if bom != nil && bom.ExternalReferences != nil {
+		return append(dest, *bom.ExternalReferences...)
+	}
+
+	return dest
+}
+
+func appendBOMCompositions(dest []cdx.Composition, bom *cdx.BOM) []cdx.Composition {
+	if bom != nil && bom.Compositions != nil {
+		return append(dest, *bom.Compositions...)
+	}
+
+	return dest
+}
+
+func appendBOMProperties(dest []cdx.Property, bom *cdx.BOM) []cdx.Property {
+	if bom != nil && bom.Properties != nil {
+		return append(dest, *bom.Properties...)
+	}
+
+	return dest
+}
+
+func appendBOMAnnotations(dest []cdx.Annotation, bom *cdx.BOM) []cdx.Annotation {
+	if bom != nil && bom.Annotations != nil {
+		return append(dest, *bom.Annotations...)
+	}
+
+	return dest
+}
+
+func appendBOMFormulation(dest []cdx.Formula, bom *cdx.BOM) []cdx.Formula {
+	if bom != nil && bom.Formulation != nil {
+		return append(dest, *bom.Formulation...)
+	}
+
+	return dest
+}
+
+func appendBOMDependencies(dest []cdx.Dependency, bom *cdx.BOM) []cdx.Dependency {
+	if bom != nil && bom.Dependencies != nil {
+		return append(dest, *bom.Dependencies...)
+	}
+
+	return dest
+}
+
+func appendBOMDeclarations(dest, src *cdx.Declarations) {
+	dest.Assessors = appendPtrSlice(dest.Assessors, src.Assessors)
+	dest.Attestations = appendPtrSlice(dest.Attestations, src.Attestations)
+	dest.Claims = appendPtrSlice(dest.Claims, src.Claims)
+	dest.Evidence = appendPtrSlice(dest.Evidence, src.Evidence)
+
+	if src.Targets != nil {
+		if dest.Targets == nil {
+			dest.Targets = &cdx.Targets{}
+		}
+		dest.Targets.Organizations = appendPtrSlice(dest.Targets.Organizations, src.Targets.Organizations)
+		dest.Targets.Components = appendPtrSlice(dest.Targets.Components, src.Targets.Components)
+		dest.Targets.Services = appendPtrSlice(dest.Targets.Services, src.Targets.Services)
+	}
+
+	if src.Affirmation != nil {
+		dest.Affirmation = src.Affirmation
+	}
+}
+
+func appendPtrSlice[T any](dest, src *[]T) *[]T {
+	if src == nil {
+		return dest
+	}
+	if dest == nil {
+		result := make([]T, len(*src))
+		copy(result, *src)
+		return &result
+	}
+	*dest = append(*dest, *src...)
+	return dest
+}
+
+// StableBOMChecksum computes a checksum excluding only dynamically generated
+// fields (SerialNumber, Version, Signature, Metadata.Timestamp). New fields
+// added to the CycloneDX spec are automatically included, preserving cache
+// correctness.
+func StableBOMChecksum(bom *cdx.BOM) string {
+	if bom == nil {
+		return ""
+	}
+	stable := *bom
+	stable.SerialNumber = ""
+	stable.Version = 0
+	stable.Signature = nil
+	if stable.Metadata != nil {
+		stableMetadata := *stable.Metadata
+		stableMetadata.Timestamp = ""
+		stable.Metadata = &stableMetadata
+	}
+
+	data, err := json.Marshal(stable)
+	if err != nil {
+		return ""
+	}
+
+	return util.Sha256Hash(string(data))
+}
+
+func validateBOMSpecVersions(target *cdx.BOM, opts MergeOpts) error {
+	boms := opts.mergeOrder(target)
+	for _, bom := range boms {
+		if bom == nil {
+			continue
+		}
+
+		if bom.SpecVersion != cdx.SpecVersion1_6 {
+			return fmt.Errorf(
+				"unsupported CycloneDX spec version %q in BOM (expected %q): "+
+					"newer spec versions may introduce fields not handled during merging, "+
+					"convert the BOM to the supported spec version",
+				bom.SpecVersion, cdx.SpecVersion1_6,
+			)
+		}
+	}
+
+	return nil
+}

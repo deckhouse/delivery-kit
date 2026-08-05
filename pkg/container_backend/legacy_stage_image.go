@@ -264,6 +264,24 @@ func (i *LegacyStageImage) Push(ctx context.Context) error {
 	return docker.CliPushWithRetries(ctx, i.name)
 }
 
+func (i *LegacyStageImage) Mutate(ctx context.Context, f func(builtID string) (string, error)) error {
+	buildID := i.MustGetBuiltID()
+	newID, err := f(buildID)
+	if err != nil {
+		return err
+	}
+
+	if newID != buildID {
+		i.SetBuiltID(newID)
+		i.buildImage = nil
+		if err := i.ContainerBackend.Rmi(ctx, buildID, RmiOpts{Force: true}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func debugDockerRunCommand() bool {
 	return os.Getenv("WERF_DEBUG_DOCKER_RUN_COMMAND") == "1"
 }

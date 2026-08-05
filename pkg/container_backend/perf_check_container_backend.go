@@ -8,6 +8,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/info"
 	"github.com/werf/werf/v2/pkg/container_backend/prune"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
 
 type PerfCheckContainerBackend struct {
@@ -38,6 +39,14 @@ func (runtime *PerfCheckContainerBackend) GetImageInfo(ctx context.Context, ref 
 	logboek.Context(ctx).Default().LogProcess("ContainerBackend.GetImageInfo %q", ref).
 		Do(func() {
 			resImg, resErr = runtime.ContainerBackend.GetImageInfo(ctx, ref, opts)
+		})
+	return
+}
+
+func (runtime *PerfCheckContainerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) (resOut []byte, resErr error) {
+	logboek.Context(ctx).Default().LogProcess("ContainerBackend.ReadFileFromImage %q", imageRef).
+		Do(func() {
+			resOut, resErr = runtime.ContainerBackend.ReadFileFromImage(ctx, imageRef, path, opts)
 		})
 	return
 }
@@ -204,4 +213,12 @@ func (runtime *PerfCheckContainerBackend) SaveImageToStream(ctx context.Context,
 
 func (runtime *PerfCheckContainerBackend) LoadImageFromStream(ctx context.Context, input io.Reader) (string, error) {
 	return runtime.ContainerBackend.LoadImageFromStream(ctx, input)
+}
+
+func (runtime *PerfCheckContainerBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions) (bomJSON []byte, err error) {
+	logboek.Context(ctx).Default().LogProcess("ContainerBackend.GenerateSBOM scanOpts=%+v", scanOpts).
+		Do(func() {
+			bomJSON, err = runtime.ContainerBackend.GenerateSBOM(ctx, scanOpts)
+		})
+	return
 }

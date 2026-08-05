@@ -500,7 +500,7 @@ func (b *NativeBuildah) RunCommand(ctx context.Context, container string, comman
 	nsOpts, netPolicy := generateNamespaceOptionsAndNetworkPolicy(opts.NetworkType)
 	globalMounts := generateGlobalMounts(opts.GlobalMounts)
 	runMounts := generateRunMounts(opts.RunMounts)
-	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter)
+	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter, opts.Stdout, opts.Stderr)
 	command = prependShellToCommand(opts.PrependShell, opts.Shell, command, builder)
 
 	sysCtx, err := b.getSystemContext(opts.TargetPlatform)
@@ -728,12 +728,25 @@ func (b *NativeBuildah) commit(ctx context.Context, container string, opts Commi
 		SystemContext:         sysCtx,
 		MaxRetries:            MaxPullPushRetries,
 		RetryDelay:            PullPushRetryDelay,
+		SBOMScanOptions:       mapBuildahBackendSbomScanOptsToBuildahNativeSbomScanOpts(opts.SBOMScanOptions),
 	})
 	if err != nil {
 		return "", fmt.Errorf("error doing commit: %w", err)
 	}
 
 	return imgID, nil
+}
+
+func mapBuildahBackendSbomScanOptsToBuildahNativeSbomScanOpts(options []SBOMScanOptions) []buildah.SBOMScanOptions {
+	return lo.Map(options, func(opt SBOMScanOptions, _ int) buildah.SBOMScanOptions {
+		return buildah.SBOMScanOptions{
+			Image:         opt.Image,
+			PullPolicy:    buildah.PullPolicy(opt.PullPolicy),
+			SBOMOutput:    opt.SBOMOutput,
+			Commands:      opt.Commands,
+			MergeStrategy: define.SBOMMergeStrategyCat,
+		}
+	})
 }
 
 func (b *NativeBuildah) Config(ctx context.Context, container string, opts ConfigOpts) error {
@@ -1531,12 +1544,22 @@ func generateContextDir(rawContextDir string, runMounts []*instructions.Mount) s
 	return contextDir
 }
 
-func generateStdoutStderr(optionalLogWriter io.Writer) (stdout, stderr io.Writer, stderrBuf *bytes.Buffer) {
+func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (stdout, stderr io.Writer, stderrBuf *bytes.Buffer) {
 	stderrBuf = &bytes.Buffer{}
-	if optionalLogWriter != nil {
+
+	switch {
+	case optionalStdout != nil:
+		stdout = optionalStdout
+	case optionalLogWriter != nil:
 		stdout = optionalLogWriter
+	}
+
+	switch {
+	case optionalStderr != nil:
+		stderr = io.MultiWriter(optionalStderr, stderrBuf)
+	case optionalLogWriter != nil:
 		stderr = io.MultiWriter(optionalLogWriter, stderrBuf)
-	} else {
+	default:
 		stderr = stderrBuf
 	}
 

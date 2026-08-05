@@ -40,6 +40,27 @@ func (p *Project) Build(ctx context.Context, opts *BuildOptions) (combinedOut st
 	return string(outb)
 }
 
+func (p *Project) BuildWithErr(ctx context.Context, opts *BuildOptions) (combinedOut string, err error) {
+	if opts == nil {
+		opts = &BuildOptions{}
+	}
+
+	args := append([]string{"build"}, opts.ExtraArgs...)
+	outb, err := iutils.RunCommandWithOptions(
+		ctx,
+		p.GitRepoPath,
+		p.WerfBinPath,
+		args,
+		iutils.RunCommandOptions{
+			ShouldSucceed:         false,
+			ExtraEnv:              opts.Envs,
+			CancelOnOutput:        opts.CancelOnOutput,
+			CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
+		})
+
+	return string(outb), err
+}
+
 func (p *Project) Converge(ctx context.Context, opts *ConvergeOptions) (combinedOut string) {
 	if opts == nil {
 		opts = &ConvergeOptions{}
@@ -170,6 +191,7 @@ func (p *Project) RunCommand(
 		args,
 		iutils.RunCommandOptions{
 			ShouldSucceed:         !opts.ShouldFail,
+			ExtraEnv:              opts.Envs,
 			CancelOnOutput:        opts.CancelOnOutput,
 			CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
 		})
@@ -224,6 +246,111 @@ func (p *Project) StagesCopy(ctx context.Context, opts *StagesCopyOptions) (comb
 
 	args := append([]string{"stages", "copy"}, opts.ExtraArgs...)
 	outb := p.RunCommand(ctx, args, opts.CommonOptions)
+
+	return string(outb)
+}
+
+func (p *Project) SbomGet(ctx context.Context, opts *SbomGetOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &SbomGetOptions{}
+	}
+	args := append([]string{"sbom", "get"}, opts.ExtraArgs...)
+
+	outb := p.RunCommand(ctx, args, opts.CommonOptions)
+
+	return string(outb)
+}
+
+func (p *Project) SbomValidate(ctx context.Context, opts *SbomValidateOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &SbomValidateOptions{}
+	}
+	args := append([]string{"sbom", "validate"}, opts.ExtraArgs...)
+
+	outb := p.RunCommand(ctx, args, CommonOptions{
+		ShouldFail: opts.ShouldFail,
+		Envs:       opts.Envs,
+	})
+
+	return string(outb)
+}
+
+func (p *Project) SbomValidateWithErr(ctx context.Context, opts *SbomValidateOptions) (combinedOut string, err error) {
+	if opts == nil {
+		opts = &SbomValidateOptions{}
+	}
+
+	args := append([]string{"sbom", "validate"}, opts.ExtraArgs...)
+	outb, err := iutils.RunCommandWithOptions(
+		ctx,
+		p.GitRepoPath,
+		p.WerfBinPath,
+		args,
+		iutils.RunCommandOptions{
+			ShouldSucceed:         false,
+			ExtraEnv:              opts.Envs,
+			CancelOnOutput:        opts.CancelOnOutput,
+			CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
+		})
+
+	return string(outb), err
+}
+
+func (p *Project) SbomMerge(ctx context.Context, opts *SbomMergeOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &SbomMergeOptions{}
+	}
+	args := append([]string{"sbom", "merge"}, opts.ExtraArgs...)
+
+	outb := p.RunCommand(ctx, args, CommonOptions{
+		ShouldFail: opts.ShouldFail,
+		Envs:       opts.Envs,
+	})
+
+	return string(outb)
+}
+
+func (p *Project) AttestSign(ctx context.Context, opts *AttestSignOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestSignOptions{}
+	}
+	args := append([]string{"attest", "sign"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) AttestGet(ctx context.Context, opts *AttestGetOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestGetOptions{}
+	}
+	args := append([]string{"attest", "get"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) AttestVerify(ctx context.Context, opts *AttestVerifyOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestVerifyOptions{}
+	}
+	args := append([]string{"attest", "verify"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) AttestLs(ctx context.Context, opts *AttestLsOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &AttestLsOptions{}
+	}
+	args := append([]string{"attest", "ls"}, opts.ExtraArgs...)
+	return p.RunCommand(ctx, args, opts.CommonOptions)
+}
+
+func (p *Project) Verify(ctx context.Context, opts *VerifyOptions) (combinedOut string) {
+	if opts == nil {
+		opts = &VerifyOptions{}
+	}
+	args := append([]string{"verify"}, opts.ExtraArgs...)
+
+	outb := p.RunCommand(ctx, args, CommonOptions{
+		ShouldFail: opts.ShouldFail,
+	})
 
 	return string(outb)
 }

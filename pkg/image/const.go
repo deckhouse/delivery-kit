@@ -18,9 +18,16 @@ const (
 	WerfMountBuildDirLabel        = "werf-mount-type-build-dir"
 	WerfMountCustomDirLabelPrefix = "werf-mount-type-custom-dir-"
 
+	DeckhouseInternalBuilderLabel = "io.deckhouse.internal.builder"
+
 	BuildCacheVersion = "2.0"
 
 	StageContainerNamePrefix        = "werf.build."
 	ImportServerContainerNamePrefix = "import-server-"
 	AssemblingContainerNamePrefix   = "werf.stapel."
+	SBOMScannerContainerNamePrefix  = "werf.sbom.scanner."
+
+	WerfImageNameAnnotation = "io.werf.image-name"
+	WerfChecksumAnnotation  = "io.werf.checksum"
+	WerfPlatformAnnotation  = "io.werf.target-platform"
 )

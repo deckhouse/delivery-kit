@@ -10,22 +10,24 @@ import (
 )
 
 type rawStapelImage struct {
-	Images           []string         `yaml:"-"`
-	Final            *bool            `yaml:"final,omitempty"`
-	CacheVersion     string           `yaml:"cacheVersion,omitempty"`
-	From             string           `yaml:"from,omitempty"`
-	FromImage        string           `yaml:"fromImage,omitempty"` // Deprecated: use `from` instead.
-	FromLatest       bool             `yaml:"fromLatest,omitempty"`
-	FromCacheVersion string           `yaml:"fromCacheVersion,omitempty"`
-	RawGit           []*rawGit        `yaml:"git,omitempty"`
-	RawShell         *rawShell        `yaml:"shell,omitempty"`
-	RawMount         []*rawMount      `yaml:"mount,omitempty"`
-	RawImport        []*rawImport     `yaml:"import,omitempty"`
-	RawDependencies  []*rawDependency `yaml:"dependencies,omitempty"`
-	Platform         []string         `yaml:"platform,omitempty"`
-	Network          string           `yaml:"network,omitempty"`
-	RawSecrets       []*rawSecret     `yaml:"secrets,omitempty"`
-	RawImageSpec     *rawImageSpec    `yaml:"imageSpec,omitempty"`
+	Images           []string                `yaml:"-"`
+	Final            *bool                   `yaml:"final,omitempty"`
+	CacheVersion     string                  `yaml:"cacheVersion,omitempty"`
+	From             string                  `yaml:"from,omitempty"`
+	FromImage        string                  `yaml:"fromImage,omitempty"` // Deprecated: use `from` instead.
+	FromLatest       bool                    `yaml:"fromLatest,omitempty"`
+	FromCacheVersion string                  `yaml:"fromCacheVersion,omitempty"`
+	RawGit           []*rawGit               `yaml:"git,omitempty"`
+	RawShell         *rawShell               `yaml:"shell,omitempty"`
+	RawMount         []*rawMount             `yaml:"mount,omitempty"`
+	RawImport        []*rawImport            `yaml:"import,omitempty"`
+	RawDependencies  []*rawDependency        `yaml:"dependencies,omitempty"`
+	Platform         []string                `yaml:"platform,omitempty"`
+	Network          string                  `yaml:"network,omitempty"`
+	RawSbom          *rawSbom                `yaml:"sbom,omitempty"`
+	RawSecrets       []*rawSecret            `yaml:"secrets,omitempty"`
+	RawImageSpec     *rawImageSpec           `yaml:"imageSpec,omitempty"`
+	RawPackages      []*rawPackagesDirective `yaml:"packages,omitempty"`
 
 	doc *doc `yaml:"-"` // parent
 
@@ -98,9 +100,9 @@ func (c *rawStapelImage) stapelImageType() string {
 	return ""
 }
 
-func (c *rawStapelImage) toStapelImageDirectives(giterminismManager giterminism_manager.Interface) (images []*StapelImage, err error) {
+func (c *rawStapelImage) toStapelImageDirectives(giterminismManager giterminism_manager.Interface, meta *Meta) (images []*StapelImage, err error) {
 	for _, imageName := range c.Images {
-		if image, err := c.toStapelImageDirective(giterminismManager, imageName); err != nil {
+		if image, err := c.toStapelImageDirective(giterminismManager, meta, imageName); err != nil {
 			return nil, err
 		} else {
 			images = append(images, image)
@@ -110,10 +112,10 @@ func (c *rawStapelImage) toStapelImageDirectives(giterminismManager giterminism_
 	return images, nil
 }
 
-func (c *rawStapelImage) toStapelImageDirective(giterminismManager giterminism_manager.Interface, name string) (*StapelImage, error) {
+func (c *rawStapelImage) toStapelImageDirective(giterminismManager giterminism_manager.Interface, meta *Meta, name string) (*StapelImage, error) {
 	image := &StapelImage{}
 
-	if imageBase, err := c.toStapelImageBaseDirective(giterminismManager, name); err != nil {
+	if imageBase, err := c.toStapelImageBaseDirective(giterminismManager, meta, name); err != nil {
 		return nil, err
 	} else {
 		image.StapelImageBase = imageBase
@@ -136,7 +138,7 @@ func (c *rawStapelImage) validateStapelImageDirective(image *StapelImage) (err e
 	return nil
 }
 
-func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager giterminism_manager.Interface, name string) (imageBase *StapelImageBase, err error) {
+func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager giterminism_manager.Interface, meta *Meta, name string) (imageBase *StapelImageBase, err error) {
 	if imageBase, err = c.toBaseStapelImageBaseDirective(giterminismManager, name); err != nil {
 		return nil, err
 	}
@@ -210,6 +212,29 @@ func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager gitermini
 
 	if c.RawImageSpec != nil {
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
+	}
+
+	for i, rawPkg := range c.RawPackages {
+		pkgDirective, err := rawPkg.toDirective(i)
+		if err != nil {
+			return nil, err
+		}
+
+		imageBase.Packages = append(imageBase.Packages, pkgDirective)
+	}
+
+	if len(imageBase.Packages) > 0 && meta.Build.Sbom != nil && meta.Build.Sbom.Enable {
+		packagesCommands := GeneratePackagesCommands(imageBase.Packages)
+		if len(packagesCommands) > 0 {
+			if imageBase.Shell == nil {
+				imageBase.Shell = &Shell{}
+			}
+			imageBase.Shell.Packages = packagesCommands
+		}
+	}
+
+	if imageBase.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {
+		return nil, err
 	}
 
 	if err := c.validateStapelImageBaseDirective(giterminismManager, imageBase); err != nil {

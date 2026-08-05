@@ -5,6 +5,7 @@ import "time"
 type CommonOptions struct {
 	ShouldFail bool
 	ExtraArgs  []string
+	Envs       []string
 
 	CancelOnOutput        string
 	CancelOnOutputTimeout time.Duration
@@ -53,5 +54,37 @@ type StagesCopyOptions struct {
 }
 
 type KubeCtlOptions struct {
+	CommonOptions
+}
+
+type SbomGetOptions struct {
+	CommonOptions
+}
+
+type SbomValidateOptions struct {
+	CommonOptions
+}
+
+type SbomMergeOptions struct {
+	CommonOptions
+}
+
+type VerifyOptions struct {
+	CommonOptions
+}
+
+type AttestSignOptions struct {
+	CommonOptions
+}
+
+type AttestGetOptions struct {
+	CommonOptions
+}
+
+type AttestVerifyOptions struct {
+	CommonOptions
+}
+
+type AttestLsOptions struct {
 	CommonOptions
 }

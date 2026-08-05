@@ -764,6 +764,17 @@ IMAGE_NAME is the name of an image described in werf.yaml.
 STAGE_NAME should be one of the following: `+strings.Join(allStagesNames(), ", "))
 }
 
+func SetupAnnotateLayersWithDmVerityRootHash(cmdData *CmdData, cmd *cobra.Command) {
+	cmdData.AnnotateLayersWithDmvVerityRootHash = new(bool)
+	cmd.Flags().BoolVarP(
+		cmdData.AnnotateLayersWithDmvVerityRootHash,
+		"annotate-layers-with-dm-verity-root-hash",
+		"",
+		util.GetBoolEnvironmentDefaultFalse("WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH"),
+		"Enable annotation of image layers with dm-verity root hash (default $WERF_ANNOTATE_LAYERS_WITH_DM_VERITY_ROOT_HASH)",
+	)
+}
+
 // SetupRequireBuiltImages adds --require-built-images flag.
 // See also [quireBuiltImages].
 func SetupRequireBuiltImages(cmdData *CmdData, cmd *cobra.Command) {
@@ -1200,7 +1211,6 @@ func SetupResourceValidationFlags(cmdData *CmdData, cmd *cobra.Command) error {
 	}
 
 	cmd.Flags().BoolVarP(&cmdData.NoResourceValidation, "no-resource-validation", "", util.GetBoolEnvironmentDefaultFalse("WERF_NO_RESOURCE_VALIDATION"), "Disable resource validation (default $WERF_NO_RESOURCE_VALIDATION)")
-	cmd.Flags().BoolVarP(&cmdData.LocalResourceValidation, "local-resource-validation", "", util.GetBoolEnvironmentDefaultFalse("WERF_LOCAL_RESOURCE_VALIDATION"), "Do not use external json schema sources, validate against the json schemas embedded into the binary instead (default $WERF_LOCAL_RESOURCE_VALIDATION)")
 	cmd.Flags().StringArrayVarP(&cmdData.ValidationSkip, "resource-validation-skip", "", []string{}, "Skip resource validation for resources with specified attributes (can specify multiple). Format: key1=value1,key2=value2. Supported keys: group, version, kind, name, namespace. Example: kind=Deployment,name=my-app. Also, can be defined with $WERF_RESOURCE_VALIDATION_SKIP_* (e.g. $WERF_RESOURCE_VALIDATION_SKIP_1=kind=Deployment,name=my-app)")
 	cmd.Flags().StringArrayVarP(&cmdData.ValidationExtraSchemas, "resource-validation-extra-schema", "", []string{}, "Extra json schema sources to validate resources (preferred over ebedded sources). Must be a valid go template defining a http(s) URL, or an absolute path on local file system. Also, can be defined with $WERF_RESOURCE_VALIDATION_EXTRA_SCHEMA_* (eg. $WERF_RESOURCE_VALIDATION_EXTRA_SCHEMA_1='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json')")
 	cmd.Flags().DurationVarP(&cmdData.ValidationSchemaCacheLifetime, "resource-validation-cache-lifetime", "", defaultValidationCacheLifetime, "How long local schema cache will be valid. Also can be defined by $WERF_RESOURCE_VALIDATION_CACHE_LIFETIME")

@@ -734,7 +734,7 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 	var images []ImageInterface
 
 	for _, rawImage := range rawImagesFromDockerfile {
-		imageList, err := rawImage.toImageFromDockerfileDirectives(giterminismManager)
+		imageList, err := rawImage.toImageFromDockerfileDirectives(giterminismManager, meta)
 		if err != nil {
 			return nil, err
 		}
@@ -756,7 +756,7 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 
 	for _, rawImage := range rawImages {
 		if rawImage.stapelImageType() == "images" {
-			imageList, err := rawImage.toStapelImageDirectives(giterminismManager)
+			imageList, err := rawImage.toStapelImageDirectives(giterminismManager, meta)
 			if err != nil {
 				return nil, err
 			}
@@ -766,6 +766,7 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 					merged := mergeImageSpec(meta.Build.ImageSpec, image.ImageSpec)
 					image.ImageSpec = &merged
 				}
+
 				images = append(images, image)
 			}
 		}
@@ -790,6 +791,10 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 	}
 
 	if err := werfConfig.validateInfiniteLoopBetweenRelatedImages(); err != nil {
+		return nil, err
+	}
+
+	if err := werfConfig.validateSbomOnlyWithStapelImages(); err != nil {
 		return nil, err
 	}
 

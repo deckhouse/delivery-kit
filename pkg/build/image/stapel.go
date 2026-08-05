@@ -31,6 +31,7 @@ func mapStapelConfigToImage(ctx context.Context, metaConfig *config.Meta, stapel
 		IsFinal:            stapelImageConfig.IsFinal(),
 		UseCustomTag:       useCustomTag,
 		StapelImageConfig:  stapelImageConfig,
+		Sbom:               stapelImageConfig.Sbom(),
 	}
 
 	var baseImageType BaseImageType
@@ -108,6 +109,8 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		stages = append(stages, stage.NewGitArchiveStage(gitArchiveStageOptions, baseStageOptions))
 	}
 
+	stages = appendIfExist(stages, stage.GeneratePackagesStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
+
 	stages = appendIfExist(stages, stage.GenerateInstallStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateDependenciesAfterInstallStage(imageBaseConfig, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateBeforeSetupStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
@@ -124,11 +127,37 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		stages = appendIfExist(stages, stage.GenerateImageSpecStage(imageBaseConfig.ImageSpec, baseStageOptions))
 	}
 
+	if opts.VerityAnnotationOptions.Enabled && imageBaseConfig.IsFinal() {
+		stages = append(stages, stage.GenerateVerityAnnotationStage(baseStageOptions))
+	}
+
+	if opts.ManifestSigningOptions.Enabled && imageBaseConfig.IsFinal() {
+		stages = append(stages, stage.GenerateSignStage(baseStageOptions, opts.ManifestSigningOptions))
+	}
+
 	if len(gitMappings) != 0 {
 		logboek.Context(ctx).Info().LogLnDetails("Using git stages")
 
 		for _, s := range stages {
 			s.SetGitMappings(gitMappings)
+		}
+	}
+
+	sbomEnabled := metaConfig.Build.Sbom != nil && metaConfig.Build.Sbom.Enable
+	if sbomEnabled {
+		hasShellStages := false
+		for _, s := range stages {
+			if stageHasNetworkAccess(s) {
+				continue
+			}
+			if no, ok := s.(interface{ SetNetworkOverride(string) }); ok {
+				no.SetNetworkOverride("none")
+				hasShellStages = true
+			}
+		}
+
+		if hasShellStages {
+			logboek.Context(ctx).Warn().LogLn("Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
 		}
 	}
 
@@ -139,6 +168,13 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 	image.SetStages(stages)
 
 	return nil
+}
+
+func stageHasNetworkAccess(s stage.Interface) bool {
+	if nn, ok := s.(interface{ NeedsNetwork() bool }); ok {
+		return nn.NeedsNetwork()
+	}
+	return false
 }
 
 func validateStageDependenciesHaveInstructions(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) error {

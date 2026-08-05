@@ -30,4 +30,6 @@ type Conveyor interface {
 
 	SetRemoteGitRepo(key string, repo *git_repo.Remote)
 	GetRemoteGitRepo(key string) *git_repo.Remote
+
+	EnableSbom() bool
 }

@@ -13,7 +13,9 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
+	"github.com/werf/werf/v2/pkg/build/signing"
 	"github.com/werf/werf/v2/pkg/build/stage"
+	"github.com/werf/werf/v2/pkg/build/verify_annotation"
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
@@ -44,6 +46,8 @@ type CommonImageOptions struct {
 	TmpDir             string
 
 	ForceTargetPlatformLogging bool
+	ManifestSigningOptions     signing.ManifestSigningOptions
+	VerityAnnotationOptions    verify_annotation.Options
 }
 
 type ImageOptions struct {
@@ -58,6 +62,7 @@ type ImageOptions struct {
 	FetchLatestBaseImage      bool
 	UseCustomTag              bool
 	DockerfileExpanderFactory dockerfile.ExpanderFactory
+	Sbom                      *config.Sbom
 }
 
 func NewImage(ctx context.Context, targetPlatform, name string, baseImageType BaseImageType, opts ImageOptions) (*Image, error) {
@@ -85,6 +90,7 @@ func NewImage(ctx context.Context, targetPlatform, name string, baseImageType Ba
 		baseImageName:             opts.BaseImageName,
 		dockerfileExpanderFactory: opts.DockerfileExpanderFactory,
 		useCustomTag:              opts.UseCustomTag,
+		sbom:                      opts.Sbom,
 	}
 
 	if opts.FetchLatestBaseImage {
@@ -109,6 +115,7 @@ type Image struct {
 	BuildDuration           time.Duration
 	AnchorReused            bool
 
+	sbom              *config.Sbom
 	stages            []stage.Interface
 	stageDurations    map[stage.StageName]time.Duration
 	lastNonEmptyStage stage.Interface
@@ -312,8 +319,53 @@ func (i *Image) UsesBuildContext() bool {
 	return false
 }
 
+type ImportImageInfo struct {
+	ImageName     string
+	ExternalImage bool
+}
+
+func (i *Image) GetImportImagesInfo() []ImportImageInfo {
+	var result []ImportImageInfo
+
+	for _, stg := range i.GetStages() {
+		if depStage, ok := stg.(interface{ GetImports() []*config.Import }); ok {
+			for _, imp := range depStage.GetImports() {
+				result = append(result, ImportImageInfo{
+					ImageName:     imp.From,
+					ExternalImage: imp.ExternalImage,
+				})
+			}
+		}
+	}
+
+	return result
+}
+
+func (i *Image) GetLastNonEmptyStageImageInfo() *image.Info {
+	lastStage := i.GetLastNonEmptyStage()
+	if lastStage == nil {
+		return nil
+	}
+
+	stageImage := lastStage.GetStageImage()
+	if stageImage == nil {
+		return nil
+	}
+
+	stageDesc := stageImage.Image.GetStageDesc()
+	if stageDesc == nil {
+		return nil
+	}
+
+	return stageDesc.Info
+}
+
 func (i *Image) UseCustomTag() bool {
 	return i.useCustomTag
+}
+
+func (i *Image) Sbom() *config.Sbom {
+	return i.sbom
 }
 
 func (i *Image) GetName() string {
@@ -426,6 +478,10 @@ func (i *Image) GetBaseStageImage() *stage.StageImage {
 
 func (i *Image) GetBaseImageReference() string {
 	return i.baseImageReference
+}
+
+func (i *Image) GetBaseImageName() string {
+	return i.baseImageName
 }
 
 func (i *Image) GetBaseImageRepoDigest() string {

@@ -2,11 +2,14 @@ package build
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 
@@ -16,13 +19,22 @@ import (
 	"github.com/werf/logboek/pkg/types"
 	"github.com/werf/werf/v2/pkg/build/cleanup"
 	"github.com/werf/werf/v2/pkg/build/image"
+	"github.com/werf/werf/v2/pkg/build/signing"
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/build/stage/instruction"
+	"github.com/werf/werf/v2/pkg/build/verify_annotation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	backend_instruction "github.com/werf/werf/v2/pkg/container_backend/instruction"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v2/pkg/sbom/externalref"
+	"github.com/werf/werf/v2/pkg/sbom/gomod"
+	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/manager"
@@ -39,6 +51,10 @@ type BuildPhaseOptions struct {
 type BuildOptions struct {
 	ImageBuildOptions container_backend.BuildOptions
 	IntrospectOptions
+
+	ManifestSigningOptions  signing.ManifestSigningOptions
+	ELFSigningOptions       signing.ELFSigningOptions
+	VerityAnnotationOptions verify_annotation.Options
 
 	ReportPath   string
 	ReportFormat ReportFormat
@@ -71,6 +87,7 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 	return &BuildPhase{
 		BasePhase:         BasePhase{c},
 		BuildPhaseOptions: opts,
+		sbomStep:          newSbomStep(c.ContainerBackend, c.StorageManager.GetStagesStorage()),
 		ImagesReport:      NewImagesReport(),
 	}
 }
@@ -78,6 +95,7 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 type BuildPhase struct {
 	BasePhase
 	BuildPhaseOptions
+	sbomStep *sbomStep
 
 	StagesIterator *StagesIterator
 	ImagesReport   *ImagesReport
@@ -157,7 +175,8 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 	imagesPairs := phase.Conveyor.imagesTree.GetImagesByName(false)
 
 	if err := parallel.DoTasks(ctx, len(imagesPairs), parallel.DoTasksOptions{
-		MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+		MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
+		InitDockerCLIForEachWorker: true,
 	}, func(ctx context.Context, taskId int) error {
 		pair := imagesPairs[taskId]
 
@@ -224,9 +243,165 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
+	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
+		return err
+	}
+
 	telemetry.GetTelemetryWerfIO().BuildFinished(ctx, true)
 
 	return phase.createReport(ctx, imagesPairs)
+}
+
+func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
+	if !phase.Conveyor.EnableSbom() {
+		return nil
+	}
+
+	graph := phase.Conveyor.imagesTree.GetImagesGraph()
+	if graph == nil || len(graph.Nodes()) == 0 {
+		return nil
+	}
+
+	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
+		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
+	}
+
+	var purlErrors sync.Map
+	var totalImages int
+
+	for _, imagesInSet := range graph.Levels() {
+		imagesByName := make(map[string][]*image.Image)
+		for _, img := range imagesInSet {
+			imagesByName[img.Name] = append(imagesByName[img.Name], img)
+		}
+
+		names := make([]string, 0, len(imagesByName))
+		for name := range imagesByName {
+			names = append(names, name)
+		}
+
+		totalImages += len(names)
+
+		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
+			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
+			InitDockerCLIForEachWorker: true,
+		}, func(ctx context.Context, taskId int) error {
+			name := names[taskId]
+			images := imagesByName[name]
+			err := phase.convergeImageSbom(ctx, name, images)
+			if err != nil {
+				if errors.Is(err, externalref.ErrExternalRefEnrich) {
+					var compErr *externalref.ComponentError
+					if errors.As(err, &compErr) {
+						purlErrors.Store(name, compErr.ComponentDetails())
+					}
+					return nil
+				}
+				return err
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+
+	if err := buildAggregatedPurlError(&purlErrors, totalImages); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {
+	var stageDesc *imagePkg.StageDesc
+	var primaryImg *image.Image
+
+	if len(images) == 1 {
+		primaryImg = images[0]
+		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+	} else {
+		primaryImg = images[0]
+		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+			stageDesc = multiImg.GetStageDesc()
+		} else {
+			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
+		}
+	}
+
+	baseImageSbom, err := phase.collectBaseImageSbom(ctx, primaryImg)
+	if err != nil {
+		return err
+	}
+
+	importImageSboms, err := phase.collectImportImageSboms(ctx, primaryImg)
+	if err != nil {
+		return err
+	}
+
+	var gostConfig gost.Config
+	if imgSbom := primaryImg.Sbom(); imgSbom != nil {
+		gostConfig = imgSbom.Gost
+	}
+
+	mergeOpts := cyclonedxutil.MergeOpts{
+		BaseBOM:    baseImageSbom,
+		ImportBOMs: importImageSboms,
+		Gost:       gostConfig,
+	}
+
+	gitRepo := phase.Conveyor.GiterminismManager().LocalGitRepo()
+	commit := phase.Conveyor.GiterminismManager().HeadCommit(ctx)
+	imageContext := ""
+	if primaryImg.IsDockerfileImage && primaryImg.DockerfileImageConfig != nil {
+		imageContext = primaryImg.DockerfileImageConfig.Context
+	}
+
+	externalRefPatcher, err := externalref.NewExternalRefPatcher()
+	if err != nil {
+		return err
+	}
+
+	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
+
+	var hasOsPmPackages bool
+	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
+		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().HasOSPMPackages()
+	}
+
+	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
+
+	patchers := []BOMPatcherInterface{
+		externalRefPatcher,
+		goModPatcher,
+	}
+
+	scanOpts := phase.scanOptionsForImage(primaryImg)
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, primaryImg.TargetPlatform); err != nil {
+		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) scanOptionsForImage(img *image.Image) scanner.ScanOptions {
+	scanOpts := scanner.DefaultSyftScanOptions()
+
+	stapelConfig := img.StapelImageConfig
+	if stapelConfig == nil {
+		return scanOpts
+	}
+
+	if len(scanOpts.Commands) == 0 {
+		return scanOpts
+	}
+
+	catalogers := managedinput.ToCatalogers(stapelConfig.ImageBaseConfig().Packages)
+	for i := range scanOpts.Commands {
+		scanOpts.Commands[i].Catalogers = catalogers
+	}
+
+	return scanOpts
 }
 
 func (phase *BuildPhase) targetPlatforms(ctx context.Context, forcedTargetPlatforms, commonTargetPlatforms []string, name string, images []*image.Image) ([]string, error) {
@@ -924,6 +1099,8 @@ func (phase *BuildPhase) fetchBaseImageForStage(ctx context.Context, img *image.
 func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, stg stage.Interface) (bool, cleanup.Func, error) {
 	var opts calculateDigestOptions
 	opts.TargetPlatform = img.TargetPlatform
+	opts.ManifestSigningOptions = phase.ManifestSigningOptions
+	opts.ELFSigningOptions = phase.ELFSigningOptions
 
 	var stageDependencies string
 	var prevNonEmptyStage stage.Interface
@@ -1192,6 +1369,22 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 	stageImage.Image.SetName(newStageImageName)
 	phase.Conveyor.SetStageImage(stageImage)
 
+	if phase.ELFSigningOptions.Enabled() && img.IsFinal && !stg.IsMutable() {
+		if err := logboek.Context(ctx).Default().LogProcess("Signing ELF files").DoError(func() error {
+			return stageImage.Image.Mutate(ctx, func(builtID string) (string, error) {
+				newID := "werf.signing." + uuid.NewString()
+				finalID, err := signing.Sign(ctx, builtID, newID, phase.ELFSigningOptions)
+				if err != nil {
+					return "", err
+				}
+
+				return finalID, nil
+			})
+		}); err != nil {
+			return err
+		}
+	}
+
 	if err := logboek.Context(ctx).Default().LogProcess("Store stage into %s", phase.Conveyor.StorageManager.GetStagesStorage().String()).DoError(func() error {
 		if stg.IsMutable() {
 			prevBuiltImage := phase.StagesIterator.GetPrevBuiltImage(img, stg)
@@ -1264,8 +1457,10 @@ func introspectStage(ctx context.Context, s stage.Interface) error {
 }
 
 type calculateDigestOptions struct {
-	TargetPlatform string
-	BaseImage      string
+	TargetPlatform         string
+	ManifestSigningOptions signing.ManifestSigningOptions
+	ELFSigningOptions      signing.ELFSigningOptions
+	BaseImage              string
 	// Anchor switches calculateDigest to the anchor path:
 	// Sha3_224(TargetPlatform, HolisticInputs...).
 	Anchor         bool
@@ -1305,6 +1500,20 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 		"StageDependencies",
 	)
 
+	if opts.ELFSigningOptions.Enabled() {
+		if opts.ELFSigningOptions.BsignEnabled {
+			checksumArgs = append(checksumArgs, opts.ELFSigningOptions.PGPPrivateKeyFingerprint)
+			checksumArgsNames = append(checksumArgsNames, "ELF_SIGNING_PGP_KEY_FINGERPRINT")
+		}
+
+		if opts.ELFSigningOptions.InHouseEnabled {
+			checksumArgs = append(checksumArgs, opts.ManifestSigningOptions.Signer().Cert())
+			checksumArgsNames = append(checksumArgsNames, "MANIFEST_SIGNING_CERTIFICATE")
+			checksumArgs = append(checksumArgs, opts.ManifestSigningOptions.Signer().Chain())
+			checksumArgsNames = append(checksumArgsNames, "SIGNING_CERTIFICATE_CHAIN")
+		}
+	}
+
 	if prevNonEmptyStage != nil {
 		prevStageDependencies, err := prevNonEmptyStage.GetNextStageDependencies(ctx, conveyor)
 		if err != nil {
@@ -1321,6 +1530,11 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 	if opts.BaseImage != "" {
 		checksumArgs = append(checksumArgs, opts.BaseImage)
 		checksumArgsNames = append(checksumArgsNames, "BaseImage")
+	}
+
+	if conveyor != nil && conveyor.EnableSbom() {
+		checksumArgs = append(checksumArgs, "sbom_enabled")
+		checksumArgsNames = append(checksumArgsNames, "SbomEnabled")
 	}
 
 	digest := util.Sha3_224Hash(checksumArgs...)
@@ -1385,6 +1599,94 @@ E.g.:
 		})
 }
 
+func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image) (*cdx.BOM, error) {
+	if sbomImage.IsScratchRef(img.GetBaseImageReference()) {
+		return cyclonedxutil.NewBOM(), nil
+	}
+
+	if img.GetBaseImageReference() == "" {
+		return nil, nil
+	}
+
+	var baseImageInfo *imagePkg.Info
+
+	if baseStageImage := img.GetBaseStageImage(); baseStageImage != nil {
+		if baseStageDesc := baseStageImage.Image.GetStageDesc(); baseStageDesc != nil && baseStageDesc.Info != nil {
+			baseImageInfo = baseStageDesc.Info
+		}
+	}
+
+	if baseImageInfo == nil {
+		info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, img.GetBaseImageReference(), container_backend.GetImageInfoOpts{})
+		if err != nil {
+			return nil, fmt.Errorf("unable to get base image info for %q: %w", img.GetBaseImageReference(), err)
+		}
+		baseImageInfo = info
+	}
+
+	if baseImageInfo == nil {
+		return nil, nil
+	}
+
+	baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, img.GetBaseImageName(), baseImageInfo)
+	if err != nil {
+		if errors.Is(err, ErrSbomNotRequired) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unable to get base image sbom with ref %s: %w", img.GetBaseImageReference(), err)
+	}
+
+	return baseImageSbom, nil
+}
+
+func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, error) {
+	var importImageSboms []*cdx.BOM
+
+	for _, importInfo := range img.GetImportImagesInfo() {
+		var importImageInfo *imagePkg.Info
+
+		if importInfo.ExternalImage {
+			info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
+			if err != nil {
+				return nil, fmt.Errorf("unable to get external import image info for %q: %w", importInfo.ImageName, err)
+			}
+			importImageInfo = info
+		} else {
+			if importImg := phase.Conveyor.GetImage(img.TargetPlatform, importInfo.ImageName); importImg != nil {
+				importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
+			}
+		}
+
+		if importImageInfo == nil {
+			info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
+			if err != nil {
+				return nil, fmt.Errorf("unable to get import image info for %q: %w", importInfo.ImageName, err)
+			}
+			importImageInfo = info
+		}
+
+		if importImageInfo == nil {
+			continue
+		}
+
+		var importLookupName string
+		if !importInfo.ExternalImage {
+			importLookupName = importInfo.ImageName
+		}
+
+		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importLookupName, importImageInfo)
+		if err != nil {
+			if errors.Is(err, ErrSbomNotRequired) {
+				continue
+			}
+			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
+		}
+		importImageSboms = append(importImageSboms, importImageSbom)
+	}
+
+	return importImageSboms, nil
+}
+
 func (phase *BuildPhase) Clone() Phase {
 	u := *phase
 	return &u
@@ -1392,6 +1694,30 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
+}
+
+// buildAggregatedPurlError builds a hierarchical aggregated error from accumulated PURL errors.
+func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
+	var errorCount int
+	var sb strings.Builder
+	purlErrors.Range(func(key, value interface{}) bool {
+		errorCount++
+		imageName := key.(string)
+		details := value.(string)
+		sb.WriteString(fmt.Sprintf("\n  - image: %s:\n", imageName))
+		for _, line := range strings.Split(details, "\n") {
+			if line != "" {
+				sb.WriteString(line + "\n")
+			}
+		}
+		return true
+	})
+
+	if errorCount > 0 {
+		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
+	}
+
+	return nil
 }
 
 func debugStageDigest() bool {

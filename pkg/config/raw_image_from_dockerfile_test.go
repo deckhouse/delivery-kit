@@ -37,14 +37,16 @@ var _ = Describe("rawImageFromDockerfile", func() {
 
 			Expect(yaml.UnmarshalStrict(doc.Content, rawDockerfileImage)).To(Succeed())
 
-			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, "image1")
+			meta := &Meta{}
+
+			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			dockerfileImage.raw = nil // set to nil for correct deep comparison
 			Expect(&dockerfileImage).To(Equal(&expectedImage))
 		},
 		Entry(
-			"simple case",
+			"should handle cacheVersion",
 			map[string]interface{}{
 				"image":        "image1",
 				"cacheVersion": "docker-cache-version",
@@ -79,7 +81,9 @@ var _ = Describe("rawImageFromDockerfile", func() {
 
 			Expect(yaml.UnmarshalStrict(doc.Content, rawDockerfileImage)).To(Succeed())
 
-			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, "image1")
+			meta := &Meta{}
+
+			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			for i, expectedDep := range expected {
@@ -232,7 +236,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 
 			Expect(yaml.UnmarshalStrict(doc.Content, rawDockerfileImage)).To(Succeed())
 
-			_, err = rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, "image1")
+			_, err = rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, &Meta{}, "image1")
 			if valid {
 				Expect(err).To(Succeed())
 				return
@@ -262,7 +266,9 @@ var _ = Describe("rawImageFromDockerfile", func() {
 			Expect(yaml.UnmarshalStrict(doc.Content, rawDockerfileImage)).To(Succeed())
 
 			var errConf *configError
-			_, err = rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, "image1")
+			meta := &Meta{}
+
+			_, err = rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, meta, "image1")
 			Expect(errors.As(err, &errConf)).To(BeTrue())
 		},
 		Entry(

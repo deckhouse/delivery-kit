@@ -1,0 +1,122 @@
+package scanner
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/samber/lo"
+
+	"github.com/werf/common-go/pkg/util"
+	"github.com/werf/werf/v2/pkg/sbom"
+)
+
+type ScanCommand struct {
+	scannerType     Type
+	scannerExecPath string
+	SourceType      SourceType
+	SourcePath      string
+	OutputStandard  sbom.StandardType
+	OutputPath      string
+	outputFormat    string
+	Catalogers      []Cataloger
+}
+
+func (c ScanCommand) output() string {
+	switch c.scannerType {
+	case TypeSyft:
+		var out strings.Builder
+
+		switch c.OutputStandard {
+		case sbom.StandardTypeCycloneDX16:
+			out.WriteString(fmt.Sprintf("cyclonedx-%s@1.6", c.outputFormat))
+		case sbom.StandardTypeCycloneDX15:
+			out.WriteString(fmt.Sprintf("cyclonedx-%s@1.5", c.outputFormat))
+		case sbom.StandardTypeSPDX23:
+			out.WriteString(fmt.Sprintf("spdx-%s@2.3", c.outputFormat))
+		case sbom.StandardTypeSPDX22:
+			out.WriteString(fmt.Sprintf("spdx-%s@2.2", c.outputFormat))
+		default:
+			panic(fmt.Sprintf("unsupported %s", c.OutputStandard))
+		}
+
+		if len(c.OutputPath) > 0 {
+			out.WriteString(fmt.Sprintf("=%s", c.OutputPath))
+		}
+
+		return out.String()
+	default:
+		panic(fmt.Sprintf("unsupported scanner type %s", c.scannerType))
+	}
+}
+
+func (c ScanCommand) String() string {
+	switch c.scannerType {
+	case TypeSyft:
+		var out strings.Builder
+
+		if len(c.scannerExecPath) > 0 {
+			out.WriteString(fmt.Sprintf("%s ", c.scannerExecPath))
+		}
+
+		out.WriteString(fmt.Sprintf("scan %s:%s --output=%s", c.SourceType, c.SourcePath, c.output()))
+
+		if selectArg := c.selectCatalogersArg(); selectArg != "" {
+			out.WriteString(fmt.Sprintf(" %s", selectArg))
+		}
+
+		return out.String()
+	default:
+		panic(fmt.Sprintf("unsupported scanner type %s", c.scannerType))
+	}
+}
+
+func (c ScanCommand) selectCatalogersArg() string {
+	if len(c.Catalogers) == 0 {
+		return ""
+	}
+
+	names := lo.Map(c.Catalogers, func(cat Cataloger, _ int) string {
+		return cat.Name
+	})
+
+	return fmt.Sprintf("--override-default-catalogers=%s", strings.Join(names, ","))
+}
+
+func (c ScanCommand) Checksum() string {
+	args := []string{
+		"scanner_type", c.scannerType.String(),
+		"source_type", c.SourceType.String(),
+		"output_standard", c.OutputStandard.String(),
+	}
+
+	for _, cat := range c.Catalogers {
+		args = append(args, "cataloger", cat.Name)
+		args = append(args, cat.SourcePaths...)
+	}
+
+	return util.Sha256Hash(args...)
+}
+
+func NewSyftScanCommand() ScanCommand {
+	return ScanCommand{
+		scannerType:     TypeSyft,
+		scannerExecPath: "/syft",
+		SourceType:      SourceTypeDocker,
+		SourcePath:      "",
+		OutputStandard:  sbom.StandardTypeCycloneDX16,
+		OutputPath:      "",
+		outputFormat:    "json",
+	}
+}
+
+func BillNameFromCommand(cmd ScanCommand) string {
+	return fmt.Sprintf("%s/%s.json", cmd.OutputStandard.String(), cmd.Checksum())
+}
+
+func BillNamesFromCommands(commands []ScanCommand) []string {
+	billNames := make([]string, len(commands))
+	for i, cmd := range commands {
+		billNames[i] = BillNameFromCommand(cmd)
+	}
+	return billNames
+}

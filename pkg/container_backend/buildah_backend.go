@@ -31,6 +31,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/prune"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/path_matcher"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/tmp_manager"
 )
 
@@ -773,6 +774,35 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 	}, nil
 }
 
+func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
+	containers, err := backend.createContainers(ctx, []string{imageRef}, CommonOpts(opts))
+	if err != nil {
+		return nil, err
+	}
+	container := containers[0]
+	defer func() {
+		if err := backend.removeContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
+			logboek.Context(ctx).Error().LogF("ERROR: unable to remove temporal container %q: %s\n", container.Name, err)
+		}
+	}()
+
+	if err := backend.mountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
+		return nil, fmt.Errorf("mount container %q: %w", container.Name, err)
+	}
+	defer func() {
+		if err := backend.unmountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
+			logboek.Context(ctx).Error().LogF("ERROR: unable to unmount container %q: %s\n", container.Name, err)
+		}
+	}()
+
+	data, err := os.ReadFile(filepath.Join(container.RootMount, path))
+	if err != nil {
+		return nil, fmt.Errorf("read %s from image %q: %w", path, imageRef, err)
+	}
+
+	return data, nil
+}
+
 func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) error {
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
@@ -1321,6 +1351,82 @@ func (backend *BuildahBackend) LoadImageFromStream(ctx context.Context, input io
 		return "", fmt.Errorf("unable to load image from stream: %w", err)
 	}
 	return imageID, nil
+}
+
+func (backend *BuildahBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions) ([]byte, error) {
+	billNames := scanner.BillNamesFromCommands(scanOpts.Commands)
+	wt := scanner.NewWorkingTree()
+	if err := wt.Create(ctx, os.TempDir(), billNames); err != nil {
+		return nil, fmt.Errorf("create working tree: %w", err)
+	}
+	defer wt.Cleanup(ctx)
+
+	runner := func(ctx context.Context, wt *scanner.WorkingTree) error {
+		scannerContainerName := fmt.Sprintf("%s%s", image.SBOMScannerContainerNamePrefix, uuid.New().String())
+		// TODO (zaytsev): support multiple commands
+		scannerContainerRef, err := backend.buildah.FromCommand(ctx, scannerContainerName, scanOpts.Commands[0].SourcePath, buildah.FromCommandOpts{})
+		if err != nil {
+			return fmt.Errorf("unable to from scanner container: %w", err)
+		}
+
+		scanOptions := mapSbomScanOptionsToBuidahBackendScanOptions(scanOpts)
+		paths := wt.BillPaths()
+		if len(paths) == 0 {
+			return fmt.Errorf("scanner produced no output files")
+		}
+		// TODO (zaytsev): support multiple commands
+		scanOptions.SBOMOutput = filepath.Join(wt.RootDir(), wt.BillsDir(), paths[0])
+
+		scanLogger := logboek.Context(ctx).Default().LogProcess("Scan image %q", scanOpts.Commands[0].SourcePath)
+		scanLogger.Start()
+		defer scanLogger.End()
+
+		imageRef, err := backend.buildah.Commit(ctx, scannerContainerRef, buildah.CommitOpts{
+			CommonOpts: buildah.CommonOpts{
+				LogWriter: logboek.Context(ctx).OutStream(),
+			},
+			SBOMScanOptions: []buildah.SBOMScanOptions{scanOptions},
+		})
+		if err != nil {
+			return fmt.Errorf("unable to commit scanner container %q: %w", scannerContainerName, err)
+		}
+		defer func() {
+			if err := backend.buildah.Rmi(ctx, imageRef, buildah.RmiOpts{Force: true}); err != nil {
+				logboek.Context(ctx).Warn().LogF("removing image %q and container %q\n", imageRef, scannerContainerName)
+			}
+		}()
+
+		return nil
+	}
+
+	if err := runner(ctx, wt); err != nil {
+		return nil, err
+	}
+
+	paths := wt.BillPaths()
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("scanner produced no output files")
+	}
+
+	bomPath := filepath.Join(wt.RootDir(), wt.BillsDir(), paths[0])
+	bomJSON, err := os.ReadFile(bomPath)
+	if err != nil {
+		return nil, fmt.Errorf("read BOM file: %w", err)
+	}
+
+	return bomJSON, nil
+}
+
+func mapSbomScanOptionsToBuidahBackendScanOptions(scanOpts scanner.ScanOptions) buildah.SBOMScanOptions {
+	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands
+	scanCmd.SourceType = scanner.SourceTypeDir
+	scanCmd.SourcePath = "{ROOTFS}"
+	scanCmd.OutputPath = "{OUTPUT}"
+	return buildah.SBOMScanOptions{
+		Image:      scanOpts.Image,
+		PullPolicy: scanOpts.PullPolicy,
+		Commands:   []string{scanCmd.String()},
+	}
 }
 
 // lchownIfSet applies ownership to a path when uid or gid is explicitly requested.

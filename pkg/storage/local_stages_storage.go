@@ -262,6 +262,14 @@ func (storage *LocalStagesStorage) RmImageMetadata(ctx context.Context, projectN
 	return nil
 }
 
+func (storage *LocalStagesStorage) GetOrphanedArtifactNames(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (storage *LocalStagesStorage) DeleteArtifact(_ context.Context, _ string) error {
+	return nil
+}
+
 func (storage *LocalStagesStorage) IsImageMetadataExist(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string, opts ...Option) (bool, error) {
 	return false, nil
 }

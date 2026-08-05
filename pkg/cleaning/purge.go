@@ -79,6 +79,12 @@ func (m *purgeManager) run(ctx context.Context) error {
 		}
 	}
 
+	if err := logboek.Context(ctx).Default().LogProcess("Deleting orphaned artifacts").DoError(func() error {
+		return m.deleteOrphanedArtifacts(ctx)
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -166,4 +172,8 @@ func (m *purgeManager) purgeRejectedStages(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (m *purgeManager) deleteOrphanedArtifacts(ctx context.Context) error {
+	return deleteOrphanedArtifacts(ctx, m.StorageManager.GetStagesStorage(), m.DryRun)
 }

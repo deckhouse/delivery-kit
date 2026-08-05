@@ -9,6 +9,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/info"
 	"github.com/werf/werf/v2/pkg/container_backend/prune"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
 
 type CommonOpts struct {
@@ -16,10 +17,11 @@ type CommonOpts struct {
 }
 
 type (
-	TagOpts          CommonOpts
-	PushOpts         CommonOpts
-	PullOpts         CommonOpts
-	GetImageInfoOpts CommonOpts
+	TagOpts               CommonOpts
+	PushOpts              CommonOpts
+	PullOpts              CommonOpts
+	GetImageInfoOpts      CommonOpts
+	ReadFileFromImageOpts CommonOpts
 )
 
 type RmOpts struct {
@@ -45,6 +47,7 @@ type BuildDockerfileOpts struct {
 	Labels               []string
 	Tags                 []string
 	Secrets              []string
+	Quiet                bool
 }
 
 type BuildDockerfileStageOptions struct {
@@ -88,6 +91,12 @@ type ContainerBackend interface {
 	PostManifest(ctx context.Context, ref string, opts PostManifestOpts) error
 
 	GetImageInfo(ctx context.Context, ref string, opts GetImageInfoOpts) (*image.Info, error)
+
+	// ReadFileFromImage returns the content of a regular file at path inside
+	// imageRef without executing anything from the image, so it works for
+	// scratch/distroless images that have no shell or coreutils.
+	ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error)
+
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)
 	BuildStapelStage(ctx context.Context, baseImage string, opts BuildStapelStageOptions) (string, error)
@@ -103,6 +112,9 @@ type ContainerBackend interface {
 	PruneImages(ctx context.Context, options prune.Options) (prune.Report, error)
 	// PruneVolumes removes all anonymous volumes not used by at least one container
 	PruneVolumes(ctx context.Context, options prune.Options) (prune.Report, error)
+
+	// GenerateSBOM scans source image and returns raw BOM JSON bytes
+	GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions) ([]byte, error)
 
 	String() string
 

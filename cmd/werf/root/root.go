@@ -10,6 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	attest_get "github.com/werf/werf/v2/cmd/werf/attest/get"
+	attest_ls "github.com/werf/werf/v2/cmd/werf/attest/ls"
+	attest_sign "github.com/werf/werf/v2/cmd/werf/attest/sign"
+	attest_verify "github.com/werf/werf/v2/cmd/werf/attest/verify"
 	"github.com/werf/werf/v2/cmd/werf/build"
 	bundle_apply "github.com/werf/werf/v2/cmd/werf/bundle/apply"
 	bundle_copy "github.com/werf/werf/v2/cmd/werf/bundle/copy"
@@ -54,9 +58,13 @@ import (
 	"github.com/werf/werf/v2/cmd/werf/render"
 	"github.com/werf/werf/v2/cmd/werf/rollback"
 	"github.com/werf/werf/v2/cmd/werf/run"
+	sbom_get "github.com/werf/werf/v2/cmd/werf/sbom/get"
+	sbom_merge "github.com/werf/werf/v2/cmd/werf/sbom/merge"
+	sbom_validate "github.com/werf/werf/v2/cmd/werf/sbom/validate"
 	"github.com/werf/werf/v2/cmd/werf/slugify"
 	stage_image "github.com/werf/werf/v2/cmd/werf/stage/image"
 	stages_copy "github.com/werf/werf/v2/cmd/werf/stages/copy"
+	"github.com/werf/werf/v2/cmd/werf/verify"
 	"github.com/werf/werf/v2/cmd/werf/version"
 	"github.com/werf/werf/v2/pkg/telemetry"
 )
@@ -108,7 +116,10 @@ func ConstructRootCmd(ctx context.Context) (*cobra.Command, error) {
 				lint.NewCmd(ctx),
 				chartCmd(ctx),
 				includesCmd(ctx),
+				sbomCmd(ctx),
+				attestCmd(ctx),
 				stagesCmd(ctx),
+				verify.NewCmd(ctx),
 			},
 		},
 		{
@@ -179,6 +190,36 @@ func bundleCmd(ctx context.Context) *cobra.Command {
 		bundle_plan.NewCmd(ctx),
 		bundle_render.NewCmd(ctx),
 		bundle_copy.NewCmd(ctx),
+	)
+
+	return cmd
+}
+
+func sbomCmd(ctx context.Context) *cobra.Command {
+	cmd := common.SetCommandContext(ctx, &cobra.Command{
+		Use:   "sbom",
+		Short: "Work with werf SBOM images",
+	})
+	cmd.AddCommand(
+		sbom_get.NewCmd(ctx),
+		sbom_validate.NewCmd(ctx),
+		sbom_merge.NewCmd(ctx),
+	)
+
+	return cmd
+}
+
+func attestCmd(ctx context.Context) *cobra.Command {
+	cmd := common.SetCommandContext(ctx, &cobra.Command{
+		Use:    "attest",
+		Short:  "Work with OCI attestations attached to images",
+		Hidden: true,
+	})
+	cmd.AddCommand(
+		attest_sign.NewCmd(ctx),
+		attest_get.NewCmd(ctx),
+		attest_verify.NewCmd(ctx),
+		attest_ls.NewCmd(ctx),
 	)
 
 	return cmd

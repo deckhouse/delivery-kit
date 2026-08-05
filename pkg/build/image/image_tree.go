@@ -446,6 +446,7 @@ func stageDependenciesToMap(sd *config.StageDependencies) map[stage.StageName][]
 		stage.Install:     sd.Install,
 		stage.BeforeSetup: sd.BeforeSetup,
 		stage.Setup:       sd.Setup,
+		stage.Packages:    sd.Packages,
 	}
 
 	return result

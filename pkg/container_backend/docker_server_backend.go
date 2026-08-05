@@ -1,6 +1,7 @@
 package container_backend
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/containerd/containerd/platforms"
@@ -17,6 +19,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/werf/common-go/pkg/util"
@@ -26,6 +29,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend/prune"
 	"github.com/werf/werf/v2/pkg/docker"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/ssh_agent"
 	"github.com/werf/werf/v2/pkg/tmp_manager"
 )
@@ -193,6 +197,52 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 		return nil, fmt.Errorf("unable to inspect docker image: %w", err)
 	}
 	return docker.NewInfoFromInspect(ref, inspect), nil
+}
+
+func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
+	containerName := fmt.Sprintf("werf.read_file.%s", uuid.New().String())
+
+	args := []string{"--name", containerName, "--entrypoint", ""}
+	if opts.TargetPlatform != "" {
+		args = append(args, "--platform", opts.TargetPlatform)
+	}
+	args = append(args, imageRef, "werf-read-file-from-image-placeholder")
+
+	if err := docker.CliCreate(ctx, args...); err != nil {
+		return nil, fmt.Errorf("create container from image %q: %w", imageRef, err)
+	}
+	defer func() {
+		if err := docker.CliRm(ctx, "--force", containerName); err != nil {
+			logboek.Context(ctx).Warn().LogF("WARNING: unable to remove container %q: %s\n", containerName, err)
+		}
+	}()
+
+	reader, err := docker.ContainerCopyFrom(ctx, containerName, path)
+	if err != nil {
+		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
+	}
+	defer reader.Close()
+
+	tr := tar.NewReader(reader)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read %s tar stream from image %q: %w", path, imageRef, err)
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("read %s content from image %q: %w", path, imageRef, err)
+		}
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("no regular file at %s in image %q", path, imageRef)
 }
 
 // GetImageInspect only available for DockerServerBackend
@@ -605,4 +655,68 @@ func (backend *DockerServerBackend) GetImageConfigFile(ctx context.Context, imag
 
 func (backend *DockerServerBackend) LoadImageFromStream(ctx context.Context, input io.Reader) (string, error) {
 	return docker.CliLoadFromStream(ctx, input)
+}
+
+func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts scanner.ScanOptions) ([]byte, error) {
+	billNames := scanner.BillNamesFromCommands(scanOpts.Commands)
+	wt := scanner.NewWorkingTree()
+	if err := wt.Create(ctx, os.TempDir(), billNames); err != nil {
+		return nil, fmt.Errorf("create working tree: %w", err)
+	}
+	defer wt.Cleanup(ctx)
+
+	var bomJSON []byte
+	err := logboek.Context(ctx).Default().LogProcess("Scan image %q", scanOpts.Commands[0].SourcePath).DoError(func() error {
+		runArgs := mapSbomScanOptionsToDockerRunCommand(wt.RootDir(), wt.BillsDir(), billNames, scanOpts)
+		logboek.Context(ctx).Debug().LogF("docker %s\n", strings.Join(runArgs, " "))
+		if _, err := docker.CliRun_RecordedOutput(ctx, runArgs...); err != nil {
+			return fmt.Errorf("run scanner: %w", err)
+		}
+
+		paths := wt.BillPaths()
+		if len(paths) == 0 {
+			return fmt.Errorf("scanner produced no output files")
+		}
+
+		bomPath := filepath.Join(wt.RootDir(), wt.BillsDir(), paths[0])
+		var err error
+		bomJSON, err = os.ReadFile(bomPath)
+		if err != nil {
+			return fmt.Errorf("read BOM file: %w", err)
+		}
+
+		return nil
+	})
+
+	return bomJSON, err
+}
+
+func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billNames []string, scanOpts scanner.ScanOptions) []string {
+	args := []string{
+		"--rm",
+		"--name", fmt.Sprintf("%s%s", image.SBOMScannerContainerNamePrefix, uuid.New().String()),
+		"--pull", scanOpts.PullPolicy.String(),
+		"--entrypoint", "", // clear default image entrypoint
+		"--volume", "/var/run/docker.sock:/var/run/docker.sock", // TODO: return error on non Unix systems
+	}
+
+	// TODO (zaytsev): the code support only single command at this moment
+	billHostPath := filepath.Join(workingTreeDir, billsDir, billNames[0])
+	billContainerPath := filepath.Join("/tmp", billsDir, billNames[0])
+	args = append(args, "--volume", fmt.Sprintf("%s:%s", billHostPath, billContainerPath))
+
+	args = append(args,
+		"-e", "SYFT_GOLANG_MAIN_MODULE_VERSION_FROM_CONTENTS=false",
+		"-e", "SYFT_FILE_METADATA_SELECTION=none",
+	)
+
+	args = append(args, scanOpts.Image)
+
+	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands
+	scanCmd.SourceType = scanner.SourceTypeDocker
+	scanCmd.OutputPath = billContainerPath
+
+	args = append(args, strings.Split(scanCmd.String(), " ")...)
+
+	return args
 }

@@ -1,0 +1,31 @@
+project: werf-test-e2e-sbom-inject-ospm-scratch-secrets
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: carrier
+from: {{ env "BUILDER_BASE_IMAGE" }}
+---
+image: app
+from: registry.werf.io/werf/scratch
+git:
+  - add: /
+    to: /
+secrets:
+  - env: PACKAGES_VERSION
+  - env: REGISTRY
+import:
+  - image: carrier
+    add: /usr/local/bin/pm
+    to: /usr/local/bin/pm
+    before: install
+  - image: carrier
+    add: /etc/ssl
+    to: /etc/ssl
+    before: install
+packages:
+  - type: os-pm
+    spec:
+      - curl==8.12.1

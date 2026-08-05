@@ -32,11 +32,14 @@ const (
 	DependenciesBeforeSetup   StageName = "dependenciesBeforeSetup"
 	Setup                     StageName = "setup"
 	DependenciesAfterSetup    StageName = "dependenciesAfterSetup"
+	Packages                  StageName = "packages"
 	GitCache                  StageName = "gitCache"
 	GitLatestPatch            StageName = "gitLatestPatch"
 
-	Dockerfile StageName = "dockerfile"
-	ImageSpec  StageName = "imageSpec"
+	Dockerfile       StageName = "dockerfile"
+	ImageSpec        StageName = "imageSpec"
+	Sign             StageName = "sign"
+	VerityAnnotation StageName = "verityAnnotation"
 )
 
 var AllStages = []StageName{
@@ -67,6 +70,7 @@ type BaseStageOptions struct {
 	ContainerWerfDir  string
 	ProjectName       string
 	Network           string
+	NeedsNetwork      bool
 }
 
 func NewBaseStage(name StageName, options *BaseStageOptions) *BaseStage {
@@ -80,6 +84,7 @@ func NewBaseStage(name StageName, options *BaseStageOptions) *BaseStage {
 	s.containerWerfDir = options.ContainerWerfDir
 	s.projectName = options.ProjectName
 	s.network = options.Network
+	s.needsNetwork = options.NeedsNetwork
 	s.meta = &StageMeta{}
 	return s
 }
@@ -98,6 +103,8 @@ type BaseStage struct {
 	configMounts     []*config.Mount
 	projectName      string
 	network          string
+	networkOverride  string
+	needsNetwork     bool
 	meta             *StageMeta
 	isContentAnchor  bool
 }
@@ -118,6 +125,14 @@ type StageMeta struct {
 
 func (s *BaseStage) IsBuildable() bool {
 	return true
+}
+
+func (s *BaseStage) SetNetworkOverride(network string) {
+	s.networkOverride = network
+}
+
+func (s *BaseStage) NeedsNetwork() bool {
+	return s.needsNetwork
 }
 
 func (s *BaseStage) IsMutable() bool {
@@ -275,11 +290,16 @@ func (s *BaseStage) PrepareImage(ctx context.Context, c Conveyor, cb container_b
 
 	s.addProjectRepoCommitLabel(ctx, c, cb, stageImage)
 
-	if s.network != "" {
+	network := s.network
+	if s.networkOverride != "" {
+		network = s.networkOverride
+	}
+
+	if network != "" {
 		if c.UseLegacyStapelBuilder(cb) {
-			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddNetwork(s.network)
+			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddNetwork(network)
 		} else {
-			stageImage.Builder.StapelStageBuilder().SetNetwork(s.network)
+			stageImage.Builder.StapelStageBuilder().SetNetwork(network)
 		}
 	}
 

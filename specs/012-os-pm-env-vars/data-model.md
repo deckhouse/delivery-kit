@@ -1,0 +1,138 @@
+# Data Model: os-pm Environment Variables
+
+## Entity: rawPackagesDirective (YAML → Raw Go)
+
+```go
+type rawPackagesDirective struct {
+    Type    string              `yaml:"type,omitempty"`
+    Spec    interface{}         `yaml:"spec,omitempty"`
+    Workdir string              `yaml:"workdir,omitempty"`
+    Lock    string              `yaml:"lock,omitempty"`
+    Env     map[string]string   `yaml:"env,omitempty"`   // NEW
+
+    rawStapelImage *rawStapelImage `yaml:"-"`
+
+    UnsupportedAttributes map[string]interface{} `yaml:",inline"`
+}
+```
+
+### YAML Schema
+
+```yaml
+packages:
+  - type: os-pm
+    spec:
+      - curl
+      - jq
+    env:                          # NEW — optional
+      DOCKER_CONFIG: /run/secrets/config.json
+      HTTP_PROXY: http://proxy.example.com:8080
+      DEBIAN_FRONTEND: noninteractive
+```
+
+### Validation Rules
+
+1. **`env` field type**: MUST be a mapping of string keys to string values at the YAML level. If `env` is a number, boolean, array, or nested structure, the YAML parser should reject it with a clear error. **However**, since YAML is flexible, we must validate the Go side: the `rawPackagesDirective.Env` field is typed as `map[string]string`, so YAML unmarshaling will fail automatically for non-string values (Go YAML library handles this). But for `UnsupportedAttributes` overflow checking, the `env` key must be recognized — adding `Env` to the struct suffices.
+
+2. **POSIX name validation**: Each key in `env` MUST match the POSIX pattern `^[a-zA-Z_][a-zA-Z0-9_]*$`. Invalid names produce a config parse error like:
+   ```
+   invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*
+   ```
+
+3. **Value validation**: No validation on values — empty strings are allowed. Values are passed as-is to the shell inline env prefix, double-quoted for safety.
+
+4. **Empty map**: An empty `env: {}` is equivalent to no `env` — treated as backward compatible.
+
+### State Transitions
+
+**Config parse time** (raw → directive):
+```
+rawPackagesDirective.Env  ──validate──▶  PackagesDirective.Env
+(map[string]string)        POSIX names    (map[string]string)
+```
+
+**Build time** (directive → shell command):
+```
+PackagesDirective.Env  ──▶  KEY="VALUE" KEY2="VALUE2" pm install ...
+(PackagesDirective.Env != nil && len > 0)  →  prepend inline env vars before pm install
+(PackagesDirective.Env == nil || len == 0) →  no change (backward compatible)
+```
+
+## Entity: PackagesDirective (Validated)
+
+```go
+type PackagesDirective struct {
+    Type      PackagesDirectiveType
+    FileBased FileBasedSpec
+    Spec      PackagesSpec
+    Env       map[string]string   // NEW — validated POSIX names
+}
+```
+
+## Entity: PackagesSpec (Unchanged)
+
+```go
+type PackagesSpec struct {
+    Packages []string   // unchanged
+}
+```
+
+## Key formatting functions
+
+Two formatting functions produce the shell prefix:
+
+- **`formatEnvVars(env map[string]string) string`**: formats user-defined env vars as inline shell prefix using `lo.Map` for key→string mapping and `sort.Strings` for deterministic ordering.
+  Produces: `KEY1="val1" KEY2="val2"`
+
+- **`formatSecretVar(name string) string`**: generates the existing secret-resolution template (renamed from `envVarTmpl` for clarity):
+  `NAME="${NAME:-$(cat /run/secrets/NAME 2>/dev/null || true)}"`
+
+### Command generation flow (os-pm)
+
+```
+PackagesDirective.Env
+    │  ── formatEnvVars ──▶  KEY="val" KEY2="val2"
+    │
+PackagesDirective (PACKAGES_VERSION, REGISTRY)
+    │  ── formatSecretVar ──▶  PACKAGES_VERSION="${...}" REGISTRY="${...}"
+    │
+    ▼
+formatInstallCommand()
+    │  ── composes: formatEnvVars + formatSecretVar + "pm install <pkgs>"
+    ▼
+complete command: KEY="val" PACKAGES_VERSION="${...}" REGISTRY="${...}" pm install pkg1 pkg2
+```
+
+No post-processing: `formatInstallCommand` builds the entire command in a single composition.
+
+### Key code path (GeneratePackagesCommands)
+
+```go
+// For each package directive:
+cmd := eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.Spec.Packages, pkg.Env)
+commands = append(commands, cmd)
+```
+
+The `InstallCmd` signature changed: `func(workdir, specFile string, specList []string, env map[string]string) string`.
+The `env` parameter is only consumed by `os-pm` ecosystem.
+
+```
+YAML input
+    │
+    ▼
+rawPackagesDirective (UnmarshalYAML)
+    │  ── Env map[string]string parsed automatically
+    ▼
+toDirective()
+    │  ── POSIX name validation for each env key
+    ▼
+PackagesDirective
+    │  ── Env field populated
+    ▼
+GeneratePackagesCommands()
+    │  ── Calls eco.InstallCmd(workdir, specFile, specList, env) for each directive
+    │  ── For os-pm: InstallCmd → formatInstallCommand(pkgs, env) → formatEnvVars(env) + formatSecretVar + "pm install"
+    │  ── No post-processing: the complete command comes from InstallCmd alone
+    ▼
+Shell.Packages []string (commands with inline env prefix)
+```

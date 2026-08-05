@@ -1,0 +1,3 @@
+FROM registry.werf.io/base/node:18-alpine
+RUN npm install -g pnpm
+LABEL io.deckhouse.internal.builder=true

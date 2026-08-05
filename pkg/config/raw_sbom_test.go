@@ -1,0 +1,113 @@
+package config
+
+import (
+	"errors"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v2"
+
+	"github.com/werf/common-go/pkg/util"
+)
+
+var _ = Describe("rawSbom (YAML-level validation)", func() {
+	DescribeTable(
+		"gost validation and unknown field handling when sbom section is present",
+		func(yamlMap map[string]interface{}, expectedSbomPresent bool, unmarshalMatcher, configErrMatcher OmegaMatcher) {
+			// NOTE: global var used by UnmarshalYAML parent tracking across many config raw structs.
+			parentStack = util.NewStack()
+
+			rawYaml, err := yaml.Marshal(yamlMap)
+			Expect(err).To(Succeed())
+
+			d := &doc{
+				RenderFilePath: "werf.yaml",
+				Content:        rawYaml,
+			}
+
+			// Using Stapel syntax per requirements.
+			rawStapelImage := &rawStapelImage{doc: d}
+			err = yaml.UnmarshalStrict(d.Content, rawStapelImage)
+
+			Expect(err).To(unmarshalMatcher)
+
+			if err != nil {
+				var confErr *configError
+				Expect(errors.As(err, &confErr)).To(configErrMatcher)
+				return
+			}
+
+			Expect(rawStapelImage).ToNot(BeNil())
+			Expect(rawStapelImage.RawSbom != nil).To(Equal(expectedSbomPresent))
+		},
+
+		Entry(
+			"should succeed when sbom section is omitted",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:3.20",
+			},
+			false,
+			Succeed(),
+			BeFalse(),
+		),
+
+		Entry(
+			"should succeed when sbom section is empty",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:3.20",
+				"sbom":  map[string]interface{}{},
+			},
+			true,
+			Succeed(),
+			BeFalse(),
+		),
+
+		Entry(
+			"should fail when sbom.fragment is specified (removed feature)",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:3.20",
+				"sbom": map[string]interface{}{
+					"fragment": "components: []",
+				},
+			},
+			false,
+			HaveOccurred(),
+			BeTrue(),
+		),
+
+		Entry(
+			"should accept gost with indirect",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:3.20",
+				"sbom": map[string]interface{}{
+					"gost": map[string]interface{}{
+						"attackSurface": "indirect",
+					},
+				},
+			},
+			true,
+			Succeed(),
+			BeFalse(),
+		),
+
+		Entry(
+			"should fail when gost section has invalid value",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:3.20",
+				"sbom": map[string]interface{}{
+					"gost": map[string]interface{}{
+						"attackSurface": "invalid",
+					},
+				},
+			},
+			false,
+			HaveOccurred(),
+			BeTrue(),
+		),
+	)
+})

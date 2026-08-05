@@ -117,6 +117,10 @@ func ImageInspect(ctx context.Context, ref string) (*dockerImage.InspectResponse
 	return &inspect, nil
 }
 
+func ImageSave(ctx context.Context, ref string) (io.ReadCloser, error) {
+	return apiCli(ctx).ImageSave(ctx, []string{ref})
+}
+
 type (
 	ImagesPruneOptions prune.Options
 	ImagesPruneReport  prune.Report

@@ -1,0 +1,31 @@
+project: werf-test-e2e-sbom-lifecycle-multi
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+    gost:
+      attackSurface: yes
+      securityFunction: yes
+---
+image: frontend
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /
+packages:
+ - type: os-pm
+   spec:
+     - jq==1.8.1
+     - yq==4.48.1
+---
+image: backend
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+- add: /
+  to: /
+packages:
+- type: os-pm
+  spec:
+    - jq==1.8.1
+    - yq==4.48.1

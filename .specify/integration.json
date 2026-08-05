@@ -1,0 +1,15 @@
+{
+  "version": "0.14.3",
+  "integration_state_schema": 1,
+  "installed_integrations": [
+    "zed"
+  ],
+  "integration_settings": {
+    "zed": {
+      "script": "py",
+      "invoke_separator": "-"
+    }
+  },
+  "integration": "zed",
+  "default_integration": "zed"
+}

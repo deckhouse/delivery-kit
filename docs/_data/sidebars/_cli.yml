@@ -105,10 +105,24 @@ cli: &cli
           - title: werf includes update
             url: /reference/cli/werf_includes_update.html
 
+      - title: werf sbom
+        f:
+          - title: werf sbom get
+            url: /reference/cli/werf_sbom_get.html
+
+          - title: werf sbom merge
+            url: /reference/cli/werf_sbom_merge.html
+
+          - title: werf sbom validate
+            url: /reference/cli/werf_sbom_validate.html
+
       - title: werf stages
         f:
           - title: werf stages copy
             url: /reference/cli/werf_stages_copy.html
+
+      - title: werf verify
+        url: /reference/cli/werf_verify.html
 
   - title: Low-level management commands
     f:

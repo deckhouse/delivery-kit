@@ -5,6 +5,7 @@ import (
 	"io"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 
 	"github.com/werf/logboek"
 	registry_api "github.com/werf/werf/v2/pkg/docker_registry/api"
@@ -142,4 +143,15 @@ func (r *DockerRegistryTracer) GetRepoImageConfigFile(ctx context.Context, refer
 		res, err = r.DockerRegistryApi.GetRepoImageConfigFile(ctx, reference)
 	})
 	return
+}
+
+func (r *DockerRegistryTracer) GetRepoImageDesc(ctx context.Context, reference string) (res *remote.Descriptor, err error) {
+	logboek.Context(ctx).Default().LogProcess("DockerRegistryTracer.GetRepoImageDesc %q", reference).Do(func() {
+		res, err = r.DockerRegistryApi.GetRepoImageDesc(ctx, reference)
+	})
+	return
+}
+
+func (r *DockerRegistryTracer) RemoteOptionsForHost(ctx context.Context, reference string) []remote.Option {
+	return r.DockerRegistryApi.RemoteOptionsForHost(ctx, reference)
 }

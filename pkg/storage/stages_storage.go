@@ -24,24 +24,7 @@ const (
 	NamelessImageRecordTag = "__nameless__"
 )
 
-var (
-	ErrBrokenImage               = errors.New("broken image")
-	ErrStageNotFound             = errors.New("stage not found")
-	ErrStageRejected             = errors.New("stage rejected")
-	ErrCustomTagMetadataNotFound = errors.New("custom tag metadata not found")
-)
-
-func IsErrBrokenImage(err error) bool {
-	return errors.Is(err, ErrBrokenImage)
-}
-
-func IsErrStageNotFound(err error) bool {
-	return errors.Is(err, ErrStageNotFound)
-}
-
-func IsErrStageUnavailable(err error) bool {
-	return errors.Is(err, ErrStageNotFound) || errors.Is(err, ErrBrokenImage) || errors.Is(err, ErrStageRejected)
-}
+var ErrCustomTagMetadataNotFound = errors.New("custom tag metadata not found")
 
 func IsErrCustomTagMetadataNotFound(err error) bool {
 	return errors.Is(err, ErrCustomTagMetadataNotFound)
@@ -52,6 +35,8 @@ type FilterStagesAndProcessRelatedDataOptions struct {
 	RmForce                  bool
 	RmContainersThatUseImage bool
 }
+
+//go:generate mockgen -source stages_storage.go -package mock -destination ../../test/mock/stages_storage.go
 
 type StagesStorage interface {
 	GetStagesIDs(ctx context.Context, projectName string, opts ...Option) ([]image.StageID, error)
@@ -93,6 +78,9 @@ type StagesStorage interface {
 	IsManagedImageExist(ctx context.Context, projectName, imageNameOrManagedImageName string, opts ...Option) (bool, error)
 	// GetManagedImages returns the list of managedImageName.
 	GetManagedImages(ctx context.Context, projectName string, opts ...Option) ([]string, error)
+
+	GetOrphanedArtifactNames(ctx context.Context) ([]string, error)
+	DeleteArtifact(ctx context.Context, imageName string) error
 
 	PutImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string) error
 	RmImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageNameOrImageMetadataID, commit, stageID string) error

@@ -3,6 +3,7 @@
 .tags
 /.vscode
 /.idea
+/.zed
 /.run
 /.help
 /.zed
@@ -44,6 +45,9 @@ buildah-test
 *.DS_Store
 ._*
 
+.crush/
+.crush.json
+
 /Taskfile.yaml
 /build
 /dist
@@ -56,3 +60,4 @@ buildah-test
 /.opencode
 /.pi
 /.pp
+.specify/extensions/.cache/

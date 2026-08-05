@@ -102,6 +102,13 @@ func mutateImage(ctx context.Context, image v1.Image, dest name.Reference, isDes
 	}
 
 	if options.mutateImageLayersFunc != nil {
+		// Re-read config from image which may already include config-file mutations
+		// applied above, so that label changes are preserved after layer rebuild.
+		cfBeforeLayerMutation, err := image.ConfigFile()
+		if err != nil {
+			return nil, nil, fmt.Errorf("error reading config file before layer mutation: %w", err)
+		}
+
 		layers, err := image.Layers()
 		if err != nil {
 			return nil, nil, err
@@ -114,7 +121,7 @@ func mutateImage(ctx context.Context, image v1.Image, dest name.Reference, isDes
 		if err != nil {
 			return nil, nil, err
 		}
-		image, err = mutate.ConfigFile(image, cf)
+		image, err = mutate.ConfigFile(image, cfBeforeLayerMutation)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -124,7 +131,24 @@ func mutateImage(ctx context.Context, image v1.Image, dest name.Reference, isDes
 	}
 
 	if options.mutateManifestAnnotationsFunc != nil {
-		manifestAnnotations, err := options.mutateManifestAnnotationsFunc(ctx, manifest)
+		// mutate.Annotations re-serializes the config blob, which changes its
+		// digest if the source config used a different key order. Normalize the
+		// config first so the manifest passed to the annotation func (e.g. for
+		// signing) matches the manifest that actually gets pushed.
+		currentCF, err := image.ConfigFile()
+		if err != nil {
+			return nil, nil, fmt.Errorf("error reading config file: %w", err)
+		}
+		image, err = mutate.ConfigFile(image, currentCF)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to normalize image config: %w", err)
+		}
+		normalizedManifest, err := image.Manifest()
+		if err != nil {
+			return nil, nil, fmt.Errorf("error reading normalized image manifest: %w", err)
+		}
+
+		manifestAnnotations, err := options.mutateManifestAnnotationsFunc(ctx, normalizedManifest)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error mutating manifest annotations: %w", err)
 		}

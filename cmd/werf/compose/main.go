@@ -301,6 +301,10 @@ func newCmd(ctx context.Context, composeCmdName string, options *newCmdOptions) 
 	common.SetupFinalRepo(&commonCmdData, cmd)
 	common.SetupMetaRepo(&commonCmdData, cmd)
 
+	common.SetupAnnotateLayersWithDmVerityRootHash(&commonCmdData, cmd)
+	common.SetupSigningOptions(&commonCmdData, cmd)
+	common.SetupELFSigningOptions(&commonCmdData, cmd)
+
 	common.SetupRequireBuiltImages(&commonCmdData, cmd)
 
 	common.SetupBuildReportPath(&commonCmdData, cmd)

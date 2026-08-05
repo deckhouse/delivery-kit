@@ -18,8 +18,7 @@ on:
 
 jobs:
   manage:
-    if: github.repository == 'werf/werf'
-    runs-on: ubuntu-22.04
+    runs-on: delivery-github-runner
     timeout-minutes: 20
     steps:
       - uses: tiangolo/issue-manager@0.6.0
@@ -42,7 +41,7 @@ jobs:
             }
 
   notify:
-    if: github.event_name == 'schedule' && github.repository == 'werf/werf' && always()
+    if: github.event_name == 'schedule' && always()
     needs: manage
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:

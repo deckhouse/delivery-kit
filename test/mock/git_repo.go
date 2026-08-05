@@ -14,13 +14,12 @@ import (
 	reflect "reflect"
 	time "time"
 
-	gomock "go.uber.org/mock/gomock"
-
 	git_repo "github.com/werf/werf/v2/pkg/git_repo"
 	repo_handle "github.com/werf/werf/v2/pkg/git_repo/repo_handle"
 	path_matcher "github.com/werf/werf/v2/pkg/path_matcher"
 	true_git "github.com/werf/werf/v2/pkg/true_git"
 	ls_tree "github.com/werf/werf/v2/pkg/true_git/ls_tree"
+	gomock "go.uber.org/mock/gomock"
 )
 
 // MockGitRepo is a mock of GitRepo interface.
@@ -534,6 +533,21 @@ func (m *MockGitRepo) TagCommit(ctx context.Context, tag string) (string, error)
 func (mr *MockGitRepoMockRecorder) TagCommit(ctx, tag any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TagCommit", reflect.TypeOf((*MockGitRepo)(nil).TagCommit), ctx, tag)
+}
+
+// TagsList mocks base method.
+func (m *MockGitRepo) TagsList(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TagsList", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TagsList indicates an expected call of TagsList.
+func (mr *MockGitRepoMockRecorder) TagsList(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TagsList", reflect.TypeOf((*MockGitRepo)(nil).TagsList), ctx)
 }
 
 // Unshallow mocks base method.
@@ -1089,6 +1103,21 @@ func (m *MockgitRepo) TagCommit(ctx context.Context, tag string) (string, error)
 func (mr *MockgitRepoMockRecorder) TagCommit(ctx, tag any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TagCommit", reflect.TypeOf((*MockgitRepo)(nil).TagCommit), ctx, tag)
+}
+
+// TagsList mocks base method.
+func (m *MockgitRepo) TagsList(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TagsList", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TagsList indicates an expected call of TagsList.
+func (mr *MockgitRepoMockRecorder) TagsList(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TagsList", reflect.TypeOf((*MockgitRepo)(nil).TagsList), ctx)
 }
 
 // Unshallow mocks base method.

@@ -18,6 +18,7 @@ import (
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/slug"
 )
 
@@ -846,6 +847,47 @@ func (storage *RepoStagesStorage) String() string {
 
 func (storage *RepoStagesStorage) Address() string {
 	return storage.RepoAddress
+}
+
+func (storage *RepoStagesStorage) GetOrphanedArtifactNames(ctx context.Context) ([]string, error) {
+	tags, err := storage.Tags(ctx, storage.RepoAddress)
+	if err != nil {
+		return nil, fmt.Errorf("get repo tags: %w", err)
+	}
+
+	var orphanedNames []string
+
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, artifact.FallbackTagPrefix) {
+			continue
+		}
+
+		parentDigest := "sha256:" + strings.TrimPrefix(tag, artifact.FallbackTagPrefix)
+		ref := fmt.Sprintf("%s@%s", storage.RepoAddress, parentDigest)
+		imgInfo, err := storage.DockerRegistry.TryGetRepoImage(ctx, ref)
+		if err != nil {
+			continue
+		}
+		if imgInfo != nil {
+			continue
+		}
+
+		orphanedNames = append(orphanedNames, fmt.Sprintf("%s:%s", storage.RepoAddress, tag))
+	}
+
+	return orphanedNames, nil
+}
+
+func (storage *RepoStagesStorage) DeleteArtifact(ctx context.Context, imageName string) error {
+	imgInfo, err := storage.DockerRegistry.TryGetRepoImage(ctx, imageName)
+	if err != nil {
+		return fmt.Errorf("get artifact %q: %w", imageName, err)
+	}
+	if imgInfo == nil {
+		return nil
+	}
+
+	return storage.DockerRegistry.DeleteRepoImage(ctx, imgInfo)
 }
 
 func makeRepoCustomTagMetadataRecord(repoAddress, tag string) string {

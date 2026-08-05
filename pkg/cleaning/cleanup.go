@@ -227,6 +227,12 @@ func (m *cleanupManager) run(ctx context.Context) error {
 		}
 	}
 
+	if err := logboek.Context(ctx).LogProcess("Cleanup orphaned artifacts").DoError(func() error {
+		return m.cleanupOrphanedArtifacts(ctx)
+	}); err != nil {
+		return err
+	}
+
 	if err := logboek.Context(ctx).LogProcess("Push last cleanup info to meta image").DoError(func() error {
 		err := m.StorageManager.GetMetaStorage().PostLastCleanupRecord(ctx, m.ProjectName)
 		if err != nil {
@@ -999,6 +1005,36 @@ func (m *cleanupManager) cleanupUnusedStages(ctx context.Context) error {
 
 	if err := m.deleteUnusedCustomTags(ctx); err != nil {
 		return fmt.Errorf("unable to cleanup custom tags metadata: %w", err)
+	}
+
+	return nil
+}
+
+func (m *cleanupManager) cleanupOrphanedArtifacts(ctx context.Context) error {
+	return deleteOrphanedArtifacts(ctx, m.StorageManager.GetStagesStorage(), m.DryRun)
+}
+
+func deleteOrphanedArtifacts(ctx context.Context, stagesStorage storage.StagesStorage, dryRun bool) error {
+	orphanedNames, err := stagesStorage.GetOrphanedArtifactNames(ctx)
+	if err != nil {
+		return fmt.Errorf("get orphaned artifacts: %w", err)
+	}
+
+	for _, name := range orphanedNames {
+		if dryRun {
+			logboek.Context(ctx).Default().LogFWithCustomStyle(deletedStyle, "  %s\n", name)
+			continue
+		}
+
+		if err := stagesStorage.DeleteArtifact(ctx, name); err != nil {
+			if err := handleDeletionError(err); err != nil {
+				return err
+			}
+			logboek.Context(ctx).Warn().LogF("WARNING: artifact %s deletion failed: %s\n", name, err)
+			continue
+		}
+
+		logboek.Context(ctx).Default().LogFWithCustomStyle(deletedStyle, "  %s\n", name)
 	}
 
 	return nil

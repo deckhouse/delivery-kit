@@ -25,6 +25,11 @@ import (
 
 const FallbackTagPrefix = "sha256-"
 
+const (
+	attachInitialInterval = 500 * time.Millisecond
+	attachMaxElapsedTime  = 30 * time.Second
+)
+
 var (
 	tagMutexes    map[string]*sync.Mutex
 	tagMutexGuard sync.Mutex
@@ -49,6 +54,23 @@ func tagMutexKey(repo, parentDigest string) string {
 	return repo + "/" + FallbackTag(parentDigest)
 }
 
+// withTagLock serializes everything that writes the artifact index of a parent
+// digest within this process.
+//
+// It covers the artifact push as well, not only the index update:
+// go-containerregistry updates the same index on its own whenever a pushed
+// manifest carries a subject, and that update is a read-modify-write no werf
+// code takes part in. Leaving it outside the lock lets it overwrite an entry
+// another goroutine has just published, and nothing would repair that entry
+// because its attach has already returned.
+func withTagLock(repo, parentDigest string, fn func() error) error {
+	m := getTagMutex(tagMutexKey(repo, parentDigest))
+	m.Lock()
+	defer m.Unlock()
+
+	return fn()
+}
+
 func FallbackTag(parentDigest string) string {
 	hex, err := DigestHex(parentDigest)
 	if err != nil {
@@ -59,59 +81,145 @@ func FallbackTag(parentDigest string) string {
 	return FallbackTagPrefix + hex
 }
 
-func Attach(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
-	m := getTagMutex(tagMutexKey(repo, parentDigest))
-	m.Lock()
-	defer m.Unlock()
-
-	// RMW: read current index, update, push
-	current, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
-	if err != nil {
-		return fmt.Errorf("pull fallback index before attach: %w", err)
-	}
-
-	next := updateFallbackIndex(current, artifactDesc, artifactType, imageName)
-	if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
-		return fmt.Errorf("push fallback index: %w", err)
-	}
-
-	return waitForConsistency(ctx, repo, parentDigest, next, opts...)
-}
-
-func waitForConsistency(ctx context.Context, repo, parentDigest string, next v1.ImageIndex, opts ...remote.Option) error {
+// attachDescriptor publishes a descriptor in the artifact index of a parent digest.
+// The caller must hold the tag lock of that digest, see withTagLock.
+//
+// The index is a single mutable object shared by every image resolving to that
+// digest, and a registry offers neither atomic updates nor read-after-write
+// guarantees, so a lost update cannot be prevented, only repaired. Attach
+// therefore converges instead of writing once: it republishes the descriptor
+// until it observes it in the index. Every write is a merge of what was read
+// with the descriptor being attached, so concurrent writers accumulate each
+// other's entries rather than truncating them.
+func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
 	eb := backoff.NewExponentialBackOff()
-	eb.InitialInterval = 500 * time.Millisecond
+	eb.InitialInterval = attachInitialInterval
 
 	notify := func(err error, duration time.Duration) {
-		logboek.Context(ctx).Warn().LogF("SBOM attach consistency wait failed: %s. Retrying in %v...\n", err, duration)
+		logboek.Context(ctx).Warn().LogF("SBOM attach not converged yet: %s. Retrying in %v...\n", err, duration)
 	}
 
 	_, err := backoff.Retry(ctx, func() (bool, error) {
-		verified, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
+		attached, err := isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, opts...)
 		if err != nil {
 			return false, err
 		}
+		if attached {
+			return true, nil
+		}
 
-		verifiedDigest, err := verified.Digest()
+		current, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 		if err != nil {
-			return false, fmt.Errorf("get fallback index digest: %w", err)
+			return false, fmt.Errorf("pull fallback index: %w", err)
 		}
-		nextDigest, err := next.Digest()
+
+		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName)
+		if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
+			return false, fmt.Errorf("push fallback index: %w", err)
+		}
+
+		attached, err = isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, opts...)
 		if err != nil {
-			return false, fmt.Errorf("get updated index digest: %w", err)
+			return false, err
+		}
+		if attached {
+			return true, nil
 		}
 
-		if verifiedDigest != nextDigest {
-			return false, fmt.Errorf("consistency check failed: digest mismatch")
-		}
-
-		return true, nil
+		return false, fmt.Errorf("attached descriptor not observed in the index yet")
 	},
 		backoff.WithBackOff(eb),
-		backoff.WithMaxElapsedTime(30*time.Second),
+		backoff.WithMaxElapsedTime(attachMaxElapsedTime),
 		backoff.WithNotify(notify),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("attach artifact of type %q to digest %s: %w", artifactType, parentDigest, err)
+	}
+
+	return nil
+}
+
+func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) (bool, error) {
+	idx, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
+	if err != nil {
+		return false, fmt.Errorf("pull fallback index: %w", err)
+	}
+
+	im, err := idx.IndexManifest()
+	if err != nil {
+		return false, fmt.Errorf("read fallback index manifest: %w", err)
+	}
+
+	return isAttached(im, artifactDesc, artifactType, imageName), nil
+}
+
+// isAttached reports whether the index already resolves the artifact key to the
+// descriptor being attached. Matching the descriptor rather than the whole index
+// is what makes concurrent attaches converge: an entry added by another writer
+// is a legitimate index state, not a conflict.
+//
+// The key is matched exactly, an empty image name included, so that it agrees
+// with the replacement key of updateFallbackIndex. Reads treat an empty image
+// name as a wildcard instead, which would never converge here: an artifact
+// attached without an image name would keep matching the entries of named
+// images and never look attached.
+// The key must resolve to that descriptor and to nothing else. A stale entry of
+// the same image, or the descriptor go-containerregistry adds on its own, also
+// occupies the key, and both have to be evicted before the attach is done.
+func isAttached(im *v1.IndexManifest, artifactDesc v1.Descriptor, artifactType, imageName string) bool {
+	occupied := 0
+	for _, desc := range im.Manifests {
+		if !isArtifactKey(desc, artifactType, imageName) {
+			continue
+		}
+		if desc.Digest != artifactDesc.Digest {
+			return false
+		}
+		occupied++
+	}
+
+	return occupied == 1
+}
+
+// isArtifactKey reports whether a descriptor occupies the (artifactType, imageName)
+// slot of the index. Used by writers, which own exactly one slot.
+func isArtifactKey(desc v1.Descriptor, artifactType, imageName string) bool {
+	return desc.ArtifactType == artifactType && desc.Annotations[image.WerfImageNameAnnotation] == imageName
+}
+
+// matchDescriptors selects the entries a reader asks for. An empty image name
+// means any image here, unlike the exact key used by writers.
+//
+// Entries are deduplicated by manifest digest: a descriptor only points at a
+// manifest, so two of them sharing a digest describe one artifact. An attach
+// interrupted between the artifact push and the index update leaves behind the
+// descriptor go-containerregistry writes on its own, which carries no werf
+// annotations and would otherwise be listed as a second, nameless artifact.
+func matchDescriptors(im *v1.IndexManifest, artifactType, imageName string) []v1.Descriptor {
+	position := make(map[v1.Hash]int)
+	var matches []v1.Descriptor
+
+	for _, desc := range im.Manifests {
+		if desc.ArtifactType != artifactType {
+			continue
+		}
+		if imageName != "" && desc.Annotations[image.WerfImageNameAnnotation] != imageName {
+			continue
+		}
+
+		i, seen := position[desc.Digest]
+		if !seen {
+			position[desc.Digest] = len(matches)
+			matches = append(matches, desc)
+			continue
+		}
+
+		if _, annotated := matches[i].Annotations[image.WerfImageNameAnnotation]; !annotated {
+			matches[i] = desc
+		}
+	}
+
+	return matches
 }
 
 func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageName string, opts ...remote.Option) (v1.Descriptor, bool, error) {
@@ -125,17 +233,7 @@ func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageNam
 		return v1.Descriptor{}, false, fmt.Errorf("read fallback index manifest: %w", err)
 	}
 
-	var matches []v1.Descriptor
-	for _, desc := range im.Manifests {
-		if desc.ArtifactType != artifactType {
-			continue
-		}
-		if imageName != "" && desc.Annotations[image.WerfImageNameAnnotation] != imageName {
-			continue
-		}
-		matches = append(matches, desc)
-	}
-
+	matches := matchDescriptors(im, artifactType, imageName)
 	if len(matches) == 0 {
 		return v1.Descriptor{}, false, nil
 	}
@@ -217,14 +315,8 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 		if manifest.Digest == artifactDesc.Digest {
 			continue
 		}
-		if manifest.ArtifactType == artifactType {
-			existingImageName := manifest.Annotations[image.WerfImageNameAnnotation]
-			if imageName != "" && existingImageName == imageName {
-				continue
-			}
-			if imageName == "" && existingImageName == "" {
-				continue
-			}
+		if isArtifactKey(manifest, artifactType, imageName) {
+			continue
 		}
 		kept = append(kept, manifest)
 	}

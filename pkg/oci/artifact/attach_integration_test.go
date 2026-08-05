@@ -3,6 +3,7 @@ package artifact_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -266,3 +267,188 @@ func requireBasicAuth(next http.Handler, username, password string) http.Handler
 		next.ServeHTTP(w, r)
 	})
 }
+
+var _ = Describe("Attach convergence (integration)", func() {
+	const artifactType = "application/vnd.dsse.envelope.v1+json"
+
+	var (
+		server       *httptest.Server
+		repo         string
+		parentDigest string
+		remoteOpts   []remote.Option
+	)
+
+	BeforeEach(func(ctx SpecContext) {
+		server = httptest.NewServer(registry.New())
+		host := strings.TrimPrefix(server.URL, "http://")
+		repo = host + "/test/app"
+		remoteOpts = []remote.Option{remote.WithAuth(authn.Anonymous)}
+
+		parent, err := random.Image(256, 1)
+		Expect(err).To(Succeed())
+
+		parentRef, err := name.NewTag(repo + ":v1")
+		Expect(err).To(Succeed())
+		Expect(remote.Write(parentRef, parent, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+
+		dgst, err := parent.Digest()
+		Expect(err).To(Succeed())
+		parentDigest = dgst.String()
+	})
+
+	AfterEach(func() {
+		server.Close()
+	})
+
+	It("should restore its entry after another writer replaced the whole index", func(ctx SpecContext) {
+		storeA := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
+		Expect(storeA.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "")).To(Succeed())
+
+		descA, found, err := storeA.GetAttached(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+
+		storeB := artifact.NewOCIStore(repo, "app-b", remoteOpts...)
+		Expect(storeB.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"b"}`), "", "")).To(Succeed())
+
+		descB, found, err := storeB.GetAttached(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+
+		Expect(clobberIndex(ctx, repo, parentDigest, descB, remoteOpts)).To(Succeed())
+
+		_, found, err = storeA.GetAttached(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeFalse(), "precondition: the entry of app-a must be lost")
+
+		Expect(storeA.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "")).To(Succeed())
+
+		restored, found, err := storeA.GetAttached(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+		Expect(restored.Digest).To(Equal(descA.Digest))
+
+		kept, found, err := storeB.GetAttached(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue(), "the entry of app-b must survive the repair")
+		Expect(kept.Digest).To(Equal(descB.Digest))
+	})
+
+	It("should replace its own previous entry instead of accumulating", func(ctx SpecContext) {
+		store := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
+
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"v":1}`), "", "")).To(Succeed())
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"v":2}`), "", "")).To(Succeed())
+
+		idx, err := artifact.PullFallbackIndex(ctx, repo, parentDigest, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+		Expect(err).To(Succeed())
+		im, err := idx.IndexManifest()
+		Expect(err).To(Succeed())
+		Expect(im.Manifests).To(HaveLen(1))
+
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(content).To(MatchJSON(`{"v":2}`))
+	})
+})
+
+// clobberIndex replaces the whole artifact index with a single descriptor,
+// reproducing a lost update caused by a writer that read a stale index.
+func clobberIndex(ctx context.Context, repo, parentDigest string, keep v1.Descriptor, remoteOpts []remote.Option) error {
+	tagRef, err := name.NewTag(repo + ":" + artifact.FallbackTag(parentDigest))
+	if err != nil {
+		return err
+	}
+
+	raw, err := json.Marshal(&v1.IndexManifest{
+		SchemaVersion: 2,
+		MediaType:     gcrtypes.OCIImageIndex,
+		Manifests:     []v1.Descriptor{keep},
+	})
+	if err != nil {
+		return err
+	}
+
+	return remote.Put(tagRef, rawIndex{raw: raw}, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+}
+
+// rawIndex publishes a hand-built index manifest verbatim.
+type rawIndex struct {
+	raw []byte
+}
+
+func (i rawIndex) RawManifest() ([]byte, error) {
+	return i.raw, nil
+}
+
+func (i rawIndex) MediaType() (gcrtypes.MediaType, error) {
+	return gcrtypes.OCIImageIndex, nil
+}
+
+var _ = Describe("Attach with an unnamed artifact (integration)", func() {
+	const artifactType = "application/vnd.dsse.envelope.v1+json"
+
+	var (
+		server       *httptest.Server
+		repo         string
+		parentDigest string
+		remoteOpts   []remote.Option
+	)
+
+	BeforeEach(func(ctx SpecContext) {
+		server = httptest.NewServer(registry.New())
+		host := strings.TrimPrefix(server.URL, "http://")
+		repo = host + "/test/app"
+		remoteOpts = []remote.Option{remote.WithAuth(authn.Anonymous)}
+
+		parent, err := random.Image(256, 1)
+		Expect(err).To(Succeed())
+
+		parentRef, err := name.NewTag(repo + ":v1")
+		Expect(err).To(Succeed())
+		Expect(remote.Write(parentRef, parent, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+
+		dgst, err := parent.Digest()
+		Expect(err).To(Succeed())
+		parentDigest = dgst.String()
+	})
+
+	AfterEach(func() {
+		server.Close()
+	})
+
+	It("should attach without an image name next to a named artifact", func(ctx SpecContext) {
+		named := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
+		Expect(named.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "")).To(Succeed())
+
+		unnamed := artifact.NewOCIStore(repo, "", remoteOpts...)
+		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"img":""}`), "", "")).To(Succeed())
+
+		idx, err := artifact.PullFallbackIndex(ctx, repo, parentDigest, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+		Expect(err).To(Succeed())
+		im, err := idx.IndexManifest()
+		Expect(err).To(Succeed())
+		Expect(im.Manifests).To(HaveLen(2))
+
+		content, err := named.GetAttachedContent(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(content).To(MatchJSON(`{"img":"a"}`))
+	})
+
+	It("should replace its own unnamed entry on reattach", func(ctx SpecContext) {
+		unnamed := artifact.NewOCIStore(repo, "", remoteOpts...)
+
+		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"v":1}`), "", "")).To(Succeed())
+		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"v":2}`), "", "")).To(Succeed())
+
+		idx, err := artifact.PullFallbackIndex(ctx, repo, parentDigest, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+		Expect(err).To(Succeed())
+		im, err := idx.IndexManifest()
+		Expect(err).To(Succeed())
+		Expect(im.Manifests).To(HaveLen(1))
+
+		content, err := unnamed.GetAttachedContentAny(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(content).To(MatchJSON(`{"v":2}`))
+	})
+})

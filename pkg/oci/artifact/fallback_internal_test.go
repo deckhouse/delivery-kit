@@ -191,55 +191,100 @@ var _ = Describe("Annotations", func() {
 	})
 })
 
-var _ = Describe("dedupeByDigest", func() {
-	makeDesc := func(name string, annotations map[string]string) v1.Descriptor {
+var _ = Describe("isAttached", func() {
+	desc := func(name, artifactType, imageName string) v1.Descriptor {
 		return v1.Descriptor{
 			MediaType:    types.OCIManifestSchema1,
 			Digest:       digestForName(name),
 			Size:         42,
-			ArtifactType: "type/sbom",
-			Annotations:  annotations,
+			ArtifactType: artifactType,
+			Annotations:  map[string]string{image.WerfImageNameAnnotation: imageName},
 		}
 	}
 
-	It("should keep distinct digests untouched", func() {
-		descA := makeDesc("app-a", map[string]string{image.WerfImageNameAnnotation: "app-a"})
-		descB := makeDesc("app-b", map[string]string{image.WerfImageNameAnnotation: "app-b"})
+	indexOf := func(descriptors ...v1.Descriptor) *v1.IndexManifest {
+		im, err := newStaticIndex(descriptors).IndexManifest()
+		Expect(err).To(Succeed())
+		return im
+	}
 
-		Expect(dedupeByDigest([]v1.Descriptor{descA, descB})).To(Equal([]v1.Descriptor{descA, descB}))
+	It("should report an empty index as not attached", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+
+		Expect(isAttached(indexOf(), target, "type/sbom", "app-a")).To(BeFalse())
 	})
 
-	It("should prefer the annotated descriptor over a bare one written before it", func() {
-		bare := makeDesc("app-a", nil)
-		annotated := makeDesc("app-a", map[string]string{image.WerfImageNameAnnotation: "app-a"})
+	It("should report the descriptor as attached once present", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
 
-		kept := dedupeByDigest([]v1.Descriptor{bare, annotated})
-
-		Expect(kept).To(HaveLen(1))
-		Expect(kept[0].Annotations).To(HaveKeyWithValue(image.WerfImageNameAnnotation, "app-a"))
+		Expect(isAttached(indexOf(target), target, "type/sbom", "app-a")).To(BeTrue())
 	})
 
-	It("should keep the annotated descriptor when a bare one follows it", func() {
-		annotated := makeDesc("app-a", map[string]string{image.WerfImageNameAnnotation: "app-a"})
-		bare := makeDesc("app-a", nil)
+	It("should ignore entries of other images", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+		other := desc("app-b-v1", "type/sbom", "app-b")
 
-		kept := dedupeByDigest([]v1.Descriptor{annotated, bare})
-
-		Expect(kept).To(HaveLen(1))
-		Expect(kept[0].Annotations).To(HaveKeyWithValue(image.WerfImageNameAnnotation, "app-a"))
+		Expect(isAttached(indexOf(other, target), target, "type/sbom", "app-a")).To(BeTrue())
 	})
 
-	It("should preserve the order of first appearance", func() {
-		descA := makeDesc("app-a", map[string]string{image.WerfImageNameAnnotation: "app-a"})
-		descB := makeDesc("app-b", map[string]string{image.WerfImageNameAnnotation: "app-b"})
-		descC := makeDesc("app-c", map[string]string{image.WerfImageNameAnnotation: "app-c"})
+	It("should report a superseded descriptor as not attached", func() {
+		target := desc("app-a-v2", "type/sbom", "app-a")
+		stale := desc("app-a-v1", "type/sbom", "app-a")
 
-		kept := dedupeByDigest([]v1.Descriptor{descA, descB, makeDesc("app-a", nil), descC})
-
-		Expect(kept).To(Equal([]v1.Descriptor{descA, descB, descC}))
+		Expect(isAttached(indexOf(stale), target, "type/sbom", "app-a")).To(BeFalse())
 	})
 
-	It("should return an empty result for no input", func() {
-		Expect(dedupeByDigest(nil)).To(BeEmpty())
+	It("should report a foreign descriptor of the same type as not attached", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+		foreign := v1.Descriptor{
+			MediaType:    types.OCIManifestSchema1,
+			Digest:       digestForName("app-a-v1"),
+			Size:         42,
+			ArtifactType: "type/sbom",
+		}
+
+		Expect(isAttached(indexOf(foreign), target, "type/sbom", "app-a")).To(BeFalse())
+	})
+
+	It("should report duplicated entries of one image as not attached", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+		stale := desc("app-a-v0", "type/sbom", "app-a")
+
+		Expect(isAttached(indexOf(stale, target), target, "type/sbom", "app-a")).To(BeFalse())
+	})
+})
+
+var _ = Describe("isAttached with an unnamed artifact", func() {
+	unnamed := v1.Descriptor{
+		MediaType:    types.OCIManifestSchema1,
+		Digest:       digestForName("unnamed-v1"),
+		Size:         42,
+		ArtifactType: "type/sbom",
+	}
+
+	named := v1.Descriptor{
+		MediaType:    types.OCIManifestSchema1,
+		Digest:       digestForName("app-a-v1"),
+		Size:         42,
+		ArtifactType: "type/sbom",
+		Annotations:  map[string]string{image.WerfImageNameAnnotation: "app-a"},
+	}
+
+	indexOf := func(descriptors ...v1.Descriptor) *v1.IndexManifest {
+		im, err := newStaticIndex(descriptors).IndexManifest()
+		Expect(err).To(Succeed())
+		return im
+	}
+
+	It("should report it as attached next to an entry of a named image", func() {
+		Expect(isAttached(indexOf(named, unnamed), unnamed, "type/sbom", "")).To(BeTrue())
+	})
+
+	It("should not be satisfied by an entry of a named image alone", func() {
+		Expect(isAttached(indexOf(named), unnamed, "type/sbom", "")).To(BeFalse())
+	})
+
+	It("should not report a named entry as attached when an unnamed one exists", func() {
+		Expect(isAttached(indexOf(named, unnamed), named, "type/sbom", "app-a")).To(BeTrue())
 	})
 })

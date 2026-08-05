@@ -200,6 +200,10 @@ func validateStageDependenciesHaveInstructions(imageBaseConfig *config.StapelIma
 }
 
 func hasStageInstructions(imageBaseConfig *config.StapelImageBase, stageName stage.StageName) bool {
+	if stageName == stage.Packages {
+		return len(imageBaseConfig.Packages) > 0
+	}
+
 	if imageBaseConfig.Shell != nil {
 		switch stageName {
 		case stage.Install:

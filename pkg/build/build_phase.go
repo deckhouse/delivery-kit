@@ -318,7 +318,10 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	if len(images) == 1 {
 		primaryImg = images[0]
-		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+		stageDesc = primaryImg.GetContentTagDesc()
+		if stageDesc == nil {
+			return fmt.Errorf("content tag descriptor not set for image %q", name)
+		}
 	} else {
 		primaryImg = images[0]
 		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {

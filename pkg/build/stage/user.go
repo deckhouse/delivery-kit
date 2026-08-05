@@ -44,6 +44,8 @@ func (s *UserStage) getBuilderChecksum(ctx context.Context) string {
 		return s.builder.BeforeSetupChecksum(ctx)
 	case Setup:
 		return s.builder.SetupChecksum(ctx)
+	case Packages:
+		return s.builder.PackagesChecksum(ctx)
 	default:
 		panic("unexpected user stage name: " + string(s.Name()))
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/samber/lo"
 
+	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
@@ -44,6 +45,10 @@ func (s *VerityAnnotationStage) PrepareImage(_ context.Context, _ Conveyor, _ co
 
 func (s *VerityAnnotationStage) GetDependencies(_ context.Context, _ Conveyor, _ container_backend.ContainerBackend, _, _ *StageImage, _ container_backend.BuildContextArchiver) (string, error) {
 	return "", nil
+}
+
+func (s *VerityAnnotationStage) GetContentDependencies(_ context.Context, _ Conveyor, _ container_backend.BuildContextArchiver) (string, error) {
+	return util.Sha256Hash(string(VerityAnnotation)), nil
 }
 
 func (s *VerityAnnotationStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {

@@ -9,6 +9,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/werf/werf/v2/pkg/build/image"
+	"github.com/werf/werf/v2/pkg/build/signing"
+	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
 )
 
@@ -100,6 +102,24 @@ var _ = Describe("BuildPhase", func() {
 		}}}
 
 		Expect(phase.convergeSbomByImagesSets(ctx)).To(Succeed())
+	})
+
+	It("collects content dependencies from signing mutation stages", func(ctx SpecContext) {
+		signer, err := signing.NewSigner(ctx, signing.SignerOptions{})
+		Expect(err).To(Succeed())
+
+		baseStageOptions := &stage.BaseStageOptions{TargetPlatform: "linux/amd64"}
+		img := &image.Image{}
+		img.SetStages([]stage.Interface{
+			stage.GenerateVerityAnnotationStage(baseStageOptions),
+			stage.GenerateSignStage(baseStageOptions, signing.NewManifestSigningOptions(signer)),
+		})
+
+		inputs, err := collectHolisticInputs(ctx, img, nil, nil)
+		Expect(err).To(Succeed())
+		Expect(inputs).To(HaveLen(2))
+		Expect(inputs[0]).To(HavePrefix(string(stage.VerityAnnotation) + ":"))
+		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
 	})
 
 	Describe("calculateDigest", func() {

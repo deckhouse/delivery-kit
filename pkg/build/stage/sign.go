@@ -51,6 +51,10 @@ func (s *SignStage) GetDependencies(_ context.Context, _ Conveyor, _ container_b
 	return util.Sha256Hash(args...), nil
 }
 
+func (s *SignStage) GetContentDependencies(ctx context.Context, c Conveyor, buildContextArchive container_backend.BuildContextArchiver) (string, error) {
+	return s.GetDependencies(ctx, c, nil, nil, nil, buildContextArchive)
+}
+
 func (s *SignStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
 	// TODO: refactor type assertion by adopting stage и storage interfaces
 	registry, err := registryFromImageMutatorPusher(stagesStorage)

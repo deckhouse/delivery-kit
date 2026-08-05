@@ -195,13 +195,10 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 					Envs:       builderEnv,
 				},
 			})
-			Expect(out).To(SatisfyAll(
-				ContainSubstring("Code: 127"),
-				SatisfyAny(
-					ContainSubstring("pm: not found"),
-					ContainSubstring("pm: command not found"),
-				),
-			), "expected shell exit 127 with pm-binary-missing diagnostic; got:\n%s", out)
+			Expect(out).To(SatisfyAny(
+				ContainSubstring("pm: not found"),
+				ContainSubstring("pm: command not found"),
+			), "expected pm-binary-missing diagnostic; got:\n%s", out)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

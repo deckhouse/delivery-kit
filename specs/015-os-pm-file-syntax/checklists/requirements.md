@@ -32,5 +32,6 @@
 ## Notes
 
 - All items pass. No [NEEDS CLARIFICATION] markers remain.
-- 3 clarifications resolved during Session 2026-08-05: (1) pm.lock/pm.yaml location is host/Git repository, not inside built image; (2) missing pm.lock causes a clear error message, not auto-generation; (3) `workdir` SHALL NOT be accepted for os-pm — files are always at the repository root.
+- 4 clarifications resolved during Session 2026-08-05: (1) pm.lock/pm.yaml location is host/Git repository, not inside built image; (2) missing pm.lock causes a clear error message, not auto-generation; (3) `workdir` SHALL NOT be accepted for os-pm — files are always at the repository root; (4) e2e test fixtures must be migrated from inline to file-based syntax.
+- Added FR-016 + SC-013/SC-014 for e2e test migration.
 - The spec is ready for planning.

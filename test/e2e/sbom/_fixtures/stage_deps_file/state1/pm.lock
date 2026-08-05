@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "timestamp": "2026-07-15T08:13:35Z",
+    "sha256-sum": "9e9135acdfbf1ec311952d6776402ed12db6652615b38414abb37101230208cc",
+    "source": "pm.yaml"
+  },
+  "packages": {
+    "jq": {
+      "name": "jq",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "A lightweight and flexible command-line JSON processor",
+      "license": "MIT",
+      "originalRepo": "https://jqlang.github.io/jq/",
+      "repo": "jqlang/jq",
+      "type": "runtime",
+      "version": "1.9.0",
+      "digest": "sha256:c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899"
+    }
+  }
+}

@@ -75,12 +75,54 @@ The packages commands flow through the build pipeline as follows:
 
 6. **`pkg/build/stage/packages_test.go`** — Packages stage test, references `GeneratePackagesCommands`
 
+### E2E Test Fixtures
+
+In addition to unit tests, the following 16 e2e fixture `werf.yaml` files use inline `spec: [pkg...]` syntax and MUST be migrated:
+
+| Fixture | File |
+|---------|------|
+| `inject/ospm_basic` | `test/e2e/sbom/_fixtures/inject/ospm_basic/werf.yaml` |
+| `inject/ospm_gost_override` | `test/e2e/sbom/_fixtures/inject/ospm_gost_override/werf.yaml` |
+| `inject/ospm_scratch_secrets` | `test/e2e/sbom/_fixtures/inject/ospm_scratch_secrets/werf.yaml` |
+| `stage_deps_file/state0` | `test/e2e/sbom/_fixtures/stage_deps_file/state0/werf.yaml` |
+| `stage_deps_file/state1` | `test/e2e/sbom/_fixtures/stage_deps_file/state1/werf.yaml` |
+| `stage_deps/state0..state2` | `test/e2e/sbom/_fixtures/stage_deps/state*/werf.yaml` |
+| `packages_merge/base_with_child` | `test/e2e/sbom/_fixtures/packages_merge/base_with_child/werf.yaml` |
+| `packages_merge/parent_propagation` | `test/e2e/sbom/_fixtures/packages_merge/parent_propagation/werf.yaml` |
+| `type_change/state0` | `test/e2e/sbom/_fixtures/type_change/state0/werf.yaml` |
+| `lifecycle/multi_image` | `test/e2e/sbom/_fixtures/lifecycle/multi_image/werf.yaml` |
+| `purl_resolver_errors` | `test/e2e/sbom/_fixtures/purl_resolver_errors/werf.yaml` |
+| `negative/broken_pm` | `test/e2e/sbom/_fixtures/negative/broken_pm/werf.yaml` |
+| `negative/no_pm_binary` | `test/e2e/sbom/_fixtures/negative/no_pm_binary/werf.yaml` |
+| `regressions/manifest_annotation` | `test/e2e/sbom/_fixtures/regressions/manifest_annotation/werf.yaml` |
+
+### E2E Go Test Files
+
+The following e2e test `.go` files reference inline `os-pm` assertions and command expectations:
+
+- `test/e2e/sbom/packages_test.go` — `pm install` command assertions, `spec:` in test descriptions
+- `test/e2e/sbom/gost_test.go` — os-pm GOST override tests
+- `test/e2e/sbom/lifecycle_test.go` — lifecycle tests referencing os-pm packages
+- `test/e2e/sbom/stage_dependencies_test.go` — `stage_deps_file` test, type-change test with os-pm
+
+### Migration Approach for E2E Fixtures
+
+For each fixture:
+1. The `spec: [pkg==ver]` inline list must be removed from `werf.yaml`
+2. A `pm.yaml` file must be added alongside `werf.yaml` containing the same package list in pm format (see [pm.yaml format](#pm.yaml-format))
+3. Generate `pm.lock` by running `pm lock --from=pm.yaml` in the fixture directory (requires `pm` installed locally)
+4. The `git.stageDependencies.packages` (if present) must track `pm.yaml` and/or `pm.lock` instead of the old file
+
+The `stage_deps_file` e2e test (SC-014) must demonstrate that changes to `pm.yaml` or `pm.lock` trigger SBOM regeneration via `git.stageDependencies.packages`.
+
 ### Decision
 
 - All test files referencing inline `os-pm` syntax must be updated to use file-based syntax (`spec: "pm.yaml"`).
 - `PackagesSpec` assertions (`Expect(packages[i].Spec.Packages).To(...)`) must change to `FileBased` assertions.
 - `pm install` command assertions must change to `pm sync --from pm.lock` assertions.
 - Special-cased `packages[i].Type == PackagesDirectiveTypeOSPM` branches in test assertions must be removed.
+- 16 e2e fixture `werf.yaml` files must be migrated to file-based syntax with accompanying `pm.yaml` and `pm.lock` files.
+- E2e Go test files must update command expectations from `pm install` to `pm sync --from pm.lock`.
 
 ## Unknown 3: Git Stage Dependencies Behavior
 

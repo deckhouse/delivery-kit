@@ -131,7 +131,7 @@ packages:
 No state machine — this is a configuration-only change. The transition is:
 
 1. User writes `pm.yaml` with package specs
-2. User runs `pm lock` (outside werf) → generates `pm.lock`
+2. User runs `pm lock --from=pm.yaml` locally → generates `pm.lock`
 3. User commits both files
 4. User configures `werf.yaml` with `packages: [{type: os-pm}]`
 5. Werf parses config → resolves default spec/lock → generates `pm sync --from pm.lock`

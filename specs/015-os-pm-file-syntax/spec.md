@@ -37,6 +37,7 @@ However, the `os-pm` package manager (the `pm` binary) has since evolved to supp
 - Q: Where are `pm.lock` and `pm.yaml` located — inside the built image or on the host (Git repository)? → A: `pm.lock` and `pm.yaml` live on the host filesystem and are stored under Git, consistent with all other file-based package types (e.g., `go.mod`/`go.sum`, `Cargo.toml`/`Cargo.lock`). They are scanned for SBOM from the build context, not from inside the built container.
 - Q: What happens when `pm.yaml` exists but `pm.lock` is missing — should werf auto-generate it? → A: Fail with a clear error instructing the user to run `pm lock` manually.
 - Q: Does `os-pm` need a `workdir` field? → A: No — `os-pm` is an OS-level package manager. Unlike language package managers (which need `cd <workdir> && <pkg-mgr>`), `pm.yaml` and `pm.lock` are always located at the repository root. The `workdir` field SHALL NOT be accepted for `os-pm`.
+- Q: Should e2e test fixtures be updated as part of this feature? → A: Yes — all e2e test fixtures that currently use inline `os-pm` syntax MUST be migrated to use file-based `pm.yaml`/`pm.lock` syntax. This includes SBOM stage dependency tests and type-change tests.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -133,7 +134,11 @@ A user does not need any OS-level packages.
 - **FR-012**: `buildResolvers` in `pkg/sbom/managedinput` SHALL derive catalogers from `config.Ecosystems()`. With `os-pm` in the registry (with a `CatalogerName`), it automatically gets a cataloger whose source paths include `pm.yaml` and `pm.lock` (at the repository root).
 - **FR-013**: Users SHALL configure `git.stageDependencies.packages` in their `werf.yaml` to trigger packages stage invalidation when `pm.yaml` and/or `pm.lock` change. This is a user-side configuration, not a system-enforced requirement — the system already supports `stageDependencies.packages` for all package types.
 - **FR-014**: The `workdir` field SHALL NOT be accepted for `os-pm` (enforced by FR-007). The validation rule that `workdir` must be a non-empty string when specified applies uniformly to all package types that accept `workdir`, but `os-pm` rejects `workdir` entirely.
-- **FR-015**: All existing tests and test data using the inline `os-pm` syntax SHALL be updated to use the file-based syntax. This includes unit tests, e2e tests, and test fixtures.
+- **FR-015**: All existing unit tests and test data using the inline `os-pm` syntax SHALL be updated to use the file-based syntax.
+- **FR-016**: All e2e test fixtures using inline `os-pm` syntax SHALL be migrated to use file-based `pm.yaml`/`pm.lock` syntax. This includes:
+  - `test/e2e/sbom/_fixtures/stage_deps/` (states 0–2): replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files at repo root
+  - `test/e2e/sbom/_fixtures/stage_deps_file/` (states 0–1): replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files; update `stageDependencies.packages` to track `pm.yaml` and `pm.lock` instead of `versions.txt`
+  - `test/e2e/sbom/_fixtures/type_change/` (state0): replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files
 
 ### Key Entities *(include if feature involves data)*
 
@@ -156,7 +161,9 @@ A user does not need any OS-level packages.
 - **SC-007**: A build without any `os-pm` directive produces no `pm sync` command and skips os-pm SBOM processing entirely.
 - **SC-008**: When `pm.lock` is tracked by `git.stageDependencies.packages`, changes to `pm.lock` invalidate the packages stage and trigger a rebuild.
 - **SC-009**: When `pm.yaml` is tracked by `git.stageDependencies.packages`, changes to `pm.yaml` invalidate the packages stage and trigger a rebuild.
-- **SC-010**: All existing unit and e2e tests pass after the migration to file-based syntax.
+- **SC-010**: All existing unit tests pass after the migration to file-based syntax.
+- **SC-013**: All e2e test fixtures are migrated to file-based `pm.yaml`/`pm.lock` syntax and the corresponding e2e tests pass.
+- **SC-014**: The `stage_deps_file` e2e test tracks `pm.yaml` and `pm.lock` via `git.stageDependencies.packages` and demonstrates that changes to either file trigger SBOM regeneration.
 - **SC-011**: The `env` field continues to work with `os-pm` — environment variables are passed as inline prefixes to the `pm sync` command.
 - **SC-012**: The SBOM for `os-pm` is generated from `pm.lock` in the build context, not from inside the built image — matching the behavior of all other file-based package types.
 

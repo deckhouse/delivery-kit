@@ -34,7 +34,7 @@
    ```
 
 2. Create `pm.yaml` at repo root with test packages.
-3. Create `pm.lock` at repo root (e.g., via `pm lock`).
+3. Generate `pm.lock` by running `pm lock --from=pm.yaml` at repo root.
 
 **Run**:
 ```shell
@@ -151,13 +151,49 @@ task test:unit -- paths="./pkg/config/..." -run "GeneratePackagesCommands"
 
 **Expected outcome**: `GeneratePackagesCommands()` returns empty slice. No `pm sync` command is generated.
 
-### Scenario 9: All tests pass
+### Scenario 9: E2E fixture migration — all fixtures use file-based syntax
 
-**Full validation**:
+**What it validates**: All 16 e2e fixture `werf.yaml` files referencing inline `spec: [pkg...]` have been migrated to file-based `pm.yaml`/`pm.lock` syntax.
+
+**Run**:
 ```shell
-task test:unit -- paths="./pkg/config/..."
-task test:unit -- paths="./pkg/sbom/managedinput/..."
-task test:unit -- paths="./pkg/build/stage/..."
+grep -r "spec:" test/e2e/sbom/_fixtures/ --include="*.yaml" | grep -i "os-pm\|ospm"
+```
+
+**Expected outcome**: No `spec:` lines referencing `os-pm` packages remain in any fixture. Each fixture has `pm.yaml` and `pm.lock` files alongside its `werf.yaml`.
+
+### Scenario 10: E2E tests pass with migrated fixtures
+
+**What it validates**: All e2e tests pass after migrating fixtures to file-based syntax.
+
+**Run** (requires e2e environment):
+```shell
+task test:e2e -- paths=\"./test/e2e/sbom/...\" labelFilter=\"e2e&&sbom&&packages\"
+task test:e2e -- paths=\"./test/e2e/sbom/...\" labelFilter=\"e2e&&sbom&&stage-deps\"
+```
+
+**Expected outcome**: All e2e tests pass with updated file-based syntax.
+
+### Scenario 11: stage_deps_file validates SBOM regeneration on pm.yaml/pm.lock changes
+
+**What it validates**: Changes to `pm.yaml` or `pm.lock` tracked via `git.stageDependencies.packages` trigger SBOM regeneration.
+
+**Setup**: The `stage_deps_file` e2e fixture has `git.stageDependencies.packages: [pm.yaml, pm.lock]`.
+
+**Run** (requires e2e environment):
+```shell
+task test:e2e -- paths=\"./test/e2e/sbom/...\" labelFilter=\"e2e&&sbom&&stage-deps\"
+```
+
+**Expected outcome**: The e2e test validates that changes to `pm.yaml` or `pm.lock` cause the packages stage to re-execute and SBOM to be regenerated.
+
+### Scenario 12: All unit tests pass
+
+**Full unit test validation**:
+```shell
+task test:unit -- paths=\"./pkg/config/...\"
+task test:unit -- paths=\"./pkg/sbom/managedinput/...\"
+task test:unit -- paths=\"./pkg/build/stage/...\"
 ```
 
 **Expected outcome**: All unit tests pass with updated file-based syntax.

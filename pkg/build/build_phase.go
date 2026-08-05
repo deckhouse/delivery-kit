@@ -352,7 +352,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	var hasOsPmPackages bool
 	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
-		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().HasOSPMPackages()
+		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().OSPMLockPath() != ""
 	}
 
 	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())

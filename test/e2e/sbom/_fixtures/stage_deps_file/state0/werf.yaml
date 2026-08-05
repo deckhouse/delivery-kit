@@ -12,10 +12,11 @@ git:
     to: /app
     stageDependencies:
       packages:
-        - versions.txt
+        - pm.yaml
+        - pm.lock
   - add: /
     to: /
 packages:
   - type: os-pm
-    spec:
-      - jq==1.8.1
+    spec: pm.yaml
+    lock: pm.lock

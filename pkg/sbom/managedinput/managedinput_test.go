@@ -66,6 +66,47 @@ var _ = Describe("ToCatalogers", func() {
 			},
 		),
 
+		Entry("os-pm entries map to the os-pm-lock-cataloger",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeOSPM,
+					FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "os-pm-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"pm.yaml", "pm.lock"}, Workdir: ""},
+			},
+		),
+
+		Entry("multiple os-pm entries with custom lock files",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeOSPM,
+					FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeOSPM,
+					FileBased: config.FileBasedSpec{Spec: "custom/pm.yaml", Lock: "custom/pm.lock"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "os-pm-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"pm.yaml", "pm.lock"}, Workdir: ""},
+				{Name: "os-pm-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"custom/pm.yaml", "custom/pm.lock"}, Workdir: ""},
+			},
+		),
+
+		Entry("no os-pm packages yields no os-pm cataloger",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeGoMod,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
+			},
+		),
+
 		Entry("nil packages yield no catalogers",
 			[]*config.PackagesDirective(nil),
 			[]scanner.Cataloger(nil),

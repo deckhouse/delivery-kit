@@ -1,0 +1,51 @@
+{
+  "metadata": {
+    "timestamp": "2026-07-15T08:13:32Z",
+    "sha256-sum": "5db5afc60113c9e539496e85b7ac3313644d9c546c36f4d7a17cd4fcb8604d00",
+    "source": "pm.yaml"
+  },
+  "packages": {
+    "curl": {
+      "name": "curl",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "URL retrival utility and library",
+      "license": "curl",
+      "originalRepo": "https://github.com/curl/curl",
+      "repo": "curl/curl",
+      "type": "runtime",
+      "version": "8.12.1",
+      "digest": "sha256:e268b38b239a1217a8f0be27425eca1f14debb4de391b8bf8eb1a03ba0882340"
+    },
+    "openssl": {
+      "name": "openssl",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "Toolkit for Transport Layer Security (TLS)",
+      "license": "Apache-2.0",
+      "originalRepo": "https://www.openssl.org/",
+      "repo": "openssl/openssl",
+      "type": "runtime",
+      "version": "3.6.2",
+      "digest": "sha256:77f5cedc32ab27157427bee46076a1d3756f9f99785cc0be740e0b276295d688"
+    },
+    "jq": {
+      "name": "jq",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "A lightweight and flexible command-line JSON processor",
+      "license": "MIT",
+      "originalRepo": "https://jqlang.github.io/jq/",
+      "repo": "jqlang/jq",
+      "type": "runtime",
+      "version": "1.8.1",
+      "digest": "sha256:c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899"
+    }
+  }
+}

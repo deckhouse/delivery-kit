@@ -8,7 +8,7 @@
 
 ## Summary
 
-The `os-pm` package type in werf currently uses an inline syntax where OS packages are declared as a list of strings in `werf.yaml` (e.g., `spec: [curl==8.12.1, jq]`). This feature replaces the inline syntax with a file-based syntax using `pm.yaml` (spec file) and `pm.lock` (lock file) at the repository root — consistent with how Go, Rust, Python, JavaScript, and other package types are handled. Key changes: register `os-pm` in the ecosystems registry with `DefaultSpecFile: "pm.yaml"` and `DefaultLockFile: "pm.lock"`; use `pm sync --from <lockfile>` as the install command; remove the special-cased `os-pm` branches in `fillFileBasedSpec()` and `validate()`; remove the now-unused `PackagesSpec` struct; reject `workdir` for `os-pm`; wire up SBOM cataloging for `pm.yaml`/`pm.lock` via the `CatalogerName` field.
+The `os-pm` package type in werf currently uses an inline syntax where OS packages are declared as a list of strings in `werf.yaml` (e.g., `spec: [curl==8.12.1, jq]`). This feature replaces the inline syntax with a file-based syntax using `pm.yaml` (spec file) and `pm.lock` (lock file) at the repository root — consistent with how Go, Rust, Python, JavaScript, and other package types are handled. Key changes: register `os-pm` in the ecosystems registry with `DefaultSpecFile: "pm.yaml"` and `DefaultLockFile: "pm.lock"`; use `pm sync --from <lockfile>` as the install command; remove the special-cased `os-pm` branches in `fillFileBasedSpec()` and `validate()`; remove the now-unused `PackagesSpec` struct; reject `workdir` for `os-pm`; wire up SBOM cataloging for `pm.yaml`/`pm.lock` via the `CatalogerName` field. All unit and e2e tests referencing the old inline syntax must be migrated to the new file-based syntax — including 16 e2e fixture `werf.yaml` files.
 
 ## Technical Context
 
@@ -45,12 +45,45 @@ Key files that need changes:
 - **`pkg/config/packages_commands.go`** — `GeneratePackagesCommands()` needs no changes (already uses `eco.InstallCmd`), but the `formatInstallCommand()` function for the old inline `pm install` syntax may be removable or kept for reference
 - **`pkg/sbom/managedinput/managedinput.go`** — `buildResolvers()` skips ecosystems with empty `CatalogerName`; once `os-pm` has a `CatalogerName`, it automatically gets a cataloger with source paths `pm.yaml` and `pm.lock` at the repository root
 - **`pkg/build/builder/`** — Builder interface may need `HasOSPMPackages()` → `OSPMLockPath()` change if the build phase uses lock path instead of boolean flag (NEEDS CLARIFICATION)
-- **Test files** — `packages_directive_*_test.go`, `raw_packages_directive_test.go`, `packages_commands_test.go`, `managedinput_test.go` all reference the old inline `os-pm` syntax and need updating
+- **Unit test files** — `packages_directive_*_test.go`, `raw_packages_directive_test.go`, `packages_commands_test.go`, `managedinput_test.go`, `packages_test.go` all reference the old inline `os-pm` syntax and need updating
+- **E2E test files** — `test/e2e/sbom/packages_test.go`, `gost_test.go`, `lifecycle_test.go`, `stage_dependencies_test.go` reference inline `os-pm` syntax and need updating
+- **E2E fixtures** — 16 `werf.yaml` fixtures under `test/e2e/sbom/_fixtures/` use inline `spec: [pkg...]` syntax that must be migrated to file-based `pm.yaml`/`pm.lock`
+
+### Updates from Spec Change (2026-08-05)
+
+The spec was updated with:
+1. **New clarification**: All e2e test fixtures MUST be migrated to file-based `pm.yaml`/`pm.lock` syntax — including SBOM stage dependency tests and type-change tests.
+2. **New success criteria**:
+   - **SC-013**: All e2e test fixtures are migrated to file-based `pm.yaml`/`pm.lock` syntax and corresponding e2e tests pass.
+   - **SC-014**: The `stage_deps_file` e2e test tracks `pm.yaml` and `pm.lock` via `git.stageDependencies.packages` and demonstrates that changes to either file trigger SBOM regeneration.
+
+### E2E Test Fixtures Requiring Migration
+
+All use inline `spec: [pkg==ver]` syntax that must change to file-based `pm.yaml`/`pm.lock`:
+
+| Fixture | File |
+|---------|------|
+| `inject/ospm_basic` | `test/e2e/sbom/_fixtures/inject/ospm_basic/werf.yaml` |
+| `inject/ospm_gost_override` | `test/e2e/sbom/_fixtures/inject/ospm_gost_override/werf.yaml` |
+| `inject/ospm_scratch_secrets` | `test/e2e/sbom/_fixtures/inject/ospm_scratch_secrets/werf.yaml` |
+| `stage_deps_file/state0` | `test/e2e/sbom/_fixtures/stage_deps_file/state0/werf.yaml` |
+| `stage_deps_file/state1` | `test/e2e/sbom/_fixtures/stage_deps_file/state1/werf.yaml` |
+| `stage_deps/state0` | `test/e2e/sbom/_fixtures/stage_deps/state0/werf.yaml` |
+| `stage_deps/state1` | `test/e2e/sbom/_fixtures/stage_deps/state1/werf.yaml` |
+| `stage_deps/state2` | `test/e2e/sbom/_fixtures/stage_deps/state2/werf.yaml` |
+| `packages_merge/base_with_child` | `test/e2e/sbom/_fixtures/packages_merge/base_with_child/werf.yaml` |
+| `packages_merge/parent_propagation` | `test/e2e/sbom/_fixtures/packages_merge/parent_propagation/werf.yaml` |
+| `type_change/state0` | `test/e2e/sbom/_fixtures/type_change/state0/werf.yaml` |
+| `lifecycle/multi_image` | `test/e2e/sbom/_fixtures/lifecycle/multi_image/werf.yaml` |
+| `purl_resolver_errors` | `test/e2e/sbom/_fixtures/purl_resolver_errors/werf.yaml` |
+| `negative/broken_pm` | `test/e2e/sbom/_fixtures/negative/broken_pm/werf.yaml` |
+| `negative/no_pm_binary` | `test/e2e/sbom/_fixtures/negative/no_pm_binary/werf.yaml` |
+| `regressions/manifest_annotation` | `test/e2e/sbom/_fixtures/regressions/manifest_annotation/werf.yaml` |
 
 ### Unknowns
 
 1. **Builder interface change** — The spec mentions `HasOSPMPackages()` → `OSPMLockPath()` (FR-011). Need to trace how the builder currently detects `os-pm` packages and passes info to the build stage. Explore `pkg/build/builder/shell.go` and how `GeneratePackagesCommands()` is called.
-2. **Test fixture locations** — Test YAML fixtures or test data may reference the inline `os-pm` syntax and need updating.
+2. **Test fixture locations** — All unit test YAML fixtures/data referencing inline `os-pm` syntax and all 16 e2e fixtures need updating.
 3. **Git stage dependencies behavior** — Already supported for all package types per FR-013, but verify there's no `os-pm` specific exclusion.
 4. **Build phase command wiring** — Trace how the build phase generates and runs `pm sync` commands from `GeneratePackagesCommands()`.
 
@@ -63,10 +96,12 @@ Key files that need changes:
 | **I. Simplicity Over Abstraction** | Removing a special-cased inline syntax in favor of the standard `FileBasedSpec` path reduces complexity — one less code branch, one less struct (`PackagesSpec`), consistent with all other package types. | ✅ PASS |
 | **II. Go Idiomatic Code** | No changes to public API signatures beyond the optional `HasOSPMPackages()` → `OSPMLockPath()` rename. | ✅ PASS |
 | **III. Minimal Public Surface** | The change shrinks the public surface by removing `PackagesSpec` and the special-cased `os-pm` validation/parsing branches. | ✅ PASS |
-| **IV. Test-Before-Merge** | All test fixtures and assertions using inline `os-pm` syntax must be updated. This is a substantial but mechanical change. | ⚠️ PASS with conditions |
+| **IV. Test-Before-Merge** | All unit test fixtures/assertions using inline `os-pm` syntax must be updated. All 16 e2e fixtures must be migrated to file-based `pm.yaml`/`pm.lock` syntax. The corresponding e2e Go test files referencing inline syntax must also be updated. | ⚠️ PASS with conditions |
 | **V. Conventional Commits** | Standard commit format applies. No unusual patterns. | ✅ PASS |
 
-**GATE**: No violations — proceed to Phase 0.
+**GATE (post-Phase 1 re-evaluation)**: No violations — proceed to Phase 2.
+
+The design artifacts (research.md, data-model.md, contracts/, quickstart.md) have been generated. The e2e fixture migration requirement is substantial but mechanical, and does not change the core design approach.
 
 ## Project Structure
 

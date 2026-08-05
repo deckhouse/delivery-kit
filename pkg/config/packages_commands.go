@@ -57,6 +57,15 @@ func formatInstallCommand(pkgs []string, env map[string]string) string {
 	return strings.Join(parts, " ")
 }
 
+func formatSyncCommand(lockFile string, env map[string]string) string {
+	var parts []string
+	if envPrefix := formatEnvVars(env); envPrefix != "" {
+		parts = append(parts, envPrefix)
+	}
+	parts = append(parts, formatSecretVar("PACKAGES_VERSION"), formatSecretVar("REGISTRY"), "pm sync --from", lockFile)
+	return strings.Join(parts, " ")
+}
+
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 	var commands []string
 	for _, pkg := range packages {
@@ -65,7 +74,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.Spec.Packages, pkg.Env))
+		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.FileBased.Lock, pkg.Env))
 	}
 	return commands
 }

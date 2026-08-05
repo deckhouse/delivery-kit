@@ -20,21 +20,21 @@ var _ = Describe("formatSecretVar", func() {
 })
 
 var _ = Describe("GeneratePackagesCommands os-pm", func() {
-	It("produces a single command that creates dir and installs packages", func() {
+	It("produces a single command that creates dir and syncs packages", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+			{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		})
 		Expect(cmds).To(HaveLen(1))
 		cmd := cmds[0]
 		Expect(cmd).To(ContainSubstring("mkdir -p /var/lib/pm"))
 		Expect(cmd).To(ContainSubstring(`PACKAGES_VERSION="${PACKAGES_VERSION:-$(`))
 		Expect(cmd).To(ContainSubstring(`REGISTRY="${REGISTRY:-$(`))
-		Expect(cmd).To(HaveSuffix("pm install curl"))
+		Expect(cmd).To(ContainSubstring("pm sync --from pm.lock"))
 	})
 
 	It("uses stapel cat binary path for secret resolution", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+			{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		})
 		Expect(cmds).To(HaveLen(1))
 		Expect(cmds[0]).To(ContainSubstring("/.werf/stapel/embedded/bin/cat"))
@@ -42,12 +42,12 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 
 	It("does not snapshot - each os-pm directive becomes one command", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq"}}},
+			{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
+			{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		})
 		Expect(cmds).To(HaveLen(2))
-		Expect(cmds[0]).To(ContainSubstring("pm install curl"))
-		Expect(cmds[1]).To(ContainSubstring("pm install jq"))
+		Expect(cmds[0]).To(ContainSubstring("pm sync --from pm.lock"))
+		Expect(cmds[1]).To(ContainSubstring("pm sync --from pm.lock"))
 	})
 
 	type envVarEntry struct {
@@ -66,55 +66,55 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		},
 
 		Entry("single custom env var", envVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{"CUSTOM_VAR": "hello-world"}},
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{"CUSTOM_VAR": "hello-world"}},
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`CUSTOM_VAR="hello-world"`)) },
-				func(cmd string) { Expect(cmd).To(HaveSuffix("pm install curl")) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring("pm sync --from pm.lock")) },
 			},
 		}),
 
 		Entry("DOCKER_CONFIG env var", envVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{"DOCKER_CONFIG": "/run/secrets/docker-config"}},
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{"DOCKER_CONFIG": "/run/secrets/docker-config"}},
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`DOCKER_CONFIG="/run/secrets/docker-config"`)) },
-				func(cmd string) { Expect(cmd).To(HaveSuffix("pm install curl")) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring("pm sync --from pm.lock")) },
 			},
 		}),
 
 		Entry("multiple env vars sorted alphabetically", envVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{"ZZZ": "last", "AAA": "first"}},
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{"ZZZ": "last", "AAA": "first"}},
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`AAA="first"`)) },
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`ZZZ="last"`)) },
-				func(cmd string) { Expect(cmd).To(HaveSuffix("pm install curl")) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring("pm sync --from pm.lock")) },
 			},
 		}),
 
 		Entry("proxy env vars HTTP_PROXY and HTTPS_PROXY", envVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{
 				"HTTP_PROXY":  "http://proxy.example.com:8080",
 				"HTTPS_PROXY": "http://proxy.example.com:8080",
 			}},
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`HTTP_PROXY="http://proxy.example.com:8080"`)) },
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`HTTPS_PROXY="http://proxy.example.com:8080"`)) },
-				func(cmd string) { Expect(cmd).To(HaveSuffix("pm install curl")) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring("pm sync --from pm.lock")) },
 			},
 		}),
 
 		Entry("DEBIAN_FRONTEND env var", envVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"tzdata"}}, Env: map[string]string{"DEBIAN_FRONTEND": "noninteractive"}},
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{"DEBIAN_FRONTEND": "noninteractive"}},
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`DEBIAN_FRONTEND="noninteractive"`)) },
-				func(cmd string) { Expect(cmd).To(HaveSuffix("pm install tzdata")) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring("pm sync --from pm.lock")) },
 			},
 		}),
 
 		Entry("empty string value", envVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{"SOME_VAR": ""}},
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{"SOME_VAR": ""}},
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`SOME_VAR=""`)) },
-				func(cmd string) { Expect(cmd).To(HaveSuffix("pm install curl")) },
+				func(cmd string) { Expect(cmd).To(ContainSubstring("pm sync --from pm.lock")) },
 			},
 		}),
 	)
@@ -123,11 +123,11 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		func(directive *PackagesDirective) {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
 			Expect(cmds).To(HaveLen(1))
-			Expect(cmds[0]).To(HaveSuffix("pm install curl"))
+			Expect(cmds[0]).To(ContainSubstring("pm sync --from pm.lock"))
 		},
 
-		Entry("env is nil", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}}),
-		Entry("env is empty map", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{}}),
+		Entry("env is nil", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}}),
+		Entry("env is empty map", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}, Env: map[string]string{}}),
 	)
 })
 
@@ -421,4 +421,16 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 			substring: `cd "/app" && yarn install --frozen-lockfile`,
 		}),
 	)
+})
+
+var _ = Describe("GeneratePackagesCommands no os-pm", func() {
+	It("produces no commands when packages list is nil", func() {
+		cmds := GeneratePackagesCommands(nil)
+		Expect(cmds).To(BeEmpty())
+	})
+
+	It("produces no commands when packages list is empty", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{})
+		Expect(cmds).To(BeEmpty())
+	})
 })

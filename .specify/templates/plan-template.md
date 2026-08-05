@@ -24,7 +24,7 @@
 
 **Storage**: OCI container registry (Docker v2, ECR), local git repository, Buildah container storage
 
-**Testing**: `testing` + `testify` (`assert`/`require`) for unit tests; Ginkgo for e2e tests
+**Testing**: Ginkgo + Gomega for all tests (unit and e2e)
 
 **Target Platform**: Linux (amd64/arm64) via Buildah; Kubernetes clusters
 

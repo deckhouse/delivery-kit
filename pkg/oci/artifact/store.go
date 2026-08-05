@@ -120,7 +120,7 @@ func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifac
 // Callers needing a specific artifact should use GetAttachedContent with an
 // imageName-configured store instead.
 func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {
-	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", s.opts...)
+	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", s.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, fmt.Errorf("get attached artifact: %w", err)
 	}

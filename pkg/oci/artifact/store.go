@@ -65,21 +65,23 @@ func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string
 	}
 	imgWithSubject := mutate.Subject(img, parentDesc.Descriptor).(v1.Image)
 
-	if err := PushArtifactImage(ctx, s.repo, imgWithSubject, s.remoteOptions(ctx)...); err != nil {
-		return err
-	}
+	return withTagLock(s.repo, parentDigest, func() error {
+		if err := PushArtifactImage(ctx, s.repo, imgWithSubject, s.remoteOptions(ctx)...); err != nil {
+			return err
+		}
 
-	desc, err := partial.Descriptor(imgWithSubject)
-	if err != nil {
-		return fmt.Errorf("create descriptor: %w", err)
-	}
-	artifactDesc := *desc
-	artifactDesc.ArtifactType = artifactType
-	if len(annotations) > 0 {
-		artifactDesc.Annotations = annotations
-	}
+		desc, err := partial.Descriptor(imgWithSubject)
+		if err != nil {
+			return fmt.Errorf("create descriptor: %w", err)
+		}
+		artifactDesc := *desc
+		artifactDesc.ArtifactType = artifactType
+		if len(annotations) > 0 {
+			artifactDesc.Annotations = annotations
+		}
 
-	return Attach(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, s.remoteOptions(ctx)...)
+		return attachDescriptor(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, s.remoteOptions(ctx)...)
+	})
 }
 
 // buildArtifactImage assembles the artifact image carrying the payload as its single layer.

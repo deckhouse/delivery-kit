@@ -13,7 +13,9 @@ Two ISPRAS-defined output formats are supported:
 - "container": hierarchical — each image becomes a top-level container component with nested packages.
 - "oss": flat — all packages from all images are merged into a deduplicated flat list.
 
-GOST properties (attack_surface, security_function) are aggregated bottom-up using the "yes > indirect > no" precedence rule.`
+GOST properties (attack_surface, security_function) are aggregated bottom-up using the "yes > indirect > no" precedence rule.
+
+The flags --input, --ispras-format, --app-name, --app-version and --manufacturer are required. The merged SBOM is written to stdout unless --output is given.`
 
 	docs.LongMD = "Merge per-image CycloneDX 1.6 SBOMs into a single product/module-level SBOM.\n\n" +
 		"Takes a JSON mapping file (image name → sha256 digest) as input, pulls per-image SBOMs " +
@@ -22,7 +24,9 @@ GOST properties (attack_surface, security_function) are aggregated bottom-up usi
 		"- `container`: hierarchical — each image becomes a top-level container component with nested packages.\n" +
 		"- `oss`: flat — all packages from all images are merged into a deduplicated flat list.\n\n" +
 		"GOST properties (`attack_surface`, `security_function`) are aggregated bottom-up using " +
-		"the `yes > indirect > no` precedence rule."
+		"the `yes > indirect > no` precedence rule.\n\n" +
+		"The flags `--input`, `--ispras-format`, `--app-name`, `--app-version` and `--manufacturer` " +
+		"are required. The merged SBOM is written to stdout unless `--output` is given."
 
 	return docs
 }

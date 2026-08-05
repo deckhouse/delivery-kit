@@ -13,6 +13,8 @@ Two ISPRAS-defined output formats are supported:
 
 GOST properties (`attack_surface`, `security_function`) are aggregated bottom-up using the `yes > indirect > no` precedence rule.
 
+The flags `--input`, `--ispras-format`, `--app-name`, `--app-version` and `--manufacturer` are required. The merged SBOM is written to stdout unless `--output` is given.
+
 {{ header }} Syntax
 
 ```shell
@@ -31,7 +33,7 @@ werf sbom merge [options]
       --docker-config=""
             Specify docker config directory path. Default $WERF_DOCKER_CONFIG or $DOCKER_CONFIG or  
             ~/.docker (in the order of priority)
-            Command needs granted permissions to pull SBOM images from the specified repo
+            Command needs granted permissions to pull SBOM artifacts from the specified repo
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
       --input=""

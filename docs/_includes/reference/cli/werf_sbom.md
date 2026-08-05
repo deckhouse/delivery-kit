@@ -3,5 +3,5 @@
 {% else %}
 {% assign header = "###" %}
 {% endif %}
-Work with werf SBOM images
+Work with SBOM artifacts
 

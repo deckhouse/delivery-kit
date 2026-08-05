@@ -6,4 +6,4 @@ build:
     standard: "cyclonedx@1.6"
 ---
 image: app
-from: registry.werf.io/werf/scratch
+from: registry.werf.io/werf/scratch:latest

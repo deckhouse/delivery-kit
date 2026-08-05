@@ -59,7 +59,7 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "cfd0121a39722eb3a9f45e91ea0535ec121cb15128540fd4337d880d",
+			expectedDigest: "3ab38137c958c1e63136c6427c3a5220927170894a2b5f3bc26ca6e0",
 		}),
 		Entry("file from contextAddFile added to context", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -68,7 +68,7 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "f5b05959538394c8efa45be592d98cdccf34535beaacffc28df82d4c",
+			expectedDigest: "8afdb7d9f6a2a14ae85a65813df6d0efc58f6284ece4c7a4bd20a7bb",
 		}),
 		Entry("symlinks from contextAddFiles added to context as is", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -77,7 +77,7 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "c4f00158d62efd73f700511e860bae19d6eaa8dfe8c2f93ebecff626",
+			expectedDigest: "f20a2157198461a66c646ea89bf03f0ead075d75b09498d915f96b77",
 		}),
 		Entry("dir from contextAddFiles added to context", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -86,7 +86,7 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "64751fd93aa7b8ed2991a9812cdd67fa6bf45d6059785ae8ef19e116",
+			expectedDigest: "5871b483761994e0c2b1f090625e993775998701f4ea781a4dbfa6ba",
 		}),
 		Entry("specified files from dir allowed in allowContextAddFiles added to context", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -95,7 +95,7 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "4bc78bce84c4726410b2b2addb1a66a9bcd3b340a9d7be43200bd125",
+			expectedDigest: "458ebd03e833b2bc6031d199e9c5eb32e84631c3bab6a1fcf79c9948",
 		}),
 	)
 })

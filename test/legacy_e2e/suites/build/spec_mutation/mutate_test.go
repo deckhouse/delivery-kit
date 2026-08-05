@@ -87,10 +87,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal("testuser"))
 
-						Expect(imgCfg.ExposedPorts).Should(SatisfyAny(
-							Equal(manifest.Schema2PortSet{"99": {}}),
-							Equal(manifest.Schema2PortSet{"99/tcp": {}}),
-						))
+						Expect(imgCfg.ExposedPorts).Should(Equal(manifest.Schema2PortSet{"99": {}}))
 
 						Expect(imgCfg.ExposedPorts).ShouldNot(HaveKey("1234/tcp"))
 
@@ -113,11 +110,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal(""))
 
-						Expect(imgCfg.ExposedPorts).Should(SatisfyAny(
-							Equal(manifest.Schema2PortSet{"": {}}),
-							Equal(manifest.Schema2PortSet{"/tcp": {}}),
-							Equal(manifest.Schema2PortSet{"invalid port": {}}),
-						))
+						Expect(imgCfg.ExposedPorts).Should(Equal(manifest.Schema2PortSet{"": {}}))
 
 						Expect(imgCfg.WorkingDir).Should(Equal(""))
 

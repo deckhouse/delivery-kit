@@ -122,8 +122,8 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 		}),
 
 		// SBOM enforcement: shell stages get --network=none when build.sbom.enable=true
-		Entry("Stapel (Vanilla): sbom.enable=true enforces --network=none on shell stages (should fail)", Label("stapel", "managed-deps"), networkTestOptions{
-			setupEnvOptions:    setupEnvOptions{ContainerBackendMode: "vanilla-docker", WithLocalRepo: false},
+		Entry("Stapel (Docker): sbom.enable=true enforces --network=none on shell stages (should fail)", Label("stapel", "managed-deps"), networkTestOptions{
+			setupEnvOptions:    setupEnvOptions{ContainerBackendMode: "docker", WithLocalRepo: false},
 			ExpectError:        true,
 			FixturePath:        "network/managed_deps_enforcement",
 			NetworkNone:        false,
@@ -131,8 +131,8 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 		}),
 
 		// SBOM enforcement, regression: sbom.enable=false does NOT enforce network isolation
-		Entry("Stapel (Vanilla): sbom.enable=false does not enforce --network=none (should succeed)", Label("stapel", "managed-deps"), networkTestOptions{
-			setupEnvOptions: setupEnvOptions{ContainerBackendMode: "vanilla-docker", WithLocalRepo: false},
+		Entry("Stapel (Docker): sbom.enable=false does not enforce --network=none (should succeed)", Label("stapel", "managed-deps"), networkTestOptions{
+			setupEnvOptions: setupEnvOptions{ContainerBackendMode: "docker", WithLocalRepo: false},
 			ExpectError:     false,
 			FixturePath:     "network/stapel",
 			NetworkNone:     false,

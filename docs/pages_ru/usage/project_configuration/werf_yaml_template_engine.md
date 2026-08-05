@@ -98,24 +98,30 @@ configVersion: 1
 
 image: app1
 from: alpine
-shell:
-  beforeInstall:
+ansible:
+beforeInstall:
 {{- include "(component) ruby" . }}
 ---
 image: app2
 from: alpine
-shell:
-  beforeInstall:
+ansible:
+beforeInstall:
 {{- include "(component) ruby" . }}
 
 {{- define "(component) ruby" }}
-  - gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3
-  - curl -sSL https://raw.githubusercontent.com/rvm/rvm/master/binscripts/rvm-installer -o /tmp/rvm-installer
-  - bash -e /tmp/rvm-installer
-  - bash -lec 'rvm install 2.3.4'
-  - bash -lec 'rvm use --default 2.3.4'
-  - bash -lec 'gem install bundler --no-ri --no-rdoc'
-  - bash -lec 'rvm cleanup all'
+- command: gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3
+- get_url:
+    url: https://raw.githubusercontent.com/rvm/rvm/master/binscripts/rvm-installer
+    dest: /tmp/rvm-installer
+- name: "Install rvm"
+  command: bash -e /tmp/rvm-installer
+- name: "Install ruby 2.3.4"
+  raw: bash -lec {{`{{ item | quote }}`}}
+  with_items:
+  - rvm install 2.3.4
+  - rvm use --default 2.3.4
+  - gem install bundler --no-ri --no-rdoc
+  - rvm cleanup all
 {{- end }}
 ```
 {% endraw %}
@@ -264,11 +270,31 @@ setup:
 ```
 {% endraw %}
 
+##### Пример: использование определённого файла в stapel-образе без использования директивы git (ansible)
+
+{% raw %}
+```yaml
+project: my-project
+configVersion: 1
+---
+
+image: app
+from: alpine
+ansible:
+  setup:
+  - name: "Setup /etc/nginx/nginx.conf"
+    copy:
+      content: |
+{{ .Files.Get ".werf/nginx.conf" | indent 8 }}
+      dest: /etc/nginx/nginx.conf
+```
+{% endraw %}
+
 #### .Files.Glob
 
 Функция `.Files.Glob` позволяет работать с файлами проекта и их содержимым по глобу. 
 
-Функция поддерживает [shell pattern matching](https://www.gnu.org/software/findutils/manual/find.html#Shell-Pattern-Matching) и `**`. Результаты вызова функции можно объединить, используя sprig-функцию [merge](https://github.com/Masterminds/sprig/blob/master/docs/dicts.md#merge-mustmerge) (к примеру, {% raw %}`{{ $filesDict := merge (.Files.Glob "glob1") (.Files.Glob "glob2") }}`{% endraw %})
+Функция поддерживает [shell pattern matching](https://www.gnu.org/software/findutils/manual/html_node/Shell-Pattern-Matching.html) и `**`. Результаты вызова функции можно объединить, используя sprig-функцию [merge](https://github.com/Masterminds/sprig/blob/master/docs/dicts.md#merge-mustmerge) (к примеру, {% raw %}`{{ $filesDict := merge (.Files.Glob "glob1") (.Files.Glob "glob2") }}`{% endraw %})
 
 __Синтаксис__:
 {% raw %}
@@ -297,6 +323,30 @@ shell:
     head -c -1 <<EOF > /app/{{ base $path }}
 {{ $content | indent 4 }}
     EOF
+{{ end }}
+```
+{% endraw %}
+
+##### Пример: использование файлов по глобу в stapel-образе без использования директивы git (ansible)
+
+{% raw %}
+```yaml
+project: my-project
+configVersion: 1
+---
+
+image: app
+from: alpine
+ansible:
+  install:
+  - raw: mkdir /app
+  setup:
+{{ range $path, $content := .Files.Glob "modules/*/images/*/{Dockerfile,werf.inc.yaml}" }}
+  - name: "Setup /app/{{ base $path }}"
+    copy:
+      content: |
+{{ $content | indent 8 }}
+      dest: /app/{{ base $path }}
 {{ end }}
 ```
 {% endraw %}
@@ -378,6 +428,89 @@ _Файлы шаблонов_ могут храниться в зарезерв�
 - _Файл шаблонов_ является полноценным шаблоном и может использоваться функцией [include](#include) по относительному пути ({% raw %}`{{ include "directory/partial.tmpl" . }}`{% endraw %}).
 - Шаблон определённый с помощью `define` в одном _файле шаблонов_ доступен в любом другом, включая основную конфигурацию.  
 
+### Пример: использование файлов шаблонов
+
+<div class="details active">
+<a href="javascript:void(0)" class="details__summary">werf.yaml</a>
+<div class="details__content" markdown="1">
+
+{% raw %}
+```yaml
+project: my-project
+configVersion: 1
+---
+image: app
+from: java:8-jdk-alpine
+shell:
+  beforeInstall:
+  - mkdir /app
+  - adduser -Dh /home/gordon gordon
+import:
+- artifact: appserver
+  add: '/usr/src/atsea/target/AtSea-0.0.1-SNAPSHOT.jar'
+  to: '/app/AtSea-0.0.1-SNAPSHOT.jar'
+  after: install
+- artifact: storefront
+  add: /usr/src/atsea/app/react-app/build
+  to: /static
+  after: install
+docker:
+  ENTRYPOINT: ["java", "-jar", "/app/AtSea-0.0.1-SNAPSHOT.jar"]
+  CMD: ["--spring.profiles.active=postgres"]
+---
+{{ include "artifact/appserver.tmpl" . }}
+---
+{{ include "artifact/storefront.tmpl" . }}
+```
+{% endraw %}
+
+</div>
+</div>
+
+<div class="details">
+<a href="javascript:void(0)" class="details__summary">.werf/artifact/appserver.tmpl</a>
+<div class="details__content" markdown="1">
+
+{% raw %}
+```yaml
+artifact: appserver
+from: maven:latest
+git:
+- add: '/app'
+  to: '/usr/src/atsea'
+shell:
+  install:
+  - cd /usr/src/atsea
+  - mvn -B -f pom.xml -s /usr/share/maven/ref/settings-docker.xml dependency:resolve
+  - mvn -B -s /usr/share/maven/ref/settings-docker.xml package -DskipTests
+```
+{% endraw %}
+
+</div>
+</div>
+
+<div class="details">
+<a href="javascript:void(0)" class="details__summary">.werf/artifact/storefront.tmpl</a>
+<div class="details__content" markdown="1">
+
+{% raw %}
+```yaml
+artifact: storefront
+from: node:latest
+git:
+- add: /app/react-app
+  to: /usr/src/atsea/app/react-app
+shell:
+  install:
+  - cd /usr/src/atsea/app/react-app
+  - npm install
+  - npm run build
+```
+{% endraw %}
+
+</div>
+</div>
+
 ### Пример: использование шаблонов, описанных в файле шаблонов
 
 <div class="details active">
@@ -395,7 +528,7 @@ configVersion: 1
 
 image: rails
 from: {{ .BaseImage }}
-shell:
+ansible:
   beforeInstall:
   {{- include "(component) mysql client" . }}
   {{- include "(component) ruby" . }}
@@ -408,40 +541,60 @@ shell:
 </div>
 
 <div class="details">
-<a href="javascript:void(0)" class="details__summary">.werf/shell/components.tmpl</a>
+<a href="javascript:void(0)" class="details__summary">.werf/ansible/components.tmpl</a>
 <div class="details__content" markdown="1">
 
 {% raw %}
 ```yaml
 {{- define "(component) Gemfile dependencies" }}
-  - mkdir -p /root/.ssh
-  - |
-    bash -ec '
-    set -e
-    ssh-keyscan github.com >> /root/.ssh/known_hosts
-    ssh-keyscan mygitlab.myorg.com >> /root/.ssh/known_hosts
-    '
-  - |
-    bash -lec '
-    set -e
-    source /etc/profile.d/rvm.sh
-    cd /app
-    bundle install --without development test --path vendor/bundle
-    '
+  - file:
+      path: /root/.ssh
+      state: directory
+      owner: root
+      group: root
+      recurse: yes
+  - name: "Setup ssh known_hosts used in Gemfile"
+    shell: |
+      set -e
+      ssh-keyscan github.com >> /root/.ssh/known_hosts
+      ssh-keyscan mygitlab.myorg.com >> /root/.ssh/known_hosts
+    args:
+      executable: /bin/bash
+  - name: "Install Gemfile dependencies with bundler"
+    shell: |
+      set -e
+      source /etc/profile.d/rvm.sh
+      cd /app
+      bundle install --without development test --path vendor/bundle
+    args:
+      executable: /bin/bash
 {{- end }}
 
 {{- define "(component) mysql client" }}
-  - apt-get update && apt-get install -y libmysqlclient-dev mysql-client g++
+  - name: "Install mysql client"
+    apt:
+      name: "{{`{{ item }}`}}"
+      update_cache: yes
+    with_items:
+    - libmysqlclient-dev
+    - mysql-client
+    - g++
 {{- end }}
 
 {{- define "(component) ruby" }}
-  - gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3
-  - curl -sSL https://raw.githubusercontent.com/rvm/rvm/master/binscripts/rvm-installer -o /tmp/rvm-installer
-  - bash -e /tmp/rvm-installer
-  - bash -lec 'rvm install {{ .RubyVersion }}'
-  - bash -lec 'rvm use --default {{ .RubyVersion }}'
-  - bash -lec 'gem install bundler --no-ri --no-rdoc'
-  - bash -lec 'rvm cleanup all'
+  - command: gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3
+  - get_url:
+      url: https://raw.githubusercontent.com/rvm/rvm/master/binscripts/rvm-installer
+      dest: /tmp/rvm-installer
+  - name: "Install rvm"
+    command: bash -e /tmp/rvm-installer
+  - name: "Install ruby {{ .RubyVersion }}"
+    raw: bash -lec {{`{{ item | quote }}`}}
+    with_items:
+    - rvm install {{ .RubyVersion }}
+    - rvm use --default {{ .RubyVersion }}
+    - gem install bundler --no-ri --no-rdoc
+    - rvm cleanup all
 {{- end }}
 ```
 {% endraw %}

@@ -7,6 +7,8 @@ Validate CycloneDX JSON SBOM files against ISPRAS schemas using sbom-checker.
 
 The command runs sbom-checker inside a Docker container and reports validation results. Supports both OSS and container SBOM types.
 
+The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several files in one run. Pass `--check-vcs` to additionally validate VCS URLs.
+
 {{ header }} Syntax
 
 ```shell

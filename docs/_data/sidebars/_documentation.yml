@@ -58,6 +58,9 @@ entries:
               - title: Build process
                 url: /usage/build/process.html
 
+              - title: SBOM
+                url: /usage/build/sbom.html
+
           - title: Deploy
             f:
               - title: Overview
@@ -221,6 +224,9 @@ entries:
 
               - title: Сборочный процесс
                 url: /usage/build/process.html
+
+              - title: SBOM
+                url: /usage/build/sbom.html
 
           - title: Развертывание
             f:

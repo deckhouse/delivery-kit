@@ -47,8 +47,8 @@ sections:
             collapsible: true
             isCollapsedByDefault: false
             detailsArticle:
-              en: "/usage/build/process.html#scanning-and-generation-of-sbom-artifacts-experimental"
-              ru: "/usage/build/process.html#сканирование-и-генерация-sbom-артефактов-experimental"
+              en: "/usage/build/sbom.html"
+              ru: "/usage/build/sbom.html"
             directives:
               - name: enable
                 value: bool
@@ -90,8 +90,8 @@ sections:
             collapsible: true
             isCollapsedByDefault: false
             detailsArticle:
-              en: "/usage/build/process.html#scanning-and-generation-of-sbom-artifacts-experimental"
-              ru: "/usage/build/process.html#сканирование-и-генерация-sbom-артефактов-experimental"
+              en: "/usage/build/sbom.html"
+              ru: "/usage/build/sbom.html"
             directives:
               - <<: *gost-directive
           - name: imageSpec
@@ -586,8 +586,8 @@ sections:
           - name: type
             value: "string"
             description:
-              en: "Package ecosystem type (go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock, javascript-npm, javascript-yarn, javascript-pnpm)"
-              ru: "Тип экосистемы пакетов (go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock, javascript-npm, javascript-yarn, javascript-pnpm)"
+              en: "Package ecosystem type (os-pm, go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock, javascript-npm, javascript-yarn, javascript-pnpm)"
+              ru: "Тип экосистемы пакетов (os-pm, go-mod, python-uv, python-pip, python-poetry, rust-cargo, lua-rock, javascript-npm, javascript-yarn, javascript-pnpm)"
           - name: workdir
             value: "string"
             description:

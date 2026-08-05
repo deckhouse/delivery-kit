@@ -142,7 +142,7 @@ No limitations are imposed on assembly instructions. The suggested use of _user 
 
 ## Installing binary packages
 
-The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When SBOM generation is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
+The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When [SBOM generation]({{ "/usage/build/sbom.html" | true_relative_url }}) is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
 
 Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`).
 

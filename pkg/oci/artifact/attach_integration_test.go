@@ -2,7 +2,12 @@ package artifact_test
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -15,6 +20,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo/parallel"
 
+	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 )
 
@@ -152,3 +158,70 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		Expect(im.Manifests).To(BeEmpty())
 	})
 })
+
+var _ = Describe("Default registry authentication (integration)", func() {
+	const (
+		artifactType = "application/vnd.dsse.envelope.v1+json"
+		username     = "testuser"
+		password     = "testpassword"
+	)
+
+	var (
+		server       *httptest.Server
+		repo         string
+		parentDigest string
+		authOpts     []remote.Option
+	)
+
+	BeforeEach(func(ctx SpecContext) {
+		server = httptest.NewServer(requireBasicAuth(registry.New(), username, password))
+		host := strings.TrimPrefix(server.URL, "http://")
+		repo = host + "/test/app"
+		authOpts = []remote.Option{remote.WithAuth(&authn.Basic{Username: username, Password: password})}
+
+		dockerConfigDir := GinkgoT().TempDir()
+		auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, host, auth)
+		Expect(os.WriteFile(filepath.Join(dockerConfigDir, "config.json"), []byte(configJSON), 0o600)).To(Succeed())
+		GinkgoT().Setenv("DOCKER_CONFIG", dockerConfigDir)
+
+		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
+
+		parent, err := random.Image(256, 1)
+		Expect(err).To(Succeed())
+
+		parentRef, err := name.NewTag(repo + ":v1")
+		Expect(err).To(Succeed())
+		Expect(remote.Write(parentRef, parent, append([]remote.Option{remote.WithContext(ctx)}, authOpts...)...)).To(Succeed())
+
+		dgst, err := parent.Digest()
+		Expect(err).To(Succeed())
+		parentDigest = dgst.String()
+	})
+
+	AfterEach(func() {
+		server.Close()
+	})
+
+	It("should pull artifact content via GetAttachedContentAny using default docker_registry auth", func(ctx SpecContext) {
+		attacher := artifact.NewOCIStore(repo, "my-app", authOpts...)
+		Expect(attacher.Attach(ctx, parentDigest, artifactType, []byte(`{"sbom":"data"}`), "", "")).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, "")
+		content, err := store.GetAttachedContentAny(ctx, parentDigest, artifactType)
+		Expect(err).To(Succeed())
+		Expect(content).To(MatchJSON(`{"sbom":"data"}`))
+	})
+})
+
+func requireBasicAuth(next http.Handler, username, password string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != username || pass != password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

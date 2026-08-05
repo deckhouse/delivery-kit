@@ -10,12 +10,12 @@ import (
 var _ = Describe("formatSecretVar", func() {
 	It("generates a PACKAGES_VERSION template with correct structure", func() {
 		tmpl := formatSecretVar("PACKAGES_VERSION")
-		Expect(tmpl).To(MatchRegexp(`^PACKAGES_VERSION="\$\{PACKAGES_VERSION:-\$\(.+cat /run/secrets/PACKAGES_VERSION 2>/dev/null \|\| true\)}"$`))
+		Expect(tmpl).To(MatchRegexp(`^PACKAGES_VERSION="\$\{PACKAGES_VERSION:-\$\(\S*head /run/secrets/PACKAGES_VERSION 2>/dev/null \|\| true\)}"$`))
 	})
 
 	It("generates a REGISTRY template with correct structure", func() {
 		tmpl := formatSecretVar("REGISTRY")
-		Expect(tmpl).To(MatchRegexp(`^REGISTRY="\$\{REGISTRY:-\$\(.+cat /run/secrets/REGISTRY 2>/dev/null \|\| true\)}"$`))
+		Expect(tmpl).To(MatchRegexp(`^REGISTRY="\$\{REGISTRY:-\$\(\S*head /run/secrets/REGISTRY 2>/dev/null \|\| true\)}"$`))
 	})
 })
 
@@ -32,12 +32,14 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Expect(cmd).To(HaveSuffix("pm install curl"))
 	})
 
-	It("uses stapel cat binary path for secret resolution", func() {
+	It("reads secrets with the scratch-safe stapel head binary, not the removed cat", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
 		})
 		Expect(cmds).To(HaveLen(1))
-		Expect(cmds[0]).To(ContainSubstring("/.werf/stapel/embedded/bin/cat"))
+		Expect(cmds[0]).To(ContainSubstring("/.werf/stapel/embedded/bin/head /run/secrets/PACKAGES_VERSION"))
+		Expect(cmds[0]).NotTo(ContainSubstring("/.werf/stapel/embedded/bin/cat"))
+		Expect(cmds[0]).NotTo(ContainSubstring("$(< /run/secrets/"))
 	})
 
 	It("does not snapshot - each os-pm directive becomes one command", func() {

@@ -31,9 +31,14 @@ const (
 )
 
 func formatSecretVar(name string) string {
+	// Read the secret with stapel `head`, which is scratch-safe (embedded in the stapel
+	// toolchain, so it works on a base image without its own coreutils). The stapel
+	// toolchain no longer embeds `cat`, and the bash `$(<file)` builtin cannot be used
+	// here because the `2>/dev/null || true` guard turns it into a bare redirection that
+	// yields an empty value.
 	return fmt.Sprintf(
 		`%[1]s="${%[1]s:-$(%[2]s /run/secrets/%[1]s 2>/dev/null || true)}"`,
-		name, stapel.CatBinPath(),
+		name, stapel.HeadBinPath(),
 	)
 }
 

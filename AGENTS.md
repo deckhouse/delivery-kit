@@ -30,6 +30,7 @@ werf is a CNCF Sandbox CLI tool to implement full-cycle CI/CD to Kubernetes. wer
 - When renaming a type, function, or constant, ALWAYS rename all related local variables, parameters, and error messages that reference the old name. A rename is not complete until grep for the old name returns zero hits in affected packages.
 - When removing a feature that has documentation in multiple languages (e.g. `pages_en/`, `pages_ru/`), ALWAYS apply the same removal to ALL language versions. NEVER assume English-only cleanup is sufficient.
 - NEVER trust LSP/gopls diagnostics from unrelated files as proof of build failure. The ONLY source of truth for compilation is `task build`. LSP often reports false errors due to stale cache or incomplete workspace indexing.
+- NEVER cite a count or a command's success as evidence unless a failure would have looked different — validate the check against a known-positive case first. A mis-typed `grep -c` pattern and a genuinely absent condition both yield `0`, and `… | grep x || echo clean` always prints `clean`, because a pipeline reports only its last command's status. A broken check reads exactly like a passing one.
 - If you encounter errors in files OUTSIDE your task scope — STOP and report to the orchestrator. NEVER fix them yourself. Unsolicited fixes to unrelated files cause scope creep and may introduce regressions.
 - If a package has a doc.go, ALWAYS read it before changing that package or the on-disk data it owns — invariants and compatibility contracts live there (e.g. pkg/git_repo/gitdata owns the shared $WERF_HOME/local_cache).
 
@@ -52,6 +53,7 @@ Follow [Effective Go](https://go.dev/doc/effective_go) and [Go Code Review Comme
 - ALWAYS use LSP (`goToDefinition`, `findReferences`, `documentSymbol`, `hover`, `goToImplementation`, call hierarchy) to find definitions, usages, implementations, and callers. `grep` matches strings blindly: it hits comments and unrelated identifiers, and misses interface dispatch and aliased imports.
 - Use `grep` ONLY for literal text — config keys, error message strings, annotation names.
 - If your harness has a semantic code-search tool, prefer it over `grep` for intent-based questions ("how does X work"). If it does not, read the code: NEVER substitute keyword grepping for understanding.
+- LSP indexes the worktree, so it answers about whatever is checked out. When the code you are reading lives in a commit that is NOT checked out — reviewing an unfetched PR head, for instance — LSP and a bare `grep` both silently describe the base instead. Read the blob (`git show <ref>:<path>`) or add a worktree at that commit; a plain worktree grep that finds nothing there proves nothing.
 
 ## Commands (MANDATORY)
 
@@ -68,7 +70,7 @@ ALWAYS use these `task` commands. NEVER use raw `go build`, `go test`, `go fmt`,
 - `task enum:generate` — run enum generators.
 - `task mock:generate` — run mock generators.
 - `task mock:check` — verify generated mocks are up to date (runs `go generate -run mockgen` and diffs).
-- `task doc:gen` — regenerate CLI reference docs. ALWAYS run after changing command descriptions, flags, or help text in Go source.
+- `task doc:gen` — regenerate CLI reference docs. ALWAYS run after changing command descriptions, flags, or help text in Go source. It renders each flag's default from the CURRENT environment, so run it with the `WERF_*` variables unset and review the diff for flags you never touched — one exported `WERF_*` rewrites that flag's documented default across every command page.
 
 `format` and `lint*` come from a remote taskfile ([werf/common-ci](https://github.com/werf/common-ci)), so they need `TASK_X_REMOTE_TASKFILES=1` and network access.
 

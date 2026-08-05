@@ -1,3 +1,16 @@
+<!--
+  Sync Impact Report
+  Version: 1.0.0 → 1.1.0 (MINOR — materially expanded guidance)
+  Modified principles:
+    - IV. Test-Before-Merge → strengthened: Ginkgo-only (no testify),
+      always-run-tests-after-every-change rule (both unit and e2e),
+      mock generation mandate
+  Added sections: (none)
+  Removed sections: (none)
+  Templates requiring updates:
+    - ✅ delivery-kit/.specify/templates/plan-template.md (Testing: removed testify reference)
+  Follow-up TODOs: (none)
+-->
 # Delivery Kit Constitution
 
 ## Core Principles
@@ -16,7 +29,16 @@ Keep everything private/internal as much as possible. Validate early, validate a
 
 ### IV. Test-Before-Merge
 
-Tests are co-located with source files (`*_test.go`). All tests MUST use Ginkgo + Gomega stack. Tests must pass via `task test:unit` before merging. E2E tests also use Ginkgo and run via `task test:e2e`.
+Tests are co-located with source files (`*_test.go`).
+All tests MUST use Ginkgo + Gomega stack — no `testing`/`testify`
+(`assert`/`require`). After EVERY code change, ALL relevant tests
+(unit and e2e) MUST be re-executed — never rely on earlier pass
+results.
+- Unit tests: `task test:unit`
+- E2E tests: `task test:e2e` (with `paths` and `labelFilter` as needed)
+
+Mocks MUST be generated with `task mock:generate` — never write mocks
+by hand.
 
 ### V. Conventional Commits
 
@@ -46,10 +68,11 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
 - **Unit tests**: `task test:unit` (NOT raw `go test`)
 - **E2E tests**: `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
 - **Formatting**: `task format` (NOT raw `go fmt`)
+- **Mock generation**: `task mock:generate` (no manual mocks; validate with `task mock:check`)
 - **Documentation**: `task doc:gen` after changing CLI help text
 
 ## Governance
 
 This constitution supersedes all other practices. Amendments require documentation and approval. All PRs/reviews must verify compliance with these rules. The `AGENTS.md` file contains the authoritative agent instructions derived from this constitution and `CODESTYLE.md`.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-07-14
+**Version**: 1.1.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-05

@@ -8,14 +8,13 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/distribution/reference"
 
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
 const (
 	scratchImageName     = "scratch"
-	DSSEMediaType        = "application/vnd.dsse.envelope.v1+json"
-	InTotoMediaType      = "application/vnd.in-toto+json"
 	CycloneDX16Predicate = "https://cyclonedx.org/bom/v1.6"
 )
 
@@ -53,13 +52,13 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 		return fmt.Errorf("wrap BOM in in-toto statement: %w", err)
 	}
 
-	envelopeBytes, err := WrapInDSSE(stmtBytes, InTotoMediaType)
+	envelopeBytes, err := WrapInDSSE(stmtBytes, attestation.InTotoMediaType)
 	if err != nil {
 		return fmt.Errorf("wrap in-toto statement in DSSE: %w", err)
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)
-	return store.Attach(ctx, parentDigest, DSSEMediaType, envelopeBytes, checksum, targetPlatform)
+	return store.Attach(ctx, parentDigest, attestation.DSSEMediaType, envelopeBytes, checksum, targetPlatform)
 }
 
 func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte, error) {
@@ -68,19 +67,19 @@ func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte
 	var envelopeJSON []byte
 	if imageName != "" {
 		var err error
-		envelopeJSON, err = store.GetAttachedContent(ctx, parentDigest, DSSEMediaType)
+		envelopeJSON, err = store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType)
 		if err != nil {
 			return nil, fmt.Errorf("get attached SBOM: %w", err)
 		}
 	} else {
 		var err error
-		envelopeJSON, err = store.GetAttachedContentAny(ctx, parentDigest, DSSEMediaType)
+		envelopeJSON, err = store.GetAttachedContentAny(ctx, parentDigest, attestation.DSSEMediaType)
 		if err != nil {
 			return nil, fmt.Errorf("get attached SBOM: %w", err)
 		}
 	}
 
-	stmtBytes, err := UnwrapDSSE(envelopeJSON, InTotoMediaType)
+	stmtBytes, err := UnwrapDSSE(envelopeJSON, attestation.InTotoMediaType)
 	if err != nil {
 		return nil, fmt.Errorf("unwrap DSSE envelope: %w", err)
 	}
@@ -122,7 +121,7 @@ func PullCycloneDX16BOM(ctx context.Context, repo, parentDigest, imageName strin
 }
 
 func PullCycloneDX16BOMContent(ctx context.Context, envelopeJSON []byte) ([]byte, error) {
-	stmtBytes, err := UnwrapDSSE(envelopeJSON, InTotoMediaType)
+	stmtBytes, err := UnwrapDSSE(envelopeJSON, attestation.InTotoMediaType)
 	if err != nil {
 		return nil, err
 	}

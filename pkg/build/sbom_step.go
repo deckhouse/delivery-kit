@@ -11,6 +11,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
@@ -61,7 +62,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
-	desc, found, err := store.GetAttached(ctx, parentDigest, sbomImage.DSSEMediaType)
+	desc, found, err := store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType)
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
 	}

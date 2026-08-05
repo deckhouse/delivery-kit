@@ -5,11 +5,13 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/attestation"
 )
 
 var _ = Describe("DSSE Envelope", func() {
 	payload := []byte(`{"bomFormat":"CycloneDX","version":1}`)
-	payloadType := "application/vnd.dsse.envelope.v1+json"
+	payloadType := attestation.DSSEMediaType
 
 	DescribeTable("WrapInDSSE / UnwrapDSSE round-trip",
 		func(payload []byte, payloadType string) {
@@ -43,7 +45,7 @@ var _ = Describe("DSSE Envelope", func() {
 
 var _ = Describe("In-Toto Statement", func() {
 	predicate := []byte(`{"bomFormat":"CycloneDX","version":1}`)
-	predicateType := "https://cyclonedx.org/bom/v1.6"
+	predicateType := CycloneDX16Predicate
 	repo := "registry.example.com/project"
 	digestHex := "abc123def456"
 
@@ -70,7 +72,7 @@ var _ = Describe("In-Toto Statement", func() {
 		var stmt map[string]interface{}
 		Expect(json.Unmarshal(stmtJSON, &stmt)).To(Succeed())
 
-		Expect(stmt["_type"]).To(Equal("https://in-toto.io/Statement/v1"))
+		Expect(stmt["_type"]).To(Equal(attestation.InTotoStatementType))
 		Expect(stmt["predicateType"]).To(Equal(predicateType))
 
 		subjects, ok := stmt["subject"].([]interface{})

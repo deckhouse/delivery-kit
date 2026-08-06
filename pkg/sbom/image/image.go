@@ -143,16 +143,6 @@ func extractBOMFromEnvelope(envelopeJSON []byte) ([]byte, error) {
 	return []byte(predicate), nil
 }
 
-// PullSBOMByTag resolves the image tag to a digest and returns the attached SBOM.
-func PullSBOMByTag(ctx context.Context, repo, tag, imageName string) ([]byte, error) {
-	parentDigest, err := artifact.ResolveTag(ctx, repo, tag)
-	if err != nil {
-		return nil, fmt.Errorf("resolve image tag: %w", err)
-	}
-
-	return PullSBOM(ctx, repo, parentDigest, imageName)
-}
-
 func PullCycloneDX16BOM(ctx context.Context, repo, parentDigest, imageName string) (*cdx.BOM, error) {
 	bomJSON, err := PullSBOM(ctx, repo, parentDigest, imageName)
 	if err != nil {

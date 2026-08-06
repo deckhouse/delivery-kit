@@ -160,7 +160,10 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 		out := werfProject.Build(ctx, &werf.BuildOptions{
 			CommonOptions: werf.CommonOptions{
 				ShouldFail: true,
-				Envs:       []string{"WERF_SIGN_KEY=" + signKeys.KeyPath},
+				Envs: []string{
+					"BUILDER_BASE_IMAGE=registry.invalid/builder-base:stub",
+					"WERF_SIGN_KEY=" + signKeys.KeyPath,
+				},
 			},
 		})
 		Expect(out).To(ContainSubstring("signing certificate is required"))

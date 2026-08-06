@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -157,15 +158,8 @@ func fetchSingleSbomArtifact(ctx SpecContext, repo, parentDigest string) (v1.Des
 	Expect(err).NotTo(HaveOccurred())
 	defer rc.Close()
 
-	payload := make([]byte, 0, 1024*1024)
-	buf := make([]byte, 32*1024)
-	for {
-		n, readErr := rc.Read(buf)
-		payload = append(payload, buf[:n]...)
-		if readErr != nil {
-			break
-		}
-	}
+	payload, err := io.ReadAll(rc)
+	Expect(err).NotTo(HaveOccurred())
 
 	return dsseDescs[0], payload
 }

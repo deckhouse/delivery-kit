@@ -20,6 +20,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
@@ -178,8 +179,10 @@ func generateSigningKeyPairWithCert(dir, suffix string) signingKeyPair {
 
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	encKeyDER, err := encrypted.Encrypt(keyDER, []byte{})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	keyPath := filepath.Join(dir, suffix+".key")
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED DELIVERY-KIT PRIVATE KEY", Bytes: encKeyDER})
 	ExpectWithOffset(1, os.WriteFile(keyPath, keyPEM, 0o600)).To(Succeed())
 
 	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)

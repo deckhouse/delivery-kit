@@ -48,6 +48,13 @@ func NewOCIStore(repo, imageName string, opts ...remote.Option) *OCIStore {
 }
 
 func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform string) error {
+	return s.AttachSuperseding(ctx, parentDigest, artifactType, payload, checksum, targetPlatform, nil)
+}
+
+// AttachSuperseding attaches the artifact like Attach and additionally removes
+// index entries of the superseded artifact types for the same image name, so a
+// format migration leaves a single artifact behind.
+func (s *OCIStore) AttachSuperseding(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform string, supersededTypes []string) error {
 	annotations := s.artifactAnnotations(checksum, targetPlatform)
 
 	img, err := buildArtifactImage(payload, artifactType, annotations)
@@ -80,7 +87,7 @@ func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string
 			artifactDesc.Annotations = annotations
 		}
 
-		return attachDescriptor(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, s.remoteOptions(ctx)...)
+		return attachDescriptor(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, supersededTypes, s.remoteOptions(ctx)...)
 	})
 }
 

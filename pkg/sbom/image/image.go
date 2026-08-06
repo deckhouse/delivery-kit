@@ -17,6 +17,7 @@ import (
 const (
 	scratchImageName     = "scratch"
 	CycloneDX16Predicate = "https://cyclonedx.org/bom/v1.6"
+	CycloneDXPredicate   = "https://cyclonedx.org/bom"
 )
 
 func IsScratchRef(imageRef string) bool {
@@ -48,7 +49,12 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 		return fmt.Errorf("extract digest hex: %w", err)
 	}
 
-	stmtBytes, err := WrapInInTotoStatement(bomJSON, CycloneDX16Predicate, repo, digestHex)
+	predicateType := CycloneDX16Predicate
+	if signer != nil {
+		predicateType = CycloneDXPredicate
+	}
+
+	stmtBytes, err := WrapInInTotoStatement(bomJSON, predicateType, repo, digestHex)
 	if err != nil {
 		return fmt.Errorf("wrap BOM in in-toto statement: %w", err)
 	}
@@ -66,6 +72,19 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 		if !signed {
 			return fmt.Errorf("sbom dsse envelope has no signatures after signing")
 		}
+
+		pubKey, err := signer.PublicKey()
+		if err != nil {
+			return fmt.Errorf("get signer public key: %w", err)
+		}
+
+		bundleBytes, err := attestation.WrapInBundle(envelopeBytes, pubKey)
+		if err != nil {
+			return fmt.Errorf("wrap dsse in sigstore bundle: %w", err)
+		}
+
+		store := artifact.NewOCIStore(repo, imageName)
+		return store.AttachSuperseding(ctx, parentDigest, attestation.BundleMediaType, bundleBytes, checksum, targetPlatform, []string{attestation.DSSEMediaType})
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)

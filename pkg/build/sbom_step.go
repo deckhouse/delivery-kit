@@ -63,9 +63,16 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
-	desc, found, err := store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType)
+
+	desc, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType)
 	if err != nil {
-		return fmt.Errorf("check SBOM cache: %w", err)
+		return fmt.Errorf("check SBOM cache (bundle): %w", err)
+	}
+	if !found {
+		desc, found, err = store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType)
+		if err != nil {
+			return fmt.Errorf("check SBOM cache (dsse): %w", err)
+		}
 	}
 	if found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
 		logboek.Context(ctx).Default().LogF("image %s: Use previously generated SBOM from registry\n", werfImgName)

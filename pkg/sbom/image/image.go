@@ -94,21 +94,38 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte, error) {
 	store := artifact.NewOCIStore(repo, imageName)
 
-	var envelopeJSON []byte
-	if imageName != "" {
-		var err error
-		envelopeJSON, err = store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType)
-		if err != nil {
-			return nil, fmt.Errorf("get attached SBOM: %w", err)
-		}
-	} else {
-		var err error
-		envelopeJSON, err = store.GetAttachedContentAny(ctx, parentDigest, attestation.DSSEMediaType)
-		if err != nil {
-			return nil, fmt.Errorf("get attached SBOM: %w", err)
-		}
+	envelopeJSON, err := pullSBOMArtifact(ctx, store, parentDigest, imageName)
+	if err != nil {
+		return nil, err
 	}
 
+	return extractBOMFromEnvelope(envelopeJSON)
+}
+
+func pullSBOMArtifact(ctx context.Context, store *artifact.OCIStore, parentDigest, imageName string) ([]byte, error) {
+	getContent := store.GetAttachedContent
+	if imageName == "" {
+		getContent = store.GetAttachedContentAny
+	}
+
+	content, err := getContent(ctx, parentDigest, attestation.BundleMediaType)
+	if err == nil {
+		envelopeJSON, unwrapErr := attestation.UnwrapBundle(content)
+		if unwrapErr != nil {
+			return nil, fmt.Errorf("unwrap sigstore bundle: %w", unwrapErr)
+		}
+		return envelopeJSON, nil
+	}
+
+	content, err = getContent(ctx, parentDigest, attestation.DSSEMediaType)
+	if err != nil {
+		return nil, fmt.Errorf("get attached SBOM: %w", err)
+	}
+
+	return content, nil
+}
+
+func extractBOMFromEnvelope(envelopeJSON []byte) ([]byte, error) {
 	stmtBytes, err := UnwrapDSSE(envelopeJSON, attestation.InTotoMediaType)
 	if err != nil {
 		return nil, fmt.Errorf("unwrap DSSE envelope: %w", err)
@@ -119,8 +136,8 @@ func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte
 		return nil, fmt.Errorf("unwrap in-toto statement: %w", err)
 	}
 
-	if predicateType != CycloneDX16Predicate {
-		return nil, fmt.Errorf("unexpected in-toto predicate type %q, expected %q", predicateType, CycloneDX16Predicate)
+	if predicateType != CycloneDX16Predicate && predicateType != CycloneDXPredicate {
+		return nil, fmt.Errorf("unexpected in-toto predicate type %q, expected %q or %q", predicateType, CycloneDX16Predicate, CycloneDXPredicate)
 	}
 
 	return []byte(predicate), nil
@@ -151,19 +168,5 @@ func PullCycloneDX16BOM(ctx context.Context, repo, parentDigest, imageName strin
 }
 
 func PullCycloneDX16BOMContent(ctx context.Context, envelopeJSON []byte) ([]byte, error) {
-	stmtBytes, err := UnwrapDSSE(envelopeJSON, attestation.InTotoMediaType)
-	if err != nil {
-		return nil, err
-	}
-
-	predicate, predicateType, err := UnwrapInTotoStatement(stmtBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	if predicateType != CycloneDX16Predicate {
-		return nil, fmt.Errorf("unexpected in-toto predicate type %q, expected %q", predicateType, CycloneDX16Predicate)
-	}
-
-	return []byte(predicate), nil
+	return extractBOMFromEnvelope(envelopeJSON)
 }

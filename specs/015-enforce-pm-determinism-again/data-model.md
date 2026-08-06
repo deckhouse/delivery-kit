@@ -10,7 +10,7 @@ Registration in the `ecosystems` map in `pkg/config/packages_directive.go`:
 | `DefaultSpecFile` | `"pm.yaml"` | Default spec file name (replaces inline `[]string`) |
 | `DefaultLockFile` | `"pm.lock"` | Default lock file name |
 | `CatalogerName` | `"os-pm-lock-cataloger"` | SBOM cataloger identifier |
-| `InstallCmd` | See below | Generates `pm sync --from <lockfile>` with container factory version snapshot |
+| `InstallCmd` | See below | Generates `pm sync --from <lockfile>` preceded by container factory version preamble (per FR-002) |
 
 ### InstallCmd Logic
 
@@ -23,13 +23,16 @@ Input:
   - env: map of environment variables
 
 Output:
-  <mkdir -p /var/lib/pm> ; <version snapshot> ; <env prefix> <secret vars> pm sync --from <lockFile>
+  <mkdir -p /var/lib/pm> ; <container factory version file write> ; <env prefix> <secret vars> pm sync --from <lockFile>
 
-Example:
-  mkdir -p /var/lib/pm ; PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" && printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version ; PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" REGISTRY="${REGISTRY:-$(cat ...)}" MY_ENV="value" pm sync --from pm.lock
+Example (without env vars):
+  mkdir -p /var/lib/pm ; PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" && printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version ; PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" REGISTRY="${REGISTRY:-$(cat ...)}" pm sync --from pm.lock
+
+Example (with env vars):
+  mkdir -p /var/lib/pm ; PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" && printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version ; MY_ENV="value" PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" REGISTRY="${REGISTRY:-$(cat ...)}" pm sync --from pm.lock
 ```
 
-> **Note**: The `GeneratePackagesCommands()` function currently calls `InstallCmd` with 4 parameters `(workdir, specFile, specList, env)`. The list-based `specList` parameter is not needed for file-based `os-pm`. The lock file path is resolved from the `PackagesDirective.FileBased.Lock` field by the caller, so `InstallCmd` should receive it via a changed function signature or through the existing parameters.
+> **Note**: The `GeneratePackagesCommands()` function currently calls `InstallCmd` with 4 parameters `(workdir, specFile, specList, env)`. The list-based `specList` parameter is not needed for file-based `os-pm`. The lock file path is resolved from the `PackagesDirective.FileBased.Lock` field by the caller. The container factory version preamble (`formatMkdirCommand`, `formatVersionFileCommand`) is PRESERVED per FR-002 — it writes `ContainerFactoryVersionFile` for the SBOM purl qualifier. The runtime index file (`ContainerFactoryVersionIndexFile`) is NOT written — package data comes from `pm.lock` in build context.
 
 ## PackagesDirective Struct
 
@@ -95,6 +98,17 @@ workdir: func(d *config.PackagesDirective) string {
 ```
 
 This is automatically derived from `FileBasedSpec` — no special-casing needed in `managedinput.go`.
+
+### PM BOMPatcher (PURL Enrichment)
+
+After the Syft cataloger scans `pm.lock` from the build context, the resulting SBOM components lack the `containerFactoryVersion` PURL qualifier. This version only exists inside the built image (`/var/lib/pm/container-factory-version`).
+
+- **Entity**: `PMBOMPatcher` — post-processes the merged BOM
+- **Where**: Created in `pkg/build/sbom_step.go`, invoked by `ConvergeWithMerge()`
+- **Input**: Container factory version from `readContainerFactoryVersion()` (reuses `os_pm/collect.go`)
+- **Identification**: Matches PM components via `syft:package:foundBy = "os-pm-lock-cataloger"`
+- **Effect**: Appends `containerFactoryVersion=<version>` to each PM component's PURL
+- **Trigger**: Only active when `osPmLockPath` is non-empty (i.e., `os-pm` packages are configured)
 
 ## Configuration YAML Schema
 

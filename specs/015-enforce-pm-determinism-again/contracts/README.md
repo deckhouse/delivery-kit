@@ -76,15 +76,17 @@ git:
 ### Generated Shell Command Structure
 
 ```
-<mkdir -p /var/lib/pm> ; <container-factory-version snapshot> ; <env prefix> <secret resolution> pm sync --from <lockfile>
+<mkdir -p /var/lib/pm> ; <container factory version file write> ; <env prefix> <secret resolution> pm sync --from <lockfile>
 ```
 
 Where:
 - **mkdir**: Creates `/var/lib/pm` directory
-- **Container factory version snapshot**: Reads `PACKAGES_VERSION` (from secret or env) and writes to `/var/lib/pm/container-factory-version`
-- **Env prefix**: User-specified env vars from `packages.env`
+- **Container factory version file write**: Reads `PACKAGES_VERSION` (from secret or env) and writes to `/var/lib/pm/container-factory-version` (preserved per FR-002 for SBOM purl qualifier)
+- **Env prefix**: User-specified env vars from `packages.env` (optional)
 - **Secret resolution**: Inline shell expansion for `PACKAGES_VERSION` and `REGISTRY` secrets
 - **pm sync command**: `pm sync --from <lockfile>` with lock file path relative to repo root
+
+> **Note**: The runtime index file (`/var/lib/pm/index.json`) is no longer written — all package component data comes from `pm.lock` in the build context. The container factory version preamble is preserved because it is needed for the SBOM purl qualifier (per FR-002, FR-010b).
 
 ### Before/After Comparison
 
@@ -93,7 +95,7 @@ Where:
 | Command | `pm install curl jq` | `pm sync --from pm.lock` |
 | Spec | Inline list `[curl, jq]` | File `pm.yaml` |
 | Lock | N/A | File `pm.lock` |
-| Container version snapshot | Present | Preserved |
+| Container factory version file write | Present | Present (preserved per FR-002) |
 | Env vars | Supported | Supported |
 | Workdir | Implicitly absent | Explicitly rejected |
 
@@ -109,5 +111,18 @@ Where:
 ### SBOM Contract
 
 - All component metadata (names, versions, licenses, dependencies) extracted from `pm.lock` in the build context
-- The `container-factory-version` file at `/var/lib/pm/container-factory-version` (inside the container) provides the factory version for purl generation
+- All component metadata (names, versions, licenses, dependencies) extracted from `pm.lock` in the build context
+- The `container-factory-version` file at `/var/lib/pm/container-factory-version` (inside the container) provides the factory version for purl generation (per FR-010b, read via `ReadFileFromImage`)
+- The runtime index (`/var/lib/pm/index.json`) is no longer read from inside the image - all package data comes from `pm.lock`
 - The SBOM output includes components filtered to match the cataloger's source paths
+
+### PM BOMPatcher (PURL Enrichment)
+
+The host scan produces PM components without the `containerFactoryVersion` PURL qualifier. This version is only available inside the built image. A BOMPatcher post-processes the merged BOM:
+
+1. Activated when `osPmLockPath` is non-empty
+2. Reads container factory version from inside the built image via `readContainerFactoryVersion()` (reuses `os_pm/collect.go`)
+3. Finds PM components by matching `syft:package:foundBy = "os-pm-lock-cataloger"`
+4. Appends `containerFactoryVersion=<version>` to each matching component's PURL
+
+The lock file path propagates: config → `build_phase.go` → `sbom_step.go` → BOMPatcher.

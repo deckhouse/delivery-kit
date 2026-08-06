@@ -1,16 +1,16 @@
 # Tasks: os-pm File-Based Syntax
 
-**Input**: Design documents from `/specs/015-os-pm-file-syntax/`
+**Input**: Design documents from `/specs/015-enforce-pm-determinism-again/`
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: No test tasks requested in the specification. Test tasks are only included for User Stories 2 and 3 where the independent test criteria require verification of already-working behavior.
+**Tests**: The examples below include test tasks. Tests are included because the feature specification defines explicit acceptance scenarios and success criteria that require test validation.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
+- **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
 
@@ -18,112 +18,152 @@
 
 - **CLI commands**: `cmd/werf/<domain>/`
 - **Business logic**: `pkg/<domain>/`
+- **Build phase**: `pkg/build/` (build_phase.go, sbom_step.go)
 - **Unit tests**: co-located with source files as `*_test.go`
-- **AI-written tests**: `*_ai_test.go` with `TestAI_` prefix
 - **E2E tests**: `test/e2e/<domain>/`
 - **Test helpers**: `test/pkg/`
-- **E2E fixtures**: `test/e2e/sbom/_fixtures/<group>/<name>/`
 
 ## Build & Test Commands
 
 - **Build**: `task build` (produces `./bin/werf`)
 - **Unit tests**: `task test:unit -- -run TestMyFunc ./pkg/...`
-- **E2E tests**: `task test:e2e` with `paths="./test/e2e/sbom/..."` and `labelFilter="sbom"`
+- **E2E tests**: `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--` separator.
 - **Formatting**: `task format`
 
 ---
 
-## Phase 1: Setup
+## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Verify the development environment and understand the current codebase state
+**Purpose**: Study existing code paths, understand the current os-pm implementation and build-phase integration, and prepare for changes.
 
-- [X] T001 Read and understand current `PackagesDirective` struct in `pkg/config/packages_directive.go`
-- [X] T002 Run `task build` to confirm a clean starting point before making changes
+- [ ] T001 Study existing os-pm code paths in `pkg/config/packages_directive.go` — understand the current `ecosystems` entry, `InstallCmd`, `HasOSPMPackages()`, `validate()`, and `fillFileBasedSpec()` branches
+- [ ] T002 Study existing build-phase SBOM integration in `pkg/build/build_phase.go` and `pkg/build/sbom_step.go` — understand how `convergeImageSbom()` extracts `OSPMLockPath()`, reduces it to `hasOsPmPackages bool`, and passes to `ConvergeWithMerge()`. Understand existing patcher pattern
+- [ ] T003 Study existing os-pm test fixtures and test files — understand current test structure for inline `spec: [pkg...]` syntax across all unit test files, e2e fixtures, and e2e Go test files
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core structural changes that ALL user stories depend on. **All committed in `fix/sbom/revert-pm-lock-syntax` HEAD**.
+**Purpose**: Core config model changes that MUST be complete before ANY user story can be implemented. These are the structural changes to the packages directive model, ecosystems registry, validation logic, and build-phase plumbing.
 
-- [X] T003 Remove `PackagesSpec` struct from `pkg/config/packages_directive.go`; remove `Spec PackagesSpec` field from `PackagesDirective` struct; remove or simplify `normalizePackages()` if it exists; update any direct references to `Spec.Packages` in the same file
-- [X] T004 [P] Register `os-pm` in the `ecosystems` map in `pkg/config/packages_directive.go` with `DefaultSpecFile: "pm.yaml"`, `DefaultLockFile: "pm.lock"`, `CatalogerName: "os-pm-lock-cataloger"`, and a new `InstallCmd` that generates `pm sync --from <lockfile>` (preceded by mkdir and container factory version snapshot commands). The signature must receive the lock file path for the `--from` flag.
-- [X] T005 [P] De-specialize `fillFileBasedSpec()` in `pkg/config/raw_packages_directive.go`: remove the `os-pm`-specific inline-spec branch; ensure `os-pm` uses the common `FileBasedSpec` resolution path with defaults `spec: "pm.yaml"`, `lock: "pm.lock"`; reject `workdir` for `os-pm` with validation error; validate that `spec` field for `os-pm` is a string (file path), rejecting list values
-- [X] T006 De-specialize `validate()` in `pkg/config/packages_directive.go`: remove the `os-pm`-specific inline-spec validation branch; add `os-pm` validation that rejects `workdir` with `"workdir is not supported for type \"os-pm\""`; add validation requiring `lock` file existence (when spec file exists)
-- [X] T007 [P] Change `HasOSPMPackages()` → `OSPMLockPath()` in `pkg/config/stapel_image_base.go` — return the lock file path (relative to repo root, e.g., `"pm.lock"`) for the first `os-pm` directive, or empty string if no `os-pm` packages; update all callers in `pkg/config/`, `pkg/build/builder/`, and `pkg/sbom/managedinput/`
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete
+
+- [ ] T004 Remove `PackagesSpec` struct from `pkg/config/packages_directive.go` — remove the struct definition and the `Spec PackagesSpec` field from `PackagesDirective`
+- [ ] T005 Remove `normalizePackages()` function from `pkg/config/packages_directive.go` (if it exists)
+- [ ] T006 [P] Register `os-pm` in the `ecosystems` map in `pkg/config/packages_directive.go` with `DefaultSpecFile: "pm.yaml"`, `DefaultLockFile: "pm.lock"`, `CatalogerName: "os-pm-lock-cataloger"`
+- [ ] T007 [P] Update `InstallCmd` for `os-pm` in `pkg/config/packages_directive.go` to generate `pm sync --from <lockfile>` (preceded by container factory version preamble: `mkdir -p /var/lib/pm` and container factory version file write), using `formatSyncCommand()` instead of `formatInstallCommand()`. The `workdir` parameter is ignored (always empty for os-pm), `specList` is unused (file-based), and the lock file path comes from `PackagesDirective.FileBased.Lock`
+- [ ] T008 De-specialize `fillFileBasedSpec()` in `pkg/config/raw_packages_directive.go` — remove the special-cased os-pm branch that resolves inline `spec: [...]` lists. The os-pm type now uses the same `FileBasedSpec` resolution path as all other package types
+- [ ] T009 De-specialize `validate()` in `pkg/config/packages_directive.go` — remove the special-cased os-pm validation branch. The os-pm type validates using standard `FileBasedSpec` rules with type-specific overrides
+- [ ] T010 Add `workdir` rejection for os-pm in `pkg/config/raw_packages_directive.go` — when type is `os-pm` and `workdir` is set, return validation error: `"workdir is not supported for type \"os-pm\""`
+- [ ] T011 Add inline spec list rejection for os-pm in `pkg/config/raw_packages_directive.go` — when type is `os-pm` and `spec` is a list (not a string), return validation error: `"unsupported packages spec type %T for type \"os-pm\"; spec must be a string"`
+- [ ] T012 Add `OSPMLockPath()` method to `StapelImageBase` in `pkg/config/stapel_image_base.go` — replace the current `HasOSPMPackages() bool` with `OSPMLockPath() string` that returns the lock file path (e.g., `"pm.lock"`) for the first `os-pm` directive, or empty string if no os-pm packages. Update all callers of `HasOSPMPackages()` in `pkg/build/`
+
+**Checkpoint**: Foundation ready — core config model changed, ecosystems registry updated, validation rules established, builder interface updated with lock path.
 
 ---
 
 ## Phase 3: User Story 1 — Declare OS packages via pm.yaml / pm.lock (Priority: P1) 🎯 MVP
 
-**Goal**: A user can declare OS packages by adding `packages: [{type: os-pm}]` to their `werf.yaml`, placing `pm.yaml` and `pm.lock` at the repository root. The build generates `pm sync --from <lockfile>` (with container factory version snapshot) and SBOM scans `pm.yaml` and `pm.lock` from the build context. **All committed in HEAD**.
+**Goal**: A user declares `packages: [{type: os-pm}]` in `werf.yaml`, and when `pm.yaml`/`pm.lock` files exist at the repository root, the build correctly: (a) runs `pm sync --from pm.lock` inside the build container, (b) propagates the lock path through the build phase, (c) enriches host-scanned PM components with `containerFactoryVersion` PURL qualifier.
 
-- [X] T008 [US1] Update the `InstallCmd` for `os-pm` in the `ecosystems` map in `pkg/config/packages_directive.go`: generate `pm sync --from <lockfile>` instead of `pm install <pkg_1> ... <pkg_N>`; preserve the existing container factory version snapshot command before the `pm sync` command; no `cd <workdir>` prefix needed for `os-pm`
-- [X] T009 [P] [US1] Wire up SBOM cataloger for `os-pm` in `pkg/sbom/managedinput/managedinput.go`: ensure the cataloger name `"os-pm-lock-cataloger"` resolves source paths `pm.yaml` and `pm.lock` (at the repository root, no `workdir` prefix); verify no special-casing is needed — the `CatalogerName` field in the ecosystem entry and `FileBasedSpec` already provide the necessary data
-- [X] T010 [US1] Add lock file existence validation in `validate()` in `pkg/config/packages_directive.go`: when `os-pm` spec file exists (e.g., `pm.yaml`), require that the lock file (e.g., `pm.lock`) also exists; error message: `"pm.lock not found at <path>. Run 'pm lock' in your repository to generate the lock file, commit it, and retry."`
-- [X] T011 [US1] Update `GeneratePackagesCommands()` in `pkg/config/packages_commands.go` if needed: ensure the lock file path is passed to `InstallCmd` instead of the old `specList` parameter; the function should resolve `pkg.FileBased.Lock` and pass it as the lock file parameter
+**Independent Test**: A build directive with `os-pm` pointing to a `pm.yaml`/`pm.lock` pair generates the correct `pm sync --from pm.lock` command. The build phase receives the lock path string. SBOM integration parses `pm.lock` from build context via delivery-kit's own parser and enriches components via BOMPatcher.
+
+### Implementation for User Story 1
+
+- [ ] T013 [US1] Add missing `pm.lock` validation error in `pkg/config/raw_packages_directive.go` — when `pm.yaml` exists but `pm.lock` is missing, fail with error: `"pm.lock not found at <path>. Run 'pm lock' in your repository to generate the lock file, commit it, and retry."`
+- [ ] T014 [US1] Update `convergeImageSbom()` in `pkg/build/build_phase.go` — change from passing `hasOsPmPackages bool` to passing `ospmLockPath string` (from `imageBase.OSPMLockPath()`) to `ConvergeWithMerge()`
+- [ ] T015 [US1] Update `ConvergeWithMerge()` signature in `pkg/build/sbom_step.go` — replace `osPmEnabled bool` parameter with `osPmLockPath string`. Use the lock path to conditionally enable PM-specific processing
+- [ ] T016 [US1] Implement PM BOMPatcher — create `pkg/build/pm_bom_patcher.go` with a patcher function that: (a) reads container factory version from inside the built image via `readContainerFactoryVersion()` (reusing `pkg/sbom/packages/os_pm/collect.go`), (b) iterates SBOM components matching `syft:package:foundBy = "os-pm-lock-cataloger"`, (c) appends `containerFactoryVersion=<version>` PURL qualifier. Wire the patcher into `ConvergeWithMerge()` in `pkg/build/sbom_step.go`
+- [ ] T017 [P] [US1] Integrate os-pm SBOM via delivery-kit's own pm.lock parser in `pkg/sbom/packages/os_pm/` — the existing `ParsePmLock()` and `collectPacketsFromLock()` functions (preserved, NOT dead code) parse `pm.lock` from build context. Hook these into the SBOM collection pipeline so that `CollectBOM()` produces components from `pm.lock` instead of from inside the image. Update `collect.go` to remove the `collectInstalledPackets()` call (handled in dead code cleanup phase)
+- [ ] T018 [P] [US1] Ensure `managedinput.go` in `pkg/sbom/managedinput/managedinput.go` skips os-pm — per FR-012, delivery-kit does NOT derive a syft cataloger for os-pm. The `buildResolvers()` function should skip ecosystems whose SBOM is handled by delivery-kit's own parser, or the `CatalogerName`-based skip logic should account for os-pm not needing a syft resolver. Verify no special-casing is needed (empty `CatalogerName` in a separate field may be the mechanism)
+- [ ] T019 [US1] Update inline os-pm syntax tests in `pkg/config/raw_packages_directive_test.go` — migrate all `"os-pm with inline spec list"`, `"os-pm with single package in spec"`, `"os-pm without packages"` tests to file-based syntax (`spec: "pm.yaml"`, `lock: "pm.lock"`). Remove the special inline `PackagesSpec` assertion patterns (e.g., `Expect(packages[i].Spec.Packages).To(...)`) and replace with `FileBased` assertions
+- [ ] T020 [US1] Update os-pm command generation tests in `pkg/config/packages_commands_test.go` — migrate the `"GeneratePackagesCommands os-pm"` block from `pm install` assertions to `pm sync --from pm.lock` assertions. Update env var test blocks to use file-based syntax
+- [ ] T021 [US1] Update combined config parsing tests in `pkg/config/packages_directive_javascript_test.go` — migrate the `"go-mod + javascript-npm + os-pm combined config parses correctly"` and `"go-mod + rust-cargo + javascript-yarn + os-pm combined config"` entries to use file-based os-pm syntax
+- [ ] T022 [US1] Update other package directive test files (`packages_directive_python_test.go`, `packages_directive_rust_test.go`, `packages_directive_go_mod_test.go`, `packages_directive_lua_test.go`) that reference `PackagesSpec` or `Spec.Packages` assertions — remove or update those assertions
+- [ ] T023 [US1] Update `managedinput_test.go` in `pkg/sbom/managedinput/` — update SBOM resolver tests to expect that os-pm does NOT produce a syft cataloger. Verify ToCatalogers() skips os-pm when no syft resolver is configured
+- [ ] T024 [US1] Update `packages_test.go` in `pkg/build/stage/` — update Packages stage test to use file-based os-pm syntax and new command generation expectations
+- [ ] T025 [P] [US1] Add unit test for custom spec/lock paths — test that `spec: custom-pm.yaml` and `lock: custom.lock` produce `pm sync --from custom.lock`
+- [ ] T026 [P] [US1] Add unit test for env vars with file-based os-pm — test that `env: {HTTP_PROXY: "http://proxy.example.com:8080"}` passes the env var inline before `pm sync --from pm.lock`
+- [ ] T027 [P] [US1] Add unit test for workdir rejection — test that setting `workdir: /app` with `type: os-pm` produces a validation error
+- [ ] T028 [P] [US1] Add unit test for inline spec list rejection — test that `spec: [curl, jq]` with `type: os-pm` produces an unmarshal/validation error
+
+**Checkpoint**: At this point, User Story 1 should be fully functional — config parsing, command generation, build-phase lock path propagation, PM BOMPatcher enrichment, and delivery-kit's own pm.lock parsing all work correctly. All unit tests pass.
 
 ---
 
 ## Phase 4: User Story 2 — stageDependencies triggers packages stage on spec/lock changes (Priority: P1)
 
-**Goal**: When the user configures `git.stageDependencies.packages` to track `pm.yaml` and `pm.lock`, changes to those files invalidate the packages stage and trigger re-execution. **All committed in HEAD**.
+**Goal**: When `git.stageDependencies.packages` tracks `pm.yaml` and `pm.lock`, changes to these files invalidate the packages stage and trigger re-execution.
 
-- [X] T012 [P] [US2] Add or update unit test in `pkg/build/stage/packages_test.go` verifying that `pm.yaml` and `pm.lock` tracked by `git.stageDependencies.packages` correctly invalidate the packages stage when their content changes; verify cache hit on unchanged files
-- [X] T013 [P] [US2] Add or update unit test in `pkg/config/raw_packages_directive_test.go` verifying that the `stageDependencies.packages` field can reference `pm.yaml` and `pm.lock` for `os-pm` type
+**Independent Test**: The `stage_deps_file` e2e test validates that changes to `pm.yaml` or `pm.lock` cause the packages stage checksum to change (cache miss on subsequent build).
+
+- [ ] T029 [P] [US2] Migrate `stage_deps_file` e2e fixtures (`state0`, `state1`) in `test/e2e/sbom/_fixtures/stage_deps_file/` — replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files at repo root for each state. Update `git.stageDependencies.packages` to track `pm.yaml` and `pm.lock` instead of `versions.txt`
+- [ ] T030 [US2] Update `stage_dependencies_test.go` in `test/e2e/sbom/` — update test assertions from inline `pm install` command expectations to `pm sync --from pm.lock` expectations. Validate that changes to `pm.yaml` or `pm.lock` trigger packages stage re-execution
+- [ ] T031 [US2] Migrate `stage_deps` e2e fixtures (`state0`, `state1`, `state2`) in `test/e2e/sbom/_fixtures/stage_deps/` — replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files. Generate `pm.lock` via `pm lock --from=pm.yaml`
+
+**Checkpoint**: At this point, User Story 2 should be e2e-verifiable — stage dependency changes correctly invalidate packages stage. The `stage_deps_file` e2e test demonstrates SBOM regeneration on spec/lock changes.
 
 ---
 
 ## Phase 5: User Story 3 — No os-pm packages needed (Priority: P2)
 
-**Goal**: A build without any `os-pm` directive produces no `pm sync` commands and no os-pm SBOM processing. **All committed in HEAD**.
+**Goal**: A build without any `os-pm` directive produces no `pm sync` commands, no lock path propagation, and skips os-pm SBOM processing entirely.
 
-- [X] T014 [P] [US3] Add or update unit test in `pkg/config/packages_commands_test.go` verifying that `GeneratePackagesCommands()` returns empty when no `os-pm` packages are defined, or when only non-`os-pm` types (e.g., `go-mod`) are present
-- [X] T015 [P] [US3] Add or update unit test in `pkg/sbom/managedinput/managedinput_test.go` verifying that `ToCatalogers()` returns no os-pm cataloger when no `os-pm` packages are present
+**Independent Test**: A build without `os-pm` in `packages` generates no `pm sync` command, `OSPMLockPath()` returns empty string, and the PM BOMPatcher is not invoked.
 
----
+- [ ] T032 [P] [US3] Add unit test for no os-pm → no pm sync in `pkg/config/packages_commands_test.go` — test that `GeneratePackagesCommands()` returns empty slice when no `os-pm` directive is present (even if other package types exist)
+- [ ] T033 [P] [US3] Add unit test for `OSPMLockPath()` returning empty string — test that `StapelImageBase.OSPMLockPath()` returns `""` when no `os-pm` packages are configured
+- [ ] T034 [P] [US3] Add unit test for build-phase without os-pm — test that `convergeImageSbom()` passes empty `osPmLockPath` when no os-pm packages exist, and `ConvergeWithMerge()` skips PM BOMPatcher creation
+- [ ] T035 [P] [US3] Add unit test for non-os-pm types skipping os-pm in `pkg/sbom/managedinput/managedinput_test.go` — test that `ToCatalogers()` does not include `"os-pm-lock-cataloger"` when no `os-pm` packages are configured
 
-## Phase 6: Polish — Unit Test Updates
-
-**Purpose**: Update all existing unit test fixtures and assertions that reference the old inline `os-pm` syntax. **All committed in HEAD**.
-
-- [X] T016 [P] Update `raw_packages_directive_test.go` in `pkg/config/`: replace all inline `spec: [curl, jq]` and `spec: [curl]` test fixtures with file-based syntax (`spec: "pm.yaml"`, `lock: "pm.lock"`); update assertions from `PackagesSpec{Packages: ...}` to `FileBased.Spec`/`FileBased.Lock`; add test cases for new validation (workdir rejection, spec-as-string rejection for lists)
-- [X] T017 [P] Update `packages_commands_test.go` in `pkg/config/`: replace all `pm install` command assertions with `pm sync --from <lockfile>` assertions; update `GeneratePackagesCommands os-pm` test block; update env var test blocks to use file-based syntax
-- [X] T018 [P] Update `packages_directive_javascript_test.go` in `pkg/config/`: replace inline `os-pm` syntax in combined config test entries with file-based syntax
-- [X] T019 [P] Update `managedinput_test.go` in `pkg/sbom/managedinput/`: add or update test cases for the `"os-pm-lock-cataloger"` cataloger name and source paths `["pm.yaml", "pm.lock"]`
+**Checkpoint**: All user stories should now be independently functional — the system handles both the presence and absence of `os-pm` packages correctly.
 
 ---
 
-## Phase 7: E2E Fixture Migration — werf.yaml → pm.yaml/pm.lock
+## Phase 6: Dead Code Cleanup
 
-**Purpose**: Migrate all 16 e2e test fixture `werf.yaml` files from inline `spec: [pkg==ver]` syntax to file-based syntax (`spec: "pm.yaml"` or defaults). Create corresponding `pm.yaml` and `pm.lock` fixture files alongside each `werf.yaml`.
+**Purpose**: Remove code that is no longer needed after the migration to file-based syntax. Preserve parser functions that are reused for `pm.lock` from build context.
 
-**All fixtures are migrated in the working tree** ✅. The `werf.yaml` files use `spec: "pm.yaml"` / `lock: "pm.lock"` (or just `type: os-pm` with defaults). Each fixture has its own `pm.yaml` and `pm.lock` files.
-
-**One known issue**: `stage_deps_file/state0` and `state1` have identical `pm.yaml`/`pm.lock` content. The e2e test (`stage_dependencies_test.go` line 101) expects `state1` to differ from `state0` to trigger SBOM regeneration. The test was updated to reference `pm.yaml`/`pm.lock`, but the fixture content needs to change between states.
-
-### Remaining work for Phase 7
-
-- [X] T020 Fix `stage_deps_file/state1/pm.yaml` and `pm.lock` to differ from `state0` (e.g., add a different package version or a new package) so that the e2e test correctly triggers SBOM regeneration per SC-014
+- [ ] T036 [P] Remove `collectInstalledPackets()` from `pkg/sbom/packages/os_pm/collect.go` — this function reads runtime index from inside the built image (`/var/lib/pm/index.json`) and is no longer needed (per FR-010b, FR-017)
+- [ ] T037 [P] Remove `ContainerFactoryVersionIndexFile` constant from `pkg/config/packages_commands.go` — this constant references the runtime index file path that is no longer written
+- [ ] T038 [P] Update `CollectBOM()` in `pkg/sbom/packages/os_pm/collect.go` — remove the `collectInstalledPackets()` call, keep `readContainerFactoryVersion()` for SBOM purl qualifier (per FR-002, FR-010b, reused by PM BOMPatcher)
+- [ ] T039 Remove `HasOSPMPackages()` from `pkg/config/stapel_image_base.go` — after migrating all callers to `OSPMLockPath()`, remove the old boolean method
+- [ ] T040 [P] Clean up `os_pm_test.go`, `suite_test.go`, and `testdata/` in `pkg/sbom/packages/os_pm/` — remove tests and test fixtures for the dead `collectInstalledPackets()` function. Keep tests for `readContainerFactoryVersion()`, `ParsePmLock()`, and `collectPacketsFromLock()` which are reused for `pm.lock`
 
 ---
 
-## Phase 8: E2E Go Tests & Validation
+## Phase 7: E2E Fixture Migration — All Fixtures to File-Based Syntax
 
-**Purpose**: Update e2e Go test files and run full validation.
+**Purpose**: Migrate all remaining e2e test fixtures (beyond stage_deps and stage_deps_file already handled in US2) from inline `os-pm` syntax to file-based `pm.yaml`/`pm.lock` syntax.
 
-- [X] T021 [P] Update `test/e2e/sbom/stage_dependencies_test.go`: update `By` messages to reference `pm.yaml`/`pm.lock` instead of `versions.txt` and inline spec (done in working tree)
-- [X] T022 [P] Review `test/e2e/sbom/packages_test.go`: no changes needed — references fixtures by directory name, not inline syntax
-- [X] T023 [P] Review `test/e2e/sbom/gost_test.go`: no changes needed — references fixtures by directory name, not inline syntax
+- [ ] T041 [P] Migrate `inject/ospm_basic` fixture in `test/e2e/sbom/_fixtures/inject/ospm_basic/` — replace inline `spec: [curl==8.12.1]` with `pm.yaml` + `pm.lock` files
+- [ ] T042 [P] Migrate `inject/ospm_gost_override` fixture in `test/e2e/sbom/_fixtures/inject/ospm_gost_override/` — same migration
+- [ ] T043 [P] Migrate `inject/ospm_scratch_secrets` fixture in `test/e2e/sbom/_fixtures/inject/ospm_scratch_secrets/` — same migration
+- [ ] T044 [P] Migrate `type_change/state0` fixture in `test/e2e/sbom/_fixtures/type_change/state0/` — replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files
+- [ ] T045 [P] Migrate `packages_merge/base_with_child` fixture in `test/e2e/sbom/_fixtures/packages_merge/base_with_child/` — replace inline `spec:` with `pm.yaml` + `pm.lock`
+- [ ] T046 [P] Migrate `packages_merge/parent_propagation` fixture in `test/e2e/sbom/_fixtures/packages_merge/parent_propagation/` — same migration
+- [ ] T047 [P] Migrate `lifecycle/multi_image` fixture in `test/e2e/sbom/_fixtures/lifecycle/multi_image/` — replace inline `spec:` with `pm.yaml` + `pm.lock`
+- [ ] T048 [P] Migrate `purl_resolver_errors` fixture in `test/e2e/sbom/_fixtures/purl_resolver_errors/` — replace inline `spec:` with `pm.yaml` + `pm.lock`
+- [ ] T049 [P] Migrate `negative/broken_pm` fixture in `test/e2e/sbom/_fixtures/negative/broken_pm/` — replace inline `spec:` with `pm.yaml` + `pm.lock`
+- [ ] T050 [P] Migrate `negative/no_pm_binary` fixture in `test/e2e/sbom/_fixtures/negative/no_pm_binary/` — replace inline `spec:` with `pm.yaml` + `pm.lock`
+- [ ] T051 [P] Migrate `regressions/manifest_annotation` fixture in `test/e2e/sbom/_fixtures/regressions/manifest_annotation/` — replace inline `spec:` with `pm.yaml` + `pm.lock`
+- [ ] T052 Generate `pm.lock` for each migrated e2e fixture by running `pm lock --from=pm.yaml` in each fixture directory
+- [ ] T053 [P] Update `packages_test.go` in `test/e2e/sbom/` — update `pm install` command assertions to `pm sync --from pm.lock` expectations
+- [ ] T054 [P] Update `gost_test.go` in `test/e2e/sbom/` — update os-pm GOST override test expectations for file-based syntax
+- [ ] T055 [P] Update `lifecycle_test.go` in `test/e2e/sbom/` — update lifecycle test expectations for file-based syntax and command generation
 
-### Remaining work for Phase 8
+---
 
-- [X] T024 Run `task format && task build && task test:unit` — full validation on all changed packages to confirm everything compiles and passes
-- [X] T025 Run `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"` — run e2e tests to verify migrated fixtures produce correct SBOM output
+## Phase 8: Polish & Cross-Cutting Concerns
 
-  **Result**: 68/97 passed, 29 failed. All failures share the same pre-existing SBOM scanner issue: `generate SBOM: run scanner: Status: , Code: 1` (syft scanner exits with code 1). The packages stage (`pm sync --from pm.lock`) works correctly in all tests — packages are installed successfully. The fixture migration is correct. The scanner failure is a pre-existing environment issue unrelated to the file syntax migration.
+**Purpose**: Final validation, formatting, and ensuring all tests pass.
 
-  **Note**: Fixed stale `pm.lock` `sha256-sum` metadata in 3 fixtures after `task format` (prettier) added trailing newlines to `pm.yaml` files. These lock files had their `sha256-sum` fields updated to match the current `pm.yaml` content.
+- [ ] T056 [P] Run `task format` to format all changed Go files
+- [ ] T057 Run `task build` to verify the project compiles
+- [ ] T058 Run `task test:unit` with `paths="./pkg/config/..."` to validate all config unit tests pass
+- [ ] T059 Run `task test:unit` with `paths="./pkg/sbom/..."` to validate SBOM tests pass (managedinput + os_pm package)
+- [ ] T060 Run `task test:unit` with `paths="./pkg/build/..."` to validate build phase tests pass
+- [ ] T061 [P] Run `task lint:golangci-lint` to verify no linter violations were introduced
 
 ---
 
@@ -131,53 +171,97 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies — done
-- **Foundational (Phase 2)**: Depends on Setup — committed
-- **User Story 1 (Phase 3)**: Depends on Foundational — committed
-- **User Story 2 (Phase 4)**: Depends on Foundational — committed
-- **User Story 3 (Phase 5)**: Depends on Foundational — committed
-- **Polish - Unit Tests (Phase 6)**: Depends on Phases 2-3 — committed
-- **E2E Fixture Migration (Phase 7)**: Depends on Phase 3 — done in working tree except T020 (fix stage_deps_file state1)
-- **E2E Go Tests & Validation (Phase 8)**: Depends on Phase 7 — T021-T023 done, T024-T025 remaining
+- **Setup (Phase 1)**: No dependencies — can start immediately
+- **Foundational (Phase 2)**: Depends on Setup completion — BLOCKS all user stories
+- **User Story 1 (Phase 3)**: Depends on Foundational (Phase 2) completion
+- **User Story 2 (Phase 4)**: Depends on Foundational (Phase 2) completion. Partially overlaps with Phase 7 (e2e fixture migration)
+- **User Story 3 (Phase 5)**: Depends on Foundational (Phase 2) completion
+- **Dead Code Cleanup (Phase 6)**: Depends on US1 completion (must verify file-based syntax works before removing old code paths)
+- **E2E Fixture Migration (Phase 7)**: Depends on Foundational completion. US2 (Phase 4) must be complete before running overlapping e2e tests
+- **Polish (Phase 8)**: Depends on all desired user stories and cleanup being complete
 
-### Remaining Execution Order
+### User Story Dependencies
 
-1. T020 — Fix `stage_deps_file/state1` content to differ from `state0` ✅ done
-2. T024 — `task format && task build && task test:unit` ✅ done
-3. T025 — `task test:e2e` — ✅ packages stage works correctly, packages are installed. SBOM scanner returns exit code 1 with a pre-existing environment issue (unrelated to the file syntax migration).
+- **User Story 1 (P1)**: Can start after Foundational (Phase 2) — No dependencies on other stories
+- **User Story 2 (P1)**: Can start after Foundational (Phase 2) — May share e2e fixture migration tasks with Phase 7
+- **User Story 3 (P2)**: Can start after Foundational (Phase 2) — Independent of US1 and US2
+
+### Within Each User Story
+
+- Config model changes before commands
+- Build-phase signature changes before BOMPatcher
+- Tests before-and-after implementation
+- Story complete before moving to next priority
+
+### Parallel Opportunities
+
+- All Foundational tasks marked [P] (T006, T007) can run in parallel
+- All US1 [P] tasks (T017, T018, T025, T026, T027, T028) can run in parallel (different files or non-overlapping source files)
+- All US2 [P] tasks can run in parallel
+- All US3 [P] tasks can run in parallel
+- All dead code cleanup [P] tasks (T036, T037, T038, T040) can run in parallel
+- All e2e fixture migration [P] tasks can run in parallel (different fixture directories)
+- All e2e Go test file updates [P] tasks can run in parallel
+- All Polish [P] tasks can run in parallel
+
+---
+
+## Parallel Example: User Story 1
+
+```bash
+# Launch all parallelizable US1 tasks together:
+Task: "Wire up pm.lock parser in pkg/sbom/packages/os_pm/collect.go"
+Task: "Ensure managedinput skips os-pm in pkg/sbom/managedinput/managedinput.go"
+Task: "Write custom spec/lock test in pkg/config/raw_packages_directive_test.go"
+Task: "Write env var test in pkg/config/packages_commands_test.go"
+Task: "Write workdir rejection test in pkg/config/raw_packages_directive_test.go"
+Task: "Write inline spec rejection test in pkg/config/raw_packages_directive_test.go"
+```
 
 ---
 
 ## Implementation Strategy
 
-### What's Already Done (Phases 1-6)
+### MVP First (User Story 1 Only)
 
-All core implementation and unit test updates are committed in HEAD (`1728af82e`):
-- `PackagesSpec` removed, `os-pm` registered with file-based defaults
-- `fillFileBasedSpec()` and `validate()` de-specialized
-- `HasOSPMPackages()` → `OSPMLockPath()` renamed
-- `InstallCmd` generates `pm sync --from <lockfile>`
-- SBOM cataloger wired for `os-pm`
-- All unit tests updated to use file-based syntax
+1. Complete Phase 1: Setup
+2. Complete Phase 2: Foundational (CRITICAL — blocks all stories)
+3. Complete Phase 3: User Story 1
+4. **STOP and VALIDATE**: `task test:unit paths="./pkg/config/..."`, `task test:unit paths="./pkg/sbom/..."`, and `task test:unit paths="./pkg/build/..."` pass
+5. Deploy/demo if ready
 
-### What's Done in Working Tree (Phases 7-8)
+### Incremental Delivery
 
-- All 16 e2e fixture `werf.yaml` files migrated to file-based syntax
-- All 16 `pm.yaml`/`pm.lock` fixture files created with proper JSON/YAML format
-- `stage_deps_file` fixtures now track `pm.yaml`/`pm.lock` via `git.stageDependencies.packages`
-- `stage_deps_file/state1` content differs from `state0` (jq 1.9.0 vs 1.8.1)
-- `pm.lock` files verified to have matching `sha256-sum` with their `pm.yaml` counterparts
-- `stage_dependencies_test.go` `By` messages updated
-- `task build` and `task test:unit` pass
+1. Complete Setup + Foundational → Foundation ready (core model changes, validation, builder interface)
+2. Add User Story 1 → Test independently (`task test:unit paths="./pkg/config/..."`, `task test:unit paths="./pkg/build/..."`) → MVP
+3. Add User Story 2 → Test independently (stage_deps_file e2e test) → Deploy/Demo
+4. Add User Story 3 → Test independently (no-os-pm tests) → Deploy/Demo
+5. Clean up dead code → Phase 6
+6. Migrate remaining e2e fixtures → Phase 7
+7. Final polish → Phase 8
 
-### What Remains
+### Parallel Team Strategy
 
-- T025 — `task test:e2e` — SBOM scanner fails with pre-existing environment issue (syft scanner exits with code 1). The packages stage (`pm sync --from pm.lock`) works correctly — packages are installed successfully.
+With multiple developers:
+
+1. Team completes Setup + Foundational together
+2. Once Foundational is done:
+   - Developer A: User Story 1 (config + build phase + BOMPatcher) + Dead Code Cleanup
+   - Developer B: User Story 2 + E2E fixture migration (stage_deps, stage_deps_file)
+   - Developer C: User Story 3 + E2E fixture migration (remaining 11 fixtures + Go test updates)
+3. Stories complete and integrate independently
 
 ---
 
 ## Notes
 
-- [P] tasks = different files, no dependencies on incomplete tasks
-- Phase 6-8 tasks have no [Story] label (they're test/polish work)
+- [P] tasks = different files, no dependencies
+- [Story] label maps task to specific user story for traceability
+- Each user story should be independently completable and testable
+- The `Buildah` and container backend changes cannot be compiled on macOS — Buildah changes are linux/amd64 only. All config, SBOM, and build-phase changes compile and test on any platform (the build-phase code is in platform-independent Go files)
+- The `pm.lock` file for e2e fixtures is generated by `pm lock --from=pm.yaml` — do NOT hand-write pm.lock
+- The PM BOMPatcher reuses `readContainerFactoryVersion()` from `pkg/sbom/packages/os_pm/collect.go` (preserved, not removed)
+- FR-012: delivery-kit parses `pm.lock` via its own code — no syft cataloger is created for os-pm. The `CatalogerName` is a metadata label in delivery-kit's own SBOM output
 - Commit after each task or logical group
+- Stop at any checkpoint to validate story independently
+- Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

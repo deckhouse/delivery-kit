@@ -77,7 +77,13 @@ The packages commands flow through the build pipeline as follows:
 
 ### E2E Test Fixtures
 
-In addition to unit tests, the following 16 e2e fixture `werf.yaml` files use inline `spec: [pkg...]` syntax and MUST be migrated:
+FR-016 explicitly lists the following fixture groups as requiring migration to file-based `pm.yaml`/`pm.lock`:
+
+- `test/e2e/sbom/_fixtures/stage_deps/` (states 0–2)
+- `test/e2e/sbom/_fixtures/stage_deps_file/` (states 0–1)
+- `test/e2e/sbom/_fixtures/type_change/` (state0)
+
+Additionally, SC-013 requires ALL e2e fixtures referencing inline `os-pm` syntax to be migrated. The full list:
 
 | Fixture | File |
 |---------|------|
@@ -140,11 +146,35 @@ No code changes needed — the mechanism already works for all file-based packag
 
 ## Unknown 4: Build Phase Command Wiring
 
-### Current Flow
+### Dead Code from Updated Spec
+
+Per updated FR-002 and FR-010b:
+
+1. **`pkg/config/packages_commands.go`**:
+   - `ContainerFactoryVersionDir`, `ContainerFactoryVersionFile` constants — **KEPT** (FR-002 requires container factory version file for SBOM purl qualifier)
+   - `ContainerFactoryVersionIndexFile` constant — **DEAD** (only used by runtime index reader)
+   - `formatMkdirCommand()`, `formatVersionFileCommand()` functions — **KEPT** (FR-002 requires them to write `ContainerFactoryVersionFile` during build)
+   - Keep also: `formatEnvVars()`, `formatSecretVar()`, `formatSyncCommand()`, `GeneratePackagesCommands()`
+
+2. **`pkg/sbom/packages/os_pm/`** — **Partially dead**:
+   - `collect.go`: `collectInstalledPackets()` — **DEAD** (reads runtime index from inside image, per FR-010b no package data from inside built image)
+   - `collect.go`: `readContainerFactoryVersion()` — **KEPT** (reads `ContainerFactoryVersionFile` for purl qualifier, per FR-010b)
+   - `collect.go`: `CollectBOM()` — needs rework to remove `collectInstalledPackets()` call
+   - `os_pm.go`: `ParsePmLock()` — **NOT DEAD** (per FR-017 and spec clarification: reused to read `pm.lock` from build context — `pm.lock` has same format as `/var/lib/pm/index.json`)
+   - `os_pm.go`: `collectPacketsFromLock()` — **NOT DEAD** (reused for `pm.lock` per FR-017)
+   - `os_pm.go`: `ConvertToCycloneDX()`, `PmPackageInfo`, helper functions — may still be needed for pm.lock-to-CycloneDX conversion; needs evaluation
+   - Tests: testdata and test code for dead functions needs cleanup
+
+3. SBOM for `os-pm` packages (names, versions, dependencies) is now handled by build-context scanning via `managedinput.go`. The container factory version is still read from inside the image for the purl qualifier.
+
+### Current Flow (after implementation)
 
 1. **Config parsing**: `raw_stapel_image.go` calls `GeneratePackagesCommands(imageBase.Packages)` and injects results into `imageBase.Shell.Packages`
 2. **Shell builder**: `Packages()` method runs the commands stored in `Shell.Packages`
 3. **PackagesStage**: Orchestrates the stage lifecycle (dependencies, prepare image)
+4. **SBOM**: `managedinput.ToCatalogers()` derives catalogers from `config.Ecosystems()` — `os-pm` automatically gets a cataloger with name `"os-pm-lock-cataloger"` and source paths `["pm.yaml", "pm.lock"]`
+5. **Container factory version**: still read from inside the built image via `readContainerFactoryVersion()` for purl qualifier
+6. **No runtime package index**: all component data comes from `pm.lock` scanning in the build context
 
 ### How `os-pm` Commands Are Generated
 
@@ -170,18 +200,24 @@ PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat /run/secrets/PACKAGES_VERSION 2>/dev
 The new `InstallCmd` for `os-pm` should generate:
 ```bash
 mkdir -p /var/lib/pm
-PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat /run/secrets/PACKAGES_VERSION 2>/dev/null || true)}" ... && printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version
-PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat /run/secrets/PACKAGES_VERSION 2>/dev/null || true)}" ... pm sync --from pm.lock
+PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat /run/secrets/PACKAGES_VERSION 2>/dev/null || true)}" && printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version
+PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat /run/secrets/PACKAGES_VERSION 2>/dev/null || true)}" REGISTRY="${REGISTRY:-$(cat /run/secrets/REGISTRY 2>/dev/null || true)}" pm sync --from pm.lock
+```
+
+If environment variables are specified, they are prepended:
+```bash
+MY_ENV="value" PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version ; PACKAGES_VERSION="${PACKAGES_VERSION:-$(cat ...)}" REGISTRY="${REGISTRY:-$(cat ...)}" pm sync --from pm.lock
 ```
 
 Key changes from current:
-- Replace `pm install <pkgs>` with `pm sync --from <lockfile>`
+- Replace `pm install <pkgs>` with `pm sync --from <lockfile>` (uses `formatSyncCommand` instead of `formatInstallCommand`)
 - No `cd <workdir>` prefix (os-pm is always at repo root)
-- Container factory version snapshot preserved before the `pm sync` command
+- **Container factory version file write is PRESERVED** (per FR-002, writes `ContainerFactoryVersionFile` for SBOM purl qualifier)
+- **Runtime index (`ContainerFactoryVersionIndexFile`) is NOT written** — package data comes from `pm.lock` in build context
 
 ### Decision
 
-The `InstallCmd` function signature `func(workdir, specFile string, specList []string, env map[string]string) string` needs to change for `os-pm` — the third parameter (specList) is no longer needed, and the lock file path should come from the `lock` field of `FileBasedSpec`. Once `os-pm` uses `FileBasedSpec` like other types, `GeneratePackagesCommands` will pass `pkg.FileBased.Spec` (pm.yaml) and `pkg.FileBased.Lock` (pm.lock) to the command generator.
+The `InstallCmd` function signature `func(workdir, specFile string, specList []string, env map[string]string) string` generates a command for `os-pm`: the container factory version preamble (`formatMkdirCommand`, `formatVersionFileCommand`) is INCLUDED before `pm sync --from <lockfile>` (per FR-002). The `ContainerFactoryVersionDir`, `ContainerFactoryVersionFile` constants and associated functions are KEPT. `ContainerFactoryVersionIndexFile` and runtime index parsing functions (`ParsePmLock`, `collectInstalledPackets`) are DEAD.
 
 ## Technology Choices
 
@@ -202,3 +238,60 @@ The `InstallCmd` function signature `func(workdir, specFile string, specList []s
 - **Decision**: Reject `workdir` for `os-pm` at configuration parse time.
 - **Rationale**: OS-level package manager operates at system level, not per-project. `pm.yaml` and `pm.lock` always at repository root.
 - **Implementation**: Check in `fillFileBasedSpec()` or `validate()` — if type is `os-pm` and `workdir` is set, return error.
+## Unknown 5: Build Phase Lock Path Propagation (FR-011)
+
+### Current State
+
+In `pkg/build/build_phase.go`, `convergeImageSbom()` currently:
+1. Calls `imageBase.OSPMLockPath()` (the newly renamed method)
+2. Reduces it to a boolean `hasOsPmPackages := ospmLockPath != ""`
+3. Passes this boolean to `ConvergeWithMerge()` in `pkg/build/sbom_step.go`
+
+In `pkg/build/sbom_step.go`, `ConvergeWithMerge()` uses the boolean to decide whether:
+- To run PM-specific SBOM processing
+- To trigger the PM cataloger registration
+
+### Target State
+
+Per FR-011, the concrete lock file path must be propagated instead of a boolean:
+
+1. `convergeImageSbom()` passes `ospmLockPath` (string, e.g., `"pm.lock"`) directly to `ConvergeWithMerge()` instead of `hasOsPmPackages bool`.
+2. `ConvergeWithMerge()` takes `osPmLockPath string` instead of `osPmEnabled bool`.
+3. The lock path is forwarded to the PM BOMPatcher so it can correlate host-scanned PM components.
+
+### Decision
+
+- **Change**: `ConvergeWithMerge()` signature: `osPmEnabled bool` → `osPmLockPath string`. `convergeImageSbom()` passes `imageBase.OSPMLockPath()` directly.
+- **Rationale**: The lock file path is needed by the BOMPatcher to identify which host-scanned components need enrichment. A boolean is insufficient.
+- **Alternatives considered**: Keep the boolean and add a separate lock path parameter — rejected as redundant; the lock path subsumes the boolean.
+
+## Unknown 6: PM PURL Enrichment via BOMPatcher
+
+### Problem
+
+The Syft cataloger scans `pm.lock` from the build context and produces SBOM components with all package metadata (names, versions, licenses, dependencies). However, these components lack the `containerFactoryVersion` PURL qualifier required by FR-002. This version is only available from inside the built image via `readContainerFactoryVersion()` (which reads `/var/lib/pm/container-factory-version`).
+
+### Approach
+
+After the host scan produces the initial SBOM, a **BOMPatcher** post-processes the components:
+
+1. `ConvergeWithMerge()` in `pkg/build/sbom_step.go` receives the lock file path.
+2. It creates a PM BOMPatcher function that:
+   - Reads the container factory version from the built image (`readContainerFactoryVersion()`)
+   - Iterates over all SBOM components in the merged BOM
+   - Finds PM components by checking `syft:package:foundBy` property for `"os-pm-lock-cataloger"`
+   - Appends `containerFactoryVersion=<version>` to each matching component's PURL
+3. The patcher is added to the `patchers` slice in `convergeImageSbom()` and executed during SBOM merge.
+
+### Where the Patcher Lives
+
+- **Patcher registration**: `pkg/build/sbom_step.go` — inside `ConvergeWithMerge()` or as a helper function in the same file
+- **Patcher logic**: Inline function or a new file `pkg/build/pm_bom_patcher.go`
+- **Container factory version read**: Reuses `os_pm.readContainerFactoryVersion()` from `pkg/sbom/packages/os_pm/collect.go` (KEPT per FR-010b)
+
+### Decision
+
+- **Change**: Add a PM BOMPatcher that reads container factory version from inside the built image and enriches host-scanned PM components with the `containerFactoryVersion` PURL qualifier.
+- **Rationale**: The container factory version is only available inside the built image, not in the build context. Host scanning cannot capture it. The patcher pattern is consistent with how other SBOM enrichment works in the codebase (e.g., existing patchers for other metadata).
+- **Entry point**: The patcher is added to the `patchers` slice in `convergeImageSbom()` and invoked by `ConvergeWithMerge()`.
+- **Component identification**: Match `syft:package:foundBy = "os-pm-lock-cataloger"`.

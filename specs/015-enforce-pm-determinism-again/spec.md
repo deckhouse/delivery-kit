@@ -38,6 +38,10 @@ However, the `os-pm` package manager (the `pm` binary) has since evolved to supp
 - Q: What happens when `pm.yaml` exists but `pm.lock` is missing — should werf auto-generate it? → A: Fail with a clear error instructing the user to run `pm lock` manually.
 - Q: Does `os-pm` need a `workdir` field? → A: No — `os-pm` is an OS-level package manager. Unlike language package managers (which need `cd <workdir> && <pkg-mgr>`), `pm.yaml` and `pm.lock` are always located at the repository root. The `workdir` field SHALL NOT be accepted for `os-pm`.
 - Q: Should e2e test fixtures be updated as part of this feature? → A: Yes — all e2e test fixtures that currently use inline `os-pm` syntax MUST be migrated to use file-based `pm.yaml`/`pm.lock` syntax. This includes SBOM stage dependency tests and type-change tests.
+- Q: Does the SBOM collector still need to read `/var/lib/pm/index.json` from inside the built image? → A: No — `pm.lock` (in the build context, under Git) replaces the runtime packages index (`/var/lib/pm/index.json`). Package metadata (names, versions, licenses, dependencies) is extracted from `pm.lock` in the build context.
+- Q: Is `ContainerFactoryVersionFile` (e.g., `/var/lib/pm/container-factory-version`) still relevant? → A: This file may already exist in the base image. It is used for the `containerfactoryversion` purl qualifier. Werf reads it from inside the built image via `ReadFileFromImage` during SBOM collection if present. Werf does NOT create or write this file.
+- Q: What about the old `ParsePmInstalledJSON` parser and `collectPacketsFromLock` function — are they dead code? → A: No — `pm.lock` contains the same data in the same format as `/var/lib/pm/index.json`. These parser functions are NOT dead code; they SHALL be reused to read `pm.lock` from the build context. Only the code that reads `index.json` from inside the built container (via `ReadFileFromImage`) becomes dead.
+- Q: Is a `CatalogerName` needed in the ecosystem entry for `os-pm`? → A: Yes — delivery-kit writes the SBOM itself and uses the `CatalogerName` to identify the package type in SBOM metadata. It is NOT a syft cataloger reference — it's a label that delivery-kit embeds in its own SBOM output.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -58,7 +62,7 @@ The `pm.yaml` file contains the package spec (e.g., `curl==8.12.1`, `jq`), and `
 
 **Acceptance Scenarios**:
 
-1. **Given** a `werf.yaml` with `packages: [{type: os-pm}]` and `pm.lock` in the repository root, **When** the build runs, **Then** a single `pm sync --from pm.lock` command is executed (preceded by the container factory version snapshot command).
+1. **Given** a `werf.yaml` with `packages: [{type: os-pm}]` and `pm.lock` in the repository root, **When** the build runs, **Then** a single `pm sync --from pm.lock` command is executed (with env vars passed inline).
 2. **Given** a `werf.yaml` with `packages: [{type: os-pm, spec: custom-pm.yaml, lock: custom.lock}]`, **When** the build runs, **Then** `pm sync --from custom.lock` is executed.
 
 ---
@@ -114,13 +118,14 @@ A user does not need any OS-level packages.
 - What happens when a user has existing inline `spec` list syntax from the previous model? The configuration parser SHALL reject it with a validation error — the old inline syntax is no longer valid for `os-pm`.
 - What happens when `lock` is specified but the ecosystem's `DefaultLockFile` is empty? This is not applicable to `os-pm` since `DefaultLockFile` is always set to `pm.lock`.
 - What happens when `env` is specified alongside `spec`/`lock`? The `env` field works as before — environment variables are passed to the `pm sync` command, consistent with the behavior established in `012-os-pm-env-vars`.
+- What happens to the old `ParsePmInstalledJSON` code that read `/var/lib/pm/index.json`? → A: The parser functions are NOT dead code — `pm.lock` has the same format as `index.json`, so they are reused to read `pm.lock` from the build context. Only the code that reads `index.json` from inside the container becomes dead and SHALL be removed.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The `os-pm` ecosystem entry SHALL be registered with `DefaultSpecFile: "pm.yaml"`, `DefaultLockFile: "pm.lock"`, and an appropriate `CatalogerName` for SBOM collection.
-- **FR-002**: The `os-pm` ecosystem entry SHALL use `pm sync --from <lockfile>` as the install command (where `<lockfile>` is the lock file path relative to the repository root), replacing the current inline `pm install <pkg_1> ... <pkg_N>` command. The container factory version snapshot command SHALL be emitted before the `pm sync` command, preserving the existing behavior. No `cd <workdir>` prefix is needed — the lock file is always at a pre-known location relative to the Git repository root.
+- **FR-001**: The `os-pm` ecosystem entry SHALL be registered with `DefaultSpecFile: "pm.yaml"`, `DefaultLockFile: "pm.lock"`, and a `CatalogerName` that identifies the os-pm package type in the SBOM output. Delivery-kit parses `pm.lock` itself and writes the `CatalogerName` into the generated SBOM metadata.
+- **FR-002**: The `os-pm` ecosystem entry SHALL use `pm sync --from <lockfile>` as the install command (where `<lockfile>` is the lock file path relative to the repository root), replacing the current inline `pm install <pkg_1> ... <pkg_N>` command. Environment variables (`PACKAGES_VERSION`, `REGISTRY`) are passed inline before the command, as before. No `cd <workdir>` prefix is needed — the lock file is always at the repository root. The `ContainerFactoryVersionFile` may already exist in the base image and is read during SBOM collection if present.
 - **FR-003**: The special-cased `os-pm` handling in `fillFileBasedSpec()` SHALL be removed. The `os-pm` type SHALL use the same `FileBasedSpec` resolution path as other package types, with key differences: `workdir` SHALL NOT be configurable (always empty/repo root for `os-pm`), `spec` defaults to `pm.yaml`, `lock` defaults to `pm.lock`, both resolved relative to the repository root.
 - **FR-004**: The `PackagesSpec` struct with `Packages []string` field SHALL be removed. The `normalizePackages()` function (if it exists) SHALL be removed.
 - **FR-005**: The special-cased `os-pm` validation branch in `PackagesDirective.validate()` SHALL be removed. The `os-pm` type SHALL validate using rules appropriate for OS-level package management: `spec` is required (defaults to `pm.yaml`), `lock` is optional (defaults to `pm.lock`), `workdir` SHALL NOT be accepted.
@@ -128,10 +133,11 @@ A user does not need any OS-level packages.
 - **FR-007**: The `workdir` YAML field SHALL NOT be accepted for `os-pm` — specifying `workdir` SHALL produce a validation error. `pm.yaml` and `pm.lock` are always at the repository root.
 - **FR-008**: The `lock` YAML field for `os-pm` SHALL be optional. When omitted, `pm.lock` SHALL be used as the default lock file name (relative to the repository root).
 - **FR-009**: The `env` YAML field for `os-pm` SHALL continue to work as established in `012-os-pm-env-vars` — environment variables are passed as inline prefixes to the `pm sync` command.
-- **FR-010**: The SBOM cataloger for `os-pm` SHALL scan `pm.yaml` and `pm.lock` from the build context (host filesystem, i.e., the Git repository), consistent with how all other file-based package types are scanned. The cataloger source paths SHALL be `pm.yaml` and `pm.lock` (at the repository root; no `workdir` prefix).
-- **FR-010b**: No SBOM data is read from inside the built image. All component metadata (names, versions, licenses, dependencies) is extracted from the `pm.lock` file in the build context.
+- **FR-010**: The SBOM collector for `os-pm` SHALL parse `pm.lock` from the build context (host filesystem, i.e., the Git repository) using delivery-kit's own parser code (reusing the existing `ParsePmInstalledJSON` logic). No syft cataloger scans these files.
+- **FR-010b**: Component metadata (names, versions, licenses, dependencies) is extracted exclusively from `pm.lock` in the build context — no package data is read from inside the built image. The file `/var/lib/pm/index.json` SHALL NOT be read from inside the container — `pm.lock` replaces it entirely.
+- **FR-017**: Code that reads `/var/lib/pm/index.json` from inside the built container SHALL be removed. However, the parser functions (`ParsePmLock`, `collectPacketsFromLock`) are NOT dead code — `pm.lock` contains the same data in the same format, so these parsers SHALL be reused to read `pm.lock` from the build context.
 - **FR-011**: The build phase SHALL pass the concrete lock file path instead of the current boolean flag. `HasOSPMPackages()` → `OSPMLockPath()` returning the lock file path (relative to repository root, e.g., `pm.lock`).
-- **FR-012**: `buildResolvers` in `pkg/sbom/managedinput` SHALL derive catalogers from `config.Ecosystems()`. With `os-pm` in the registry (with a `CatalogerName`), it automatically gets a cataloger whose source paths include `pm.yaml` and `pm.lock` (at the repository root).
+- **FR-012**: `buildResolvers` in `pkg/sbom/managedinput` SHALL NOT derive a syft cataloger for `os-pm` — delivery-kit parses `pm.lock` directly via its own code and uses the `CatalogerName` from the ecosystem entry for SBOM metadata.
 - **FR-013**: Users SHALL configure `git.stageDependencies.packages` in their `werf.yaml` to trigger packages stage invalidation when `pm.yaml` and/or `pm.lock` change. This is a user-side configuration, not a system-enforced requirement — the system already supports `stageDependencies.packages` for all package types.
 - **FR-014**: The `workdir` field SHALL NOT be accepted for `os-pm` (enforced by FR-007). The validation rule that `workdir` must be a non-empty string when specified applies uniformly to all package types that accept `workdir`, but `os-pm` rejects `workdir` entirely.
 - **FR-015**: All existing unit tests and test data using the inline `os-pm` syntax SHALL be updated to use the file-based syntax.
@@ -145,15 +151,15 @@ A user does not need any OS-level packages.
 - **pm.yaml**: The spec file containing the list of OS packages to install, authored by the user and committed to the repository. Located at the repository root as `pm.yaml` by default.
 - **pm.lock**: The lock file generated by `pm lock` (outside werf), containing pinned package versions with integrity hashes. Located at the repository root as `pm.lock` by default.
 - **OsPmDirective**: Configuration directive with `spec` (file path), `lock` (file path), and `env` fields. The `spec` field is required; `workdir` SHALL NOT be used.
-- **PmSyncCommand**: Generated shell command (`pm sync --from <lockfile>`) with optional environment variable prefix, preceded by the container factory version snapshot command. The lock file path is relative to the repository root.
+- **PmSyncCommand**: Generated shell command (`pm sync --from <lockfile>`) with environment variables passed inline. The lock file path is relative to the repository root.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: An `os-pm` directive (without `workdir`) with default spec/lock generates the command `pm sync --from pm.lock` (preceded by the container factory version snapshot command).
+- **SC-001**: An `os-pm` directive (without `workdir`) with default spec/lock generates the command `pm sync --from pm.lock` (with env vars passed inline).
 - **SC-002**: An `os-pm` directive with `spec: custom-pm.yaml` and `lock: custom.lock` generates the command `pm sync --from custom.lock`.
-- **SC-003**: Custom `spec` and `lock` values are respected in both the install command and SBOM cataloger source paths.
+- **SC-003**: Custom `spec` and `lock` values are respected in both the install command and SBOM collection.
 - **SC-004**: An `os-pm` directive with `workdir` specified is rejected at config validation.
 - **SC-004b**: A build with `pm.yaml` present but `pm.lock` missing fails with a clear error message directing the user to run `pm lock`.
 - **SC-005**: An `os-pm` directive using the old inline `spec` as a list of strings is rejected at YAML unmarshal time.
@@ -164,6 +170,7 @@ A user does not need any OS-level packages.
 - **SC-010**: All existing unit tests pass after the migration to file-based syntax.
 - **SC-013**: All e2e test fixtures are migrated to file-based `pm.yaml`/`pm.lock` syntax and the corresponding e2e tests pass.
 - **SC-014**: The `stage_deps_file` e2e test tracks `pm.yaml` and `pm.lock` via `git.stageDependencies.packages` and demonstrates that changes to either file trigger SBOM regeneration.
+- **SC-015**: Code that reads `/var/lib/pm/index.json` from inside the container is removed. The parser functions (`ParsePmLock`, `collectPacketsFromLock`) are preserved and reused for `pm.lock` from the build context.
 - **SC-011**: The `env` field continues to work with `os-pm` — environment variables are passed as inline prefixes to the `pm sync` command.
 - **SC-012**: The SBOM for `os-pm` is generated from `pm.lock` in the build context, not from inside the built image — matching the behavior of all other file-based package types.
 
@@ -172,9 +179,8 @@ A user does not need any OS-level packages.
 - The `pm` binary is pre-installed in the builder image; werf does not install or manage it.
 - The `pm.yaml` spec file is authored by the user and committed to the repository alongside `pm.lock`.
 - The `pm.lock` file is generated by `pm lock` (outside werf) and committed. It contains deterministic, pinned package versions.
-- The container factory version file (`/var/lib/pm/version`) must be present in the builder image for SBOM purl generation.
 - The `pm sync` command accepts the `--from` flag to specify a lock file path.
 - Users who adopted the inline syntax (`009-not-enforce-pm-determinism`) will need to update their `werf.yaml` configs to use the file-based syntax — no automatic migration is provided.
 - The `pm.lock` file must be committed to the repository by the user. Werf does not auto-generate it during the build.
 - The `stageDependencies.packages` mechanism already exists for all package types; no new infrastructure is needed to support it for `os-pm`.
-- The `pm.lock` file format produced by `pm lock` is parseable by the syft cataloger to extract package names, versions, licenses, and dependencies.
+- The `pm.lock` file format produced by `pm lock` is parseable by delivery-kit's own parser code (reusing `ParsePmInstalledJSON`) to extract package names, versions, licenses, and dependencies.

@@ -41,7 +41,7 @@
 task test:unit -- paths="./pkg/config/..." -run "TestRawPackagesDirective"
 ```
 
-**Expected outcome**: The config unmarshal succeeds. `PackagesDirective` has `FileBased.Spec = "pm.yaml"` and `FileBased.Lock = "pm.lock"`. The generated command is `pm sync --from pm.lock` (preceded by container factory version snapshot commands).
+**Expected outcome**: The config unmarshal succeeds. `PackagesDirective` has `FileBased.Spec = "pm.yaml"` and `FileBased.Lock = "pm.lock"`. The generated command is `pm sync --from pm.lock` (preceded by container factory version file write commands: `mkdir -p /var/lib/pm` and `printf '%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version`).
 
 ### Scenario 2: Custom spec/lock paths
 

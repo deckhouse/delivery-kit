@@ -1,14 +1,14 @@
 # Implementation Plan: os-pm File-Based Syntax
 
-**Branch**: `015-os-pm-file-syntax` | **Date**: 2026-08-05 | **Spec**: [spec.md](spec.md)
+**Branch**: `015-enforce-pm-determinism-again` | **Date**: 2026-08-05 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/015-os-pm-file-syntax/spec.md`
+**Input**: Feature specification from `/specs/015-enforce-pm-determinism-again/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
 
 ## Summary
 
-The `os-pm` package type in werf currently uses an inline syntax where OS packages are declared as a list of strings in `werf.yaml` (e.g., `spec: [curl==8.12.1, jq]`). This feature replaces the inline syntax with a file-based syntax using `pm.yaml` (spec file) and `pm.lock` (lock file) at the repository root — consistent with how Go, Rust, Python, JavaScript, and other package types are handled. Key changes: register `os-pm` in the ecosystems registry with `DefaultSpecFile: "pm.yaml"` and `DefaultLockFile: "pm.lock"`; use `pm sync --from <lockfile>` as the install command; remove the special-cased `os-pm` branches in `fillFileBasedSpec()` and `validate()`; remove the now-unused `PackagesSpec` struct; reject `workdir` for `os-pm`; wire up SBOM cataloging for `pm.yaml`/`pm.lock` via the `CatalogerName` field. All unit and e2e tests referencing the old inline syntax must be migrated to the new file-based syntax — including 16 e2e fixture `werf.yaml` files.
+The `os-pm` package type in werf currently uses an inline syntax where OS packages are declared as a list of strings in `werf.yaml` (e.g., `spec: [curl==8.12.1, jq]`). This feature replaces the inline syntax with a file-based syntax using `pm.yaml` (spec file) and `pm.lock` (lock file) at the repository root — consistent with how Go, Rust, Python, JavaScript, and other package types are handled. Key changes: register `os-pm` in the ecosystems registry with `DefaultSpecFile: "pm.yaml"` and `DefaultLockFile: "pm.lock"`; use `pm sync --from <lockfile>` as the install command (preceded by container factory version preamble command for SBOM purl qualifier); remove the special-cased `os-pm` branches in `fillFileBasedSpec()` and `validate()`; remove the now-unused `PackagesSpec` struct; reject `workdir` for `os-pm`; wire up SBOM cataloging for `pm.yaml`/`pm.lock` via the `CatalogerName` field. All unit and e2e tests referencing the old inline syntax must be migrated to the new file-based syntax — including e2e fixture `werf.yaml` files (stage_deps, stage_deps_file, type_change, and all inject/negative/regression fixtures).
 
 ## Technical Context
 
@@ -42,9 +42,14 @@ Key files that need changes:
 
 - **`pkg/config/packages_directive.go`** — `PackagesSpec` struct removal, `PackagesDirective` struct simplification, `ecosystems` map registration for `os-pm` (add `DefaultSpecFile`, `DefaultLockFile`, `CatalogerName`, new `InstallCmd`), `validate()` method de-specialize `os-pm`, `Ecosystems()` used by SBOM
 - **`pkg/config/raw_packages_directive.go`** — `fillFileBasedSpec()` de-specialize `os-pm` branch; `spec` field validation as string (not list of strings) for `os-pm`; `workdir` rejection
-- **`pkg/config/packages_commands.go`** — `GeneratePackagesCommands()` needs no changes (already uses `eco.InstallCmd`), but the `formatInstallCommand()` function for the old inline `pm install` syntax may be removable or kept for reference
+- **`pkg/config/packages_commands.go`** — `GeneratePackagesCommands()` needs no changes (already uses `eco.InstallCmd`). The container factory version preamble functions (`formatMkdirCommand()`, `formatVersionFileCommand()`) and constants (`ContainerFactoryVersionDir`, `ContainerFactoryVersionFile`) are KEPT — FR-002 requires them for SBOM purl qualifier. `ContainerFactoryVersionIndexFile` constant may be removed (only used by dead runtime-index code in `os_pm/collect.go`).
+- **`pkg/sbom/packages/os_pm/`** — **Package is partially dead code** (previously fully dead, but re-evaluated based on updated spec):
+  - `collect.go`: `collectInstalledPackets()` — reads runtime index (`ContainerFactoryVersionIndexFile`) from inside image — DEAD (per FR-010b, no package data from inside built image). `readContainerFactoryVersion()` — reads `ContainerFactoryVersionFile` for purl qualifier — KEPT (per FR-010b). `CollectBOM()` — orchestrator, needs rework to remove the `collectInstalledPackets()` call.
+  - `os_pm.go`: `ParsePmLock()` — **NOT DEAD** (per FR-017 and spec clarification: reused to read `pm.lock` from build context — `pm.lock` has same format as `/var/lib/pm/index.json`). `collectPacketsFromLock()` — **NOT DEAD** (reused for `pm.lock` per FR-017). `ConvertToCycloneDX()`, `PmPackageInfo`, helper functions — may still be needed for pm.lock-to-CycloneDX conversion; otherwise DEAD.
+  - `os_pm_test.go`, `suite_test.go`, `testdata/` — test code for dead functions needs removal or rewriting.
 - **`pkg/sbom/managedinput/managedinput.go`** — `buildResolvers()` skips ecosystems with empty `CatalogerName`; once `os-pm` has a `CatalogerName`, it automatically gets a cataloger with source paths `pm.yaml` and `pm.lock` at the repository root
-- **`pkg/build/builder/`** — Builder interface may need `HasOSPMPackages()` → `OSPMLockPath()` change if the build phase uses lock path instead of boolean flag (NEEDS CLARIFICATION)
+- **`pkg/build/build_phase.go`** — Change `convergeImageSbom()` from boolean flag to lock file path string: extract `OSPMLockPath()` from `StapelImageBase` and pass as `osPmLockPath` to `ConvergeWithMerge()` instead of the `hasOsPmPackages` boolean.
+- **`pkg/build/sbom_step.go`** — Change `ConvergeWithMerge()` signature: replace `osPmEnabled bool` with `osPmLockPath string`. Add a PM-specific BOMPatcher that reads the container factory version from inside the built image via `readContainerFactoryVersion()` and qualifies all PM components found by the host-scan with the `containerFactoryVersion=<version>` PURL qualifier. The patcher identifies PM components by their `syft:package:foundBy` property matching `"os-pm-lock-cataloger"`.
 - **Unit test files** — `packages_directive_*_test.go`, `raw_packages_directive_test.go`, `packages_commands_test.go`, `managedinput_test.go`, `packages_test.go` all reference the old inline `os-pm` syntax and need updating
 - **E2E test files** — `test/e2e/sbom/packages_test.go`, `gost_test.go`, `lifecycle_test.go`, `stage_dependencies_test.go` reference inline `os-pm` syntax and need updating
 - **E2E fixtures** — 16 `werf.yaml` fixtures under `test/e2e/sbom/_fixtures/` use inline `spec: [pkg...]` syntax that must be migrated to file-based `pm.yaml`/`pm.lock`
@@ -52,40 +57,44 @@ Key files that need changes:
 ### Updates from Spec Change (2026-08-05)
 
 The spec was updated with:
-1. **New clarification**: All e2e test fixtures MUST be migrated to file-based `pm.yaml`/`pm.lock` syntax — including SBOM stage dependency tests and type-change tests.
-2. **New success criteria**:
+1. **Clarification reversed**: The container factory version file write command IS still required — FR-002 now states "The container factory version file write command SHALL be emitted before `pm sync` (preserving existing behavior)" for the SBOM purl qualifier.
+2. **FR-010b nuanced**: Component metadata is from `pm.lock` (no runtime index), BUT `ContainerFactoryVersionFile` SHALL still be read from inside the built image for the purl qualifier.
+3. **New FR-016**: Explicit requirement to migrate specific e2e fixture groups (stage_deps, stage_deps_file, type_change) with concrete file paths.
+4. **New success criteria**:
    - **SC-013**: All e2e test fixtures are migrated to file-based `pm.yaml`/`pm.lock` syntax and corresponding e2e tests pass.
    - **SC-014**: The `stage_deps_file` e2e test tracks `pm.yaml` and `pm.lock` via `git.stageDependencies.packages` and demonstrates that changes to either file trigger SBOM regeneration.
 
+**Consequence**: `formatMkdirCommand()`, `formatVersionFileCommand()`, `ContainerFactoryVersionDir`, `ContainerFactoryVersionFile` must be KEPT. Only `ContainerFactoryVersionIndexFile`, `collectInstalledPackets()`, and `ParsePmLock()` (the runtime index reader) are dead.
+
 ### E2E Test Fixtures Requiring Migration
 
-All use inline `spec: [pkg==ver]` syntax that must change to file-based `pm.yaml`/`pm.lock`:
+FR-016 explicitly lists the following fixture groups for migration to file-based `pm.yaml`/`pm.lock`:
 
-| Fixture | File |
-|---------|------|
-| `inject/ospm_basic` | `test/e2e/sbom/_fixtures/inject/ospm_basic/werf.yaml` |
-| `inject/ospm_gost_override` | `test/e2e/sbom/_fixtures/inject/ospm_gost_override/werf.yaml` |
-| `inject/ospm_scratch_secrets` | `test/e2e/sbom/_fixtures/inject/ospm_scratch_secrets/werf.yaml` |
-| `stage_deps_file/state0` | `test/e2e/sbom/_fixtures/stage_deps_file/state0/werf.yaml` |
-| `stage_deps_file/state1` | `test/e2e/sbom/_fixtures/stage_deps_file/state1/werf.yaml` |
-| `stage_deps/state0` | `test/e2e/sbom/_fixtures/stage_deps/state0/werf.yaml` |
-| `stage_deps/state1` | `test/e2e/sbom/_fixtures/stage_deps/state1/werf.yaml` |
-| `stage_deps/state2` | `test/e2e/sbom/_fixtures/stage_deps/state2/werf.yaml` |
-| `packages_merge/base_with_child` | `test/e2e/sbom/_fixtures/packages_merge/base_with_child/werf.yaml` |
-| `packages_merge/parent_propagation` | `test/e2e/sbom/_fixtures/packages_merge/parent_propagation/werf.yaml` |
-| `type_change/state0` | `test/e2e/sbom/_fixtures/type_change/state0/werf.yaml` |
-| `lifecycle/multi_image` | `test/e2e/sbom/_fixtures/lifecycle/multi_image/werf.yaml` |
-| `purl_resolver_errors` | `test/e2e/sbom/_fixtures/purl_resolver_errors/werf.yaml` |
-| `negative/broken_pm` | `test/e2e/sbom/_fixtures/negative/broken_pm/werf.yaml` |
-| `negative/no_pm_binary` | `test/e2e/sbom/_fixtures/negative/no_pm_binary/werf.yaml` |
-| `regressions/manifest_annotation` | `test/e2e/sbom/_fixtures/regressions/manifest_annotation/werf.yaml` |
+| Fixture Group | States | Key Action |
+|---------------|--------|------------|
+| `inject/ospm_basic` | — | Replace inline `spec: [curl==8.12.1]` with `pm.yaml` + `pm.lock` |
+| `inject/ospm_gost_override` | — | Same migration |
+| `inject/ospm_scratch_secrets` | — | Same migration |
+| `stage_deps` | 0, 1, 2 | Replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` |
+| `stage_deps_file` | 0, 1 | Replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock`; update `stageDependencies.packages` to track `pm.yaml`/`pm.lock` instead of `versions.txt` |
+| `type_change` | 0 | Replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` |
+| `packages_merge/base_with_child` | — | Replace inline `spec:` with `pm.yaml` + `pm.lock` |
+| `packages_merge/parent_propagation` | — | Same migration |
+| `lifecycle/multi_image` | — | Same migration |
+| `purl_resolver_errors` | — | Same migration |
+| `negative/broken_pm` | — | Same migration |
+| `negative/no_pm_binary` | — | Same migration |
+| `regressions/manifest_annotation` | — | Same migration |
+
+All fixtures must also create `pm.lock` via `pm lock --from=pm.yaml`.
 
 ### Unknowns
 
-1. **Builder interface change** — The spec mentions `HasOSPMPackages()` → `OSPMLockPath()` (FR-011). Need to trace how the builder currently detects `os-pm` packages and passes info to the build stage. Explore `pkg/build/builder/shell.go` and how `GeneratePackagesCommands()` is called.
-2. **Test fixture locations** — All unit test YAML fixtures/data referencing inline `os-pm` syntax and all 16 e2e fixtures need updating.
+1. **Build phase lock path propagation (FR-011)** — `convergeImageSbom()` in `pkg/build/build_phase.go` currently extracts `OSPMLockPath()` and reduces it to a boolean (`hasOsPmPackages`). Per FR-011, the lock file path must be propagated as a string to `ConvergeWithMerge()` in `pkg/build/sbom_step.go` instead of a boolean flag. The build phase then passes the lock path to the PM BOMPatcher which enriches host-scanned PM components with the container factory version qualifier.
+2. **Test fixture locations** — All unit test YAML fixtures/data referencing inline `os-pm` syntax and all e2e fixtures need updating. FR-016 provides a concrete list.
 3. **Git stage dependencies behavior** — Already supported for all package types per FR-013, but verify there's no `os-pm` specific exclusion.
-4. **Build phase command wiring** — Trace how the build phase generates and runs `pm sync` commands from `GeneratePackagesCommands()`.
+4. **Build phase command wiring** — Trace how the build phase generates and runs `pm sync` commands from `GeneratePackagesCommands()`. The command includes the container factory version preamble (per FR-002): `mkdir -p /var/lib/pm` and container factory version file write before `pm sync --from <lockfile>`.  
+5. **PM PURL enrichment** — After host-scanning `pm.lock` via the Syft cataloger, PM components lack the `containerFactoryVersion` PURL qualifier. A dedicated `BOMPatcher` reads this version from inside the built image and enriches the host-scanned PM components. The patcher is added to the `patchers` list in `convergeImageSbom()` and invoked during SBOM merge in `ConvergeWithMerge()`.
 
 ## Constitution Check
 
@@ -108,7 +117,7 @@ The design artifacts (research.md, data-model.md, contracts/, quickstart.md) hav
 ### Documentation (this feature)
 
 ```text
-specs/015-os-pm-file-syntax/
+specs/015-enforce-pm-determinism-again/
 ├── plan.md              # This file (/speckit-plan command output)
 ├── research.md          # Phase 0 output (/speckit-plan command)
 ├── data-model.md        # Phase 1 output (/speckit-plan command)

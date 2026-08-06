@@ -52,8 +52,46 @@ var _ = Describe("index platform resolution", func() {
 		Entry("os/arch match resolves single variant entry", "linux/arm64", "sha256:bbbb", ""),
 		Entry("empty platform requires selection", "", "", "platform required"),
 		Entry("empty platform lists available entries", "", "", "linux/amd64 → sha256:aaaa"),
+		Entry("bare os does not prefix-match", "linux", "", `platform "linux" not found`),
 		Entry("mismatch lists available entries", "linux/s390x", "", "linux/arm64/v8 → sha256:bbbb"),
 		Entry("mismatch names the requested platform", "linux/s390x", "", `platform "linux/s390x" not found`),
+	)
+
+	DescribeTable("NormalizePlatform",
+		func(input, expected, expectedErrSubstring string) {
+			normalized, err := NormalizePlatform(input)
+
+			if expectedErrSubstring != "" {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrSubstring))
+				return
+			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(normalized).To(Equal(expected))
+		},
+
+		Entry("empty stays empty", "", "", ""),
+		Entry("plain os/arch passes through", "linux/amd64", "linux/amd64", ""),
+		Entry("default arm64 variant is dropped", "linux/arm64/v8", "linux/arm64", ""),
+		Entry("garbage is rejected", "not a platform!", "", "parse platform"),
+	)
+
+	DescribeTable("checkManifestPlatform",
+		func(manifestPlatform, requested, expectedErrSubstring string) {
+			err := checkManifestPlatform(manifestPlatform, "sha256:dddd", requested)
+
+			if expectedErrSubstring != "" {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrSubstring))
+				return
+			}
+			Expect(err).NotTo(HaveOccurred())
+		},
+
+		Entry("matching platform passes", "linux/amd64", "linux/amd64", ""),
+		Entry("variant manifest matches os/arch request", "linux/arm/v7", "linux/arm", ""),
+		Entry("mismatch is an error", "linux/amd64", "linux/arm64", "does not match"),
+		Entry("mismatch names the manifest platform", "linux/amd64", "linux/arm64", "single-platform linux/amd64 image"),
 	)
 
 	Describe("matchPlatformDigest ambiguity", func() {

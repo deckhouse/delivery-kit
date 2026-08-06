@@ -110,6 +110,11 @@ func runLs(ctx context.Context, digest, tag, platform string) error {
 		digest = resolved
 	}
 
+	platform, err = artifact.NormalizePlatform(platform)
+	if err != nil {
+		return err
+	}
+
 	entries, err := artifact.ListIndexPlatforms(ctx, repoAddr, digest)
 	if err != nil {
 		return err
@@ -145,7 +150,7 @@ type lsRow struct {
 func collectRows(ctx context.Context, repoAddr string, entries []artifact.PlatformDigest, platform string) ([]lsRow, error) {
 	var rows []lsRow
 	for _, entry := range entries {
-		if platform != "" && entry.Platform != platform {
+		if platform != "" && !artifact.PlatformMatches(entry.Platform, platform) {
 			continue
 		}
 

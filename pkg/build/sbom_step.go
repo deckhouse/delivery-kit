@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -49,7 +50,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string, signer signature.Signer) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -132,7 +133,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
-			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform)
+			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
 		}); err != nil {
 			return err
 		}

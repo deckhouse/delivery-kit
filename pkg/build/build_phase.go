@@ -13,6 +13,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
+	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -375,7 +376,17 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform); err != nil {
+	var signer signature.Signer
+	if phase.SbomSigningOptions.Enabled {
+		if sbomSigningSupported(images) {
+			signer = phase.SbomSigningOptions.Signer().SignerVerifier()
+		} else {
+			logboek.Context(ctx).Warn().LogF("multi-platform SBOM signing is not yet supported, SBOM will be unsigned\n")
+		}
+	}
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform, signer); err != nil {
+
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
@@ -395,6 +406,10 @@ func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Ima
 		return multiImg.GetFinalStageDesc()
 	}
 	return nil
+}
+
+func sbomSigningSupported(images []*image.Image) bool {
+	return len(images) == 1
 }
 
 func (phase *BuildPhase) scanOptionsForImage(img *image.Image) scanner.ScanOptions {

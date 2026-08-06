@@ -59,6 +59,10 @@ var _ = Describe("ResolveSigningGate", func() {
 			signing.ResolveSigningGateOptions{SignELFFiles: true},
 			"signing key is required", false, false, false,
 		),
+		Entry("--sign-elf-files with key but no cert → error",
+			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignELFFiles: true},
+			"signing certificate is required", false, false, false,
+		),
 	)
 
 	It("key+cert+--sign-manifest produces signer options with same key/cert refs", func() {

@@ -7,6 +7,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/distribution/reference"
+	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
@@ -41,7 +42,7 @@ func FallbackTag(parentDigest string) string {
 	return artifact.FallbackTag(parentDigest)
 }
 
-func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string) error {
+func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string, signer signature.Signer) error {
 	digestHex, err := artifact.DigestHex(parentDigest)
 	if err != nil {
 		return fmt.Errorf("extract digest hex: %w", err)
@@ -52,9 +53,19 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 		return fmt.Errorf("wrap BOM in in-toto statement: %w", err)
 	}
 
-	envelopeBytes, err := WrapInDSSE(stmtBytes, attestation.InTotoMediaType)
+	envelopeBytes, err := WrapInDSSE(ctx, stmtBytes, attestation.InTotoMediaType, signer)
 	if err != nil {
 		return fmt.Errorf("wrap in-toto statement in DSSE: %w", err)
+	}
+
+	if signer != nil {
+		signed, err := attestation.HasSignatures(envelopeBytes)
+		if err != nil {
+			return fmt.Errorf("check DSSE signatures: %w", err)
+		}
+		if !signed {
+			return fmt.Errorf("sbom dsse envelope has no signatures after signing")
+		}
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)

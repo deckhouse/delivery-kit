@@ -1,3 +1,0 @@
-trust:
-  "https://raw.githubusercontent.com/werf/common-ci/refs/heads/main/Taskfile.deps.yml"
-  "https://raw.githubusercontent.com/werf/common-ci/refs/heads/main/Taskfile.format_lint.yml"

@@ -38,8 +38,19 @@ func Get(ctx context.Context, repo, parentDigest, imageName, predicateType strin
 }
 
 func pullAttestationContent(ctx context.Context, store *artifact.OCIStore, parentDigest, imageName string) ([]byte, error) {
-	if imageName != "" {
-		return store.GetAttachedContent(ctx, parentDigest, DSSEMediaType)
+	getContent := store.GetAttachedContent
+	if imageName == "" {
+		getContent = store.GetAttachedContentAny
 	}
-	return store.GetAttachedContentAny(ctx, parentDigest, DSSEMediaType)
+
+	content, err := getContent(ctx, parentDigest, BundleMediaType)
+	if err == nil {
+		envelopeJSON, unwrapErr := UnwrapBundle(content)
+		if unwrapErr != nil {
+			return nil, fmt.Errorf("unwrap sigstore bundle: %w", unwrapErr)
+		}
+		return envelopeJSON, nil
+	}
+
+	return getContent(ctx, parentDigest, DSSEMediaType)
 }

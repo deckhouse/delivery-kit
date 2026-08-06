@@ -57,6 +57,7 @@ type BuildOptions struct {
 	IntrospectOptions
 
 	ManifestSigningOptions  signing.ManifestSigningOptions
+	SbomSigningOptions      signing.SbomSigningOptions
 	ELFSigningOptions       signing.ELFSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 

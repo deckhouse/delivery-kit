@@ -13,14 +13,14 @@ werf is a CNCF Sandbox CLI tool to implement full-cycle CI/CD to Kubernetes. wer
 - `pkg/deploy` — bundles and Helm chart extenders; the deployment itself is driven by nelm.
 - `pkg/config`, `pkg/giterminism_manager`, `pkg/git_repo`, `pkg/true_git` — `werf.yaml` parsing, giterminism, git access.
 - `test/e2e` — e2e suites, `test/legacy_e2e` — what `task test:integration` runs, `test/pkg` — shared test helpers.
-- `.agents/skills` — mandatory agent skills: branch and commit conventions, PR format, code review. `.claude/skills` is a symlink to it.
+- `.agents/skills` — mandatory agent skills: branch and commit conventions, PR format, code review, test verification. `.claude/skills` is a symlink to it.
 
 ## Highest-priority rule (MANDATORY)
 
 - NEVER add comments unless they document a non-obvious public API or explain genuinely non-obvious logic. NEVER add comments that restate what the code does, repeat the field/function name, describe obvious error handling, or act as section separators. When in doubt, don't comment.
 - ALWAYS use `task` commands for build/test/lint/format — NEVER raw `go build`, `go test`, `go vet`, `go fmt`, or `golangci-lint` directly.
-- ALWAYS read the matching skill in `.agents/skills/` BEFORE the action it governs and follow it verbatim: `git-conventions/SKILL.md` before naming a branch or writing a commit message, `pull-request/SKILL.md` before creating or updating a PR (title, description, draft by default), `review/SKILL.md` before reviewing code. These files are the source of truth and are NOT duplicated here.
-- ALWAYS verify, don't assume — check the actual state before making changes.
+- ALWAYS read the matching skill in `.agents/skills/` BEFORE the action it governs and follow it verbatim: `git-conventions/SKILL.md` before naming a branch or writing a commit message, `pull-request/SKILL.md` before creating or updating a PR (title, description, draft by default), `review/SKILL.md` before reviewing code, `test-the-tests/SKILL.md` before considering a new or changed test done, `agent-code-review/SKILL.md` in addition to `review/SKILL.md` when the diff's author is an agent or the diff touches tests/verification infrastructure, `session-retro/SKILL.md` when wrapping up a session or asked to reflect on it. These files are the source of truth and are NOT duplicated here.
+- ALWAYS verify, don't assume — check the actual state before making changes. Before concluding that a check cannot run here, establish it: whether a runtime is actually missing, and whether a remote host is available.
 - ALWAYS start with the simplest possible solution. If it works, stop. Add complexity only when justified by a concrete, current requirement — NEVER for hypothetical future needs.
 - NEVER leave TODOs, stubs, or partial implementations.
 - ALWAYS stay within the scope of what was asked. When asked to update a plan — only update the plan, don't change code. When asked to brainstorm/discuss — only discuss, don't write code. When asked to do X — do X and nothing else. NEVER make unsolicited changes.
@@ -49,18 +49,24 @@ Follow [Effective Go](https://go.dev/doc/effective_go) and [Go Code Review Comme
 
 - ALWAYS use LSP (`goToDefinition`, `findReferences`, `documentSymbol`, `hover`, `goToImplementation`, call hierarchy) to find definitions, usages, implementations, and callers. `grep` matches strings blindly: it hits comments and unrelated identifiers, and misses interface dispatch and aliased imports.
 - Use `grep` ONLY for literal text — config keys, error message strings, annotation names.
+- ALWAYS use your harness's file-read and search tools instead of `cat`, `sed -n`, `head` or `grep` inside `bash`. They cap what enters the context — byte and match limits, offset windows, long-line truncation — where a shell command dumps the whole file or every hit. Reading an entire file to look at one function is the most expensive habit there is.
 - If your harness has a semantic code-search tool, prefer it over `grep` for intent-based questions ("how does X work"). If it does not, read the code: NEVER substitute keyword grepping for understanding.
 
 ## Commands (MANDATORY)
 
-ALWAYS use these `task` commands. NEVER use raw `go build`, `go test`, `go fmt`, `go vet`, or `golangci-lint` directly. Pass extra args after `--` to forward them to the underlying command (e.g., `task test:unit -- -run TestMyFunc`).
+ALWAYS use these `task` commands. NEVER use raw `go build`, `go test`, `go fmt`, `go vet`, or `golangci-lint` directly.
+
+**`--` separator rule**: Pass `KEY=VALUE` variable assignments BEFORE `--` (they become task variables). Use `--` ONLY for flags to forward to the underlying command (ginkgo/go test). NEVER place `KEY=VALUE` after `--` — it pollutes `CLI_ARGS`, causing ginkgo to compile ALL tests instead of targeted ones.
+
+Correct: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
+Correct: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
 
 - NEVER `go build` → ALWAYS `task build`. Builds binary to `./bin/`. Accepts `pkg=...`.
 - NEVER `go test` → ALWAYS `task test:unit`. Accepts `paths="./pkg/..."`.
-- NEVER `go test` (e2e) → ALWAYS `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
+- NEVER `go test` (e2e) → ALWAYS `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter).
 - NEVER `go test` (integration) → ALWAYS `task test:integration`. Legacy e2e tests.
 - NEVER `go vet` → ALWAYS `task lint:golangci-lint`. golangci-lint includes vet checks. Accepts `golangciPaths="./pkg/..."`.
-- NEVER `go fmt`/`gofmt` → ALWAYS `task format`. Accepts `paths="./pkg/..."`.
+- NEVER `go fmt`/`gofmt` → ALWAYS `task format`. Accepts `paths="pkg/foo"` — plain directories only; the `./pkg/foo/...` wildcard the test and lint tasks take makes the formatters fail.
 - NEVER `golangci-lint` → ALWAYS `task lint:golangci-lint`. Accepts `golangciPaths="./pkg/..."`.
 - `task lint` — run all linters in parallel.
 - `task enum:generate` — run enum generators.
@@ -81,7 +87,11 @@ After changing Go code, run these in order — `task format` mutates files, so i
 
 NEVER assume a change compiles. While iterating, scope the slow steps (`task lint:golangci-lint golangciPaths="./pkg/foo/..."`, `task test:unit paths="./pkg/foo/..."`), then run them unscoped before handing the work over.
 
-On macOS `task build` produces a **non-CGO** binary — the Buildah backend is only built for linux/amd64 (`task build:dev:linux:amd64:cgo`), so Buildah changes cannot be compiled or exercised locally. Unit tests run anywhere; e2e and integration tests need Linux with Docker and kind (`task test:setup:environment`).
+A green `task test:unit` does NOT prove a command runs. No unit test constructs the storage manager, so a command that dereferences a flag group it never registered dies with a SIGSEGV before doing any work while the whole unit suite stays green. After adding or changing a command, execute it once — via `task test:integration`, or the binary in `./bin/` — before calling it done.
+
+`git diff --check` cannot be a whole-repo gate. The CLI reference generator emits column-aligned help text, so the generated pages under `docs/_includes/reference/cli` and `docs/pages_en/reference/cli` carry trailing whitespace on every branch. Scope the check to authored files.
+
+On macOS `task build` produces a **non-CGO** binary — the Buildah backend is only built for linux/amd64 (`task build:dev:linux:amd64:cgo`), so Buildah changes cannot be compiled or exercised locally. Unit tests run anywhere; e2e and integration tests need Linux with Docker and kind (`task test:setup:environment`). Anything exercising registry deletion additionally needs `REGISTRY_STORAGE_DELETE_ENABLED=true` on that registry: stock `registry:2` answers every DELETE with `UNSUPPORTED: The operation is unsupported`, which reads like a werf bug.
 
 ## Testing (MANDATORY)
 

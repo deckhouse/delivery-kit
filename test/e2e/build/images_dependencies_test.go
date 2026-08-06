@@ -51,6 +51,17 @@ func werfRunOutput(ctx context.Context, dir, imageName, shellCommand string) str
 	return strings.Join(output, "\n")
 }
 
+func expectImageReference(ctx context.Context, dir, imageName, pathPrefix, expectedID, expectedRepo string) {
+	output := werfRunOutput(ctx, dir, imageName, fmt.Sprintf("cat %s_NAME %s_ID %s_REPO %s_TAG", pathPrefix, pathPrefix, pathPrefix, pathPrefix))
+	values := strings.Split(strings.TrimSpace(output), "\n")
+
+	Expect(values).To(HaveLen(4))
+	Expect(values[0]).To(Equal(fmt.Sprintf("%s:%s", values[2], values[3])))
+	Expect(values[1]).To(Equal(expectedID))
+	Expect(values[2]).To(Equal(expectedRepo))
+	Expect(values[3]).NotTo(BeEmpty())
+}
+
 func getImageID(ctx context.Context, ref string, containerBackend container_backend.ContainerBackend) string {
 	info, err := containerBackend.GetImageInfo(utils.WithDependencies(ctx), ref, container_backend.GetImageInfoOpts{})
 	Expect(err).To(Succeed())
@@ -88,25 +99,10 @@ var _ = Describe("Images dependencies", Label("e2e", "build", "extra"), func() {
 			baseDockerfileName := fmt.Sprintf("%s:%s", baseDockerfileRepo, baseDockerfileTag)
 			baseDockerfileID := getImageID(ctx, baseDockerfileName, containerBackend)
 
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_STAPEL_IMAGE_NAME")).To(Equal(baseStapelName))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_STAPEL_IMAGE_ID")).To(Equal(baseStapelID))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_STAPEL_IMAGE_REPO")).To(Equal(baseStapelRepo))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_STAPEL_IMAGE_TAG")).To(Equal(baseStapelTag))
-
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_DOCKERFILE_IMAGE_NAME")).To(Equal(baseDockerfileName))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_DOCKERFILE_IMAGE_ID")).To(Equal(baseDockerfileID))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_DOCKERFILE_IMAGE_REPO")).To(Equal(baseDockerfileRepo))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "cat /setup/BASE_DOCKERFILE_IMAGE_TAG")).To(Equal(baseDockerfileTag))
-
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_STAPEL_IMAGE_NAME")).To(Equal(baseStapelName))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_STAPEL_IMAGE_ID")).To(Equal(baseStapelID))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_STAPEL_IMAGE_REPO")).To(Equal(baseStapelRepo))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_STAPEL_IMAGE_TAG")).To(Equal(baseStapelTag))
-
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_DOCKERFILE_IMAGE_NAME")).To(Equal(baseDockerfileName))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_DOCKERFILE_IMAGE_ID")).To(Equal(baseDockerfileID))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_DOCKERFILE_IMAGE_REPO")).To(Equal(baseDockerfileRepo))
-			Expect(werfRunOutput(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "cat /BASE_DOCKERFILE_IMAGE_TAG")).To(Equal(baseDockerfileTag))
+			expectImageReference(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "/setup/BASE_STAPEL_IMAGE", baseStapelID, baseStapelRepo)
+			expectImageReference(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "stapel", "/setup/BASE_DOCKERFILE_IMAGE", baseDockerfileID, baseDockerfileRepo)
+			expectImageReference(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "/BASE_STAPEL_IMAGE", baseStapelID, baseStapelRepo)
+			expectImageReference(ctx, SuiteData.GetProjectWorktree(SuiteData.ProjectName), "dockerfile", "/BASE_DOCKERFILE_IMAGE", baseDockerfileID, baseDockerfileRepo)
 		})
 	})
 	When("dockerfile image uses COPY --from stage and external image", func() {

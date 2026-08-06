@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containers/storage/types"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
@@ -37,8 +38,10 @@ import (
 )
 
 type BuildahBackend struct {
-	buildah        buildah.Buildah
-	pulledImageIDs sync.Map
+	buildah          buildah.Buildah
+	pulledImageIDs   sync.Map
+	pullMutexes      map[string]*sync.Mutex
+	pullMutexesGuard sync.Mutex
 	BuildahBackendOptions
 }
 
@@ -47,7 +50,28 @@ type BuildahBackendOptions struct {
 }
 
 func NewBuildahBackend(buildah buildah.Buildah, opts BuildahBackendOptions) *BuildahBackend {
-	return &BuildahBackend{buildah: buildah, BuildahBackendOptions: opts}
+	return &BuildahBackend{
+		buildah:               buildah,
+		pullMutexes:           map[string]*sync.Mutex{},
+		BuildahBackendOptions: opts,
+	}
+}
+
+func (backend *BuildahBackend) getPullMutex(ref string) *sync.Mutex {
+	backend.pullMutexesGuard.Lock()
+	defer backend.pullMutexesGuard.Unlock()
+
+	if backend.pullMutexes == nil {
+		backend.pullMutexes = map[string]*sync.Mutex{}
+	}
+
+	m, ok := backend.pullMutexes[ref]
+	if !ok {
+		m = &sync.Mutex{}
+		backend.pullMutexes[ref] = m
+	}
+
+	return m
 }
 
 type pulledImageKey struct {
@@ -86,6 +110,14 @@ func platformMatches(inspect *thirdparty.BuilderInfo, targetPlatform string) boo
 	}
 
 	return true
+}
+
+func isImageNotKnownError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return strings.HasSuffix(err.Error(), types.ErrImageUnknown.Error())
 }
 
 func (backend *BuildahBackend) Info(ctx context.Context) (info.Info, error) {
@@ -134,9 +166,11 @@ func (backend *BuildahBackend) createContainers(ctx context.Context, images []st
 		}
 
 		resolvedImg := img
+		usedCachedImageID := false
 		if opts.TargetPlatform != "" {
 			if id, ok := backend.getPulledImageID(img, opts.TargetPlatform); ok {
 				resolvedImg = id
+				usedCachedImageID = true
 			} else if inspect, err := backend.buildah.Inspect(ctx, img); err == nil && inspect != nil {
 				if !platformMatches(inspect, opts.TargetPlatform) {
 					return nil, fmt.Errorf("local image %q has platform %s/%s, but target platform is %q; pull the correct image first", img, inspect.OCIv1.OS, inspect.OCIv1.Architecture, opts.TargetPlatform)
@@ -144,7 +178,24 @@ func (backend *BuildahBackend) createContainers(ctx context.Context, images []st
 			}
 		}
 
-		_, err := backend.buildah.FromCommand(ctx, containerID, resolvedImg, buildah.FromCommandOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform)))
+		fromCommandOpts := buildah.FromCommandOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform))
+		_, err := backend.buildah.FromCommand(ctx, containerID, resolvedImg, fromCommandOpts)
+		if err != nil && opts.TargetPlatform != "" && usedCachedImageID && isImageNotKnownError(err) {
+			logboek.Context(ctx).Debug().LogF("Cached imageID %q for %q not found locally, pulling by ref and retrying\n", resolvedImg, img)
+
+			pulledImageID, pullErr := backend.buildah.Pull(ctx, img, buildah.PullOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform)))
+			if pullErr != nil {
+				return nil, fmt.Errorf("unable to pull image %q after cached imageID miss: %w", img, pullErr)
+			}
+
+			resolvedImg = img
+			if pulledImageID != "" {
+				backend.storePulledImageID(img, opts.TargetPlatform, pulledImageID)
+				resolvedImg = pulledImageID
+			}
+
+			_, err = backend.buildah.FromCommand(ctx, containerID, resolvedImg, fromCommandOpts)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unable to create container using base image %q: %w", img, err)
 		}
@@ -861,6 +912,17 @@ func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts
 }
 
 func (backend *BuildahBackend) Pull(ctx context.Context, ref string, opts PullOpts) error {
+	// libimage pulls into shared containers storage and then looks the image up by
+	// name right after copying it (libimage/pull.go). Concurrent pulls of the same
+	// ref race on that storage name and intermittently fail with "image not known".
+	// Serialize pulls per ref so that different base images still pull in parallel.
+	// The lock key is intentionally ref only (not ref+platform): the race is on the
+	// storage name, which is derived from ref, so pulls of the same ref for different
+	// platforms must still be serialized.
+	mu := backend.getPullMutex(ref)
+	mu.Lock()
+	defer mu.Unlock()
+
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
 		logWriter = logboek.Context(ctx).OutStream()

@@ -7,6 +7,10 @@ description: Code review of a pull request, branch, or diff. Covers technical, p
 
 Evidence-based and blunt. Every finding references a specific `file:line`, function, or component. NEVER sugarcoat, NEVER pad with praise, NEVER report a concern that is not grounded in the diff or the codebase. Style preferences are not defects — but a violation of `AGENTS.md` or `CODESTYLE.md` is a convention finding, not a preference.
 
+## If you are the diff's author
+
+If you wrote the diff you are reviewing now, say so explicitly in the report's Verdict and treat this pass as necessary but insufficient. `agent-code-review/SKILL.md` covers why self-review inherits your own design assumptions and what to recommend instead — read it, don't re-derive it here.
+
 ## Before reviewing
 
 1. Ask the user for numbered acceptance criteria (DoD). If there are none, derive them from the PR description or the linked issue, mark them `(inferred)`, and proceed — do not stall, and do not invent criteria silently.
@@ -30,27 +34,9 @@ Cover the ones the diff actually touches; stay silent about the rest.
 
 ## Tests as evidence
 
-Passing tests, high coverage, and the author's confidence are not evidence of correctness, whoever wrote the diff. Ask what evidence would fail if the implementation were wrong.
+Passing tests, high coverage, and the author's confidence are not evidence of correctness, whoever wrote the diff. Read `test-the-tests/SKILL.md` and run its mutation loop against every load-bearing test: mutate the implementation and confirm the test fails, rather than reading the assertions and trusting they'd catch a regression. This is not optional — skipping it because the tests "look thorough" is exactly the failure mode it exists to catch.
 
-Would each load-bearing test fail if:
-
-- the core behavior were removed;
-- a condition were inverted;
-- the return value were a constant;
-- a side effect happened zero or two times?
-
-Name the smallest mutation that should be tried. A suite that cannot detect a plausible fault is weak even when green.
-
-High risk by default:
-
-- weakened or deleted assertions;
-- golden files updated without an explained behavioral change;
-- skipped, quarantined, or filtered tests;
-- lowered quality thresholds;
-- test-only branches or CI-environment detection;
-- fixture-specific hardcoding;
-- critical behavior covered only by mocks;
-- verification scripts changed together with the implementation.
+If the diff's author is an agent, or the diff touches tests or verification infrastructure, also read `agent-code-review/SKILL.md` — it covers check-gaming detection (weakened assertions, quietly skipped tests, mocked-out critical behavior, and more) in one place, so this list doesn't drift from it again.
 
 ## Product perspective
 
@@ -97,9 +83,9 @@ Print the report. Do not write it into the repository unless the user asks for a
 
 ## DoD Criteria
 
-| Criteria | Met? | Evidence |
-| :--- | :--- | :--- |
-| [criterion] | ✅/⚠️/❌ | file:line |
+| Criteria | Inferred? | Met? | Evidence |
+| :--- | :--- | :--- | :--- |
+| [criterion] | yes/no | ✅/⚠️/❌ | file:line |
 
 ## Issues
 

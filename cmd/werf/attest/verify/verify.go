@@ -27,6 +27,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	var tagFlag string
 	var keyFlags []string
 	var imageFlag string
+	var platformFlag string
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:                   "verify",
@@ -57,7 +58,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			common.LogVersion()
 
 			return common.LogRunningTime(func() error {
-				return runVerify(ctx, typeFlag, digestFlag, tagFlag, keyFlags, imageFlag)
+				return runVerify(ctx, typeFlag, digestFlag, tagFlag, keyFlags, imageFlag, platformFlag)
 			})
 		},
 	})
@@ -80,11 +81,12 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
 	cmd.Flags().StringArrayVarP(&keyFlags, "key", "", nil, "Path to public key PEM file for verification (repeatable, any match = success)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact lookup")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]")
 
 	return cmd
 }
 
-func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths []string, imageName string) error {
+func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths []string, imageName, platform string) error {
 	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
 
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
@@ -120,6 +122,11 @@ func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths 
 			return err
 		}
 		digest = resolved
+	}
+
+	digest, err = artifact.ResolvePlatformDigest(ctx, repoAddr, digest, platform)
+	if err != nil {
+		return err
 	}
 
 	verifiers, err := attestation.LoadVerifiers(keyPaths)

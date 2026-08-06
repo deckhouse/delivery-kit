@@ -1,4 +1,4 @@
-# Specification Quality Checklist: os-pm-file-syntax
+# Specification Quality Checklist: enforce-pm-determinism-again
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-05

@@ -1,6 +1,6 @@
-# Feature Specification: os-pm File-Based Syntax
+# Feature Specification: enforce pm determinism again
 
-**Feature Branch**: `015-os-pm-file-syntax`
+**Feature Branch**: `015-enforce-pm-determinism-again`
 
 **Created**: 2026-08-05
 

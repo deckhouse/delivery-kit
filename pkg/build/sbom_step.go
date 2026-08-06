@@ -60,7 +60,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity)
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -79,7 +79,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return nil
 	}
 
-	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}); err != nil {
+	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
 		return fmt.Errorf("unable to pull %q: %w", stageDesc.Info.Name, err)
 	}
 
@@ -151,12 +151,15 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 const sbomArtifactFormatVersion = "2"
 
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity string) string {
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
 	var parts []string
 	parts = append(parts, sbomArtifactFormatVersion)
 	parts = append(parts, scanOpts.Checksum())
 	parts = append(parts, mergeOpts.Checksum())
 	parts = append(parts, signerIdentity)
+	if targetPlatform != "" {
+		parts = append(parts, targetPlatform)
+	}
 	return util.Sha256Hash(strings.Join(parts, "-"))
 }
 

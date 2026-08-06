@@ -2,6 +2,8 @@ package build
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -60,7 +62,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
+	signerIdentity := signerCacheIdentity(signer)
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -149,10 +152,33 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts) string {
+const sbomArtifactFormatVersion = "2"
+
+func signerCacheIdentity(signer signature.Signer) string {
+	if signer == nil {
+		return ""
+	}
+
+	pub, err := signer.PublicKey()
+	if err != nil {
+		return ""
+	}
+
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return ""
+	}
+
+	digest := sha256.Sum256(der)
+	return fmt.Sprintf("signer:%x", digest)
+}
+
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity string) string {
 	var parts []string
+	parts = append(parts, sbomArtifactFormatVersion)
 	parts = append(parts, scanOpts.Checksum())
 	parts = append(parts, mergeOpts.Checksum())
+	parts = append(parts, signerIdentity)
 	return util.Sha256Hash(strings.Join(parts, "-"))
 }
 

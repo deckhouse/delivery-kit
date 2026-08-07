@@ -361,13 +361,14 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
 
 	patchers := []BOMPatcherInterface{
-		externalRefPatcher,
 		goModPatcher,
 	}
 
 	if osPmLockPath != "" {
 		patchers = append(patchers, osPm.NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
 	}
+
+	patchers = append(patchers, externalRefPatcher)
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 

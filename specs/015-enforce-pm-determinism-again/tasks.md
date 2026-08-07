@@ -73,6 +73,7 @@
 - [X] T013 [US1] Add missing `pm.lock` validation error in `pkg/sbom/packages/os_pm/pm_bom_patcher.go` — when `pm.yaml` exists but `pm.lock` is missing in the commit tree, fail with error: `"pm.lock not found at <path>. Run 'pm lock' in your repository to generate the lock file, commit it, and retry."` (implemented in PM BOMPatcher during build phase, following the same pattern as gomod spec file checking)
 - [X] T014 [US1] Update `convergeImageSbom()` in `pkg/build/build_phase.go` — change from passing `hasOsPmPackages bool` to passing `ospmLockPath string` (from `imageBase.OSPMLockPath()`) to `ConvergeWithMerge()`
 - [X] T015 [US1] Update `ConvergeWithMerge()` signature in `pkg/build/sbom_step.go` — replace `osPmEnabled bool` parameter with `osPmLockPath string`. Use the lock path to conditionally enable PM-specific processing
+- [X] T015b [US1] Fix patcher ordering in `pkg/build/build_phase.go` — reorder the `patchers` list in `convergeImageSbom()` so that `externalRefPatcher` is placed LAST (after `goModPatcher` and `PMBOMPatcher`). Currently the external refs enrichment runs before the PM BOMPatcher has added os-pm components from `pm.lock`, causing PURL resolution errors to be silently missed (FR-018). The correct order is: (1) `goModPatcher`, (2) `PMBOMPatcher`, (3) `externalRefPatcher`
 - [X] T016 [US1] Implement PM BOMPatcher — create `pkg/sbom/packages/os_pm/pm_bom_patcher.go` with a patcher function that: (a) reads container factory version from inside the built image via `readContainerFactoryVersion()` (reusing `pkg/sbom/packages/os_pm/collect.go`), (b) iterates SBOM components matching `syft:package:foundBy = "os-pm-lock-cataloger"`, (c) appends `containerFactoryVersion=<version>` PURL qualifier. Wire the patcher into `ConvergeWithMerge()` in `pkg/build/sbom_step.go`
 - [X] T017 [P] [US1] Integrate os-pm SBOM via delivery-kit's own pm.lock parser in `pkg/sbom/packages/os_pm/` — the existing `ParsePmLock()` and `collectPacketsFromLock()` functions (preserved, NOT dead code) parse `pm.lock` from build context. Hook these into the SBOM collection pipeline so that `CollectBOM()` produces components from `pm.lock` instead of from inside the image. Update `collect.go` to remove the `collectInstalledPackets()` call (handled in dead code cleanup phase)
 - [X] T018 [P] [US1] Implement FR-012 in `pkg/sbom/managedinput/managedinput.go` — `buildResolvers()` SHALL NOT derive a syft cataloger for `os-pm`. The `CatalogerName` in the ecosystems entry is preserved for delivery-kit's own SBOM metadata (not for syft). Added a type-based check in `buildResolvers()` to skip `PackagesDirectiveTypeOSPM`. `pm.lock` is parsed by delivery-kit's own code (PM BOMPatcher), not by syft
@@ -166,7 +167,8 @@
 - [X] T061 [P] Run `task lint:golangci-lint` to verify no linter violations were introduced
 - [ ] T062 Run e2e tests for sbom packages: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && packages"` — validate migrated fixtures (inject/*, packages_merge/*, purl_resolver_errors, negative/*, regressions/*)
 - [ ] T063 Run e2e tests for sbom stage-deps: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && stage-deps"` — validate stage_deps and stage_deps_file migrations, verify SBOM regeneration on pm.yaml/pm.lock changes
-- [ ] T064 Run e2e tests for sbom lifecycle and gost: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (lifecycle || gost)"` — validate lifecycle/multi_image and ospm_gost_override migrations
+- [X] T064 Run e2e tests for sbom lifecycle and gost: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (lifecycle || gost)"` — validate lifecycle/multi_image and ospm_gost_override migrations
+- [ ] T064b [P] Run e2e test for purl-resolver-errors: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="purl-resolver-errors"` — validate that PURL resolution errors for os-pm components from `pm.lock` are aggregated into a hierarchical build error (FR-018, SC-016). Depends on T015b (patcher ordering fix) completing successfully
 - [ ] T065 Run full sbom e2e test suite: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"` — validate all migrated fixtures and updated Go test files together
 
 ---
@@ -177,12 +179,12 @@
 
 - **Setup (Phase 1)**: No dependencies — can start immediately
 - **Foundational (Phase 2)**: Depends on Setup completion — BLOCKS all user stories
-- **User Story 1 (Phase 3)**: Depends on Foundational (Phase 2) completion
+- **User Story 1 (Phase 3)**: Depends on Foundational (Phase 2) completion. T015b (patcher ordering) depends on T014–T015 (build phase lock path changes) being complete
 - **User Story 2 (Phase 4)**: Depends on Foundational (Phase 2) completion. Partially overlaps with Phase 7 (e2e fixture migration)
 - **User Story 3 (Phase 5)**: Depends on Foundational (Phase 2) completion
 - **Dead Code Cleanup (Phase 6)**: Depends on US1 completion (must verify file-based syntax works before removing old code paths)
 - **E2E Fixture Migration (Phase 7)**: Depends on Foundational completion. US2 (Phase 4) must be complete before running overlapping e2e tests
-- **Polish (Phase 8)**: Depends on ALL earlier phases. E2E test tasks (T062–T065) depend on Phase 7 (E2E Fixture Migration) completion in particular
+- **Polish (Phase 8)**: Depends on ALL earlier phases. E2E test tasks (T062–T065) depend on Phase 7 (E2E Fixture Migration) and T015b (patcher ordering) completion
 
 ### User Story Dependencies
 
@@ -267,6 +269,7 @@ With multiple developers:
 - The `pm.lock` file for e2e fixtures is generated by `pm lock --from=pm.yaml` — do NOT hand-write pm.lock
 - The PM BOMPatcher reuses `readContainerFactoryVersion()` from `pkg/sbom/packages/os_pm/collect.go` (preserved, not removed)
 - FR-012: delivery-kit parses `pm.lock` via its own code — no syft cataloger is created for os-pm. The `CatalogerName` is a metadata label in delivery-kit's own SBOM output
+- FR-018: The `externalRefPatcher` (PURL enrichment) MUST be ordered LAST in the patchers list in `convergeImageSbom()` — after `goModPatcher` and `PMBOMPatcher`. Otherwise PURL resolution runs before os-pm components from `pm.lock` are in the BOM, and resolution errors are silently missed (the build succeeds when it should fail). The e2e test `purl_resolver_errors` (T064b) depends on this ordering
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

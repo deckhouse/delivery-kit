@@ -198,7 +198,24 @@ task test:unit -- paths=\"./pkg/build/stage/...\"
 
 **Expected outcome**: All unit tests pass with updated file-based syntax.
 
-## Data Model Reference
+### Scenario 13: PURL aggregation error for failed os-pm components
+
+**What it validates**: A build where some os-pm components from `pm.lock` fail PURL resolution (e.g., 404 from external refs server) produces an aggregated, hierarchical error and fails the build.
+
+**Setup**: The `purl_resolver_errors` e2e fixture has 3 images (`image-fail-all`, `image-fail-partial`, `image-ok`) all using the same `pm.yaml` with curl, openssl, and jq packages. The external refs server is configured to return 404 for curl and openssl PURLs, and 200 for jq.
+
+**Run** (requires e2e environment):
+```shell
+task test:e2e paths="./test/e2e/sbom/..." labelFilter="purl-resolver-errors"
+```
+
+**Expected outcome**: The build fails with an aggregated error containing:
+- The message "resolve external references"
+- `- image: image-fail-all` and `- image: image-fail-partial`
+- `    - component: curl: resolve "pkg:generic/curl@8.12.1..."`
+- `    - component: openssl: resolve "pkg:generic/openssl@3.6.2..."`
+- `"unexpected status 404"`
+- `image: image-ok` does NOT appear in the error output
 
 For details on struct fields, validation rules, and relationships, see [data-model.md](data-model.md).
 

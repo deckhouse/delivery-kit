@@ -119,6 +119,7 @@ A user does not need any OS-level packages.
 - What happens when `lock` is specified but the ecosystem's `DefaultLockFile` is empty? This is not applicable to `os-pm` since `DefaultLockFile` is always set to `pm.lock`.
 - What happens when `env` is specified alongside `spec`/`lock`? The `env` field works as before — environment variables are passed to the `pm sync` command, consistent with the behavior established in `012-os-pm-env-vars`.
 - What happens to the old `ParsePmInstalledJSON` code that read `/var/lib/pm/index.json`? → A: The parser functions are NOT dead code — `pm.lock` has the same format as `index.json`, so they are reused to read `pm.lock` from the build context. Only the code that reads `index.json` from inside the container becomes dead and SHALL be removed.
+- What happens when the external refs server returns an error (e.g., 404 Not Found) while resolving the PURL of an os-pm component from `pm.lock`? The build SHALL fail with an aggregated, hierarchical error listing the failing image names and the failing os-pm components with their PURLs and error details. Successful images do NOT appear in the error output.
 
 ## Requirements *(mandatory)*
 
@@ -145,6 +146,7 @@ A user does not need any OS-level packages.
   - `test/e2e/sbom/_fixtures/stage_deps/` (states 0–2): replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files at repo root
   - `test/e2e/sbom/_fixtures/stage_deps_file/` (states 0–1): replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files; update `stageDependencies.packages` to track `pm.yaml` and `pm.lock` instead of `versions.txt`
   - `test/e2e/sbom/_fixtures/type_change/` (state0): replace inline `spec: [jq==1.8.1]` with `pm.yaml` + `pm.lock` files
+- **FR-018**: The external refs BOMPatcher (PURL enrichment) SHALL be applied AFTER the PM BOMPatcher in the patchers list of `convergeImageSbom()`, so that os-pm components from `pm.lock` are present in the BOM before PURL resolution. PURL resolution failures for os-pm components SHALL be aggregated into a hierarchical build error with per-image and per-component details, and SHALL fail the build.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -171,6 +173,12 @@ A user does not need any OS-level packages.
 - **SC-013**: All e2e test fixtures are migrated to file-based `pm.yaml`/`pm.lock` syntax and the corresponding e2e tests pass.
 - **SC-014**: The `stage_deps_file` e2e test tracks `pm.yaml` and `pm.lock` via `git.stageDependencies.packages` and demonstrates that changes to either file trigger SBOM regeneration.
 - **SC-015**: Code that reads `/var/lib/pm/index.json` from inside the container is removed. The parser functions (`ParsePmLock`, `collectPacketsFromLock`) are preserved and reused for `pm.lock` from the build context.
+- **SC-016**: A build with os-pm packages from `pm.lock` where the external refs server returns an error (e.g., 404 Not Found) for some packages fails with an aggregated error containing:
+  - The message "resolve external references"
+  - The failing image names prefixed with `- image:`
+  - The failing component names with their PURLs prefixed with `    - component:`
+  - The error details (e.g., "unexpected status 404")
+  - Successful images (those whose packages all resolve) do NOT appear in the error output.
 - **SC-011**: The `env` field continues to work with `os-pm` — environment variables are passed as inline prefixes to the `pm sync` command.
 - **SC-012**: The SBOM for `os-pm` is generated from `pm.lock` in the build context, not from inside the built image — matching the behavior of all other file-based package types.
 

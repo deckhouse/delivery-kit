@@ -107,7 +107,8 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			bom1 := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
 			}))
-			sbomtest.AssertHasComponent(bom1, "jq", "1.9.0")
+			sbomtest.AssertHasComponent(bom1, "jq", "1.8.1")
+			sbomtest.AssertHasComponent(bom1, "tini", "0.19.0")
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

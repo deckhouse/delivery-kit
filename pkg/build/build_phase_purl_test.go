@@ -1,14 +1,19 @@
 package build
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	"github.com/werf/werf/v2/test/mock"
 )
@@ -270,6 +275,64 @@ var _ = Describe("PURL error aggregation", func() {
 		Expect(errMsg).To(ContainSubstring("image: img1"))
 		Expect(errMsg).To(ContainSubstring("image: img2"))
 	})
+})
+
+var _ = Describe("buildAggregatedPurlError", func() {
+	newPurlErrors := func(entries map[string]string) *sync.Map {
+		var m sync.Map
+		for name, details := range entries {
+			m.Store(name, details)
+		}
+		return &m
+	}
+
+	It("returns nil when there are no errors", func() {
+		Expect(buildAggregatedPurlError(newPurlErrors(nil), 3)).To(Succeed())
+	})
+
+	It("returns aggregated error when errors present", func() {
+		err := buildAggregatedPurlError(newPurlErrors(map[string]string{
+			"img1": "    - component: apk-tools: empty url\n",
+		}), 1)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("resolve external references: 1 of 1 images failed"))
+	})
+})
+
+var _ = Describe("logPurlResolverHelpHint", func() {
+	captureHint := func(serverURL string) string {
+		if serverURL == "" {
+			os.Unsetenv(externalref.EnvName)
+		} else {
+			GinkgoT().Setenv(externalref.EnvName, serverURL)
+		}
+
+		var output bytes.Buffer
+		ctx := logboek.NewContext(context.Background(), logboek.NewLogger(&output, &output))
+		logPurlResolverHelpHint(ctx)
+		return output.String()
+	}
+
+	DescribeTable("help link hint",
+		func(serverURL, expectedHint string) {
+			out := captureHint(serverURL)
+			if expectedHint == "" {
+				Expect(out).To(BeEmpty())
+			} else {
+				Expect(out).To(ContainSubstring("External references resolution failed"))
+				Expect(out).To(ContainSubstring(expectedHint))
+			}
+		},
+		Entry("logs help link built from env var",
+			"https://refs.example.com",
+			"See https://refs.example.com/help for details on resolving these errors."),
+		Entry("trims trailing slash from server URL",
+			"https://refs.example.com/",
+			"See https://refs.example.com/help for details on resolving these errors."),
+		Entry("logs nothing when env var is unset",
+			"",
+			""),
+	)
 })
 
 type testImagePurlFailure struct {

@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.75.4-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.3-dk.1...v2.75.4-dk.1) (2026-08-06)
+
+
+### Features
+
+* **sbom:** add language pkg env vars ([#220](https://github.com/deckhouse/delivery-kit/issues/220)) ([e42596e](https://github.com/deckhouse/delivery-kit/commit/e42596ee08f300cc914743165fa7ffe3cd5bb6e6))
+* **sbom:** support environment variables for os-pm ([#217](https://github.com/deckhouse/delivery-kit/issues/217)) ([8bc1d20](https://github.com/deckhouse/delivery-kit/commit/8bc1d204d0fd54037b4a6285aa6d75f892178d4b))
+
+
+### Bug Fixes
+
+* **build, buildah:** retry pull when cached image id is missing ([#7669](https://github.com/deckhouse/delivery-kit/issues/7669)) ([9d64035](https://github.com/deckhouse/delivery-kit/commit/9d640357576a029456d94516b64c0eda1214025a))
+* **build, buildah:** serialize concurrent base image pulls ([#7664](https://github.com/deckhouse/delivery-kit/issues/7664)) ([6eb9144](https://github.com/deckhouse/delivery-kit/commit/6eb9144a1f0b71b6c6df3d5ec8ba8b6d3bd14b82))
+* **build, stapel:** make service script executable regardless of umask ([#7720](https://github.com/deckhouse/delivery-kit/issues/7720)) ([8b67264](https://github.com/deckhouse/delivery-kit/commit/8b67264f781b361119a9d6be0a390afec616e258)), closes [#2339](https://github.com/deckhouse/delivery-kit/issues/2339)
+* **build:** drop empty image digest warnings from the build report ([#7717](https://github.com/deckhouse/delivery-kit/issues/7717)) ([24babbb](https://github.com/deckhouse/delivery-kit/commit/24babbbbb2bde473e45a1a8bd72c3ff4c64ea532)), closes [#7667](https://github.com/deckhouse/delivery-kit/issues/7667)
+* **build:** make repo-built from:scratch images readable by dive ([#7765](https://github.com/deckhouse/delivery-kit/issues/7765)) ([54b0921](https://github.com/deckhouse/delivery-kit/commit/54b092177796f41c5fce2944f4bf73f45e058da8))
+* **sbom:** prevent storage fallback inconsistency ([#210](https://github.com/deckhouse/delivery-kit/issues/210)) ([c690a26](https://github.com/deckhouse/delivery-kit/commit/c690a26cc79251ac01c8b1ffa99fd973a93360a6))
+* **sbom:** use default registry auth in GetAttachedContentAny ([34f1658](https://github.com/deckhouse/delivery-kit/commit/34f1658160cf710f70bf3e11cee7200b0809a9ca))
+
+
+### Miscellaneous Chores
+
+* force release 2.75.4-dk.1 ([1ec2055](https://github.com/deckhouse/delivery-kit/commit/1ec205529ed9395e21a5a4cb3b0b77ec9fb097d2))
+
 ## [2.75.3-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.2-dk.1...v2.75.3-dk.1) (2026-07-29)
 
 

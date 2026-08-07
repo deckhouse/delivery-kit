@@ -1,8 +1,8 @@
 ---
 title: Fallback Index Annotation Loss
 type: decision
-sources: [S002]
-updated: 2026-07-29
+sources: [S002, S016, S019]
+updated: 2026-08-07
 ---
 
 ## Problem
@@ -21,8 +21,10 @@ No production code fix was implemented. Instead, a Ginkgo regression test was ad
 
 The regression test uses a dedicated fixture at `test/e2e/sbom/_fixtures/regressions/manifest_annotation/` that is structurally independent from the `lifecycle/multi_image` fixture. This prevents CI interference — concurrent test execution would otherwise cause fallback index tag collisions and false-positive failures. The fixture has a unique project name, its own `Dockerfile.builder-base`, its own `werf-giterminism.yaml`, and no shared directories with `lifecycle/multi_image` (S002).
 
-## Non-functional requirement
+## Production fix (per-tag mutex + consistency verification, superseded)
 
-The eventual fix must not depend on annotations on OCI Image Index descriptors for distinguishing image entries (NF2 in spec). This means the fallback index mechanism will need a different keying strategy — likely moving the image-name into the tag or content rather than relying on the descriptor annotation (S002).
+[description as is, then add:]
+
+This approach was itself superseded by a **convergent write model** (S019). The per-tag mutex is still used within a single process, but the write strategy changed: instead of writing a locally-constructed index and verifying digest equality, the descriptor is **merged** into whatever the registry currently holds, so concurrent writers (including go-containerregistry's own writes) do not lose each other's entries. Entries are collapsed by manifest digest, not by annotation matching (S019).
 
 See also: [Fallback index mechanism](./fallback-index-mechanism.md).

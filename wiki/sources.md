@@ -18,3 +18,9 @@ Sources are immutable inputs — the wiki never edits them.
 | S011 | pkg/config/secrets.go, pkg/config/raw_secrets.go, pkg/build/secrets/build_secrets.go, pkg/config/packages_commands.go, pkg/giterminism_manager/inspector/config_secrets.go | file | 2026-07-30 | 2026-07-30 | build-secrets.md |
 | S012 | docs/pages_en/usage/project_configuration/werf_yaml_template_engine.md | file | 2026-07-30 | 2026-07-30 | werf-yaml-env.md, werf-yaml-template-engine.md |
 | S013 | docs/pages_en/usage/build/images.md | file | 2026-07-30 | 2026-07-30 | werf-yaml-image-env.md, werf-yaml-image-spec.md |
+| S014 | specs/011-reduce-purl-retries-duration/ | feature-artifact | 2026-08-07 | 2026-08-07 | purl-resolution.md, purl-retry-parameters.md |
+| S015 | specs/012-os-pm-env-vars/ | feature-artifact | 2026-08-07 | 2026-08-07 | os-pm-package-management.md |
+| S016 | specs/012-sbom-fallback-consistency/ | feature-artifact | 2026-08-07 | 2026-08-07 | fallback-annotation-loss.md, fallback-index-mechanism.md |
+| S017 | specs/013-lang-pkg-env-vars/ | feature-artifact | 2026-08-07 | 2026-08-07 | package-ecosystem-registry.md |
+| S018 | specs/015-enforce-pm-determinism-again/ | feature-artifact | 2026-08-07 | 2026-08-07 | os-pm-package-management.md, pm-sbom-collection.md, package-ecosystem-registry.md |
+| S019 | specs/014-sbom-artifact-storage-model/ | feature-artifact | 2026-08-07 | 2026-08-07 | fallback-index-mechanism.md, fallback-annotation-loss.md |

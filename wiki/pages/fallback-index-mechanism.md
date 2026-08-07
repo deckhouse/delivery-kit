@@ -1,23 +1,20 @@
 ---
 title: Fallback Index Mechanism for SBOM Artifacts
 type: concept
-sources: [S002]
-updated: 2026-07-29
+sources: [S002, S016, S019]
+updated: 2026-08-07
 ---
 
 When multiple container images share the same parent digest, their OCI artifacts (SBOMs, attestations) are stored in a shared OCI Image Index tag called the **fallback index**. Entries within the index are distinguished by the `io.werf.image-name` annotation on each descriptor (S002).
 
 ## Operations
 
-- **Push (Attach)**: `Attach()` in `pkg/oci/artifact/fallback.go` reads the current fallback index, calls `updateFallbackIndex()` to add or replace the entry for the given image name, writes the updated index back, and verifies via CAS (compare-and-swap) digest comparison with retries (S002).
+- **Push (Attach)**: `Attach()` in `pkg/oci/artifact/fallback.go` serialises writers per `(repo, parentDigest)` via an in-process tag lock, then performs a **convergent write**: the descriptor being attached is **merged** into the index state that was just pulled, never replacing the index with locally constructed state alone (S019). After writing, it enters a convergence loop (exponential backoff, 30 s budget) that observes the index until the entry is present and deduplicated. Previously, the implementation used a per-tag mutex with CAS-based consistency verification (S016), and before that, CAS-only retry (3 tries, ~3.5s) without per-tag serialisation (S002).
 - **Lookup (GetAttached)**: `GetAttached()` in `pkg/oci/artifact/fallback.go` pulls the fallback index, filters manifests by `artifactType` and `io.werf.image-name` annotation, and returns the matching descriptor (S002).
-- **Entry replacement**: `updateFallbackIndex()` iterates existing manifests and skips (replaces) entries where the `artifactType` and `io.werf.image-name` annotation match the new entry (S002).
+- **Entry management**: Entries are collapsed by **manifest digest**: if two descriptors reference the same manifest digest, the werf-annotated one is kept and the go-containerregistry-generated one (without werf annotations) is dropped — both on write (eviction) and on read (deduplication). The `matchDescriptors` function identifies the correct entry by `(artifactType, imageName)`, with an empty image name treated as matching any image for reading (S019).
 
-## Known problem
+## Known problem (mitigated)
 
-The Docker Distribution registry does not reliably preserve the `annotations` field on descriptors within OCI Image Index manifests across write/read cycles. This causes (S002):
-
-- `updateFallbackIndex()` cannot match existing entries (annotation is empty), so entries accumulate instead of being replaced.
-- `GetAttached()` cannot find the entry for the requested image name, causing "artifact not found" errors.
+Docker Distribution does not reliably preserve the `annotations` field on OCI Image Index descriptors across write/read cycles. This is mitigated by the convergent write model: entries are matched by manifest digest rather than by annotation alone. If a descriptor's annotations are lost, the descriptor for the same manifest (written by go-containerregistry) still carries the same digest, and the deduplication logic collapses them (S019).
 
 See also: [Fallback annotation loss](./fallback-annotation-loss.md), [Attestation subsystem](./attestation-subsystem.md).

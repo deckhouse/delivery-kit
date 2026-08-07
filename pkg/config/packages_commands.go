@@ -25,9 +25,8 @@ func formatEnvVars(env map[string]string) string {
 }
 
 const (
-	ContainerFactoryVersionDir       = "/var/lib/pm"
-	ContainerFactoryVersionFile      = ContainerFactoryVersionDir + "/container-factory-version"
-	ContainerFactoryVersionIndexFile = ContainerFactoryVersionDir + "/index.json"
+	ContainerFactoryVersionDir  = "/var/lib/pm"
+	ContainerFactoryVersionFile = ContainerFactoryVersionDir + "/container-factory-version"
 )
 
 func formatSecretVar(name string) string {
@@ -48,12 +47,12 @@ func formatVersionFileCommand() string {
 	)
 }
 
-func formatInstallCommand(pkgs []string, env map[string]string) string {
+func formatSyncCommand(lockFile string, env map[string]string) string {
 	var parts []string
 	if envPrefix := formatEnvVars(env); envPrefix != "" {
 		parts = append(parts, envPrefix)
 	}
-	parts = append(parts, formatSecretVar("PACKAGES_VERSION"), formatSecretVar("REGISTRY"), "pm install", strings.Join(pkgs, " "))
+	parts = append(parts, formatSecretVar("PACKAGES_VERSION"), formatSecretVar("REGISTRY"), "pm sync --from", lockFile)
 	return strings.Join(parts, " ")
 }
 
@@ -65,7 +64,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.Spec.Packages, pkg.Env))
+		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.FileBased.Lock, pkg.Env))
 	}
 	return commands
 }

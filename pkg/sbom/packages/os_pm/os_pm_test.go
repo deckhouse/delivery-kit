@@ -297,7 +297,7 @@ var _ = Describe("ConvertToCycloneDX provenance and dependency graph (AI)", func
 	It("encodes the container-factory version as a purl qualifier", func() {
 		curl := goldenComponent(loadGoldenPmBOM(), "curl")
 		Expect(curl.PackageURL).To(HavePrefix("pkg:generic/curl@8.12.1?"))
-		Expect(curl.PackageURL).To(ContainSubstring("containerFactoryVersion=" + testContainerFactoryVersion))
+		Expect(curl.PackageURL).To(ContainSubstring("containerfactoryversion=" + testContainerFactoryVersion))
 		Expect(curl.PackageURL).ToNot(ContainSubstring("repository_url="))
 	})
 

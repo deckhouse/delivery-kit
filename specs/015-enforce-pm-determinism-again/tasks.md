@@ -156,7 +156,7 @@
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-**Purpose**: Final validation, formatting, and ensuring all tests pass.
+**Purpose**: Final validation, formatting, ensuring all tests pass, and running e2e tests against migrated fixtures.
 
 - [X] T056 [P] Run `task format` to format all changed Go files
 - [X] T057 Run `task build` to verify the project compiles
@@ -164,6 +164,10 @@
 - [X] T059 Run `task test:unit` with `paths="./pkg/sbom/..."` to validate SBOM tests pass (managedinput + os_pm package)
 - [X] T060 Run `task test:unit` with `paths="./pkg/build/..."` to validate build phase tests pass
 - [X] T061 [P] Run `task lint:golangci-lint` to verify no linter violations were introduced
+- [ ] T062 Run e2e tests for sbom packages: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && packages"` — validate migrated fixtures (inject/*, packages_merge/*, purl_resolver_errors, negative/*, regressions/*)
+- [ ] T063 Run e2e tests for sbom stage-deps: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && stage-deps"` — validate stage_deps and stage_deps_file migrations, verify SBOM regeneration on pm.yaml/pm.lock changes
+- [ ] T064 Run e2e tests for sbom lifecycle and gost: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (lifecycle || gost)"` — validate lifecycle/multi_image and ospm_gost_override migrations
+- [ ] T065 Run full sbom e2e test suite: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"` — validate all migrated fixtures and updated Go test files together
 
 ---
 
@@ -178,7 +182,7 @@
 - **User Story 3 (Phase 5)**: Depends on Foundational (Phase 2) completion
 - **Dead Code Cleanup (Phase 6)**: Depends on US1 completion (must verify file-based syntax works before removing old code paths)
 - **E2E Fixture Migration (Phase 7)**: Depends on Foundational completion. US2 (Phase 4) must be complete before running overlapping e2e tests
-- **Polish (Phase 8)**: Depends on all desired user stories and cleanup being complete
+- **Polish (Phase 8)**: Depends on ALL earlier phases. E2E test tasks (T062–T065) depend on Phase 7 (E2E Fixture Migration) completion in particular
 
 ### User Story Dependencies
 
@@ -203,6 +207,7 @@
 - All e2e fixture migration [P] tasks can run in parallel (different fixture directories)
 - All e2e Go test file updates [P] tasks can run in parallel
 - All Polish [P] tasks can run in parallel
+- E2E test tasks (T062, T063, T064) can run in parallel with each other, but all depend on Phase 7 (fixture migration) being complete
 
 ---
 

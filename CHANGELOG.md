@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.75.4-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.1...v2.75.4-dk.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* **sbom:** add help link hint to aggregated PURL resolve error ([#233](https://github.com/deckhouse/delivery-kit/issues/233)) ([5dff183](https://github.com/deckhouse/delivery-kit/commit/5dff1830522142cccf61a5f9f3db29edc849428a))
+* **sbom:** enforce pm determinism again ([#226](https://github.com/deckhouse/delivery-kit/issues/226)) ([c6b0349](https://github.com/deckhouse/delivery-kit/commit/c6b03498bfa10ef9ae94ef2e549189f235b778dd))
+
 ## [2.75.4-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.3-dk.1...v2.75.4-dk.1) (2026-08-06)
 
 

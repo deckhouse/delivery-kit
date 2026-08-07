@@ -36,6 +36,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -365,7 +366,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	}
 
 	if osPmLockPath != "" {
-		patchers = append(patchers, NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
+		patchers = append(patchers, osPm.NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
 	}
 
 	scanOpts := phase.scanOptionsForImage(primaryImg)

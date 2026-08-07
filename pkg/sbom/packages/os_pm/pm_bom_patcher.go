@@ -1,4 +1,4 @@
-package build
+package os_pm
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
-	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 )
 
 type PMBOMPatcher struct {
@@ -66,7 +65,7 @@ func (p *PMBOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error
 		return bom, nil
 	}
 
-	pkgs, err := osPm.ParsePmInstalledJSON(content)
+	pkgs, err := ParsePmInstalledJSON(content)
 	if err != nil {
 		return nil, fmt.Errorf("parse pm.lock: %w", err)
 	}
@@ -74,7 +73,7 @@ func (p *PMBOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error
 		return bom, nil
 	}
 
-	version, err := osPm.ReadContainerFactoryVersion(ctx, p.containerBackend, p.imageRef)
+	version, err := ReadContainerFactoryVersion(ctx, p.containerBackend, p.imageRef)
 	if err != nil {
 		// If the container factory version file does not exist in the base image,
 		// proceed without the qualifier rather than failing the build.
@@ -82,7 +81,7 @@ func (p *PMBOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error
 		version = ""
 	}
 
-	pmBOM := osPm.ConvertToCycloneDX(pkgs, version)
+	pmBOM := ConvertToCycloneDX(pkgs, version)
 	if pmBOM == nil || pmBOM.Components == nil {
 		return bom, nil
 	}

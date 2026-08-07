@@ -104,6 +104,7 @@ This is automatically derived from `FileBasedSpec` — no special-casing needed 
 After the Syft cataloger scans `pm.lock` from the build context, the resulting SBOM components lack the `containerFactoryVersion` PURL qualifier. This version only exists inside the built image (`/var/lib/pm/container-factory-version`).
 
 - **Entity**: `PMBOMPatcher` — post-processes the merged BOM
+- **Location**: `pkg/sbom/packages/os_pm/pm_bom_patcher.go`
 - **Where**: Created in `pkg/build/sbom_step.go`, invoked by `ConvergeWithMerge()`
 - **Input**: Container factory version from `readContainerFactoryVersion()` (reuses `os_pm/collect.go`)
 - **Identification**: Matches PM components via `syft:package:foundBy = "os-pm-lock-cataloger"`

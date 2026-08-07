@@ -285,8 +285,8 @@ After the host scan produces the initial SBOM, a **BOMPatcher** post-processes t
 
 ### Where the Patcher Lives
 
-- **Patcher registration**: `pkg/build/sbom_step.go` — inside `ConvergeWithMerge()` or as a helper function in the same file
-- **Patcher logic**: Inline function or a new file `pkg/build/pm_bom_patcher.go`
+- **Patcher logic**: New file `pkg/sbom/packages/os_pm/pm_bom_patcher.go`
+- **Patcher registration**: `pkg/build/sbom_step.go` — inside `ConvergeWithMerge()` or as a helper function in the same file, importing and calling the PM BOMPatcher from `pkg/sbom/packages/os_pm/`
 - **Container factory version read**: Reuses `os_pm.readContainerFactoryVersion()` from `pkg/sbom/packages/os_pm/collect.go` (KEPT per FR-010b)
 
 ### Decision

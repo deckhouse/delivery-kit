@@ -9,6 +9,7 @@ build:
     standard: cyclonedx@1.6
 ---
 image: app
-dockerfile: Dockerfile
-args:
-  BUILDER_BASE_IMAGE: '{{ env "BUILDER_BASE_IMAGE" }}'
+from: {{ env "BUILDER_BASE_IMAGE" }}
+shell:
+  setup:
+    - echo multiplatform-sbom-test > /marker

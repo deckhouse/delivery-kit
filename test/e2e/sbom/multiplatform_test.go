@@ -10,6 +10,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/ginkgo/v2"
@@ -95,12 +97,35 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform"), f
 
 func buildMultiplatformTrustedBuilderBase(ctx SpecContext, testRepoPath, refSlug string, platforms []string) []string {
 	builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), refSlug)
-	utils.RunSucceedCommand(ctx, testRepoPath, "docker", "buildx", "build",
-		"--platform", strings.Join(platforms, ","),
-		"--provenance=false",
-		"--push",
-		"-t", builderBaseRef,
-		"-f", "Dockerfile.builder-base", ".")
+
+	var adds []mutate.IndexAddendum
+	for _, platform := range platforms {
+		platformTag := builderBaseRef + "-" + strings.ReplaceAll(platform, "/", "-")
+		utils.RunSucceedCommand(ctx, testRepoPath, "docker", "build",
+			"--platform", platform,
+			"-t", platformTag,
+			"-f", "Dockerfile.builder-base", ".")
+		utils.RunSucceedCommand(ctx, testRepoPath, "docker", "push", platformTag)
+
+		platformRef, err := name.ParseReference(platformTag, name.Insecure)
+		Expect(err).NotTo(HaveOccurred())
+		img, err := remote.Image(platformRef, insecureRemoteOptions(ctx)...)
+		Expect(err).NotTo(HaveOccurred())
+
+		parts := strings.SplitN(platform, "/", 3)
+		Expect(len(parts)).To(BeNumerically(">=", 2))
+		platformSpec := &v1.Platform{OS: parts[0], Architecture: parts[1]}
+		if len(parts) == 3 {
+			platformSpec.Variant = parts[2]
+		}
+		adds = append(adds, mutate.IndexAddendum{Add: img, Descriptor: v1.Descriptor{Platform: platformSpec}})
+	}
+
+	idx := mutate.AppendManifests(empty.Index, adds...)
+	idxRef, err := name.ParseReference(builderBaseRef, name.Insecure)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(remote.WriteIndex(idxRef, idx, insecureRemoteOptions(ctx)...)).To(Succeed())
+
 	return []string{
 		fmt.Sprintf("BUILDER_BASE_IMAGE=%s", builderBaseRef),
 		"WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES=true",

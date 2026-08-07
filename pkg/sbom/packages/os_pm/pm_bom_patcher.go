@@ -2,6 +2,7 @@ package os_pm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -65,7 +66,7 @@ func (p *PMBOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error
 		return bom, nil
 	}
 
-	pkgs, err := ParsePmInstalledJSON(content)
+	pkgs, err := parsePmLockFile(content)
 	if err != nil {
 		return nil, fmt.Errorf("parse pm.lock: %w", err)
 	}
@@ -105,4 +106,20 @@ func (p *PMBOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error
 	cyclonedxutil.DedupBOM(bom)
 
 	return bom, nil
+}
+
+// pmLockFile represents the top-level structure of pm.lock.
+type pmLockFile struct {
+	Packages map[string]PmPackageInfo `json:"packages"`
+}
+
+// parsePmLockFile parses a pm.lock JSON file, extracting the inner packages map.
+// pm.lock has the format: {"metadata": {...}, "packages": {"curl": {...}, ...}}
+func parsePmLockFile(data []byte) (map[string]PmPackageInfo, error) {
+	var lock pmLockFile
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return nil, fmt.Errorf("parse pm.lock file: %w", err)
+	}
+
+	return lock.Packages, nil
 }

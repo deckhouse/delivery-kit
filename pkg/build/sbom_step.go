@@ -100,10 +100,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
 		}
 
-		if err := gost.Upsert(targetBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties: %w", err)
-		}
-
 		resultBOM := targetBOM
 		if !mergeOpts.IsEmpty() {
 			var err error
@@ -121,6 +117,12 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if err != nil {
 				return err
 			}
+		}
+
+		// GOST Upsert must run AFTER patchers so that components added by patchers
+		// (e.g. PM BOMPatcher) also get GOST properties.
+		if err := gost.Upsert(resultBOM, mergeOpts.Gost); err != nil {
+			return fmt.Errorf("set GOST properties: %w", err)
 		}
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
@@ -193,6 +195,13 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, image
 func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
 	if !mergeOpts.Gost.AttackSurface.IsUndefined() || !mergeOpts.Gost.SecurityFunction.IsUndefined() {
 		logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
+	}
+
+	// Skip GOST validation and upsert for base/import BOMs when GOST is not configured.
+	// Without this guard, components from patchers (e.g. PM BOMPatcher) that lack GOST
+	// properties would fail validation even though GOST is not in use.
+	if mergeOpts.Gost.AttackSurface.IsUndefined() && mergeOpts.Gost.SecurityFunction.IsUndefined() {
+		return nil
 	}
 
 	if mergeOpts.BaseBOM != nil {

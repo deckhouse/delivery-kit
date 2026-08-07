@@ -1657,6 +1657,9 @@ func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
 	})
 
 	if errorCount > 0 {
+		if serverURL := os.Getenv(externalref.EnvName); serverURL != "" {
+			sb.WriteString(fmt.Sprintf("\nSee %s/help for details on resolving these errors.\n", strings.TrimRight(serverURL, "/")))
+		}
 		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
 	}
 

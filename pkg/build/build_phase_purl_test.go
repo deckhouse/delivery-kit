@@ -3,7 +3,9 @@ package build
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -270,6 +272,50 @@ var _ = Describe("PURL error aggregation", func() {
 		Expect(errMsg).To(ContainSubstring("image: img1"))
 		Expect(errMsg).To(ContainSubstring("image: img2"))
 	})
+})
+
+var _ = Describe("buildAggregatedPurlError", func() {
+	newPurlErrors := func(entries map[string]string) *sync.Map {
+		var m sync.Map
+		for name, details := range entries {
+			m.Store(name, details)
+		}
+		return &m
+	}
+
+	It("returns nil when there are no errors", func() {
+		Expect(buildAggregatedPurlError(newPurlErrors(nil), 3)).To(Succeed())
+	})
+
+	DescribeTable("help link hint",
+		func(serverURL, expectedHint string) {
+			if serverURL == "" {
+				os.Unsetenv(externalref.EnvName)
+			} else {
+				GinkgoT().Setenv(externalref.EnvName, serverURL)
+			}
+
+			err := buildAggregatedPurlError(newPurlErrors(map[string]string{
+				"img1": "    - component: apk-tools: empty url\n",
+			}), 1)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("resolve external references: 1 of 1 images failed"))
+			if expectedHint == "" {
+				Expect(err.Error()).NotTo(ContainSubstring("/help"))
+			} else {
+				Expect(err.Error()).To(ContainSubstring(expectedHint))
+			}
+		},
+		Entry("appends help link built from env var",
+			"https://refs.example.com",
+			"See https://refs.example.com/help for details on resolving these errors."),
+		Entry("trims trailing slash from server URL",
+			"https://refs.example.com/",
+			"See https://refs.example.com/help for details on resolving these errors."),
+		Entry("omits help link when env var is unset",
+			"",
+			""),
+	)
 })
 
 type testImagePurlFailure struct {

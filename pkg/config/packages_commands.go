@@ -25,9 +25,8 @@ func formatEnvVars(env map[string]string) string {
 }
 
 const (
-	ContainerFactoryVersionDir       = "/var/lib/pm"
-	ContainerFactoryVersionFile      = ContainerFactoryVersionDir + "/container-factory-version"
-	ContainerFactoryVersionIndexFile = ContainerFactoryVersionDir + "/index.json"
+	ContainerFactoryVersionDir  = "/var/lib/pm"
+	ContainerFactoryVersionFile = ContainerFactoryVersionDir + "/container-factory-version"
 )
 
 func formatSecretVar(name string) string {

@@ -350,9 +350,11 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
-	var hasOsPmPackages bool
+	var osPmLockPath, osPmSpecPath string
 	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
-		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().OSPMLockPath() != ""
+		imageBase := primaryImg.StapelImageConfig.ImageBaseConfig()
+		osPmLockPath = imageBase.OSPMLockPath()
+		osPmSpecPath = imageBase.OSPMSpecPath()
 	}
 
 	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
@@ -362,9 +364,13 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		goModPatcher,
 	}
 
+	if osPmLockPath != "" {
+		patchers = append(patchers, NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
+	}
+
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, primaryImg.TargetPlatform); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

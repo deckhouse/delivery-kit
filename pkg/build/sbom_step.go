@@ -18,7 +18,6 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
-	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
@@ -49,7 +48,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -78,7 +77,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+		if (osPmLockPath != "" || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
 			targetBOM = cyclonedxutil.NewBOM()
 			targetBOM.Metadata = &cdx.Metadata{
 				Component: &cdx.Component{
@@ -99,19 +98,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 
 			managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
-		}
-
-		if osPmEnabled {
-			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
-			if err != nil {
-				return fmt.Errorf("collect os-pm SBOM: %w", err)
-			}
-			if pmBOM != nil {
-				if err := gost.Upsert(pmBOM, mergeOpts.Gost); err != nil {
-					return fmt.Errorf("set GOST properties for os-pm BOM: %w", err)
-				}
-				mergeOpts.ImportBOMs = append(mergeOpts.ImportBOMs, pmBOM)
-			}
 		}
 
 		if err := gost.Upsert(targetBOM, mergeOpts.Gost); err != nil {

@@ -66,19 +66,17 @@ var _ = Describe("ToCatalogers", func() {
 			},
 		),
 
-		Entry("os-pm entries map to the os-pm-lock-cataloger",
+		Entry("os-pm entries are skipped by buildResolvers per FR-012",
 			[]*config.PackagesDirective{
 				{
 					Type:      config.PackagesDirectiveTypeOSPM,
 					FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"},
 				},
 			},
-			[]scanner.Cataloger{
-				{Name: "os-pm-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"pm.yaml", "pm.lock"}, Workdir: ""},
-			},
+			nil,
 		),
 
-		Entry("multiple os-pm entries with custom lock files",
+		Entry("multiple os-pm entries are skipped by buildResolvers per FR-012",
 			[]*config.PackagesDirective{
 				{
 					Type:      config.PackagesDirectiveTypeOSPM,
@@ -89,10 +87,7 @@ var _ = Describe("ToCatalogers", func() {
 					FileBased: config.FileBasedSpec{Spec: "custom/pm.yaml", Lock: "custom/pm.lock"},
 				},
 			},
-			[]scanner.Cataloger{
-				{Name: "os-pm-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"pm.yaml", "pm.lock"}, Workdir: ""},
-				{Name: "os-pm-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"custom/pm.yaml", "custom/pm.lock"}, Workdir: ""},
-			},
+			nil,
 		),
 
 		Entry("no os-pm packages yields no os-pm cataloger",

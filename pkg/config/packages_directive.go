@@ -179,21 +179,20 @@ func (d *PackagesDirective) validate() error {
 		return fmt.Errorf("unsupported packages type %q", d.Type)
 	}
 
-	if d.Type == PackagesDirectiveTypeOSPM {
+	switch d.Type {
+	case PackagesDirectiveTypeOSPM:
 		if d.FileBased.Workdir != "" {
 			return fmt.Errorf("workdir is not supported for type %q", d.Type)
 		}
-		if d.FileBased.Lock == "" {
-			return fmt.Errorf("lock file must be specified when spec file is set for type %q", d.Type)
+	default:
+		if d.FileBased.Workdir == "" {
+			return fmt.Errorf("the `workdir` is required for type %q", d.Type)
 		}
-		return nil
 	}
 
-	if d.FileBased.Workdir == "" {
-		return fmt.Errorf("the `workdir` is required for type %q", d.Type)
-	}
 	if d.FileBased.Spec == "" {
 		return fmt.Errorf("the `spec` is required for type %q", d.Type)
 	}
+
 	return nil
 }

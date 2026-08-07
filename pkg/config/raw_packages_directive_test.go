@@ -48,7 +48,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			}
 		},
 
-		Entry("os-pm with inline spec list",
+		Entry("os-pm with file-based spec and lock",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
@@ -71,7 +71,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			},
 		),
 
-		Entry("os-pm with single package in spec",
+		Entry("os-pm with minimal config (defaults to pm.yaml/pm.lock)",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",

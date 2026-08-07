@@ -81,28 +81,9 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 	}
 
 	d.FileBased.Workdir = r.Workdir
-
-	if d.Type == PackagesDirectiveTypeOSPM {
-		if r.Workdir != "" {
-			return fmt.Errorf("workdir is not supported for type %q", d.Type)
-		}
-		if r.Spec != nil {
-			specStr, ok := r.Spec.(string)
-			if !ok {
-				return fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a string", r.Spec, d.Type)
-			}
-			d.FileBased.Spec = specStr
-		} else {
-			d.FileBased.Spec = eco.DefaultSpecFile
-		}
-		d.FileBased.Lock = eco.DefaultLockFile
-		if r.Lock != "" {
-			d.FileBased.Lock = r.Lock
-		}
-		return nil
-	}
-
 	d.FileBased.Spec = eco.DefaultSpecFile
+	d.FileBased.Lock = eco.DefaultLockFile
+
 	if r.Spec != nil {
 		specStr, ok := r.Spec.(string)
 		if !ok {
@@ -111,7 +92,6 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 		d.FileBased.Spec = specStr
 	}
 
-	d.FileBased.Lock = eco.DefaultLockFile
 	if r.Lock != "" {
 		if eco.DefaultLockFile == "" {
 			return fmt.Errorf("lock is not supported for type %q", d.Type)

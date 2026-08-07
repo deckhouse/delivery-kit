@@ -32,6 +32,14 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Expect(cmd).To(ContainSubstring("pm sync --from pm.lock"))
 	})
 
+	It("uses custom spec/lock paths for pm sync", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "custom-pm.yaml", Lock: "custom.lock"}},
+		})
+		Expect(cmds).To(HaveLen(1))
+		Expect(cmds[0]).To(ContainSubstring("pm sync --from custom.lock"))
+	})
+
 	It("uses stapel cat binary path for secret resolution", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeOSPM, FileBased: FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
@@ -55,7 +63,7 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		checks    []func(cmd string)
 	}
 
-	DescribeTable("prepends env vars as inline prefix before pm install",
+	DescribeTable("prepends env vars as inline prefix before pm sync",
 		func(entry envVarEntry) {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
 			Expect(cmds).To(HaveLen(1))

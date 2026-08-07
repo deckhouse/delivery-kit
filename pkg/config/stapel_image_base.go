@@ -90,6 +90,15 @@ func (c *StapelImageBase) OSPMLockPath() string {
 	return ""
 }
 
+func (c *StapelImageBase) OSPMSpecPath() string {
+	for _, p := range c.Packages {
+		if p.Type == PackagesDirectiveTypeOSPM {
+			return p.FileBased.Spec
+		}
+	}
+	return ""
+}
+
 func (c *StapelImageBase) dependsOn() DependsOn {
 	var dependsOn DependsOn
 

@@ -293,6 +293,7 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	}
 
 	if err := buildAggregatedPurlError(&purlErrors, totalImages); err != nil {
+		logPurlResolverHelpHint(ctx)
 		return err
 	}
 
@@ -1657,13 +1658,27 @@ func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
 	})
 
 	if errorCount > 0 {
-		if serverURL := os.Getenv(externalref.EnvName); serverURL != "" {
-			sb.WriteString(fmt.Sprintf("\nSee %s/help for details on resolving these errors.\n", strings.TrimRight(serverURL, "/")))
-		}
 		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
 	}
 
 	return nil
+}
+
+// logPurlResolverHelpHint prominently tells the user where to get help with purl-resolver errors.
+func logPurlResolverHelpHint(ctx context.Context) {
+	serverURL := os.Getenv(externalref.EnvName)
+	if serverURL == "" {
+		return
+	}
+
+	logboek.Context(ctx).Warn().LogBlock("External references resolution failed").
+		Options(func(options types.LogBlockOptionsInterface) {
+			options.Style(style.Highlight())
+		}).
+		Do(func() {
+			logboek.Context(ctx).Warn().LogF("Some package URLs could not be resolved by the external references service.\n")
+			logboek.Context(ctx).Warn().LogF("See %s/help for details on resolving these errors.\n", strings.TrimRight(serverURL, "/"))
+		})
 }
 
 func debugStageDigest() bool {

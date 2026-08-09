@@ -1,7 +1,5 @@
 package config
 
-import "fmt"
-
 // rawVex represents the YAML-level VEX configuration for a single image.
 // The value can be either a simple string (file path) or a document reference:
 //
@@ -29,6 +27,9 @@ func (v *rawVex) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
 	if err := unmarshal(&s); err == nil {
 		v.Document = s
+		if v.Document == "" {
+			return newDetailedConfigError("`vex` directive must specify a VEX document path, use `vex: PATH` or `vex:\n  document: PATH`", nil, v.docForErrors())
+		}
 		return nil
 	}
 
@@ -40,11 +41,16 @@ func (v *rawVex) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	err := unmarshal((*plain)(v))
 	parentStack.Pop()
 	if err != nil {
-		return fmt.Errorf("unable to parse VEX config: %w", err)
+		return err
 	}
 
 	if err := checkOverflow(v.UnsupportedAttributes, nil, v.docForErrors()); err != nil {
 		return err
+	}
+
+	// Validate that vex config is not empty.
+	if v.Document == "" {
+		return newDetailedConfigError("`vex` directive must specify a VEX document path, use `vex: PATH` or `vex:\n  document: PATH`", nil, v.docForErrors())
 	}
 
 	return nil

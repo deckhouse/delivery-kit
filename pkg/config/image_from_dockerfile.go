@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v2/pkg/vex"
 )
 
 type ImageFromDockerfile struct {
@@ -55,6 +57,25 @@ func (c *ImageFromDockerfile) validate(giterminismManager giterminism_manager.In
 				}
 			}
 		}
+	}
+
+	if c.vex != nil && c.vex.Document != "" {
+		if err := c.validateVexFile(giterminismManager); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *ImageFromDockerfile) validateVexFile(giterminismManager giterminism_manager.Interface) error {
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(context.Background(), c.vex.Document)
+	if err != nil {
+		return newDetailedConfigError(fmt.Sprintf("unable to read VEX file %q: %v", c.vex.Document, err), nil, c.raw.doc)
+	}
+
+	if err := vex.ValidateVEXDocument(vexContent); err != nil {
+		return newDetailedConfigError(fmt.Sprintf("invalid VEX document %q: %v", c.vex.Document, err), nil, c.raw.doc)
 	}
 
 	return nil

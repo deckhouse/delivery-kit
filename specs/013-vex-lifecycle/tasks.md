@@ -146,25 +146,25 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ### Critical Fixes
 
-- [ ] T030 [US1] Extract publish-check logic (`checkVEXPublishNeeded`) into a testable production function in `pkg/build/vex_step.go` — currently test re-implements production logic, testing the copy not the code
-- [ ] T031 [US1] Move VEX file validation (non-empty, valid JSON-LD) from `AfterImages` to config parsing time (`pkg/config/raw_vex.go`) — FR-010 requires validation before build starts
-- [ ] T032 [US1] Remove no-op `imagesByName[name] = imagesByName[name]` self-assignment in `pkg/build/build_phase.go`
-- [ ] T033 [US1] Implement `IsConfigVexFileAccepted` in `pkg/giterminism_manager/config/config.go` — check `config.vex.allowUncommitted` directive; currently always returns false with zero callers
-- [ ] T034 [US1] Add `config.vex.allowUncommitted` directive to giterminism config (mirrors `config.dockerfile.allowUncommitted` pattern) — VEX is a security claim, needs its own uncommitted control
-- [ ] T035 [US1] Create separate `vexFiles` cache in `pkg/giterminism_manager/file_manager/file_manager.go` (`f.caches.vexFiles`) instead of reusing `dockerFiles` map — path collision returns Dockerfile content instead of VEX
-- [ ] T037 [US1] Deduplicate `DSSEMediaType`/`InTotoMediaType` — keep single copy in `pkg/vex/vex.go`, remove duplicates from `pkg/vex/image/image.go` and test files
-- [ ] T038 [US1] Remove unused `stagesStorage` field from `vexStep` struct and `newVexStep` constructor in `pkg/build/vex_step.go`
-- [ ] T039 [US1] Add validation error for empty `vex` configuration (`vex: {}` or `vex: ""`) in `pkg/config/raw_vex.go` — currently silently skipped
+- [X] T030 [US1] Extract publish-check logic (`checkVEXPublishNeeded`) into a testable production function in `pkg/build/vex_step.go` — currently test re-implements production logic, testing the copy not the code
+- [X] T031 [US1] Move VEX file validation (non-empty, valid JSON-LD) from `AfterImages` to config parsing time (`pkg/config/raw_vex.go`) — FR-010 requires validation before build starts
+- [X] T032 [US1] Remove no-op `imagesByName[name] = imagesByName[name]` self-assignment in `pkg/build/build_phase.go`
+- [X] T033 [US1] Implement `IsConfigVexFileAccepted` in `pkg/giterminism_manager/config/config.go` — check `config.vex.allowUncommitted` directive; currently always returns false with zero callers
+- [X] T034 [US1] Add `config.vex.allowUncommitted` directive to giterminism config (mirrors `config.dockerfile.allowUncommitted` pattern) — VEX is a security claim, needs its own uncommitted control
+- [X] T035 [US1] Create separate `vexFiles` cache in `pkg/giterminism_manager/file_manager/file_manager.go` (`f.caches.vexFiles`) instead of reusing `dockerFiles` map — path collision returns Dockerfile content instead of VEX
+- [X] T037 [US1] Deduplicate `DSSEMediaType`/`InTotoMediaType` — keep single copy in `pkg/vex/vex.go`, remove duplicates from `pkg/vex/image/image.go` and test files
+- [X] T038 [US1] Remove unused `stagesStorage` field from `vexStep` struct and `newVexStep` constructor in `pkg/build/vex_step.go`
+- [X] T039 [US1] Add validation error for empty `vex` configuration (`vex: {}` or `vex: ""`) in `pkg/config/raw_vex.go` — currently silently skipped
 
 ### Verification
 
-- [ ] T040 Run [verification](#verification)
+- [X] T040 Run [verification](#verification)
 
 ### New Coverage Tasks
 
-- [ ] T041 [US1] Add backward compatibility test — build with an unmodified `werf.yaml` (no `vex` field) and verify the pipeline completes without VEX-related operations. Covers SC-005 / FR-009.
-- [ ] T042 [US1] Add error handling in `PushVEX` for registries that don't support OCI subject references — produce a descriptive error message. Covers spec.md edge case "registry does not support OCI artifacts".
-- [ ] T043 [US1] Add test for multiple images in `werf.yaml` referencing the same VEX file — verify each image gets its own artifact via subject reference. Covers spec.md edge case.
+- [X] T041 [US1] Add backward compatibility test — build with an unmodified `werf.yaml` (no `vex` field) and verify the pipeline completes without VEX-related operations. Covers SC-005 / FR-009.
+- [X] T042 [US1] Add error handling in `PushVEX` for registries that don't support OCI subject references — produce a descriptive error message. Covers spec.md edge case "registry does not support OCI artifacts".
+- [X] T043 [US1] Add test for multiple images in `werf.yaml` referencing the same VEX file — verify each image gets its own artifact via subject reference. Covers spec.md edge case.
 
 ---
 

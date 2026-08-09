@@ -6,7 +6,17 @@ import (
 )
 
 func (i Inspector) InspectConfigVexFilePath(relPath string) error {
-	return nil
+	if i.sharedOptions.LooseGiterminism() {
+		return nil
+	}
+
+	if i.giterminismConfig.IsConfigVexFileAccepted(relPath) {
+		return nil
+	}
+
+	return NewExternalDependencyFoundError(fmt.Sprintf(`VEX file %q not allowed by giterminism
+
+The use of the VEX directive complicates sharing and reproducibility of the configuration in CI jobs and among developers because the VEX file data affects the final digest of built images and must be identical at all steps of the pipeline and during local development.`, filepath.ToSlash(relPath)))
 }
 
 func (i Inspector) InspectConfigDockerfileContextAddFile(relPath string) error {

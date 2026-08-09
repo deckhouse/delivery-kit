@@ -43,7 +43,6 @@ import (
 	"github.com/werf/werf/v2/pkg/storage/manager"
 	"github.com/werf/werf/v2/pkg/telemetry"
 	"github.com/werf/werf/v2/pkg/util/parallel"
-	"github.com/werf/werf/v2/pkg/vex"
 	"github.com/werf/werf/v2/pkg/werf"
 )
 
@@ -92,7 +91,7 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 		BasePhase:         BasePhase{c},
 		BuildPhaseOptions: opts,
 		sbomStep:          newSbomStep(c.ContainerBackend, c.StorageManager.GetStagesStorage()),
-		vexStep:           newVexStep(c.StorageManager.GetStagesStorage()),
+		vexStep:           newVexStep(),
 		ImagesReport:      NewImagesReport(),
 	}
 }
@@ -1576,11 +1575,7 @@ func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
 		names := make([]string, 0, len(imagesByName))
 
 		for name := range imagesByName {
-
-			imagesByName[name] = imagesByName[name]
-
 			names = append(names, name)
-
 		}
 
 		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
@@ -1636,10 +1631,6 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, vexConfig.Document)
 	if err != nil {
 		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
-	}
-
-	if err := vex.ValidateVEXDocument(vexContent); err != nil {
-		return fmt.Errorf("image %q: invalid VEX document %q: %w", name, vexConfig.Document, err)
 	}
 
 	if err := phase.vexStep.Converge(ctx, vexContent, stageDesc, name, primaryImg.TargetPlatform); err != nil {

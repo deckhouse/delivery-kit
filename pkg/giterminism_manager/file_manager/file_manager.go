@@ -52,6 +52,7 @@ type FileManager struct {
 
 type caches struct {
 	dockerFiles map[string][]byte
+	vexFiles    map[string][]byte
 }
 
 type NewFileManagerOptions struct {
@@ -254,7 +255,7 @@ func (f *FileManager) ReadDockerfile(ctx context.Context, relPath string) ([]byt
 }
 
 func (f *FileManager) ReadVEXFile(ctx context.Context, relPath string) ([]byte, error) {
-	if data, ok := f.caches.dockerFiles[relPath]; ok {
+	if data, ok := f.caches.vexFiles[relPath]; ok {
 		return data, nil
 	}
 
@@ -264,7 +265,7 @@ func (f *FileManager) ReadVEXFile(ctx context.Context, relPath string) ([]byte, 
 		if err != nil {
 			return nil, err
 		}
-		f.caches.dockerFiles[relPath] = vexData
+		f.caches.vexFiles[relPath] = vexData
 		return vexData, nil
 	}
 

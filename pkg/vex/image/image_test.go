@@ -23,11 +23,11 @@ var _ = Describe("PullVEX", func() {
 			stmtBytes, err := attestation.WrapInInTotoStatement(vexJSON, vex.VEXPredicateURI, "test/repo", digestHex)
 			Expect(err).ToNot(HaveOccurred())
 
-			envelopeBytes, err := attestation.WrapInDSSE(context.Background(), stmtBytes, veximage.InTotoMediaType, nil)
+			envelopeBytes, err := attestation.WrapInDSSE(context.Background(), stmtBytes, vex.InTotoMediaType, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Simulate PullVEX unwrapping
-			unwrappedStmt, err := attestation.UnwrapDSSE(envelopeBytes, veximage.InTotoMediaType)
+			unwrappedStmt, err := attestation.UnwrapDSSE(envelopeBytes, vex.InTotoMediaType)
 			Expect(err).ToNot(HaveOccurred())
 
 			predicate, predicateType, err := attestation.UnwrapInTotoStatement(unwrappedStmt)
@@ -46,11 +46,11 @@ var _ = Describe("PullVEX", func() {
 			stmtBytes, err := attestation.WrapInInTotoStatement(vexJSON, wrongPredicateType, "test/repo", digestHex)
 			Expect(err).ToNot(HaveOccurred())
 
-			envelopeBytes, err := attestation.WrapInDSSE(context.Background(), stmtBytes, veximage.InTotoMediaType, nil)
+			envelopeBytes, err := attestation.WrapInDSSE(context.Background(), stmtBytes, vex.InTotoMediaType, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Simulate PullVEX unwrapping
-			unwrappedStmt, err := attestation.UnwrapDSSE(envelopeBytes, veximage.InTotoMediaType)
+			unwrappedStmt, err := attestation.UnwrapDSSE(envelopeBytes, vex.InTotoMediaType)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, predicateType, err := attestation.UnwrapInTotoStatement(unwrappedStmt)

@@ -9,12 +9,6 @@ import (
 	"github.com/werf/werf/v2/pkg/vex"
 )
 
-// DSSEMediaType is the media type for DSSE envelopes containing VEX attestations.
-const DSSEMediaType = "application/vnd.dsse.envelope.v1+json"
-
-// InTotoMediaType is the media type for in-toto statements containing VEX predicates.
-const InTotoMediaType = "application/vnd.in-toto+json"
-
 // PushVEX publishes a VEX document as an OCI artifact attached to the
 // specified image manifest via subject reference.
 //
@@ -37,13 +31,17 @@ func PushVEX(ctx context.Context, vexJSON []byte, repo, parentDigest, imageName,
 		return fmt.Errorf("wrap VEX in in-toto statement: %w", err)
 	}
 
-	envelopeBytes, err := attestation.WrapInDSSE(ctx, stmtBytes, InTotoMediaType, nil)
+	envelopeBytes, err := attestation.WrapInDSSE(ctx, stmtBytes, vex.InTotoMediaType, nil)
 	if err != nil {
 		return fmt.Errorf("wrap in-toto statement in DSSE: %w", err)
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)
-	return store.Attach(ctx, parentDigest, DSSEMediaType, envelopeBytes, checksum, targetPlatform)
+	if err := store.Attach(ctx, parentDigest, vex.DSSEMediaType, envelopeBytes, checksum, targetPlatform); err != nil {
+		return fmt.Errorf("attach VEX artifact to image %s: %w (if the registry does not support OCI subject references, use a registry that supports OCI Distribution Spec v1.1+)", imageName, err)
+	}
+
+	return nil
 }
 
 // PullVEX retrieves a VEX document OCI artifact attached to the
@@ -62,19 +60,19 @@ func PullVEX(ctx context.Context, repo, parentDigest, imageName string) ([]byte,
 	var envelopeJSON []byte
 	if imageName != "" {
 		var err error
-		envelopeJSON, err = store.GetAttachedContent(ctx, parentDigest, DSSEMediaType)
+		envelopeJSON, err = store.GetAttachedContent(ctx, parentDigest, vex.DSSEMediaType)
 		if err != nil {
 			return nil, fmt.Errorf("get attached VEX: %w", err)
 		}
 	} else {
 		var err error
-		envelopeJSON, err = store.GetAttachedContentAny(ctx, parentDigest, DSSEMediaType)
+		envelopeJSON, err = store.GetAttachedContentAny(ctx, parentDigest, vex.DSSEMediaType)
 		if err != nil {
 			return nil, fmt.Errorf("get attached VEX: %w", err)
 		}
 	}
 
-	stmtBytes, err := attestation.UnwrapDSSE(envelopeJSON, InTotoMediaType)
+	stmtBytes, err := attestation.UnwrapDSSE(envelopeJSON, vex.InTotoMediaType)
 	if err != nil {
 		return nil, fmt.Errorf("unwrap DSSE envelope: %w", err)
 	}

@@ -88,7 +88,7 @@ func (c Config) IsConfigStapelMountFromPathAccepted(fromPath string) bool {
 }
 
 func (c Config) IsConfigVexFileAccepted(relPath string) bool {
-	return false
+	return c.Config.Vex.IsUncommittedAccepted(relPath)
 }
 
 func (c Config) IsConfigDockerfileContextAddFileAccepted(relPath string) bool {
@@ -134,6 +134,7 @@ type config struct {
 	Secrets                   secrets             `json:"secrets"`
 	Stapel                    stapel              `json:"stapel"`
 	Dockerfile                dockerfile          `json:"dockerfile"`
+	Vex                       vex                 `json:"vex"`
 }
 
 func (c config) UncommittedTemplateFilePathMatcher() path_matcher.PathMatcher {
@@ -211,6 +212,14 @@ func (d dockerfile) IsUncommittedAccepted(path string) bool {
 
 func (d dockerfile) IsUncommittedDockerignoreAccepted(path string) bool {
 	return isPathMatched(d.AllowUncommittedDockerignoreFiles, path)
+}
+
+type vex struct {
+	AllowUncommitted []string `json:"allowUncommitted"`
+}
+
+func (v vex) IsUncommittedAccepted(path string) bool {
+	return isPathMatched(v.AllowUncommitted, path)
 }
 
 type helm struct {

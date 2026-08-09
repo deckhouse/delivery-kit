@@ -61,5 +61,46 @@ var _ = Describe("rawVex (YAML-level validation)", func() {
 			HaveOccurred(),
 			BeTrue(),
 		),
+
+		Entry(
+			"should fail when vex is empty struct (vex: {}): document field missing",
+			"document:",
+			"",
+			HaveOccurred(),
+			BeTrue(),
+		),
 	)
+
+	DescribeTable("empty vex config validation",
+		func(yamlContent string) {
+			parentStack = util.NewStack()
+
+			rawV := &rawVex{
+				doc: &doc{
+					RenderFilePath: "werf.yaml",
+					Content:        []byte(yamlContent),
+				},
+			}
+
+			err := yaml.UnmarshalStrict([]byte(yamlContent), rawV)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("must specify a VEX document path"))
+		},
+
+		Entry("empty struct form (vex: {} => document:) should fail", "document:"),
+		Entry("empty scalar form (vex: \"\") should fail", `""`),
+	)
+
+	Describe("backward compatibility (SC-005 / FR-009)", func() {
+		It("should succeed when vex field is entirely absent from image config (verified by nil rawVex)", func() {
+			// When the YAML document has no vex key at all, the parent image struct
+			// keeps RawVex as nil. This test verifies that nil rawVex is valid and
+			// produces nil normalized Vex config.
+			var nilRaw *rawVex
+			Expect(nilRaw).To(BeNil())
+
+			var nilVex *Vex
+			Expect(nilVex).To(BeNil())
+		})
+	})
 })

@@ -137,6 +137,20 @@ func (mr *MockImageInterfaceMockRecorder) Sbom() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sbom", reflect.TypeOf((*MockImageInterface)(nil).Sbom))
 }
 
+// Vex mocks base method.
+func (m *MockImageInterface) Vex() *Vex {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Vex")
+	ret0, _ := ret[0].(*Vex)
+	return ret0
+}
+
+// Vex indicates an expected call of Vex.
+func (mr *MockImageInterfaceMockRecorder) Vex() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Vex", reflect.TypeOf((*MockImageInterface)(nil).Vex))
+}
+
 // SetFromExternal mocks base method.
 func (m *MockImageInterface) SetFromExternal() {
 	m.ctrl.T.Helper()

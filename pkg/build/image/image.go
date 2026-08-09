@@ -63,6 +63,7 @@ type ImageOptions struct {
 	UseCustomTag              bool
 	DockerfileExpanderFactory dockerfile.ExpanderFactory
 	Sbom                      *config.Sbom
+	Vex                       *config.Vex
 }
 
 func NewImage(ctx context.Context, targetPlatform, name string, baseImageType BaseImageType, opts ImageOptions) (*Image, error) {
@@ -91,6 +92,7 @@ func NewImage(ctx context.Context, targetPlatform, name string, baseImageType Ba
 		dockerfileExpanderFactory: opts.DockerfileExpanderFactory,
 		useCustomTag:              opts.UseCustomTag,
 		sbom:                      opts.Sbom,
+		vex:                       opts.Vex,
 	}
 
 	if opts.FetchLatestBaseImage {
@@ -115,6 +117,7 @@ type Image struct {
 	BuildDuration           time.Duration
 
 	sbom              *config.Sbom
+	vex               *config.Vex
 	stages            []stage.Interface
 	stageDurations    map[stage.StageName]time.Duration
 	lastNonEmptyStage stage.Interface
@@ -293,6 +296,10 @@ func (i *Image) UseCustomTag() bool {
 
 func (i *Image) Sbom() *config.Sbom {
 	return i.sbom
+}
+
+func (i *Image) Vex() *config.Vex {
+	return i.vex
 }
 
 func (i *Image) GetName() string {

@@ -28,6 +28,7 @@ type rawStapelImage struct {
 	Platform             []string                `yaml:"platform,omitempty"`
 	Network              string                  `yaml:"network,omitempty"`
 	RawSbom              *rawSbom                `yaml:"sbom,omitempty"`
+	RawVex               *rawVex                 `yaml:"vex,omitempty"`
 	RawSecrets           []*rawSecret            `yaml:"secrets,omitempty"`
 	RawImageSpec         *rawImageSpec           `yaml:"imageSpec,omitempty"`
 	RawPackages          []*rawPackagesDirective `yaml:"packages,omitempty"`
@@ -338,6 +339,10 @@ func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager gitermini
 
 	if imageBase.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {
 		return nil, err
+	}
+
+	if c.RawVex != nil {
+		imageBase.vex = &Vex{Document: c.RawVex.Document}
 	}
 
 	if err := c.validateStapelImageBaseDirective(giterminismManager, imageBase); err != nil {

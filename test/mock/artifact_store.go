@@ -85,3 +85,18 @@ func (mr *MockStoreMockRecorder) GetAttachedContent(ctx, parentDigest, artifactT
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttachedContent", reflect.TypeOf((*MockStore)(nil).GetAttachedContent), ctx, parentDigest, artifactType)
 }
+
+// GetAttachedContentAny mocks base method.
+func (m *MockStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAttachedContentAny", ctx, parentDigest, artifactType)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAttachedContentAny indicates an expected call of GetAttachedContentAny.
+func (mr *MockStoreMockRecorder) GetAttachedContentAny(ctx, parentDigest, artifactType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttachedContentAny", reflect.TypeOf((*MockStore)(nil).GetAttachedContentAny), ctx, parentDigest, artifactType)
+}

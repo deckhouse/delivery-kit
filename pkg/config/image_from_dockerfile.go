@@ -27,6 +27,7 @@ type ImageFromDockerfile struct {
 	platform     []string
 	final        bool
 	sbom         *Sbom
+	vex          *Vex
 	raw          *rawImageFromDockerfile
 }
 
@@ -89,6 +90,10 @@ func (c *ImageFromDockerfile) SetFromExternal() {
 
 func (c *ImageFromDockerfile) Sbom() *Sbom {
 	return c.sbom
+}
+
+func (c *ImageFromDockerfile) Vex() *Vex {
+	return c.vex
 }
 
 func (c *ImageFromDockerfile) dependsOn() DependsOn {

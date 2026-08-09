@@ -24,6 +24,7 @@ type rawImageFromDockerfile struct {
 	Staged          bool                   `yaml:"staged,omitempty"`
 	Platform        []string               `yaml:"platform,omitempty"`
 	RawSbom         *rawSbom               `yaml:"sbom,omitempty"`
+	RawVex          *rawVex                `yaml:"vex,omitempty"`
 	RawSecrets      []*rawSecret           `yaml:"secrets,omitempty"`
 	RawImageSpec    *rawImageSpec          `yaml:"imageSpec,omitempty"`
 
@@ -154,6 +155,10 @@ func (c *rawImageFromDockerfile) toImageFromDockerfileDirective(giterminismManag
 
 	if image.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {
 		return nil, err
+	}
+
+	if c.RawVex != nil {
+		image.vex = &Vex{Document: c.RawVex.Document}
 	}
 
 	if err := image.validate(giterminismManager); err != nil {

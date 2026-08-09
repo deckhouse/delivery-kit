@@ -30,6 +30,7 @@ type StapelImageBase struct {
 	cacheVersion string
 	final        bool
 	sbom         *Sbom
+	vex          *Vex
 	platform     []string
 	raw          *rawStapelImage
 }
@@ -79,6 +80,10 @@ func (c *StapelImageBase) SetFromExternal() {
 
 func (c *StapelImageBase) Sbom() *Sbom {
 	return c.sbom
+}
+
+func (c *StapelImageBase) Vex() *Vex {
+	return c.vex
 }
 
 func (c *StapelImageBase) OSPMLockPath() string {

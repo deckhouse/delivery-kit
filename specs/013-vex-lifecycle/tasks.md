@@ -38,8 +38,8 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 **Purpose**: Create new package structure for VEX domain
 
-- [ ] T001 Create `pkg/vex/` and `pkg/vex/image/` package directories
-- [ ] T002 [P] Create `test/e2e/vex/` directory for e2e test suite
+- [X] T001 Create `pkg/vex/` and `pkg/vex/image/` package directories
+- [X] T002 [P] Create `test/e2e/vex/` directory for e2e test suite
 
 ---
 
@@ -49,12 +49,12 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 **Purpose**: Config parsing types and VEX document validation — needed by ALL user stories
 
-- [ ] T003 Create raw VEX config parsing type in `pkg/config/raw_vex.go` (mirrors `rawSbom` from `pkg/config/raw_sbom.go`)
-- [ ] T004 Create normalized Vex config type in `pkg/config/vex.go` (mirrors `Sbom` from `pkg/config/sbom.go`)
-- [ ] T005 [P] Add `RawVex *rawVex` field to `rawStapelImage` in `pkg/config/raw_stapel_image.go`
-- [ ] T006 [P] Add `RawVex *rawVex` field to `rawImageFromDockerfile` in `pkg/config/image_from_dockerfile.go`
-- [ ] T007 Add `Vex() *Vex` accessor method to normalized image types (stapel + dockerfile)
-- [ ] T008 Create VEX document validation utility `ValidateVEXDocument(data []byte) error` in `pkg/vex/vex.go` — validates OpenVEX JSON-LD format, file non-empty check
+- [X] T003 Create raw VEX config parsing type in `pkg/config/raw_vex.go` (mirrors `rawSbom` from `pkg/config/raw_sbom.go`)
+- [X] T004 Create normalized Vex config type in `pkg/config/vex.go` (mirrors `Sbom` from `pkg/config/sbom.go`)
+- [X] T005 [P] Add `RawVex *rawVex` field to `rawStapelImage` in `pkg/config/raw_stapel_image.go`
+- [X] T006 [P] Add `RawVex *rawVex` field to `rawImageFromDockerfile` in `pkg/config/image_from_dockerfile.go`
+- [X] T007 Add `Vex() *Vex` accessor method to normalized image types (stapel + dockerfile)
+- [X] T008 Create VEX document validation utility `ValidateVEXDocument(data []byte) error` in `pkg/vex/vex.go` — validates OpenVEX JSON-LD format, file non-empty check
 
 **Checkpoint**: Foundation ready — user story implementation can begin
 
@@ -68,16 +68,16 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Unit test for `ValidateVEXDocument` in `pkg/vex/vex_test.go`
-- [ ] T010 [P] [US1] Unit test for raw VEX config parsing in `pkg/config/raw_vex_test.go`
-- [ ] T011 [P] [US1] Unit test for PushVEX in `pkg/vex/image/image_test.go`
+- [X] T009 [P] [US1] Unit test for `ValidateVEXDocument` in `pkg/vex/vex_test.go`
+- [X] T010 [P] [US1] Unit test for raw VEX config parsing in `pkg/config/raw_vex_test.go`
+- [X] T011 [P] [US1] Unit test for PushVEX in `pkg/vex/image/image_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Implement `PushVEX` in `pkg/vex/image/image.go` — reads VEX JSON, wraps in in-toto statement (predicate type `https://openvex.dev/ns/v0.2.0`), wraps in DSSE envelope, calls `OCIStore.Attach()` (see research.md §5 and contracts/oci-artifact.md)
-- [ ] T013 [US1] Create VEX build step in `pkg/build/vex_step.go` — mirrors `sbomStep` from `pkg/build/sbom_step.go`; reads VEX file from Git via giterminism manager, validates, calls `PushVEX`
-- [ ] T014 [US1] Integrate VEX step into build pipeline in `pkg/build/build_phase.go` — add `vexStep` field to `BuildPhase`, initialize in `NewBuildPhase`, add `convergeVexByImagesSets()` and `convergeImageVex()` methods (mirrors `convergeSbomByImagesSets`/`convergeImageSbom`), call from `AfterImages()` after SBOM converges
-- [ ] T015 [US1] Add file-tracking validation for VEX files in giterminism manager — read VEX file content from Git repository, verify it is tracked by Git (FR-003, FR-010)
+- [X] T012 [P] [US1] Implement `PushVEX` in `pkg/vex/image/image.go` — reads VEX JSON, wraps in in-toto statement (predicate type `https://openvex.dev/ns/v0.2.0`), wraps in DSSE envelope, calls `OCIStore.Attach()` (see research.md §5 and contracts/oci-artifact.md)
+- [X] T013 [US1] Create VEX build step in `pkg/build/vex_step.go` — mirrors `sbomStep` from `pkg/build/sbom_step.go`; reads VEX file from Git via giterminism manager, validates, calls `PushVEX`
+- [X] T014 [US1] Integrate VEX step into build pipeline in `pkg/build/build_phase.go` — add `vexStep` field to `BuildPhase`, initialize in `NewBuildPhase`, add `convergeVexByImagesSets()` and `convergeImageVex()` methods (mirrors `convergeSbomByImagesSets`/`convergeImageSbom`), call from `AfterImages()` after SBOM converges
+- [X] T015 [US1] Add file-tracking validation for VEX files in giterminism manager — read VEX file content from Git repository, verify it is tracked by Git (FR-003, FR-010)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -91,14 +91,14 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Unit test for PullVEX in `pkg/vex/image/image_test.go`
-- [ ] T017 [P] [US2] Unit test for change detection and skip logic in `pkg/build/vex_step_test.go`
+- [X] T016 [P] [US2] Unit test for PullVEX in `pkg/vex/image/image_test.go`
+- [X] T017 [P] [US2] Unit test for change detection and skip logic in `pkg/build/vex_step_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T018 [P] [US2] Implement `PullVEX` in `pkg/vex/image/image.go` — retrieves VEX artifact via `OCIStore.GetAttachedContent()`, unwraps DSSE envelope, unwraps in-toto statement, verifies predicate type, returns VEX JSON (see contracts/oci-artifact.md)
-- [ ] T019 [US2] Add checksum-based change detection to VEX build step — before publishing, call `PullVEX` and compare checksum annotation of existing artifact with current VEX file checksum; if identical, skip publish
-- [ ] T020 [US2] Implement image checksum binding in VEX build step — when image content changed but VEX file unchanged, still recreate VEX artifact because it is bound to image checksum (FR-011, Image-VEX Relationship Rules)
+- [X] T018 [P] [US2] Implement `PullVEX` in `pkg/vex/image/image.go` — retrieves VEX artifact via `OCIStore.GetAttachedContent()`, unwraps DSSE envelope, unwraps in-toto statement, verifies predicate type, returns VEX JSON (see contracts/oci-artifact.md)
+- [X] T019 [US2] Add checksum-based change detection to VEX build step — before publishing, call `PullVEX` and compare checksum annotation of existing artifact with current VEX file checksum; if identical, skip publish
+- [X] T020 [US2] Implement image checksum binding in VEX build step — when image content changed but VEX file unchanged, still recreate VEX artifact because it is bound to image checksum (FR-011, Image-VEX Relationship Rules)
 
 **Checkpoint**: User Stories 1 and 2 should now both work independently
 
@@ -112,8 +112,8 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Add VEX predicate type constant (`VEXPredicateURI = "https://openvex.dev/ns/v0.2.0"`) to `pkg/vex/vex.go` (reuse from data-model.md constants)
-- [ ] T022 [US3] Verify SBOM cleanup path handles VEX artifacts — no separate cleanup code needed per research.md §6; VEX artifacts use the same DSSE envelope format and are cleaned up by the same fallback index and subject-reference mechanisms. Add VEX-aware filtering to fallback index `GetAttached()` calls if SBOM cleanup currently filters by predicate type to ensure VEX artifacts are included in scope.
+- [X] T021 [US3] Add VEX predicate type constant (`VEXPredicateURI = "https://openvex.dev/ns/v0.2.0"`) to `pkg/vex/vex.go` (reuse from data-model.md constants)
+- [X] T022 [US3] Verify SBOM cleanup path handles VEX artifacts — no separate cleanup code needed per research.md §6; VEX artifacts use the same DSSE envelope format and are cleaned up by the same fallback index and subject-reference mechanisms. Add VEX-aware filtering to fallback index `GetAttached()` calls if SBOM cleanup currently filters by predicate type to ensure VEX artifacts are included in scope.
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -123,9 +123,9 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 **Purpose**: E2E tests, documentation, and final verification
 
-- [ ] T023 [P] Create e2e test suite for VEX lifecycle in `test/e2e/vex/` — covers US1 (publish), US2 (update), US3 (cleanup), and all acceptance scenarios from spec.md using Ginkgo label `VEX`
-- [ ] T024 Run `task doc:gen` to regenerate CLI reference docs if any CLI help text was modified
-- [ ] T025 Final verification: run `task format && task build && task lint && task test:unit` — ensure all VEX-related code passes format, lint, build, and unit tests
+- [X] T023 [P] Create e2e test suite for VEX lifecycle in `test/e2e/vex/` — covers US1 (publish), US2 (update), US3 (cleanup), and all acceptance scenarios from spec.md using Ginkgo label `VEX`
+- [X] T024 Run `task doc:gen` to regenerate CLI reference docs if any CLI help text was modified
+- [X] T025 Final verification: run `task format && task build && task lint && task test:unit` — ensure all VEX-related code passes format, lint, build, and unit tests
 
 ---
 

@@ -125,7 +125,7 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 - [X] T023 [P] Create e2e test suite for VEX lifecycle in `test/e2e/vex/` — covers US1 (publish), US2 (update), US3 (cleanup), and all acceptance scenarios from spec.md using Ginkgo label `VEX`
 - [X] T024 Run `task doc:gen` to regenerate CLI reference docs if any CLI help text was modified
-- [X] T025 Final verification: run `task format && task build && task lint && task test:unit` — ensure all VEX-related code passes format, lint, build, and unit tests
+- [X] T025 Run [final verification](#verification)
 
 ---
 
@@ -137,6 +137,49 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 - [X] T027 Add `InspectConfigVexFilePath` method to giterminism manager's `Inspector` interface for VEX file path validation (FR-003)
 - [X] T028 Update `convergeImageVex()` in `pkg/build/build_phase.go` to read VEX files via `giterminismManager.FileReader().ReadVEXFile()` instead of `os.ReadFile` (FR-003)
 - [X] T029 Remove duplicate `ValidateVEXDocument(vexContent)` call at line 1637 of `pkg/build/build_phase.go` (unrequested)
+
+---
+
+## Phase 8: Post-Review Cleanup (PR #218)
+
+**Purpose**: Address review feedback from [PR #218](https://github.com/deckhouse/delivery-kit/pull/218)
+
+### Critical Fixes
+
+- [ ] T030 [US1] Extract publish-check logic (`checkVEXPublishNeeded`) into a testable production function in `pkg/build/vex_step.go` — currently test re-implements production logic, testing the copy not the code
+- [ ] T031 [US1] Move VEX file validation (non-empty, valid JSON-LD) from `AfterImages` to config parsing time (`pkg/config/raw_vex.go`) — FR-010 requires validation before build starts
+- [ ] T032 [US1] Remove no-op `imagesByName[name] = imagesByName[name]` self-assignment in `pkg/build/build_phase.go`
+- [ ] T033 [US1] Implement `IsConfigVexFileAccepted` in `pkg/giterminism_manager/config/config.go` — check `config.vex.allowUncommitted` directive; currently always returns false with zero callers
+- [ ] T034 [US1] Add `config.vex.allowUncommitted` directive to giterminism config (mirrors `config.dockerfile.allowUncommitted` pattern) — VEX is a security claim, needs its own uncommitted control
+- [ ] T035 [US1] Create separate `vexFiles` cache in `pkg/giterminism_manager/file_manager/file_manager.go` (`f.caches.vexFiles`) instead of reusing `dockerFiles` map — path collision returns Dockerfile content instead of VEX
+- [ ] T036 [US2] Remove `PullVEX` from `pkg/vex/image/image.go` — dead code; VEX retrieval is handled by `pkg/attestation/get.go` via `werf attest get --type openvex`
+- [ ] T037 [US1] Deduplicate `DSSEMediaType`/`InTotoMediaType` — keep single copy in `pkg/vex/vex.go`, remove duplicates from `pkg/vex/image/image.go` and test files
+- [ ] T038 [US1] Remove unused `stagesStorage` field from `vexStep` struct and `newVexStep` constructor in `pkg/build/vex_step.go`
+- [ ] T039 [US1] Add validation error for empty `vex` configuration (`vex: {}` or `vex: ""`) in `pkg/config/raw_vex.go` — currently silently skipped
+
+### Verification
+
+- [ ] T040 Run [verification](#verification)
+
+---
+
+## Verification
+
+Checklist used by tasks T025 and T040 to verify the implementation.
+
+### Quick check (after changes to a single package)
+
+- [ ] V01 Run `task format`
+- [ ] V02 Run `task build`
+- [ ] V03 Run `task test:unit paths="./pkg/..."`
+
+### Full check (before merge)
+
+- [ ] V04 Run `task format`
+- [ ] V05 Run `task build`
+- [ ] V06 Run `task lint` — run all linters
+- [ ] V07 Run `task test:unit` — run all unit tests
+- [ ] V08 Run `task test:e2e paths="./test/e2e/vex/..." labelFilter="VEX"` — run VEX e2e tests
 
 ---
 

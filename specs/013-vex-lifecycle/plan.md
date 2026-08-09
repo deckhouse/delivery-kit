@@ -74,16 +74,19 @@ specs/013-vex-lifecycle/
 pkg/
 ├── vex/                       # NEW: VEX domain package
 │   ├── image/
-│   │   └── image.go           # PushVEX, PullVEX (mirrors pkg/sbom/image)
-│   └── vex.go                 # VEX utilities
+│   │   └── image.go           # PushVEX only (PullVEX removed — retrieval via pkg/attestation)
+│   └── vex.go                 # VEX utilities, DSSE/in-toto constants (single source)
 ├── config/                    # MODIFIED: VEX config types added
-│   ├── raw_vex.go             # NEW: raw YAML parsing for vex field
+│   ├── raw_vex.go             # NEW: raw YAML parsing for vex field; validation of empty doc
 │   ├── vex.go                 # NEW: normalized Vex config type
 │   ├── raw_stapel_image.go    # MODIFIED: +RawVex field
 │   └── image_from_dockerfile.go # MODIFIED: +RawVex field
 ├── build/
-│   └── vex_step.go            # NEW: VEX build pipeline step
+│   └── vex_step.go            # NEW: VEX build pipeline step (no stagesStorage field)
 ├── giterminism_manager/       # MODIFIED: VEX file tracking added
+│   ├── config/config.go       # MODIFIED: +config.vex.allowUncommitted directive
+│   ├── file_reader/vexfile.go # NEW: reads VEX via dedicated uncommitted check
+│   └── file_manager/file_manager.go # MODIFIED: +f.caches.vexFiles separate cache
 
 cmd/werf/                     # No new VEX CLI commands for v1
 
@@ -100,7 +103,7 @@ No constitution violations found — VEX follows SBOM patterns exactly. No compl
 
 ### Phase 0: Open Questions
 
-1. **VEX OCI artifact media type**: What media type (artifactType) should VEX artifacts use in the OCI registry? **Decision**: `application/vnd.werf.vex.v1+json` — following the same DSSE envelope pattern as SBOM but with a VEX-specific artifact type for distinct identification during cleanup and retrieval.
+1. **VEX OCI artifact media type**: What media type (artifactType) should VEX artifacts use in the OCI registry? **Decision**: VEX uses the same `application/vnd.dsse.envelope.v1+json` as SBOM (DSSE media type). No custom VEX-specific artifact type needed. VEX is distinguished by its in-toto predicate type (`https://openvex.dev/ns/v0.2.0`).
 
 2. **Build step integration**: Should VEX be a separate build step or part of the existing `sbomStep`? **Decision**: Separate `vexStep` for clarity. VEX has different inputs (a file from Git, not a generated BOM) and different validation logic. The step runs after the image is published but in parallel with the SBOM step.
 
@@ -109,3 +112,13 @@ No constitution violations found — VEX follows SBOM patterns exactly. No compl
 4. **Config model**: Should VEX have a meta-level toggle (`meta.build.sbom.vex.enable`) like SBOM's GOST config? **Decision**: No meta-level toggle for v1. VEX is purely per-image (`vex: <path>`). If the field is absent, no VEX operations occur (FR-009). A meta-level toggle adds unnecessary complexity for v1.
 
 5. **Cleanup integration**: Where in the cleanup code should VEX artifact handling live? **Decision**: VEX artifacts are cleaned up by the existing SBOM cleanup path because VEX uses SBOM cleanup rules (FR-007). The OCI artifact type annotation is used to filter which artifacts to clean. No separate cleanup code needed.
+
+### Post-Review Findings (PR #218)
+
+6. **Validation timing (FR-010)**: Move VEX validation to config parsing time, not AfterImages. FR-010 requires error before build starts.
+7. **Giterminism uncommitted directive**: Add config.vex.allowUncommitted (mirrors config.dockerfile.allowUncommitted). VEX is a security claim, needs its own directive.
+8. **Separate VEX file cache**: Use f.caches.vexFiles, not f.caches.dockerFiles. Path collision returns Dockerfile content instead of VEX.
+9. **PullVEX is dead code**: Remove. VEX retrieval exists in pkg/attestation/get.go via "werf attest get --type openvex".
+10. **Deduplicate media type constants**: Keep DSSEMediaType/InTotoMediaType in pkg/vex/vex.go only, remove from pkg/vex/image/image.go.
+11. **Remove unused stagesStorage field** from vexStep struct.
+12. **Empty vex config should error**: vex: {} or vex: "" should produce config error, not silent skip.

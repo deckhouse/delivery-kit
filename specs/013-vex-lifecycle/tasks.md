@@ -28,8 +28,8 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 ## Build & Test Commands
 
 - **Build**: `task build` (produces `./bin/werf`)
-- **Unit tests**: `task test:unit -- -run TestAI_ ./pkg/...`
-- **E2E tests**: `task test:e2e` with `paths="./pkg/..."` and `labelFilter="VEX"` (Ginkgo label filter)
+- **Unit tests**: `task test:unit paths="./pkg/..." -- -focus=TestAI_`
+- **E2E tests**: `task test:e2e` with `paths="./test/e2e/vex/..."` and `labelFilter="VEX"` (Ginkgo label filter)
 - **Formatting**: `task format`
 
 ---
@@ -91,13 +91,13 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ### Tests for User Story 2
 
-- [X] T016 [P] [US2] Unit test for PullVEX in `pkg/vex/image/image_test.go`
+- [X] T016 [P] [US2] Unit test for change detection in `pkg/vex/image/image_test.go` — note: PullVEX was removed as dead code per PR #218; tests for PullVEX were removed with it
 - [X] T017 [P] [US2] Unit test for change detection and skip logic in `pkg/build/vex_step_test.go`
 
 ### Implementation for User Story 2
 
-- [X] T018 [P] [US2] Implement `PullVEX` in `pkg/vex/image/image.go` — retrieves VEX artifact via `OCIStore.GetAttachedContent()`, unwraps DSSE envelope, unwraps in-toto statement, verifies predicate type, returns VEX JSON (see contracts/oci-artifact.md)
-- [X] T019 [US2] Add checksum-based change detection to VEX build step — before publishing, call `PullVEX` and compare checksum annotation of existing artifact with current VEX file checksum; if identical, skip publish
+- [X] T018 [US2] Remove `PullVEX` from `pkg/vex/image/image.go` — dead code; VEX retrieval is handled by `pkg/attestation/get.go` via `werf attest get --type openvex` (PR #218 finding #9)
+- [X] T019 [US2] Add checksum-based change detection to VEX build step — before publishing, use `OCIStore.GetAttachedContent()` to retrieve existing artifact and compare checksum annotation with current VEX file checksum; if identical, skip publish
 - [X] T020 [US2] Implement image checksum binding in VEX build step — when image content changed but VEX file unchanged, still recreate VEX artifact because it is bound to image checksum (FR-011, Image-VEX Relationship Rules)
 
 **Checkpoint**: User Stories 1 and 2 should now both work independently
@@ -152,7 +152,6 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 - [ ] T033 [US1] Implement `IsConfigVexFileAccepted` in `pkg/giterminism_manager/config/config.go` — check `config.vex.allowUncommitted` directive; currently always returns false with zero callers
 - [ ] T034 [US1] Add `config.vex.allowUncommitted` directive to giterminism config (mirrors `config.dockerfile.allowUncommitted` pattern) — VEX is a security claim, needs its own uncommitted control
 - [ ] T035 [US1] Create separate `vexFiles` cache in `pkg/giterminism_manager/file_manager/file_manager.go` (`f.caches.vexFiles`) instead of reusing `dockerFiles` map — path collision returns Dockerfile content instead of VEX
-- [ ] T036 [US2] Remove `PullVEX` from `pkg/vex/image/image.go` — dead code; VEX retrieval is handled by `pkg/attestation/get.go` via `werf attest get --type openvex`
 - [ ] T037 [US1] Deduplicate `DSSEMediaType`/`InTotoMediaType` — keep single copy in `pkg/vex/vex.go`, remove duplicates from `pkg/vex/image/image.go` and test files
 - [ ] T038 [US1] Remove unused `stagesStorage` field from `vexStep` struct and `newVexStep` constructor in `pkg/build/vex_step.go`
 - [ ] T039 [US1] Add validation error for empty `vex` configuration (`vex: {}` or `vex: ""`) in `pkg/config/raw_vex.go` — currently silently skipped
@@ -160,6 +159,12 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 ### Verification
 
 - [ ] T040 Run [verification](#verification)
+
+### New Coverage Tasks
+
+- [ ] T041 [US1] Add backward compatibility test — build with an unmodified `werf.yaml` (no `vex` field) and verify the pipeline completes without VEX-related operations. Covers SC-005 / FR-009.
+- [ ] T042 [US1] Add error handling in `PushVEX` for registries that don't support OCI subject references — produce a descriptive error message. Covers spec.md edge case "registry does not support OCI artifacts".
+- [ ] T043 [US1] Add test for multiple images in `werf.yaml` referencing the same VEX file — verify each image gets its own artifact via subject reference. Covers spec.md edge case.
 
 ---
 
@@ -198,7 +203,7 @@ Checklist used by tasks T025 and T040 to verify the implementation.
 ### User Story Dependencies
 
 - **User Story 1 (P1)**: Can start after Foundational (Phase 2) — No dependencies on other stories
-- **User Story 2 (P2)**: Can start after Foundational (Phase 2) — Depends on PushVEX from US1 for PullVEX retrieval; change detection logic is independent
+- **User Story 2 (P2)**: Can start after Foundational (Phase 2) — Change detection uses `OCIStore.GetAttachedContent()` directly (PullVEX was removed as dead code per PR #218)
 - **User Story 3 (P2)**: Can start after Foundational (Phase 2) — No code changes needed beyond US1; primarily verification
 
 ### Within Each User Story
@@ -214,7 +219,7 @@ Checklist used by tasks T025 and T040 to verify the implementation.
 - All Foundational tasks marked [P] can run in parallel (within Phase 2)
 - All tests for a user story marked [P] can run in parallel
 - Types within a story marked [P] can run in parallel
-- US1 and US2 could partially overlap (PushVEX and PullVEX are independent file operations)
+- US1 and US2 could partially overlap (PushVEX and change detection use different file operations; PullVEX removed as dead code)
 
 ---
 
@@ -222,9 +227,9 @@ Checklist used by tasks T025 and T040 to verify the implementation.
 
 ```bash
 # Launch all US1 tests together:
-task test:unit -- -run "TestAI_ValidateVEXDocument" ./pkg/vex/
-task test:unit -- -run "TestAI_RawVexConfig" ./pkg/config/
-task test:unit -- -run "TestAI_PushVEX" ./pkg/vex/image/
+task test:unit paths="./pkg/vex/..." -- -focus=TestAI_ValidateVEXDocument
+task test:unit paths="./pkg/config/..." -- -focus=TestAI_RawVexConfig
+task test:unit paths="./pkg/vex/image/..." -- -focus=TestAI_PushVEX
 
 # Launch parallel implementation tasks:
 # T012: Implement PushVEX in pkg/vex/image/image.go
@@ -236,12 +241,12 @@ task test:unit -- -run "TestAI_PushVEX" ./pkg/vex/image/
 
 ```bash
 # Launch all US2 tests together:
-task test:unit -- -run "TestAI_PullVEX" ./pkg/vex/image/
-task test:unit -- -run "TestAI_VexSkipLogic" ./pkg/build/
+task test:unit paths="./pkg/vex/image/..." -- -focus=TestAI_VexSkipLogic # PullVEX test removed with dead code
+task test:unit paths="./pkg/build/..." -- -focus=TestAI_VexSkipLogic
 
 # Launch parallel implementation tasks:
-# T018: Implement PullVEX in pkg/vex/image/image.go
-# T019: Add change detection to VEX build step
+# T018: Remove PullVEX from pkg/vex/image/image.go (dead code)
+# T019: Add change detection (OCIStore.GetAttachedContent directly)
 # T020: Image checksum binding
 ```
 
@@ -273,7 +278,7 @@ The recommended implementation order within each phase:
 
 **User Story 1**: PushVEX first (T012 — no dependencies on other components), then build step (T013 — depends on PushVEX), then pipeline integration (T014 — depends on build step), then giterminism (T015 — depends on read-from-Git in build step).
 
-**User Story 2**: PullVEX first (T018 — independent), then change detection (T019 — depends on PullVEX), then image checksum binding (T020 — depends on change detection).
+**User Story 2**: Remove PullVEX first (T018 — dead code), then change detection (T019 — uses OCIStore.GetAttachedContent directly), then image checksum binding (T020 — depends on change detection).
 
 **User Story 3**: VEX predicate constant (T021 — trivial), then verify cleanup integration (T022 — no code changes expected beyond verification).
 

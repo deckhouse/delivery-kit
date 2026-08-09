@@ -115,7 +115,7 @@ The following matrix defines how changes to the image content and the VEX file i
 | Yes | Yes | Both the image manifest and the VEX artifact are updated |
 | No | No | No VEX-related operations occur |
 
-- **FR-011**: The VEX artifact MUST be bound to the image checksum — when the image content changes, the VEX artifact MUST be recreated even if the VEX file itself has not changed.
+- **FR-011**: The VEX artifact MUST be bound to the image checksum — when the image content changes, the VEX artifact MUST be recreated even if the VEX file itself has not changed. (See Image-VEX Relationship Rules matrix above for the complete change matrix.)
 
 ### Key Entities *(include if feature involves data)*
 

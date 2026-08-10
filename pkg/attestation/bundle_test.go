@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -123,14 +124,6 @@ func collectJSONKeys(data []byte) []string {
 		}
 	}
 
-	sortStrings(keys)
+	slices.Sort(keys)
 	return keys
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
-			s[j-1], s[j] = s[j], s[j-1]
-		}
-	}
 }

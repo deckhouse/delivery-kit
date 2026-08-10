@@ -3,6 +3,7 @@ package image
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/base64"
@@ -19,11 +20,27 @@ import (
 )
 
 func generateKeyPair() (signature.Signer, signature.Verifier) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	Expect(err).NotTo(HaveOccurred())
-	sv, err := signature.LoadECDSASignerVerifier(key, crypto.SHA256)
-	Expect(err).NotTo(HaveOccurred())
-	return sv, sv
+	return generateKeyPairOfType("ed25519")
+}
+
+func generateKeyPairOfType(keyType string) (signature.Signer, signature.Verifier) {
+	switch keyType {
+	case "ed25519":
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		Expect(err).NotTo(HaveOccurred())
+		sv, err := signature.LoadED25519SignerVerifier(key)
+		Expect(err).NotTo(HaveOccurred())
+		return sv, sv
+	case "ecdsa-p256":
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		Expect(err).NotTo(HaveOccurred())
+		sv, err := signature.LoadECDSASignerVerifier(key, crypto.SHA256)
+		Expect(err).NotTo(HaveOccurred())
+		return sv, sv
+	default:
+		Fail("unsupported key type: " + keyType)
+		return nil, nil
+	}
 }
 
 type failingSigner struct{}
@@ -84,9 +101,9 @@ var _ = Describe("DSSE Envelope", func() {
 		})
 	})
 
-	Describe("non-nil ECDSA signer produces signed envelope", func() {
-		It("should have signatures and verify with matching verifier", func(ctx SpecContext) {
-			signer, verifier := generateKeyPair()
+	DescribeTable("non-nil signer produces signed envelope",
+		func(ctx SpecContext, keyType string) {
+			signer, verifier := generateKeyPairOfType(keyType)
 
 			envelopeJSON, err := WrapInDSSE(ctx, payload, payloadType, signer)
 			Expect(err).NotTo(HaveOccurred())
@@ -96,8 +113,10 @@ var _ = Describe("DSSE Envelope", func() {
 			result, err := attestation.VerifyDSSE(ctx, envelopeJSON, payloadType, []signature.Verifier{verifier})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(payload))
-		})
-	})
+		},
+		Entry("ed25519", "ed25519"),
+		Entry("ecdsa-p256", "ecdsa-p256"),
+	)
 
 	Describe("signer that errors", func() {
 		It("should return wrapped error", func(ctx SpecContext) {

@@ -3,6 +3,7 @@ package attestation
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
@@ -13,11 +14,27 @@ import (
 )
 
 func generateKeyPair() (signature.Signer, signature.Verifier) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	Expect(err).NotTo(HaveOccurred())
-	sv, err := signature.LoadECDSASignerVerifier(key, crypto.SHA256)
-	Expect(err).NotTo(HaveOccurred())
-	return sv, sv
+	return generateKeyPairOfType("ed25519")
+}
+
+func generateKeyPairOfType(keyType string) (signature.Signer, signature.Verifier) {
+	switch keyType {
+	case "ed25519":
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		Expect(err).NotTo(HaveOccurred())
+		sv, err := signature.LoadED25519SignerVerifier(key)
+		Expect(err).NotTo(HaveOccurred())
+		return sv, sv
+	case "ecdsa-p256":
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		Expect(err).NotTo(HaveOccurred())
+		sv, err := signature.LoadECDSASignerVerifier(key, crypto.SHA256)
+		Expect(err).NotTo(HaveOccurred())
+		return sv, sv
+	default:
+		Fail("unsupported key type: " + keyType)
+		return nil, nil
+	}
 }
 
 var _ = Describe("DSSE Envelope", func() {
@@ -51,18 +68,22 @@ var _ = Describe("DSSE Envelope", func() {
 	})
 
 	Describe("signed envelopes", func() {
-		It("should sign, then verify with correct key", func(ctx SpecContext) {
-			signer, verifier := generateKeyPair()
-			payload := []byte(`{"vulnerability":"CVE-2024-1234"}`)
+		DescribeTable("should sign, then verify with correct key",
+			func(ctx SpecContext, keyType string) {
+				signer, verifier := generateKeyPairOfType(keyType)
+				payload := []byte(`{"vulnerability":"CVE-2024-1234"}`)
 
-			envelopeJSON, err := WrapInDSSE(ctx, payload, InTotoMediaType, signer)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(HasSignatures(envelopeJSON)).To(BeTrue())
+				envelopeJSON, err := WrapInDSSE(ctx, payload, InTotoMediaType, signer)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(HasSignatures(envelopeJSON)).To(BeTrue())
 
-			result, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, []signature.Verifier{verifier})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(payload))
-		})
+				result, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, []signature.Verifier{verifier})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(payload))
+			},
+			Entry("ed25519", "ed25519"),
+			Entry("ecdsa-p256", "ecdsa-p256"),
+		)
 
 		It("should fail verify with wrong key", func(ctx SpecContext) {
 			signerA, _ := generateKeyPair()

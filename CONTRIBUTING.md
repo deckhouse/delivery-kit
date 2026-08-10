@@ -144,12 +144,19 @@ Supported scopes are the following:
 - kube-run
 - compose
 - ci-env
+- sbom
+- vex
+- sign
+- verify
+- elf
 
 # Maintaining, improving code quality and development workflow.
 - ci
 - release
 - dev
 - deps
+- spec
+- wiki
 ```
 
 In the header, multiple and nested scopes are separated by commas, from the broadest to the most specific: `fix(build, stapel, import): ...`.

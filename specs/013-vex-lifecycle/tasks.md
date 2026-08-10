@@ -168,15 +168,25 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ---
 
+## Phase 9: Convergence
+
+**Purpose**: Close the gap identified by the converge assessment — `PullVEX` and its `FallbackTag` wrapper were declared removed (T018, PR #218 finding #9) but still exist as dead code in `pkg/vex/image/image.go`.
+
+- [X] T044 Remove the dead `PullVEX` function from `pkg/vex/image/image.go` — it is never called anywhere; VEX retrieval is handled by `pkg/attestation/get.go` via `werf attest get --type openvex` (per T018 / PR #218 finding #9, contradicts)
+- [X] T045 Rename the `Describe("PullVEX", ...)` test block in `pkg/vex/image/image_test.go` to reflect what it actually tests (attestation round-trip via in-toto/DSSE wrapping), since it does not call `PullVEX` (partial)
+- [X] T046 Remove the unused `FallbackTag` wrapper from `pkg/vex/image/image.go` — never called; the SBOM path uses `pkg/sbom/image.FallbackTag` directly (unrequested)
+
+---
+
 ## Verification
 
 Checklist used by tasks T025 and T040 to verify the implementation.
 
 ### Quick check (after changes to a single package)
 
-- [ ] V01 Run `task format`
-- [ ] V02 Run `task build`
-- [ ] V03 Run `task test:unit paths="./pkg/..."`
+- [X] V01 Run `task format`
+- [X] V02 Run `task build`
+- [X] V03 Run `task test:unit paths="./pkg/..."`
 
 ### Full check (before merge)
 

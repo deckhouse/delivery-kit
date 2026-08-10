@@ -122,3 +122,7 @@ No constitution violations found — VEX follows SBOM patterns exactly. No compl
 10. **Deduplicate media type constants**: Keep DSSEMediaType/InTotoMediaType in pkg/vex/vex.go only, remove from pkg/vex/image/image.go.
 11. **Remove unused stagesStorage field** from vexStep struct.
 12. **Empty vex config should error**: vex: {} or vex: "" should produce config error, not silent skip.
+
+### Post-Convergence Finding (Converge #1)
+
+13. **PullVEX dead code not actually removed**: T018 claimed PullVEX was removed from `pkg/vex/image/image.go` (marked [X]), but the function and its tests still exist. `PullVEX` is never called anywhere — it is dead code. The `FallbackTag` wrapper in the same file is also unused. See [converge findings](#) for details.

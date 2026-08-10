@@ -13,7 +13,7 @@ import (
 	veximage "github.com/werf/werf/v2/pkg/vex/image"
 )
 
-var _ = Describe("PullVEX", func() {
+var _ = Describe("AttestationRoundTrip", func() {
 	Describe("attestation unwrapping", func() {
 		It("round-trips known VEX JSON through wrap and unwrap", func() {
 			vexJSON := []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","statements":[]}`)
@@ -26,7 +26,7 @@ var _ = Describe("PullVEX", func() {
 			envelopeBytes, err := attestation.WrapInDSSE(context.Background(), stmtBytes, vex.InTotoMediaType, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Simulate PullVEX unwrapping
+			// Simulate attestation unwrapping
 			unwrappedStmt, err := attestation.UnwrapDSSE(envelopeBytes, vex.InTotoMediaType)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -49,7 +49,7 @@ var _ = Describe("PullVEX", func() {
 			envelopeBytes, err := attestation.WrapInDSSE(context.Background(), stmtBytes, vex.InTotoMediaType, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Simulate PullVEX unwrapping
+			// Simulate attestation unwrapping
 			unwrappedStmt, err := attestation.UnwrapDSSE(envelopeBytes, vex.InTotoMediaType)
 			Expect(err).ToNot(HaveOccurred())
 

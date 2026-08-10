@@ -1,5 +1,1 @@
 giterminismConfigVersion: 1
-config:
-  goTemplateRendering:
-    allowEnvVariables:
-      - BUILDER_BASE_IMAGE

@@ -1,17 +1,18 @@
 package e2e_build_test
 
 import (
+	"archive/tar"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
@@ -28,18 +29,18 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
+const containerFactoryImageRef = "registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1"
+
+var multiplatformSbomPlatforms = []string{"linux/amd64", "linux/arm64"}
+
 var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "simple"), func() {
 	DescribeTable("per-platform SBOM generation: build → per-platform artifacts → cache",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
-			platforms := []string{"linux/amd64", "linux/386"}
-
 			repoDirname := "repo_sbom_multiplatform"
 			SuiteData.InitTestRepo(ctx, repoDirname, "multiplatform")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
-
-			builderEnv := buildMultiplatformTrustedBuilderBase(ctx, testRepoPath, "sbom-multiplatform-builder", platforms)
 
 			SuiteData.Stubs.SetEnv("WERF_ENABLE_REPORT_BY_PLATFORM", "1")
 
@@ -47,21 +48,19 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
-				SuiteData.GetBuildReportPath("sbom_multiplatform.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
-			)
+				SuiteData.GetBuildReportPath("sbom_multiplatform.json"), nil)
 
 			repo := suite_init.TestRepo(SuiteData.ProjectName)
 
 			byPlatform := buildReport.ImagesByPlatform["app"]
-			Expect(byPlatform).To(HaveLen(len(platforms)), "expected a build report record per platform")
+			Expect(byPlatform).To(HaveLen(len(multiplatformSbomPlatforms)), "expected a build report record per platform")
 
 			indexDigest := buildReport.Images["app"].DockerImageDigest
 			Expect(indexDigest).NotTo(BeEmpty())
 
 			By("verifying each platform manifest has its own SBOM artifact")
 			subjectDigests := map[string]string{}
-			for _, platform := range platforms {
+			for _, platform := range multiplatformSbomPlatforms {
 				record, hasRecord := byPlatform[platform]
 				Expect(hasRecord).To(BeTrue(), "no build report record for platform %s", platform)
 
@@ -72,7 +71,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 				desc, payload := fetchSingleSbomArtifact(ctx, repo, platformDigest)
 
 				Expect(desc.Annotations[image.WerfPlatformAnnotation]).To(Equal(platform),
-					"artifact platform annotation must match the scanned platform")
+					"artifact platform annotation must match the built platform")
 				Expect(desc.Annotations[image.WerfChecksumAnnotation]).NotTo(BeEmpty())
 				Expect(desc.Annotations[image.WerfImageNameAnnotation]).To(Equal("app"))
 
@@ -83,15 +82,15 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 				subjectDigests[platform] = subjectDigest
 			}
 
-			Expect(subjectDigests["linux/amd64"]).NotTo(Equal(subjectDigests["linux/386"]),
+			Expect(subjectDigests["linux/amd64"]).NotTo(Equal(subjectDigests["linux/arm64"]),
 				"platform SBOMs must attest distinct platform manifests")
 
 			By("verifying no SBOM artifact is attached to the index digest")
 			expectNoSbomArtifact(ctx, repo, indexDigest)
 
 			By("verifying the second build reuses per-platform SBOMs from registry")
-			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
-			Expect(strings.Count(rebuildOut, "Use previously generated SBOM from registry")).To(BeNumerically(">=", len(platforms)),
+			rebuildOut := werfProject.Build(ctx, nil)
+			Expect(strings.Count(rebuildOut, "Use previously generated SBOM from registry")).To(BeNumerically(">=", len(multiplatformSbomPlatforms)),
 				"each platform SBOM must be served from cache on rebuild")
 		},
 		Entry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
@@ -101,31 +100,35 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
-			platforms := []string{"linux/amd64", "linux/386"}
-
 			repoDirname := "repo_sbom_multiplatform_packages"
 			SuiteData.InitTestRepo(ctx, repoDirname, "multiplatform_packages")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildMultiplatformTrustedBuilderBase(ctx, testRepoPath, "sbom-multiplatform-pkg-builder", platforms)
+			By("injecting the pm binary and CA certificates from the container factory image")
+			injectFactoryPmFiles(ctx, testRepoPath)
 
 			SuiteData.Stubs.SetEnv("WERF_ENABLE_REPORT_BY_PLATFORM", "1")
+
+			buildEnv := []string{
+				"PACKAGES_VERSION=v1.3.6",
+				"REGISTRY=registry.deckhouse.io/container-factory",
+			}
 
 			By("building the multi-platform image with os-pm packages and SBOM enabled")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("sbom_multiplatform_packages.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: buildEnv}},
 			)
 
 			repo := suite_init.TestRepo(SuiteData.ProjectName)
 
 			byPlatform := buildReport.ImagesByPlatform["app"]
-			Expect(byPlatform).To(HaveLen(len(platforms)), "expected a build report record per platform")
+			Expect(byPlatform).To(HaveLen(len(multiplatformSbomPlatforms)), "expected a build report record per platform")
 
 			By("verifying every platform SBOM carries the pm.lock components")
-			for _, platform := range platforms {
+			for _, platform := range multiplatformSbomPlatforms {
 				record, hasRecord := byPlatform[platform]
 				Expect(hasRecord).To(BeTrue(), "no build report record for platform %s", platform)
 
@@ -144,41 +147,64 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 	)
 })
 
-func buildMultiplatformTrustedBuilderBase(ctx SpecContext, testRepoPath, refSlug string, platforms []string) []string {
-	builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), refSlug)
-
-	var adds []mutate.IndexAddendum
-	for _, platform := range platforms {
-		platformTag := builderBaseRef + "-" + strings.ReplaceAll(platform, "/", "-")
-		utils.RunSucceedCommand(ctx, testRepoPath, "docker", "build",
-			"--platform", platform,
-			"-t", platformTag,
-			"-f", "Dockerfile.builder-base", ".")
-		utils.RunSucceedCommand(ctx, testRepoPath, "docker", "push", platformTag)
-
-		platformRef, err := name.ParseReference(platformTag, name.Insecure)
-		Expect(err).NotTo(HaveOccurred())
-		img, err := remote.Image(platformRef, insecureRemoteOptions(ctx)...)
-		Expect(err).NotTo(HaveOccurred())
-
-		parts := strings.SplitN(platform, "/", 3)
-		Expect(len(parts)).To(BeNumerically(">=", 2))
-		platformSpec := &v1.Platform{OS: parts[0], Architecture: parts[1]}
-		if len(parts) == 3 {
-			platformSpec.Variant = parts[2]
-		}
-		adds = append(adds, mutate.IndexAddendum{Add: img, Descriptor: v1.Descriptor{Platform: platformSpec}})
-	}
-
-	idx := mutate.AppendManifests(empty.Index, adds...)
-	idxRef, err := name.ParseReference(builderBaseRef, name.Insecure)
+// injectFactoryPmFiles extracts the pm binary and the /etc/ssl tree from the
+// container factory image into the test repository worktree and commits them,
+// so a scratch-based stapel image receives them via the git stage without any
+// docker-built builder base.
+func injectFactoryPmFiles(ctx SpecContext, testRepoPath string) {
+	ref, err := name.ParseReference(containerFactoryImageRef)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(remote.WriteIndex(idxRef, idx, insecureRemoteOptions(ctx)...)).To(Succeed())
 
-	return []string{
-		fmt.Sprintf("BUILDER_BASE_IMAGE=%s", builderBaseRef),
-		"WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES=true",
+	img, err := remote.Image(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
+	Expect(err).NotTo(HaveOccurred())
+
+	rc := mutate.Extract(img)
+	defer rc.Close()
+
+	wanted := func(path string) bool {
+		return path == "usr/local/bin/pm" || strings.HasPrefix(path, "etc/ssl/")
 	}
+
+	extracted := 0
+	tarReader := tar.NewReader(rc)
+	for {
+		hdr, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		Expect(err).NotTo(HaveOccurred())
+
+		cleanName := strings.TrimPrefix(filepath.Clean(hdr.Name), "/")
+		if !wanted(cleanName) {
+			continue
+		}
+
+		dst := filepath.Join(testRepoPath, cleanName)
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			Expect(os.MkdirAll(dst, 0o755)).To(Succeed())
+		case tar.TypeSymlink:
+			Expect(os.MkdirAll(filepath.Dir(dst), 0o755)).To(Succeed())
+			Expect(os.Symlink(hdr.Linkname, dst)).To(Succeed())
+			extracted++
+		case tar.TypeReg:
+			Expect(os.MkdirAll(filepath.Dir(dst), 0o755)).To(Succeed())
+			f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode)&0o777)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = io.Copy(f, tarReader)
+			Expect(f.Close()).To(Succeed())
+			Expect(err).NotTo(HaveOccurred())
+			extracted++
+		}
+	}
+	Expect(extracted).To(BeNumerically(">", 0), "no pm files extracted from the factory image")
+
+	pmPath := filepath.Join(testRepoPath, "usr/local/bin/pm")
+	Expect(pmPath).To(BeAnExistingFile(), "pm binary must be extracted from the factory image")
+	Expect(os.Chmod(pmPath, 0o755)).To(Succeed())
+
+	utils.RunSucceedCommand(ctx, testRepoPath, "git", "add", "-A")
+	utils.RunSucceedCommand(ctx, testRepoPath, "git", "commit", "-m", "add pm binary and CA certificates from container factory")
 }
 
 func insecureRemoteOptions(ctx SpecContext) []remote.Option {

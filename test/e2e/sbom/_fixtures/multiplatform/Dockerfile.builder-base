@@ -1,2 +1,0 @@
-FROM registry.werf.io/base/alpine
-LABEL io.deckhouse.internal.builder=true

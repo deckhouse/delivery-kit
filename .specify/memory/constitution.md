@@ -88,7 +88,7 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
   - Complex filter: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (packages || lifecycle || gost)"`
   - NEVER place `KEY=VALUE` after `--` separator — it compiles ALL tests.
   - Use `--` ONLY for ginkgo flags (e.g., `-- -focus=MyTest -v`).
-- **pm.lock generation**: `task pm:lock dir=<project-dir>` (NOT hand-written and NOT bare `pm lock`; `pm.lock` is a deterministic machine-generated artifact committed alongside `pm.yaml`). The task runs pm inside the digest-pinned `registry.deckhouse.io/container-factory` image, so it needs only Docker. For a non-default manifest/lock file name, pass `from=<spec>` and `lock=<lock>` — the manifest path is recorded in the lock metadata, so the file name matters. NEVER invent or edit `pm.lock` contents manually.
+- **pm.lock generation**: `task pm:lock workdir=<project-dir>` (NOT hand-written and NOT bare `pm lock`; `pm.lock` is a deterministic machine-generated artifact committed alongside `pm.yaml`). The task runs pm inside the digest-pinned `registry.deckhouse.io/container-factory` image, so it needs only Docker. For a non-default manifest/lock file name, pass `from=<spec>` and `lock=<lock>` — the manifest path is recorded in the lock metadata, so the file name matters. NEVER invent or edit `pm.lock` contents manually.
 - **Formatting**: `task format` (NOT raw `go fmt`)
 - **Mock generation**: `task mock:generate` (no manual mocks; validate with `task mock:check`)
 - **Documentation**: `task doc:gen` after changing CLI help text

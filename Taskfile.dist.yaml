@@ -516,6 +516,7 @@ tasks:
       - deps:install:kind
       - deps:install:mockgen
       - deps:install:enumer
+      - deps:install:pm
 
   deps:install:kind:
     desc: "Install kind binary."
@@ -530,6 +531,16 @@ tasks:
     desc: "Install enumer library."
     cmds:
       - go install github.com/dmarkham/enumer@v1.5.11
+
+  deps:install:pm:
+    desc: 'Extract the pm binary (linux/amd64) from the container-factory image. Important vars: "dest" (destination path, default ./bin/pm).'
+    cmds:
+      - mkdir -p "$(dirname "{{.dest}}")"
+      - docker run --rm --platform linux/amd64 --entrypoint "" "{{.pmImage}}" cat /usr/local/bin/pm > "{{.dest}}"
+      - chmod +x "{{.dest}}"
+      - 'echo "pm (linux/amd64) installed to {{.dest}}"'
+    vars:
+      dest: '{{.dest | default "./bin/pm"}}'
 
   deps:install:c:
     desc: "Install C dependencies"
@@ -550,24 +561,14 @@ tasks:
         rm -rf "$git_dir"
 
   pm:lock:
-    desc: 'Generate pm.lock from a pm manifest using pm from the container-factory image. Important vars: "dir" (project directory, default "."), "from" (manifest path relative to dir), "lock" (lock file path relative to dir).'
+    desc: 'Generate pm.lock from a pm manifest using pm from the container-factory image. Important vars: "workdir" (project directory, default "."), "from" (manifest path relative to workdir), "lock" (lock file path relative to workdir).'
     cmds:
       - docker run --rm --platform linux/amd64 --entrypoint "" -e PACKAGES_VERSION -e REGISTRY
-        -v "{{.absDir}}:/workdir" -w /workdir "{{.pmImage}}"
+        -v "{{.absWorkdir}}:/workdir" -w /workdir "{{.pmImage}}"
         pm lock {{if .from}}--from "{{.from}}" {{end}}{{if .lock}}--lock "{{.lock}}" {{end}}{{.CLI_ARGS}}
     vars:
-      absDir:
-        sh: realpath "{{.dir | default "."}}"
-
-  pm:install:
-    desc: 'Extract the pm binary (linux/amd64) from the container-factory image. Important vars: "dest" (destination path, default ./bin/pm).'
-    cmds:
-      - mkdir -p "$(dirname "{{.dest}}")"
-      - docker run --rm --platform linux/amd64 --entrypoint "" "{{.pmImage}}" cat /usr/local/bin/pm > "{{.dest}}"
-      - chmod +x "{{.dest}}"
-      - 'echo "pm (linux/amd64) installed to {{.dest}}"'
-    vars:
-      dest: '{{.dest | default "./bin/pm"}}'
+      absWorkdir:
+        sh: realpath "{{.workdir | default "."}}"
 
   sign:
     desc: 'Sign last version tag + origin/main and push signatures. Important vars: "refs".'

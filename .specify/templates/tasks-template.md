@@ -33,6 +33,7 @@ description: "Task list template for feature implementation"
 - **Build**: `task build` (produces `./bin/werf`)
 - **Unit tests**: `task test:unit -- -run TestMyFunc ./pkg/...`
 - **E2E tests**: `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--` separator.
+  - Environment is pre-configured — `task test:setup:environment` has already been executed. Do not skip e2e tests citing environment setup.
 - **Formatting**: `task format`
 
 <!--

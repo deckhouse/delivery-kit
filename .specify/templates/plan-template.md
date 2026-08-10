@@ -42,6 +42,11 @@
 
 [Gates determined based on constitution file]
 
+**Environment note**: `task test:setup:environment` has already been executed
+and the e2e/integration test environment is pre-configured. See the Environment
+Configuration section in `.specify/memory/constitution.md`. Do not skip e2e tests
+citing environment setup during implementation.
+
 ## Project Structure
 
 ### Documentation (this feature)

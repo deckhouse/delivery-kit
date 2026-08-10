@@ -1,26 +1,19 @@
 package e2e_build_test
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"io"
-	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
+	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
@@ -41,7 +34,7 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 
 			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-signing-builder")
 
-			signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir, "sbom-signing")
+			signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir)
 			signEnv := append(builderEnv,
 				"WERF_SIGN_KEY="+signKeys.KeyPath,
 				"WERF_SIGN_CERT="+signKeys.CertPath,
@@ -154,7 +147,7 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir, "sbom-no-cert")
+		signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir)
 
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		out := werfProject.Build(ctx, &werf.BuildOptions{
@@ -176,38 +169,16 @@ type signingKeyPair struct {
 	CertPath   string
 }
 
-func generateSigningKeyPairWithCert(dir, suffix string) signingKeyPair {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+func generateSigningKeyPairWithCert(dir string) signingKeyPair {
+	certs := cert_utils.GenerateCertificatesWithOptions(cert_utils.GenerateCertificatesOptions{
+		KeyType:  cert_utils.KeyType_ED25519,
+		PassFunc: cryptoutils.SkipPassword,
+		TmpDir:   dir,
+	})
 
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	encKeyDER, err := encrypted.Encrypt(keyDER, []byte{})
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	keyPath := filepath.Join(dir, suffix+".key")
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED DELIVERY-KIT PRIVATE KEY", Bytes: encKeyDER})
-	ExpectWithOffset(1, os.WriteFile(keyPath, keyPEM, 0o600)).To(Succeed())
+	pubKeyPath := cert_utils.FormatPublicKeyToPEMFile(dir, certs.PrivKey.Public())
 
-	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	pubKeyPath := filepath.Join(dir, suffix+".pub")
-	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
-	ExpectWithOffset(1, os.WriteFile(pubKeyPath, pubPEM, 0o644)).To(Succeed())
-
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "sbom-signing-e2e"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	certPath := filepath.Join(dir, suffix+".crt")
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	ExpectWithOffset(1, os.WriteFile(certPath, certPEM, 0o644)).To(Succeed())
-
-	return signingKeyPair{KeyPath: keyPath, PubKeyPath: pubKeyPath, CertPath: certPath}
+	return signingKeyPair{KeyPath: certs.PrivRef, PubKeyPath: pubKeyPath, CertPath: certs.LeafRef}
 }
 
 func findArtifactDescriptor(ctx SpecContext, repo, parentDigest, artifactType string) *v1.Descriptor {

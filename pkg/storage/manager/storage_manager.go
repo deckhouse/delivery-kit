@@ -20,6 +20,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/lrumeta"
 	"github.com/werf/werf/v2/pkg/storage/synchronization/lock_manager"
@@ -830,6 +831,11 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 	if destinationStageDesc, err := getStageDesc(ctx, m.ProjectName, *stageDesc.StageID, destinationStagesStorage, m.CacheStagesStorageList, getStageDescOptions{WithLocalManifestCache: m.getWithLocalManifestCacheOption()}); err != nil {
 		return nil, fmt.Errorf("unable to get stage %s description from %s: %w", stageDesc.StageID.String(), destinationStagesStorage.String(), err)
 	} else {
+		if sourceStagesStorage.Address() != storage.LocalStorageAddress && destinationStagesStorage.Address() != storage.LocalStorageAddress {
+			if err := artifact.CopyAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
+				return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
+			}
+		}
 		return destinationStageDesc, nil
 	}
 }

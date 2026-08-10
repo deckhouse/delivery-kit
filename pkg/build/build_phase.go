@@ -377,6 +377,21 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
+	finalStageDesc := phase.finalStageDescForImage(name, images)
+	if err := phase.sbomStep.PropagateArtifacts(ctx, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
+		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Image) *imagePkg.StageDesc {
+	if len(images) == 1 {
+		return images[0].GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
+	}
+	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+		return multiImg.GetFinalStageDesc()
+	}
 	return nil
 }
 

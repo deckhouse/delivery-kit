@@ -1,16 +1,15 @@
 <!--
   Sync Impact Report
-  Version: 1.1.0 → 1.2.0 (MINOR — added pm.lock generation rule, expanded test command guidance)
+  Version: 1.2.0 → 1.3.0 (MINOR — added Environment Configuration section, expanded e2e test guidance)
   Modified principles:
-    - IV. Test-Before-Merge → expanded: explicit `--` separator rule, correct command examples
+    - IV. Test-Before-Merge — expanded: e2e test environment note, environment state clarification
   Added sections:
-    - Build & Quality Gates: pm.lock generation entry
+    - Environment Configuration: documents that `task test:setup:environment` has been executed
   Removed sections: (none)
   Templates requiring updates:
-    - ✅ delivery-kit/.specify/templates/tasks-template.md (Build & Test Commands)
-    - ✅ delivery-kit/.specify/templates/checklist-template.md (G011)
-    - ✅ delivery-kit/AGENTS.md (Commands section)
-    - ✅ delivery-kit/CLAUDE.md (Commands section)
+    - ✅ delivery-kit/.specify/templates/tasks-template.md (Build & Test Commands — environment note)
+    - ✅ delivery-kit/AGENTS.md (Verifying changes — clarify environment is set up)
+    - ✅ delivery-kit/.specify/templates/plan-template.md (Constitution Check — environment state)
   Follow-up TODOs: (none)
 -->
 # Delivery Kit Constitution
@@ -49,7 +48,7 @@ ginkgo (e.g., `-- -focus=MyTest -v`).
 - Scoped: `task test:unit paths="./pkg/sbom/..."`
 - With ginkgo flags: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
 
-**E2E tests**:
+**E2E tests** (environment is pre-configured — see Environment Configuration section below):
 - `task test:e2e` (defaults to `./test/e2e`)
 - Scoped: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
 - Complex filter: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (packages || lifecycle || gost)"`
@@ -95,8 +94,25 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
 - **Mock generation**: `task mock:generate` (no manual mocks; validate with `task mock:check`)
 - **Documentation**: `task doc:gen` after changing CLI help text
 
+## Environment Configuration
+
+The e2e and integration test environment has been pre-configured.
+`task test:setup:environment` has already been executed and the following
+infrastructure is available:
+
+- **Docker**: Docker daemon is running and usable
+- **kind** (Kubernetes in Docker): Cluster is set up, kubeconfig is configured
+- **Linux**: Running on Linux (required for Buildah backend, kind, and e2e tests)
+- **Container registry**: Registry is available for push/pull operations
+  (note: `REGISTRY_STORAGE_DELETE_ENABLED=true` must be set on the registry
+  for deletion-related tests)
+
+Consequently, `task test:setup:environment` does NOT need to be run again.
+During implementation via speckit commands, e2e and integration tests MUST
+be executed directly without citing environment setup as a blocker.
+
 ## Governance
 
 This constitution supersedes all other practices. Amendments require documentation and approval. All PRs/reviews must verify compliance with these rules. The `AGENTS.md` file contains the authoritative agent instructions derived from this constitution and `CODESTYLE.md`.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-06
+**Version**: 1.3.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-10

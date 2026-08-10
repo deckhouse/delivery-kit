@@ -123,7 +123,7 @@ func GetImageReferences(cmdData *CmdData) []string {
 }
 
 func getSignerOptions(commonCmdData *CmdData) (signing.SignerOptions, error) {
-	resolved, err := signing.ResolveSigningGate(signing.ResolveSigningGateOptions{
+	resolved, err := signature.ResolveSigningGate(signature.ResolveSigningGateOptions{
 		SignKey:           lo.FromPtr(commonCmdData.SignKey),
 		SignCert:          lo.FromPtr(commonCmdData.SignCert),
 		SignIntermediates: lo.FromPtr(commonCmdData.SignIntermediates),

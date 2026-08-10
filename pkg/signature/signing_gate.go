@@ -1,11 +1,15 @@
-package signing
+package signature
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/werf/werf/v2/pkg/build/signing"
+)
 
 type ResolvedSigningOptions struct {
-	SignerOptions          SignerOptions
-	ManifestSigningOptions ManifestSigningOptions
-	SbomSigningOptions     SbomSigningOptions
+	SignerOptions          signing.SignerOptions
+	ManifestSigningOptions signing.ManifestSigningOptions
+	SbomSigningOptions     signing.SbomSigningOptions
 }
 
 type ResolveSigningGateOptions struct {
@@ -33,12 +37,12 @@ func ResolveSigningGate(opts ResolveSigningGateOptions) (ResolvedSigningOptions,
 	}
 
 	return ResolvedSigningOptions{
-		SignerOptions: SignerOptions{
+		SignerOptions: signing.SignerOptions{
 			KeyRef:           opts.SignKey,
 			CertRef:          opts.SignCert,
 			IntermediatesRef: opts.SignIntermediates,
 		},
-		ManifestSigningOptions: ManifestSigningOptions{Enabled: manifestEnabled},
-		SbomSigningOptions:     SbomSigningOptions{Enabled: sbomEnabled},
+		ManifestSigningOptions: signing.ManifestSigningOptions{Enabled: manifestEnabled},
+		SbomSigningOptions:     signing.SbomSigningOptions{Enabled: sbomEnabled},
 	}, nil
 }

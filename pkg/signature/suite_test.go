@@ -1,4 +1,4 @@
-package signing_test
+package signature_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestSigning(t *testing.T) {
+func TestSignature(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Signing Suite")
+	RunSpecs(t, "Signature Suite")
 }

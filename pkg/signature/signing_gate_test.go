@@ -1,16 +1,16 @@
-package signing_test
+package signature_test
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/build/signing"
+	"github.com/werf/werf/v2/pkg/signature"
 )
 
 var _ = Describe("ResolveSigningGate", func() {
 	DescribeTable("signing gate scenarios",
-		func(opts signing.ResolveSigningGateOptions, expectErr string, expectSbom, expectManifest, expectSignerNonZero bool) {
-			result, err := signing.ResolveSigningGate(opts)
+		func(opts signature.ResolveSigningGateOptions, expectErr string, expectSbom, expectManifest, expectSignerNonZero bool) {
+			result, err := signature.ResolveSigningGate(opts)
 
 			if expectErr != "" {
 				Expect(err).To(HaveOccurred())
@@ -24,49 +24,49 @@ var _ = Describe("ResolveSigningGate", func() {
 			Expect(!result.SignerOptions.IsZero()).To(Equal(expectSignerNonZero))
 		},
 		Entry("nothing set → both disabled",
-			signing.ResolveSigningGateOptions{},
+			signature.ResolveSigningGateOptions{},
 			"", false, false, false,
 		),
 		Entry("key+cert without --sign-manifest → sbom enabled, manifest disabled",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem"},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem"},
 			"", true, false, true,
 		),
 		Entry("key without cert → error",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem"},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem"},
 			"signing certificate is required", false, false, false,
 		),
 		Entry("key+cert+--sign-manifest → both enabled",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem", SignManifest: true},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem", SignManifest: true},
 			"", true, true, true,
 		),
 		Entry("--sign-manifest without key → error",
-			signing.ResolveSigningGateOptions{SignManifest: true},
+			signature.ResolveSigningGateOptions{SignManifest: true},
 			"signing key is required", false, false, false,
 		),
 		Entry("--sign-manifest with key but no cert → error",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignManifest: true},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem", SignManifest: true},
 			"signing certificate is required", false, false, false,
 		),
 		Entry("key+cert with intermediates → signer options include intermediates",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem", SignIntermediates: "chain.pem"},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem", SignIntermediates: "chain.pem"},
 			"", true, false, true,
 		),
 		Entry("--sign-elf-files with key+cert → signer options non-zero, sbom enabled, manifest disabled",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem", SignELFFiles: true},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem", SignCert: "cert.pem", SignELFFiles: true},
 			"", true, false, true,
 		),
 		Entry("--sign-elf-files without key → error",
-			signing.ResolveSigningGateOptions{SignELFFiles: true},
+			signature.ResolveSigningGateOptions{SignELFFiles: true},
 			"signing key is required", false, false, false,
 		),
 		Entry("--sign-elf-files with key but no cert → error",
-			signing.ResolveSigningGateOptions{SignKey: "key.pem", SignELFFiles: true},
+			signature.ResolveSigningGateOptions{SignKey: "key.pem", SignELFFiles: true},
 			"signing certificate is required", false, false, false,
 		),
 	)
 
 	It("key+cert+--sign-manifest produces signer options with same key/cert refs", func() {
-		result, err := signing.ResolveSigningGate(signing.ResolveSigningGateOptions{
+		result, err := signature.ResolveSigningGate(signature.ResolveSigningGateOptions{
 			SignKey:  "key.pem",
 			SignCert: "cert.pem",
 		})

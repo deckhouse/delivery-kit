@@ -560,12 +560,14 @@ tasks:
         sh: realpath "{{.dir | default "."}}"
 
   pm:install:
-    desc: "Extract the pm binary (linux/amd64) from the container-factory image into ./bin/pm."
+    desc: 'Extract the pm binary (linux/amd64) from the container-factory image. Important vars: "dest" (destination path, default ./bin/pm).'
     cmds:
-      - mkdir -p ./bin
-      - docker run --rm --platform linux/amd64 --entrypoint "" "{{.pmImage}}" cat /usr/local/bin/pm > ./bin/pm
-      - chmod +x ./bin/pm
-      - 'echo "pm (linux/amd64) installed to ./bin/pm"'
+      - mkdir -p "$(dirname "{{.dest}}")"
+      - docker run --rm --platform linux/amd64 --entrypoint "" "{{.pmImage}}" cat /usr/local/bin/pm > "{{.dest}}"
+      - chmod +x "{{.dest}}"
+      - 'echo "pm (linux/amd64) installed to {{.dest}}"'
+    vars:
+      dest: '{{.dest | default "./bin/pm"}}'
 
   sign:
     desc: 'Sign last version tag + origin/main and push signatures. Important vars: "refs".'

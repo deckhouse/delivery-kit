@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -18,8 +19,10 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/test/pkg/report"
+	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
@@ -90,6 +93,52 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(strings.Count(rebuildOut, "Use previously generated SBOM from registry")).To(BeNumerically(">=", len(platforms)),
 				"each platform SBOM must be served from cache on rebuild")
+		},
+		Entry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
+	)
+
+	DescribeTable("per-platform SBOM with os-pm packages: pm.lock components land in every platform SBOM",
+		func(ctx SpecContext, testOpts sbomTestOptions) {
+			setupSbomBuildEnv(testOpts.setupEnvOptions)
+
+			platforms := []string{"linux/amd64", "linux/386"}
+
+			repoDirname := "repo_sbom_multiplatform_packages"
+			SuiteData.InitTestRepo(ctx, repoDirname, "multiplatform_packages")
+			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+			builderEnv := buildMultiplatformTrustedBuilderBase(ctx, testRepoPath, "sbom-multiplatform-pkg-builder", platforms)
+
+			SuiteData.Stubs.SetEnv("WERF_ENABLE_REPORT_BY_PLATFORM", "1")
+
+			By("building the multi-platform image with os-pm packages and SBOM enabled")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+			reportProject := report.NewProjectWithReport(werfProject)
+			_, buildReport := reportProject.BuildWithReport(ctx,
+				SuiteData.GetBuildReportPath("sbom_multiplatform_packages.json"),
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+			)
+
+			repo := suite_init.TestRepo(SuiteData.ProjectName)
+
+			byPlatform := buildReport.ImagesByPlatform["app"]
+			Expect(byPlatform).To(HaveLen(len(platforms)), "expected a build report record per platform")
+
+			By("verifying every platform SBOM carries the pm.lock components")
+			for _, platform := range platforms {
+				record, hasRecord := byPlatform[platform]
+				Expect(hasRecord).To(BeTrue(), "no build report record for platform %s", platform)
+
+				desc, payload := fetchSingleSbomArtifact(ctx, repo, record.DockerImageDigest)
+				Expect(desc.Annotations[image.WerfPlatformAnnotation]).To(Equal(platform))
+
+				subjectDigest := mustExtractInTotoSubjectDigest(payload)
+				Expect(subjectDigest).To(Equal(record.DockerImageDigest),
+					"in-toto subject must be the platform manifest digest")
+
+				bom := mustExtractCycloneDXBOM(payload)
+				sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
+			}
 		},
 		Entry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
 	)
@@ -214,4 +263,21 @@ func mustExtractInTotoSubjectDigest(dsseEnvelope []byte) string {
 	hex, hasSha256 := statement.Subject[0].Digest["sha256"]
 	Expect(hasSha256).To(BeTrue(), "in-toto subject must carry a sha256 digest")
 	return "sha256:" + hex
+}
+
+func mustExtractCycloneDXBOM(dsseEnvelope []byte) *cdx.BOM {
+	var envelope struct {
+		Payload []byte `json:"payload"`
+	}
+	Expect(json.Unmarshal(dsseEnvelope, &envelope)).To(Succeed())
+
+	var statement struct {
+		Predicate json.RawMessage `json:"predicate"`
+	}
+	Expect(json.Unmarshal(envelope.Payload, &statement)).To(Succeed())
+	Expect(statement.Predicate).NotTo(BeEmpty(), "in-toto statement must carry a predicate")
+
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(statement.Predicate)
+	Expect(err).NotTo(HaveOccurred())
+	return bom
 }

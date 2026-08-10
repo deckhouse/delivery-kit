@@ -1,0 +1,7 @@
+FROM registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1 AS factory
+
+FROM registry.werf.io/base/alpine
+LABEL io.deckhouse.internal.builder=true
+ENV PACKAGES_VERSION=v1.3.6
+ENV REGISTRY=registry.deckhouse.io/container-factory
+COPY --from=factory /usr/local/bin/pm /usr/local/bin/pm

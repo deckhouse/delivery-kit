@@ -97,8 +97,8 @@ Multi-platform SBOM generation is broken independently of signing (single SBOM p
 
 - **Sigstore Bundle** (`pkg/attestation/bundle.go`) — minimal v0.3 bundle for offline key-based verification; tlog entries, cert chains, and timestamps intentionally omitted.
 - **SbomSigningOptions** (`pkg/build/signing/sbom_signing.go`) — Enabled flag + shared `*signing.Signer`, plumbed `BuildOptions → ConveyorOptions → BuildPhase`.
-- **ResolveSigningGate** (`pkg/build/signing/resolve.go`) — single source of truth deciding when a signer is required (SBOM/manifest/ELF) and validating key+cert presence.
-- **AttachOptions.SupersededTypes** (`pkg/oci/artifact/fallback.go`) — cross-type replacement during fallback-index update.
+- **ResolveSigningGate** (`pkg/signature/signing_gate.go`) — single source of truth deciding when a signer is required (SBOM/manifest/ELF) and validating key+cert presence.
+- **OCIStore.AttachSuperseding** (`pkg/oci/artifact/store.go`) — cross-type replacement integrated into the converge loop of the fallback index: superseded entries are part of the convergence predicate, so interrupted attaches self-heal.
 
 ## Success Criteria *(mandatory)*
 
@@ -112,14 +112,14 @@ Multi-platform SBOM generation is broken independently of signing (single SBOM p
 
 ## Assumptions
 
-- Signing keys are ECDSA P-256/RSA/Ed25519 in the sigstore-encrypted PEM form ("ENCRYPTED DELIVERY-KIT PRIVATE KEY", empty passphrase via `SkipPassword`) — plain PKCS#8 is rejected by the SDK key loader (see `playground/signing/gen-keys.sh` and `wrap-key`).
+- Signing keys are Ed25519 (primary tested type)/ECDSA P-256/RSA in the sigstore-encrypted PEM form ("ENCRYPTED DELIVERY-KIT PRIVATE KEY", empty passphrase via `SkipPassword`) — plain PKCS#8 is rejected by the SDK key loader (see `playground/signing/gen-keys.sh` and `wrap-key`).
 - Clients verify with cosign ≥ v2.5.x (new-bundle format support). Legacy cosign `.att` discovery does not find these artifacts.
 - The `verificationMaterial` carries only `publicKey.hint`; the signing certificate is NOT embedded in the bundle.
 
 ## Documented Decisions (not gaps)
 
-- **Cert fingerprint is NOT part of the cache identity.** The narrow `signature.Signer` interface passed down the SBOM path exposes only the public key, and the published bundle embeds only `publicKey.hint` — a cert-only renewal with the same key would produce a byte-identical artifact, so a cache hit is semantically correct. MUST be revisited if certificates are ever embedded into `verificationMaterial`.
-- **Manifest-level `artifactType` is not set on the artifact OCI manifest.** Pre-existing behavior: the vendored go-containerregistry mutate API has no setter for the top-level manifest field. Cosign reads the artifact type from the fallback-index descriptor (which IS set) and verification passes. Cosmetic OCI 1.1 SHOULD-level follow-up for the next change touching `pkg/oci/artifact`.
+- **Cert fingerprint is NOT part of the cache identity.** `Signer.Fingerprint()` hashes only the public key by design: the published bundle embeds only `publicKey.hint`, so a cert-only renewal with the same key would produce a byte-identical artifact and re-publishing would be a no-op — a cache hit is semantically correct. MUST be revisited if certificates are ever embedded into `verificationMaterial`.
+- **Manifest-level `artifactType` is declared through `config.mediaType`.** The vendored go-containerregistry cannot emit the OCI 1.1 manifest-level field, and per the OCI spec a registry falls back to `config.mediaType` when `artifactType` is absent — `buildArtifactImage` (`pkg/oci/artifact/store.go`) documents this contract. Cosign reads the type from the fallback-index descriptor and verification passes.
 
 ## Out of Scope
 

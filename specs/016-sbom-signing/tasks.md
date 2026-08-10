@@ -26,9 +26,15 @@
 
 ## Post-review fixes
 
-- [x] T011 Deduplicate `OCIStore.Attach`/`AttachSuperseding` (review finding: `Attach` now delegates)
+- [x] T011 Deduplicate `OCIStore.Attach`/`AttachSuperseding` — superseded by main's own store refactor; the commit was dropped as already-upstream during the rebase
 - [x] T012 e2e helper: emit "ENCRYPTED DELIVERY-KIT PRIVATE KEY" PEM instead of plain PKCS#8 (manual QA finding: the SDK key loader always runs sigstore `encrypted.Decrypt`)
 - [x] T013 Rebase onto fresh `origin/main` (import conflict with the `GetAttachedContentAny` auth fix resolved)
+- [x] T014 Negative e2e: stub `BUILDER_BASE_IMAGE` so the missing-cert assertion reaches the signing gate instead of failing at config render (CI finding)
+- [x] T015 Rebase onto the converged fallback index from main; port supersede into the converge loop (`supersededTypes` joins the `isAttached` convergence predicate — self-healing cleanup)
+- [x] T016 Review feedback: move the signing gate into `pkg/signature` (`signature.ResolveSigningGate`); drop the orphaned suite bootstrap in `pkg/build/signing`
+- [x] T017 Review feedback: cache the signer public-key fingerprint on `Signer` (`sync.Once`) and thread the identity string into `ConvergeWithMerge`
+- [x] T018 Review feedback: ed25519 as the primary tested key type (unit round-trips table over ed25519+ECDSA; e2e on ed25519); std `slices.Sort` in the bundle golden test
+- [x] T019 Review feedback: e2e signing material via `delivery-kit-sdk` `test/pkg/cert_utils` (encrypted delivery-kit PEM, leaf cert) instead of a local helper
 
 ## Verification (final wave, all approved)
 
@@ -41,5 +47,5 @@
 
 - ⚠️ **Multi-platform SBOM stays unsigned** — per-platform SBOM generation (C12) is broken independently of signing and is tracked separately (`.omo/docs/c12-multiplatform-sbom-context.md`); the guard is one capability function to flip.
 - 📋 **Cert fingerprint excluded from cache identity — documented decision.** The bundle embeds only `publicKey.hint`, so a cert-only renewal yields a byte-identical artifact and a cache hit is correct. Revisit if certificates are embedded into `verificationMaterial`.
-- 📋 **Manifest-level `artifactType` not set — pre-existing, cosmetic.** The vendored go-containerregistry mutate API has no setter for the top-level manifest field; cosign reads the type from the fallback-index descriptor and verification passes. OCI 1.1 SHOULD-level follow-up for the next change touching `pkg/oci/artifact`.
-- 📋 **Duplicate annotation-less fallback-index entry** (go-containerregistry auto-referrers on push) — pre-existing on main, reproduced on the untouched unsigned path; addressed in a separate PR.
+- ✅ **Manifest-level `artifactType`** — resolved on main: the artifact type is declared through `config.mediaType` (OCI fallback rule), documented in `buildArtifactImage`; cosign discovery unaffected.
+- ✅ **Duplicate annotation-less fallback-index entry** — resolved on main by the converged fallback index (`dedupeByDigest` prefers the werf-annotated descriptor).

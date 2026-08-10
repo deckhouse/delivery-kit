@@ -2,7 +2,7 @@
 
 **Status**: migrated (reverse-engineered from the executed work plan and the actual diff)
 
-**Branch**: `feat/sbom/sign-sbom-at-build` — 11 commits on top of `origin/main`
+**Branch**: `feat/sbom/sign-sbom-at-build` — 16 commits on top of `origin/main` (incl. review-feedback commits)
 
 ## Technical Context
 
@@ -17,12 +17,12 @@
 
 ## Key Technical Decisions
 
-1. **Gate by key presence**: `ResolveSigningGate` (pkg/build/signing/resolve.go) is the single source of truth — SBOM signing enables on `--sign-key`, manifest/ELF keep their explicit flags; key+cert validation lives only there, `cmd/werf/common/signature.go` delegates.
+1. **Gate by key presence**: `signature.ResolveSigningGate` (pkg/signature/signing_gate.go) is the single source of truth — SBOM signing enables on `--sign-key`, manifest/ELF keep their explicit flags; key+cert validation lives only there, `cmd/werf/common/signature.go` delegates. Lives in the existing `pkg/signature` domain package (review feedback).
 2. **Narrow signer interface downstream**: `ConvergeWithMerge`/`PushSBOM` accept sigstore `signature.Signer`; the full `signing.Signer` stays at the BuildPhase level.
 3. **Format switch only on the signed path**: unsigned builds keep bare DSSE + versioned predicateType byte-for-byte; signed builds switch artifactType and drop the predicateType version suffix (cosign convention).
 4. **Dual-format read by descriptor artifactType** (bundle first, DSSE fallback), never content sniffing — O(1) branching, no format-guessing framework.
-5. **Cross-type supersede** via `AttachOptions.SupersededTypes`: publishing a bundle removes the stale bare-DSSE entry for the same image name (the index replace semantics previously keyed strictly on `(artifactType, image-name)`).
-6. **Cache identity**: format-version const (`sbomArtifactFormatVersion = "2"`) + public-key SHA-256 fingerprint appended to `calculateStableChecksum`. Cert fingerprint deliberately excluded (bundle carries no cert; see spec "Documented Decisions").
+5. **Cross-type supersede inside the converge loop**: `AttachSuperseding` threads `supersededTypes` into the fallback-index convergence — superseded entries are part of the `isAttached` predicate, so publishing a bundle removes the stale bare-DSSE entry for the same image name and an interrupted attach self-heals on the next converge iteration.
+6. **Cache identity**: format-version const (`sbomArtifactFormatVersion = "2"`) + public-key SHA-256 fingerprint appended to `calculateStableChecksum`. The fingerprint is computed once per build via `Signer.Fingerprint()` (`sync.Once`) and passed down as a string (review feedback: it was recomputed per image). Cert fingerprint deliberately excluded (bundle carries no cert; see spec "Documented Decisions").
 7. **Multi-platform guard as capability function** (`sbomSigningSupported`) with a warning — flipped by the future C12 fix without touching the signing code.
 8. **Fail-closed guards**: signer configured but zero signatures → error; signing error → build failure (no silent unsigned fallback).
 
@@ -31,14 +31,16 @@
 ```
 pkg/attestation/            bundle.go (+tests, golden fixture), dsse.go (consts consolidated),
                             get.go/ls.go (dual-format), statement.go (unchanged: Statement/v1)
-pkg/build/signing/          resolve.go (gate), sbom_signing.go (options), tests
+pkg/signature/              signing_gate.go (gate, moved here per review) + tests
+pkg/build/signing/          signer.go (Signer + cached Fingerprint), sbom_signing.go (options)
 pkg/build/                  build_phase.go (signer wiring, multi-platform guard),
                             sbom_step.go (signer param, cache checksum, dual-type cache lookup)
 pkg/sbom/image/             image.go (PushSBOM signed/unsigned split, dual-format pull),
                             dsse.go (ctx+signer pass-through, C13 fix)
-pkg/oci/artifact/           fallback.go (AttachWithOptions/supersede), store.go (AttachSuperseding)
+pkg/oci/artifact/           fallback.go (supersede in converge loop), store.go (AttachSuperseding)
 cmd/werf/common/            signature.go (gate delegation), conveyor_options.go (plumbing)
-test/e2e/sbom/              signing_test.go + _fixtures/signing/ (label "sbom-signing")
+test/e2e/sbom/              signing_test.go + _fixtures/signing/ (label "sbom-signing";
+                            keys via delivery-kit-sdk test/pkg/cert_utils, ed25519)
 ```
 
 ## Implementation Phases (as executed)
@@ -47,10 +49,11 @@ test/e2e/sbom/              signing_test.go + _fixtures/signing/ (label "sbom-si
 2. **Core plumbing** — ctx+signer threaded through the SBOM path (nil-shim and `context.Background()` removed); hand-built Bundle serializer validated against the cosign golden fixture.
 3. **Format switch** — signed publish path to bundle form with index supersede; dual-format read path; `attest ls/get/verify` bundle support.
 4. **Cache + e2e** — checksum format version + signer identity; e2e round-trip suite (signed/unsigned/no-cert, optional real-cosign offline verify).
+5. **Review feedback + rebase** — gate moved into `pkg/signature`; signer fingerprint cached via `sync.Once`; ed25519 made the primary tested key type; e2e reuses `delivery-kit-sdk` cert helpers; supersede ported onto the converge-style fallback index absorbed from main.
 
 ## Complexity Assessment
 
-- 26 files changed, ~1090 insertions / ~110 deletions; 14 source files (~390 lines), 8 test files (~680 lines) + e2e fixtures.
+- 32 files changed, ~1390 insertions / ~145 deletions (after rebase onto the converged-index main and review feedback).
 - No new module dependencies; no schema/config changes; no storage-layout changes beyond the artifactType of signed artifacts.
 
 ## Verification Performed

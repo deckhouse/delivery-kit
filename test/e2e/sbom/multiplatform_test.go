@@ -25,7 +25,7 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
-var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform"), func() {
+var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "simple"), func() {
 	DescribeTable("per-platform SBOM generation: build → per-platform artifacts → cache",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
@@ -91,7 +91,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform"), f
 			Expect(strings.Count(rebuildOut, "Use previously generated SBOM from registry")).To(BeNumerically(">=", len(platforms)),
 				"each platform SBOM must be served from cache on rebuild")
 		},
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
+		Entry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
 	)
 })
 

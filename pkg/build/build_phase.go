@@ -377,16 +377,17 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
 	var signer signature.Signer
+	var signerIdentity string
 	if phase.SbomSigningOptions.Enabled {
 		if sbomSigningSupported(images) {
 			signer = phase.SbomSigningOptions.Signer().SignerVerifier()
+			signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
 		} else {
 			logboek.Context(ctx).Warn().LogF("multi-platform SBOM signing is not yet supported, SBOM will be unsigned\n")
 		}
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform, signer); err != nil {
-
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform, signer, signerIdentity); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 

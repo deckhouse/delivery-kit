@@ -2,8 +2,6 @@ package build
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -52,7 +50,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string, signer signature.Signer) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -62,7 +60,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	signerIdentity := signerCacheIdentity(signer)
 	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
@@ -153,25 +150,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 }
 
 const sbomArtifactFormatVersion = "2"
-
-func signerCacheIdentity(signer signature.Signer) string {
-	if signer == nil {
-		return ""
-	}
-
-	pub, err := signer.PublicKey()
-	if err != nil {
-		return ""
-	}
-
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		return ""
-	}
-
-	digest := sha256.Sum256(der)
-	return fmt.Sprintf("signer:%x", digest)
-}
 
 func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity string) string {
 	var parts []string

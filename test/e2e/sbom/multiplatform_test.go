@@ -93,7 +93,11 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 			Expect(strings.Count(rebuildOut, "Use previously generated SBOM from registry")).To(BeNumerically(">=", len(multiplatformSbomPlatforms)),
 				"each platform SBOM must be served from cache on rebuild")
 		},
-		Entry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
+		// Multi-platform stapel builds require the Buildah backend (the Docker-Server
+		// backend only builds stapel images for linux/amd64), and SBOM generation does
+		// not work with Buildah yet — enable once it does.
+		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
+		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 
 	DescribeTable("per-platform SBOM with os-pm packages: pm.lock components land in every platform SBOM",
@@ -143,7 +147,11 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 				sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
 			}
 		},
-		Entry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
+		// Multi-platform stapel builds require the Buildah backend (the Docker-Server
+		// backend only builds stapel images for linux/amd64), and SBOM generation does
+		// not work with Buildah yet — enable once it does.
+		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
+		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 })
 

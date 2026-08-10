@@ -30,7 +30,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
-			platforms := []string{"linux/amd64", "linux/arm64"}
+			platforms := []string{"linux/amd64", "linux/386"}
 
 			repoDirname := "repo_sbom_multiplatform"
 			SuiteData.InitTestRepo(ctx, repoDirname, "multiplatform")
@@ -80,7 +80,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 				subjectDigests[platform] = subjectDigest
 			}
 
-			Expect(subjectDigests["linux/amd64"]).NotTo(Equal(subjectDigests["linux/arm64"]),
+			Expect(subjectDigests["linux/amd64"]).NotTo(Equal(subjectDigests["linux/386"]),
 				"platform SBOMs must attest distinct platform manifests")
 
 			By("verifying no SBOM artifact is attached to the index digest")

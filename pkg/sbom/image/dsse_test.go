@@ -2,45 +2,28 @@ package image
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 
+	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/werf/v2/pkg/attestation"
+	"github.com/werf/werf/v2/test/pkg/signutils"
 )
 
 func generateKeyPair() (signature.Signer, signature.Verifier) {
-	return generateKeyPairOfType("ed25519")
+	return generateKeyPairOfType(cert_utils.KeyType_ED25519)
 }
 
-func generateKeyPairOfType(keyType string) (signature.Signer, signature.Verifier) {
-	switch keyType {
-	case "ed25519":
-		_, key, err := ed25519.GenerateKey(rand.Reader)
-		Expect(err).NotTo(HaveOccurred())
-		sv, err := signature.LoadED25519SignerVerifier(key)
-		Expect(err).NotTo(HaveOccurred())
-		return sv, sv
-	case "ecdsa-p256":
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		Expect(err).NotTo(HaveOccurred())
-		sv, err := signature.LoadECDSASignerVerifier(key, crypto.SHA256)
-		Expect(err).NotTo(HaveOccurred())
-		return sv, sv
-	default:
-		Fail("unsupported key type: " + keyType)
-		return nil, nil
-	}
+func generateKeyPairOfType(keyType cert_utils.KeyType) (signature.Signer, signature.Verifier) {
+	sv := signutils.GenerateSignerVerifier(keyType)
+	return sv, sv
 }
 
 type failingSigner struct{}
@@ -102,7 +85,7 @@ var _ = Describe("DSSE Envelope", func() {
 	})
 
 	DescribeTable("non-nil signer produces signed envelope",
-		func(ctx SpecContext, keyType string) {
+		func(ctx SpecContext, keyType cert_utils.KeyType) {
 			signer, verifier := generateKeyPairOfType(keyType)
 
 			envelopeJSON, err := WrapInDSSE(ctx, payload, payloadType, signer)
@@ -114,8 +97,8 @@ var _ = Describe("DSSE Envelope", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(payload))
 		},
-		Entry("ed25519", "ed25519"),
-		Entry("ecdsa-p256", "ecdsa-p256"),
+		Entry("ed25519", cert_utils.KeyType_ED25519),
+		Entry("ecdsa-p256", cert_utils.KeyType_ECDSA_P256),
 	)
 
 	Describe("signer that errors", func() {

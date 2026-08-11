@@ -1,40 +1,23 @@
 package attestation
 
 import (
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/json"
 
+	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/signature"
+
+	"github.com/werf/werf/v2/test/pkg/signutils"
 )
 
 func generateKeyPair() (signature.Signer, signature.Verifier) {
-	return generateKeyPairOfType("ed25519")
+	return generateKeyPairOfType(cert_utils.KeyType_ED25519)
 }
 
-func generateKeyPairOfType(keyType string) (signature.Signer, signature.Verifier) {
-	switch keyType {
-	case "ed25519":
-		_, key, err := ed25519.GenerateKey(rand.Reader)
-		Expect(err).NotTo(HaveOccurred())
-		sv, err := signature.LoadED25519SignerVerifier(key)
-		Expect(err).NotTo(HaveOccurred())
-		return sv, sv
-	case "ecdsa-p256":
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		Expect(err).NotTo(HaveOccurred())
-		sv, err := signature.LoadECDSASignerVerifier(key, crypto.SHA256)
-		Expect(err).NotTo(HaveOccurred())
-		return sv, sv
-	default:
-		Fail("unsupported key type: " + keyType)
-		return nil, nil
-	}
+func generateKeyPairOfType(keyType cert_utils.KeyType) (signature.Signer, signature.Verifier) {
+	sv := signutils.GenerateSignerVerifier(keyType)
+	return sv, sv
 }
 
 var _ = Describe("DSSE Envelope", func() {
@@ -69,7 +52,7 @@ var _ = Describe("DSSE Envelope", func() {
 
 	Describe("signed envelopes", func() {
 		DescribeTable("should sign, then verify with correct key",
-			func(ctx SpecContext, keyType string) {
+			func(ctx SpecContext, keyType cert_utils.KeyType) {
 				signer, verifier := generateKeyPairOfType(keyType)
 				payload := []byte(`{"vulnerability":"CVE-2024-1234"}`)
 
@@ -81,8 +64,8 @@ var _ = Describe("DSSE Envelope", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(payload))
 			},
-			Entry("ed25519", "ed25519"),
-			Entry("ecdsa-p256", "ecdsa-p256"),
+			Entry("ed25519", cert_utils.KeyType_ED25519),
+			Entry("ecdsa-p256", cert_utils.KeyType_ECDSA_P256),
 		)
 
 		It("should fail verify with wrong key", func(ctx SpecContext) {

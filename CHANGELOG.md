@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.75.4-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.2...v2.75.4-dk.3) (2026-08-11)
+
+
+### Bug Fixes
+
+* **sbom:** propagate attached artifacts along stage copies ([#240](https://github.com/deckhouse/delivery-kit/issues/240)) ([6e40074](https://github.com/deckhouse/delivery-kit/commit/6e40074fa87e63fa504c32f8a874e55fc7665f75))
+
 ## [2.75.4-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.1...v2.75.4-dk.2) (2026-08-07)
 
 

@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/docker/docker-agent/main/agent-schema.json
+version: 15
+
+permissions:
+  allow:
+    - "shell:cmd=jq*"
+    - "shell:cmd=wc*"
+    - "shell:cmd=git*"
+    - "shell:cmd=python3 .specify/scripts/python/*"
+
+agents:
+  # root — execution loop coordinator
+  root:
+    model: flant/deepseek-v4-flash
+    description: SDD execution loop. It orchestrates implement → converge loop
+    instruction_file: instructions-root.md
+
+    sub_agents: [executor, verifier]
+
+    # autonomous is safe because global ~/.config/cagent/config.yaml
+    # covers restrictions: deny rules for sudo*, rm -rf*, chmod*, etc.
+    safety: autonomous
+
+    toolsets:
+      - type: filesystem
+        # filesystem access scoped to current repo; global deny rules
+        # (e.g. write to /etc/**, delete_path outside repo) are enforced
+        # at the user config level
+        allow_list: ["."]
+
+      - type: shell
+
+  # executor — runs speckit-implement
+  executor:
+    model: flant/deepseek-v4-flash
+    description: Implements features via speckit-implement
+    instruction_file: instructions-executor.md
+
+    skills:
+      - speckit-implement
+
+    # autonomous is safe because global ~/.config/cagent/config.yaml
+    # covers restrictions: deny rules for sudo*, rm -rf*, chmod*, etc.
+    safety: autonomous
+
+    toolsets:
+      - type: script
+        shell:
+          lint:
+            cmd: task lint
+            description: Run all linters (golangci-lint, etc.)
+
+          format:
+            cmd: task format paths=${paths}
+            description: Format Go source code
+            args:
+              paths:
+                type: string
+                description: Target directory to format (e.g. pkg/foo)
+
+          mock-gen:
+            cmd: task mock:generate
+            description: Generate Go mock files via mockgen
+
+          doc-gen:
+            cmd: task doc:gen
+            description: Generate CLI reference documentation
+
+          test-unit:
+            cmd: task test:unit paths=${paths} -- -focus=${focus}
+            description: Run unit tests with optional package paths and focus filter
+            args:
+              paths:
+                type: string
+                description: Package paths (e.g. ./pkg/...)
+              focus:
+                type: string
+                description: Ginkgo focus pattern for test selection
+
+          test-e2e:
+            cmd: task test:e2e paths=${paths} labelFilter=${labelFilter}
+            description: Run e2e tests with optional package paths and label filter
+            args:
+              paths:
+                type: string
+                description: E2e test package paths (e.g. ./test/e2e/sbom/...)
+              labelFilter:
+                type: string
+                description: Ginkgo label filter for test selection (e.g. sbom)
+
+      - type: filesystem
+        allow_list: ["."]
+
+      - type: shell
+
+      - type: mcp
+        command: godoc-mcp
+        env:
+          GOPATH: ${HOME}/go
+          GOMODCACHE: ${HOME}/go/pkg/mod
+          GOROOT: /snap/go/current
+        instruction: Go documentation lookup via godoc-mcp
+
+      - type: lsp
+        command: gopls
+        file_types: [".go"]
+        instruction: Go language server for code intelligence
+
+  # verifier — runs speckit-converge
+  verifier:
+    model: flant/deepseek-v4-flash
+    description: Verifies implementation convergence via speckit-converge
+    instruction_file: instructions-verifier.md
+
+    skills:
+      - speckit-converge
+
+    # autonomous is safe because global ~/.config/cagent/config.yaml
+    # covers restrictions: deny rules for sudo*, rm -rf*, chmod*, etc.
+    safety: autonomous
+
+    toolsets:
+      - type: filesystem
+        allow_list: ["."]
+      - type: shell

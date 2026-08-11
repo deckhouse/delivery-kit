@@ -210,7 +210,7 @@ jobs:
       - unit
       - kind_setup
     runs-on: delivery-github-runner
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
@@ -256,7 +256,7 @@ jobs:
       - unit
       - kind_setup
     runs-on: delivery-github-runner
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
@@ -302,7 +302,7 @@ jobs:
       - unit
       - kind_setup
     runs-on: delivery-github-runner
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1

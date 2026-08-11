@@ -31,6 +31,8 @@ vars:
   package: "github.com/werf/werf/v2/cmd/werf"
   kubeVersion: '{{.kubeVersion | default "1.36.1"}}'
 
+  pmImage: "registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1"
+
   goTags: "dfrunsecurity dfrunnetwork dfrunmount dfssh containers_image_openpgp"
   goLDFlags: "-s -w -X github.com/werf/werf/v2/pkg/werf.Version={{.version}}"
 
@@ -39,6 +41,11 @@ vars:
 
   buildGoTags: "{{.goTags}} embedstapel"
   buildCgoTags: "{{.cgoTags}} embedstapel"
+
+  # Deno is embedded for release binaries only: a dev build would pay a ~45 MiB download and ~42 MiB
+  # of linked blob for a runtime it can just as well fetch on demand.
+  distGoTags: "{{.buildGoTags}} embedwerfdeno"
+  distCgoTags: "{{.buildCgoTags}} embedwerfdeno"
 
 tasks:
   format:
@@ -55,7 +62,7 @@ tasks:
           echo "golangci-lint not installed, run: task deps:install:golangci-lint"
           exit 1
         fi
-        ./bin/golangci-lint-v2.11.4 run --build-tags="{{.buildGoTags}}" -c .golangci.yml {{.CLI_ARGS}} {{.golangciPaths | default "./cmd/... ./pkg/... ./test/..."}}
+        ./bin/golangci-lint-v2.11.4 run --build-tags="{{.distGoTags}}" -c .golangci.yml {{.CLI_ARGS}} {{.golangciPaths | default "./cmd/... ./pkg/... ./test/..."}}
     env:
       CGO_ENABLED: "0"
 
@@ -82,6 +89,7 @@ tasks:
     desc: "Run all linters."
     cmds:
       - task: stapel:embed
+      - task: deno:embed
       - task: lint:golangci-lint
 
   _build-and-lint:
@@ -107,6 +115,24 @@ tasks:
     cmds:
       - env -u GOOS -u GOARCH WERF_STAPEL_IMAGE_VERSION="$(sed -n 's/.*VERSION *= *"\(.*\)"/\1/p' pkg/stapel/stapel.go | head -1)" go run ./cmd/embed-stapel
 
+  deno:embed:
+    desc: 'Download and embed the Deno binary for one platform. Important vars: "platform".'
+    run: when_changed
+    label: 'deno:embed:{{.platform}}'
+    vars:
+      platform: '{{.platform | default (printf "%s/%s" .os .arch)}}'
+      denoVersionSource:
+        sh: printf '%s/pkg/ts/denolock/data/lock.json' "$(go list -m -f '{{`{{.Dir}}`}}' github.com/werf/nelm)"
+    sources:
+      # The pinned nelm version determines the lock, and unlike the path below it always resolves: on
+      # a cold module cache "go list -m" reports an empty Dir and that entry matches nothing.
+      - go.mod
+      - '{{.denoVersionSource}}'
+    generates:
+      - pkg/deno/embed/{{.platform}}/deno.gz
+    cmds:
+      - env -u GOOS -u GOARCH DENO_EMBED_ROOT=pkg/deno/embed DENO_EMBED_PLATFORM="{{.platform}}" go run github.com/werf/nelm/scripts/embed-deno
+
   _build:cgo:dev: &build_cgo_dev
     deps:
       - stapel:embed
@@ -123,9 +149,14 @@ tasks:
 
   _build:cgo:dist:
     <<: *build_cgo_dev
+    deps:
+      - stapel:embed
+      - task: deno:embed
+        vars:
+          platform: "{{.targetOS}}/{{.targetArch}}"
     cmds:
       - go build -o "{{.outputDir | default (printf "./dist/%s/%s-%s/bin" .version .targetOS .targetArch)}}/werf{{if (eq .targetOS "windows")}}.exe{{end}}"
-        -compiler gc -ldflags="{{.cgoLDFlags}}" -tags="{{.buildCgoTags}}" {{.extraGoBuildArgs}} {{.CLI_ARGS}} {{.pkg | default .package}}
+        -compiler gc -ldflags="{{.cgoLDFlags}}" -tags="{{.distCgoTags}}" {{.extraGoBuildArgs}} {{.CLI_ARGS}} {{.pkg | default .package}}
 
   _build:go:dev: &build_go_dev
     deps:
@@ -142,9 +173,14 @@ tasks:
 
   _build:go:dist:
     <<: *build_go_dev
+    deps:
+      - stapel:embed
+      - task: deno:embed
+        vars:
+          platform: "{{.targetOS}}/{{.targetArch}}"
     cmds:
       - go build -o "{{.outputDir | default (printf "./dist/%s/%s-%s/bin" .version .targetOS .targetArch)}}/werf{{if (eq .targetOS "windows")}}.exe{{end}}"
-        -ldflags="{{.goLDFlags}}" -tags="{{.buildGoTags}}" {{.extraGoBuildArgs}} {{.CLI_ARGS}} {{.pkg | default .package}}
+        -ldflags="{{.goLDFlags}}" -tags="{{.distGoTags}}" {{.extraGoBuildArgs}} {{.CLI_ARGS}} {{.pkg | default .package}}
 
   build:
     desc: "Build werf dev binary."
@@ -304,6 +340,7 @@ tasks:
         vars:
           outputDir: '{{.outputDir | default "./bin"}}'
           extraGoBuildArgs: "-cover -coverpkg=./..."
+          raceDetectorEnabled: '{{.raceDetectorEnabled | default "false"}}'
 
   _test:go-test:cgo:
     cmds:
@@ -582,6 +619,7 @@ tasks:
       - deps:install:kind
       - deps:install:mockgen
       - deps:install:enumer
+      - deps:install:pm
 
   deps:install:kind:
     desc: "Install kind binary."
@@ -596,6 +634,16 @@ tasks:
     desc: "Install enumer library."
     cmds:
       - go install github.com/dmarkham/enumer@v1.5.11
+
+  deps:install:pm:
+    desc: 'Extract the pm binary (linux/amd64) from the container-factory image. Important vars: "dest" (destination path, default ./bin/pm).'
+    cmds:
+      - mkdir -p "$(dirname "{{.dest}}")"
+      - docker run --rm --platform linux/amd64 --entrypoint "" "{{.pmImage}}" cat /usr/local/bin/pm > "{{.dest}}"
+      - chmod +x "{{.dest}}"
+      - 'echo "pm (linux/amd64) installed to {{.dest}}"'
+    vars:
+      dest: '{{.dest | default "./bin/pm"}}'
 
   deps:install:c:
     desc: "Install C dependencies"
@@ -615,13 +663,23 @@ tasks:
         cd -
         rm -rf "$git_dir"
 
+  pm:lock:
+    desc: 'Generate pm.lock from a pm manifest using pm from the container-factory image. Important vars: "workdir" (project directory, default "."), "from" (manifest path relative to workdir), "lock" (lock file path relative to workdir).'
+    cmds:
+      - docker run --rm --platform linux/amd64 --entrypoint "" -e PACKAGES_VERSION -e REGISTRY
+        -v "{{.absWorkdir}}:/workdir" -w /workdir "{{.pmImage}}"
+        pm lock {{if .from}}--from "{{.from}}" {{end}}{{if .lock}}--lock "{{.lock}}" {{end}}{{.CLI_ARGS}}
+    vars:
+      absWorkdir:
+        sh: realpath "{{.workdir | default "."}}"
+
   sign:
-    desc: 'Sign last version tag + origin/main and push signatures. Important vars: "refs".'
+    desc: 'Sign last created version tag + origin/main and push signatures. Important vars: "refs".'
     cmds:
       - git fetch --tags -f
       - git signatures pull {{.CLI_ARGS}}
       - |
-        for ref in {{.refs | default "$(git tag --sort=v:refname | tail -n1) origin/main"}}; do
+        for ref in {{.refs | default "$(git for-each-ref --sort=-creatordate --count=1 --format='%(refname:short)' 'refs/tags/v*') origin/main"}}; do
           echo Signing $ref...
           git signatures add {{.CLI_ARGS}} $ref
           git signatures show {{.CLI_ARGS}} $ref

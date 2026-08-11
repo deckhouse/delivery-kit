@@ -12,9 +12,8 @@ git:
     to: /
 packages:
   - type: os-pm
-    spec:
-      - curl==8.12.1
-      - openssl==3.6.2
+    spec: "pm.yaml"
+    lock: "pm.lock"
 ---
 image: image-fail-partial
 from: {{ env "BUILDER_BASE_IMAGE" }}
@@ -23,9 +22,8 @@ git:
     to: /
 packages:
   - type: os-pm
-    spec:
-      - curl==8.12.1
-      - jq==1.8.1
+    spec: "pm.yaml"
+    lock: "pm.lock"
 ---
 image: image-ok
 from: {{ env "BUILDER_BASE_IMAGE" }}
@@ -34,5 +32,5 @@ git:
     to: /
 packages:
   - type: os-pm
-    spec:
-      - jq==1.8.1
+    spec: "pm-ok.yaml"
+    lock: "pm-ok.lock"

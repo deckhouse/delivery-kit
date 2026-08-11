@@ -19,7 +19,7 @@ werf is a CNCF Sandbox CLI tool to implement full-cycle CI/CD to Kubernetes. wer
 
 - NEVER add comments unless they document a non-obvious public API or explain genuinely non-obvious logic. NEVER add comments that restate what the code does, repeat the field/function name, describe obvious error handling, or act as section separators. When in doubt, don't comment.
 - ALWAYS use `task` commands for build/test/lint/format — NEVER raw `go build`, `go test`, `go vet`, `go fmt`, or `golangci-lint` directly.
-- ALWAYS read the matching skill in `.agents/skills/` BEFORE the action it governs and follow it verbatim: `git-conventions/SKILL.md` before naming a branch or writing a commit message, `pull-request/SKILL.md` before creating or updating a PR (title, description, draft by default), `review/SKILL.md` before reviewing code, `test-the-tests/SKILL.md` before considering a new or changed test done, `agent-code-review/SKILL.md` in addition to `review/SKILL.md` when the diff's author is an agent or the diff touches tests/verification infrastructure, `session-retro/SKILL.md` when wrapping up a session or asked to reflect on it. These files are the source of truth and are NOT duplicated here.
+- ALWAYS read the matching skill in `.agents/skills/` BEFORE the action it governs and follow it verbatim: `git-conventions/SKILL.md` before naming a branch or writing a commit message, `pull-request/SKILL.md` before creating or updating a PR (title, description, draft by default), `review/SKILL.md` before reviewing code, `test-the-tests/SKILL.md` before considering a new or changed test done, `challenge-review/SKILL.md` in addition to `review/SKILL.md` when the diff is non-trivial or high-risk, or touches tests or verification infrastructure, `session-retro/SKILL.md` when wrapping up a session or asked to reflect on it. These files are the source of truth and are NOT duplicated here.
 - ALWAYS verify, don't assume — check the actual state before making changes. Before concluding that a check cannot run here, establish it: whether a runtime is actually missing, and whether a remote host is available.
 - ALWAYS start with the simplest possible solution. If it works, stop. Add complexity only when justified by a concrete, current requirement — NEVER for hypothetical future needs.
 - NEVER leave TODOs, stubs, or partial implementations.
@@ -58,11 +58,16 @@ Follow [Effective Go](https://go.dev/doc/effective_go) and [Go Code Review Comme
 
 ## Commands (MANDATORY)
 
-ALWAYS use these `task` commands. NEVER use raw `go build`, `go test`, `go fmt`, `go vet`, or `golangci-lint` directly. Pass extra args after `--` to forward them to the underlying command (e.g., `task test:unit -- -run TestMyFunc`).
+ALWAYS use these `task` commands. NEVER use raw `go build`, `go test`, `go fmt`, `go vet`, or `golangci-lint` directly.
+
+**`--` separator rule**: Pass `KEY=VALUE` variable assignments BEFORE `--` (they become task variables). Use `--` ONLY for flags to forward to the underlying command (ginkgo/go test). NEVER place `KEY=VALUE` after `--` — it pollutes `CLI_ARGS`, causing ginkgo to compile ALL tests instead of targeted ones.
+
+Correct: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
+Correct: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
 
 - NEVER `go build` → ALWAYS `task build`. Builds binary to `./bin/`. Accepts `pkg=...`.
 - NEVER `go test` → ALWAYS `task test:unit`. Accepts `paths="./pkg/..."`.
-- NEVER `go test` (e2e) → ALWAYS `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
+- NEVER `go test` (e2e) → ALWAYS `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter).
 - NEVER `go test` (integration) → ALWAYS `task test:integration`. Legacy e2e tests.
 - NEVER `go vet` → ALWAYS `task lint:golangci-lint`. golangci-lint includes vet checks. Accepts `golangciPaths="./pkg/..."`.
 - NEVER `go fmt`/`gofmt` → ALWAYS `task format`. Accepts `paths="pkg/foo"` — plain directories only; the `./pkg/foo/...` wildcard the test and lint tasks take makes the formatters fail.
@@ -72,6 +77,8 @@ ALWAYS use these `task` commands. NEVER use raw `go build`, `go test`, `go fmt`,
 - `task mock:generate` — run mock generators.
 - `task mock:check` — verify generated mocks are up to date (runs `go generate -run mockgen` and diffs).
 - `task doc:gen` — regenerate CLI reference docs. ALWAYS run after changing command descriptions, flags, or help text in Go source. It renders each flag's default from the CURRENT environment, so run it with the `WERF_*` variables unset and review the diff for flags you never touched — one exported `WERF_*` rewrites that flag's documented default across every command page.
+- `task pm:lock workdir=<project-dir>` — generate `pm.lock` from `pm.yaml`/`pm.yml` (runs pm inside the digest-pinned container-factory image; needs only Docker). For non-default file names pass `from=<spec>` and `lock=<lock>` — the manifest path is recorded in the lock metadata, so the file name matters. NEVER write or edit `pm.lock` by hand — ALWAYS generate it with this task.
+- `task deps:install:pm` — extract the pm binary (linux/amd64) to `dest=<path>` (default `./bin/pm`). Optional; `pm:lock` does not require it.
 
 `format` and `lint*` come from a remote taskfile ([werf/common-ci](https://github.com/werf/common-ci)), so they need `TASK_X_REMOTE_TASKFILES=1` and network access.
 

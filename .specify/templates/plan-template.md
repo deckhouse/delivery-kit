@@ -24,7 +24,7 @@
 
 **Storage**: OCI container registry (Docker v2, ECR), local git repository, Buildah container storage
 
-**Testing**: `testing` + `testify` (`assert`/`require`) for unit tests; Ginkgo for e2e tests
+**Testing**: Ginkgo + Gomega for all tests (unit and e2e)
 
 **Target Platform**: Linux (amd64/arm64) via Buildah; Kubernetes clusters
 
@@ -41,6 +41,11 @@
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 [Gates determined based on constitution file]
+
+**Environment note**: `task test:setup:environment` has already been executed
+and the e2e/integration test environment is pre-configured. See the Environment
+Configuration section in `.specify/memory/constitution.md`. Do not skip e2e tests
+citing environment setup during implementation.
 
 ## Project Structure
 

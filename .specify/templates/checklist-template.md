@@ -53,6 +53,6 @@
 - [ ] G008 No `this`/`self` as receiver names (1-2 letters, consistent)
 - [ ] G009 `task build` passes (not raw `go build`)
 - [ ] G010 `task test:unit` passes for affected packages (not raw `go test`)
-- [ ] G011 `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
+- [ ] G011 `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--` separator.
 - [ ] G012 `task format` passes (not raw `go fmt`)
 - [ ] G013 No TODOs, stubs, or partial implementations left in code

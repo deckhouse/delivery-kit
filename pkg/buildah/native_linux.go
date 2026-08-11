@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/template"
 	"time"
@@ -417,6 +418,7 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 		return "", err
 	}
 
+	commonBuildOpts := b.defaultCommonBuildOptions
 	buildOpts := define.BuildOptions{
 		Isolation:               define.Isolation(b.Isolation),
 		Args:                    opts.BuildArgs,
@@ -425,7 +427,7 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 		OutputFormat:            buildah.Dockerv2ImageManifest,
 		SystemContext:           sysCtx,
 		ConfigureNetwork:        define.NetworkEnabled,
-		CommonBuildOpts:         &b.defaultCommonBuildOptions,
+		CommonBuildOpts:         &commonBuildOpts,
 		Target:                  opts.Target,
 		Platforms:               targetPlatforms,
 		MaxPullPushRetries:      MaxPullPushRetries,
@@ -556,6 +558,7 @@ func (b *NativeBuildah) FromCommand(ctx context.Context, container, image string
 		return "", err
 	}
 
+	commonBuildOpts := b.defaultCommonBuildOptions
 	builder, err := buildah.NewBuilder(ctx, b.Store, buildah.BuilderOptions{
 		FromImage:           image,
 		Container:           container,
@@ -564,7 +567,7 @@ func (b *NativeBuildah) FromCommand(ctx context.Context, container, image string
 		SystemContext:       sysCtx,
 		Isolation:           define.Isolation(b.Isolation),
 		ConfigureNetwork:    define.NetworkEnabled,
-		CommonBuildOpts:     &b.defaultCommonBuildOptions,
+		CommonBuildOpts:     &commonBuildOpts,
 		Format:              buildah.Dockerv2ImageManifest,
 		MaxPullRetries:      MaxPullPushRetries,
 		PullRetryDelay:      PullPushRetryDelay,
@@ -1544,9 +1547,29 @@ func generateContextDir(rawContextDir string, runMounts []*instructions.Mount) s
 	return contextDir
 }
 
-func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (stdout, stderr io.Writer, stderrBuf *bytes.Buffer) {
-	stderrBuf = &bytes.Buffer{}
+type lockedBuffer struct {
+	mux    sync.Mutex
+	buffer bytes.Buffer
+}
 
+var _ io.Writer = (*lockedBuffer)(nil)
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mux.Lock()
+	defer b.mux.Unlock()
+
+	return b.buffer.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mux.Lock()
+	defer b.mux.Unlock()
+
+	return b.buffer.String()
+}
+
+func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (stdout, stderr io.Writer, stderrBuf *lockedBuffer) {
+	stderrBuf = &lockedBuffer{}
 	switch {
 	case optionalStdout != nil:
 		stdout = optionalStdout

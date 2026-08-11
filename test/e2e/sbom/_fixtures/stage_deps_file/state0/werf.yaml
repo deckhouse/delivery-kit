@@ -9,13 +9,12 @@ image: app
 from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
-    to: /app
+    to: /
     stageDependencies:
       packages:
-        - versions.txt
-  - add: /
-    to: /
+        - pm.yaml
+        - pm.lock
 packages:
   - type: os-pm
-    spec:
-      - jq==1.8.1
+    spec: pm.yaml
+    lock: pm.lock

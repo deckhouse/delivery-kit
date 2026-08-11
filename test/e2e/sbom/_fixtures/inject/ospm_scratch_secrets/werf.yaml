@@ -27,5 +27,5 @@ import:
     before: install
 packages:
   - type: os-pm
-    spec:
-      - curl==8.12.1
+    spec: "pm.yaml"
+    lock: "pm.lock"

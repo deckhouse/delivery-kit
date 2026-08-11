@@ -20,6 +20,7 @@ import (
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/lrumeta"
 	"github.com/werf/werf/v2/pkg/util/parallel"
@@ -168,6 +169,13 @@ func (stages *StagesList) AddStageID(stageID image.StageID) {
 	stages.StageIDs = append(stages.StageIDs, stageID)
 }
 
+func (stages *StagesList) Len() int {
+	stages.Mux.Lock()
+	defer stages.Mux.Unlock()
+
+	return len(stages.StageIDs)
+}
+
 type StorageManager struct {
 	parallel           bool
 	parallelTasksLimit int
@@ -297,7 +305,7 @@ func (m *StorageManager) GetFinalStageDescSet(ctx context.Context) (image.StageD
 		return nil, fmt.Errorf("error getting existing stages list of final repo %s: %w", m.FinalStagesStorage.String(), err)
 	}
 
-	logboek.Context(ctx).Debug().LogF("[%p] Got existing final stages list cache (%d stages)\n", m, len(existingStagesListCache.StageIDs))
+	logboek.Context(ctx).Debug().LogF("[%p] Got existing final stages list cache (%d stages)\n", m, existingStagesListCache.Len())
 
 	stageIDs := existingStagesListCache.GetStageIDs()
 	stageDescSet := image.NewStageDescSet()
@@ -647,7 +655,7 @@ func (m *StorageManager) CopyStageIntoFinalStorage(ctx context.Context, stageID 
 		return nil, fmt.Errorf("error getting existing stages list of final repo %s: %w", finalStagesStorage.String(), err)
 	}
 
-	logboek.Context(ctx).Debug().LogF("[%p] Got existing final stages list cache (%d stages)\n", m, len(existingStagesListCache.StageIDs))
+	logboek.Context(ctx).Debug().LogF("[%p] Got existing final stages list cache (%d stages)\n", m, existingStagesListCache.Len())
 
 	finalImageName := finalStagesStorage.ConstructStageImageName(m.ProjectName, stageID.Digest, stageID.CreationTs)
 
@@ -700,7 +708,7 @@ func (m *StorageManager) CopyStageIntoFinalStorage(ctx context.Context, stageID 
 	}
 
 	existingStagesListCache.AddStageID(stageID)
-	logboek.Context(ctx).Debug().LogF("Updated existing final stages list (%d stages)\n", len(m.FinalStagesListCache.StageIDs))
+	logboek.Context(ctx).Debug().LogF("Updated existing final stages list (%d stages)\n", existingStagesListCache.Len())
 
 	return stageDescCopy, nil
 }
@@ -802,6 +810,11 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 	if destinationStageDesc, err := getStageDesc(ctx, m.ProjectName, *stageDesc.StageID, destinationStagesStorage, m.CacheStagesStorageList, getStageDescOptions{WithLocalManifestCache: m.getWithLocalManifestCacheOption()}); err != nil {
 		return nil, fmt.Errorf("unable to get stage %s description from %s: %w", stageDesc.StageID.String(), destinationStagesStorage.String(), err)
 	} else {
+		if sourceStagesStorage.Address() != storage.LocalStorageAddress && destinationStagesStorage.Address() != storage.LocalStorageAddress {
+			if err := artifact.CopyAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
+				return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
+			}
+		}
 		return destinationStageDesc, nil
 	}
 }

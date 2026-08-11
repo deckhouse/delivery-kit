@@ -7,10 +7,6 @@ build:
 ---
 image: app
 from: {{ env "BUILDER_BASE_IMAGE" }}
-git:
-  - add: /
-    to: /
-packages:
- - type: os-pm
-   spec:
-     - jq==1.8.1
+shell:
+  setup:
+    - echo 'sbom-signing-e2e-marker' > /marker

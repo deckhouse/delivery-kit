@@ -32,6 +32,8 @@ vars:
   package: "github.com/werf/werf/v2/cmd/werf"
   kubeVersion: '{{.kubeVersion | default "1.36.1"}}'
 
+  pmImage: "registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1"
+
   goTags: "dfrunsecurity dfrunnetwork dfrunmount dfssh containers_image_openpgp"
   goLDFlags: "-s -w -X github.com/werf/werf/v2/pkg/werf.Version={{.version}}"
 
@@ -514,6 +516,7 @@ tasks:
       - deps:install:kind
       - deps:install:mockgen
       - deps:install:enumer
+      - deps:install:pm
 
   deps:install:kind:
     desc: "Install kind binary."
@@ -528,6 +531,16 @@ tasks:
     desc: "Install enumer library."
     cmds:
       - go install github.com/dmarkham/enumer@v1.5.11
+
+  deps:install:pm:
+    desc: 'Extract the pm binary (linux/amd64) from the container-factory image. Important vars: "dest" (destination path, default ./bin/pm).'
+    cmds:
+      - mkdir -p "$(dirname "{{.dest}}")"
+      - docker run --rm --platform linux/amd64 --entrypoint "" "{{.pmImage}}" cat /usr/local/bin/pm > "{{.dest}}"
+      - chmod +x "{{.dest}}"
+      - 'echo "pm (linux/amd64) installed to {{.dest}}"'
+    vars:
+      dest: '{{.dest | default "./bin/pm"}}'
 
   deps:install:c:
     desc: "Install C dependencies"
@@ -546,6 +559,16 @@ tasks:
 
         cd -
         rm -rf "$git_dir"
+
+  pm:lock:
+    desc: 'Generate pm.lock from a pm manifest using pm from the container-factory image. Important vars: "workdir" (project directory, default "."), "from" (manifest path relative to workdir), "lock" (lock file path relative to workdir).'
+    cmds:
+      - docker run --rm --platform linux/amd64 --entrypoint "" -e PACKAGES_VERSION -e REGISTRY
+        -v "{{.absWorkdir}}:/workdir" -w /workdir "{{.pmImage}}"
+        pm lock {{if .from}}--from "{{.from}}" {{end}}{{if .lock}}--lock "{{.lock}}" {{end}}{{.CLI_ARGS}}
+    vars:
+      absWorkdir:
+        sh: realpath "{{.workdir | default "."}}"
 
   sign:
     desc: 'Sign last version tag + origin/main and push signatures. Important vars: "refs".'

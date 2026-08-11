@@ -1,15 +1,14 @@
 <!--
   Sync Impact Report
-  Version: 1.2.0 → 1.3.0 (MINOR — added Environment Configuration section, expanded e2e test guidance)
-  Modified principles:
-    - IV. Test-Before-Merge — expanded: e2e test environment note, environment state clarification
-  Added sections:
-    - Environment Configuration: documents that `task test:setup:environment` has been executed
+  Version: 1.3.0 → 1.4.0 (MINOR — pm.lock generation now goes through `task pm:lock`)
+  Modified principles: (none)
+  Modified sections:
+    - Build & Quality Gates: pm.lock generation entry now mandates `task pm:lock`
+      (dockerized pm from the digest-pinned container-factory image) instead of
+      a bare `pm lock` invocation
   Removed sections: (none)
   Templates requiring updates:
-    - ✅ delivery-kit/.specify/templates/tasks-template.md (Build & Test Commands — environment note)
-    - ✅ delivery-kit/AGENTS.md (Verifying changes — clarify environment is set up)
-    - ✅ delivery-kit/.specify/templates/plan-template.md (Constitution Check — environment state)
+    - ✅ delivery-kit/AGENTS.md (Commands section)
   Follow-up TODOs: (none)
 -->
 # Delivery Kit Constitution
@@ -89,7 +88,7 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
   - Complex filter: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (packages || lifecycle || gost)"`
   - NEVER place `KEY=VALUE` after `--` separator — it compiles ALL tests.
   - Use `--` ONLY for ginkgo flags (e.g., `-- -focus=MyTest -v`).
-- **pm.lock generation**: `pm lock --from=<pm.yaml>` (NOT hand-written; `pm.lock` is a deterministic machine-generated artifact committed alongside `pm.yaml`)
+- **pm.lock generation**: `task pm:lock workdir=<project-dir>` (NOT hand-written and NOT bare `pm lock`; `pm.lock` is a deterministic machine-generated artifact committed alongside `pm.yaml`). The task runs pm inside the digest-pinned `registry.deckhouse.io/container-factory` image, so it needs only Docker. For a non-default manifest/lock file name, pass `from=<spec>` and `lock=<lock>` — the manifest path is recorded in the lock metadata, so the file name matters. NEVER invent or edit `pm.lock` contents manually.
 - **Formatting**: `task format` (NOT raw `go fmt`)
 - **Mock generation**: `task mock:generate` (no manual mocks; validate with `task mock:check`)
 - **Documentation**: `task doc:gen` after changing CLI help text
@@ -115,4 +114,4 @@ be executed directly without citing environment setup as a blocker.
 
 This constitution supersedes all other practices. Amendments require documentation and approval. All PRs/reviews must verify compliance with these rules. The `AGENTS.md` file contains the authoritative agent instructions derived from this constitution and `CODESTYLE.md`.
 
-**Version**: 1.3.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-10
+**Version**: 1.4.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-10

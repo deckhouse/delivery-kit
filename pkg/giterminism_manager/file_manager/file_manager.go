@@ -83,6 +83,7 @@ func NewFileManager(ctx context.Context, opts NewFileManagerOptions) (*FileManag
 		includes:   includes,
 		caches: &caches{
 			dockerFiles: make(map[string][]byte),
+			vexFiles:    make(map[string][]byte),
 		},
 		customProjectDir: opts.ProjectDir,
 	}, nil

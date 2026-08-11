@@ -126,3 +126,27 @@ No constitution violations found — VEX follows SBOM patterns exactly. No compl
 ### Post-Convergence Finding (Converge #1)
 
 13. **PullVEX dead code not actually removed**: T018 claimed PullVEX was removed from `pkg/vex/image/image.go` (marked [X]), but the function and its tests still exist. `PullVEX` is never called anywhere — it is dead code. The `FallbackTag` wrapper in the same file is also unused. See [converge findings](#) for details.
+
+### Post-Review Round 2 Findings (PR #218, Aug 11)
+
+14. **`vexFiles` map uninitialized (nil-map panic)**: In `pkg/giterminism_manager/file_manager/file_manager.go`, the `caches` struct declares `vexFiles map[string][]byte` but the `NewFileManager` constructor only initializes `dockerFiles: make(map[string][]byte)`. The first write to `f.caches.vexFiles[relPath]` (line 268 in `ReadVEXFile`) will panic on nil map write. **Fix**: Add `vexFiles: make(map[string][]byte)` to the `caches` literal in `NewFileManager`.
+
+15. **`ReadVEXFile` in `file_manager.go` had zero callers (resolved)**: The Aug 11 review noted that `ReadVEXFile` on `FileManager` was never called — all callers were using `FileManager.ReadDockerfile` for VEX reads, causing path collision in the `dockerFiles` cache. After the T035 `vexFiles` cache separation and wiring, `ReadVEXFile` is now called from `pkg/build/build_phase.go:1631`, `pkg/config/image_from_dockerfile.go:72`, and `pkg/config/stapel_image_base.go:218`. ✅ No further action needed.
+
+### Post-Design Audit: Context Propagation
+
+16. **`ReadVEXFile` uses `context.Background()` instead of caller context**: Two config validation call sites create a fresh background context instead of propagating the caller's context:
+
+   - `pkg/config/image_from_dockerfile.go:72`: `giterminismManager.FileReader().ReadVEXFile(context.Background(), c.vex.Document)`
+   - `pkg/config/stapel_image_base.go:218`: `giterminismManager.FileReader().ReadVEXFile(context.Background(), c.vex.Document)`
+
+   The call chain: `GetWerfConfig(ctx, ...)` → `prepareWerfConfig` (no ctx) → `rawImageFromDockerfile.validate` / `rawStapelImage.validateStapelImageBaseDirective` (no ctx) → `ImageFromDockerfile.validate` / `StapelImageBase.validate` (no ctx) → `validateVexFile` (no ctx) → `ReadVEXFile(context.Background(), ...)`.
+
+   **Required fix**:
+   1. Add `context.Context` parameter to `prepareWerfConfig`.
+   2. Thread `ctx` through `rawImageFromDockerfile.validate(giterminismManager)` and `rawStapelImage.validateStapelImageBaseDirective(giterminismManager, imageBase)` — options: add `ctx` parameter to each, or store it on the raw config object.
+   3. Add `ctx` parameter to `ImageFromDockerfile.validate()` and `StapelImageBase.validate()`.
+   4. Add `ctx` parameter to `validateVexFile()` on both types.
+   5. Replace `context.Background()` with the received `ctx` in both `validateVexFile` methods.
+
+   The `build_phase.go:1631` call site already receives proper `ctx` — no change needed there.

@@ -178,6 +178,44 @@ description: "Task list for implementing VEX Lifecycle in werf.yaml (013-vex-lif
 
 ---
 
+## Phase 10: Post-Review Round 2 Cleanup (PR #218, Aug 11)
+
+**Purpose**: Address review round 2 from [PR #218](https://github.com/deckhouse/delivery-kit/pull/218) — `vexFiles` map uninitialized (nil-map panic risk).
+
+### Critical Fixes
+
+- [X] T047 [US1] Initialize `vexFiles` map in `pkg/giterminism_manager/file_manager/file_manager.go` `NewFileManager` constructor — add `vexFiles: make(map[string][]byte)` to the `caches` literal. Currently only `dockerFiles` is initialized; writing to `f.caches.vexFiles[relPath]` (line 268) panics on nil map.
+
+---
+
+## Phase 11: Context Propagation Fix
+
+**Purpose**: Eliminate `context.Background()` from config-time VEX validation — thread caller context through the validation chain instead.
+
+### Context Propagation Chain
+
+```
+GetWerfConfig(ctx, ...)                  ← has ctx
+  └─ prepareWerfConfig (no ctx)          ← needs ctx
+       └─ rawImageFromDockerfile.validate(giterminismManager)       ← needs ctx
+       └─ rawStapelImage.validateStapelImageBaseDirective(...)      ← needs ctx
+            └─ ImageFromDockerfile.validate(giterminismManager)     ← needs ctx
+            └─ StapelImageBase.validate(giterminismManager)         ← needs ctx
+                 └─ validateVexFile(giterminismManager)             ← needs ctx
+                      └─ ReadVEXFile(context.Background(), ...)     ← BAD: use ctx instead
+```
+
+### Critical Fixes
+
+- [ ] T048 [US1] Thread `ctx` through the config validation chain:
+    1. Add `ctx context.Context` parameter to `prepareWerfConfig` in `pkg/config/parser.go` — called from `GetWerfConfig` (which already has `ctx`).
+    2. Add `ctx context.Context` parameter to `rawImageFromDockerfile.validate()` and `rawStapelImage.validateStapelImageBaseDirective()` in `pkg/config/raw_image_from_dockerfile.go` and `pkg/config/raw_stapel_image.go`.
+    3. Add `ctx context.Context` parameter to `ImageFromDockerfile.validate()` and `StapelImageBase.validate()`.
+    4. Add `ctx context.Context` parameter to `validateVexFile()` on both types.
+    5. Replace `context.Background()` with `ctx` in both `validateVexFile` methods.
+
+---
+
 ## Verification
 
 Checklist used by tasks T025 and T040 to verify the implementation.

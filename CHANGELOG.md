@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.77.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.3...v2.77.0-dk.1) (2026-08-11)
+
+
+### Miscellaneous Chores
+
+* force release 2.77.0-dk.1 ([c0c72f6](https://github.com/deckhouse/delivery-kit/commit/c0c72f6e425f1abaa0550f83476e6056e2f1b35f))
+
 ## [2.75.4-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.2...v2.75.4-dk.3) (2026-08-11)
 
 

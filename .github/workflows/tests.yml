@@ -240,7 +240,7 @@ jobs:
 
       - name: E2E tests (simple)
         run: |
-          task -p --yes test:e2e:simple -- --keep-going
+          task -p --yes test:e2e:simple -- --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
   e2e_complex:
@@ -286,7 +286,7 @@ jobs:
 
       - name: E2E tests (complex)
         run: |
-          task -p --yes test:e2e:complex -- --keep-going
+          task -p --yes test:e2e:complex -- --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
   e2e_extra:
@@ -332,7 +332,7 @@ jobs:
 
       - name: E2E tests (extra)
         run: |
-          task -p --yes test:e2e:extra -- --keep-going
+          task -p --yes test:e2e:extra -- --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
   integration_git:

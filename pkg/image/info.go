@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/distribution/reference"
+
 	"github.com/werf/common-go/pkg/util"
 )
 
@@ -107,19 +109,34 @@ func ParseRepositoryAndTag(ref string) (string, string) {
 
 // ParseRef splits an image reference into repository, tag and digest, handling
 // every reference form: "repo", "repo:tag", "repo@algo:hex", "repo:tag@algo:hex".
-// A colon followed by a path separator is a registry port, not a tag delimiter.
+// A reference that is not a valid distribution reference (e.g. werf-internal
+// names with uppercase characters) keeps the historical last-colon split, since
+// the result participates in stage digests and must stay stable.
 func ParseRef(ref string) (repository, tag, digest string) {
-	repository = ref
-	if repoPart, digestPart, found := strings.Cut(repository, "@"); found {
-		repository = repoPart
-		digest = digestPart
+	parsed, err := reference.Parse(ref)
+	if err != nil {
+		repository, tag = splitRepositoryAndTagLegacy(ref)
+		return repository, tag, ""
 	}
 
-	parts := strings.SplitN(util.Reverse(repository), ":", 2)
-	if len(parts) != 2 || strings.Contains(parts[0], "/") {
-		return repository, "", digest
+	if named, ok := parsed.(reference.Named); ok {
+		repository = named.Name()
 	}
-	return util.Reverse(parts[1]), util.Reverse(parts[0]), digest
+	if tagged, ok := parsed.(reference.Tagged); ok {
+		tag = tagged.Tag()
+	}
+	if digested, ok := parsed.(reference.Digested); ok {
+		digest = digested.Digest().String()
+	}
+	return repository, tag, digest
+}
+
+func splitRepositoryAndTagLegacy(ref string) (string, string) {
+	parts := strings.SplitN(util.Reverse(ref), ":", 2)
+	if len(parts) != 2 {
+		return ref, ""
+	}
+	return util.Reverse(parts[1]), util.Reverse(parts[0])
 }
 
 func NormalizeRepository(repository string) (res string) {

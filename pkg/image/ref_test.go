@@ -40,6 +40,9 @@ var _ = Describe("ParseRef", func() {
 		Entry("short name only",
 			"alpine",
 			"alpine", "", ""),
+		Entry("invalid distribution reference keeps the legacy last-colon split",
+			"ONE_REPO:796e905d0cc975e718b3f8b3ea0199ea4d52668ecc12c4dbf85a136d-1638863657513",
+			"ONE_REPO", "796e905d0cc975e718b3f8b3ea0199ea4d52668ecc12c4dbf85a136d-1638863657513", ""),
 	)
 })
 

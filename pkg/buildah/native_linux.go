@@ -1568,15 +1568,7 @@ func (b *lockedBuffer) String() string {
 	return b.buffer.String()
 }
 
-func generateStdoutStderr(optionalLogWriter io.Writer, optionalOutputs ...io.Writer) (stdout, stderr io.Writer, stderrBuf *lockedBuffer) {
-	var optionalStdout, optionalStderr io.Writer
-	if len(optionalOutputs) > 0 {
-		optionalStdout = optionalOutputs[0]
-	}
-	if len(optionalOutputs) > 1 {
-		optionalStderr = optionalOutputs[1]
-	}
-
+func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (stdout, stderr io.Writer, stderrBuf *lockedBuffer) {
 	stderrBuf = &lockedBuffer{}
 	switch {
 	case optionalStdout != nil:

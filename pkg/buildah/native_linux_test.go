@@ -35,7 +35,7 @@ var _ = Describe("buildah", func() {
 
 	Describe("generateStdoutStderr", func() {
 		It("should read stderr while it is written", func() {
-			_, stderr, stderrBuf := generateStdoutStderr(nil)
+			_, stderr, stderrBuf := generateStdoutStderr(nil, nil, nil)
 			start := make(chan struct{})
 			var wg sync.WaitGroup
 			wg.Add(2)

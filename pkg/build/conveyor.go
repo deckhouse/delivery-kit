@@ -19,6 +19,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/logboek/pkg/level"
 	stylePkg "github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
 	"github.com/werf/werf/v2/pkg/build/image"
@@ -32,6 +33,7 @@ import (
 	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/opstats"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/manager"
 	"github.com/werf/werf/v2/pkg/telemetry"
@@ -410,6 +412,8 @@ type ShouldBeBuiltOptions struct {
 }
 
 func (c *Conveyor) ShouldBeBuilt(ctx context.Context, opts ShouldBeBuiltOptions) ([]*ImagesReport, error) {
+	ctx, opsCollector, buildStartedAt := c.newOperationsCollector(ctx)
+
 	if err := c.determineStages(ctx); err != nil {
 		return nil, err
 	}
@@ -433,6 +437,8 @@ func (c *Conveyor) ShouldBeBuilt(ctx context.Context, opts ShouldBeBuiltOptions)
 	if err != nil {
 		c.printDeferredBuildLog(ctx, buf)
 	}
+
+	c.logOperationsSummary(ctx, opsCollector, time.Since(buildStartedAt))
 
 	reports := lo.Map(phases, func(phase Phase, _ int) *ImagesReport {
 		return phase.Report()
@@ -642,6 +648,8 @@ Please use Docker backend instead by unsetting WERF_BUILDAH_MODE environment var
 		}
 	}
 
+	ctx, opsCollector, buildStartedAt := c.newOperationsCollector(ctx)
+
 	if err := c.determineStages(ctx); err != nil {
 		return nil, err
 	}
@@ -658,6 +666,8 @@ Please use Docker backend instead by unsetting WERF_BUILDAH_MODE environment var
 	if err != nil {
 		c.printDeferredBuildLog(ctx, buf)
 	}
+
+	c.logOperationsSummary(ctx, opsCollector, time.Since(buildStartedAt))
 
 	reports := lo.Map(phases, func(phase Phase, _ int) *ImagesReport {
 		return phase.Report()
@@ -710,6 +720,60 @@ func disableUnlessDebugConveyorPhases(logProcess types.LogProcessInterface) type
 		logProcess.Disable()
 	}
 	return logProcess
+}
+
+func (c *Conveyor) newOperationsCollector(ctx context.Context) (context.Context, *opstats.Collector, time.Time) {
+	if !logboek.Context(ctx).IsAcceptedLevel(level.Debug) {
+		return ctx, nil, time.Time{}
+	}
+
+	collector := opstats.NewCollector()
+	return opstats.NewContext(ctx, collector), collector, time.Now()
+}
+
+func (c *Conveyor) logOperationsSummary(ctx context.Context, collector *opstats.Collector, buildTime time.Duration) {
+	if collector == nil {
+		return
+	}
+
+	summary := collector.Summary()
+	if len(summary) > 0 {
+		logboek.Context(ctx).LogBlock("Operations summary").
+			Options(func(options types.LogBlockOptionsInterface) {
+				options.Style(stylePkg.Highlight())
+			}).
+			Do(func() {
+				for _, s := range summary {
+					var parallelism string
+					if s.WallTime > 0 && s.TotalTime > s.WallTime {
+						parallelism = fmt.Sprintf("   ×%.1f", float64(s.TotalTime)/float64(s.WallTime))
+					}
+					logboek.Context(ctx).LogFHighlight("- %-32s %5d op   total %9.2fs   wall %9.2fs   avg %8.3fs   max %8.3fs%s\n",
+						s.Operation, s.Count, s.TotalTime.Seconds(), s.WallTime.Seconds(), s.AvgTime.Seconds(), s.MaxTime.Seconds(), parallelism)
+				}
+				logboek.Context(ctx).LogFHighlight("build time: %.2fs (wall must not exceed it; total may)\n", buildTime.Seconds())
+			})
+	}
+
+	events := collector.EventSummary()
+	if len(events) == 0 {
+		return
+	}
+
+	logboek.Context(ctx).LogBlock("Stage cache summary").
+		Options(func(options types.LogBlockOptionsInterface) {
+			options.Style(stylePkg.Highlight())
+		}).
+		Do(func() {
+			var total int
+			for _, e := range events {
+				total += e.Count
+			}
+			for _, e := range events {
+				logboek.Context(ctx).LogFHighlight("- %-30s %5d stage(s)\n", e.Event, e.Count)
+			}
+			logboek.Context(ctx).LogFHighlight("total: %d stage(s)\n", total)
+		})
 }
 
 func (c *Conveyor) runPhases(ctx context.Context, phases []Phase, logImages bool) error {

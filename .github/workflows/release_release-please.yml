@@ -26,8 +26,10 @@ jobs:
 
       - name: Compute next -dk version
         id: version
+        env:
+          MANIFEST_FILE: ${{ format('.release-please/{0}/manifest.json', github.ref_name) }}
         run: |
-          last="$(jq -r '."."' .release-please-manifest.json)"
+          last="$(jq -r '."."' "$MANIFEST_FILE")"
           range="HEAD"
           git rev-parse -q --verify "refs/tags/v${last}" >/dev/null && range="v${last}..HEAD"
           if grep -qi '^Release-As:' <<<"$(git log --format=%B "$range")"; then
@@ -57,6 +59,8 @@ jobs:
             --repo-url="${{ github.repository }}"
             --target-branch="${{ github.ref_name }}"
             --token="$GITHUB_TOKEN"
+            --config-file="release-please-config.json"
+            --manifest-file="${{ format('.release-please/{0}/manifest.json', github.ref_name) }}"
           )
           npx --yes release-please@17.6.0 github-release "${args[@]}"
           npx --yes release-please@17.6.0 release-pr "${args[@]}" ${NEXT_VERSION:+--release-as="$NEXT_VERSION"}

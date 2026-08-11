@@ -164,7 +164,15 @@ func newDockerCli(opts []command.CLIOption) (command.Cli, error) {
 		clientOpts.LogLevel = "fatal"
 	}
 
-	if err := newCli.Initialize(clientOpts); err != nil {
+	makeWrappedClient := func(dockerCli *command.DockerCli) (client.APIClient, error) {
+		apiClient, err := command.NewAPIClientFromFlags(clientOpts, dockerCli.ConfigFile())
+		if err != nil {
+			return nil, err
+		}
+		return wrapAPIClientTransport(apiClient, dockerCli.ConfigFile().HTTPHeaders), nil
+	}
+
+	if err := newCli.Initialize(clientOpts, command.WithInitializeClient(makeWrappedClient)); err != nil {
 		return nil, err
 	}
 	return newCli, nil
@@ -196,21 +204,12 @@ func defaultCliOptions(ctx context.Context) []command.CLIOption {
 }
 
 func cliWithCustomOptions(ctx context.Context, options []command.CLIOption, f func(cli command.Cli) error) error {
-	if err := cli(ctx).Apply(options...); err != nil {
-		return err
+	customCli, err := newDockerCli(append(defaultCliOptions(ctx), options...))
+	if err != nil {
+		return fmt.Errorf("create docker cli: %w", err)
 	}
 
-	err := f(cli(ctx))
-
-	if applyErr := cli(ctx).Apply(defaultCliOptions(ctx)...); applyErr != nil {
-		if err != nil {
-			return err
-		} else {
-			return applyErr
-		}
-	}
-
-	return err
+	return f(customCli)
 }
 
 func NewContext(ctx context.Context) (context.Context, error) {

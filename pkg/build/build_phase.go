@@ -402,9 +402,14 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	return nil
 }
 
+// finalStageDescForImage returns the final repo descriptor to copy the SBOM artifacts into, or nil
+// when there is nothing to copy. A single-platform image never has one: publishFinalImage stores the
+// final repo descriptor in the content tag desc, which convergeImageSbom already uses as the SBOM
+// target. Reaching for the last non-empty stage here instead panics, because an image resolved from
+// the cache short-circuits in BeforeImageStages and never gets one.
 func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Image) *imagePkg.StageDesc {
 	if len(images) == 1 {
-		return images[0].GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
+		return nil
 	}
 	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
 		return multiImg.GetFinalStageDesc()

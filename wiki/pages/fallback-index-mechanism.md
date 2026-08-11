@@ -1,11 +1,13 @@
 ---
 title: Fallback Index Mechanism for SBOM Artifacts
 type: concept
-sources: [S002, S016, S019]
-updated: 2026-08-07
+sources: [S002, S016, S019, S020]
+updated: 2026-08-10
 ---
 
 When multiple container images share the same parent digest, their OCI artifacts (SBOMs, attestations) are stored in a shared OCI Image Index tag called the **fallback index**. Entries within the index are distinguished by the `io.werf.image-name` annotation on each descriptor (S002).
+
+For multi-platform images, per-platform SBOMs each use a **distinct** fallback tag, one per platform manifest digest, rather than sharing the index-level fallback tag. This avoids entry collisions between platforms and keeps the in-toto subject truthful (S020).
 
 ## Operations
 

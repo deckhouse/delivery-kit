@@ -8,6 +8,8 @@
 
 **Input**: Reverse-engineered from the implemented branch (10 commits, 20 files, +919/−70). Design history: `.omo/docs/c12-multiplatform-sbom-context.md` (§7 — user-approved decisions), plan `.omo/plans/c12-multiplatform-sbom.md`.
 
+**Comparison**: `storage-model-comparison.md` compares the delivery-kit storage model with BuildKit (Moby BuildKit) and the OCI Specification reference model.
+
 ## Project Context
 
 **Delivery Kit** is a Go CLI tool for full-cycle CI/CD to Kubernetes. It is built on top of werf with Deckhouse Platform extensions. Subsystems touched by this feature:

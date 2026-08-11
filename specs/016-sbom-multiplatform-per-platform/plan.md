@@ -4,6 +4,8 @@
 
 **Status**: migrated (reverse-engineered from the implemented branch)
 
+**Comparison**: `storage-model-comparison.md` compares delivery-kit's model with BuildKit and OCI Spec
+
 ## Summary
 
 Turn the multi-platform SBOM case into N runs of the already-working single-platform pipeline: each platform image is scanned by its own stage tag, merged with its own base/import SBOMs and attached to the fallback tag of its own platform manifest digest with a truthful in-toto subject and platform annotation. The special multi-platform branch (which scanned the index tag and carried a latent nil-dereference) is deleted. CLI commands gain explicit `--platform` addressing with no silent defaults.
@@ -14,11 +16,15 @@ Turn the multi-platform SBOM case into N runs of the already-working single-plat
 
 **Primary Dependencies**: `google/go-containerregistry` (registry access, index/manifest parsing), `anchore/syft` (scanner, via container backend), `CycloneDX/cyclonedx-go`, Ginkgo/Gomega, `samber/lo`
 
-**Storage**: OCI registry; cosign-v3-compatible artifact layout — OCI manifest with manifest-level `artifactType` (`application/vnd.dsse.envelope.v1+json`), empty config, DSSE layer (in-toto Statement v1 → CycloneDX 1.6), `subject` → parent digest, fallback tag `sha256-<hex(parent digest)>` per OCI distribution-spec 1.1 referrers tag schema
+**Storage**: OCI registry; cosign-v3-compatible artifact layout per OCI distribution-spec 1.1 referrers tag schema. See [`storage-model-comparison.md`](storage-model-comparison.md) § Figure 1 for the registry layout diagram.
 
-**Testing**: Ginkgo/Gomega unit tests co-located with sources; e2e suite `test/e2e/sbom` (label `multiplatform`, Linux + buildx/QEMU only)
+**Testing: Ginkgo/Gomega unit tests co-located with sources; e2e suite `test/e2e/sbom` (label `multiplatform`, Linux + buildx/QEMU only)
 
 **Target Platform**: Linux (amd64/arm64); macOS builds a non-CGO binary (no Buildah), e2e deferred to Linux CI
+
+## OCI Storage Model
+
+See [`storage-model-comparison.md`](storage-model-comparison.md) § Figure 1 for the delivery-kit OCI registry layout diagram and comparison with BuildKit and OCI Spec models.
 
 ## Key Decisions
 

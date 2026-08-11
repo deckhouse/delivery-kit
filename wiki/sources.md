@@ -24,3 +24,5 @@ Sources are immutable inputs — the wiki never edits them.
 | S017 | specs/013-lang-pkg-env-vars/ | feature-artifact | 2026-08-07 | 2026-08-07 | package-ecosystem-registry.md |
 | S018 | specs/015-enforce-pm-determinism-again/ | feature-artifact | 2026-08-07 | 2026-08-07 | os-pm-package-management.md, pm-sbom-collection.md, package-ecosystem-registry.md |
 | S019 | specs/014-sbom-artifact-storage-model/ | feature-artifact | 2026-08-07 | 2026-08-07 | fallback-index-mechanism.md, fallback-annotation-loss.md |
+| S020 | specs/016-sbom-multiplatform-per-platform/ | feature-artifact | 2026-08-10 | 2026-08-10 | per-platform-sbom.md, fallback-index-mechanism.md, fallback-annotation-loss.md, sbom-cache-invalidation.md, werf-attest-commands.md, attestation-subsystem.md, sbom-e2e-test-strategy.md |
+| S021 | specs/016-sbom-multiplatform-per-platform/storage-model-comparison.md | file | 2026-08-11 | 2026-08-11 | storage-model-comparison.md, per-platform-sbom.md |

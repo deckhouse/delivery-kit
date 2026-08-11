@@ -1,8 +1,8 @@
 ---
 title: Fallback Index Annotation Loss
 type: decision
-sources: [S002, S016, S019]
-updated: 2026-08-07
+sources: [S002, S016, S019, S020]
+updated: 2026-08-10
 ---
 
 ## Problem
@@ -27,4 +27,8 @@ The regression test uses a dedicated fixture at `test/e2e/sbom/_fixtures/regress
 
 This approach was itself superseded by a **convergent write model** (S019). The per-tag mutex is still used within a single process, but the write strategy changed: instead of writing a locally-constructed index and verifying digest equality, the descriptor is **merged** into whatever the registry currently holds, so concurrent writers (including go-containerregistry's own writes) do not lose each other's entries. Entries are collapsed by manifest digest, not by annotation matching (S019).
 
-See also: [Fallback index mechanism](./fallback-index-mechanism.md).
+See also: [Fallback index mechanism](./fallback-index-mechanism.md), [Per-platform SBOM](./per-platform-sbom.md).
+
+## Per-platform SBOM model (annotation loss avoided)
+
+Multi-platform images now use per-platform SBOMs, each stored on a **distinct fallback tag** of its own platform manifest digest (S020). Because each platform's SBOM occupies its own tag rather than sharing an index-level fallback tag, the annotation-loss problem does not arise — there is no shared index where entries must be distinguished by annotation. The annotation-loss concern is limited to the shared fallback index used by single-platform images sharing a parent digest.

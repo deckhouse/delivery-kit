@@ -1,8 +1,8 @@
 ---
 title: SBOM Cache Invalidation
 type: concept
-sources: [S010]
-updated: 2026-07-29
+sources: [S010, S020]
+updated: 2026-08-10
 ---
 
 The SBOM enable state (`build.sbom.enable`) is conditionally included in the stage digest calculation to invalidate the build cache when SBOM generation is toggled on or off (S010).
@@ -26,3 +26,7 @@ Only `build.sbom.enable` affects the stage digest. Other SBOM configuration opti
 ## Backward compatibility
 
 When `build.sbom.enable=false` (the default), no SBOM marker is included in the stage digest. This ensures that existing cached stages (built before this feature was introduced or with SBOM disabled) remain valid and are reused (S010).
+
+## Platform-aware checksum
+
+For multi-platform images, the target platform is included in `calculateStableChecksum` only when non-empty. This keeps single-platform checksums (and cached stages) byte-identical, while multi-platform SBOM checksums differ per platform (S020).

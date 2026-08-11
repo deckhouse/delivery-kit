@@ -150,12 +150,14 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 // PropagateArtifacts copies the artifacts attached to the image stage (e.g. its SBOM)
 // into the final repo and the cache repos. Stages themselves are copied there before
 // SBOM generation runs, so the artifacts have to catch up separately.
-func (step *sbomStep) PropagateArtifacts(ctx context.Context, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
+func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName string, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
 	srcRepo := stageDesc.Info.Repository
 	srcDigest := stageDesc.Info.GetDigest()
 
 	if finalStageDesc != nil && finalStageDesc.Info.Repository != srcRepo {
-		if err := artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalStageDesc.Info.Repository, finalStageDesc.Info.GetDigest()); err != nil {
+		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo", werfImgName).DoError(func() error {
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalStageDesc.Info.Repository, finalStageDesc.Info.GetDigest())
+		}); err != nil {
 			return fmt.Errorf("copy attached artifacts into final repo %s: %w", finalStageDesc.Info.Repository, err)
 		}
 	}
@@ -164,7 +166,9 @@ func (step *sbomStep) PropagateArtifacts(ctx context.Context, stageDesc, finalSt
 		if cache.Address() == storage.LocalStorageAddress || cache.Address() == srcRepo {
 			continue
 		}
-		if err := artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, cache.Address(), srcDigest); err != nil {
+		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy SBOM artifacts into cache %s", werfImgName, cache.String()).DoError(func() error {
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, cache.Address(), srcDigest)
+		}); err != nil {
 			logboek.Context(ctx).Warn().LogF("Warning: unable to copy attached artifacts into cache stages storage %s: %s\n", cache.String(), err)
 		}
 	}

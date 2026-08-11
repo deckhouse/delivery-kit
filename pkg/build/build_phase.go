@@ -378,7 +378,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	}
 
 	finalStageDesc := phase.finalStageDescForImage(name, images)
-	if err := phase.sbomStep.PropagateArtifacts(ctx, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
+	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
 		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
 	}
 

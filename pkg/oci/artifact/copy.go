@@ -7,6 +7,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/image"
 )
@@ -72,6 +73,8 @@ func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dst
 		); err != nil {
 			return fmt.Errorf("attach artifact of type %q to %s: %w", desc.ArtifactType, dstRepo+"@"+dstDigest, err)
 		}
+
+		logboek.Context(ctx).Info().LogF("Copied artifact of type %q from %s to %s\n", desc.ArtifactType, srcRepo+"@"+srcDigest, dstRepo+"@"+dstDigest)
 	}
 
 	return nil

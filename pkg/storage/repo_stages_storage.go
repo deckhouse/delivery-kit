@@ -1159,6 +1159,11 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 	if err != nil {
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
+
+	if err := artifact.CopyAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
+		return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
+	}
+
 	return desc, nil
 }
 

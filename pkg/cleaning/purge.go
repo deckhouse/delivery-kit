@@ -190,5 +190,15 @@ func (m *purgeManager) purgeRejectedStages(ctx context.Context) error {
 }
 
 func (m *purgeManager) deleteOrphanedArtifacts(ctx context.Context) error {
-	return deleteOrphanedArtifacts(ctx, m.StorageManager.GetStagesStorage(), m.DryRun)
+	if err := deleteOrphanedArtifacts(ctx, m.StorageManager.GetStagesStorage(), m.DryRun); err != nil {
+		return err
+	}
+
+	if finalStagesStorage := m.StorageManager.GetFinalStagesStorage(); finalStagesStorage != nil {
+		if err := deleteOrphanedArtifacts(ctx, finalStagesStorage, m.DryRun); err != nil {
+			return fmt.Errorf("delete orphaned artifacts from final repo: %w", err)
+		}
+	}
+
+	return nil
 }

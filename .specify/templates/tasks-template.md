@@ -32,7 +32,8 @@ description: "Task list template for feature implementation"
 
 - **Build**: `task build` (produces `./bin/werf`)
 - **Unit tests**: `task test:unit -- -run TestMyFunc ./pkg/...`
-- **E2E tests**: `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
+- **E2E tests**: `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--` separator.
+  - Environment is pre-configured — `task test:setup:environment` has already been executed. Do not skip e2e tests citing environment setup.
 - **Formatting**: `task format`
 
 <!--
@@ -164,7 +165,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in `pkg/<domain>/<file>_test.go`
 - [ ] TXXX Security hardening
 - [ ] TXXX [P] CLI help text generation (`task doc:gen`)
-- [ ] TXXX [P] E2E tests with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
+- [ ] TXXX [P] E2E tests with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--`.
 
 ---
 

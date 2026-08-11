@@ -77,6 +77,12 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion s
 		comp.Properties = packageProperties(pkg)
 		setCPEEvidence(&comp, pkg)
 
+		if pkg.OriginalRepo != "" {
+			comp.ExternalReferences = &[]cdx.ExternalReference{
+				{Type: cdx.ERTypeVCS, URL: pkg.OriginalRepo},
+			}
+		}
+
 		components = append(components, comp)
 
 		if refs := dependencyRefs(pkg, pkgs, containerFactoryVersion); refs != nil {
@@ -101,7 +107,7 @@ func purlOf(pkg PmPackageInfo, containerFactoryVersion string) string {
 		"generic", "",
 		pkg.Name, pkg.Version,
 		packageurl.Qualifiers{
-			{Key: "containerFactoryVersion", Value: containerFactoryVersion},
+			{Key: "containerfactoryversion", Value: containerFactoryVersion},
 		},
 		"",
 	).ToString()

@@ -1,6 +1,9 @@
 package artifact
 
 import (
+	"encoding/hex"
+	"strings"
+
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/types"
@@ -10,6 +13,15 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
+// digestForName builds a distinct, deterministic digest per logical artifact. Distinct
+// artifacts must not share a digest: updateFallbackIndex evicts by digest, and in
+// production distinct artifacts always differ in manifest bytes because the werf
+// annotations are part of the manifest.
+func digestForName(name string) v1.Hash {
+	encoded := hex.EncodeToString([]byte(name))
+	return v1.Hash{Algorithm: "sha256", Hex: strings.Repeat("0", 64-len(encoded)) + encoded}
+}
+
 var _ = Describe("updateFallbackIndex", func() {
 	makeDesc := func(name, artifactType string, annotations map[string]string) v1.Descriptor {
 		if annotations == nil {
@@ -17,7 +29,7 @@ var _ = Describe("updateFallbackIndex", func() {
 		}
 		return v1.Descriptor{
 			MediaType:    types.OCIManifestSchema1,
-			Digest:       v1.Hash{Algorithm: "sha256", Hex: "0000000000000000000000000000000000000000000000000000000000000000"},
+			Digest:       digestForName(name),
 			Size:         42,
 			ArtifactType: artifactType,
 			Annotations:  annotations,
@@ -48,15 +60,33 @@ var _ = Describe("updateFallbackIndex", func() {
 	})
 
 	It("should keep entries with different artifactType", func() {
-		sbomDesc := makeDesc("image-a", "type/sbom", map[string]string{image.WerfImageNameAnnotation: "image-a"})
+		sbomDesc := makeDesc("image-a-sbom", "type/sbom", map[string]string{image.WerfImageNameAnnotation: "image-a"})
 		idx := updateFallbackIndex(empty.Index, sbomDesc, "type/sbom", "image-a")
 
-		otherDesc := makeDesc("image-a", "type/signature", map[string]string{image.WerfImageNameAnnotation: "image-a"})
+		otherDesc := makeDesc("image-a-sig", "type/signature", map[string]string{image.WerfImageNameAnnotation: "image-a"})
 		idx = updateFallbackIndex(idx, otherDesc, "type/signature", "image-a")
 
 		im, err := idx.IndexManifest()
 		Expect(err).To(Succeed())
 		Expect(im.Manifests).To(HaveLen(2))
+	})
+
+	It("should evict an entry describing the same manifest digest", func() {
+		foreignDesc := v1.Descriptor{
+			MediaType: types.OCIManifestSchema1,
+			Digest:    digestForName("image-a"),
+			Size:      42,
+		}
+		idx := newStaticIndex([]v1.Descriptor{foreignDesc})
+
+		desc := makeDesc("image-a", "type/sbom", map[string]string{image.WerfImageNameAnnotation: "image-a"})
+		idx = updateFallbackIndex(idx, desc, "type/sbom", "image-a")
+
+		im, err := idx.IndexManifest()
+		Expect(err).To(Succeed())
+		Expect(im.Manifests).To(HaveLen(1))
+		Expect(im.Manifests[0].ArtifactType).To(Equal("type/sbom"))
+		Expect(im.Manifests[0].Annotations[image.WerfImageNameAnnotation]).To(Equal("image-a"))
 	})
 
 	It("should keep entries for different imageNames with same artifactType", func() {
@@ -130,7 +160,7 @@ var _ = Describe("Annotations", func() {
 	It("should be independent of imageName replacement filter", func() {
 		descA := v1.Descriptor{
 			MediaType:    types.OCIManifestSchema1,
-			Digest:       v1.Hash{Algorithm: "sha256", Hex: "0000000000000000000000000000000000000000000000000000000000000000"},
+			Digest:       digestForName("app-a"),
 			Size:         42,
 			ArtifactType: "type/sbom",
 			Annotations: map[string]string{
@@ -141,7 +171,7 @@ var _ = Describe("Annotations", func() {
 
 		descB := v1.Descriptor{
 			MediaType:    types.OCIManifestSchema1,
-			Digest:       v1.Hash{Algorithm: "sha256", Hex: "0000000000000000000000000000000000000000000000000000000000000000"},
+			Digest:       digestForName("app-b"),
 			Size:         42,
 			ArtifactType: "type/sbom",
 			Annotations: map[string]string{
@@ -158,5 +188,103 @@ var _ = Describe("Annotations", func() {
 		Expect(im.Manifests).To(HaveLen(2))
 		Expect(im.Manifests[0].Annotations[image.WerfPlatformAnnotation]).To(Equal("linux/amd64"))
 		Expect(im.Manifests[1].Annotations[image.WerfPlatformAnnotation]).To(Equal("linux/arm64"))
+	})
+})
+
+var _ = Describe("isAttached", func() {
+	desc := func(name, artifactType, imageName string) v1.Descriptor {
+		return v1.Descriptor{
+			MediaType:    types.OCIManifestSchema1,
+			Digest:       digestForName(name),
+			Size:         42,
+			ArtifactType: artifactType,
+			Annotations:  map[string]string{image.WerfImageNameAnnotation: imageName},
+		}
+	}
+
+	indexOf := func(descriptors ...v1.Descriptor) *v1.IndexManifest {
+		im, err := newStaticIndex(descriptors).IndexManifest()
+		Expect(err).To(Succeed())
+		return im
+	}
+
+	It("should report an empty index as not attached", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+
+		Expect(isAttached(indexOf(), target, "type/sbom", "app-a")).To(BeFalse())
+	})
+
+	It("should report the descriptor as attached once present", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+
+		Expect(isAttached(indexOf(target), target, "type/sbom", "app-a")).To(BeTrue())
+	})
+
+	It("should ignore entries of other images", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+		other := desc("app-b-v1", "type/sbom", "app-b")
+
+		Expect(isAttached(indexOf(other, target), target, "type/sbom", "app-a")).To(BeTrue())
+	})
+
+	It("should report a superseded descriptor as not attached", func() {
+		target := desc("app-a-v2", "type/sbom", "app-a")
+		stale := desc("app-a-v1", "type/sbom", "app-a")
+
+		Expect(isAttached(indexOf(stale), target, "type/sbom", "app-a")).To(BeFalse())
+	})
+
+	It("should report a foreign descriptor of the same type as not attached", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+		foreign := v1.Descriptor{
+			MediaType:    types.OCIManifestSchema1,
+			Digest:       digestForName("app-a-v1"),
+			Size:         42,
+			ArtifactType: "type/sbom",
+		}
+
+		Expect(isAttached(indexOf(foreign), target, "type/sbom", "app-a")).To(BeFalse())
+	})
+
+	It("should report duplicated entries of one image as not attached", func() {
+		target := desc("app-a-v1", "type/sbom", "app-a")
+		stale := desc("app-a-v0", "type/sbom", "app-a")
+
+		Expect(isAttached(indexOf(stale, target), target, "type/sbom", "app-a")).To(BeFalse())
+	})
+})
+
+var _ = Describe("isAttached with an unnamed artifact", func() {
+	unnamed := v1.Descriptor{
+		MediaType:    types.OCIManifestSchema1,
+		Digest:       digestForName("unnamed-v1"),
+		Size:         42,
+		ArtifactType: "type/sbom",
+	}
+
+	named := v1.Descriptor{
+		MediaType:    types.OCIManifestSchema1,
+		Digest:       digestForName("app-a-v1"),
+		Size:         42,
+		ArtifactType: "type/sbom",
+		Annotations:  map[string]string{image.WerfImageNameAnnotation: "app-a"},
+	}
+
+	indexOf := func(descriptors ...v1.Descriptor) *v1.IndexManifest {
+		im, err := newStaticIndex(descriptors).IndexManifest()
+		Expect(err).To(Succeed())
+		return im
+	}
+
+	It("should report it as attached next to an entry of a named image", func() {
+		Expect(isAttached(indexOf(named, unnamed), unnamed, "type/sbom", "")).To(BeTrue())
+	})
+
+	It("should not be satisfied by an entry of a named image alone", func() {
+		Expect(isAttached(indexOf(named), unnamed, "type/sbom", "")).To(BeFalse())
+	})
+
+	It("should not report a named entry as attached when an unnamed one exists", func() {
+		Expect(isAttached(indexOf(named, unnamed), named, "type/sbom", "app-a")).To(BeTrue())
 	})
 })

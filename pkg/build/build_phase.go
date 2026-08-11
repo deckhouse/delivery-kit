@@ -35,6 +35,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -307,6 +308,7 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	}
 
 	if err := buildAggregatedPurlError(&purlErrors, totalImages); err != nil {
+		logPurlResolverHelpHint(ctx)
 		return err
 	}
 
@@ -367,24 +369,46 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
-	var hasOsPmPackages bool
+	var osPmLockPath, osPmSpecPath string
 	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
-		hasOsPmPackages = primaryImg.StapelImageConfig.ImageBaseConfig().HasOSPMPackages()
+		imageBase := primaryImg.StapelImageConfig.ImageBaseConfig()
+		osPmLockPath = imageBase.OSPMLockPath()
+		osPmSpecPath = imageBase.OSPMSpecPath()
 	}
 
 	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
 
 	patchers := []BOMPatcherInterface{
-		externalRefPatcher,
 		goModPatcher,
 	}
 
+	if osPmLockPath != "" {
+		patchers = append(patchers, osPm.NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
+	}
+
+	patchers = append(patchers, externalRefPatcher)
+
 	scanOpts := phase.scanOptionsForImage(primaryImg)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, primaryImg.TargetPlatform); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
+	finalStageDesc := phase.finalStageDescForImage(name, images)
+	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
+		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Image) *imagePkg.StageDesc {
+	if len(images) == 1 {
+		return images[0].GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
+	}
+	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+		return multiImg.GetFinalStageDesc()
+	}
 	return nil
 }
 
@@ -1741,6 +1765,23 @@ func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
 	}
 
 	return nil
+}
+
+// logPurlResolverHelpHint prominently tells the user where to get help with purl-resolver errors.
+func logPurlResolverHelpHint(ctx context.Context) {
+	serverURL := os.Getenv(externalref.EnvName)
+	if serverURL == "" {
+		return
+	}
+
+	logboek.Context(ctx).Warn().LogBlock("External references resolution failed").
+		Options(func(options types.LogBlockOptionsInterface) {
+			options.Style(style.Highlight())
+		}).
+		Do(func() {
+			logboek.Context(ctx).Warn().LogF("Some package URLs could not be resolved by the external references service.\n")
+			logboek.Context(ctx).Warn().LogF("See %s/help for details on resolving these errors.\n", strings.TrimRight(serverURL, "/"))
+		})
 }
 
 func debugStageDigest() bool {

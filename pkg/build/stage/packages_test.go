@@ -195,32 +195,31 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("nil packages", []*config.PackagesDirective(nil), ([]string)(nil)),
 
 		Entry("os-pm with single package", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		}, func() []string {
 			return config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 			})
 		}()),
 
 		Entry("os-pm with multiple packages", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		}, func() []string {
 			return config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 			})
 		}()),
 
 		Entry("mixed types: os-pm and go-mod skip unknown type", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveType("cargo")},
 		}, func() []string {
-			cmds := config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 				{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 				{Type: config.PackagesDirectiveType("cargo")},
 			})
-			return cmds
 		}()),
 
 		Entry("python-pip /app requirements.txt", []*config.PackagesDirective{
@@ -250,12 +249,11 @@ var _ = Describe("GeneratePackagesCommands", func() {
 				Type:      config.PackagesDirectiveTypePythonUV,
 				FileBased: config.FileBasedSpec{Workdir: "/lib"},
 			},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		}, func() []string {
-			ospmCmds := config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-			})
-			return []string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen", ospmCmds[0]}
+			return append([]string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
+			})...)
 		}()),
 
 		Entry("rust-cargo /app produces cargo fetch", []*config.PackagesDirective{
@@ -278,12 +276,11 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("mixed: rust-cargo + go-mod + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/tools"}},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		}, func() []string {
-			ospmCmds := config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-			})
-			return []string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download", ospmCmds[0]}
+			return append([]string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
+			})...)
 		}()),
 
 		Entry("javascript-npm /app produces npm ci", []*config.PackagesDirective{
@@ -310,12 +307,11 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("mixed: javascript-npm + go-mod + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptNpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/tools"}},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		}, func() []string {
-			ospmCmds := config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-			})
-			return []string{"cd \"/app\" && npm ci", "cd \"/tools\" && go mod download", ospmCmds[0]}
+			return append([]string{"cd \"/app\" && npm ci", "cd \"/tools\" && go mod download"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
+			})...)
 		}()),
 
 		Entry("lua-rock /app produces luarocks install --only-deps", []*config.PackagesDirective{
@@ -334,13 +330,34 @@ var _ = Describe("GeneratePackagesCommands", func() {
 		Entry("mixed: lua-rock + rust-cargo + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
 			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/native"}},
-			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
+			{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
 		}, func() []string {
-			ospmCmds := config.GeneratePackagesCommands([]*config.PackagesDirective{
-				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl"}}},
-			})
-			return []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/native\" && cargo fetch", ospmCmds[0]}
+			return append([]string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/native\" && cargo fetch"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
+			})...)
 		}()),
+	)
+})
+
+var _ = Describe("stage dependencies with os-pm file-based syntax", func() {
+	DescribeTable("produces sync command from lock file",
+		func(packages []*config.PackagesDirective, expectedLockFile string) {
+			cmds := config.GeneratePackagesCommands(packages)
+			Expect(cmds).To(HaveLen(1))
+			Expect(cmds[0]).To(ContainSubstring("pm sync --from " + expectedLockFile))
+		},
+		Entry("os-pm with default file-based syntax",
+			[]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"}},
+			},
+			"pm.lock",
+		),
+		Entry("os-pm with custom lock file path",
+			[]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeOSPM, FileBased: config.FileBasedSpec{Spec: "custom/pm.yaml", Lock: "custom/pm.lock"}},
+			},
+			"custom/pm.lock",
+		),
 	)
 })
 

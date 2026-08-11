@@ -1,0 +1,152 @@
+{
+  "metadata": {
+    "timestamp": "2026-08-07T13:40:29Z",
+    "sha256-sum": "5db5afc60113c9e539496e85b7ac3313644d9c546c36f4d7a17cd4fcb8604d00",
+    "source": "pm.yaml"
+  },
+  "packages": {
+    "brotli": {
+      "name": "brotli",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "Generic lossless compressor",
+      "license": "MIT",
+      "originalRepo": "https://github.com/google/brotli.git",
+      "repo": "google/brotli",
+      "type": "runtime",
+      "version": "1.1.0",
+      "digest": "sha256:2e4002a38a4d2905952b988d2063dc4867d5132d8bd7f949251c7dc730ce606f"
+    },
+    "curl": {
+      "name": "curl",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "depends": [
+        "brotli",
+        "libc",
+        "libpsl",
+        "openssl",
+        "zstd"
+      ],
+      "description": "URL retrival utility and library",
+      "license": "curl",
+      "originalRepo": "https://github.com/curl/curl.git",
+      "repo": "curl/curl",
+      "type": "runtime",
+      "version": "8.12.1",
+      "digest": "sha256:2ecd336a501a4fa9123b977914f92a6bfa381e14b4ad7914626b2319fd62ff26"
+    },
+    "jq": {
+      "name": "jq",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "A lightweight and flexible command-line JSON processor",
+      "license": "MIT",
+      "originalRepo": "https://github.com/jqlang/jq.git",
+      "repo": "jqlang/jq",
+      "type": "runtime",
+      "version": "1.8.1",
+      "digest": "sha256:bfc59680bd42ccccf1d88b8ee5273cdc0330cbd6814738c1367caff0fbb26303"
+    },
+    "libc": {
+      "name": "libc",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "The GNU C Library",
+      "license": "LGPL-2.1-or-later",
+      "originalRepo": "https://sourceware.org/git/glibc.git",
+      "repo": "glibc",
+      "type": "runtime",
+      "version": "2.43",
+      "digest": "sha256:ffd64b50cdc735f3dfbfa819158cfc7bfc48dc624333398d9be863b660aa1614"
+    },
+    "libidn2": {
+      "name": "libidn2",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "depends": [
+        "libunistring@1.4.1"
+      ],
+      "description": "Encode/Decode library for internationalized domain names",
+      "license": "BSD-3-Clause",
+      "originalRepo": "https://gitlab.com/libidn/libidn2.git",
+      "repo": "libidn/libidn2",
+      "type": "runtime",
+      "version": "2.3.8",
+      "digest": "sha256:ccad635a090e5797b459130e33fbe17d02475a2875ff4bc73af0a34ac143ff9c"
+    },
+    "libpsl": {
+      "name": "libpsl",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "depends": [
+        "libidn2",
+        "libunistring"
+      ],
+      "description": "C library for the Publix Suffix List.",
+      "license": "MIT",
+      "originalRepo": "https://github.com/rockdaboot/libpsl.git",
+      "repo": "rockdaboot/libpsl",
+      "type": "runtime",
+      "version": "0.21.5",
+      "digest": "sha256:539c97a5f6930044e376117c7431a37f9ac429a7000cbff04b80e7040cc75e1a"
+    },
+    "libunistring": {
+      "name": "libunistring",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "Library for manipulating Unicode strings and C strings.",
+      "license": "LGPL-3.0-or-later",
+      "originalRepo": "https://git.savannah.gnu.org/git/libunistring.git",
+      "repo": "git/libunistring",
+      "type": "runtime",
+      "version": "1.4.1",
+      "digest": "sha256:88c3dfc32141ced0b735672643b883074ecc826cdbb963ab2a74190b7815407e"
+    },
+    "openssl": {
+      "name": "openssl",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "depends": [
+        "libc@2.43"
+      ],
+      "description": "Toolkit for Transport Layer Security (TLS)",
+      "license": "Apache-2.0",
+      "originalRepo": "https://github.com/openssl/openssl.git",
+      "repo": "openssl/openssl",
+      "type": "runtime",
+      "version": "3.6.2",
+      "digest": "sha256:bad967ef669945c34b2071ebaacc17427a43d21117bb41ae9322dabf56ea79d1"
+    },
+    "zstd": {
+      "name": "zstd",
+      "arch": [
+        "linux/amd64"
+      ],
+      "default": true,
+      "description": "Fast lossless compression algorithm, targeting real-time compression scenarios at zlib-level and better compression ratios.",
+      "license": "BSD-3-Clause",
+      "originalRepo": "https://github.com/facebook/zstd.git",
+      "repo": "facebook/zstd",
+      "type": "runtime",
+      "version": "1.5.7",
+      "digest": "sha256:fd327e1eb154277e85da08d65a84653e28d637f23329a3430392a6770a3f3624"
+    }
+  }
+}

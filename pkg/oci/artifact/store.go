@@ -33,6 +33,8 @@ type OCIStore struct {
 	opts      []remote.Option
 }
 
+var _ Store = (*OCIStore)(nil)
+
 // NewOCIStore creates a new OCIStore for the given repository and optional image name.
 // By default, registry authentication is handled via the global docker_registry API.
 // Explicit remote options can be passed to override the default auth, though in most
@@ -46,13 +48,12 @@ func NewOCIStore(repo, imageName string, opts ...remote.Option) *OCIStore {
 }
 
 func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform string) error {
-	layer := static.NewLayer(payload, types.MediaType(artifactType))
-	img, err := mutate.AppendLayers(empty.Image, layer)
+	annotations := s.artifactAnnotations(checksum, targetPlatform)
+
+	img, err := buildArtifactImage(payload, artifactType, annotations)
 	if err != nil {
-		return fmt.Errorf("append artifact layer: %w", err)
+		return err
 	}
-	img = mutate.MediaType(img, types.OCIManifestSchema1)
-	img = mutate.ConfigMediaType(img, types.MediaType(EmptyConfigMediaType))
 
 	parentRef, err := name.NewDigest(s.repo + "@" + parentDigest)
 	if err != nil {
@@ -64,17 +65,55 @@ func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string
 	}
 	imgWithSubject := mutate.Subject(img, parentDesc.Descriptor).(v1.Image)
 
-	if err := PushArtifactImage(ctx, s.repo, imgWithSubject, s.remoteOptions(ctx)...); err != nil {
-		return err
-	}
+	return withTagLock(s.repo, parentDigest, func() error {
+		if err := PushArtifactImage(ctx, s.repo, imgWithSubject, s.remoteOptions(ctx)...); err != nil {
+			return err
+		}
 
-	desc, err := partial.Descriptor(imgWithSubject)
+		desc, err := partial.Descriptor(imgWithSubject)
+		if err != nil {
+			return fmt.Errorf("create descriptor: %w", err)
+		}
+		artifactDesc := *desc
+		artifactDesc.ArtifactType = artifactType
+		if len(annotations) > 0 {
+			artifactDesc.Annotations = annotations
+		}
+
+		return attachDescriptor(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, s.remoteOptions(ctx)...)
+	})
+}
+
+// buildArtifactImage assembles the artifact image carrying the payload as its single layer.
+//
+// The artifact type is declared through the config media type: go-containerregistry v0.20.1
+// cannot emit the OCI 1.1 manifest-level artifactType field, and per the OCI spec a registry
+// falls back to config.mediaType when artifactType is absent. Annotations go into the
+// manifest so that a Referrers API response carries them once a registry starts indexing
+// artifacts by subject.
+func buildArtifactImage(payload []byte, artifactType string, annotations map[string]string) (v1.Image, error) {
+	layer := static.NewLayer(payload, types.MediaType(artifactType))
+
+	img, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
-		return fmt.Errorf("create descriptor: %w", err)
+		return nil, fmt.Errorf("append artifact layer: %w", err)
 	}
-	artifactDesc := *desc
-	artifactDesc.ArtifactType = artifactType
 
+	img = mutate.MediaType(img, types.OCIManifestSchema1)
+	img = mutate.ConfigMediaType(img, types.MediaType(artifactType))
+
+	if len(annotations) > 0 {
+		img = mutate.Annotations(img, annotations).(v1.Image)
+	}
+
+	return img, nil
+}
+
+// artifactAnnotations builds the werf annotations identifying an artifact. They are
+// written both into the artifact manifest and into its descriptor in the fallback index:
+// the manifest copy is what a registry reports through the Referrers API, the descriptor
+// copy is what the fallback index lookup filters on.
+func (s *OCIStore) artifactAnnotations(checksum, targetPlatform string) map[string]string {
 	annotations := make(map[string]string)
 	if checksum != "" {
 		annotations[image.WerfChecksumAnnotation] = checksum
@@ -85,11 +124,7 @@ func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string
 	if targetPlatform != "" {
 		annotations[image.WerfPlatformAnnotation] = targetPlatform
 	}
-	if len(annotations) > 0 {
-		artifactDesc.Annotations = annotations
-	}
-
-	return Attach(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, s.remoteOptions(ctx)...)
+	return annotations
 }
 
 // GetAttached returns the descriptor of an artifact attached to the given parent image digest.
@@ -120,7 +155,7 @@ func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifac
 // Callers needing a specific artifact should use GetAttachedContent with an
 // imageName-configured store instead.
 func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {
-	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", s.opts...)
+	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", s.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, fmt.Errorf("get attached artifact: %w", err)
 	}

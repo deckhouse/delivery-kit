@@ -9,8 +9,8 @@ page files, not here.
 - [werf-yaml-env](./pages/werf-yaml-env.md) — `.Env` variable for multi-environment config and `env` function for OS environment variables
 - [werf-yaml-image-env](./pages/werf-yaml-image-env.md) — `imageSpec.config.env` directive for setting environment variables in the final image
 - [purl-resolution](./pages/purl-resolution.md) — how PURL resolution errors flow through the system
-- [fallback-index-mechanism](./pages/fallback-index-mechanism.md) — how the fallback OCI Image Index tag stores SBOM artifacts for multi-image builds
-- [os-pm-package-management](./pages/os-pm-package-management.md) — OS-level package management via `os-pm` type with inline syntax and unified ecosystem registry
+- [fallback-index-mechanism](./pages/fallback-index-mechanism.md) — how the fallback OCI Image Index tag stores SBOM artifacts for multi-image builds using convergent writes
+- [os-pm-package-management](./pages/os-pm-package-management.md) — OS-level package management via `os-pm` type with file-based `pm.yaml`/`pm.lock` syntax and unified ecosystem registry
 - [lua-rock-package-ecosystem](./pages/lua-rock-package-ecosystem.md) — LuaRocks package ecosystem via `lua-rock` type in the unified registry
 - [javascript-package-ecosystems](./pages/javascript-package-ecosystems.md) — JavaScript package ecosystems via `javascript-npm`, `javascript-yarn`, and `javascript-pnpm` types
 - [rust-cargo-package-ecosystem](./pages/rust-cargo-package-ecosystem.md) — Rust Cargo package ecosystem via `rust-cargo` type in the unified registry
@@ -25,8 +25,10 @@ page files, not here.
 - [error-detection-sentinel](./pages/error-detection-sentinel.md) — sentinel pattern for PURL error detection
 - [error-aggregation-strategy](./pages/error-aggregation-strategy.md) — global PURL error aggregation across all image sets
 - [sbom-e2e-test-strategy](./pages/sbom-e2e-test-strategy.md) — HTTP-level mocking with `httptest` for SBOM e2e tests
-- [fallback-annotation-loss](./pages/fallback-annotation-loss.md) — Docker Distribution drops annotations on OCI Image Index descriptors, causing SBOM lookup failures
-- [pm-sbom-collection](./pages/pm-sbom-collection.md) — SBOM state collection for `os-pm` via `/var/lib/pm/index.json`
+- [fallback-annotation-loss](./pages/fallback-annotation-loss.md) — annotation loss in fallback OCI index and its mitigation via convergent writes
+- [pm-sbom-collection](./pages/pm-sbom-collection.md) — SBOM state collection for `os-pm` via `pm.lock` from build context
+
+- [purl-retry-parameters](./pages/purl-retry-parameters.md) — reducing PURL retry budget and HTTP timeout for faster SBOM resolution failure
 
 ## reference
 

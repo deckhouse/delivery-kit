@@ -77,6 +77,8 @@ Correct: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
 - `task mock:generate` — run mock generators.
 - `task mock:check` — verify generated mocks are up to date (runs `go generate -run mockgen` and diffs).
 - `task doc:gen` — regenerate CLI reference docs. ALWAYS run after changing command descriptions, flags, or help text in Go source. It renders each flag's default from the CURRENT environment, so run it with the `WERF_*` variables unset and review the diff for flags you never touched — one exported `WERF_*` rewrites that flag's documented default across every command page.
+- `task pm:lock workdir=<project-dir>` — generate `pm.lock` from `pm.yaml`/`pm.yml` (runs pm inside the digest-pinned container-factory image; needs only Docker). For non-default file names pass `from=<spec>` and `lock=<lock>` — the manifest path is recorded in the lock metadata, so the file name matters. NEVER write or edit `pm.lock` by hand — ALWAYS generate it with this task.
+- `task deps:install:pm` — extract the pm binary (linux/amd64) to `dest=<path>` (default `./bin/pm`). Optional; `pm:lock` does not require it.
 
 `format` and `lint*` come from a remote taskfile ([werf/common-ci](https://github.com/werf/common-ci)), so they need `TASK_X_REMOTE_TASKFILES=1` and network access.
 

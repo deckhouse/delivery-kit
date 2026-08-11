@@ -12,6 +12,5 @@ git:
     to: /
 packages:
    - type: os-pm
-     spec:
-       - jq==1.8.1
-       - tini==0.19.0
+     spec: pm.yaml
+     lock: pm.lock

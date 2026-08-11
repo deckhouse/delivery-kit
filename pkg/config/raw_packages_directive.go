@@ -80,22 +80,10 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 		return fmt.Errorf("unsupported packages type %q", d.Type)
 	}
 
-	if d.Type == PackagesDirectiveTypeOSPM {
-		rawPkgs, ok := r.Spec.([]interface{})
-		if !ok {
-			return fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a list of package names", r.Spec, d.Type)
-		}
-		pkgs := make([]string, len(rawPkgs))
-		for i, v := range rawPkgs {
-			pkgs[i] = fmt.Sprint(v)
-		}
-		d.Spec.Packages = pkgs
-		return nil
-	}
-
 	d.FileBased.Workdir = r.Workdir
-
 	d.FileBased.Spec = eco.DefaultSpecFile
+	d.FileBased.Lock = eco.DefaultLockFile
+
 	if r.Spec != nil {
 		specStr, ok := r.Spec.(string)
 		if !ok {
@@ -104,7 +92,6 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 		d.FileBased.Spec = specStr
 	}
 
-	d.FileBased.Lock = eco.DefaultLockFile
 	if r.Lock != "" {
 		if eco.DefaultLockFile == "" {
 			return fmt.Errorf("lock is not supported for type %q", d.Type)

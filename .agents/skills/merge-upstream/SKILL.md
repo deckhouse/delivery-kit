@@ -70,7 +70,8 @@ Fork versions are `<upstream semver>-dk.<N>`: the base is exactly the werf versi
 `N` starts at 1 for each new base. So if this merge brings upstream `2.76.0`, the version is
 `2.76.0-dk.1` — never a base werf never released. Releases made between upstream merges (fork-side
 fixes only) need no commit here: `release_release-please.yml` increments `N` from
-`.release-please-manifest.json` on its own, and skips that when it sees a `Release-As:` footer.
+`.release-please/<branch>/manifest.json` on its own, and skips that when it sees a `Release-As:`
+footer.
 
 ```bash
 git commit --allow-empty -m "chore: force release X.Y.Z-dk.1

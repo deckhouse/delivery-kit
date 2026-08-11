@@ -101,13 +101,25 @@ func MustParseTimestampString(timestampString string) time.Time {
 }
 
 func ParseRepositoryAndTag(ref string) (string, string) {
-	parts := strings.SplitN(util.Reverse(ref), ":", 2)
-	if len(parts) != 2 {
-		return ref, ""
-	}
-	tag := util.Reverse(parts[0])
-	repository := util.Reverse(parts[1])
+	repository, tag, _ := ParseRef(ref)
 	return repository, tag
+}
+
+// ParseRef splits an image reference into repository, tag and digest, handling
+// every reference form: "repo", "repo:tag", "repo@algo:hex", "repo:tag@algo:hex".
+// A colon followed by a path separator is a registry port, not a tag delimiter.
+func ParseRef(ref string) (repository, tag, digest string) {
+	repository = ref
+	if repoPart, digestPart, found := strings.Cut(repository, "@"); found {
+		repository = repoPart
+		digest = digestPart
+	}
+
+	parts := strings.SplitN(util.Reverse(repository), ":", 2)
+	if len(parts) != 2 || strings.Contains(parts[0], "/") {
+		return repository, "", digest
+	}
+	return util.Reverse(parts[1]), util.Reverse(parts[0]), digest
 }
 
 func NormalizeRepository(repository string) (res string) {

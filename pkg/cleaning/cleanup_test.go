@@ -78,6 +78,45 @@ var _ = Describe("deleteOrphanedArtifacts", func() {
 	)
 })
 
+var _ = Describe("cleanupManager.cleanupOrphanedArtifacts", func() {
+	It("cleans the primary repo when no final repo is configured", func() {
+		sm := newFakeStorageManager()
+		sm.stages.orphanedArtifactNames = []string{"repo:sha256-abc123"}
+		m := &cleanupManager{StorageManager: sm}
+
+		Expect(m.cleanupOrphanedArtifacts(context.Background())).To(Succeed())
+		Expect(sm.stages.deletedArtifacts).To(Equal([]string{"repo:sha256-abc123"}))
+	})
+
+	It("cleans both the primary and the final repo when a final repo is configured", func() {
+		sm := newFakeStorageManager()
+		sm.stages.orphanedArtifactNames = []string{"repo:sha256-abc123"}
+
+		final := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+		final.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"final-repo:sha256-def456"}, nil)
+		final.EXPECT().DeleteArtifact(gomock.Any(), "final-repo:sha256-def456").Return(nil)
+		sm.final = final
+
+		m := &cleanupManager{StorageManager: sm}
+
+		Expect(m.cleanupOrphanedArtifacts(context.Background())).To(Succeed())
+		Expect(sm.stages.deletedArtifacts).To(Equal([]string{"repo:sha256-abc123"}))
+	})
+
+	It("reports which repo failed when the final repo cannot be cleaned", func() {
+		sm := newFakeStorageManager()
+
+		final := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+		final.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return(nil, errors.New("registry unavailable"))
+		sm.final = final
+
+		m := &cleanupManager{StorageManager: sm}
+
+		err := m.cleanupOrphanedArtifacts(context.Background())
+		Expect(err).To(MatchError(ContainSubstring("delete orphaned artifacts from final repo")))
+	})
+})
+
 type fakePrimaryStagesStorage struct {
 	storage.PrimaryStagesStorage
 
@@ -95,6 +134,20 @@ type fakePrimaryStagesStorage struct {
 	deletedRecords   []image.StageID
 	deletedTags      []string
 	unregisteredTags []string
+
+	orphanedArtifactNames []string
+	deletedArtifacts      []string
+}
+
+func (f *fakePrimaryStagesStorage) GetOrphanedArtifactNames(_ context.Context) ([]string, error) {
+	return f.orphanedArtifactNames, nil
+}
+
+func (f *fakePrimaryStagesStorage) DeleteArtifact(_ context.Context, imageName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedArtifacts = append(f.deletedArtifacts, imageName)
+	return nil
 }
 
 func (f *fakePrimaryStagesStorage) GetRejectedStageIDs(_ context.Context, _ ...storage.Option) ([]image.StageID, error) {
@@ -134,6 +187,7 @@ type fakeStorageManager struct {
 
 	stages *fakePrimaryStagesStorage
 	meta   *fakePrimaryStagesStorage
+	final  storage.StagesStorage
 
 	stageDescSet      image.StageDescSet
 	finalStageDescSet image.StageDescSet
@@ -169,6 +223,10 @@ func (f *fakeStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
 
 func (f *fakeStorageManager) GetMetaStorage() storage.PrimaryStagesStorage {
 	return f.meta
+}
+
+func (f *fakeStorageManager) GetFinalStagesStorage() storage.StagesStorage {
+	return f.final
 }
 
 func (f *fakeStorageManager) ForEachRejectedStage(ctx context.Context, stageIDs []image.StageID, cb func(ctx context.Context, stageID image.StageID) error) error {

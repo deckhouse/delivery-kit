@@ -207,7 +207,7 @@ GetWerfConfig(ctx, ...)                  ← has ctx
 
 ### Critical Fixes
 
-- [ ] T048 [US1] Thread `ctx` through the config validation chain:
+- [X] T048 [US1] Thread `ctx` through the config validation chain:
     1. Add `ctx context.Context` parameter to `prepareWerfConfig` in `pkg/config/parser.go` — called from `GetWerfConfig` (which already has `ctx`).
     2. Add `ctx context.Context` parameter to `rawImageFromDockerfile.validate()` and `rawStapelImage.validateStapelImageBaseDirective()` in `pkg/config/raw_image_from_dockerfile.go` and `pkg/config/raw_stapel_image.go`.
     3. Add `ctx context.Context` parameter to `ImageFromDockerfile.validate()` and `StapelImageBase.validate()`.

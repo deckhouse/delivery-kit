@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
+
 	. "github.com/onsi/gomega"
 	"gopkg.in/yaml.v2"
 )
 
-func directivesFromYaml(giterminismManager *GiterminismManagerStub, yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
+func directivesFromYaml(ctx context.Context, giterminismManager *GiterminismManagerStub, yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
 	rawYaml, err := yaml.Marshal(yamlMap)
 	Expect(err).To(Succeed())
 
@@ -16,7 +18,7 @@ func directivesFromYaml(giterminismManager *GiterminismManagerStub, yamlMap map[
 		return nil, err
 	}
 
-	stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
+	stapelImage, err := rawStapelImage.toStapelImageDirective(ctx, giterminismManager, &Meta{}, "image1")
 	if err != nil {
 		return nil, err
 	}

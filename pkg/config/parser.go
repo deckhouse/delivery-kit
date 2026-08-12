@@ -152,7 +152,7 @@ func GetWerfConfig(ctx context.Context, customWerfConfigRelPath, customWerfConfi
 			return fmt.Errorf(format, defaultProjectName)
 		}
 
-		werfConfig, err := prepareWerfConfig(giterminismManager, rawStapelImages, rawImagesFromDockerfile, meta)
+		werfConfig, err := prepareWerfConfig(ctx, giterminismManager, rawStapelImages, rawImagesFromDockerfile, meta)
 		if err != nil {
 			return err
 		}
@@ -730,11 +730,11 @@ func emptyDocContent(content []byte) bool {
 	return true
 }
 
-func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImages []*rawStapelImage, rawImagesFromDockerfile []*rawImageFromDockerfile, meta *Meta) (*WerfConfig, error) {
+func prepareWerfConfig(ctx context.Context, giterminismManager giterminism_manager.Interface, rawImages []*rawStapelImage, rawImagesFromDockerfile []*rawImageFromDockerfile, meta *Meta) (*WerfConfig, error) {
 	var images []ImageInterface
 
 	for _, rawImage := range rawImagesFromDockerfile {
-		imageList, err := rawImage.toImageFromDockerfileDirectives(giterminismManager, meta)
+		imageList, err := rawImage.toImageFromDockerfileDirectives(ctx, giterminismManager, meta)
 		if err != nil {
 			return nil, err
 		}
@@ -756,7 +756,7 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 
 	for _, rawImage := range rawImages {
 		if rawImage.stapelImageType() == "images" {
-			imageList, err := rawImage.toStapelImageDirectives(giterminismManager, meta)
+			imageList, err := rawImage.toStapelImageDirectives(ctx, giterminismManager, meta)
 			if err != nil {
 				return nil, err
 			}
@@ -770,7 +770,7 @@ func prepareWerfConfig(giterminismManager giterminism_manager.Interface, rawImag
 				images = append(images, image)
 			}
 		} else {
-			if image, err := rawImage.toStapelImageArtifactDirectives(giterminismManager, meta); err != nil {
+			if image, err := rawImage.toStapelImageArtifactDirectives(ctx, giterminismManager, meta); err != nil {
 				return nil, err
 			} else {
 				if meta.Build.ImageSpec != nil && image.final {

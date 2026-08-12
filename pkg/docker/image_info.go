@@ -11,8 +11,13 @@ import (
 func NewInfoFromInspect(ref string, inspect *types.ImageInspect) *image.Info {
 	var repository, tag, repoDigest string
 	if !strings.HasPrefix(ref, "sha256:") {
-		repository, tag = image.ParseRepositoryAndTag(ref)
-		repoDigest = image.ExtractRepoDigest(inspect.RepoDigests, repository)
+		var digest string
+		repository, tag, digest = image.ParseRef(ref)
+		if digest != "" {
+			repoDigest = repository + "@" + digest
+		} else {
+			repoDigest = image.ExtractRepoDigest(inspect.RepoDigests, repository)
+		}
 	}
 
 	// TODO: remove this legacy logic in v3.

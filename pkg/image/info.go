@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/distribution/reference"
+
 	"github.com/werf/common-go/pkg/util"
 )
 
@@ -101,13 +103,40 @@ func MustParseTimestampString(timestampString string) time.Time {
 }
 
 func ParseRepositoryAndTag(ref string) (string, string) {
+	repository, tag, _ := ParseRef(ref)
+	return repository, tag
+}
+
+// ParseRef splits an image reference into repository, tag and digest, handling
+// every reference form: "repo", "repo:tag", "repo@algo:hex", "repo:tag@algo:hex".
+// A reference that is not a valid distribution reference (e.g. werf-internal
+// names with uppercase characters) keeps the historical last-colon split, since
+// the result participates in stage digests and must stay stable.
+func ParseRef(ref string) (repository, tag, digest string) {
+	parsed, err := reference.Parse(ref)
+	if err != nil {
+		repository, tag = splitRepositoryAndTagLegacy(ref)
+		return repository, tag, ""
+	}
+
+	if named, ok := parsed.(reference.Named); ok {
+		repository = named.Name()
+	}
+	if tagged, ok := parsed.(reference.Tagged); ok {
+		tag = tagged.Tag()
+	}
+	if digested, ok := parsed.(reference.Digested); ok {
+		digest = digested.Digest().String()
+	}
+	return repository, tag, digest
+}
+
+func splitRepositoryAndTagLegacy(ref string) (string, string) {
 	parts := strings.SplitN(util.Reverse(ref), ":", 2)
 	if len(parts) != 2 {
 		return ref, ""
 	}
-	tag := util.Reverse(parts[0])
-	repository := util.Reverse(parts[1])
-	return repository, tag
+	return util.Reverse(parts[1]), util.Reverse(parts[0])
 }
 
 func NormalizeRepository(repository string) (res string) {

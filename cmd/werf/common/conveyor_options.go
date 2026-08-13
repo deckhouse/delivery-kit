@@ -80,6 +80,7 @@ func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData,
 	conveyorOptions.Parallel = !(buildStagesOptions.ImageBuildOptions.IntrospectAfterError || buildStagesOptions.ImageBuildOptions.IntrospectBeforeError || len(buildStagesOptions.Targets) != 0) && GetParallel(commonCmdData)
 	conveyorOptions.ParallelTasksLimit = GetParallelTasksLimit(commonCmdData)
 	conveyorOptions.ManifestSigningOptions = buildStagesOptions.ManifestSigningOptions
+	conveyorOptions.SbomSigningOptions = buildStagesOptions.SbomSigningOptions
 	conveyorOptions.VerityAnnotationOptions = buildStagesOptions.VerityAnnotationOptions
 
 	return conveyorOptions, nil
@@ -133,6 +134,8 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		return buildOptions, fmt.Errorf("getting manifest signing options: %w", err)
 	}
 
+	sbomSigningOptions := getSbomSigningOptions(commonCmdData, signer)
+
 	elfSigningOptions, err := getELFSigningOptions(commonCmdData, signer)
 	if err != nil {
 		return buildOptions, err
@@ -154,6 +157,7 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		},
 		IntrospectOptions:       introspectOptions,
 		ManifestSigningOptions:  manifestSigningOptions,
+		SbomSigningOptions:      sbomSigningOptions,
 		ELFSigningOptions:       elfSigningOptions,
 		VerityAnnotationOptions: verityAnnotationOptions,
 	}

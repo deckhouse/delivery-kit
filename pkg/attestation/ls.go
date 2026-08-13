@@ -33,7 +33,7 @@ func List(ctx context.Context, repo, parentDigest string) ([]AttestationInfo, er
 
 	var result []AttestationInfo
 	for _, desc := range im.Manifests {
-		if desc.ArtifactType != DSSEMediaType {
+		if desc.ArtifactType != DSSEMediaType && desc.ArtifactType != BundleMediaType {
 			continue
 		}
 
@@ -47,13 +47,22 @@ func List(ctx context.Context, repo, parentDigest string) ([]AttestationInfo, er
 			continue
 		}
 
-		signed, err := HasSignatures(content)
+		envelopeJSON := content
+		if desc.ArtifactType == BundleMediaType {
+			envelopeJSON, err = UnwrapBundle(content)
+			if err != nil {
+				result = append(result, info)
+				continue
+			}
+		}
+
+		signed, err := HasSignatures(envelopeJSON)
 		if err != nil {
 			return nil, fmt.Errorf("check signatures for %s: %w", desc.Digest.String(), err)
 		}
 		info.Signed = signed
 
-		if stmtBytes, err := UnwrapDSSE(content, InTotoMediaType); err == nil {
+		if stmtBytes, err := UnwrapDSSE(envelopeJSON, InTotoMediaType); err == nil {
 			if _, predicateType, err := UnwrapInTotoStatement(stmtBytes); err == nil {
 				info.PredicateType = predicateType
 			}

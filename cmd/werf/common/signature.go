@@ -123,26 +123,29 @@ func GetImageReferences(cmdData *CmdData) []string {
 }
 
 func getSignerOptions(commonCmdData *CmdData) (signing.SignerOptions, error) {
-	if !GetSignManifest(commonCmdData) && !GetSignELFFiles(commonCmdData) {
-		return signing.SignerOptions{}, nil
+	resolved, err := signature.ResolveSigningGate(signature.ResolveSigningGateOptions{
+		SignKey:           lo.FromPtr(commonCmdData.SignKey),
+		SignCert:          lo.FromPtr(commonCmdData.SignCert),
+		SignIntermediates: lo.FromPtr(commonCmdData.SignIntermediates),
+		SignManifest:      GetSignManifest(commonCmdData),
+		SignELFFiles:      GetSignELFFiles(commonCmdData),
+	})
+	if err != nil {
+		return signing.SignerOptions{}, err
 	}
-	if commonCmdData.SignKey == nil || *commonCmdData.SignKey == "" {
-		return signing.SignerOptions{}, fmt.Errorf("signing key is required (the private signing key must be specified with --sign-key option)")
-	}
-	if commonCmdData.SignCert == nil || *commonCmdData.SignCert == "" {
-		return signing.SignerOptions{}, fmt.Errorf("signing certificate is required (the public signing certificate must be specified with --sign-cert option)")
-	}
-	return signing.SignerOptions{
-		KeyRef:           lo.FromPtr(commonCmdData.SignKey),
-		CertRef:          lo.FromPtr(commonCmdData.SignCert),
-		IntermediatesRef: lo.FromPtr(commonCmdData.SignIntermediates),
-	}, nil
+	return resolved.SignerOptions, nil
 }
 
 func getManifestSigningOptions(commonCmdData *CmdData, signer *signing.Signer) (signing.ManifestSigningOptions, error) {
 	options := signing.NewManifestSigningOptions(signer)
 	options.Enabled = GetSignManifest(commonCmdData)
 	return options, nil
+}
+
+func getSbomSigningOptions(commonCmdData *CmdData, signer *signing.Signer) signing.SbomSigningOptions {
+	options := signing.NewSbomSigningOptions(signer)
+	options.Enabled = lo.FromPtr(commonCmdData.SignKey) != ""
+	return options
 }
 
 func getELFSigningOptions(commonCmdData *CmdData, signer *signing.Signer) (signing.ELFSigningOptions, error) {

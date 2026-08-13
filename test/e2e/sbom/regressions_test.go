@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/test/pkg/report"
@@ -72,7 +73,7 @@ var _ = Describe("SBOM regression", Label("e2e", "sbom", "regression", "simple")
 			// Build a lookup of image-name annotations from the index manifest.
 			entries := map[string]bool{}
 			for _, desc := range im.Manifests {
-				if desc.ArtifactType == sbomImage.DSSEMediaType {
+				if desc.ArtifactType == attestation.DSSEMediaType {
 					imgName := desc.Annotations[image.WerfImageNameAnnotation]
 					entries[imgName] = true
 				}

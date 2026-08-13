@@ -88,6 +88,7 @@ type ConveyorOptions struct {
 	ImagesToProcess                 config.ImagesToProcess
 	SkipImageSpecStage              bool
 	ManifestSigningOptions          signing.ManifestSigningOptions
+	SbomSigningOptions              signing.SbomSigningOptions
 	VerityAnnotationOptions         verify_annotation.Options
 	UseBuildReport                  bool
 	BuildReportPath                 string

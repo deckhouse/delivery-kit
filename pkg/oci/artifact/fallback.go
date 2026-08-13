@@ -91,7 +91,7 @@ func FallbackTag(parentDigest string) string {
 // until it observes it in the index. Every write is a merge of what was read
 // with the descriptor being attached, so concurrent writers accumulate each
 // other's entries rather than truncating them.
-func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) error {
+func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string, opts ...remote.Option) error {
 	eb := backoff.NewExponentialBackOff()
 	eb.InitialInterval = attachInitialInterval
 
@@ -100,7 +100,7 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 	}
 
 	_, err := backoff.Retry(ctx, func() (bool, error) {
-		attached, err := isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, opts...)
+		attached, err := isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, supersededTypes, opts...)
 		if err != nil {
 			return false, err
 		}
@@ -113,12 +113,12 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 			return false, fmt.Errorf("pull fallback index: %w", err)
 		}
 
-		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName)
+		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName, supersededTypes)
 		if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
 			return false, fmt.Errorf("push fallback index: %w", err)
 		}
 
-		attached, err = isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, opts...)
+		attached, err = isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, supersededTypes, opts...)
 		if err != nil {
 			return false, err
 		}
@@ -139,7 +139,7 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 	return nil
 }
 
-func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, opts ...remote.Option) (bool, error) {
+func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string, opts ...remote.Option) (bool, error) {
 	idx, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 	if err != nil {
 		return false, fmt.Errorf("pull fallback index: %w", err)
@@ -150,7 +150,7 @@ func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifa
 		return false, fmt.Errorf("read fallback index manifest: %w", err)
 	}
 
-	return isAttached(im, artifactDesc, artifactType, imageName), nil
+	return isAttached(im, artifactDesc, artifactType, imageName, supersededTypes), nil
 }
 
 // isAttached reports whether the index already resolves the artifact key to the
@@ -166,9 +166,14 @@ func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifa
 // The key must resolve to that descriptor and to nothing else. A stale entry of
 // the same image, or the descriptor go-containerregistry adds on its own, also
 // occupies the key, and both have to be evicted before the attach is done.
-func isAttached(im *v1.IndexManifest, artifactDesc v1.Descriptor, artifactType, imageName string) bool {
+func isAttached(im *v1.IndexManifest, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string) bool {
 	occupied := 0
 	for _, desc := range im.Manifests {
+		for _, superseded := range supersededTypes {
+			if isArtifactKey(desc, superseded, imageName) {
+				return false
+			}
+		}
 		if !isArtifactKey(desc, artifactType, imageName) {
 			continue
 		}
@@ -300,7 +305,7 @@ func pushFallbackIndex(ctx context.Context, repo, parentDigest string, idx v1.Im
 	return nil
 }
 
-func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, artifactType, imageName string) v1.ImageIndex {
+func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string) v1.ImageIndex {
 	im, err := current.IndexManifest()
 	if err != nil || im == nil {
 		return newStaticIndex([]v1.Descriptor{artifactDesc})
@@ -318,11 +323,23 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 		if isArtifactKey(manifest, artifactType, imageName) {
 			continue
 		}
+		if supersededKey(manifest, supersededTypes, imageName) {
+			continue
+		}
 		kept = append(kept, manifest)
 	}
 	kept = append(kept, artifactDesc)
 
 	return newStaticIndex(kept)
+}
+
+func supersededKey(desc v1.Descriptor, supersededTypes []string, imageName string) bool {
+	for _, superseded := range supersededTypes {
+		if isArtifactKey(desc, superseded, imageName) {
+			return true
+		}
+	}
+	return false
 }
 
 type staticIndex struct {

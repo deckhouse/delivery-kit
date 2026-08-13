@@ -15,5 +15,5 @@ shell:
     - printf 'this is not valid json at all, definitely broken output' > /pm.lock
 packages:
   - type: os-pm
-    spec: "pm.yaml"
-    lock: "pm.lock"
+    spec:
+      - curl==8.12.1

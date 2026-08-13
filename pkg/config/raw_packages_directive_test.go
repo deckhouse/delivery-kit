@@ -45,52 +45,48 @@ var _ = Describe("rawPackagesDirective", func() {
 			Expect(packages).To(HaveLen(len(expectedPackages)))
 			for i, expected := range expectedPackages {
 				Expect(packages[i].Type).To(Equal(expected.Type))
-				Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				if expected.Type == PackagesDirectiveTypeOSPM {
+					Expect(packages[i].Spec).To(Equal(expected.Spec))
+				} else {
+					Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				}
 			}
 		},
 
-		Entry("os-pm with file-based spec and lock",
+		Entry("os-pm with inline spec list",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": "pm.yaml",
-						"lock": "pm.lock",
+						"spec": []string{"curl", "jq"},
 					},
 				},
 			},
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 				},
 			},
 		),
 
-		Entry("os-pm with minimal config (defaults to pm.yaml/pm.lock)",
+		Entry("os-pm with multiple packages in spec",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": "pm.yaml",
-						"lock": "pm.lock",
+						"spec": []string{"curl==8.12.1", "jq", "git"},
 					},
 				},
 			},
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl==8.12.1", "jq", "git"}},
 				},
 			},
 		),
@@ -158,7 +154,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": "pm.yaml",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"1INVALID": "value",
 						},
@@ -174,7 +170,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": "pm.yaml",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"has=equals": "value",
 						},
@@ -190,7 +186,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": "pm.yaml",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"MY-VAR": "value",
 						},
@@ -207,20 +203,45 @@ var _ = Describe("rawPackagesDirective", func() {
 					{
 						"type":    "os-pm",
 						"workdir": "/app",
-						"spec":    "pm.yaml",
+						"spec":    []string{"curl", "jq"},
 					},
 				},
 			},
 		),
 
-		Entry("os-pm with list spec is rejected",
+		Entry("os-pm with string spec is rejected",
 			map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine:latest",
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
-						"spec": []string{"curl", "jq"},
+						"spec": "pm.yaml",
+					},
+				},
+			},
+		),
+
+		Entry("os-pm with empty spec list is rejected",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{},
+					},
+				},
+			},
+		),
+
+		Entry("os-pm with nil spec is rejected",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
 					},
 				},
 			},
@@ -234,7 +255,12 @@ var _ = Describe("rawPackagesDirective", func() {
 			Expect(packages).To(HaveLen(len(expectedPackages)))
 			for i, expected := range expectedPackages {
 				Expect(packages[i].Type).To(Equal(expected.Type))
-				Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				if expected.Type == PackagesDirectiveTypeOSPM {
+					Expect(packages[i].Spec).To(Equal(expected.Spec))
+					Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				} else {
+					Expect(packages[i].FileBased).To(Equal(expected.FileBased))
+				}
 				Expect(packages[i].Env).To(Equal(expected.Env))
 			}
 		},
@@ -246,6 +272,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"_MY_VAR": "value",
 						},
@@ -255,10 +282,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 					Env: map[string]string{
 						"_MY_VAR": "value",
 					},
@@ -273,6 +297,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"HTTP_PROXY": "http://proxy:8080",
 						},
@@ -282,10 +307,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 					Env: map[string]string{
 						"HTTP_PROXY": "http://proxy:8080",
 					},
@@ -300,6 +322,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"DOCKER_CONFIG": "/run/secrets/docker",
 						},
@@ -309,10 +332,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 					Env: map[string]string{
 						"DOCKER_CONFIG": "/run/secrets/docker",
 					},
@@ -327,6 +347,7 @@ var _ = Describe("rawPackagesDirective", func() {
 				"packages": []map[string]interface{}{
 					{
 						"type": "os-pm",
+						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
 							"DEBIAN_FRONTEND": "noninteractive",
 						},
@@ -336,10 +357,7 @@ var _ = Describe("rawPackagesDirective", func() {
 			[]*PackagesDirective{
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 					Env: map[string]string{
 						"DEBIAN_FRONTEND": "noninteractive",
 					},

@@ -20,6 +20,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
@@ -50,7 +51,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -86,7 +87,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if (osPmLockPath != "" || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
 			targetBOM = cyclonedxutil.NewBOM()
 			targetBOM.Metadata = &cdx.Metadata{
 				Component: &cdx.Component{
@@ -125,6 +126,31 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			resultBOM, err = patcher.Apply(ctx, resultBOM)
 			if err != nil {
 				return err
+			}
+		}
+
+		// Collect os-pm packages from the built image (replaces PMBOMPatcher)
+		if osPmEnabled {
+			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
+			if err != nil {
+				return fmt.Errorf("collect os-pm BOM: %w", err)
+			}
+			if pmBOM != nil {
+				if pmBOM.Components != nil {
+					if resultBOM.Components == nil {
+						resultBOM.Components = pmBOM.Components
+					} else {
+						*resultBOM.Components = append(*resultBOM.Components, *pmBOM.Components...)
+					}
+				}
+				if pmBOM.Dependencies != nil {
+					if resultBOM.Dependencies == nil {
+						resultBOM.Dependencies = pmBOM.Dependencies
+					} else {
+						*resultBOM.Dependencies = append(*resultBOM.Dependencies, *pmBOM.Dependencies...)
+					}
+				}
+				cyclonedxutil.DedupBOM(resultBOM)
 			}
 		}
 

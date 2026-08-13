@@ -69,8 +69,8 @@ var _ = Describe("ToCatalogers", func() {
 		Entry("os-pm entries are skipped by buildResolvers per FR-012",
 			[]*config.PackagesDirective{
 				{
-					Type:      config.PackagesDirectiveTypeOSPM,
-					FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"},
+					Type: config.PackagesDirectiveTypeOSPM,
+					Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}},
 				},
 			},
 			nil,
@@ -79,12 +79,12 @@ var _ = Describe("ToCatalogers", func() {
 		Entry("multiple os-pm entries are skipped by buildResolvers per FR-012",
 			[]*config.PackagesDirective{
 				{
-					Type:      config.PackagesDirectiveTypeOSPM,
-					FileBased: config.FileBasedSpec{Spec: "pm.yaml", Lock: "pm.lock"},
+					Type: config.PackagesDirectiveTypeOSPM,
+					Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}},
 				},
 				{
-					Type:      config.PackagesDirectiveTypeOSPM,
-					FileBased: config.FileBasedSpec{Spec: "custom/pm.yaml", Lock: "custom/pm.lock"},
+					Type: config.PackagesDirectiveTypeOSPM,
+					Spec: config.PackagesSpec{Packages: []string{"git"}},
 				},
 			},
 			nil,

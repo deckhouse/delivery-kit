@@ -1,0 +1,22 @@
+project: werf-test-e2e-sbom-multiplatform-packages
+configVersion: 1
+build:
+  platform:
+    - linux/amd64
+    - linux/arm64
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.werf.io/werf/scratch
+git:
+  - add: /
+    to: /
+secrets:
+  - env: PACKAGES_VERSION
+  - env: REGISTRY
+packages:
+  - type: os-pm
+    spec: "pm.yaml"
+    lock: "pm.lock"

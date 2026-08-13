@@ -1,0 +1,15 @@
+project: werf-test-e2e-sbom-multiplatform
+configVersion: 1
+build:
+  platform:
+    - linux/amd64
+    - linux/arm64
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.werf.io/werf/scratch
+git:
+  - add: /
+    to: /app

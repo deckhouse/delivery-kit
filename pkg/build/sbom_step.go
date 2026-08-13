@@ -60,7 +60,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity)
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -79,7 +79,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return nil
 	}
 
-	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}); err != nil {
+	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
 		return fmt.Errorf("unable to pull %q: %w", stageDesc.Info.Name, err)
 	}
 
@@ -151,12 +151,15 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 const sbomArtifactFormatVersion = "2"
 
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity string) string {
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
 	var parts []string
 	parts = append(parts, sbomArtifactFormatVersion)
 	parts = append(parts, scanOpts.Checksum())
 	parts = append(parts, mergeOpts.Checksum())
 	parts = append(parts, signerIdentity)
+	if targetPlatform != "" {
+		parts = append(parts, targetPlatform)
+	}
 	return util.Sha256Hash(strings.Join(parts, "-"))
 }
 
@@ -209,10 +212,14 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 				return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
 			}
 		}
-		return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled: %w", imageInfo.Name, err)
+		return nil, baseSbomMissingError(imageInfo, err)
 	}
 
 	return bom, nil
+}
+
+func baseSbomMissingError(imageInfo *image.Info, err error) error {
+	return fmt.Errorf("the base image %q must have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled; note: if the base image is a multi-platform image built by an older werf version, its SBOM is attached in a legacy platform-ambiguous format and cannot be used — rebuild the base image with a newer werf version: %w", imageInfo.Name, err)
 }
 
 func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {

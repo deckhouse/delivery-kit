@@ -496,5 +496,18 @@ var _ = Describe("deleteOrphanedArtifacts", func() {
 			},
 			false, true, "UNAUTHORIZED",
 		),
+		Entry("per-platform fallback tags deleted like any other orphan",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{
+					"repo:sha256-aaaa111",
+					"repo:sha256-bbbb222",
+					"repo:sha256-cccc333",
+				}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-aaaa111").Return(nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-bbbb222").Return(nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-cccc333").Return(nil)
+			},
+			false, false, "",
+		),
 	)
 })

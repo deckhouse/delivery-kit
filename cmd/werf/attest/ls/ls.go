@@ -23,6 +23,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	var digestFlag string
 	var tagFlag string
+	var platformFlag string
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:                   "ls",
@@ -46,7 +47,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			common.LogVersion()
 
 			return common.LogRunningTime(func() error {
-				return runLs(ctx, digestFlag, tagFlag)
+				return runLs(ctx, digestFlag, tagFlag, platformFlag)
 			})
 		},
 	})
@@ -66,11 +67,12 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the image (e.g. sha256:abc123)")
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Only list attestations of this platform when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]")
 
 	return cmd
 }
 
-func runLs(ctx context.Context, digest, tag string) error {
+func runLs(ctx context.Context, digest, tag, platform string) error {
 	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
 
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
@@ -108,34 +110,82 @@ func runLs(ctx context.Context, digest, tag string) error {
 		digest = resolved
 	}
 
-	infos, err := attestation.List(ctx, repoAddr, digest)
+	platform, err = artifact.NormalizePlatform(platform)
 	if err != nil {
-		return fmt.Errorf("list attestations: %w", err)
+		return err
 	}
 
-	if len(infos) == 0 {
+	entries, err := artifact.ListIndexPlatforms(ctx, repoAddr, digest)
+	if err != nil {
+		return err
+	}
+
+	rows, err := collectRows(ctx, repoAddr, entries, platform)
+	if err != nil {
+		return err
+	}
+
+	if len(rows) == 0 {
 		logboek.Context(ctx).Default().LogF("No attestations found\n")
 		return nil
 	}
 
 	return logboek.Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "PREDICATE TYPE\tDIGEST\tSIGNED")
-		for _, info := range infos {
-			signed := "no"
-			if info.Signed {
-				signed = "yes"
-			}
-			predType := info.PredicateType
-			if predType == "" {
-				predType = "(unknown)"
-			}
-			digestShort := info.Digest
-			if len(digestShort) > 19 {
-				digestShort = digestShort[:19] + "..."
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", predType, digestShort, signed)
+		fmt.Fprintln(w, "PLATFORM\tPREDICATE TYPE\tDIGEST\tSIGNED")
+		for _, row := range rows {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", row.platform, row.predicateType, row.digest, row.signed)
 		}
 		return w.Flush()
 	})
+}
+
+type lsRow struct {
+	platform      string
+	predicateType string
+	digest        string
+	signed        string
+}
+
+func collectRows(ctx context.Context, repoAddr string, entries []artifact.PlatformDigest, platform string) ([]lsRow, error) {
+	var rows []lsRow
+	for _, entry := range entries {
+		if platform != "" && !artifact.PlatformMatches(entry.Platform, platform) {
+			continue
+		}
+
+		infos, err := attestation.List(ctx, repoAddr, entry.Digest)
+		if err != nil {
+			return nil, fmt.Errorf("list attestations: %w", err)
+		}
+
+		rows = append(rows, infosToRows(entry.Platform, infos)...)
+	}
+	return rows, nil
+}
+
+func infosToRows(platform string, infos []attestation.AttestationInfo) []lsRow {
+	rows := make([]lsRow, 0, len(infos))
+	for _, info := range infos {
+		row := lsRow{
+			platform:      platform,
+			predicateType: info.PredicateType,
+			digest:        info.Digest,
+			signed:        "no",
+		}
+		if row.platform == "" {
+			row.platform = "-"
+		}
+		if row.predicateType == "" {
+			row.predicateType = "(unknown)"
+		}
+		if len(row.digest) > 19 {
+			row.digest = row.digest[:19] + "..."
+		}
+		if info.Signed {
+			row.signed = "yes"
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }

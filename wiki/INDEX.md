@@ -29,6 +29,8 @@ page files, not here.
 - [pm-sbom-collection](./pages/pm-sbom-collection.md) — SBOM state collection for `os-pm` via `pm.lock` from build context
 
 - [purl-retry-parameters](./pages/purl-retry-parameters.md) — reducing PURL retry budget and HTTP timeout for faster SBOM resolution failure
+- [per-platform-sbom](./pages/per-platform-sbom.md) — per-platform SBOM generation for multi-platform images, storage model, and CLI consequences
+- [storage-model-comparison](./pages/storage-model-comparison.md) — comparison of delivery-kit, BuildKit, and OCI Spec storage models for multi-platform SBOMs
 
 ## reference
 

@@ -1,0 +1,24 @@
+package build
+
+import (
+	"errors"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/image"
+)
+
+var _ = Describe("SbomStep base SBOM missing error", func() {
+	It("keeps the attach guidance and adds the legacy multi-platform hint", func() {
+		cause := errors.New("pull SBOM for \"base\": artifact not found")
+		err := baseSbomMissingError(&image.Info{Name: "registry.example.com/base:tag"}, cause)
+
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("registry.example.com/base:tag"))
+		Expect(err.Error()).To(ContainSubstring("must have an SBOM artifact attached"))
+		Expect(err.Error()).To(ContainSubstring("rebuild the base image with a newer werf version"))
+		Expect(err.Error()).To(ContainSubstring("legacy platform-ambiguous format"))
+		Expect(errors.Is(err, cause)).To(BeTrue())
+	})
+})

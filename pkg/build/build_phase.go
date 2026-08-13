@@ -290,7 +290,7 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 				if errors.Is(err, externalref.ErrExternalRefEnrich) {
 					var compErr *externalref.ComponentError
 					if errors.As(err, &compErr) {
-						purlErrors.Store(name, compErr.ComponentDetails())
+						purlErrors.LoadOrStore(name, compErr.ComponentDetails())
 					}
 					return nil
 				}
@@ -311,33 +311,41 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 }
 
 func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {
-	var stageDesc *imagePkg.StageDesc
-	var primaryImg *image.Image
-
-	if len(images) == 1 {
-		primaryImg = images[0]
-		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
-	} else {
-		primaryImg = images[0]
-		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-			stageDesc = multiImg.GetStageDesc()
+	var signer signature.Signer
+	var signerIdentity string
+	if phase.SbomSigningOptions.Enabled {
+		if sbomSigningSupported(images) {
+			signer = phase.SbomSigningOptions.Signer().SignerVerifier()
+			signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
 		} else {
-			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
+			logboek.Context(ctx).Warn().LogF("multi-platform SBOM signing is not yet supported, SBOM will be unsigned\n")
 		}
 	}
 
-	baseImageSbom, err := phase.collectBaseImageSbom(ctx, primaryImg)
+	for _, img := range images {
+		if err := phase.convergePlatformImageSbom(ctx, name, img, signer, signerIdentity); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string) error {
+	stageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+
+	baseImageSbom, err := phase.collectBaseImageSbom(ctx, img)
 	if err != nil {
 		return err
 	}
 
-	importImageSboms, err := phase.collectImportImageSboms(ctx, primaryImg)
+	importImageSboms, err := phase.collectImportImageSboms(ctx, img)
 	if err != nil {
 		return err
 	}
 
 	var gostConfig gost.Config
-	if imgSbom := primaryImg.Sbom(); imgSbom != nil {
+	if imgSbom := img.Sbom(); imgSbom != nil {
 		gostConfig = imgSbom.Gost
 	}
 
@@ -350,8 +358,8 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	gitRepo := phase.Conveyor.GiterminismManager().LocalGitRepo()
 	commit := phase.Conveyor.GiterminismManager().HeadCommit(ctx)
 	imageContext := ""
-	if primaryImg.IsDockerfileImage && primaryImg.DockerfileImageConfig != nil {
-		imageContext = primaryImg.DockerfileImageConfig.Context
+	if img.IsDockerfileImage && img.DockerfileImageConfig != nil {
+		imageContext = img.DockerfileImageConfig.Context
 	}
 
 	externalRefPatcher, err := externalref.NewExternalRefPatcher()
@@ -362,13 +370,13 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
 	var osPmLockPath, osPmSpecPath string
-	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
-		imageBase := primaryImg.StapelImageConfig.ImageBaseConfig()
+	if img.StapelImageConfig != nil && img.StapelImageConfig.ImageBaseConfig() != nil {
+		imageBase := img.StapelImageConfig.ImageBaseConfig()
 		osPmLockPath = imageBase.OSPMLockPath()
 		osPmSpecPath = imageBase.OSPMSpecPath()
 	}
 
-	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
+	isStapelScratch := img.StapelImageConfig != nil && sbomImage.IsScratchRef(img.GetBaseImageReference())
 
 	patchers := []BOMPatcherInterface{
 		goModPatcher,
@@ -380,38 +388,20 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 
 	patchers = append(patchers, externalRefPatcher)
 
-	scanOpts := phase.scanOptionsForImage(primaryImg)
+	scanOpts := phase.scanOptionsForImage(img)
 
-	var signer signature.Signer
-	var signerIdentity string
-	if phase.SbomSigningOptions.Enabled {
-		if sbomSigningSupported(images) {
-			signer = phase.SbomSigningOptions.Signer().SignerVerifier()
-			signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
-		} else {
-			logboek.Context(ctx).Warn().LogF("multi-platform SBOM signing is not yet supported, SBOM will be unsigned\n")
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
+		if img.TargetPlatform != "" {
+			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
-	}
-
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform, signer, signerIdentity); err != nil {
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	finalStageDesc := phase.finalStageDescForImage(name, images)
+	finalStageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
 	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
 		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
 	}
 
-	return nil
-}
-
-func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Image) *imagePkg.StageDesc {
-	if len(images) == 1 {
-		return images[0].GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
-	}
-	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-		return multiImg.GetFinalStageDesc()
-	}
 	return nil
 }
 

@@ -28,6 +28,7 @@ type FileReader interface {
 	ConfigGoTemplateFilesGlob(ctx context.Context, pattern string) (map[string]interface{}, error)
 	ConfigGoTemplateFilesIsDir(ctx context.Context, relPath string) (bool, error)
 	ReadDockerfile(ctx context.Context, relPath string) ([]byte, error)
+	ReadVEXFile(ctx context.Context, relPath string) ([]byte, error)
 	IsDockerignoreExistAnywhere(ctx context.Context, relPath string) (bool, error)
 	ReadDockerignore(ctx context.Context, relPath string) ([]byte, error)
 
@@ -50,5 +51,6 @@ type Inspector interface {
 	InspectConfigSecretEnvAccepted(secret string) error
 	InspectConfigSecretSrcAccepted(secret string) error
 	InspectConfigSecretValueAccepted(secret string) error
+	InspectConfigVexFilePath(relPath string) error
 	InspectIncludesAllowUpdate() error
 }

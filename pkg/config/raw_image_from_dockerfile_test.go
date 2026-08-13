@@ -24,7 +24,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 	})
 
 	DescribeTable("unmarshal and convert to directive succeed w/o Dependencies",
-		func(yamlMap map[string]interface{}, expectedImage *ImageFromDockerfile) {
+		func(ctx SpecContext, yamlMap map[string]interface{}, expectedImage *ImageFromDockerfile) {
 			if len(yamlMap) == 0 {
 				Fail("yamlMap should not be empty")
 			}
@@ -39,7 +39,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 
 			meta := &Meta{}
 
-			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, meta, "image1")
+			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(ctx, giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			dockerfileImage.raw = nil // set to nil for correct deep comparison
@@ -82,7 +82,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",
-		func(yamlMap map[string]interface{}, expected []*Dependency) {
+		func(ctx SpecContext, yamlMap map[string]interface{}, expected []*Dependency) {
 			switch {
 			case len(yamlMap) == 0:
 				Fail("yamlMap should not be empty")
@@ -100,7 +100,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 
 			meta := &Meta{}
 
-			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, meta, "image1")
+			dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(ctx, giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			for i, expectedDep := range expected {
@@ -248,7 +248,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 	)
 
 	DescribeTable("unmarshal and convert to directive fail with configError",
-		func(yamlMap map[string]interface{}) {
+		func(ctx SpecContext, yamlMap map[string]interface{}) {
 			if len(yamlMap) == 0 {
 				Fail("yamlMap should not be empty")
 			}
@@ -264,7 +264,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 			var errConf *configError
 			meta := &Meta{}
 
-			_, err = rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, meta, "image1")
+			_, err = rawDockerfileImage.toImageFromDockerfileDirective(ctx, giterminismManager, meta, "image1")
 			Expect(errors.As(err, &errConf)).To(BeTrue())
 		},
 		Entry(

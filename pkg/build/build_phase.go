@@ -94,6 +94,7 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 		BasePhase:         BasePhase{c},
 		BuildPhaseOptions: opts,
 		sbomStep:          newSbomStep(c.ContainerBackend, c.StorageManager.GetStagesStorage()),
+		vexStep:           newVexStep(),
 		ImagesReport:      NewImagesReport(),
 	}
 }
@@ -102,6 +103,7 @@ type BuildPhase struct {
 	BasePhase
 	BuildPhaseOptions
 	sbomStep *sbomStep
+	vexStep  *vexStep
 
 	StagesIterator *StagesIterator
 	ImagesReport   *ImagesReport
@@ -237,6 +239,10 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 	}
 
 	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
+		return err
+	}
+
+	if err := phase.convergeVexByImagesSets(ctx); err != nil {
 		return err
 	}
 
@@ -1598,6 +1604,89 @@ E.g.:
 - If you want to build images instead of requiring them to be already built, remove --require-built-images flag / WERF_REQUIRE_BUILT_IMAGES env`)
 			logboek.Context(ctx).Warn().LogLn()
 		})
+}
+
+// convergeVexByImagesSets publishes VEX artifacts for all images respecting dependency order.
+
+func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
+	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
+		return nil
+	}
+
+	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
+
+		imagesByName := make(map[string][]*image.Image)
+
+		for _, img := range imagesInSet {
+			imagesByName[img.Name] = append(imagesByName[img.Name], img)
+		}
+
+		names := make([]string, 0, len(imagesByName))
+
+		for name := range imagesByName {
+			names = append(names, name)
+		}
+
+		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
+			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+
+			InitDockerCLIForEachWorker: true,
+		}, func(ctx context.Context, taskId int) error {
+			name := names[taskId]
+
+			images := imagesByName[name]
+
+			return phase.convergeImageVex(ctx, name, images)
+		}); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, images []*image.Image) error {
+	var stageDesc *imagePkg.StageDesc
+
+	var primaryImg *image.Image
+
+	if len(images) == 1 {
+
+		primaryImg = images[0]
+
+		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+
+	} else {
+
+		primaryImg = images[0]
+
+		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+			stageDesc = multiImg.GetStageDesc()
+		} else {
+			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
+		}
+
+	}
+
+	vexConfig := primaryImg.Vex()
+
+	if vexConfig == nil || vexConfig.Document == "" {
+		return nil
+	}
+
+	// Read VEX file from the project directory through giterminism manager.
+	giterminismManager := phase.Conveyor.GiterminismManager()
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, vexConfig.Document)
+	if err != nil {
+		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
+	}
+
+	if err := phase.vexStep.Converge(ctx, vexContent, stageDesc, name, primaryImg.TargetPlatform); err != nil {
+		return fmt.Errorf("unable to converge VEX for image %q: %w", name, err)
+	}
+
+	return nil
 }
 
 func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image) (*cdx.BOM, error) {

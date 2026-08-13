@@ -11,6 +11,7 @@ type ImageInterface interface {
 	GetFrom() string
 	SetFromExternal()
 	Sbom() *Sbom
+	Vex() *Vex
 
 	dependsOn() DependsOn
 	rawDoc() *doc

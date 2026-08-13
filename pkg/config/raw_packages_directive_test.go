@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -20,7 +21,7 @@ var _ = Describe("rawPackagesDirective", func() {
 		giterminismManager = NewGiterminismManagerStub(localGitRepo)
 	})
 
-	directivesFromYaml := func(yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
+	directivesFromYaml := func(ctx context.Context, yamlMap map[string]interface{}) ([]*PackagesDirective, error) {
 		rawYaml, err := yaml.Marshal(yamlMap)
 		Expect(err).To(Succeed())
 
@@ -29,7 +30,7 @@ var _ = Describe("rawPackagesDirective", func() {
 
 		Expect(yaml.UnmarshalStrict(doc.Content, rawStapelImage)).To(Succeed())
 
-		stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, &Meta{}, "image1")
+		stapelImage, err := rawStapelImage.toStapelImageDirective(ctx, giterminismManager, &Meta{}, "image1")
 		if err != nil {
 			return nil, err
 		}
@@ -37,8 +38,8 @@ var _ = Describe("rawPackagesDirective", func() {
 	}
 
 	DescribeTable("unmarshal and convert to directive succeed",
-		func(yamlMap map[string]interface{}, expectedPackages []*PackagesDirective) {
-			packages, err := directivesFromYaml(yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}, expectedPackages []*PackagesDirective) {
+			packages, err := directivesFromYaml(ctx, yamlMap)
 			Expect(err).To(Succeed())
 
 			Expect(packages).To(HaveLen(len(expectedPackages)))
@@ -130,8 +131,8 @@ var _ = Describe("rawPackagesDirective", func() {
 	)
 
 	DescribeTable("convert to directive fails for invalid content",
-		func(yamlMap map[string]interface{}) {
-			_, err := directivesFromYaml(yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}) {
+			_, err := directivesFromYaml(ctx, yamlMap)
 			Expect(err).To(HaveOccurred())
 		},
 
@@ -227,8 +228,8 @@ var _ = Describe("rawPackagesDirective", func() {
 	)
 
 	DescribeTable("convert to directive succeeds with valid env var names",
-		func(yamlMap map[string]interface{}, expectedPackages []*PackagesDirective) {
-			packages, err := directivesFromYaml(yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}, expectedPackages []*PackagesDirective) {
+			packages, err := directivesFromYaml(ctx, yamlMap)
 			Expect(err).To(Succeed())
 			Expect(packages).To(HaveLen(len(expectedPackages)))
 			for i, expected := range expectedPackages {

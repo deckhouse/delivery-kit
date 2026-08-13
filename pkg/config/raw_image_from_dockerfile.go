@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
@@ -24,6 +25,7 @@ type rawImageFromDockerfile struct {
 	Staged          bool                   `yaml:"staged,omitempty"`
 	Platform        []string               `yaml:"platform,omitempty"`
 	RawSbom         *rawSbom               `yaml:"sbom,omitempty"`
+	RawVex          *rawVex                `yaml:"vex,omitempty"`
 	RawSecrets      []*rawSecret           `yaml:"secrets,omitempty"`
 	RawImageSpec    *rawImageSpec          `yaml:"imageSpec,omitempty"`
 
@@ -77,9 +79,9 @@ func (c *rawImageFromDockerfile) UnmarshalYAML(unmarshal func(interface{}) error
 	return nil
 }
 
-func (c *rawImageFromDockerfile) toImageFromDockerfileDirectives(giterminismManager giterminism_manager.Interface, meta *Meta) (images []*ImageFromDockerfile, err error) {
+func (c *rawImageFromDockerfile) toImageFromDockerfileDirectives(ctx context.Context, giterminismManager giterminism_manager.Interface, meta *Meta) (images []*ImageFromDockerfile, err error) {
 	for _, imageName := range c.Images {
-		if image, err := c.toImageFromDockerfileDirective(giterminismManager, meta, imageName); err != nil {
+		if image, err := c.toImageFromDockerfileDirective(ctx, giterminismManager, meta, imageName); err != nil {
 			return nil, err
 		} else {
 			images = append(images, image)
@@ -89,7 +91,7 @@ func (c *rawImageFromDockerfile) toImageFromDockerfileDirectives(giterminismMana
 	return images, nil
 }
 
-func (c *rawImageFromDockerfile) toImageFromDockerfileDirective(giterminismManager giterminism_manager.Interface, meta *Meta, imageName string) (image *ImageFromDockerfile, err error) {
+func (c *rawImageFromDockerfile) toImageFromDockerfileDirective(ctx context.Context, giterminismManager giterminism_manager.Interface, meta *Meta, imageName string) (image *ImageFromDockerfile, err error) {
 	image = &ImageFromDockerfile{}
 	image.Name = imageName
 	image.Dockerfile = c.Dockerfile
@@ -156,7 +158,11 @@ func (c *rawImageFromDockerfile) toImageFromDockerfileDirective(giterminismManag
 		return nil, err
 	}
 
-	if err := image.validate(giterminismManager); err != nil {
+	if c.RawVex != nil {
+		image.vex = &Vex{Document: c.RawVex.Document}
+	}
+
+	if err := image.validate(ctx, giterminismManager); err != nil {
 		return nil, err
 	}
 

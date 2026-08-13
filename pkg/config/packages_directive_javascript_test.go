@@ -18,8 +18,8 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 	})
 
 	DescribeTable("unmarshal and convert succeed",
-		func(yamlMap map[string]interface{}, expected []*PackagesDirective) {
-			packages, err := directivesFromYaml(giterminismManager, yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}, expected []*PackagesDirective) {
+			packages, err := directivesFromYaml(ctx, giterminismManager, yamlMap)
 			Expect(err).To(Succeed())
 
 			Expect(packages).To(HaveLen(len(expected)))
@@ -166,8 +166,8 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 	)
 
 	DescribeTable("convert to directive fails when required fields are missing",
-		func(yamlMap map[string]interface{}) {
-			_, err := directivesFromYaml(giterminismManager, yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}) {
+			_, err := directivesFromYaml(ctx, giterminismManager, yamlMap)
 			Expect(err).To(HaveOccurred())
 		},
 
@@ -224,8 +224,8 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 	})
 
 	DescribeTable("mixed config and monorepo scenarios",
-		func(yamlMap map[string]interface{}, expected []*PackagesDirective) {
-			packages, err := directivesFromYaml(giterminismManager, yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}, expected []*PackagesDirective) {
+			packages, err := directivesFromYaml(ctx, giterminismManager, yamlMap)
 			Expect(err).To(Succeed())
 
 			Expect(packages).To(HaveLen(len(expected)))

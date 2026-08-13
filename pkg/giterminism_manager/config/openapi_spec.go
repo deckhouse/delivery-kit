@@ -53,6 +53,8 @@ definitions:
         $ref: '#/definitions/ConfigStapel'
       dockerfile:
         $ref: '#/definitions/ConfigDockerfile'
+      vex:
+        $ref: '#/definitions/ConfigVex'
   ConfigGoTemplateRendering:
     type: object
     additionalProperties: {}
@@ -104,6 +106,14 @@ definitions:
         items:
           type: string
       allowContextAddFiles:
+        type: array
+        items:
+          type: string
+  ConfigVex:
+    type: object
+    additionalProperties: {}
+    properties:
+      allowUncommitted:
         type: array
         items:
           type: string

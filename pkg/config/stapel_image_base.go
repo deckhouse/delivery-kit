@@ -6,6 +6,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v2/pkg/vex"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
@@ -30,6 +31,7 @@ type StapelImageBase struct {
 	cacheVersion string
 	final        bool
 	sbom         *Sbom
+	vex          *Vex
 	platform     []string
 	raw          *rawStapelImage
 }
@@ -79,6 +81,10 @@ func (c *StapelImageBase) SetFromExternal() {
 
 func (c *StapelImageBase) Sbom() *Sbom {
 	return c.sbom
+}
+
+func (c *StapelImageBase) Vex() *Vex {
+	return c.vex
 }
 
 func (c *StapelImageBase) OSPMLockPath() string {
@@ -164,7 +170,7 @@ func (c *StapelImageBase) exports() []autoExcludeExport {
 	return exports
 }
 
-func (c *StapelImageBase) validate(giterminismManager giterminism_manager.Interface) error {
+func (c *StapelImageBase) validate(ctx context.Context, giterminismManager giterminism_manager.Interface) error {
 	if c.FromLatest {
 		if err := giterminismManager.Inspector().InspectConfigStapelFromLatest(); err != nil {
 			return newDetailedConfigError(err.Error(), nil, c.raw.doc)
@@ -198,6 +204,25 @@ func (c *StapelImageBase) validate(giterminismManager giterminism_manager.Interf
 	}
 
 	// TODO: валидацию формата `From`
+
+	if c.vex != nil && c.vex.Document != "" {
+		if err := c.validateVexFile(ctx, giterminismManager); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *StapelImageBase) validateVexFile(ctx context.Context, giterminismManager giterminism_manager.Interface) error {
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, c.vex.Document)
+	if err != nil {
+		return newDetailedConfigError(fmt.Sprintf("unable to read VEX file %q: %v", c.vex.Document, err), nil, c.raw.doc)
+	}
+
+	if err := vex.ValidateVEXDocument(vexContent); err != nil {
+		return newDetailedConfigError(fmt.Sprintf("invalid VEX document %q: %v", c.vex.Document, err), nil, c.raw.doc)
+	}
 
 	return nil
 }

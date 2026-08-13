@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
@@ -28,6 +29,7 @@ type rawStapelImage struct {
 	Platform             []string                `yaml:"platform,omitempty"`
 	Network              string                  `yaml:"network,omitempty"`
 	RawSbom              *rawSbom                `yaml:"sbom,omitempty"`
+	RawVex               *rawVex                 `yaml:"vex,omitempty"`
 	RawSecrets           []*rawSecret            `yaml:"secrets,omitempty"`
 	RawImageSpec         *rawImageSpec           `yaml:"imageSpec,omitempty"`
 	RawPackages          []*rawPackagesDirective `yaml:"packages,omitempty"`
@@ -108,9 +110,9 @@ func (c *rawStapelImage) stapelImageType() string {
 	return ""
 }
 
-func (c *rawStapelImage) toStapelImageDirectives(giterminismManager giterminism_manager.Interface, meta *Meta) (images []*StapelImage, err error) {
+func (c *rawStapelImage) toStapelImageDirectives(ctx context.Context, giterminismManager giterminism_manager.Interface, meta *Meta) (images []*StapelImage, err error) {
 	for _, imageName := range c.Images {
-		if image, err := c.toStapelImageDirective(giterminismManager, meta, imageName); err != nil {
+		if image, err := c.toStapelImageDirective(ctx, giterminismManager, meta, imageName); err != nil {
 			return nil, err
 		} else {
 			images = append(images, image)
@@ -120,11 +122,11 @@ func (c *rawStapelImage) toStapelImageDirectives(giterminismManager giterminism_
 	return images, nil
 }
 
-func (c *rawStapelImage) toStapelImageArtifactDirectives(giterminismManager giterminism_manager.Interface, meta *Meta) (*StapelImageArtifact, error) {
+func (c *rawStapelImage) toStapelImageArtifactDirectives(ctx context.Context, giterminismManager giterminism_manager.Interface, meta *Meta) (*StapelImageArtifact, error) {
 	imageArtifact := &StapelImageArtifact{}
 
 	var err error
-	if imageArtifact.StapelImageBase, err = c.toStapelImageBaseDirective(giterminismManager, meta, c.Artifact, true); err != nil {
+	if imageArtifact.StapelImageBase, err = c.toStapelImageBaseDirective(ctx, giterminismManager, meta, c.Artifact, true); err != nil {
 		return nil, err
 	}
 	imageArtifact.StapelImageBase.final = false
@@ -140,10 +142,10 @@ func (c *rawStapelImage) toStapelImageArtifactDirectives(giterminismManager gite
 	return imageArtifact, nil
 }
 
-func (c *rawStapelImage) toStapelImageDirective(giterminismManager giterminism_manager.Interface, meta *Meta, name string) (*StapelImage, error) {
+func (c *rawStapelImage) toStapelImageDirective(ctx context.Context, giterminismManager giterminism_manager.Interface, meta *Meta, name string) (*StapelImage, error) {
 	image := &StapelImage{}
 
-	if imageBase, err := c.toStapelImageBaseDirective(giterminismManager, meta, name, false); err != nil {
+	if imageBase, err := c.toStapelImageBaseDirective(ctx, giterminismManager, meta, name, false); err != nil {
 		return nil, err
 	} else {
 		image.StapelImageBase = imageBase
@@ -226,7 +228,7 @@ func (c *rawStapelImage) validateStapelImageArtifactDirective(imageArtifact *Sta
 	return nil
 }
 
-func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager giterminism_manager.Interface, meta *Meta, name string, isArtifact bool) (imageBase *StapelImageBase, err error) {
+func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, giterminismManager giterminism_manager.Interface, meta *Meta, name string, isArtifact bool) (imageBase *StapelImageBase, err error) {
 	if imageBase, err = c.toBaseStapelImageBaseDirective(giterminismManager, name); err != nil {
 		return nil, err
 	}
@@ -340,15 +342,19 @@ func (c *rawStapelImage) toStapelImageBaseDirective(giterminismManager gitermini
 		return nil, err
 	}
 
-	if err := c.validateStapelImageBaseDirective(giterminismManager, imageBase); err != nil {
+	if c.RawVex != nil {
+		imageBase.vex = &Vex{Document: c.RawVex.Document}
+	}
+
+	if err := c.validateStapelImageBaseDirective(ctx, giterminismManager, imageBase); err != nil {
 		return nil, err
 	}
 
 	return imageBase, nil
 }
 
-func (c *rawStapelImage) validateStapelImageBaseDirective(giterminismManager giterminism_manager.Interface, imageBase *StapelImageBase) (err error) {
-	if err := imageBase.validate(giterminismManager); err != nil {
+func (c *rawStapelImage) validateStapelImageBaseDirective(ctx context.Context, giterminismManager giterminism_manager.Interface, imageBase *StapelImageBase) (err error) {
+	if err := imageBase.validate(ctx, giterminismManager); err != nil {
 		return err
 	}
 

@@ -24,7 +24,7 @@ var _ = Describe("rawStapelImage", func() {
 	})
 
 	DescribeTable("unmarshal and convert to directive succeed w/o Dependencies",
-		func(yamlMap map[string]interface{}, expectedImage *StapelImage) {
+		func(ctx SpecContext, yamlMap map[string]interface{}, expectedImage *StapelImage) {
 			if len(yamlMap) == 0 {
 				Fail("yamlMap should not be empty")
 			}
@@ -39,7 +39,7 @@ var _ = Describe("rawStapelImage", func() {
 
 			meta := &Meta{}
 
-			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
+			stapelImage, err := rawStapelImage.toStapelImageDirective(ctx, giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			stapelImage.StapelImageBase.raw = nil // set to nil for correct deep comparison
@@ -90,7 +90,7 @@ var _ = Describe("rawStapelImage", func() {
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",
-		func(yamlMap map[string]interface{}, expected []*Dependency) {
+		func(ctx SpecContext, yamlMap map[string]interface{}, expected []*Dependency) {
 			switch {
 			case len(yamlMap) == 0:
 				Fail("yamlMap should not be empty")
@@ -107,7 +107,7 @@ var _ = Describe("rawStapelImage", func() {
 
 			meta := &Meta{}
 
-			stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
+			stapelImage, err := rawStapelImage.toStapelImageDirective(ctx, giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 
 			for i, expectedDep := range expected {
@@ -262,7 +262,7 @@ var _ = Describe("rawStapelImage", func() {
 	)
 
 	DescribeTable("unmarshal and convert to directive fail with configError",
-		func(yamlMap map[string]interface{}) {
+		func(ctx SpecContext, yamlMap map[string]interface{}) {
 			if len(yamlMap) == 0 {
 				Fail("yamlMap should not be empty")
 			}
@@ -278,7 +278,7 @@ var _ = Describe("rawStapelImage", func() {
 			var errConf *configError
 			meta := &Meta{}
 
-			_, err = rawStapelImage.toStapelImageDirective(giterminismManager, meta, "image1")
+			_, err = rawStapelImage.toStapelImageDirective(ctx, giterminismManager, meta, "image1")
 			Expect(errors.As(err, &errConf)).To(BeTrue())
 		},
 		Entry(

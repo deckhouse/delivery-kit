@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.77.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.1...v2.77.0-dk.2) (2026-08-13)
+
+
+### Features
+
+* **sbom, attest:** sign sbom during build with cosign compatibility ([#230](https://github.com/deckhouse/delivery-kit/issues/230)) ([2521b4e](https://github.com/deckhouse/delivery-kit/commit/2521b4e7f13d7d246358ec35880b3d9982a77271))
+* **vex:** add VEX lifecycle ([#218](https://github.com/deckhouse/delivery-kit/issues/218)) ([596f3c1](https://github.com/deckhouse/delivery-kit/commit/596f3c151a8bc263a77ead4799fea31c2c5ab690))
+
+
+### Bug Fixes
+
+* **image:** parse digest references correctly ([#245](https://github.com/deckhouse/delivery-kit/issues/245)) ([8201b1b](https://github.com/deckhouse/delivery-kit/commit/8201b1b6ef6a4098ca5e9ed0d3a6d53254ec15a7))
+* **release:** restore release automation on main ([#249](https://github.com/deckhouse/delivery-kit/issues/249)) ([60acbdf](https://github.com/deckhouse/delivery-kit/commit/60acbdfb54942763a12e75c67cb20787b0203aed))
+* **sbom:** drop internal builder label from missing-SBOM error ([297ec29](https://github.com/deckhouse/delivery-kit/commit/297ec296ac8dc56ea26d34df3ad65dc549cb9711))
+
 ## [2.77.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.3...v2.77.0-dk.1) (2026-08-11)
 
 

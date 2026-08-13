@@ -209,7 +209,7 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 				return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
 			}
 		}
-		return nil, fmt.Errorf("the base image %q must either have the label %q set to \"true\" or have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled: %w", imageInfo.Name, image.DeckhouseInternalBuilderLabel, err)
+		return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled: %w", imageInfo.Name, err)
 	}
 
 	return bom, nil

@@ -19,6 +19,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
@@ -240,7 +241,7 @@ func pullSbomFallbackIndexManifests(ctx SpecContext, repo, parentDigest string) 
 
 	var dsseDescs []v1.Descriptor
 	for _, desc := range im.Manifests {
-		if desc.ArtifactType == sbomImage.DSSEMediaType {
+		if desc.ArtifactType == attestation.DSSEMediaType || desc.ArtifactType == attestation.BundleMediaType {
 			dsseDescs = append(dsseDescs, desc)
 		}
 	}

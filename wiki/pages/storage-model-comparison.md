@@ -13,13 +13,13 @@ All three models solve the same problem: given an OCI Image Index referencing N 
 
 ### delivery-kit / werf: tag-based adjacency (fallback tags)
 
-Each platform manifest has its own fallback tag (`sha256-<platform-digest>`). That fallback tag points to an OCI Artifact Index whose descriptors point to the SBOM and provenance artifacts for that platform. The platform manifests themselves remain pure — no artifact entries in the top-level Image Index (S021).
+Each platform manifest has its own fallback tag (`sha256-<platform-digest>`). That fallback tag points to an OCI Artifact Index whose descriptors point to the SBOM (and any artifacts attached separately via `werf attest sign`) for that platform. The platform manifests themselves remain pure — no artifact entries in the top-level Image Index (S021).
 
-**Trade-off**: registry-agnostic (any OCI registry works) and cosign-compatible (cosign uses the same per-digest fallback tag walk). The cost is O(N) tag enumeration for discovery (S021).
+**Trade-off**: registry-agnostic (any OCI registry works) and cosign-compatible (signed SBOMs are Sigstore Bundles v0.3 on the same per-digest referrers tag schema cosign uses in OCI 1.1 mode). Discovery is a single GET of a known tag plus descriptor filtering — no tag listing; the real costs are the extra tags accumulating in the repository and the client-managed read-modify-write of the fallback index on attach (S021).
 
 ### BuildKit: single-index model with embedded attestation manifests
 
-All artifacts (SBOM, provenance) are first-class entries in the same OCI Image Index as the platform manifests — no separate fallback tags needed. Discovery is a simple index enumeration walk. Attestation manifests use `platform: "unknown/unknown"` so runtimes don't try to execute them (S021).
+All artifacts (SBOM, provenance) are first-class entries in the same OCI Image Index as the platform manifests — no separate fallback tags needed. Discovery is a simple index enumeration walk. Attestation manifests use `platform: "unknown/unknown"` so runtimes don't try to execute them, and are linked to their target via index descriptor annotations (`vnd.docker.reference.digest`, `vnd.docker.reference.type`); the OCI 1.1 `subject` field is added only in the opt-in `oci-artifact` exporter mode (S021).
 
 **Trade-off**: trivial enumeration, zero extra tag operations. The cost is that every artifact grows the image index, and naive clients that enumerate the index to find runnable images may be confused by non-image entries (S021).
 
@@ -37,14 +37,14 @@ All three models generate one SBOM per platform manifest, not one merged SBOM at
 
 | Dimension | delivery-kit | BuildKit | OCI Spec |
 |-----------|-------------|----------|----------|
-| Discovery | Fallback tag enumeration | Index walk | Referrers API |
+| Discovery | Fallback tag lookup (one GET per digest) | Index walk | Referrers API |
 | Index growth | Stable (N entries) | Grows with artifacts | Stable (N entries) |
-| Registry requirement | None | None (annotation fallback) | Referrers API |
+| Registry requirement | None | None (annotation linking) | Referrers API preferred; tag-schema fallback mandated |
 | Artifact visibility | Hidden inside fallback tags | Visible in index | Via API query |
-| Format coupling | DSSE envelope (cosign compat) | OCI manifest + in-toto layer | Open |
+| Format coupling | DSSE (unsigned) / Sigstore Bundle v0.3 (signed) | OCI manifest + in-toto layer | Open |
 
 ## Relevance to delivery-kit
 
-The delivery-kit model is a hybrid: OCI fallback tag schema (same schema as the distribution-spec 1.1 referrers tag schema fallback) for discovery, DSSE envelopes for cosign compatibility, explicit prohibition of index-level artifacts (matching OCI Spec's per-manifest idiom), and no artifact embedding in the Image Index (unlike BuildKit) (S021).
+The delivery-kit model is a hybrid: OCI fallback tag schema (same schema as the distribution-spec 1.1 referrers tag schema fallback) for discovery, DSSE envelopes for unsigned SBOMs and Sigstore Bundles v0.3 for signed ones (the bundle is what cosign verifies), explicit prohibition of index-level artifacts (matching OCI Spec's per-manifest idiom), and no artifact embedding in the Image Index (unlike BuildKit). The artifact type is declared through `config.mediaType` (a go-containerregistry limitation; registries derive the descriptor `artifactType` from it per distribution-spec 1.1), which diverges from the letter of the cosign BUNDLE_SPEC (empty config + manifest-level `artifactType`) while staying functionally equivalent at the descriptor level (S021).
 
 See also: [Per-platform SBOM](./per-platform-sbom.md)

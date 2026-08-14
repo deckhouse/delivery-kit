@@ -53,6 +53,9 @@
 - [ ] G008 No `this`/`self` as receiver names (1-2 letters, consistent)
 - [ ] G009 `task build` passes (not raw `go build`)
 - [ ] G010 `task test:unit` passes for affected packages (not raw `go test`)
-- [ ] G011 `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--` separator.
-- [ ] G012 `task format` passes (not raw `go fmt`)
-- [ ] G013 No TODOs, stubs, or partial implementations left in code
+- [ ] G011 E2E prerequisites: environment is treated as prepared; `task test:setup:environment` is not run or checked
+- [ ] G012 E2E usage: `task test:e2e` runs scoped with both `paths="./test/e2e/..."` and `labelFilter="..."`
+- [ ] G013 Lint prerequisites: `task deps:install:golangci-lint` was run once in the session
+- [ ] G014 Lint usage: `task lint` passes
+- [ ] G015 `task format` passes (not raw `go fmt`)
+- [ ] G016 No TODOs, stubs, or partial implementations left in code

@@ -84,8 +84,10 @@ After changing Go code, run these in order — `task format` mutates files, so i
 
 1. `task format`
 2. `task build`
-3. `task lint`
-4. `task test:unit`
+3. `task deps:install:golangci-lint` (once per new session)
+4. `task lint`
+5. `task test:unit`
+6. Run scoped `task test:e2e` with both `paths` and `labelFilter`, then run `task test:integration`; do not run `task test:setup:environment`.
 
 NEVER assume a change compiles. While iterating, scope the slow steps (`task lint:golangci-lint golangciPaths="./pkg/foo/..."`, `task test:unit paths="./pkg/foo/..."`), then run them unscoped before handing the work over.
 

@@ -100,6 +100,16 @@ task test:e2e paths="./test/e2e/sbom/..." labelFilter="os-pm"
 
 **Expected**: SBOM e2e tests pass with inline os-pm syntax in fixtures.
 
+### PURL resolver mixed-outcome regression
+
+```bash
+task test:e2e paths="./test/e2e/sbom/..." labelFilter="purl-resolver-errors"
+```
+
+**Expected**: the three-image build fails with an aggregated `resolve external references` error; failing image names and guaranteed failing components are listed, while the successful image is absent. The test must exercise a fresh SBOM path rather than a cache hit.
+
+Before accepting the fixture, verify that every expected component is present in the built image. If `openssl` is not guaranteed by `Dockerfile.builder-base`, add it to the fixture package declaration or change the assertion to a guaranteed package.
+
 ```bash
 task test:e2e paths="./test/e2e/sbom/..." labelFilter="packages"
 ```
@@ -196,4 +206,4 @@ packages:
 | Command generation | `packages_commands.go` | `formatInstallCommand` produces `pm install <pkgs>` |
 | SBOM collection | `collect.go` | `CollectBOM` reads `/var/lib/pm/index.json` |
 | Stapel interface | `stapel_image_base.go` | `HasOSPMPackages()` replaces `OSPMLockPath()` |
-| Build phase | `sbom_step.go` | `osPmEnabled bool` replaces `osPmLockPath string` |
+| Build phase | `sbom_step.go` | `osPmEnabled bool` replaces `osPmLockPath string`; `CollectBOM` runs before PURL enrichment and cache reuse preserves final-BOM semantics |

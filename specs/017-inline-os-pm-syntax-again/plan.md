@@ -34,6 +34,8 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 
 **Constraints**: CLI must be self-contained; no daemon dependency; POSIX filesystem operations; OCI-compatible registry interaction
 
+**SBOM pipeline invariant**: `CollectBOM` must append the final os-pm components before the PURL external-reference patcher runs. Every component present in the final BOM, including components read from `/var/lib/pm/index.json`, must be eligible for PURL enrichment. A cache hit may bypass collection only when the stable SBOM checksum includes every input that can change the resulting BOM; otherwise the cache path must be reviewed or invalidated.
+
 **Scale/Scope**: Single binary CLI tool with ~30+ subcommands across build, deploy, cleanup, SBOM, and auxiliary domains
 
 ### Key Affected Subsystems
@@ -45,7 +47,7 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 | Command generation | `pkg/config/packages_commands.go` | Add `formatInstallCommand(pkgs)` emitting `pm install <pkgs>`; change `InstallCmd` callback signature |
 | Stapel config | `pkg/config/stapel_image_base.go` | Remove `OSPMLockPath()`, `OSPMSpecPath()`; restore `HasOSPMPackages()` |
 | Build phase | `pkg/build/build_phase.go` | Replace `osPmLockPath`/`osPmSpecPath` with `hasOsPmPackages` bool; remove `PMBOMPatcher` creation |
-| SBOM step | `pkg/build/sbom_step.go` | Change `osPmLockPath` param to `osPmEnabled` bool; inject `CollectBOM` result |
+| SBOM step | `pkg/build/sbom_step.go` | Change `osPmLockPath` param to `osPmEnabled` bool; collect os-pm BOM before applying PURL enrichment; inject `CollectBOM` result into the final BOM |
 | SBOM packages | `pkg/sbom/packages/os_pm/collect.go` | Restore `CollectBOM()` reading `/var/lib/pm/index.json` from image |
 | PMBOMPatcher | `pkg/sbom/packages/os_pm/pm_bom_patcher.go` | **DELETE** entire file — replaced by `CollectBOM` |
 | SBOM managedinput | `pkg/sbom/managedinput/managedinput.go` | No change — already skips `os-pm` (FR-012) |
@@ -60,6 +62,17 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 - `pkg/build/stage/packages.go` — stage wiring is unchanged; commands are generated at config parse time
 - `pkg/config/raw_stapel_image.go` — already calls `GeneratePackagesCommands` generically; no change needed
 
+### Required SBOM ordering and verification work
+
+The restored `CollectBOM` path introduces os-pm components after the initial scan/merge phase. The implementation MUST append those components before `externalref.ExternalRefPatcher` is applied; otherwise PURL resolution silently skips runtime-index components and `BuildPhase` cannot aggregate their `ErrExternalRefEnrich` failures. The preferred design is to collect and merge os-pm components first, then run all patchers against the resulting BOM. If preserving the existing go-mod patcher order requires a narrower change, at minimum the external-reference patcher must run after `CollectBOM`.
+
+The implementation plan also includes:
+
+- a co-located unit regression test proving a component read by `CollectBOM` is visible to the PURL patcher and that `ErrExternalRefEnrich` propagates;
+- an e2e regression test for mixed resolver outcomes across multiple images, including continued processing of successful images and hierarchical aggregation;
+- explicit cache-path verification so a previously generated SBOM cannot bypass the resolver test when the BOM inputs changed; the stable checksum and cache annotations must be checked against the final BOM inputs;
+- fixture verification that every expected failing component is actually present in the built image. In particular, `openssl` must either be supplied by the declared base/package state or be added explicitly to the fixture; the test must not assert a component that is not guaranteed to exist.
+
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
@@ -72,13 +85,13 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 
 3. **III. Minimal Public Surface** — PASS. Removing `OSPMLockPath()` and `OSPMSpecPath()` from `StapelImageBase` reduces the public API surface. Restoring `HasOSPMPackages()` as a boolean getter is minimal.
 
-4. **IV. Test-Before-Merge** — PASS. All changed packages have existing Ginkgo test coverage. Tests will be updated to assert inline syntax behavior. The `managedinput` tests are unchanged.
+4. **IV. Test-Before-Merge** — PASS. All changed packages have existing Ginkgo test coverage. Tests will be updated to assert inline syntax behavior, final-BOM PURL enrichment, cache behavior, and the mixed-outcome e2e scenario. The `managedinput` tests are unchanged.
 
 5. **V. Conventional Commits** — PASS. Branch already follows convention.
 
 ### Post-Design Re-Evaluation (Phase 1 complete)
 
-All gates re-checked after design artifact generation. No violations identified:
+All gates re-checked after design artifact generation. No violations identified. The design now explicitly preserves the final-BOM ordering invariant: `CollectBOM` precedes external-reference enrichment, and tests cover both the direct unit contract and the e2e aggregation path.
 
 - **Simplicity**: Design uses existing `interface{}` field for `Spec` instead of adding new struct fields — minimal diff. `PMBOMPatcher` removal reduces code.
 - **Go Idiomatic**: All new/restored functions follow Context-first convention. No named returns, no dot imports.
@@ -121,7 +134,7 @@ pkg/config/                             # Config parsing — significant changes
 
 pkg/build/                              # Build pipeline — moderate changes
 ├── build_phase.go                      # Replace OSPMLockPath/SpecPath with HasOSPMPackages
-└── sbom_step.go                        # Replace osPmLockPath with osPmEnabled bool
+├── sbom_step.go                        # Replace osPmLockPath with osPmEnabled bool; collect before PURL enrichment
 
 pkg/sbom/packages/os_pm/                # SBOM collection — significant changes
 ├── collect.go                          # Restore CollectBOM reading /var/lib/pm/index.json

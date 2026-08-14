@@ -56,7 +56,9 @@ syft scan (os-pm cataloger skipped) → CollectBOM (reads /var/lib/pm/index.json
 ```
 
 - **Rationale**: `CollectBOM` reads the actual final state from the image, which naturally merges packages from multiple os-pm sections.
-- **Implementation detail**: In `sbom_step.go`'s `ConvergeWithMerge`, after the syft scan and before GOST upsert, if `osPmEnabled` is true, call `CollectBOM` and merge the resulting CycloneDX BOM into the result. This replaces the patcher iteration that included `PMBOMPatcher`.
+- **Implementation detail**: In `sbom_step.go`'s `ConvergeWithMerge`, if `osPmEnabled` is true, call `CollectBOM` and merge the resulting CycloneDX BOM into the result before applying the external-reference patcher. The PURL patcher must see every component in the final BOM, including components read from `/var/lib/pm/index.json`. This replaces the patcher iteration that included `PMBOMPatcher` and prevents silent success when runtime-index components would otherwise be added too late.
+- **Cache implication**: The SBOM cache lookup must not return a stale artifact that predates the final-BOM/PURL ordering change or omits inputs affecting collected os-pm components. Verify the stable checksum and cache annotation path; change the checksum/version or invalidate the old cache format if required by the existing cache contract.
+- **Fixture implication**: E2E expectations must be based on components guaranteed by the fixture. Confirm whether `openssl` is present in the trusted builder base image; if not, declare it explicitly rather than relying on an incidental base-image package.
 
 ### Decision: Restore `HasOSPMPackages()` boolean
 

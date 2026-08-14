@@ -116,6 +116,14 @@ Text file containing the container factory version string.
 
 **Fallback**: If file doesn't exist in image, the value comes from `PACKAGES_VERSION` environment variable (available during sbom collection if passed through).
 
+## SBOM Pipeline Invariant
+
+`CollectBOM` produces the runtime os-pm component set from the final image state. That set is merged into `resultBOM` before `externalref.ExternalRefPatcher` runs. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
+
+If enrichment fails for one or more components, the error retains `ErrExternalRefEnrich` and component details so `BuildPhase` can continue independent images and produce a hierarchical aggregate. A successful image must not appear in the aggregate.
+
+The SBOM cache key/annotation is part of this pipeline contract: cache reuse is valid only when it represents the same final-BOM inputs and enrichment behavior. A format/order change that can reuse an older artifact must be represented in the checksum/version or otherwise invalidated.
+
 ## Relationships
 
 ```

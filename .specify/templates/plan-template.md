@@ -42,10 +42,21 @@
 
 [Gates determined based on constitution file]
 
-**Environment note**: `task test:setup:environment` has already been executed
-and the e2e/integration test environment is pre-configured. See the Environment
-Configuration section in `.specify/memory/constitution.md`. Do not skip e2e tests
-citing environment setup during implementation.
+**Lint**:
+- **Prerequisites (once per session)**: run `task deps:install:golangci-lint`
+  before the first lint run.
+- **Usage**: then run the applicable lint task.
+
+**Unit tests**:
+- **Usage**: scoped example `task test:unit paths="./pkg/sbom/..."`.
+- **Focused**: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest -v`.
+
+**E2E tests**:
+- **Prerequisites (once per session)**: the environment is already prepared. Do
+  not run or check `task test:setup:environment` or skip tests for setup reasons.
+- **Usage**: always run `task test:e2e` scoped with both `paths` and `labelFilter`.
+  - Scoped: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`.
+  - Focused: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom" -- -focus=MyTest -v`.
 
 ## Project Structure
 

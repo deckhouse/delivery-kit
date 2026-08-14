@@ -1,14 +1,23 @@
 <!--
   Sync Impact Report
-  Version: 1.3.0 → 1.4.0 (MINOR — pm.lock generation now goes through `task pm:lock`)
-  Modified principles: (none)
+  Version: 1.5.5 → 1.5.6 (PATCH — remove redundant focused-command
+  explanations)
+  Modified principles: IV. Test-Before-Merge → IV. Test-Before-Merge
   Modified sections:
-    - Build & Quality Gates: pm.lock generation entry now mandates `task pm:lock`
-      (dockerized pm from the digest-pinned container-factory image) instead of
-      a bare `pm lock` invocation
-  Removed sections: (none)
+    - Build & Quality Gates: centralized build, lint, unit, e2e, integration,
+      formatting, mock, and documentation commands; removed pm.lock generation
+    - Environment Configuration: removed as a separate section; pre-configured
+      test infrastructure is now stated in the test gate rules
+  Removed sections:
+    - Environment Configuration
   Templates requiring updates:
-    - ✅ delivery-kit/AGENTS.md (Commands section)
+    - ✅ delivery-kit/AGENTS.md
+    - ✅ delivery-kit/CLAUDE.md
+    - ✅ delivery-kit/.specify/templates/constitution-template.md
+    - ✅ delivery-kit/.specify/templates/plan-template.md
+    - ✅ delivery-kit/.specify/templates/tasks-template.md
+    - ✅ delivery-kit/.specify/templates/checklist-template.md
+    - ✅ delivery-kit/CONTRIBUTING.md
   Follow-up TODOs: (none)
 -->
 # Delivery Kit Constitution
@@ -29,30 +38,9 @@ Keep everything private/internal as much as possible. Validate early, validate a
 
 ### IV. Test-Before-Merge
 
-Tests are co-located with source files (`*_test.go`).
-All tests MUST use Ginkgo + Gomega stack — no `testing`/`testify`
-(`assert`/`require`). After EVERY code change, ALL relevant tests
-(unit and e2e) MUST be re-executed — never rely on earlier pass
-results.
-
-**`--` separator rule**: NEVER place `KEY=VALUE` variable assignments
-after the `--` separator. The `--` separator forwards arguments to the
-ginkgo runner (`CLI_ARGS`), and invalid positional arguments cause ginkgo
-to compile ALL packages instead of only the targeted ones, leading to
-excessive memory usage. Use `--` ONLY for passing flags directly to
-ginkgo (e.g., `-- -focus=MyTest -v`).
-
-**Unit tests**:
-- `task test:unit`
-- Scoped: `task test:unit paths="./pkg/sbom/..."`
-- With ginkgo flags: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
-
-**E2E tests** (environment is pre-configured — see Environment Configuration section below):
-- `task test:e2e` (defaults to `./test/e2e`)
-- Scoped: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
-- Complex filter: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (packages || lifecycle || gost)"`
-
-Mocks MUST be generated with `task mock:generate` — never write mocks by hand.
+Tests are co-located with source files (`*_test.go`). All tests MUST use Ginkgo +
+Gomega; do not use the standard `testing` assertions or `testify`. Mocks MUST be
+generated with `task mock:generate` — never write mocks by hand.
 
 ### V. Conventional Commits
 
@@ -78,20 +66,32 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
 
 ## Build & Quality Gates
 
-- **Build**: `task build` (NOT raw `go build`)
-- **Unit tests**: `task test:unit` (NOT raw `go test`)
-  - Scoped: `task test:unit paths="./pkg/sbom/..."`
-  - With ginkgo flags: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
-  - NEVER place `KEY=VALUE` after `--` separator (see principle IV).
-- **E2E tests**: `task test:e2e` (NOT raw `go test`)
-  - Scoped: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
-  - Complex filter: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom && (packages || lifecycle || gost)"`
-  - NEVER place `KEY=VALUE` after `--` separator — it compiles ALL tests.
-  - Use `--` ONLY for ginkgo flags (e.g., `-- -focus=MyTest -v`).
-- **pm.lock generation**: `task pm:lock workdir=<project-dir>` (NOT hand-written and NOT bare `pm lock`; `pm.lock` is a deterministic machine-generated artifact committed alongside `pm.yaml`). The task runs pm inside the digest-pinned `registry.deckhouse.io/container-factory` image, so it needs only Docker. For a non-default manifest/lock file name, pass `from=<spec>` and `lock=<lock>` — the manifest path is recorded in the lock metadata, so the file name matters. NEVER invent or edit `pm.lock` contents manually.
-- **Formatting**: `task format` (NOT raw `go fmt`)
-- **Mock generation**: `task mock:generate` (no manual mocks; validate with `task mock:check`)
-- **Documentation**: `task doc:gen` after changing CLI help text
+Use these commands instead of raw Go tooling:
+
+- **Formatting**: `task format` (NOT raw `go fmt`/`gofmt`).
+- **Build**: `task build` (NOT raw `go build`).
+- **Lint**:
+  - **Prerequisites (once per session)**: run
+    `task deps:install:golangci-lint` before the first lint run in each new session.
+  - **Usage**: after the prerequisite, run `task lint`. Do not invoke
+    `golangci-lint` directly.
+- **Unit tests**: `task test:unit` (NOT raw `go test`). Usage examples:
+  - Scoped: `task test:unit paths="./pkg/sbom/..."`.
+  - Focused: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest -v`.
+  - **Prerequisites (once per session)**: the test environment is already prepared.
+    Do not run or check `task test:setup:environment`, and do not skip e2e tests
+    for setup reasons.
+  - **Usage**: always run `task test:e2e` scoped with both `paths` and
+    `labelFilter`. Examples:
+    - Scoped: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`.
+    - Focused: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom" -- -focus=MyTest -v`.
+- **Integration tests**: run `task test:integration` directly against the prepared
+  environment; do not run or check an environment setup command first.
+
+- **Mocks**: `task mock:generate`; validate generated mocks with `task mock:check`.
+- **Documentation**: run `task doc:gen` after changing CLI help text.
+
+After every code change, run all gates.
 
 ## Environment Configuration
 
@@ -114,4 +114,4 @@ be executed directly without citing environment setup as a blocker.
 
 This constitution supersedes all other practices. Amendments require documentation and approval. All PRs/reviews must verify compliance with these rules. The `AGENTS.md` file contains the authoritative agent instructions derived from this constitution and `CODESTYLE.md`.
 
-**Version**: 1.4.0 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-10
+**Version**: 1.5.6 | **Ratified**: 2026-07-14 | **Last Amended**: 2026-08-14

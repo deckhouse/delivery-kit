@@ -50,6 +50,13 @@ var _ = Describe("SbomStep Checksum", func() {
 			"checksum must differ from format-v1 era (before format version was added)")
 	})
 
+	It("os-pm enablement invalidates cache", func() {
+		step := &sbomStep{}
+		withoutOsPm := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "", false)
+		withOsPm := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "", true)
+		Expect(withOsPm).NotTo(Equal(withoutOsPm))
+	})
+
 	Describe("target platform", func() {
 		step := &sbomStep{}
 

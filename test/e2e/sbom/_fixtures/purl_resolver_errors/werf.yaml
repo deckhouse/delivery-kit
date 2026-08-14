@@ -24,6 +24,7 @@ packages:
   - type: os-pm
     spec:
       - jq==1.8.1
+      - openssl==3.6.2
 ---
 image: image-ok
 from: {{ env "BUILDER_BASE_IMAGE" }}

@@ -61,7 +61,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform, osPmEnabled)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -119,17 +119,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		for _, patcher := range patchers {
-			if patcher == nil {
-				continue
-			}
-			resultBOM, err = patcher.Apply(ctx, resultBOM)
-			if err != nil {
-				return err
-			}
-		}
-
-		// Collect os-pm packages from the built image (replaces PMBOMPatcher)
 		if osPmEnabled {
 			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
 			if err != nil {
@@ -154,8 +143,16 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		// GOST Upsert must run AFTER patchers so that components added by patchers
-		// (e.g. PM BOMPatcher) also get GOST properties.
+		for _, patcher := range patchers {
+			if patcher == nil {
+				continue
+			}
+			resultBOM, err = patcher.Apply(ctx, resultBOM)
+			if err != nil {
+				return err
+			}
+		}
+
 		if err := gost.Upsert(resultBOM, mergeOpts.Gost); err != nil {
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
@@ -177,12 +174,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 const sbomArtifactFormatVersion = "2"
 
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string, osPmEnabled ...bool) string {
 	var parts []string
+	osPmEnabledValue := len(osPmEnabled) > 0 && osPmEnabled[0]
 	parts = append(parts, sbomArtifactFormatVersion)
 	parts = append(parts, scanOpts.Checksum())
 	parts = append(parts, mergeOpts.Checksum())
-	parts = append(parts, signerIdentity)
+	parts = append(parts, signerIdentity, fmt.Sprintf("os-pm-enabled=%t", osPmEnabledValue))
 	if targetPlatform != "" {
 		parts = append(parts, targetPlatform)
 	}

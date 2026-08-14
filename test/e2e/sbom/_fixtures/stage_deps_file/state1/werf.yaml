@@ -16,4 +16,5 @@ git:
 packages:
   - type: os-pm
     spec:
-      - curl==8.12.1
+      - jq==1.8.1
+      - tini==0.19.0

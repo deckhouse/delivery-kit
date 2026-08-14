@@ -14,3 +14,4 @@ packages:
   - type: os-pm
     spec:
       - jq==1.8.1
+      - yq==4.48.1

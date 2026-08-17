@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	catalogerName      = "pm-cataloger"
+	catalogerName      = CatalogerName
 	artifactTypeBinary = "binary"
 	propFoundBy        = "werf:package:foundBy"
 	propArtifactType   = "werf:package:type"

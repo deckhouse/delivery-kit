@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"maps"
+
+	"github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 )
 
 type PackagesDirectiveType string
@@ -19,8 +21,6 @@ const (
 	PackagesDirectiveTypeJavaScriptPnpm PackagesDirectiveType = "javascript-pnpm"
 	PackagesDirectiveTypeLuaRock        PackagesDirectiveType = "lua-rock"
 )
-
-const OsPMCatalogerName = "os-pm-cataloger"
 
 type PackagesSpec struct {
 	Packages []string `yaml:"spec"`
@@ -162,7 +162,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeOSPM,
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
-		CatalogerName:   OsPMCatalogerName,
+		CatalogerName:   os_pm.CatalogerName,
 		InstallCmd: func(_ string, _ FileBasedSpec, pkgs []string, env map[string]string) string {
 			return formatInstallCommand(pkgs, env)
 		},

@@ -2,11 +2,13 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
 	"github.com/samber/lo"
 
+	"github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
@@ -24,11 +26,6 @@ func formatEnvVars(env map[string]string) string {
 	return strings.Join(parts, " ")
 }
 
-const (
-	ContainerFactoryVersionDir  = "/var/lib/pm"
-	ContainerFactoryVersionFile = ContainerFactoryVersionDir + "/container-factory-version"
-)
-
 func formatSecretVar(name string) string {
 	return fmt.Sprintf(
 		`%[1]s="${%[1]s:-$(%[2]s /run/secrets/%[1]s 2>/dev/null || true)}"`,
@@ -37,13 +34,13 @@ func formatSecretVar(name string) string {
 }
 
 func formatMkdirCommand() string {
-	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), ContainerFactoryVersionDir)
+	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(os_pm.ContainerFactoryVersionPath))
 }
 
 func formatVersionFileCommand() string {
 	return fmt.Sprintf(
 		`%s && : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		formatSecretVar("PACKAGES_VERSION"), ContainerFactoryVersionFile,
+		formatSecretVar("PACKAGES_VERSION"), os_pm.ContainerFactoryVersionPath,
 	)
 }
 

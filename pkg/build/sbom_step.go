@@ -61,7 +61,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform, osPmEnabled)
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -120,26 +120,9 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if osPmEnabled {
-			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
+			resultBOM, err = osPm.CollectAndMergeBOM(ctx, step.containerBackend, stageDesc.Info.Name, resultBOM)
 			if err != nil {
-				return fmt.Errorf("collect os-pm BOM: %w", err)
-			}
-			if pmBOM != nil {
-				if pmBOM.Components != nil {
-					if resultBOM.Components == nil {
-						resultBOM.Components = pmBOM.Components
-					} else {
-						*resultBOM.Components = append(*resultBOM.Components, *pmBOM.Components...)
-					}
-				}
-				if pmBOM.Dependencies != nil {
-					if resultBOM.Dependencies == nil {
-						resultBOM.Dependencies = pmBOM.Dependencies
-					} else {
-						*resultBOM.Dependencies = append(*resultBOM.Dependencies, *pmBOM.Dependencies...)
-					}
-				}
-				cyclonedxutil.DedupBOM(resultBOM)
+				return err
 			}
 		}
 
@@ -174,13 +157,12 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 const sbomArtifactFormatVersion = "2"
 
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string, osPmEnabled ...bool) string {
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
 	var parts []string
-	osPmEnabledValue := len(osPmEnabled) > 0 && osPmEnabled[0]
 	parts = append(parts, sbomArtifactFormatVersion)
 	parts = append(parts, scanOpts.Checksum())
 	parts = append(parts, mergeOpts.Checksum())
-	parts = append(parts, signerIdentity, fmt.Sprintf("os-pm-enabled=%t", osPmEnabledValue))
+	parts = append(parts, signerIdentity)
 	if targetPlatform != "" {
 		parts = append(parts, targetPlatform)
 	}

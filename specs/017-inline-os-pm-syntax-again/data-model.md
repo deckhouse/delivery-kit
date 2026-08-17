@@ -58,7 +58,7 @@ Configuration for the `os-pm` ecosystem. Changes from 015:
 | `Type` | `"os-pm"` | `"os-pm"` (unchanged) |
 | `DefaultSpecFile` | `"pm.yaml"` | `""` |
 | `DefaultLockFile` | `"pm.lock"` | `""` |
-| `CatalogerName` | `"os-pm-lock-cataloger"` | `"os-pm-cataloger"` — owned by `pkg/sbom/packages/os_pm` |
+| `CatalogerName` | `"os-pm-lock-cataloger"` | `os_pm.CatalogerName` — defined once in `pkg/sbom/packages/os_pm` and passed through the config ecosystem entry |
 | `InstallCmd` | `pm sync --from <lockfile>` | `pm install <pkgs>` |
 
 ### `PmInstallCommand`
@@ -100,29 +100,29 @@ Flat JSON object mapping package names to package info. Format:
 }
 ```
 
-**Read by**: `CollectBOM()` in `pkg/sbom/packages/os_pm`; the path is provided by an os-pm package constant and is not duplicated in the build layer.
+**Read by**: `CollectBOM()` in `pkg/sbom/packages/os_pm`; the path is `ContainerFactoryIndexPath`, defined once in that package and reused by command generation. It is not redeclared in `pkg/config` or `pkg/build`.
 
 **Producer**: The `pm` binary inside the builder image during the build stage.
 
 **Consumer**: `CollectBOM()` during SBOM generation.
 
-### `/var/lib/pm/container-factory-version`
+### `ContainerFactoryVersionPath` (`/var/lib/pm/container-factory-version`)
 
 Text file containing the container factory version string.
 
 **Written during build by**: The command preamble (`PACKAGES_VERSION` → file write).
 
-**Read during SBOM collection by**: `ReadContainerFactoryVersion()` from inside the built image.
+**Read during SBOM collection by**: `ReadContainerFactoryVersion()` from inside the image. The path constant is owned by `pkg/sbom/packages/os_pm` and reused by command generation.
 
-**Fallback**: If file doesn't exist in image, the value comes from `PACKAGES_VERSION` environment variable (available during sbom collection if passed through).
+**Fallback**: There is no host-environment fallback. If the file does not exist in the image, collection returns the existing descriptive version-file error; `PACKAGES_VERSION` is only available inside the container command that writes this file.
 
 ## SBOM Pipeline Invariant
 
-The os-pm SBOM package produces and integrates the runtime component set from the final image state before `externalref.ExternalRefPatcher` runs. `pkg/build` coordinates this operation but does not append components or dependencies itself. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
+The os-pm SBOM package produces and integrates the runtime component set from the final image state before `externalref.ExternalRefPatcher` runs. Its exported `CatalogerName` is also passed through the config ecosystem entry so os-pm metadata follows the same registration shape as language package managers. `pkg/build` coordinates this operation but does not append components or dependencies itself. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
 
 If enrichment fails for one or more components, the error retains `ErrExternalRefEnrich` and component details so `BuildPhase` can continue independent images and produce a hierarchical aggregate. A successful image must not appear in the aggregate.
 
-The SBOM cache key/annotation is part of this pipeline contract: cache reuse is valid only when it represents the same final-BOM inputs and enrichment behavior. A format/order change that can reuse an older artifact must be represented in the checksum/version or otherwise invalidated.
+The SBOM cache key/annotation is part of this pipeline contract: cache reuse is valid only when it represents the same final-BOM inputs and enrichment behavior. A format/order change that can reuse an older artifact must be represented in the checksum/version or otherwise invalidated. The version qualifier comes from the persisted image file, never from a host environment variable.
 
 ## Relationships
 

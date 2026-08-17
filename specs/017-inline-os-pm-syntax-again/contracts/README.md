@@ -70,6 +70,8 @@ packages:
 
 **File**: `pkg/config/packages_commands.go`
 
+Command generation MUST reuse `os_pm.ContainerFactoryIndexPath` and `os_pm.ContainerFactoryVersionPath`; `pkg/config` must not define duplicate PM path constants.
+
 ### Current Signature (015)
 
 ```go
@@ -124,9 +126,9 @@ func CollectBOM(
 ```
 
 **Behavior**:
-1. Read the os-pm-owned index path constant (`/var/lib/pm/index.json`) from inside the built image via `ReadFileFromImage`
+1. Read `ContainerFactoryIndexPath` (`/var/lib/pm/index.json`) from inside the built image via `ReadFileFromImage`; the constant is defined once in `pkg/sbom/packages/os_pm`
 2. Parse as `map[string]PmPackageInfo` via `ParsePmInstalledJSON`
-3. Resolve `containerFactoryVersion`: try `PACKAGES_VERSION` env var first, then read from image via `ReadContainerFactoryVersion`
+3. Resolve `containerFactoryVersion` by reading the SBOM-owned `ContainerFactoryVersionPath` from the image via `ReadContainerFactoryVersion`; do not read `PACKAGES_VERSION` from the host process
 4. Convert to CycloneDX BOM via `ConvertToCycloneDX`
 5. Provide the runtime contribution to the final-BOM operation before generic external-reference patchers; return no os-pm contribution with nil error if no packages are found / the index is absent
 
@@ -140,7 +142,7 @@ func ReadContainerFactoryVersion(
 ) string
 ```
 
-Returns the content of `/var/lib/pm/container-factory-version` from inside the image, or empty string if not found.
+Returns the content of `ContainerFactoryVersionPath` (`/var/lib/pm/container-factory-version`) from inside the image. The command preamble writes this file from the container-scoped `PACKAGES_VERSION`; the collector does not use a host-env fallback. Command generation reuses this constant instead of redeclaring the path.
 
 ## Contract 4: `StapelImageBase` — Changed Interface
 

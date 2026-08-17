@@ -8,7 +8,7 @@
 
 ## Summary
 
-Restore `os-pm` package declaration to inline `spec: [pkg1, pkg2]` syntax while preserving multiple sections and per-section `env`. Keep all os-pm SBOM collection and runtime-index details inside `pkg/sbom/packages/os_pm`; the build SBOM step should invoke the package-level operation without merging os-pm components itself. Remove os-pm-specific checksum input, move the cataloger name and runtime-index path constants into the SBOM package, and remove the obsolete `pm:lock` Taskfile task.
+Restore `os-pm` package declaration to inline `spec: [pkg1, pkg2]` syntax while preserving multiple sections and per-section `env`. Keep all os-pm SBOM collection metadata, cataloger name, and runtime paths inside `pkg/sbom/packages/os_pm`; expose the SBOM-owned cataloger name through the config ecosystem entry in the same way as language package managers. Remove duplicated PM path constants from `pkg/config`, remove os-pm-specific checksum input, keep the build SBOM step free of manual os-pm merging, and remove the obsolete `pm:lock` Taskfile task.
 
 ## Technical Context
 
@@ -36,6 +36,10 @@ Restore `os-pm` package declaration to inline `spec: [pkg1, pkg2]` syntax while 
 
 **SBOM pipeline invariant**: os-pm runtime-index collection and BOM integration must remain encapsulated in `pkg/sbom/packages/os_pm`; the build layer must not duplicate component/dependency merge logic. Every runtime-index component must still be present before PURL external-reference enrichment. The stable SBOM checksum contains generic scan, merge, signer, and platform inputs only; os-pm enablement is not a separate checksum input because the built image digest is the source identity.
 
+**PM metadata ownership invariant**: `ContainerFactoryIndexPath`, the container-factory version-file path, and the os-pm cataloger name are defined once in `pkg/sbom/packages/os_pm`. `pkg/config` references the exported cataloger name in its `PackageEcosystem` entry and references the exported PM paths for command generation; it does not redeclare their string values.
+
+**Version provenance invariant**: `PACKAGES_VERSION` is consumed while the package-install command runs inside the container and is persisted to `ContainerFactoryVersionPath`. SBOM collection does not read `PACKAGES_VERSION` from the host process; it reads the persisted version file from the image only.
+
 **Scale/Scope**: Single binary CLI tool with ~30+ subcommands across build, deploy, cleanup, SBOM, and auxiliary domains
 
 ### Key Affected Subsystems
@@ -43,12 +47,12 @@ Restore `os-pm` package declaration to inline `spec: [pkg1, pkg2]` syntax while 
 | Subsystem | Path | Nature of Change |
 |-----------|------|------------------|
 | Config parsing | `pkg/config/raw_packages_directive.go` | Restore inline `spec` list parsing for `os-pm`; skip `FileBasedSpec` for `os-pm` |
-| Config model | `pkg/config/packages_directive.go` | Restore `PackagesSpec` with `Packages []string`; update `ecosystems` entry; update `validate()` |
-| Command generation | `pkg/config/packages_commands.go` | Add `formatInstallCommand(pkgs)` emitting `pm install <pkgs>`; change `InstallCmd` callback signature |
+| Config model | `pkg/config/packages_directive.go` | Restore `PackagesSpec` with `Packages []string`; update `ecosystems` entry to reference the SBOM-owned os-pm cataloger name; update `validate()` |
+| Command generation | `pkg/config/packages_commands.go` | Add `formatInstallCommand(pkgs)` emitting `pm install <pkgs>`; use PM path constants from `pkg/sbom/packages/os_pm`; change `InstallCmd` callback signature |
 | Stapel config | `pkg/config/stapel_image_base.go` | Remove `OSPMLockPath()`, `OSPMSpecPath()`; restore `HasOSPMPackages()` |
 | Build phase | `pkg/build/build_phase.go` | Replace lock/spec paths with `hasOsPmPackages` bool; remove `PMBOMPatcher` creation |
 | SBOM step | `pkg/build/sbom_step.go` | Remove inline os-pm BOM merge and os-pm checksum input; call the package-level SBOM operation through the existing pipeline |
-| SBOM packages | `pkg/sbom/packages/os_pm/collect.go` | Own the runtime-index path and cataloger name; collect and integrate `/var/lib/pm/index.json` data before generic patchers |
+| SBOM packages | `pkg/sbom/packages/os_pm/collect.go` | Own `ContainerFactoryIndexPath`, version-file path, and cataloger name; collect and integrate `/var/lib/pm/index.json` data before generic patchers |
 | PMBOMPatcher | `pkg/sbom/packages/os_pm/pm_bom_patcher.go` | **DELETE** entire file — runtime collection supersedes it |
 | Taskfile | `Taskfile.dist.yaml` | **DELETE** obsolete `pm:lock` task |
 | SBOM managedinput | `pkg/sbom/managedinput/managedinput.go` | No change — already skips `os-pm` (FR-012) |
@@ -94,9 +98,9 @@ The implementation plan also includes:
 
 All gates re-checked after design artifact generation. No violations identified. The design now explicitly preserves the final-BOM ordering invariant: `CollectBOM` precedes external-reference enrichment, and tests cover both the direct unit contract and the e2e aggregation path.
 
-- **Simplicity**: Design uses existing `interface{}` field for `Spec`, keeps os-pm details in its domain package, removes duplicate build-layer merge logic, and deletes obsolete lock-file tooling.
+- **Simplicity**: Design uses existing `interface{}` field for `Spec`, keeps os-pm details and constants in their domain package, removes duplicate build-layer merge logic, removes an ineffective host-env fallback, and deletes obsolete lock-file tooling.
 - **Go Idiomatic**: All new/restored functions follow Context-first convention. No named returns, no dot imports.
-- **Public Surface**: Removed 2 methods (`OSPMLockPath`, `OSPMSpecPath`), restored 1 (`HasOSPMPackages`), and keeps new os-pm constants/functions scoped to the SBOM package. Net reduction in cross-domain surface.
+- **Public Surface**: Removed 2 methods (`OSPMLockPath`, `OSPMSpecPath`), restored 1 (`HasOSPMPackages`), and exposes only the shared os-pm metadata constants needed by config/SBOM integration. No duplicate cross-domain constants are introduced.
 - **Test Coverage**: All changed packages have Ginkgo tests identified. Research confirmed which tests need updates.
 - **Commits**: Branch name is valid.
 
@@ -104,7 +108,7 @@ All gates re-checked after design artifact generation. No violations identified.
 
 **Environment note**: `task test:setup:environment` has already been executed and the e2e/integration test environment is pre-configured. See the Environment Configuration section in `.specify/memory/constitution.md`. Do not skip e2e tests citing environment setup during implementation.
 
-**Scope clarification**: This plan does not introduce or retain a `pm:lock` workflow. The obsolete `pm:lock` task in `Taskfile.dist.yaml` is removed because inline os-pm syntax has no lock artifact.
+**Scope clarification**: This plan does not introduce or retain a `pm:lock` workflow. The obsolete `pm:lock` task in `Taskfile.dist.yaml` is removed because inline os-pm syntax has no lock artifact. The config ecosystem must nevertheless retain a non-empty `CatalogerName`, sourced from `pkg/sbom/packages/os_pm`, for consistency with language package managers and testability.
 
 ## Project Structure
 

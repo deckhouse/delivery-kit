@@ -58,7 +58,7 @@ task test:unit paths="./pkg/sbom/..." -- -focus="os-pm"
 **Key assertions**:
 - `ParsePmInstalledJSON` parses `/var/lib/pm/index.json` format
 - `ConvertToCycloneDX` produces correct CycloneDX components
-- `containerFactoryVersion` qualifier set on components
+- `containerFactoryVersion` qualifier set on components from `/var/lib/pm/container-factory-version` inside the image; no host `PACKAGES_VERSION` fallback
 
 ### 4. Stapel image config — `HasOSPMPackages`
 
@@ -142,6 +142,24 @@ grep -r "pm:lock\|pm.lock\|PMBOMPatcher" Taskfile.dist.yaml pkg/config/ pkg/buil
 
 **Expected**: No `pm:lock` task, PMBOMPatcher, or os-pm lock-file source remains. Other package ecosystems may still use their own lock files.
 
+### Verify SBOM-owned PM metadata and config cataloger wiring
+
+```bash
+grep -R "InstalledPackagesIndexPath\|ContainerFactoryVersionDir\|ContainerFactoryVersionFile" pkg/sbom/packages/os_pm pkg/config/packages_commands.go
+```
+
+**Expected**: `InstalledPackagesIndexPath`, `ContainerFactoryVersionDir`, and `ContainerFactoryVersionFile` are absent; `ContainerFactoryIndexPath` and `ContainerFactoryVersionPath` are owned by `pkg/sbom/packages/os_pm`, and `pkg/config/packages_commands.go` only references exported SBOM constants.
+
+Run the ecosystem registration test:
+
+```bash
+task test:unit paths="./pkg/config/..." -- -focus="cataloger|ecosystem"
+```
+
+**Expected**: the os-pm `PackageEcosystem.CatalogerName` equals `os_pm.CatalogerName`, just as language ecosystem entries expose their cataloger names; the assertion fails if config uses an empty or duplicated literal.
+
+The version qualifier must be verified from the persisted image file, not from the host environment.
+
 ### Verify inline spec is the ONLY format for os-pm
 
 ```bash
@@ -204,6 +222,7 @@ packages:
 |----------|------|-------------|
 | Config schema | `packages_directive.go` | `PackagesSpec.Packages []string` with inline list |
 | Command generation | `packages_commands.go` | `formatInstallCommand` produces `pm install <pkgs>` |
-| SBOM collection | `collect.go` | os-pm package owns the index path constant and integrates runtime BOM before generic patchers |
+| SBOM collection | `collect.go` | os-pm package owns `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and cataloger metadata; integrates runtime BOM before generic patchers |
 | Stapel interface | `stapel_image_base.go` | `HasOSPMPackages()` replaces `OSPMLockPath()` |
 | Build phase | `sbom_step.go` | no inline os-pm merge and no os-pm checksum flag; package-level operation runs before PURL enrichment |
+| Ecosystem registration | `packages_directive.go` | `CatalogerName` is passed from `os_pm.CatalogerName` and covered by a config test |

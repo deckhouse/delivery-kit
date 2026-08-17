@@ -75,11 +75,11 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 |-------|---------------|-----------|
 | `DefaultSpecFile` | `"pm.yaml"` | `""` |
 | `DefaultLockFile` | `"pm.lock"` | `""` |
-| `CatalogerName` | `"os-pm-lock-cataloger"` | `"os-pm-cataloger"` (defined as a constant `OsPMCatalogerName`) |
+| `CatalogerName` | `"os-pm-lock-cataloger"` | `os_pm.CatalogerName` (the value is defined once in `pkg/sbom/packages/os_pm`) |
 | `InstallCmd` | `pm sync --from <lockfile>` | `pm install <pkgs>` |
 
 - **Rationale**: Inline syntax has no default spec/lock file. The cataloger name is updated to reflect the runtime-index source. The install command switches to argument-based invocation.
-- **Implementation detail**: Keep the cataloger-name constant in `pkg/sbom/packages/os_pm`, and have config/managed-input integration refer to the SBOM-owned value through the narrowest existing boundary. The `/var/lib/pm/index.json` path is likewise a constant in the os-pm SBOM package, not a string literal in callers.
+- **Implementation detail**: Keep the cataloger-name constant in `pkg/sbom/packages/os_pm`, and set `PackageEcosystem.CatalogerName` to that exported value from `pkg/config/packages_directive.go`, matching language ecosystem registration. Add a config test that asserts the os-pm ecosystem exposes the same name. Keep `ContainerFactoryIndexPath` and the version-file path in the SBOM package and reuse them from command generation; no caller redeclares the path strings.
 
 ## 5. Configuration Validation
 
@@ -92,16 +92,14 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 
 ## 6. `containerFactoryVersion` Resolution
 
-### Decision: Two-source fallback, with stable path ownership
+### Decision: Read persisted container-factory version from the image only
 
-The `containerFactoryVersion` PURL qualifier value is resolved with the following priority:
-1. `PACKAGES_VERSION` environment variable (set via the command preamble or available during SBOM collection)
-2. `/var/lib/pm/container-factory-version` file inside the built image
+The `containerFactoryVersion` PURL qualifier is read only from `ContainerFactoryVersionPath` (`/var/lib/pm/container-factory-version`) inside the built image. `PACKAGES_VERSION` is available to the shell command inside the container and is persisted there by the command preamble; it is not a valid SBOM collector input from the host process.
 
-The runtime index path and version-file path are owned by `pkg/sbom/packages/os_pm` (the config command-generation constant may remain where command generation needs it), avoiding duplicated path literals in collection code.
+The runtime index path and version-file path are owned exclusively by `pkg/sbom/packages/os_pm`. Command generation imports and reuses these exported constants; `pkg/config/packages_commands.go` contains no duplicate PM path values.
 
-- **Rationale**: The `PACKAGES_VERSION` env var is set during build as part of the command preamble. If it's available at SBOM collection time, it's the most direct source. The file in the image is the fallback.
-- **Implementation detail**: `ReadContainerFactoryVersion` already reads from the image. A new `readContainerFactoryVersionFromEnv` will check the env var first. The caller (`CollectBOM`) will try env first, then fall back to image read.
+- **Rationale**: The SBOM collector runs outside the built image, while `PACKAGES_VERSION` is scoped to the package command inside the container. The persisted file is the only authoritative and reproducible source available during SBOM collection.
+- **Implementation detail**: `ReadContainerFactoryVersion` reads `ContainerFactoryVersionPath` from the image. Remove `readContainerFactoryVersionFromEnv`; `CollectBOM` uses the image file directly.
 
 ## 7. Test Data Migration
 
@@ -111,9 +109,10 @@ All test files modified in 015 for file-based syntax must be reverted to inline 
 
 - `pkg/config/raw_packages_directive_test.go` — change `"spec": "pm.yaml"` to `"spec": ["curl", "jq"]` for os-pm entries; invert the "os-pm with list spec is rejected" test to assert acceptance
 - `pkg/config/packages_directive_javascript_test.go` — update os-pm entries in combined config tests
-- `pkg/config/packages_commands_test.go` — assert `pm install curl jq` instead of `pm sync --from pm.lock`
+- `pkg/config/packages_commands_test.go` — assert `pm install curl jq` instead of `pm sync --from pm.lock`, and assert generated PM commands use the SBOM-owned path constants
 - `pkg/config/stapel_image_base_test.go` — test `HasOSPMPackages()` instead of `OSPMLockPath()`
 - `pkg/build/stage/packages_test.go` — update os-pm entries
+- `pkg/config/packages_directive_test.go` or the existing ecosystem test — assert the os-pm `CatalogerName` equals `os_pm.CatalogerName`
 
 ### Decision: Update e2e fixtures
 

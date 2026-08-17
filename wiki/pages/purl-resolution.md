@@ -2,7 +2,7 @@
 title: PURL Resolution in werf
 type: concept
 sources: [S001, S014]
-updated: 2026-08-07
+updated: 2026-08-17
 ---
 
 werf resolves PURLs during SBOM processing to attach external references to software bills of materials. The resolution pipeline has three tiers:
@@ -13,6 +13,8 @@ werf resolves PURLs during SBOM processing to attach external references to soft
 
 Previously, component-level failures were logged via `logboek` with only an aggregated count returned, losing per-component detail. The first image failure stopped the entire build. The current design carries structured detail through the error chain and aggregates across all image sets before failing.
 
-Each PURL resolution is handled by the **ExternalRef Service** (`pkg/sbom/externalref/service.go`), an HTTP client that retries failed requests with exponential backoff via `cenkalti/backoff/v5`. The retry budget is 10 s total (`MaxElapsedTime`), with an HTTP request timeout of 5 s per attempt, allowing up to about 2 retries before exhaustion. The backoff parameters (`InitialInterval`: 500 ms, `Multiplier`: 1.5, `MaxInterval`: 60 s) use the library defaults (S014).
+Each PURL resolution is handled by the **ExternalRef Service** (`pkg/sbom/externalref/service.go`), an HTTP client that retries failed requests with exponential backoff via `cenkalti/backoff/v5`. The retry budget is 10 s total (`MaxElapsedTime`), with an HTTP request timeout of 5 s per attempt, allowing up to about 2 retries before exhaustion. The backoff parameters (`InitialInterval`: 500 ms, `Multiplier`: 1.5, `MaxInterval`: 60 s) use the library defaults (S014).
+
+Every resolution failure is classified (`FailureClass` in `pkg/sbom/externalref/`): *content* failures (authoritative resolver answers: HTTP 404 and other non-429 4xx, empty URL, unparseable response) keep the deferred aggregation behavior, while *infrastructure* failures (transport errors, HTTP 429, 5xx) additionally feed a process-wide `ResolverBreaker` (one per build, plumbed through `NewExternalRefPatcher`). After 5 consecutive infrastructure failures the breaker trips (latched): new resolutions and in-flight retry loops fail immediately with `ErrResolverUnavailable`, and the build terminates with one canonical error naming the endpoint. A successful resolve resets the streak; content failures neither count nor reset.
 
 See also: [ComponentError type](./component-error-type.md), [error detection sentinel](./error-detection-sentinel.md), [error aggregation strategy](./error-aggregation-strategy.md), [PURL retry parameters](./purl-retry-parameters.md), [SBOM cache invalidation](./sbom-cache-invalidation.md), [SBOM e2e test strategy](./sbom-e2e-test-strategy.md).

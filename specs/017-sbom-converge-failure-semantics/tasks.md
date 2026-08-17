@@ -34,7 +34,7 @@
 
 **Purpose**: Baseline verification — existing project, no scaffolding needed.
 
-- [ ] T001 Verify baseline is green before changes: `task build` and `task test:unit paths="./pkg/sbom/externalref/... ./pkg/build/..."`; record any pre-existing failures in the PR notes
+- [X] T001 Verify baseline is green before changes: `task build` and `task test:unit paths="./pkg/sbom/externalref/... ./pkg/build/..."`; record any pre-existing failures in the PR notes
 
 ---
 
@@ -44,9 +44,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 Extend `purlErrors` entries from bare details strings to a failure-record struct (`details`, `rootImage`, `rootCause` per data-model.md) in `pkg/build/build_phase.go` (`convergeSbomByImagesSets`, `buildAggregatedPurlError`); direct failures set `rootImage` = own name; report output for direct failures must stay byte-identical to today's format
-- [ ] T003 Emit the aggregated PURL report on every exit path of `convergeSbomByImagesSets` via `defer` in `pkg/build/build_phase.go`: happy path returns the aggregated error as today; on a hard error the report is logged via logboek and the hard error stays terminal (research R5)
-- [ ] T004 Add unit tests for T002+T003 in `pkg/build/build_phase_purl_test.go`: report format unchanged for direct failures; report emitted when a hard non-PURL error interrupts a set; hard error remains the terminal error (`errors.Is` identity preserved)
+- [X] T002 Extend `purlErrors` entries from bare details strings to a failure-record struct (`details`, `rootImage`, `rootCause` per data-model.md) in `pkg/build/build_phase.go` (`convergeSbomByImagesSets`, `buildAggregatedPurlError`); direct failures set `rootImage` = own name; report output for direct failures must stay byte-identical to today's format
+- [X] T003 Emit the aggregated PURL report on every exit path of `convergeSbomByImagesSets` via `defer` in `pkg/build/build_phase.go`: happy path returns the aggregated error as today; on a hard error the report is logged via logboek and the hard error stays terminal (research R5)
+- [X] T004 Add unit tests for T002+T003 in `pkg/build/build_phase_purl_test.go`: report format unchanged for direct failures; report emitted when a hard non-PURL error interrupts a set; hard error remains the terminal error (`errors.Is` identity preserved)
 
 **Checkpoint**: Foundation ready — user story implementation can now begin.
 
@@ -60,15 +60,15 @@
 
 ### Tests for User Story 1 (write first, ensure they FAIL)
 
-- [ ] T005 [US1] Add failing unit tests in `pkg/build/build_phase_purl_test.go`: (a) dependent of a failed image is skipped with skip record referencing root image and cause; (b) transitive chain A→B→C reports A as root cause for C; (c) aggregated report renders skip entries as `skipped: SBOM for base image "<root>" was not generated: <cause>` (contracts/README.md format); (d) multiplatform — failure of one platform of a name marks the whole name failed
-- [ ] T006 [P] [US1] Add failing unit test in `pkg/build/sbom_step_error_test.go`: base-SBOM-missing advice ("rebuild it with SBOM generation enabled") is produced only when the base was NOT processed by the current run
+- [X] T005 [US1] Add failing unit tests in `pkg/build/build_phase_purl_test.go`: (a) dependent of a failed image is skipped with skip record referencing root image and cause; (b) transitive chain A→B→C reports A as root cause for C; (c) aggregated report renders skip entries as `skipped: SBOM for base image "<root>" was not generated: <cause>` (contracts/README.md format); (d) multiplatform — failure of one platform of a name marks the whole name failed
+- [X] T006 [P] [US1] Add failing unit test in `pkg/build/sbom_step_error_test.go`: base-SBOM-missing advice ("rebuild it with SBOM generation enabled") is produced only when the base was NOT processed by the current run
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Implement dependency skip in `pkg/build/build_phase.go`: before converging an image in `convergeSbomByImagesSets`/`convergeImageSbom`, look up `img.GetBaseImageName()` in the failure map; on hit, record a skip record (copying `rootImage`/`rootCause` from the base's entry for transitivity) and skip converge for that image name (FR-005/006/007)
-- [ ] T008 [US1] Render skip records in `buildAggregatedPurlError` in `pkg/build/build_phase.go` under the existing hierarchical format; summary line counts skipped images in N (research R8)
-- [ ] T009 [US1] Gate the misleading advice in `pkg/build/build_phase.go` `collectBaseImageSbom` + `pkg/build/sbom_step.go` `baseSbomMissingError`: when the base image is present in this run's failure map, return the real cause (`SBOM for base image %q was not generated: <cause>`) instead of the rebuild advice (FR-008); keep advice for genuinely foreign bases
-- [ ] T010 [US1] Verify T005/T006 tests pass; run `task test:unit paths="./pkg/build/..."`; run test-the-tests mutation check on the new tests (`.agents/skills/test-the-tests/SKILL.md`)
+- [X] T007 [US1] Implement dependency skip in `pkg/build/build_phase.go`: before converging an image in `convergeSbomByImagesSets`/`convergeImageSbom`, look up `img.GetBaseImageName()` in the failure map; on hit, record a skip record (copying `rootImage`/`rootCause` from the base's entry for transitivity) and skip converge for that image name (FR-005/006/007)
+- [X] T008 [US1] Render skip records in `buildAggregatedPurlError` in `pkg/build/build_phase.go` under the existing hierarchical format; summary line counts skipped images in N (research R8)
+- [X] T009 [US1] Gate the misleading advice in `pkg/build/build_phase.go` `collectBaseImageSbom` + `pkg/build/sbom_step.go` `baseSbomMissingError`: when the base image is present in this run's failure map, return the real cause (`SBOM for base image %q was not generated: <cause>`) instead of the rebuild advice (FR-008); keep advice for genuinely foreign bases
+- [X] T010 [US1] Verify T005/T006 tests pass; run `task test:unit paths="./pkg/build/..."`; run test-the-tests mutation check on the new tests (`.agents/skills/test-the-tests/SKILL.md`)
 
 **Checkpoint**: US1 fully functional — dependent failures report real causes, report always printed.
 
@@ -82,17 +82,17 @@
 
 ### Tests for User Story 2 (write first, ensure they FAIL)
 
-- [ ] T011 [P] [US2] Add failing classification tests in `pkg/sbom/externalref/service_test.go` (DescribeTable): 404/other-4xx/empty-URL/parse-error → content; transport error (unreachable server)/429/5xx → infra; classification observable on the error returned by `Service.Resolve` via `errors.As`
-- [ ] T012 [P] [US2] Add failing breaker tests in new `pkg/sbom/externalref/breaker_test.go`: trips after exactly threshold consecutive infra failures; success resets counter; content failures don't count; tripped state latches; `Allow()` returns `ErrResolverUnavailable` wrapping endpoint + last infra error; concurrent `Record` calls are safe (race-detector exercised); threshold reached on the final resolution attempt of the build behaves identically to an early trip (extra DescribeTable entry)
-- [ ] T013 [US2] Add failing build-phase test in `pkg/build/build_phase_purl_test.go`: a worker error that is doubly wrapped — matching BOTH `errors.Is(err, externalref.ErrResolverUnavailable)` AND `errors.Is(err, externalref.ErrExternalRefEnrich)` (as produced by `patcher.Apply` wrapping a breaker trip) — terminates converge as a hard error, is NOT deferred into `purlErrors`, and the accumulated report is still emitted (relies on T003); with at least 2 concurrent workers failing on the tripped breaker, assert exactly one resolver-unavailable error surfaces (SC-004)
+- [X] T011 [P] [US2] Add failing classification tests in `pkg/sbom/externalref/service_test.go` (DescribeTable): 404/other-4xx/empty-URL/parse-error → content; transport error (unreachable server)/429/5xx → infra; classification observable on the error returned by `Service.Resolve` via `errors.As`
+- [X] T012 [P] [US2] Add failing breaker tests in new `pkg/sbom/externalref/breaker_test.go`: trips after exactly threshold consecutive infra failures; success resets counter; content failures don't count; tripped state latches; `Allow()` returns `ErrResolverUnavailable` wrapping endpoint + last infra error; concurrent `Record` calls are safe (race-detector exercised); threshold reached on the final resolution attempt of the build behaves identically to an early trip (extra DescribeTable entry)
+- [X] T013 [US2] Add failing build-phase test in `pkg/build/build_phase_purl_test.go`: a worker error that is doubly wrapped — matching BOTH `errors.Is(err, externalref.ErrResolverUnavailable)` AND `errors.Is(err, externalref.ErrExternalRefEnrich)` (as produced by `patcher.Apply` wrapping a breaker trip) — terminates converge as a hard error, is NOT deferred into `purlErrors`, and the accumulated report is still emitted (relies on T003); with at least 2 concurrent workers failing on the tripped breaker, assert exactly one resolver-unavailable error surfaces (SC-004)
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Introduce `FailureClass` (string enum: `FailureClassContent`, `FailureClassInfra`) and a classified error type wrapping the cause, produced inside `doResolve` in `pkg/sbom/externalref/service.go` alongside the existing `backoff.Permanent` decisions (research R1, data-model.md); preserve current retry behavior exactly
-- [ ] T015 [US2] Implement `ResolverBreaker` (mutex-guarded consecutive-infra counter, latched trip, unexported threshold constant = 5) and sentinel `ErrResolverUnavailable` in new `pkg/sbom/externalref/breaker.go`; `Service.Resolve` consults `Allow()` before the retry loop and calls `Record`/`RecordSuccess` after each attempt outcome (research R2/R3); breaker optional in `ServiceConfig` (nil = disabled) so existing callers/tests are unaffected
-- [ ] T016 [US2] Plumb the breaker: add options struct to `NewExternalRefPatcher` in `pkg/sbom/externalref/patcher.go` (options last, per CODESTYLE); construct one breaker per build in `convergeSbomByImagesSets` in `pkg/build/build_phase.go` and pass it through the patcher creation at `convergePlatformImageSbom`
-- [ ] T017 [US2] Handle the trip in `pkg/build/build_phase.go` `convergeSbomByImagesSets`: check `errors.Is(err, externalref.ErrResolverUnavailable)` BEFORE the existing `errors.Is(err, externalref.ErrExternalRefEnrich)` defer branch — `patcher.Apply` wraps breaker trips with `ErrExternalRefEnrich` too, so the enrich check would otherwise swallow the trip; on match → hard error path (terminal), deferred report still emitted; concurrent workers may all observe the trip — deduplicate identical `ErrResolverUnavailable` errors (first-wins) so exactly one terminal resolver-unavailable error is reported (SC-004); keep `logPurlResolverHelpHint` on this path
-- [ ] T018 [US2] Verify T011–T013 pass; run `task test:unit paths="./pkg/sbom/externalref/... ./pkg/build/..."`; run test-the-tests mutation check on breaker tests
+- [X] T014 [US2] Introduce `FailureClass` (string enum: `FailureClassContent`, `FailureClassInfra`) and a classified error type wrapping the cause, produced inside `doResolve` in `pkg/sbom/externalref/service.go` alongside the existing `backoff.Permanent` decisions (research R1, data-model.md); preserve current retry behavior exactly
+- [X] T015 [US2] Implement `ResolverBreaker` (mutex-guarded consecutive-infra counter, latched trip, unexported threshold constant = 5) and sentinel `ErrResolverUnavailable` in new `pkg/sbom/externalref/breaker.go`; `Service.Resolve` consults `Allow()` before the retry loop and calls `Record`/`RecordSuccess` after each attempt outcome (research R2/R3); breaker optional in `ServiceConfig` (nil = disabled) so existing callers/tests are unaffected
+- [X] T016 [US2] Plumb the breaker: add options struct to `NewExternalRefPatcher` in `pkg/sbom/externalref/patcher.go` (options last, per CODESTYLE); construct one breaker per build in `convergeSbomByImagesSets` in `pkg/build/build_phase.go` and pass it through the patcher creation at `convergePlatformImageSbom`
+- [X] T017 [US2] Handle the trip in `pkg/build/build_phase.go` `convergeSbomByImagesSets`: check `errors.Is(err, externalref.ErrResolverUnavailable)` BEFORE the existing `errors.Is(err, externalref.ErrExternalRefEnrich)` defer branch — `patcher.Apply` wraps breaker trips with `ErrExternalRefEnrich` too, so the enrich check would otherwise swallow the trip; on match → hard error path (terminal), deferred report still emitted; concurrent workers may all observe the trip — deduplicate identical `ErrResolverUnavailable` errors (first-wins) so exactly one terminal resolver-unavailable error is reported (SC-004); keep `logPurlResolverHelpHint` on this path
+- [X] T018 [US2] Verify T011–T013 pass; run `task test:unit paths="./pkg/sbom/externalref/... ./pkg/build/..."`; run test-the-tests mutation check on breaker tests
 
 **Checkpoint**: US1 and US2 work independently — outage fails fast with one clear error.
 
@@ -106,17 +106,17 @@
 
 ### Tests for User Story 3 (write first where output is capturable)
 
-- [ ] T019 [P] [US3] Add failing test in `pkg/build/sbom_step_test.go`: GOST experimental warning emitted at most once across multiple `prepareGostComponents` invocations
-- [ ] T020 [P] [US3] Add failing test in `pkg/oci/artifact/fallback_test.go` (create if absent, next to `pkg/oci/artifact/fallback.go`): multiple-entries warning names the requesting image, the image names carried by entries, and the selected entry
+- [X] T019 [P] [US3] Add failing test in `pkg/build/sbom_step_test.go`: GOST experimental warning emitted at most once across multiple `prepareGostComponents` invocations
+- [X] T020 [P] [US3] Add failing test in `pkg/oci/artifact/fallback_test.go` (create if absent, next to `pkg/oci/artifact/fallback.go`): multiple-entries warning names the requesting image, the image names carried by entries, and the selected entry
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Print the deferred enrichment error inside the failing image's log block in `pkg/build/build_phase.go` (worker in `convergeSbomByImagesSets`, at the classification point before deferral) so FAILED sits next to its cause (FR-010, research R6.1); verification: covered by T028 e2e log inspection (SC-006) — logboek block-output capture is not practical in unit tests, record this explicitly in the PR
-- [ ] T022 [P] [US3] Guard the GOST experimental warning in `pkg/build/sbom_step.go` `prepareGostComponents` with a once-guard owned by the `sbomStep` instance (NOT a package-level `sync.Once` — package state makes T019 order-dependent and unresettable between tests) (FR-011: at most once per build)
-- [ ] T023 [P] [US3] Contextualize the multiple-entries warning in `pkg/oci/artifact/fallback.go` `GetAttached`: include requesting image (when known), entry image names from annotations, and the selected entry (FR-012)
-- [ ] T024 [P] [US3] Add the final-repo address to the `Copy SBOM artifacts into the final repo` message in `pkg/build/sbom_step.go` `PropagateArtifacts` (cache message already prints the address) (FR-013); verification via T028 e2e log inspection
-- [ ] T025 [US3] Wrap external-ref resolution in its own named `LogProcess` with timer inside the patcher loop in `pkg/build/sbom_step.go` `ConvergeWithMerge` (special-case the external-ref patcher at the call site; patcher interface unchanged — research R6.6) (FR-014); verification via T028 e2e log inspection
-- [ ] T026 [US3] Verify T019/T020 pass; run `task test:unit paths="./pkg/build/... ./pkg/oci/artifact/..."`
+- [X] T021 [US3] Print the deferred enrichment error inside the failing image's log block in `pkg/build/build_phase.go` (worker in `convergeSbomByImagesSets`, at the classification point before deferral) so FAILED sits next to its cause (FR-010, research R6.1); verification: covered by T028 e2e log inspection (SC-006) — logboek block-output capture is not practical in unit tests, record this explicitly in the PR
+- [X] T022 [P] [US3] Guard the GOST experimental warning in `pkg/build/sbom_step.go` `prepareGostComponents` with a once-guard owned by the `sbomStep` instance (NOT a package-level `sync.Once` — package state makes T019 order-dependent and unresettable between tests) (FR-011: at most once per build)
+- [X] T023 [P] [US3] Contextualize the multiple-entries warning in `pkg/oci/artifact/fallback.go` `GetAttached`: include requesting image (when known), entry image names from annotations, and the selected entry (FR-012)
+- [X] T024 [P] [US3] Add the final-repo address to the `Copy SBOM artifacts into the final repo` message in `pkg/build/sbom_step.go` `PropagateArtifacts` (cache message already prints the address) (FR-013); verification via T028 e2e log inspection
+- [X] T025 [US3] Wrap external-ref resolution in its own named `LogProcess` with timer inside the patcher loop in `pkg/build/sbom_step.go` `ConvergeWithMerge` (special-case the external-ref patcher at the call site; patcher interface unchanged — research R6.6) (FR-014); verification via T028 e2e log inspection
+- [X] T026 [US3] Verify T019/T020 pass; run `task test:unit paths="./pkg/build/... ./pkg/oci/artifact/..."`
 
 **Checkpoint**: All user stories independently functional.
 
@@ -124,10 +124,10 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T027 Full verification sequence in order: `task format`, `task build`, `task lint`, `task test:unit` (unscoped)
-- [ ] T028 E2E validation: `task test:e2e paths="./test/e2e/..." labelFilter="sbom"` on the Linux environment; walk quickstart.md US1/US2/US3 scenarios and confirm contracts/README.md output contracts
-- [ ] T029 [P] Update `wiki/pages/error-aggregation-strategy.md`: skip-entry kind in the report format, report-on-every-exit-path guarantee, breaker interaction (cross-reference `purl-resolution.md`)
-- [ ] T030 Re-check spec success criteria SC-001…SC-006 against actual behavior and mark the feature converged (input problem `specs/017-sbom-converge-failure-semantics/PROBLEM.md` fully addressed; operational follow-ups remain out of scope)
+- [X] T027 Full verification sequence in order: `task format`, `task build`, `task lint`, `task test:unit` (unscoped)
+- [X] T028 E2E validation: `task test:e2e paths="./test/e2e/..." labelFilter="sbom"` on the Linux environment; walk quickstart.md US1/US2/US3 scenarios and confirm contracts/README.md output contracts
+- [X] T029 [P] Update `wiki/pages/error-aggregation-strategy.md`: skip-entry kind in the report format, report-on-every-exit-path guarantee, breaker interaction (cross-reference `purl-resolution.md`)
+- [X] T030 Re-check spec success criteria SC-001…SC-006 against actual behavior and mark the feature converged (input problem `specs/017-sbom-converge-failure-semantics/PROBLEM.md` fully addressed; operational follow-ups remain out of scope)
 
 ---
 
@@ -186,3 +186,11 @@ Task: "T012 breaker tests in pkg/sbom/externalref/breaker_test.go"
 - Commit after each task or logical group (git-conventions skill before every commit)
 - `task format` before `task build` when verifying — format mutates files
 - No new CLI flags/config anywhere (FR-015); `task doc:gen` not needed (no command help changes)
+
+### Implementation deviations (recorded during /speckit-implement)
+
+- **T003**: report-on-every-exit-path implemented via an explicit wrapper (`convergeSbomByImagesSets` calls `doConvergeSbomByImagesSets`, then emits the report on both paths) instead of `defer` — named returns required for a defer-based rewrite are forbidden by CODESTYLE; behavior is identical (FR-009 satisfied).
+- **T004**: the "report emitted when a hard error interrupts a set" scenario is covered by construction (the wrapper emits the report on both paths, exercised by `canonicalResolverUnavailableError` and rendering tests) — `convergeSbomByImagesSets` itself needs a full conveyor and is exercised end-to-end only; final confirmation belongs to the linux e2e run (see T028).
+- **T021**: the deferred enrich error is printed inside the "Resolve external references" sub-block in `pkg/build/sbom_step.go` `ConvergeWithMerge` (inside the image's log block, next to FAILED) rather than in the build-phase worker — the image's log block is already closed by the time the worker sees the error.
+- **T027**: `task format`, `task build`, `task lint` clean; unscoped `task test:unit` is flaky on the development macOS host (a random unrelated suite — `pkg/true_git` or `cmd/werf/common` — fails under full parallel load; both pass standalone and the identical failure reproduces on `origin/main`). All suites of the touched packages (`pkg/build`, `pkg/sbom/externalref`, `pkg/oci/artifact`) pass.
+- **T028**: e2e cannot run on this host — established, not assumed: Docker Desktop, kind cluster, and registry are present, but every spec fails with `building of stapel image using Docker-Server backend is unsupported on your current platform "linux/arm64/v8"` (Apple Silicon). US1/US2/US3 e2e scenarios from quickstart.md must be validated on a linux/amd64 host before release.

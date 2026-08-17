@@ -83,15 +83,15 @@
 ### Tests for User Story 2 (write first, ensure they FAIL)
 
 - [ ] T011 [P] [US2] Add failing classification tests in `pkg/sbom/externalref/service_test.go` (DescribeTable): 404/other-4xx/empty-URL/parse-error → content; transport error (unreachable server)/429/5xx → infra; classification observable on the error returned by `Service.Resolve` via `errors.As`
-- [ ] T012 [P] [US2] Add failing breaker tests in new `pkg/sbom/externalref/breaker_test.go`: trips after exactly threshold consecutive infra failures; success resets counter; content failures don't count; tripped state latches; `Allow()` returns `ErrResolverUnavailable` wrapping endpoint + last infra error; concurrent `Record` calls are safe (race-detector exercised)
-- [ ] T013 [US2] Add failing build-phase test in `pkg/build/build_phase_purl_test.go`: worker error matching `errors.Is(err, externalref.ErrResolverUnavailable)` terminates converge as a hard error AND the accumulated report is still emitted (relies on T003)
+- [ ] T012 [P] [US2] Add failing breaker tests in new `pkg/sbom/externalref/breaker_test.go`: trips after exactly threshold consecutive infra failures; success resets counter; content failures don't count; tripped state latches; `Allow()` returns `ErrResolverUnavailable` wrapping endpoint + last infra error; concurrent `Record` calls are safe (race-detector exercised); threshold reached on the final resolution attempt of the build behaves identically to an early trip (extra DescribeTable entry)
+- [ ] T013 [US2] Add failing build-phase test in `pkg/build/build_phase_purl_test.go`: a worker error that is doubly wrapped — matching BOTH `errors.Is(err, externalref.ErrResolverUnavailable)` AND `errors.Is(err, externalref.ErrExternalRefEnrich)` (as produced by `patcher.Apply` wrapping a breaker trip) — terminates converge as a hard error, is NOT deferred into `purlErrors`, and the accumulated report is still emitted (relies on T003); with at least 2 concurrent workers failing on the tripped breaker, assert exactly one resolver-unavailable error surfaces (SC-004)
 
 ### Implementation for User Story 2
 
 - [ ] T014 [US2] Introduce `FailureClass` (string enum: `FailureClassContent`, `FailureClassInfra`) and a classified error type wrapping the cause, produced inside `doResolve` in `pkg/sbom/externalref/service.go` alongside the existing `backoff.Permanent` decisions (research R1, data-model.md); preserve current retry behavior exactly
 - [ ] T015 [US2] Implement `ResolverBreaker` (mutex-guarded consecutive-infra counter, latched trip, unexported threshold constant = 5) and sentinel `ErrResolverUnavailable` in new `pkg/sbom/externalref/breaker.go`; `Service.Resolve` consults `Allow()` before the retry loop and calls `Record`/`RecordSuccess` after each attempt outcome (research R2/R3); breaker optional in `ServiceConfig` (nil = disabled) so existing callers/tests are unaffected
 - [ ] T016 [US2] Plumb the breaker: add options struct to `NewExternalRefPatcher` in `pkg/sbom/externalref/patcher.go` (options last, per CODESTYLE); construct one breaker per build in `convergeSbomByImagesSets` in `pkg/build/build_phase.go` and pass it through the patcher creation at `convergePlatformImageSbom`
-- [ ] T017 [US2] Handle the trip in `pkg/build/build_phase.go` `convergeSbomByImagesSets`: `errors.Is(err, externalref.ErrResolverUnavailable)` → hard error path (terminal, reported once), deferred report still emitted; keep `logPurlResolverHelpHint` on this path
+- [ ] T017 [US2] Handle the trip in `pkg/build/build_phase.go` `convergeSbomByImagesSets`: check `errors.Is(err, externalref.ErrResolverUnavailable)` BEFORE the existing `errors.Is(err, externalref.ErrExternalRefEnrich)` defer branch — `patcher.Apply` wraps breaker trips with `ErrExternalRefEnrich` too, so the enrich check would otherwise swallow the trip; on match → hard error path (terminal), deferred report still emitted; concurrent workers may all observe the trip — deduplicate identical `ErrResolverUnavailable` errors (first-wins) so exactly one terminal resolver-unavailable error is reported (SC-004); keep `logPurlResolverHelpHint` on this path
 - [ ] T018 [US2] Verify T011–T013 pass; run `task test:unit paths="./pkg/sbom/externalref/... ./pkg/build/..."`; run test-the-tests mutation check on breaker tests
 
 **Checkpoint**: US1 and US2 work independently — outage fails fast with one clear error.
@@ -100,7 +100,7 @@
 
 ## Phase 5: User Story 3 - SBOM log output names causes and targets (Priority: P3)
 
-**Goal**: Five log-quality fixes: cause next to FAILED, GOST warning once per process, contextualized multiple-entries warning, repo address in copy messages, timed external-ref resolution section.
+**Goal**: Five log-quality fixes: cause next to FAILED, GOST warning once per build, contextualized multiple-entries warning, repo address in copy messages, timed external-ref resolution section.
 
 **Independent Test**: Unit tests intercepting logboek output where practical; manual/e2e log inspection per quickstart.md US3 scenario.
 
@@ -111,11 +111,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Print the deferred enrichment error inside the failing image's log block in `pkg/build/build_phase.go` (worker in `convergeSbomByImagesSets`, at the classification point before deferral) so FAILED sits next to its cause (FR-010, research R6.1)
-- [ ] T022 [P] [US3] Guard the GOST experimental warning with `sync.Once` in `pkg/build/sbom_step.go` `prepareGostComponents` (FR-011)
+- [ ] T021 [US3] Print the deferred enrichment error inside the failing image's log block in `pkg/build/build_phase.go` (worker in `convergeSbomByImagesSets`, at the classification point before deferral) so FAILED sits next to its cause (FR-010, research R6.1); verification: covered by T028 e2e log inspection (SC-006) — logboek block-output capture is not practical in unit tests, record this explicitly in the PR
+- [ ] T022 [P] [US3] Guard the GOST experimental warning in `pkg/build/sbom_step.go` `prepareGostComponents` with a once-guard owned by the `sbomStep` instance (NOT a package-level `sync.Once` — package state makes T019 order-dependent and unresettable between tests) (FR-011: at most once per build)
 - [ ] T023 [P] [US3] Contextualize the multiple-entries warning in `pkg/oci/artifact/fallback.go` `GetAttached`: include requesting image (when known), entry image names from annotations, and the selected entry (FR-012)
-- [ ] T024 [P] [US3] Add the final-repo address to the `Copy SBOM artifacts into the final repo` message in `pkg/build/sbom_step.go` `PropagateArtifacts` (cache message already prints the address) (FR-013)
-- [ ] T025 [US3] Wrap external-ref resolution in its own named `LogProcess` with timer inside the patcher loop in `pkg/build/sbom_step.go` `ConvergeWithMerge` (special-case the external-ref patcher at the call site; patcher interface unchanged — research R6.6) (FR-014)
+- [ ] T024 [P] [US3] Add the final-repo address to the `Copy SBOM artifacts into the final repo` message in `pkg/build/sbom_step.go` `PropagateArtifacts` (cache message already prints the address) (FR-013); verification via T028 e2e log inspection
+- [ ] T025 [US3] Wrap external-ref resolution in its own named `LogProcess` with timer inside the patcher loop in `pkg/build/sbom_step.go` `ConvergeWithMerge` (special-case the external-ref patcher at the call site; patcher interface unchanged — research R6.6) (FR-014); verification via T028 e2e log inspection
 - [ ] T026 [US3] Verify T019/T020 pass; run `task test:unit paths="./pkg/build/... ./pkg/oci/artifact/..."`
 
 **Checkpoint**: All user stories independently functional.

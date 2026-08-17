@@ -73,7 +73,7 @@ A user reading the build log of a failed or slow SBOM converge must be able to a
 **Acceptance Scenarios**:
 
 1. **Given** an image's SBOM processing fails with a deferred (aggregated) error, **When** the image's log block closes with FAILED, **Then** the error text is printed inside that image's log block.
-2. **Given** GOST SBOM integration is enabled for N images, **When** the build runs, **Then** the "GOST SBOM integration is experimental" warning is printed exactly once per process.
+2. **Given** GOST SBOM integration is enabled for N images, **When** the build runs, **Then** the "GOST SBOM integration is experimental" warning is printed exactly once per build.
 3. **Given** an SBOM artifact lookup finds multiple artifact entries for a digest, **When** the warning is printed, **Then** it names the image whose lookup produced it, the image names carried by the entries, and which entry was selected.
 4. **Given** SBOM artifacts are copied into the final repo (or cache repos), **When** the copy log message is printed, **Then** it includes the repo address.
 5. **Given** external-reference resolution takes noticeable time (retries), **When** the image's SBOM is processed, **Then** the resolution runs inside its own named log section with a timer, so its duration is visible within the image block.
@@ -95,7 +95,7 @@ A user reading the build log of a failed or slow SBOM converge must be able to a
 
 - **FR-001**: The system MUST classify each external-reference resolution failure as either *content* (the resolver answered authoritatively that the package is unknown/invalid, e.g. HTTP 404) or *infrastructure* (the resolver could not be reached or answered abnormally: timeout, connection error, HTTP 5xx).
 - **FR-002**: Content failures MUST keep the existing behavior: deferred, accumulated, and reported once in the aggregated hierarchical report (per `wiki/pages/error-aggregation-strategy.md`).
-- **FR-003**: The system MUST maintain a process-wide count of consecutive infrastructure failures across all images; a successful resolution resets it. When the count reaches a threshold, the resolver MUST be declared unavailable for the remainder of the build: no further resolution attempts or retries are performed.
+- **FR-003**: The system MUST maintain a process-wide count of consecutive infrastructure failures across all images; a successful resolution resets it. When the count reaches a threshold, the resolver MUST be declared unavailable for the remainder of the build: no new resolution attempts are started and no new retry loops begin; retry loops already in flight complete their current budget. Total additional waiting after the trip is bounded by (worker parallelism × one retry budget), independent of image count.
 - **FR-004**: When the resolver is declared unavailable, the build MUST fail with a single error naming the resolver endpoint and the last underlying infrastructure error, accompanied by the aggregated report of failures accumulated so far.
 - **FR-005**: An image whose PURL enrichment failed (deferred) MUST be recorded as "SBOM not generated" for dependency purposes; its published SBOM set is treated as absent for this run.
 - **FR-006**: Before processing an image whose base image is recorded as "SBOM not generated" in this run, the system MUST skip that image's SBOM converge and record it as skipped with the base image's actual enrichment error as the cause. Skipping propagates transitively.
@@ -103,7 +103,7 @@ A user reading the build log of a failed or slow SBOM converge must be able to a
 - **FR-008**: The "rebuild it with SBOM generation enabled" advice MUST be shown only when the base SBOM is absent AND the base image was not processed by the current run.
 - **FR-009**: The aggregated PURL report MUST be printed on every exit path of SBOM converge — happy path, hard error, and circuit-breaker trip. If a hard error and accumulated PURL errors coexist, both MUST surface, with the hard error as the terminal error.
 - **FR-010**: A deferred enrichment error MUST be printed inside the failing image's own log block before the block closes with FAILED.
-- **FR-011**: The GOST experimental-integration warning MUST be printed at most once per process.
+- **FR-011**: The GOST experimental-integration warning MUST be printed at most once per build.
 - **FR-012**: The "multiple artifact entries" warning MUST name the image whose lookup produced it, the image names carried by the found entries, and the selected entry.
 - **FR-013**: Log messages about copying SBOM artifacts into final/cache repos MUST include the repo address.
 - **FR-014**: External-reference resolution MUST run inside its own named log section with a timer, visible within the image's log block.

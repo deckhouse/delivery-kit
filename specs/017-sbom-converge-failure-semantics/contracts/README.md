@@ -35,6 +35,6 @@ Emitted exactly once per build; accompanied by the aggregated report accumulated
 
 - Deferred enrichment errors are printed inside the failing image's `image <name>: SBOM processing` block.
 - External-ref resolution runs in its own named log section with a timer inside the image block.
-- GOST experimental warning: at most once per process.
+- GOST experimental warning: at most once per build.
 - `Copy SBOM artifacts into the final repo <address>` / cache messages carry the repo address.
 - Multiple-artifact-entries warning names the requesting image, entry image names, and the selected entry.

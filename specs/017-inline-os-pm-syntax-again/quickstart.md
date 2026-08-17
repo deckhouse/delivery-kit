@@ -134,13 +134,13 @@ grep -r "PMBOMPatcher" pkg/sbom/
 
 **Expected**: No references to `PMBOMPatcher` remain.
 
-### Verify no remaining `pm.lock` references for os-pm
+### Verify no obsolete os-pm lock workflow remains
 
 ```bash
-grep -r "pm.lock" pkg/config/ pkg/build/ pkg/sbom/
+grep -r "pm:lock\|pm.lock\|PMBOMPatcher" Taskfile.dist.yaml pkg/config/ pkg/build/ pkg/sbom/
 ```
 
-**Expected**: No references to `pm.lock` in os-pm code paths (other package types may still use their own lock files).
+**Expected**: No `pm:lock` task, PMBOMPatcher, or os-pm lock-file source remains. Other package ecosystems may still use their own lock files.
 
 ### Verify inline spec is the ONLY format for os-pm
 
@@ -204,6 +204,6 @@ packages:
 |----------|------|-------------|
 | Config schema | `packages_directive.go` | `PackagesSpec.Packages []string` with inline list |
 | Command generation | `packages_commands.go` | `formatInstallCommand` produces `pm install <pkgs>` |
-| SBOM collection | `collect.go` | `CollectBOM` reads `/var/lib/pm/index.json` |
+| SBOM collection | `collect.go` | os-pm package owns the index path constant and integrates runtime BOM before generic patchers |
 | Stapel interface | `stapel_image_base.go` | `HasOSPMPackages()` replaces `OSPMLockPath()` |
-| Build phase | `sbom_step.go` | `osPmEnabled bool` replaces `osPmLockPath string`; `CollectBOM` runs before PURL enrichment and cache reuse preserves final-BOM semantics |
+| Build phase | `sbom_step.go` | no inline os-pm merge and no os-pm checksum flag; package-level operation runs before PURL enrichment |

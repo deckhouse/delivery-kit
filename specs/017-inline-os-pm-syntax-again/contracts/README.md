@@ -124,11 +124,11 @@ func CollectBOM(
 ```
 
 **Behavior**:
-1. Read `/var/lib/pm/index.json` from inside the built image via `ReadFileFromImage`
+1. Read the os-pm-owned index path constant (`/var/lib/pm/index.json`) from inside the built image via `ReadFileFromImage`
 2. Parse as `map[string]PmPackageInfo` via `ParsePmInstalledJSON`
 3. Resolve `containerFactoryVersion`: try `PACKAGES_VERSION` env var first, then read from image via `ReadContainerFactoryVersion`
 4. Convert to CycloneDX BOM via `ConvertToCycloneDX`
-5. Return the BOM (or empty BOM with nil error if no packages found / index.json not present)
+5. Provide the runtime contribution to the final-BOM operation before generic external-reference patchers; return no os-pm contribution with nil error if no packages are found / the index is absent
 
 ### `ReadContainerFactoryVersion` — Preserved
 
@@ -166,17 +166,17 @@ func (b *StapelImageBase) HasOSPMPackages() bool
 ### `sbom_step.go` — `ConvergeWithMerge`
 
 ```go
-// Before (015):
+// Historical 015 shape:
 func (s *SbomStep) ConvergeWithMerge(
     ctx context.Context,
     osPmLockPath string,  // ← lock file path
     ...
 )
 
-// After (017):
+// Current 017 coordination shape:
 func (s *SbomStep) ConvergeWithMerge(
     ctx context.Context,
-    osPmEnabled bool,  // ← boolean flag
+    osPmEnabled bool,  // ← boolean gate; os-pm details stay in pkg/sbom/packages/os_pm
     ...
 )
 ```

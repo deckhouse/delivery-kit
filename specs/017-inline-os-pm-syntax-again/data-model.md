@@ -58,7 +58,7 @@ Configuration for the `os-pm` ecosystem. Changes from 015:
 | `Type` | `"os-pm"` | `"os-pm"` (unchanged) |
 | `DefaultSpecFile` | `"pm.yaml"` | `""` |
 | `DefaultLockFile` | `"pm.lock"` | `""` |
-| `CatalogerName` | `"os-pm-lock-cataloger"` | `"os-pm-cataloger"` — defined as a constant `OsPMCatalogerName` in `pkg/config/packages_directive.go` |
+| `CatalogerName` | `"os-pm-lock-cataloger"` | `"os-pm-cataloger"` — owned by `pkg/sbom/packages/os_pm` |
 | `InstallCmd` | `pm sync --from <lockfile>` | `pm install <pkgs>` |
 
 ### `PmInstallCommand`
@@ -100,7 +100,7 @@ Flat JSON object mapping package names to package info. Format:
 }
 ```
 
-**Read by**: `ParsePmInstalledJSON(data []byte) (map[string]PmPackageInfo, error)`
+**Read by**: `CollectBOM()` in `pkg/sbom/packages/os_pm`; the path is provided by an os-pm package constant and is not duplicated in the build layer.
 
 **Producer**: The `pm` binary inside the builder image during the build stage.
 
@@ -118,7 +118,7 @@ Text file containing the container factory version string.
 
 ## SBOM Pipeline Invariant
 
-`CollectBOM` produces the runtime os-pm component set from the final image state. That set is merged into `resultBOM` before `externalref.ExternalRefPatcher` runs. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
+The os-pm SBOM package produces and integrates the runtime component set from the final image state before `externalref.ExternalRefPatcher` runs. `pkg/build` coordinates this operation but does not append components or dependencies itself. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
 
 If enrichment fails for one or more components, the error retains `ErrExternalRefEnrich` and component details so `BuildPhase` can continue independent images and produce a hierarchical aggregate. A successful image must not appear in the aggregate.
 
@@ -149,13 +149,13 @@ werf.yaml
               /var/lib/pm/index.json ←─ written by pm binary
                     │
                     ▼
-              CollectBOM()
+              `pkg/sbom/packages/os_pm` runtime BOM operation
                     │
-                    ├── ReadFileFromImage("/var/lib/pm/index.json")
+                    ├── ReadFileFromImage(indexPath constant)
                     ├── ParsePmInstalledJSON()
                     ├── ReadContainerFactoryVersion() (or env)
-                    └── ConvertToCycloneDX()
+                    └── ConvertToCycloneDX() and integrate into final BOM
                           │
                           ▼
-                    CycloneDX BOM ──→ Merged into result SBOM
+                    CycloneDX BOM ──→ generic patchers
 ```

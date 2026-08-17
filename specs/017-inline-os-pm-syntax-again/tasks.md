@@ -53,13 +53,13 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 
 **Critical**: Complete this phase before implementing the user stories.
 
-- [X] T004 [P] Restore `PackagesSpec{Packages []string}` and the os-pm cataloger constant in `pkg/config/packages_directive.go`
+- [X] T004 [P] Restore `PackagesSpec{Packages []string}` in `pkg/config/packages_directive.go`
 - [X] T005 [P] Update `PackageEcosystem.InstallCmd` and all ecosystem callback implementations to accept `FileBasedSpec`, inline package arguments, and environment variables in `pkg/config/packages_directive.go`
-- [X] T006 [P] Restore the os-pm ecosystem metadata with empty default spec/lock files, runtime-index cataloger name, and inline install command behavior in `pkg/config/packages_directive.go`
+- [ ] T006 [P] Remove `OsPMCatalogerName` from `pkg/config/packages_directive.go`, keep os-pm `DefaultSpecFile`/`DefaultLockFile` empty, and leave cataloger metadata empty because os-pm is handled outside Syft managed inputs
 - [X] T007 [P] Remove os-pm file-based resolution from `fillFileBasedSpec` and restore list conversion for os-pm in `pkg/config/raw_packages_directive.go`
 - [X] T008 [P] Restore `HasOSPMPackages()` and remove `OSPMLockPath()` and `OSPMSpecPath()` from `pkg/config/stapel_image_base.go`
 - [X] T009 Update callers of removed lock/spec path methods to use `HasOSPMPackages()` in `pkg/build/build_phase.go` and `pkg/config/raw_stapel_image.go`
-- [X] T010 Verify the foundational configuration changes compile with `task test:unit paths="./pkg/config/..."`
+- [ ] T010 Re-run foundation tests after the metadata ownership changes with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/sbom/managedinput/..."`
 
 **Checkpoint**: Inline os-pm data can be represented without a lock-file path, and all user stories can consume the shared model.
 
@@ -100,9 +100,9 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 ### Tests for User Story 2
 
 - [X] T021 [P] [US2] Add `CollectBOM` tests for image reads, empty/missing index behavior, malformed index errors, package conversion, and container-factory version fallback in `pkg/sbom/packages/os_pm/collect_test.go`
-- [ ] T022 [P] [US2] Add a `ConvergeWithMerge` regression test proving a component returned by `CollectBOM` is present when the external-reference patcher runs and that `ErrExternalRefEnrich` is propagated in `pkg/build/sbom_step_test.go`
-- [X] T023 [P] [US2] Add SBOM cache regression coverage proving a stale artifact cannot bypass the changed final-BOM/PURL behavior in `pkg/build/sbom_step_test.go`
-- [X] T024 [P] [US2] Update os-pm managed-input tests to verify the runtime-index cataloger remains excluded from Syft derivation in `pkg/sbom/managedinput/managedinput_test.go`
+- [ ] T022 [P] [US2] Add a package-level regression test proving a runtime-index component is integrated before the external-reference patcher and that `ErrExternalRefEnrich` is propagated in `pkg/sbom/packages/os_pm/collect_test.go` or a co-located integration test
+- [ ] T023 [P] [US2] Update SBOM checksum/cache regression coverage after removing the os-pm checksum input in `pkg/build/sbom_step_checksum_test.go` and `pkg/build/sbom_step_test.go`
+- [X] T024 [P] [US2] Update os-pm managed-input tests to verify os-pm remains excluded from Syft derivation in `pkg/sbom/managedinput/managedinput_test.go`
 - [X] T025 [P] [US2] Update stage/build tests for boolean os-pm enablement and runtime BOM collection in `pkg/build/stage/packages_test.go`
 
 ### Implementation for User Story 2
@@ -110,9 +110,9 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 - [X] T026 [P] [US2] Restore `CollectBOM` to read `/var/lib/pm/index.json`, reuse `ParsePmInstalledJSON` and `ConvertToCycloneDX`, and resolve `containerFactoryVersion` from env then image in `pkg/sbom/packages/os_pm/collect.go`
 - [X] T027 [P] [US2] Remove the obsolete lock-file SBOM source and its tests from `pkg/sbom/packages/os_pm/pm_bom_patcher.go` and `pkg/sbom/packages/os_pm/pm_bom_patcher_test.go`
 - [X] T028 [US2] Replace lock/spec path propagation with `hasOsPmPackages` in `pkg/build/build_phase.go` and pass `osPmEnabled` into the SBOM step
-- [X] T029 [US2] Merge `CollectBOM` components and dependencies into `resultBOM` before applying `externalref.ExternalRefPatcher` in `pkg/build/sbom_step.go`
+- [ ] T029 [US2] Move runtime-index collection and component/dependency integration behind the os-pm SBOM package operation, then invoke it before `externalref.ExternalRefPatcher` from `pkg/build/sbom_step.go` without duplicating merge logic
 - [X] T030 [US2] Preserve patcher error wrapping and component details so `ErrExternalRefEnrich` reaches `convergeSbomByImagesSets` and successful images remain absent from the aggregate in `pkg/build/build_phase.go` and `pkg/sbom/externalref/patcher.go`
-- [X] T031 [US2] Update the SBOM checksum/cache format or invalidation behavior if required by the cache analysis, ensuring cache reuse represents the final BOM and enrichment behavior in `pkg/build/sbom_step.go`
+- [ ] T031 [US2] Remove the variadic `osPmEnabled` checksum input and its `os-pm-enabled` checksum part; update checksum tests and verify cache behavior remains correct for generic scan/merge/signer/platform inputs in `pkg/build/sbom_step.go`
 - [X] T032 [US2] Run focused US2 unit tests with `task test:unit paths="./pkg/sbom/..." -- -focus="os-pm|external|SBOM"` and `task test:unit paths="./pkg/build/..."`
 
 ### PURL Resolver E2E Regression
@@ -151,14 +151,17 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 **Purpose**: Migrate all fixtures, remove obsolete references, and run the repository-required validation sequence.
 
 - [X] T041 [P] Update all os-pm SBOM fixtures under `test/e2e/sbom/_fixtures/` from `pm.yaml`/`pm.lock` to inline `spec` lists and remove obsolete fixture files
-- [X] T042 [P] Verify no `PMBOMPatcher` references remain in `pkg/` and no os-pm code path reads `pm.lock` in `pkg/config/`, `pkg/build/`, or `pkg/sbom/`
-- [X] T043 [P] Run the package-focused e2e suite with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="packages"`
-- [X] T044 Run `task format` for changed Go packages and tests under `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `test/e2e/sbom/`
-- [X] T045 Run `task build` and fix implementation-caused compilation failures in the changed `pkg/config/`, `pkg/build/`, and `pkg/sbom/` code
-- [X] T046 Run `task lint` and fix implementation-caused diagnostics in the changed `pkg/config/`, `pkg/build/`, and `pkg/sbom/` code
+- [ ] T042 [P] Remove the obsolete `pm:lock` task from `Taskfile.dist.yaml`; verify no `PMBOMPatcher`, os-pm `pm.lock` source, or duplicated os-pm path/cataloger literals remain in `pkg/config/`, `pkg/build/`, or `pkg/sbom/`
+- [ ] T043 [P] Run the package-focused e2e suite with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="packages"` after the remaining SBOM changes
+- [ ] T044 Run `task format` for changed Go packages and tests under `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `test/e2e/sbom/` after implementation
+- [ ] T045 Run `task build` and fix implementation-caused compilation failures in the changed `pkg/config/`, `pkg/build/`, and `pkg/sbom/` code
+- [ ] T046 Run `task lint` and fix implementation-caused diagnostics in the changed `pkg/config/`, `pkg/build/`, and `pkg/sbom/` code
 - [ ] T047 Run `task test:unit` and record any unrelated pre-existing failures without masking implementation failures in `pkg/config/`, `pkg/build/`, and `pkg/sbom/`
 - [ ] T048 Run the full relevant SBOM e2e suite under `test/e2e/sbom/` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
-- [X] T049 Validate all changed task/design artifacts with `git diff --check` for `specs/017-inline-os-pm-syntax-again/`
+- [ ] T049 Validate all changed task/design artifacts with `git diff --check` for `specs/017-inline-os-pm-syntax-again/`
+- [ ] T050 [P] Move the runtime index path, container-factory version path, and os-pm cataloger identifier into `pkg/sbom/packages/os_pm/collect.go` or a co-located SBOM file without importing `pkg/config`
+- [ ] T051 [P] Update `pkg/sbom/managedinput/managedinput.go` and the os-pm ecosystem boundary so os-pm remains excluded without a config-owned cataloger constant
+- [ ] T052 Remove the obsolete `pm:lock` task from `Taskfile.dist.yaml` and verify no os-pm SBOM path reads `pm.yaml` or `pm.lock`
 
 ---
 

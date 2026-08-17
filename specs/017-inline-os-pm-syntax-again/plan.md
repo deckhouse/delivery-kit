@@ -8,7 +8,7 @@
 
 ## Summary
 
-Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` approach back to inline `spec: [pkg1, pkg2]` syntax while preserving the ability to have **multiple os-pm sections** per `packages` list (each with its own `env`). SBOM is collected from `/var/lib/pm/index.json` inside the built image after all pm commands execute, replacing the 015-era `PMBOMPatcher` that read `pm.lock` from the git commit.
+Restore `os-pm` package declaration to inline `spec: [pkg1, pkg2]` syntax while preserving multiple sections and per-section `env`. Keep all os-pm SBOM collection and runtime-index details inside `pkg/sbom/packages/os_pm`; the build SBOM step should invoke the package-level operation without merging os-pm components itself. Remove os-pm-specific checksum input, move the cataloger name and runtime-index path constants into the SBOM package, and remove the obsolete `pm:lock` Taskfile task.
 
 ## Technical Context
 
@@ -34,7 +34,7 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 
 **Constraints**: CLI must be self-contained; no daemon dependency; POSIX filesystem operations; OCI-compatible registry interaction
 
-**SBOM pipeline invariant**: `CollectBOM` must append the final os-pm components before the PURL external-reference patcher runs. Every component present in the final BOM, including components read from `/var/lib/pm/index.json`, must be eligible for PURL enrichment. A cache hit may bypass collection only when the stable SBOM checksum includes every input that can change the resulting BOM; otherwise the cache path must be reviewed or invalidated.
+**SBOM pipeline invariant**: os-pm runtime-index collection and BOM integration must remain encapsulated in `pkg/sbom/packages/os_pm`; the build layer must not duplicate component/dependency merge logic. Every runtime-index component must still be present before PURL external-reference enrichment. The stable SBOM checksum contains generic scan, merge, signer, and platform inputs only; os-pm enablement is not a separate checksum input because the built image digest is the source identity.
 
 **Scale/Scope**: Single binary CLI tool with ~30+ subcommands across build, deploy, cleanup, SBOM, and auxiliary domains
 
@@ -46,10 +46,11 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 | Config model | `pkg/config/packages_directive.go` | Restore `PackagesSpec` with `Packages []string`; update `ecosystems` entry; update `validate()` |
 | Command generation | `pkg/config/packages_commands.go` | Add `formatInstallCommand(pkgs)` emitting `pm install <pkgs>`; change `InstallCmd` callback signature |
 | Stapel config | `pkg/config/stapel_image_base.go` | Remove `OSPMLockPath()`, `OSPMSpecPath()`; restore `HasOSPMPackages()` |
-| Build phase | `pkg/build/build_phase.go` | Replace `osPmLockPath`/`osPmSpecPath` with `hasOsPmPackages` bool; remove `PMBOMPatcher` creation |
-| SBOM step | `pkg/build/sbom_step.go` | Change `osPmLockPath` param to `osPmEnabled` bool; collect os-pm BOM before applying PURL enrichment; inject `CollectBOM` result into the final BOM |
-| SBOM packages | `pkg/sbom/packages/os_pm/collect.go` | Restore `CollectBOM()` reading `/var/lib/pm/index.json` from image |
-| PMBOMPatcher | `pkg/sbom/packages/os_pm/pm_bom_patcher.go` | **DELETE** entire file — replaced by `CollectBOM` |
+| Build phase | `pkg/build/build_phase.go` | Replace lock/spec paths with `hasOsPmPackages` bool; remove `PMBOMPatcher` creation |
+| SBOM step | `pkg/build/sbom_step.go` | Remove inline os-pm BOM merge and os-pm checksum input; call the package-level SBOM operation through the existing pipeline |
+| SBOM packages | `pkg/sbom/packages/os_pm/collect.go` | Own the runtime-index path and cataloger name; collect and integrate `/var/lib/pm/index.json` data before generic patchers |
+| PMBOMPatcher | `pkg/sbom/packages/os_pm/pm_bom_patcher.go` | **DELETE** entire file — runtime collection supersedes it |
+| Taskfile | `Taskfile.dist.yaml` | **DELETE** obsolete `pm:lock` task |
 | SBOM managedinput | `pkg/sbom/managedinput/managedinput.go` | No change — already skips `os-pm` (FR-012) |
 | Tests (unit) | `pkg/config/*_test.go`, `pkg/sbom/*_test.go`, `pkg/build/stage/packages_test.go` | Update from file-based to inline spec assertions |
 | Tests (e2e) | `test/e2e/sbom/_fixtures/*` | Revert `pm.yaml`/`pm.lock` fixtures to inline spec; remove fixture files |
@@ -64,13 +65,13 @@ Revert `os-pm` package declaration from the 015 file-based `pm.yaml`/`pm.lock` a
 
 ### Required SBOM ordering and verification work
 
-The restored `CollectBOM` path introduces os-pm components after the initial scan/merge phase. The implementation MUST append those components before `externalref.ExternalRefPatcher` is applied; otherwise PURL resolution silently skips runtime-index components and `BuildPhase` cannot aggregate their `ErrExternalRefEnrich` failures. The preferred design is to collect and merge os-pm components first, then run all patchers against the resulting BOM. If preserving the existing go-mod patcher order requires a narrower change, at minimum the external-reference patcher must run after `CollectBOM`.
+The restored runtime-index path introduces os-pm components after the initial scan/merge phase. The implementation MUST keep collection and integration in `pkg/sbom/packages/os_pm`, and the returned final BOM must contain those components before `externalref.ExternalRefPatcher` runs. `pkg/build/sbom_step.go` must not append components or dependencies itself. The package-level API should make the ordering explicit while preserving `ErrExternalRefEnrich` propagation to the build phase.
 
 The implementation plan also includes:
 
 - a co-located unit regression test proving a component read by `CollectBOM` is visible to the PURL patcher and that `ErrExternalRefEnrich` propagates;
 - an e2e regression test for mixed resolver outcomes across multiple images, including continued processing of successful images and hierarchical aggregation;
-- explicit cache-path verification so a previously generated SBOM cannot bypass the resolver test when the BOM inputs changed; the stable checksum and cache annotations must be checked against the final BOM inputs;
+- explicit cache-path verification that the generic checksum remains stable for equivalent scan/merge/signing/platform inputs and does not encode an os-pm enablement flag; image identity remains the source of runtime-index changes;
 - fixture verification that every expected failing component is actually present in the built image. In particular, `openssl` must either be supplied by the declared base/package state or be added explicitly to the fixture; the test must not assert a component that is not guaranteed to exist.
 
 ## Constitution Check
@@ -93,15 +94,17 @@ The implementation plan also includes:
 
 All gates re-checked after design artifact generation. No violations identified. The design now explicitly preserves the final-BOM ordering invariant: `CollectBOM` precedes external-reference enrichment, and tests cover both the direct unit contract and the e2e aggregation path.
 
-- **Simplicity**: Design uses existing `interface{}` field for `Spec` instead of adding new struct fields — minimal diff. `PMBOMPatcher` removal reduces code.
+- **Simplicity**: Design uses existing `interface{}` field for `Spec`, keeps os-pm details in its domain package, removes duplicate build-layer merge logic, and deletes obsolete lock-file tooling.
 - **Go Idiomatic**: All new/restored functions follow Context-first convention. No named returns, no dot imports.
-- **Public Surface**: Removed 2 methods (`OSPMLockPath`, `OSPMSpecPath`), restored 1 (`HasOSPMPackages`). Net reduction.
+- **Public Surface**: Removed 2 methods (`OSPMLockPath`, `OSPMSpecPath`), restored 1 (`HasOSPMPackages`), and keeps new os-pm constants/functions scoped to the SBOM package. Net reduction in cross-domain surface.
 - **Test Coverage**: All changed packages have Ginkgo tests identified. Research confirmed which tests need updates.
 - **Commits**: Branch name is valid.
 
 **Complexity Tracking**: No violations to justify. Simple revert-with-enhancements.
 
 **Environment note**: `task test:setup:environment` has already been executed and the e2e/integration test environment is pre-configured. See the Environment Configuration section in `.specify/memory/constitution.md`. Do not skip e2e tests citing environment setup during implementation.
+
+**Scope clarification**: This plan does not introduce or retain a `pm:lock` workflow. The obsolete `pm:lock` task in `Taskfile.dist.yaml` is removed because inline os-pm syntax has no lock artifact.
 
 ## Project Structure
 
@@ -134,13 +137,13 @@ pkg/config/                             # Config parsing — significant changes
 
 pkg/build/                              # Build pipeline — moderate changes
 ├── build_phase.go                      # Replace OSPMLockPath/SpecPath with HasOSPMPackages
-├── sbom_step.go                        # Replace osPmLockPath with osPmEnabled bool; collect before PURL enrichment
+├── sbom_step.go                        # Remove inline os-pm merge and os-pm checksum input; call SBOM package operation
 
 pkg/sbom/packages/os_pm/                # SBOM collection — significant changes
-├── collect.go                          # Restore CollectBOM reading /var/lib/pm/index.json
+├── collect.go                          # Own constants and collect/integrate /var/lib/pm/index.json
 ├── pm_bom_patcher.go                   # DELETE
 ├── pm_bom_patcher_test.go              # DELETE
-├── os_pm.go                            # No change needed
+├── os_pm.go                            # Reuse parser/converter; expose only package-level runtime SBOM behavior
 └── os_pm_test.go                       # No change needed
 
 pkg/build/stage/

@@ -41,7 +41,7 @@ The `InstallCmd` field type in `PackageEcosystem` will change from `func(workdir
 
 ## 3. SBOM Collection Pipeline
 
-### Decision: Inject `CollectBOM` result after syft scan, replace `PMBOMPatcher`
+### Decision: Keep runtime os-pm collection inside `pkg/sbom/packages/os_pm`
 
 The SBOM collection flow changes from:
 
@@ -52,12 +52,12 @@ PMBOMPatcher (reads pm.lock from git) → syft scan → GOST upsert
 To:
 
 ```
-syft scan (os-pm cataloger skipped) → CollectBOM (reads /var/lib/pm/index.json from image) → GOST upsert
+syft scan (os-pm cataloger skipped) → os_pm package operation (reads /var/lib/pm/index.json and integrates it) → generic patchers → GOST upsert
 ```
 
 - **Rationale**: `CollectBOM` reads the actual final state from the image, which naturally merges packages from multiple os-pm sections.
-- **Implementation detail**: In `sbom_step.go`'s `ConvergeWithMerge`, if `osPmEnabled` is true, call `CollectBOM` and merge the resulting CycloneDX BOM into the result before applying the external-reference patcher. The PURL patcher must see every component in the final BOM, including components read from `/var/lib/pm/index.json`. This replaces the patcher iteration that included `PMBOMPatcher` and prevents silent success when runtime-index components would otherwise be added too late.
-- **Cache implication**: The SBOM cache lookup must not return a stale artifact that predates the final-BOM/PURL ordering change or omits inputs affecting collected os-pm components. Verify the stable checksum and cache annotation path; change the checksum/version or invalidate the old cache format if required by the existing cache contract.
+- **Implementation detail**: The `pkg/sbom/packages/os_pm` operation owns reading `/var/lib/pm/index.json`, merging its components/dependencies, and ensuring the resulting BOM is ready before generic external-reference patchers run. `pkg/build/sbom_step.go` only coordinates the package-level operation and must not duplicate os-pm merge logic.
+- **Cache implication**: The stable checksum must not include a separate `osPmEnabled` flag. Verify that equivalent generic SBOM inputs produce the same checksum and that runtime-index changes remain tied to the image identity/cache lookup rather than a build-layer boolean.
 - **Fixture implication**: E2E expectations must be based on components guaranteed by the fixture. Confirm whether `openssl` is present in the trusted builder base image; if not, declare it explicitly rather than relying on an incidental base-image package.
 
 ### Decision: Restore `HasOSPMPackages()` boolean
@@ -69,7 +69,7 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 
 ## 4. Ecosystems Configuration
 
-### Decision: Update `os-pm` ecosystem entry
+### Decision: Update `os-pm` ecosystem entry and move SBOM metadata to `pkg/sbom`
 
 | Field | Current (015) | New (017) |
 |-------|---------------|-----------|
@@ -79,7 +79,7 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 | `InstallCmd` | `pm sync --from <lockfile>` | `pm install <pkgs>` |
 
 - **Rationale**: Inline syntax has no default spec/lock file. The cataloger name is updated to reflect the runtime-index source. The install command switches to argument-based invocation.
-- **Implementation detail**: Declare `const OsPMCatalogerName = "os-pm-cataloger"` in `pkg/config/packages_directive.go` and reference it from both the ecosystem entry and the SBOM managedinput skip logic.
+- **Implementation detail**: Keep the cataloger-name constant in `pkg/sbom/packages/os_pm`, and have config/managed-input integration refer to the SBOM-owned value through the narrowest existing boundary. The `/var/lib/pm/index.json` path is likewise a constant in the os-pm SBOM package, not a string literal in callers.
 
 ## 5. Configuration Validation
 
@@ -92,11 +92,13 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 
 ## 6. `containerFactoryVersion` Resolution
 
-### Decision: Two-source fallback
+### Decision: Two-source fallback, with stable path ownership
 
 The `containerFactoryVersion` PURL qualifier value is resolved with the following priority:
-1. `PACKAGES_VERSION` environment variable (set via `env` on the directive or from the CI environment)
+1. `PACKAGES_VERSION` environment variable (set via the command preamble or available during SBOM collection)
 2. `/var/lib/pm/container-factory-version` file inside the built image
+
+The runtime index path and version-file path are owned by `pkg/sbom/packages/os_pm` (the config command-generation constant may remain where command generation needs it), avoiding duplicated path literals in collection code.
 
 - **Rationale**: The `PACKAGES_VERSION` env var is set during build as part of the command preamble. If it's available at SBOM collection time, it's the most direct source. The file in the image is the fallback.
 - **Implementation detail**: `ReadContainerFactoryVersion` already reads from the image. A new `readContainerFactoryVersionFromEnv` will check the env var first. The caller (`CollectBOM`) will try env first, then fall back to image read.

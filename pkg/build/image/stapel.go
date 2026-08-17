@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sync"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/build/stage"
@@ -13,6 +14,8 @@ import (
 	"github.com/werf/werf/v2/pkg/util/option"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
+
+var sbomNetworkWarningOnce sync.Once
 
 func MapStapelConfigToImagesSets(ctx context.Context, metaConfig *config.Meta, stapelImageConfig config.StapelImageInterface, targetPlatform string, useCustomTag bool, opts CommonImageOptions) (ImagesSets, error) {
 	img, err := mapStapelConfigToImage(ctx, metaConfig, stapelImageConfig, targetPlatform, useCustomTag, opts)
@@ -166,7 +169,9 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		}
 
 		if hasShellStages {
-			logboek.Context(ctx).Warn().LogLn("Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
+			sbomNetworkWarningOnce.Do(func() {
+				global_warnings.GlobalWarningLn(ctx, "Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
+			})
 		}
 	}
 

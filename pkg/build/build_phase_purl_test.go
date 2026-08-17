@@ -357,6 +357,18 @@ var _ = Describe("classifySbomConvergeError", func() {
 		_, found := failures.Load("img1")
 		Expect(found).To(BeFalse())
 	})
+
+	It("treats a breaker trip as a hard error even when wrapped with the enrich sentinel", func() {
+		var failures sync.Map
+		trippedErr := fmt.Errorf("enrich external references: %w", errors.Join(externalref.ErrResolverUnavailable, externalref.ErrExternalRefEnrich))
+
+		err := classifySbomConvergeError(trippedErr, "img1", &failures)
+		Expect(err).To(HaveOccurred())
+		Expect(errors.Is(err, externalref.ErrResolverUnavailable)).To(BeTrue())
+
+		_, found := failures.Load("img1")
+		Expect(found).To(BeFalse(), "breaker trips must not be deferred into the failure map")
+	})
 })
 
 var _ = Describe("purl failure dependency skip", func() {
@@ -423,6 +435,27 @@ var _ = Describe("basePurlFailureError", func() {
 	})
 })
 
+var _ = Describe("canonicalResolverUnavailableError", func() {
+	It("replaces wrapped worker errors with the canonical breaker error, exactly one endpoint mention", func() {
+		breaker := externalref.NewResolverBreaker("https://refs.example.com")
+		tripResolverBreaker(breaker)
+
+		workerErr := fmt.Errorf("worker 3: %w", fmt.Errorf("enrich external references: %w", errors.Join(breaker.UnavailableError(), externalref.ErrExternalRefEnrich)))
+
+		err := canonicalResolverUnavailableError(workerErr, breaker)
+		Expect(err).To(HaveOccurred())
+		Expect(errors.Is(err, externalref.ErrResolverUnavailable)).To(BeTrue())
+		Expect(strings.Count(err.Error(), "PURL resolver unavailable")).To(Equal(1))
+		Expect(err.Error()).To(ContainSubstring("https://refs.example.com"))
+	})
+
+	It("passes non-breaker errors through unchanged", func() {
+		breaker := externalref.NewResolverBreaker("https://refs.example.com")
+		hardErr := errors.New("registry push failed")
+		Expect(canonicalResolverUnavailableError(hardErr, breaker)).To(MatchError(hardErr))
+	})
+})
+
 var _ = Describe("compactPurlCause", func() {
 	DescribeTable("summarizes component details",
 		func(details, expected string) {
@@ -473,6 +506,12 @@ var _ = Describe("logPurlResolverHelpHint", func() {
 type testImagePurlFailure struct {
 	imageName string
 	err       error
+}
+
+func tripResolverBreaker(breaker *externalref.ResolverBreaker) {
+	for i := 0; i < 10; i++ {
+		breaker.RecordFailure(externalref.FailureClassInfra, errors.New("connection refused"))
+	}
 }
 
 func externalRefComponentError(componentName string) error {

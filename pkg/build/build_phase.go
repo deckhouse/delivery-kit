@@ -269,7 +269,8 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	var purlFailures sync.Map
 	phase.sbomPurlFailures = &purlFailures
 
-	totalImages, convergeErr := phase.doConvergeSbomByImagesSets(ctx, &purlFailures)
+	breaker := externalref.NewResolverBreaker(os.Getenv(externalref.EnvName))
+	totalImages, convergeErr := phase.doConvergeSbomByImagesSets(ctx, breaker, &purlFailures)
 
 	aggErr := buildAggregatedPurlError(&purlFailures, totalImages)
 	if convergeErr != nil {
@@ -277,7 +278,7 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 			logboek.Context(ctx).Warn().LogF("%s\n", aggErr)
 			logPurlResolverHelpHint(ctx)
 		}
-		return convergeErr
+		return canonicalResolverUnavailableError(convergeErr, breaker)
 	}
 
 	if aggErr != nil {
@@ -288,7 +289,7 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 	return nil
 }
 
-func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, purlFailures *sync.Map) (int, error) {
+func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, breaker *externalref.ResolverBreaker, purlFailures *sync.Map) (int, error) {
 	var totalImages int
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
@@ -323,7 +324,7 @@ func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, purlFai
 				return nil
 			}
 
-			if err := phase.convergeImageSbom(ctx, name, images); err != nil {
+			if err := phase.convergeImageSbom(ctx, name, images, breaker); err != nil {
 				return classifySbomConvergeError(err, name, purlFailures)
 			}
 			return nil
@@ -345,6 +346,10 @@ type purlFailureRecord struct {
 }
 
 func classifySbomConvergeError(err error, imageName string, purlFailures *sync.Map) error {
+	if errors.Is(err, externalref.ErrResolverUnavailable) {
+		return err
+	}
+
 	if !errors.Is(err, externalref.ErrExternalRefEnrich) {
 		return err
 	}
@@ -386,6 +391,18 @@ func basePurlFailureError(purlFailures *sync.Map, baseName string) (error, bool)
 	return fmt.Errorf("SBOM for base image %q was not generated: %s", record.rootImage, record.rootCause), true
 }
 
+// canonicalResolverUnavailableError replaces a worker-wrapped breaker trip with the
+// breaker's canonical error so exactly one resolver-unavailable error surfaces per build.
+func canonicalResolverUnavailableError(err error, breaker *externalref.ResolverBreaker) error {
+	if !errors.Is(err, externalref.ErrResolverUnavailable) {
+		return err
+	}
+	if canonical := breaker.UnavailableError(); canonical != nil {
+		return canonical
+	}
+	return err
+}
+
 func compactPurlCause(details string) string {
 	lines := lo.Filter(strings.Split(details, "\n"), func(line string, _ int) bool {
 		return strings.TrimSpace(line) != ""
@@ -400,7 +417,7 @@ func compactPurlCause(details string) string {
 	return cause
 }
 
-func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {
+func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image, breaker *externalref.ResolverBreaker) error {
 	var signer signature.Signer
 	var signerIdentity string
 	if phase.SbomSigningOptions.Enabled {
@@ -413,7 +430,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	}
 
 	for _, img := range images {
-		if err := phase.convergePlatformImageSbom(ctx, name, img, signer, signerIdentity); err != nil {
+		if err := phase.convergePlatformImageSbom(ctx, name, img, signer, signerIdentity, breaker); err != nil {
 			return err
 		}
 	}
@@ -421,7 +438,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	return nil
 }
 
-func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string) error {
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
 	stageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
 
 	baseImageSbom, err := phase.collectBaseImageSbom(ctx, img)
@@ -452,7 +469,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		imageContext = img.DockerfileImageConfig.Context
 	}
 
-	externalRefPatcher, err := externalref.NewExternalRefPatcher()
+	externalRefPatcher, err := externalref.NewExternalRefPatcher(externalref.NewExternalRefPatcherOptions{Breaker: breaker})
 	if err != nil {
 		return err
 	}

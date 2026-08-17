@@ -244,10 +244,23 @@ func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageNam
 	}
 
 	if imageName == "" && len(matches) > 1 {
-		logboek.Context(ctx).Warn().LogF("WARNING: multiple artifact entries (imageName not specified, found %d entries for digest %q)\n", len(matches), parentDigest)
+		logboek.Context(ctx).Warn().LogF("%s", multipleArtifactEntriesWarning(parentDigest, matches))
 	}
 
 	return matches[0], true, nil
+}
+
+func multipleArtifactEntriesWarning(parentDigest string, matches []v1.Descriptor) string {
+	names := make([]string, 0, len(matches))
+	for _, desc := range matches {
+		entryName := desc.Annotations[image.WerfImageNameAnnotation]
+		if entryName == "" {
+			entryName = "<unnamed>"
+		}
+		names = append(names, entryName)
+	}
+	return fmt.Sprintf("WARNING: multiple artifact entries for digest %q (imageName not specified in lookup): entries carry image names [%s]; selected entry with image name %q\n",
+		parentDigest, strings.Join(names, ", "), names[0])
 }
 
 func PushArtifactImage(ctx context.Context, repo string, img v1.Image, opts ...remote.Option) error {

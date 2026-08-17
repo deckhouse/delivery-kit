@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/sigstore/sigstore/pkg/signature"
@@ -18,6 +19,7 @@ import (
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
@@ -38,6 +40,8 @@ var ErrSbomNotRequired = errors.New("sbom not required")
 type sbomStep struct {
 	containerBackend container_backend.ContainerBackend
 	stagesStorage    storage.StagesStorage
+
+	gostWarnOnce sync.Once
 }
 
 func newSbomStep(
@@ -122,6 +126,22 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if patcher == nil {
 				continue
 			}
+			if _, isExternalRef := patcher.(*externalref.ExternalRefPatcher); isExternalRef {
+				if err := logboek.Context(ctx).Default().LogProcess("Resolve external references").DoError(func() error {
+					patchedBOM, applyErr := patcher.Apply(ctx, resultBOM)
+					if applyErr != nil {
+						if errors.Is(applyErr, externalref.ErrExternalRefEnrich) {
+							logboek.Context(ctx).Warn().LogF("WARNING: %s\n", applyErr)
+						}
+						return applyErr
+					}
+					resultBOM = patchedBOM
+					return nil
+				}); err != nil {
+					return err
+				}
+				continue
+			}
 			resultBOM, err = patcher.Apply(ctx, resultBOM)
 			if err != nil {
 				return err
@@ -171,7 +191,7 @@ func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName string
 	srcDigest := stageDesc.Info.GetDigest()
 
 	if finalStageDesc != nil && finalStageDesc.Info.Repository != srcRepo {
-		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo", werfImgName).DoError(func() error {
+		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo %s", werfImgName, finalStageDesc.Info.Repository).DoError(func() error {
 			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalStageDesc.Info.Repository, finalStageDesc.Info.GetDigest())
 		}); err != nil {
 			return fmt.Errorf("copy attached artifacts into final repo %s: %w", finalStageDesc.Info.Repository, err)
@@ -243,7 +263,9 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, image
 
 func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
 	if !mergeOpts.Gost.AttackSurface.IsUndefined() || !mergeOpts.Gost.SecurityFunction.IsUndefined() {
-		logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
+		step.gostWarnOnce.Do(func() {
+			logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
+		})
 	}
 
 	// Skip GOST validation and upsert for base/import BOMs when GOST is not configured.

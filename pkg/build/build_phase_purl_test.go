@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -278,25 +279,159 @@ var _ = Describe("PURL error aggregation", func() {
 })
 
 var _ = Describe("buildAggregatedPurlError", func() {
-	newPurlErrors := func(entries map[string]string) *sync.Map {
+	newPurlFailures := func(entries map[string]purlFailureRecord) *sync.Map {
 		var m sync.Map
-		for name, details := range entries {
-			m.Store(name, details)
+		for name, record := range entries {
+			m.Store(name, record)
 		}
 		return &m
 	}
 
 	It("returns nil when there are no errors", func() {
-		Expect(buildAggregatedPurlError(newPurlErrors(nil), 3)).To(Succeed())
+		Expect(buildAggregatedPurlError(newPurlFailures(nil), 3)).To(Succeed())
 	})
 
-	It("returns aggregated error when errors present", func() {
-		err := buildAggregatedPurlError(newPurlErrors(map[string]string{
-			"img1": "    - component: apk-tools: empty url\n",
+	It("returns aggregated error when errors present, format unchanged for direct failures", func() {
+		err := buildAggregatedPurlError(newPurlFailures(map[string]purlFailureRecord{
+			"img1": {
+				details:   "    - component: apk-tools: empty url\n",
+				rootImage: "img1",
+				rootCause: "component: apk-tools: empty url",
+			},
 		}), 1)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("resolve external references: 1 of 1 images failed"))
+		Expect(err.Error()).To(Equal("resolve external references: 1 of 1 images failed:\n  - image: img1:\n    - component: apk-tools: empty url\n"))
 	})
+
+	It("renders skip records and counts them in the summary", func() {
+		err := buildAggregatedPurlError(newPurlFailures(map[string]purlFailureRecord{
+			"a": {
+				details:   "    - component: apk-tools: empty url\n",
+				rootImage: "a",
+				rootCause: "component: apk-tools: empty url",
+			},
+			"b": {
+				rootImage: "a",
+				rootCause: "component: apk-tools: empty url",
+			},
+		}), 3)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("resolve external references: 2 of 3 images failed:"))
+		Expect(err.Error()).To(ContainSubstring("  - image: a:\n    - component: apk-tools: empty url"))
+		Expect(err.Error()).To(ContainSubstring("  - image: b:\n    - skipped: SBOM for base image \"a\" was not generated: component: apk-tools: empty url"))
+	})
+})
+
+var _ = Describe("classifySbomConvergeError", func() {
+	It("defers enrich errors carrying ComponentError into the failure map", func() {
+		var failures sync.Map
+		compErr := externalRefComponentError("apk-tools")
+		err := fmt.Errorf("enrich external references: %w", errors.Join(compErr, externalref.ErrExternalRefEnrich))
+
+		Expect(classifySbomConvergeError(err, "img1", &failures)).To(Succeed())
+
+		value, found := failures.Load("img1")
+		Expect(found).To(BeTrue())
+		record := value.(purlFailureRecord)
+		Expect(record.rootImage).To(Equal("img1"))
+		Expect(record.details).To(Equal("    - component: apk-tools: empty url\n"))
+		Expect(record.rootCause).To(Equal("component: apk-tools: empty url"))
+	})
+
+	It("does not overwrite an existing record for the same image name (multiplatform)", func() {
+		var failures sync.Map
+		first := fmt.Errorf("enrich external references: %w", errors.Join(externalRefComponentError("apk-tools"), externalref.ErrExternalRefEnrich))
+		second := fmt.Errorf("enrich external references: %w", errors.Join(externalRefComponentError("openssl"), externalref.ErrExternalRefEnrich))
+
+		Expect(classifySbomConvergeError(first, "img1", &failures)).To(Succeed())
+		Expect(classifySbomConvergeError(second, "img1", &failures)).To(Succeed())
+
+		value, _ := failures.Load("img1")
+		Expect(value.(purlFailureRecord).details).To(Equal("    - component: apk-tools: empty url\n"))
+	})
+
+	It("returns non-PURL errors unchanged", func() {
+		var failures sync.Map
+		hardErr := errors.New("registry push failed")
+		Expect(classifySbomConvergeError(hardErr, "img1", &failures)).To(MatchError(hardErr))
+		_, found := failures.Load("img1")
+		Expect(found).To(BeFalse())
+	})
+})
+
+var _ = Describe("purl failure dependency skip", func() {
+	It("finds a failure record by base image name", func() {
+		var failures sync.Map
+		failures.Store("a", purlFailureRecord{details: "    - component: apk-tools: empty url\n", rootImage: "a", rootCause: "component: apk-tools: empty url"})
+
+		record, found := purlFailureForBases(&failures, []string{"", "a"})
+		Expect(found).To(BeTrue())
+		Expect(record.rootImage).To(Equal("a"))
+	})
+
+	It("returns false when no base failed", func() {
+		var failures sync.Map
+		_, found := purlFailureForBases(&failures, []string{"", "other"})
+		Expect(found).To(BeFalse())
+	})
+
+	It("propagates the root cause transitively (A -> B -> C)", func() {
+		var failures sync.Map
+		failures.Store("a", purlFailureRecord{details: "    - component: apk-tools: empty url\n", rootImage: "a", rootCause: "component: apk-tools: empty url"})
+
+		recordForB, found := purlFailureForBases(&failures, []string{"a"})
+		Expect(found).To(BeTrue())
+		failures.Store("b", purlFailureRecord{rootImage: recordForB.rootImage, rootCause: recordForB.rootCause})
+
+		recordForC, found := purlFailureForBases(&failures, []string{"b"})
+		Expect(found).To(BeTrue())
+		Expect(recordForC.rootImage).To(Equal("a"))
+		Expect(recordForC.rootCause).To(Equal("component: apk-tools: empty url"))
+	})
+})
+
+var _ = Describe("basePurlFailureError", func() {
+	It("reports the real cause for a base that failed enrichment in this run", func() {
+		var failures sync.Map
+		failures.Store("a", purlFailureRecord{details: "    - component: apk-tools: empty url\n", rootImage: "a", rootCause: "component: apk-tools: empty url"})
+
+		err, found := basePurlFailureError(&failures, "a")
+		Expect(found).To(BeTrue())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(Equal(`SBOM for base image "a" was not generated: component: apk-tools: empty url`))
+		Expect(err.Error()).NotTo(ContainSubstring("rebuild it with SBOM generation enabled"))
+	})
+
+	It("reports the transitive root cause for a skipped base", func() {
+		var failures sync.Map
+		failures.Store("b", purlFailureRecord{rootImage: "a", rootCause: "component: apk-tools: empty url"})
+
+		err, found := basePurlFailureError(&failures, "b")
+		Expect(found).To(BeTrue())
+		Expect(err.Error()).To(Equal(`SBOM for base image "a" was not generated: component: apk-tools: empty url`))
+	})
+
+	It("keeps the rebuild advice path for bases not processed in this run", func() {
+		var failures sync.Map
+		_, found := basePurlFailureError(&failures, "foreign")
+		Expect(found).To(BeFalse())
+	})
+
+	It("does nothing when the failure map is nil", func() {
+		_, found := basePurlFailureError(nil, "a")
+		Expect(found).To(BeFalse())
+	})
+})
+
+var _ = Describe("compactPurlCause", func() {
+	DescribeTable("summarizes component details",
+		func(details, expected string) {
+			Expect(compactPurlCause(details)).To(Equal(expected))
+		},
+		Entry("single component", "    - component: apk-tools: empty url\n", "component: apk-tools: empty url"),
+		Entry("multiple components", "    - component: apk-tools: empty url\n    - component: openssl: empty url\n", "component: apk-tools: empty url (and 1 more component errors)"),
+		Entry("empty details", "", "external references enrichment failed"),
+	)
 })
 
 var _ = Describe("logPurlResolverHelpHint", func() {
@@ -338,6 +473,18 @@ var _ = Describe("logPurlResolverHelpHint", func() {
 type testImagePurlFailure struct {
 	imageName string
 	err       error
+}
+
+func externalRefComponentError(componentName string) error {
+	enricher := externalref.NewEnricher(func(ctx context.Context, purl string) (*externalref.ResolveResult, error) {
+		return nil, errors.New("empty url")
+	})
+	bom := &cdx.BOM{Components: &[]cdx.Component{{Name: componentName, PackageURL: "pkg:apk/alpine/" + componentName + "@1.0.0"}}}
+	err := enricher.Enrich(context.Background(), bom)
+	if err == nil {
+		panic("expected enrich to fail")
+	}
+	return err
 }
 
 type testImageSetData struct {

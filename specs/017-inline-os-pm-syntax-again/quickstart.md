@@ -46,6 +46,8 @@ task test:unit paths="./pkg/config/..." -- -focus="commands"
 - Multiple os-pm sections → one `pm install` per section
 - With `env` → required and user environment variables are prefixes on the same command as `pm install`
 - The complete command contains no `; pm install` form, which would leave variables unexported
+- Every env case compares the complete returned command with `Equal(expected)`, including preamble, env ordering, quoting, separators, and package arguments; no callback-based substring checks remain
+- The command-generation implementation exposes readable prefix, env-prefix, install-command, and final-command stages
 - Preamble (mkdir, version file) present in each command
 
 ### 3. SBOM collection — `ParsePmInstalledJSON`
@@ -57,10 +59,12 @@ task test:unit paths="./pkg/sbom/..." -- -focus="os-pm"
 **Expected**: Tests pass with flat JSON format (no `{"packages": {...}}` wrapper).
 
 **Key assertions**:
-- `ParsePmInstalledJSON` parses `/var/lib/pm/index.json` format
+- `ParsePmInstalledJSON` parses the mandatory `/var/lib/pm/index.json` format; an absent index fails collection
 - `ConvertToCycloneDX` produces correct CycloneDX components
-- `containerFactoryVersion` qualifier set on components from `/var/lib/pm/container-factory-version` inside the image; no host `PACKAGES_VERSION` fallback
-- Expected missing version-file behavior is distinct from unexpected read failures; unexpected failures are observable and not silently swallowed
+- `containerFactoryVersion` is read from `/var/lib/pm/container-factory-version` inside the image; no host `PACKAGES_VERSION` fallback
+- After successful version reading, the version value is written to debug logging
+- Version-read errors are written to debug logging with image/path context
+- No changes are made to `pkg/container_backend/docker_server_backend.go`
 
 ### 4. Stapel image config — `HasOSPMPackages`
 
@@ -147,10 +151,10 @@ grep -r "pm:lock\|pm.lock\|PMBOMPatcher" Taskfile.dist.yaml AGENTS.md pkg/config
 ### Verify SBOM-owned PM metadata and config cataloger wiring
 
 ```bash
-`grep -R "InstalledPackagesIndexPath\|ContainerFactoryVersionDir\|ContainerFactoryVersionFile" pkg/packages_metadata pkg/sbom/packages/os_pm pkg/config/packages_commands.go`
+`grep -R "InstalledPackagesIndexPath\|ContainerFactoryVersionDir\|ContainerFactoryVersionFile" pkg/sbom/os_pm/metadata pkg/sbom/packages/os_pm pkg/config/packages_commands.go`
 ```
 
-**Expected**: `InstalledPackagesIndexPath`, `ContainerFactoryVersionDir`, and `ContainerFactoryVersionFile` are absent; `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and `CatalogerName` are defined only in dependency-free `pkg/packages_metadata`, while config and SBOM code reference the shared values.
+**Expected**: `InstalledPackagesIndexPath`, `ContainerFactoryVersionDir`, and `ContainerFactoryVersionFile` are absent; `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and `CatalogerName` are defined only in `pkg/sbom/os_pm/metadata`, while config and SBOM code reference the shared values. `pkg/container_backend/docker_server_backend.go` is unchanged.
 
 Run the ecosystem registration test:
 
@@ -160,7 +164,7 @@ task test:unit paths="./pkg/config/..." -- -focus="cataloger|ecosystem"
 
 **Expected**: the os-pm `PackageEcosystem.CatalogerName` equals the shared metadata cataloger name, just as language ecosystem entries expose their cataloger names; the assertion fails if config uses an empty or duplicated literal. Dependency inspection must show that `pkg/config` does not import SBOM/container implementation code solely for metadata.
 
-The version qualifier must be verified from the persisted image file, not from the host environment.
+The version qualifier must be verified from the persisted image file, not from the host environment. Force a version-read error in the collector test and verify the debug log contains image/path context.
 
 ### Verify checksum test inputs
 
@@ -189,7 +193,7 @@ packages:
 
 **Then**:
 - Config parsing succeeds, `PackagesSpec.Packages = ["curl==8.12.1", "jq"]`
-- `formatInstallCommand` generates: `... pm install curl==8.12.1 jq`
+- `formatInstallCommand` generates the complete expected command string, including the preamble, env prefixes, separators, and `pm install curl==8.12.1 jq`
 - Build stage runs the command
 - SBOM contains both curl and jq from `/var/lib/pm/index.json`
 
@@ -227,8 +231,8 @@ packages:
 | Contract | File | Verification |
 |----------|------|-------------|
 | Config schema | `packages_directive.go` | `PackagesSpec.Packages []string` with inline list |
-| Command generation | `packages_commands.go` | `formatInstallCommand` produces `pm install <pkgs>` |
-| SBOM collection | `collect.go` | os-pm package owns `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and cataloger metadata; integrates runtime BOM before generic patchers |
+| Command generation | `packages_commands.go` | `formatInstallCommand` produces the complete expected command; tests use `Equal(expected)` rather than substring assertions |
+| SBOM collection | `collect.go`, `pkg/sbom/os_pm/metadata/metadata.go` | metadata subpackage owns paths/cataloger name; collector integrates runtime BOM before generic patchers |
 | Stapel interface | `stapel_image_base.go` | `HasOSPMPackages()` replaces `OSPMLockPath()` |
 | Build phase | `sbom_step.go` | no inline os-pm merge and no os-pm checksum flag; package-level operation runs before PURL enrichment |
-| Ecosystem registration | `packages_directive.go` | `CatalogerName` is passed from `os_pm.CatalogerName` and covered by a config test |
+| Ecosystem registration | `packages_directive.go` | `CatalogerName` is passed from `pkg/sbom/os_pm/metadata` and covered by a config test |

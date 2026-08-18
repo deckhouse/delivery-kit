@@ -8,7 +8,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
@@ -34,24 +34,26 @@ func formatSecretVar(name string) string {
 }
 
 func formatMkdirCommand() string {
-	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(os_pm.ContainerFactoryVersionPath))
+	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
 func formatVersionFileCommand() string {
 	return fmt.Sprintf(
 		`%s && : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		formatSecretVar("PACKAGES_VERSION"), os_pm.ContainerFactoryVersionPath,
+		formatSecretVar("PACKAGES_VERSION"), metadata.ContainerFactoryVersionPath,
 	)
 }
 
 func formatInstallCommand(pkgs []string, env map[string]string) string {
-	var parts []string
-	parts = append(parts, formatMkdirCommand(), formatVersionFileCommand())
-	if envPrefix := formatEnvVars(env); envPrefix != "" {
-		parts = append(parts, envPrefix)
-	}
-	parts = append(parts, formatSecretVar("PACKAGES_VERSION"), formatSecretVar("REGISTRY"), "pm install "+strings.Join(pkgs, " "))
-	return strings.Join(parts, "; ")
+	commandPrefix := []string{formatMkdirCommand(), formatVersionFileCommand()}
+	envPrefix := strings.TrimSpace(strings.Join([]string{
+		formatEnvVars(env),
+		formatSecretVar("PACKAGES_VERSION"),
+		formatSecretVar("REGISTRY"),
+	}, " "))
+	installCommand := fmt.Sprintf("%s pm install %s", envPrefix, strings.Join(pkgs, " "))
+
+	return strings.Join(append(commandPrefix, installCommand), "; ")
 }
 
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {

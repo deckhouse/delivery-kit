@@ -101,10 +101,10 @@ A user does not need any OS-level packages.
 - What happens when `spec` is not a list of strings (e.g., a string path)? The configuration parser SHALL reject it — `spec` for `os-pm` must be a list of package name strings, not a file path.
 - What happens when `spec` is empty? The configuration parser SHALL reject it — `spec` must contain at least one package name.
 - What happens when `spec` contains invalid package names or versions? The `pm install` command reports the error and the build fails — consistent with existing behavior.
-- What happens when `/var/lib/pm/index.json` does not exist in the built image? The SBOM for os-pm SHALL be empty (no os-pm components), and the build SHALL NOT fail — this may happen when no pm commands ran or the file was not produced.
+- What happens when `/var/lib/pm/index.json` does not exist in the built image? This is an invalid image state: the collector SHALL return an error because the runtime index is mandatory whenever os-pm processing is enabled.
 - What happens when `/var/lib/pm/index.json` is empty or malformed? The build SHALL fail with a descriptive error indicating that the pm index file could not be parsed.
 - What happens when `env` is specified alongside inline `spec`? The `env` field works as before — environment variables are passed to the `pm install` command.
-- What happens when `/var/lib/pm/container-factory-version` does not exist in the image? The `containerFactoryVersion` value SHALL be taken from the `PACKAGES_VERSION` environment variable instead. The qualifier MUST always be present in the PURL.
+- What happens when `/var/lib/pm/container-factory-version` cannot be read? The collector SHALL keep the existing error contract, write the read error to debug logging with image/path context, and SHALL NOT read `PACKAGES_VERSION` from the host process as a fallback. The qualifier is populated only when the persisted image file is read successfully.
 - What happens when a user has existing `pm.yaml`/`pm.lock` files in the project from the 015 approach? They become inert — werf no longer reads them for os-pm processing. The package declarations are now in the `spec` list in `werf.yaml`.
 - What happens when the external refs server returns an error while resolving PURLs of os-pm components? The build SHALL fail with an aggregated, hierarchical error — consistent with the behavior established in 015-enforce-pm-determinism-again.
 
@@ -119,7 +119,7 @@ A user does not need any OS-level packages.
 - **FR-005**: The `env` field for `os-pm` SHALL continue to work as established in `012-os-pm-env-vars` — environment variables are passed as inline prefixes to the pm command.
 - **FR-006**: The install command for `os-pm` SHALL be `pm install <pkg_1> ... <pkg_N>` (with all packages from the inline `spec` list as arguments), preceded by the container factory version preamble (`mkdir -p /var/lib/pm`, write `PACKAGES_VERSION` to `/var/lib/pm/container-factory-version`). Required environment variables (`PACKAGES_VERSION`, `REGISTRY`) are set inline.
 - **FR-007**: The SBOM collector for `os-pm` SHALL read `/var/lib/pm/index.json` from inside the built image via `ReadFileFromImage` and parse it using delivery-kit's own parser code to extract component metadata (names, versions, licenses, dependencies). This is the **only** source of os-pm package data for the SBOM.
-- **FR-008**: The `containerFactoryVersion` PURL qualifier SHALL always be set on os-pm SBOM components. The value SHALL be read from the first available source: (1) the `PACKAGES_VERSION` environment variable, or (2) the `/var/lib/pm/container-factory-version` file inside the built image.
+- **FR-008**: The `containerFactoryVersion` PURL qualifier SHALL be read from `/var/lib/pm/container-factory-version` inside the built image. The collector SHALL NOT use a host `PACKAGES_VERSION` fallback. If reading the version file fails, the error SHALL be written to debug logging with image/path context while the collector preserves the agreed collection error behavior.
 - **FR-009**: The `ParsePmInstalledJSON` and `ConvertToCycloneDX` functions SHALL be reused for parsing `/var/lib/pm/index.json` and converting to CycloneDX format.
 - **FR-010**: The build phase SHALL use a boolean or getter (`HasOSPMPackages()`) to indicate whether os-pm packages are present, rather than passing a lock file path. The `OSPMLockPath()` method from 015 SHALL be removed.
 - **FR-011**: The `PMBOMPatcher` from 015 (which reads `pm.lock` from the git repository) SHALL be removed. Its functionality is replaced by reading `/var/lib/pm/index.json` from the built image.
@@ -128,7 +128,7 @@ A user does not need any OS-level packages.
 - **FR-014**: The `fillFileBasedSpec` special-cased handling for `os-pm` SHALL be removed. The `os-pm` type SHALL NOT use `FileBasedSpec` resolution.
 - **FR-015**: The `ecosystems` entry for `os-pm` SHALL be updated: `DefaultSpecFile` and `DefaultLockFile` SHALL be empty (not applicable to inline syntax), `InstallCmd` SHALL use `pm install <pkgs>` instead of `pm sync --from <lockfile>`, and `CatalogerName` SHALL be set to a value appropriate for the runtime-index cataloger (e.g., `"pm-cataloger"`).
 - **FR-016**: The `spec` YAML field for `os-pm` SHALL accept a list of strings (package names), not a string (file path). The config parser SHALL distinguish between `os-pm` (list of strings) and other types (string path).
-- **FR-017**: All existing unit tests and test data that were updated in 015 to use file-based `pm.yaml`/`pm.lock` syntax SHALL be updated to use inline `spec` list syntax. This includes:
+- **FR-017**: All existing unit tests and test data that were updated in 015 to use file-based `pm.yaml`/`pm.lock` syntax SHALL be updated to use inline `spec` list syntax. The collection tests SHALL also cover the mandatory runtime index, debug logging for version-read errors, and the absence of a host fallback. This includes:
   - `pkg/config/raw_packages_directive_test.go` — restore tests for inline `os-pm` spec list parsing
   - `pkg/config/packages_directive_javascript_test.go` — restore combined config tests with inline `os-pm`
   - `pkg/config/packages_commands_test.go` — restore `pm install` command generation tests
@@ -152,9 +152,9 @@ A user does not need any OS-level packages.
 - **SC-002**: An `os-pm` directive with an empty `spec` list is rejected at config validation.
 - **SC-003**: An `os-pm` directive with `workdir` specified is rejected at config validation.
 - **SC-004**: Two `os-pm` sections in the same `packages` list generate two separate pm commands, both executed during the build.
-- **SC-005**: The SBOM for os-pm is read from `/var/lib/pm/index.json` inside the built image, not from any file in the build context.
+- **SC-005**: The SBOM for os-pm is read from the mandatory `/var/lib/pm/index.json` inside the built image, not from any file in the build context; an absent index produces an error.
 - **SC-006**: The SBOM contains all packages from both `os-pm` sections with correct names, versions, licenses, and dependencies.
-- **SC-007**: The `containerFactoryVersion` PURL qualifier is always set on os-pm components. The value comes from the `PACKAGES_VERSION` environment variable or the `/var/lib/pm/container-factory-version` file in the image.
+- **SC-007**: The `containerFactoryVersion` PURL qualifier is sourced only from `/var/lib/pm/container-factory-version` in the image; version-read failures are observable in debug logs and no host environment fallback is used.
 - **SC-008**: A build without any `os-pm` directive produces no pm commands and no os-pm SBOM components.
 - **SC-009**: An `os-pm` directive using `spec: "pm.yaml"` (string path, the old file-based syntax) is rejected at config parse time.
 - **SC-010**: All existing unit tests pass after the migration to inline syntax.
@@ -169,7 +169,7 @@ A user does not need any OS-level packages.
 - The `pm` binary maintains `/var/lib/pm/index.json` automatically after package operations — werf reads this file, it does not write or modify it.
 - The `pm install` command accepts multiple package arguments with version constraints (e.g., `pm install curl==8.12.1 jq`).
 - Users who adopted the file-based syntax from 015 will need to update their `werf.yaml` configs to use inline `spec` list syntax — no automatic migration is provided.
-- The `ContainerFactoryVersionFile` (`/var/lib/pm/container-factory-version`) is written during build by the generated command preamble and read during SBOM collection for PURL qualifier enrichment.
+- The `ContainerFactoryVersionFile` (`/var/lib/pm/container-factory-version`) is written during build by the generated command preamble and read during SBOM collection for PURL qualifier enrichment; read failures are debug-logged and are not replaced by a host environment fallback.
 - The `managedinput` skip of os-pm (no syft cataloger derivation) is preserved — delivery-kit handles os-pm SBOM via its own code, not via syft catalogers.
 - Existing `pm.yaml`/`pm.lock` files from the 015 approach in user projects become inert — werf ignores them.
 - The `ParsePmInstalledJSON` function is reused to parse `/var/lib/pm/index.json` (same format as `pm.lock`).

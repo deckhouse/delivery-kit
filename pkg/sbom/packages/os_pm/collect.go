@@ -7,19 +7,17 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
 
 const (
-	CatalogerName               = "pm-cataloger"
-	ContainerFactoryIndexPath   = "/var/lib/pm/index.json"
-	ContainerFactoryVersionPath = "/var/lib/pm/container-factory-version"
+	CatalogerName               = metadata.CatalogerName
+	ContainerFactoryIndexPath   = metadata.ContainerFactoryIndexPath
+	ContainerFactoryVersionPath = metadata.ContainerFactoryVersionPath
 )
-
-func ReadContainerFactoryVersion(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (string, error) {
-	return readContainerFactoryVersion(ctx, containerBackend, imageRef)
-}
 
 func readContainerFactoryVersion(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (string, error) {
 	stdout, err := containerBackend.ReadFileFromImage(ctx, imageRef, ContainerFactoryVersionPath, container_backend.ReadFileFromImageOpts{})
@@ -65,13 +63,9 @@ func CollectAndMergeBOM(ctx context.Context, containerBackend container_backend.
 }
 
 func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (*cdx.BOM, error) {
-	// Read /var/lib/pm/index.json from the built image
 	indexData, err := containerBackend.ReadFileFromImage(ctx, imageRef, ContainerFactoryIndexPath, container_backend.ReadFileFromImageOpts{})
 	if err != nil {
 		return nil, fmt.Errorf("read %s from image %q: %w", ContainerFactoryIndexPath, imageRef, err)
-	}
-	if len(indexData) == 0 {
-		return nil, nil
 	}
 
 	pkgs, err := ParsePmInstalledJSON(indexData)
@@ -82,10 +76,13 @@ func CollectBOM(ctx context.Context, containerBackend container_backend.Containe
 		return nil, nil
 	}
 
-	version := ""
-	if v, err := ReadContainerFactoryVersion(ctx, containerBackend, imageRef); err == nil {
-		version = v
+	version, err := readContainerFactoryVersion(ctx, containerBackend, imageRef)
+	if err != nil {
+		logboek.Context(ctx).Debug().LogF("unable to read %s from image %q: %s\n", ContainerFactoryVersionPath, imageRef, err)
+		version = ""
 	}
+
+	logboek.Context(ctx).Debug().LogF("read %s from image %q: %s\n", ContainerFactoryVersionPath, imageRef, version)
 
 	return ConvertToCycloneDX(pkgs, version), nil
 }

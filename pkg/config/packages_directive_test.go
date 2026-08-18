@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
 
 var _ = Describe("package ecosystem registration", func() {
@@ -13,6 +13,6 @@ var _ = Describe("package ecosystem registration", func() {
 		Expect(ok).To(BeTrue())
 		Expect(ecosystem.DefaultSpecFile).To(BeEmpty())
 		Expect(ecosystem.DefaultLockFile).To(BeEmpty())
-		Expect(ecosystem.CatalogerName).To(Equal(os_pm.CatalogerName))
+		Expect(ecosystem.CatalogerName).To(Equal(metadata.CatalogerName))
 	})
 })

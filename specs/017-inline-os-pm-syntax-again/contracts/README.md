@@ -106,9 +106,9 @@ type PackageEcosystem struct {
 func formatInstallCommand(pkgs []string, env map[string]string) string
 ```
 
-Returns a shell command string like:
+Returns the complete shell command string, including the preamble, sorted env prefixes, separators, quoting, and package arguments. The implementation forms the command prefix, environment-prefix string, install command, and final semicolon-joined result as clearly named steps. Every env case compares the complete result with `Equal(expected)` rather than checking substrings. The env prefixes must be on the same invocation as `pm install`, never separated by `;`:
 ```
-REGISTRY=internal-registry.example.com mkdir -p /var/lib/pm; echo "0.1.5" > /var/lib/pm/container-factory-version; pm install curl==8.12.1 jq
+mkdir -p /var/lib/pm; PACKAGES_VERSION=... REGISTRY=internal-registry.example.com CUSTOM_VAR="value" pm install curl==8.12.1 jq
 ```
 
 ## Contract 3: SBOM Collection Interface
@@ -126,23 +126,15 @@ func CollectBOM(
 ```
 
 **Behavior**:
-1. Read `ContainerFactoryIndexPath` (`/var/lib/pm/index.json`) from inside the built image via `ReadFileFromImage`; the constant is defined once in `pkg/sbom/packages/os_pm`
-2. Parse as `map[string]PmPackageInfo` via `ParsePmInstalledJSON`
-3. Resolve `containerFactoryVersion` by reading the SBOM-owned `ContainerFactoryVersionPath` from the image via `ReadContainerFactoryVersion`; do not read `PACKAGES_VERSION` from the host process
-4. Convert to CycloneDX BOM via `ConvertToCycloneDX`
-5. Provide the runtime contribution to the final-BOM operation before generic external-reference patchers; return no os-pm contribution with nil error if no packages are found / the index is absent
+1. Read mandatory `ContainerFactoryIndexPath` (`/var/lib/pm/index.json`) from inside the built image via `ReadFileFromImage`; the constant is defined once in `pkg/sbom/os_pm/metadata`. An absent index is an error.
+2. Parse as `map[string]PmPackageInfo` via `ParsePmInstalledJSON`.
+3. Resolve `containerFactoryVersion` by reading `ContainerFactoryVersionPath` from `pkg/sbom/os_pm/metadata` internally; do not expose a redundant public version-reading wrapper and do not read `PACKAGES_VERSION` from the host process. Write version-read errors to debug logging with image/path context while preserving the agreed collector error behavior.
+4. Convert to CycloneDX BOM via `ConvertToCycloneDX`.
+5. Provide the runtime contribution to the final-BOM operation before generic external-reference patchers; return no os-pm contribution with nil error only when the mandatory index is valid but contains no packages.
 
-### `ReadContainerFactoryVersion` — Preserved
+### Version provenance handling — internal
 
-```go
-func ReadContainerFactoryVersion(
-    ctx context.Context,
-    containerBackend container_backend.ContainerBackend,
-    imageRef string,
-) string
-```
-
-Returns the content of `ContainerFactoryVersionPath` (`/var/lib/pm/container-factory-version`) from inside the image. The command preamble writes this file from the container-scoped `PACKAGES_VERSION`; the collector does not use a host-env fallback. Command generation reuses this constant instead of redeclaring the path.
+Version reading remains an internal operation of `CollectBOM`; no redundant exported `ReadContainerFactoryVersion` wrapper is added. The command preamble writes `ContainerFactoryVersionPath` from the container-scoped `PACKAGES_VERSION`; the collector does not use a host-env fallback. Read errors are written to debug logging with image/path context, and command generation reuses the metadata constant instead of redeclaring the path.
 
 ## Contract 4: `StapelImageBase` — Changed Interface
 

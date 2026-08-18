@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
 
 type PackagesDirectiveType string
@@ -162,7 +162,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeOSPM,
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
-		CatalogerName:   os_pm.CatalogerName,
+		CatalogerName:   metadata.CatalogerName,
 		InstallCmd: func(_ string, _ FileBasedSpec, pkgs []string, env map[string]string) string {
 			return formatInstallCommand(pkgs, env)
 		},

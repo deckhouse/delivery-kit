@@ -78,6 +78,7 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`CUSTOM_VAR="hello-world"`)) },
 				func(cmd string) { Expect(cmd).To(ContainSubstring("pm install curl jq")) },
+				func(cmd string) { Expect(cmd).NotTo(ContainSubstring(`; pm install`)) },
 			},
 		}),
 
@@ -86,6 +87,7 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(ContainSubstring(`DOCKER_CONFIG="/run/secrets/docker-config"`)) },
 				func(cmd string) { Expect(cmd).To(ContainSubstring("pm install curl jq")) },
+				func(cmd string) { Expect(cmd).NotTo(ContainSubstring(`; pm install`)) },
 			},
 		}),
 

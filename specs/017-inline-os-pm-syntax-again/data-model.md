@@ -58,7 +58,7 @@ Configuration for the `os-pm` ecosystem. Changes from 015:
 | `Type` | `"os-pm"` | `"os-pm"` (unchanged) |
 | `DefaultSpecFile` | `"pm.yaml"` | `""` |
 | `DefaultLockFile` | `"pm.lock"` | `""` |
-| `CatalogerName` | `"os-pm-lock-cataloger"` | `os_pm.CatalogerName` — defined once in `pkg/sbom/packages/os_pm` and passed through the config ecosystem entry |
+| `CatalogerName` | `"os-pm-lock-cataloger"` | `metadata.CatalogerName` — defined once in `pkg/sbom/os_pm/metadata` and passed through the config ecosystem entry |
 | `InstallCmd` | `pm sync --from <lockfile>` | `pm install <pkgs>` |
 
 ### `PmInstallCommand`
@@ -74,7 +74,7 @@ echo "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version
 REGISTRY=internal-registry.example.com pm install curl==8.12.1 jq
 ```
 
-**Generation**: Created by `formatInstallCommand(pkgs []string, env map[string]string) string` in `pkg/config/packages_commands.go`. Required and user-provided variables are prefixes on the same shell command as `pm install`; a semicolon-separated assignment is invalid because it does not export variables to the child process.
+**Generation**: Created by `formatInstallCommand(pkgs []string, env map[string]string) string` in `pkg/config/packages_commands.go`. The function forms a readable command prefix, environment-prefix string, install command, and final semicolon-joined result as separate steps. Required and user-provided variables are prefixes on the same shell command as `pm install`; a semicolon-separated assignment is invalid because it does not export variables to the child process.
 
 ## Image File Artifacts
 
@@ -100,7 +100,7 @@ Flat JSON object mapping package names to package info. Format:
 }
 ```
 
-**Read by**: `CollectBOM()` in `pkg/sbom/packages/os_pm`; the path is `ContainerFactoryIndexPath`, defined once in that package and reused by command generation. It is not redeclared in `pkg/config` or `pkg/build`.
+**Read by**: `CollectBOM()` in `pkg/sbom/packages/os_pm`; the path is `ContainerFactoryIndexPath`, defined once in `pkg/sbom/os_pm/metadata` and reused by command generation. The file is mandatory when os-pm processing is enabled, and its absence is an error. It is not redeclared in `pkg/config` or `pkg/build`.
 
 **Producer**: The `pm` binary inside the builder image during the build stage.
 
@@ -112,17 +112,17 @@ Text file containing the container factory version string.
 
 **Written during build by**: The command preamble (`PACKAGES_VERSION` → file write).
 
-**Read during SBOM collection by**: `ReadContainerFactoryVersion()` from inside the image. The path constant is owned by `pkg/packages_metadata` and reused by both command generation and the SBOM collector.
+**Read during SBOM collection by**: An internal operation in `CollectBOM` reads the file from inside the image. The path constant is owned by `pkg/sbom/os_pm/metadata` and reused by both command generation and the SBOM collector.
 
-**Fallback**: There is no host-environment fallback. An expected missing file follows the collector's documented fallback behavior; unexpected read errors must be logged with image/path context or returned, never silently discarded. `PACKAGES_VERSION` is only available inside the container command that writes this file.
+**Error handling**: There is no host-environment fallback. Version-read errors are written to debug logging with image/path context while the collector preserves its agreed error behavior. `PACKAGES_VERSION` is only available inside the container command that writes this file.
 
 ## SBOM Pipeline Invariant
 
-The os-pm SBOM package produces and integrates the runtime component set from the final image state before `externalref.ExternalRefPatcher` runs. The dependency-free `pkg/packages_metadata` cataloger name is passed through the config ecosystem entry so os-pm metadata follows the same registration shape as language package managers. `pkg/build` coordinates this operation but does not append components or dependencies itself. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
+The os-pm SBOM package produces and integrates the runtime component set from the final image state before `externalref.ExternalRefPatcher` runs. The runtime index is mandatory when os-pm processing is enabled, and the collector does not change `pkg/container_backend/docker_server_backend.go`. The dependency-free `pkg/sbom/os_pm/metadata` cataloger name is passed through the config ecosystem entry so os-pm metadata follows the same registration shape as language package managers. `pkg/build` coordinates this operation but does not append components or dependencies itself. Consequently, every component with a resolvable PURL, including `curl`/`openssl` supplied by the runtime index, participates in external-reference enrichment.
 
 If enrichment fails for one or more components, the error retains `ErrExternalRefEnrich` and component details so `BuildPhase` can continue independent images and produce a hierarchical aggregate. A successful image must not appear in the aggregate.
 
-The SBOM cache key/annotation is part of this pipeline contract: cache reuse is valid only when it represents the same final-BOM inputs and enrichment behavior. A format/order change that can reuse an older artifact must be represented in the checksum/version or otherwise invalidated. The version qualifier comes from the persisted image file, never from a host environment variable. Checksum tests use distinct inputs and must not claim coverage when both calls receive identical arguments.
+The SBOM cache key/annotation is part of this pipeline contract: cache reuse is valid only when it represents the same final-BOM inputs and enrichment behavior. A format/order change that can reuse an older artifact must be represented in the checksum/version or otherwise invalidated. The version qualifier comes from the persisted image file, never from a host environment variable. After successful reading, the version is written to debug logging for troubleshooting. Checksum tests use distinct inputs and must not claim coverage when both calls receive identical arguments. Every command-generation case compares the complete returned string with `Equal(expected)`, not partial substrings.
 
 ## Relationships
 
@@ -151,9 +151,11 @@ werf.yaml
                     ▼
               `pkg/sbom/packages/os_pm` runtime BOM operation
                     │
+                    └── shared paths/cataloger: `pkg/sbom/os_pm/metadata`
+                    │
                     ├── ReadFileFromImage(indexPath constant)
                     ├── ParsePmInstalledJSON()
-                    ├── ReadContainerFactoryVersion() (with explicit missing/error handling)
+                    ├── read container-factory version internally (debug-log read errors)
                     └── ConvertToCycloneDX() and integrate into final BOM
                           │
                           ▼

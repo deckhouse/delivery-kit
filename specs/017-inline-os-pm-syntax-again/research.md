@@ -69,17 +69,17 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 
 ## 4. Ecosystems Configuration
 
-### Decision: Update `os-pm` ecosystem entry and move shared PM metadata to a neutral package
+### Decision: Update `os-pm` ecosystem entry and move shared PM metadata to `pkg/sbom/os_pm/metadata`
 
 | Field | Current (015) | New (017) |
 |-------|---------------|-----------|
 | `DefaultSpecFile` | `"pm.yaml"` | `""` |
 | `DefaultLockFile` | `"pm.lock"` | `""` |
-| `CatalogerName` | `"os-pm-lock-cataloger"` | `os_pm.CatalogerName` (the value is defined once in `pkg/sbom/packages/os_pm`) |
+| `CatalogerName` | `"os-pm-lock-cataloger"` | `metadata.CatalogerName` (the value is defined once in `pkg/sbom/os_pm/metadata`) |
 | `InstallCmd` | `pm sync --from <lockfile>` | `pm install <pkgs>` |
 
 - **Rationale**: Inline syntax has no default spec/lock file. The cataloger name is updated to reflect the runtime-index source. The install command switches to argument-based invocation.
-- **Implementation detail**: Keep `CatalogerName`, `ContainerFactoryIndexPath`, and `ContainerFactoryVersionPath` in the dependency-free `pkg/packages_metadata` package. Both `pkg/config` and `pkg/sbom/packages/os_pm` consume those values; neither config nor the SBOM collector redeclares the path strings, and config does not import container backend/SBOM implementation code. Add a config test that asserts the os-pm ecosystem exposes the shared cataloger name.
+- **Implementation detail**: Keep `CatalogerName`, `ContainerFactoryIndexPath`, and `ContainerFactoryVersionPath` in the dependency-free `pkg/sbom/os_pm/metadata` package, close to the os-pm domain. Both `pkg/config` and `pkg/sbom/packages/os_pm` consume those values; neither config nor the SBOM collector redeclares the path strings, and config does not import container backend/SBOM implementation code. Add a config test that asserts the os-pm ecosystem exposes the shared cataloger name.
 
 ## 5. Configuration Validation
 
@@ -96,10 +96,10 @@ Replace `OSPMLockPath() string` and `OSPMSpecPath() string` on `StapelImageBase`
 
 The `containerFactoryVersion` PURL qualifier is read only from `ContainerFactoryVersionPath` (`/var/lib/pm/container-factory-version`) inside the built image. `PACKAGES_VERSION` is available to the shell command inside the container and is persisted there by the command preamble; it is not a valid SBOM collector input from the host process.
 
-The runtime index path, version-file path, and cataloger name are owned by `pkg/packages_metadata`. Command generation and SBOM collection import and reuse these values; `pkg/config/packages_commands.go` contains no duplicate PM path values.
+The runtime index path, version-file path, and cataloger name are owned by `pkg/sbom/os_pm/metadata`. Command generation and SBOM collection import and reuse these values; `pkg/config/packages_commands.go` contains no duplicate PM path values. The existing backend file-read behavior is retained; `pkg/container_backend/docker_server_backend.go` is out of scope.
 
 - **Rationale**: The SBOM collector runs outside the built image, while `PACKAGES_VERSION` is scoped to the package command inside the container. The persisted file is the only authoritative and reproducible source available during SBOM collection.
-- **Implementation detail**: `ReadContainerFactoryVersion` reads `ContainerFactoryVersionPath` from the image. Remove `readContainerFactoryVersionFromEnv`; `CollectBOM` uses the image file directly. If the backend reports an expected missing file, apply the documented fallback; unexpected read errors must be logged with context or returned, never silently discarded.
+- **Implementation detail**: Keep version reading internal to the collector and remove the redundant exported `ReadContainerFactoryVersion` wrapper. `CollectBOM` reads `ContainerFactoryVersionPath` from the image directly. The runtime index is mandatory and an absent index is an error. Version-read errors are written to debug logging with image/path context while preserving the collector's agreed error behavior; there is no host environment fallback.
 
 ## 7. Test Data Migration
 
@@ -109,22 +109,22 @@ All test files modified in 015 for file-based syntax must be reverted to inline 
 
 - `pkg/config/raw_packages_directive_test.go` — change `"spec": "pm.yaml"` to `"spec": ["curl", "jq"]` for os-pm entries; invert the "os-pm with list spec is rejected" test to assert acceptance
 - `pkg/config/packages_directive_javascript_test.go` — update os-pm entries in combined config tests
-- `pkg/config/packages_commands_test.go` — assert `pm install curl jq` instead of `pm sync --from pm.lock`, assert all required/user env vars are prefixes on the same invocation, reject the `; pm install` form, and assert generated PM commands use neutral metadata constants
+- `pkg/config/packages_commands_test.go` — assert complete expected command strings with `Equal(expected)` instead of `ContainSubstring`, including preamble, env ordering, quoting, separators, and `pm install` arguments; assert generated PM commands use `pkg/sbom/os_pm/metadata` constants
 - `pkg/config/stapel_image_base_test.go` — test `HasOSPMPackages()` instead of `OSPMLockPath()`
 - `pkg/build/stage/packages_test.go` — update os-pm entries
-- `pkg/config/packages_directive_test.go` or the existing ecosystem test — assert the os-pm `CatalogerName` equals `os_pm.CatalogerName`
+- `pkg/config/packages_directive_test.go` or the existing ecosystem test — assert the os-pm `CatalogerName` equals `metadata.CatalogerName` from `pkg/sbom/os_pm/metadata`
 
 ### Decision: Update e2e fixtures
 
 All e2e test fixtures under `test/e2e/sbom/_fixtures/` that use `pm.yaml`/`pm.lock` must be updated to inline `spec` lists. The `pm.yaml` and `pm.lock` files must be deleted.
 
-### Decision: Preserve shell export semantics for `pm install`
+### Decision: Preserve shell export semantics and readable assembly for `pm install`
 
-Required and user-provided environment variables must be emitted as prefixes on the same shell command as `pm install`. A command such as `REGISTRY=value pm install ...` exports the variable to the child process; `REGISTRY=value; pm install ...` does not. Unit tests must inspect the complete generated command and assert both the positive same-command form and the absence of the invalid separated form.
+Required and user-provided environment variables must be emitted as prefixes on the same shell command as `pm install`. A command such as `REGISTRY=value pm install ...` exports the variable to the child process; `REGISTRY=value; pm install ...` does not. Every env case in the unit table must compare the complete generated command with `Equal(expected)`, explicitly fixing preamble, env ordering, quoting, separators, and package arguments. The tests must not use callback-based substring checks. Command assembly should expose the command prefix, environment-prefix string, install command, and final semicolon-joined result as clearly named steps; avoid opaque inline concatenation and make the invalid separated form impossible to miss.
 
 ### Decision: Make version-read failures observable
 
-The collector distinguishes an expected missing version file from an unexpected read failure. Missing-file behavior follows the feature fallback contract; all other read errors are logged with image/path context at debug level or returned if collection cannot produce a trustworthy qualifier. A test must force a non-missing read error and verify that it is not swallowed.
+The collector treats the runtime index as mandatory. It keeps version reading internal, writes version-read errors to debug logging with image/path context, and preserves the agreed collection error behavior. There is no host environment fallback. Tests must cover absent index and version-read errors without modifying the backend.
 
 ### Decision: Use meaningful checksum test inputs
 
@@ -132,7 +132,7 @@ Checksum tests must compare genuinely different input states when asserting enab
 
 ### Decision: Keep shared PM metadata dependency-neutral
 
-Place `CatalogerName`, `ContainerFactoryIndexPath`, and `ContainerFactoryVersionPath` in `pkg/packages_metadata/os_pm.go`. The package must contain only dependency-free metadata. `pkg/config` may consume it without importing SBOM/container implementation code, while `pkg/sbom/packages/os_pm` uses it for runtime collection.
+Place `CatalogerName`, `ContainerFactoryIndexPath`, and `ContainerFactoryVersionPath` in `pkg/sbom/os_pm/metadata/metadata.go`. The package must contain only dependency-free metadata while remaining close to the os-pm domain. `pkg/config` may consume it without importing SBOM/container implementation code, while `pkg/sbom/packages/os_pm` uses it for runtime collection.
 
 ## 8. Key Architectural Decisions
 

@@ -101,7 +101,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 
-	DescribeTable("per-platform SBOM with os-pm packages: pm.lock components land in every platform SBOM",
+	DescribeTable("per-platform SBOM with os-pm packages: runtime-index components land in every platform SBOM",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
@@ -132,7 +132,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 			byPlatform := buildReport.ImagesByPlatform["app"]
 			Expect(byPlatform).To(HaveLen(len(multiplatformSbomPlatforms)), "expected a build report record per platform")
 
-			By("verifying every platform SBOM carries the pm.lock components")
+			By("verifying every platform SBOM carries the runtime-index components")
 			for _, platform := range multiplatformSbomPlatforms {
 				record, hasRecord := byPlatform[platform]
 				Expect(hasRecord).To(BeTrue(), "no build report record for platform %s", platform)

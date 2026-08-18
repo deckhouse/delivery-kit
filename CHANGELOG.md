@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.77.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.2...v2.77.0-dk.3) (2026-08-18)
+
+
+### Features
+
+* **sbom:** generate SBOM per platform for multi-platform images ([#232](https://github.com/deckhouse/delivery-kit/issues/232)) ([c6aaf47](https://github.com/deckhouse/delivery-kit/commit/c6aaf475cc51719e5936ac908d384b1d5c27e413))
+
+
+### Bug Fixes
+
+* **build, sbom:** warn about disabled network once, in the run summary ([e2a9f35](https://github.com/deckhouse/delivery-kit/commit/e2a9f35464124ffdd866e9156a6b2adb03e37719))
+* **sbom:** use inline pm syntax again ([#254](https://github.com/deckhouse/delivery-kit/issues/254)) ([28082ac](https://github.com/deckhouse/delivery-kit/commit/28082ac62f94a6a20f3439e7d79ae4240b3ef59c))
+
 ## [2.77.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.1...v2.77.0-dk.2) (2026-08-13)
 
 

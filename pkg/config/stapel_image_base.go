@@ -87,22 +87,13 @@ func (c *StapelImageBase) Vex() *Vex {
 	return c.vex
 }
 
-func (c *StapelImageBase) OSPMLockPath() string {
+func (c *StapelImageBase) HasOSPMPackages() bool {
 	for _, p := range c.Packages {
-		if p.Type == PackagesDirectiveTypeOSPM {
-			return p.FileBased.Lock
+		if p.Type == PackagesDirectiveTypeOSPM && len(p.Spec.Packages) > 0 {
+			return true
 		}
 	}
-	return ""
-}
-
-func (c *StapelImageBase) OSPMSpecPath() string {
-	for _, p := range c.Packages {
-		if p.Type == PackagesDirectiveTypeOSPM {
-			return p.FileBased.Spec
-		}
-	}
-	return ""
+	return false
 }
 
 func (c *StapelImageBase) dependsOn() DependsOn {

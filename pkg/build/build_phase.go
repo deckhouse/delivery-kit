@@ -38,7 +38,6 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
-	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -369,11 +368,10 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
-	var osPmLockPath, osPmSpecPath string
+	var hasOsPmPackages bool
 	if img.StapelImageConfig != nil && img.StapelImageConfig.ImageBaseConfig() != nil {
 		imageBase := img.StapelImageConfig.ImageBaseConfig()
-		osPmLockPath = imageBase.OSPMLockPath()
-		osPmSpecPath = imageBase.OSPMSpecPath()
+		hasOsPmPackages = imageBase.HasOSPMPackages()
 	}
 
 	isStapelScratch := img.StapelImageConfig != nil && sbomImage.IsScratchRef(img.GetBaseImageReference())
@@ -382,15 +380,11 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		goModPatcher,
 	}
 
-	if osPmLockPath != "" {
-		patchers = append(patchers, osPm.NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
-	}
-
 	patchers = append(patchers, externalRefPatcher)
 
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}

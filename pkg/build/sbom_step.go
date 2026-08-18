@@ -20,6 +20,7 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
@@ -50,7 +51,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -86,7 +87,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if (osPmLockPath != "" || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
 			targetBOM = cyclonedxutil.NewBOM()
 			targetBOM.Metadata = &cdx.Metadata{
 				Component: &cdx.Component{
@@ -118,6 +119,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
+		if osPmEnabled {
+			resultBOM, err = osPm.CollectAndMergeBOM(ctx, step.containerBackend, stageDesc.Info.Name, resultBOM)
+			if err != nil {
+				return err
+			}
+		}
+
 		for _, patcher := range patchers {
 			if patcher == nil {
 				continue
@@ -128,8 +136,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		// GOST Upsert must run AFTER patchers so that components added by patchers
-		// (e.g. PM BOMPatcher) also get GOST properties.
 		if err := gost.Upsert(resultBOM, mergeOpts.Gost); err != nil {
 			return fmt.Errorf("set GOST properties: %w", err)
 		}

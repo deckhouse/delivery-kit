@@ -12,8 +12,8 @@ git:
     to: /
 packages:
   - type: os-pm
-    spec: "pm.yaml"
-    lock: "pm.lock"
+    spec:
+      - jq==1.8.1
 ---
 image: app
 fromImage: base-builder

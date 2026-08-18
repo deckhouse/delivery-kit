@@ -1,7 +1,0 @@
-packages:
-  - name: curl
-    version: "8.12.1"
-  - name: openssl
-    version: "3.6.2"
-  - name: jq
-    version: "1.8.1"

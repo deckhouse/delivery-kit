@@ -11,6 +11,7 @@ git:
   - add: /
     to: /
 packages:
-   - type: os-pm
-     spec: pm.yaml
-     lock: pm.lock
+  - type: os-pm
+    spec:
+      - jq==1.8.1
+      - yq==4.48.1

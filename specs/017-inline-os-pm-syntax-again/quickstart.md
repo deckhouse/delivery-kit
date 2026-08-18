@@ -44,7 +44,8 @@ task test:unit paths="./pkg/config/..." -- -focus="commands"
 **Key assertions**:
 - Single os-pm section with 2 packages → `pm install curl==8.12.1 jq`
 - Multiple os-pm sections → one `pm install` per section
-- With `env` → environment variables prefixed before `pm install`
+- With `env` → required and user environment variables are prefixes on the same command as `pm install`
+- The complete command contains no `; pm install` form, which would leave variables unexported
 - Preamble (mkdir, version file) present in each command
 
 ### 3. SBOM collection — `ParsePmInstalledJSON`
@@ -59,6 +60,7 @@ task test:unit paths="./pkg/sbom/..." -- -focus="os-pm"
 - `ParsePmInstalledJSON` parses `/var/lib/pm/index.json` format
 - `ConvertToCycloneDX` produces correct CycloneDX components
 - `containerFactoryVersion` qualifier set on components from `/var/lib/pm/container-factory-version` inside the image; no host `PACKAGES_VERSION` fallback
+- Expected missing version-file behavior is distinct from unexpected read failures; unexpected failures are observable and not silently swallowed
 
 ### 4. Stapel image config — `HasOSPMPackages`
 
@@ -137,7 +139,7 @@ grep -r "PMBOMPatcher" pkg/sbom/
 ### Verify no obsolete os-pm lock workflow remains
 
 ```bash
-grep -r "pm:lock\|pm.lock\|PMBOMPatcher" Taskfile.dist.yaml pkg/config/ pkg/build/ pkg/sbom/
+grep -r "pm:lock\|pm.lock\|PMBOMPatcher" Taskfile.dist.yaml AGENTS.md pkg/config/ pkg/build/ pkg/sbom/
 ```
 
 **Expected**: No `pm:lock` task, PMBOMPatcher, or os-pm lock-file source remains. Other package ecosystems may still use their own lock files.
@@ -145,10 +147,10 @@ grep -r "pm:lock\|pm.lock\|PMBOMPatcher" Taskfile.dist.yaml pkg/config/ pkg/buil
 ### Verify SBOM-owned PM metadata and config cataloger wiring
 
 ```bash
-grep -R "InstalledPackagesIndexPath\|ContainerFactoryVersionDir\|ContainerFactoryVersionFile" pkg/sbom/packages/os_pm pkg/config/packages_commands.go
+`grep -R "InstalledPackagesIndexPath\|ContainerFactoryVersionDir\|ContainerFactoryVersionFile" pkg/packages_metadata pkg/sbom/packages/os_pm pkg/config/packages_commands.go`
 ```
 
-**Expected**: `InstalledPackagesIndexPath`, `ContainerFactoryVersionDir`, and `ContainerFactoryVersionFile` are absent; `ContainerFactoryIndexPath` and `ContainerFactoryVersionPath` are owned by `pkg/sbom/packages/os_pm`, and `pkg/config/packages_commands.go` only references exported SBOM constants.
+**Expected**: `InstalledPackagesIndexPath`, `ContainerFactoryVersionDir`, and `ContainerFactoryVersionFile` are absent; `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and `CatalogerName` are defined only in dependency-free `pkg/packages_metadata`, while config and SBOM code reference the shared values.
 
 Run the ecosystem registration test:
 
@@ -156,9 +158,13 @@ Run the ecosystem registration test:
 task test:unit paths="./pkg/config/..." -- -focus="cataloger|ecosystem"
 ```
 
-**Expected**: the os-pm `PackageEcosystem.CatalogerName` equals `os_pm.CatalogerName`, just as language ecosystem entries expose their cataloger names; the assertion fails if config uses an empty or duplicated literal.
+**Expected**: the os-pm `PackageEcosystem.CatalogerName` equals the shared metadata cataloger name, just as language ecosystem entries expose their cataloger names; the assertion fails if config uses an empty or duplicated literal. Dependency inspection must show that `pkg/config` does not import SBOM/container implementation code solely for metadata.
 
 The version qualifier must be verified from the persisted image file, not from the host environment.
+
+### Verify checksum test inputs
+
+Inspect the checksum regression test and confirm that the compared cases use distinct inputs. A test that invokes the checksum function twice with identical arguments does not verify enabled/disabled behavior and must be replaced by a meaningful contract test or removed.
 
 ### Verify inline spec is the ONLY format for os-pm
 

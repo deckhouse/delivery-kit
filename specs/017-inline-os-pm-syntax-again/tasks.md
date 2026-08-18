@@ -9,118 +9,116 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
 
-**Tests**: Tests are required by the feature specification and the project constitution. Use Ginkgo + Gomega and keep tests co-located with the code under test.
+**Tests**: Tests are required by the feature specification and constitution. Use Ginkgo + Gomega and keep tests co-located with the code under test.
 
 **Organization**: Tasks are grouped by user story. US1 and US2 are P1; US3 is P2.
 
-## Format: `[ID] [P?] [Story?] Description`
+## Checklist format
 
-- **[P]**: Tasks touch different files and have no dependency on incomplete work.
-- **[Story]**: User-story tasks use `[US1]`, `[US2]`, or `[US3]`.
-- Every task includes an exact project-relative file path.
-
-## Path Conventions
-
-- **Business logic**: `pkg/<domain>/`
-- **Unit tests**: co-located `*_test.go` files
-- **E2E tests**: `test/e2e/sbom/`
-- **Fixtures**: `test/e2e/sbom/_fixtures/`
+Every task uses `- [ ] Txxx`, includes an exact project-relative file path, and has a story label only in user-story phases. `[P]` means the task can run in parallel without depending on incomplete work in another task.
 
 ## Build & Test Commands
 
-- **Format**: `task format`
-- **Build**: `task build`
-- **Unit tests**: `task test:unit paths="./pkg/..."`
-- **E2E tests**: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="..."`
-- **Lint**: `task lint`
-- Do not use raw `go build`, `go test`, `go fmt`, `go vet`, or `golangci-lint`.
+- Format: `task format`
+- Build: `task build`
+- Unit tests: `task test:unit paths="./pkg/..."`
+- E2E tests: `task test:e2e paths="./test/e2e/sbom/..." labelFilter="..."`
+- Lint: `task lint`
+- Never use raw `go build`, `go test`, `go fmt`, `go vet`, or `golangci-lint`.
 
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Confirm the existing feature workspace and preserve the design decisions before implementation.
+**Purpose**: Establish the implementation inventory and preserve the design constraints before editing code.
 
-- [X] T001 Verify the implementation branch and feature artifacts in `specs/017-inline-os-pm-syntax-again/plan.md`, `specs/017-inline-os-pm-syntax-again/spec.md`, `specs/017-inline-os-pm-syntax-again/research.md`, `specs/017-inline-os-pm-syntax-again/data-model.md`, `specs/017-inline-os-pm-syntax-again/contracts/`, and `specs/017-inline-os-pm-syntax-again/quickstart.md`
-- [X] T002 [P] Inventory all current os-pm file-based references in `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `test/e2e/sbom/` before editing implementation files
-- [X] T003 [P] Inventory existing SBOM cache checksum and annotation behavior in `pkg/build/sbom_step.go` and related tests before changing the SBOM pipeline
+- [ ] T001 Verify the feature artifacts in `specs/017-inline-os-pm-syntax-again/plan.md`, `specs/017-inline-os-pm-syntax-again/spec.md`, `specs/017-inline-os-pm-syntax-again/research.md`, `specs/017-inline-os-pm-syntax-again/data-model.md`, `specs/017-inline-os-pm-syntax-again/contracts/`, and `specs/017-inline-os-pm-syntax-again/quickstart.md`.
+- [ ] T002 [P] Inventory file-based os-pm references, lock-path APIs, and PM command generation in `pkg/config/`, `pkg/build/`, `pkg/sbom/`, `Taskfile.dist.yaml`, `AGENTS.md`, and `test/e2e/sbom/`.
+- [ ] T003 [P] Inventory SBOM checksum inputs, cache annotations, and image-set error aggregation in `pkg/build/sbom_step.go`, `pkg/build/sbom_step_checksum_test.go`, `pkg/build/sbom_step_test.go`, and `pkg/build/build_phase.go`.
+- [ ] T004 [P] Inspect current package dependency direction and identify all consumers of PM metadata before introducing `pkg/packages_metadata/os_pm.go`.
+
+**Checkpoint**: All affected APIs, fixtures, cache behavior, and dependency constraints are known before implementation.
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Restore the shared configuration and ecosystem model that all user stories use.
+**Purpose**: Restore the shared configuration model and introduce dependency-neutral PM metadata before user-story work.
 
-**Critical**: Complete this phase before implementing the user stories.
+- [ ] T005 [P] Create dependency-free PM metadata constants in `pkg/packages_metadata/os_pm.go`: `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and `CatalogerName`.
+- [ ] T006 [P] Add a package-level dependency test or static dependency check in `pkg/packages_metadata/os_pm_test.go` proving `pkg/packages_metadata/os_pm.go` imports neither `pkg/config`, SBOM collectors, nor container backends.
+- [ ] T007 Restore `PackagesSpec{Packages []string}` and update the `PackageEcosystem.InstallCmd` callback signature in `pkg/config/packages_directive.go`.
+- [ ] T008 Update all non-os-pm ecosystem callbacks to the restored callback signature without changing their file-based behavior in `pkg/config/packages_directive.go`.
+- [ ] T009 Configure the os-pm ecosystem entry with empty default spec/lock files and `packages_metadata.CatalogerName` in `pkg/config/packages_directive.go`.
+- [ ] T010 Remove os-pm file-based resolution from `fillFileBasedSpec` and restore inline list conversion in `pkg/config/raw_packages_directive.go`.
+- [ ] T011 Restore `HasOSPMPackages()` and remove `OSPMLockPath()` and `OSPMSpecPath()` in `pkg/config/stapel_image_base.go`.
+- [ ] T012 Update callers of the removed lock/spec path methods to use `HasOSPMPackages()` in `pkg/build/build_phase.go` and `pkg/config/raw_stapel_image.go`.
+- [ ] T013 [P] Update foundational parsing and ecosystem tests for inline `PackagesSpec`, neutral metadata, empty defaults, and the `HasOSPMPackages()` API in `pkg/config/raw_packages_directive_test.go`, `pkg/config/packages_directive_test.go`, and `pkg/config/stapel_image_base_test.go`.
+- [ ] T014 Run foundational tests with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/sbom/managedinput/..."`.
 
-- [X] T004 [P] Restore `PackagesSpec{Packages []string}` in `pkg/config/packages_directive.go`
-- [X] T005 [P] Update `PackageEcosystem.InstallCmd` and all ecosystem callback implementations to accept `FileBasedSpec`, inline package arguments, and environment variables in `pkg/config/packages_directive.go`
-- [X] T006 [P] Remove `OsPMCatalogerName` from `pkg/config/packages_directive.go`, keep os-pm `DefaultSpecFile`/`DefaultLockFile` empty, and set `CatalogerName` from `pkg/sbom/packages/os_pm.CatalogerName` in the ecosystem entry
-- [X] T007 [P] Remove os-pm file-based resolution from `fillFileBasedSpec` and restore list conversion for os-pm in `pkg/config/raw_packages_directive.go`
-- [X] T008 [P] Restore `HasOSPMPackages()` and remove `OSPMLockPath()` and `OSPMSpecPath()` from `pkg/config/stapel_image_base.go`
-- [X] T009 Update callers of removed lock/spec path methods to use `HasOSPMPackages()` in `pkg/build/build_phase.go` and `pkg/config/raw_stapel_image.go`
-- [X] T010 Re-run foundation tests after the metadata ownership changes with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/sbom/managedinput/..."`
-**Checkpoint**: Inline os-pm data can be represented without a lock-file path, and all user stories can consume the shared model.
+**Checkpoint**: Inline os-pm data, neutral metadata, and boolean enablement are available to all stories without a lock-file path.
 
 ---
 
 ## Phase 3: User Story 1 — Declare OS packages inline, multiple sections (Priority: P1) 🎯 MVP
 
-**Goal**: Accept only inline non-empty os-pm package lists, support multiple sections with independent env values, and generate one `pm install` command per section.
+**Goal**: Accept only non-empty inline os-pm package lists, support multiple sections with independent environment values, and generate one correctly exported `pm install` command per section.
 
-**Independent Test**: `task test:unit paths="./pkg/config/..." -- -focus="os-pm"` passes with inline lists, rejects string/file specs, rejects empty specs and workdir, and verifies per-section environment prefixes and commands.
+**Independent Test**: Config and stage tests accept `spec: [curl, jq]`, reject string/file specs, empty lists, and `workdir`; multiple sections generate independent commands; every required and user env variable is on the same shell invocation as `pm install`, with no `; pm install` form.
 
 ### Tests for User Story 1
 
-- [X] T011 [P] [US1] Update inline spec parsing cases, including acceptance of `spec: [curl, jq]`, rejection of `spec: "pm.yaml"`, empty-list rejection, workdir rejection, and env preservation in `pkg/config/raw_packages_directive_test.go`
-- [X] T012 [P] [US1] Update mixed package directive fixtures to use inline os-pm lists in `pkg/config/packages_directive_javascript_test.go`
-- [X] T013 [P] [US1] Add command-generation coverage for one package section, multiple sections, version constraints, preamble, and per-section environment prefixes in `pkg/config/packages_commands_test.go`
-- [X] T014 [P] [US1] Update `HasOSPMPackages()` positive and negative cases in `pkg/config/stapel_image_base_test.go`
-- [X] T015 [P] [US1] Update stage package integration expectations for inline os-pm commands in `pkg/build/stage/packages_test.go`
+- [ ] T015 [P] [US1] Add inline parsing cases for accepted lists, rejected string paths, empty lists, `workdir` rejection, multiple sections, and per-section env preservation in `pkg/config/raw_packages_directive_test.go`.
+- [ ] T016 [P] [US1] Update mixed package directive fixtures to use inline os-pm lists and verify the neutral cataloger registration in `pkg/config/packages_directive_javascript_test.go` and `pkg/config/packages_directive_test.go`.
+- [ ] T017 [P] [US1] Add exact command-generation assertions for package arguments, version constraints, preamble, multiple sections, required env variables, user env variables, same-command env prefixes, and absence of `; pm install` in `pkg/config/packages_commands_test.go`.
+- [ ] T018 [P] [US1] Update positive and negative `HasOSPMPackages()` cases in `pkg/config/stapel_image_base_test.go`.
+- [ ] T019 [P] [US1] Update stage integration expectations for inline os-pm commands and multiple sections in `pkg/build/stage/packages_test.go`.
 
 ### Implementation for User Story 1
 
-- [X] T016 [US1] Implement os-pm list conversion and type-specific validation for non-empty list, rejected string path, and rejected workdir in `pkg/config/raw_packages_directive.go`
-- [X] T017 [US1] Implement inline `pm install <pkg_1> ... <pkg_N>` command formatting with the version-file preamble and env prefixes in `pkg/config/packages_commands.go`
-- [X] T018 [US1] Wire inline package lists and set `PackageEcosystem.CatalogerName` from `os_pm.CatalogerName` in `pkg/config/packages_directive.go`
-- [X] T019 [US1] Update stage/build configuration wiring to generate one command for each os-pm section in `pkg/build/stage/packages.go` and `pkg/config/raw_stapel_image.go`
-- [X] T020 [US1] Run the US1 independent config and stage tests with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/build/stage/..."`
+- [ ] T020 [US1] Implement os-pm list conversion and validation for non-empty lists, rejected string paths, and rejected `workdir` in `pkg/config/raw_packages_directive.go`.
+- [ ] T021 [US1] Implement `formatInstallCommand` with `pm install <packages>`, the version-file preamble, and all required/user env assignments as prefixes on the same command invocation in `pkg/config/packages_commands.go`.
+- [ ] T022 [US1] Reuse `packages_metadata.ContainerFactoryVersionPath` and other shared PM metadata from command generation without redeclaring path literals in `pkg/config/packages_commands.go`.
+- [ ] T023 [US1] Wire inline package lists, the neutral cataloger name, and the updated callback through the os-pm ecosystem in `pkg/config/packages_directive.go`.
+- [ ] T024 [US1] Generate one install command for each os-pm section through stage/build configuration wiring in `pkg/build/stage/packages.go` and `pkg/config/raw_stapel_image.go`.
+- [ ] T025 [US1] Run the independent US1 tests with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/build/stage/..."`.
 
-**Checkpoint**: A valid inline os-pm configuration generates the expected independent commands and invalid legacy forms fail at parse/validation time.
+**Checkpoint**: Inline os-pm configuration produces valid independent commands, and all legacy file-based forms fail at parse or validation time.
 
 ---
 
 ## Phase 4: User Story 2 — SBOM from final state in image (Priority: P1)
 
-**Goal**: Build the os-pm SBOM from the final `/var/lib/pm/index.json` in the image, enrich every final component through the PURL resolver, and aggregate resolver failures across images.
+**Goal**: Build the os-pm SBOM from the final `/var/lib/pm/index.json`, merge it before external-reference enrichment, and preserve hierarchical resolver error aggregation.
 
-**Independent Test**: Unit tests prove `CollectBOM` reads and converts runtime state and that the PURL patcher sees components added by `CollectBOM`; the targeted e2e test proves hierarchical mixed-outcome aggregation.
+**Independent Test**: Unit tests prove runtime components reach the PURL patcher and resolver errors propagate; checksum tests use distinct inputs; the resolver e2e test proves mixed image outcomes and fresh SBOM generation.
 
 ### Tests for User Story 2
 
-- [X] T021 [P] [US2] Add `CollectBOM` tests for image reads, empty/missing index behavior, malformed index errors, package conversion, and persisted container-factory version file handling in `pkg/sbom/packages/os_pm/collect_test.go`
-- [ ] T022 [P] [US2] Add package-level regression tests proving runtime-index integration precedes external-reference enrichment, `ErrExternalRefEnrich` propagates, and host `PACKAGES_VERSION` is not used in `pkg/sbom/packages/os_pm/collect_test.go` or a co-located integration test
-- [X] T023 [P] [US2] Update SBOM checksum/cache regression coverage after removing the os-pm checksum input in `pkg/build/sbom_step_checksum_test.go` and `pkg/build/sbom_step_test.go`
-- [ ] T024 [P] [US2] Update os-pm managed-input tests to verify os-pm remains excluded from Syft derivation in `pkg/sbom/managedinput/managedinput_test.go`
-- [X] T025 [P] [US2] Update stage/build tests for boolean os-pm enablement and runtime BOM collection in `pkg/build/stage/packages_test.go`
+- [ ] T026 [P] [US2] Add `CollectBOM` coverage for index reads, empty/missing index behavior, malformed JSON, package conversion, version-file success, expected missing version file, and unexpected version-read errors in `pkg/sbom/packages/os_pm/collect_test.go`.
+- [ ] T027 [P] [US2] Add a package-level regression proving runtime components are integrated before `externalref.ExternalRefPatcher`, `ErrExternalRefEnrich` propagates, and host `PACKAGES_VERSION` is not used in `pkg/sbom/packages/os_pm/collect_test.go` or a co-located integration test.
+- [ ] T028 [P] [US2] Replace the identical-argument checksum assertion with a meaningful test using distinct inputs and verify the generic checksum excludes a separate os-pm enablement flag in `pkg/build/sbom_step_checksum_test.go` and `pkg/build/sbom_step_test.go`.
+- [ ] T029 [P] [US2] Verify os-pm remains excluded from Syft resolver derivation in `pkg/sbom/managedinput/managedinput_test.go`.
+- [ ] T030 [P] [US2] Update stage/build tests for boolean os-pm enablement and runtime BOM collection in `pkg/build/stage/packages_test.go`.
 
 ### Implementation for User Story 2
 
-- [X] T026 [P] [US2] Remove `readContainerFactoryVersionFromEnv` and make `CollectBOM` resolve `containerFactoryVersion` only from `ContainerFactoryVersionPath` inside the image in `pkg/sbom/packages/os_pm/collect.go`
-- [X] T027 [P] [US2] Remove the obsolete lock-file SBOM source and its tests from `pkg/sbom/packages/os_pm/pm_bom_patcher.go` and `pkg/sbom/packages/os_pm/pm_bom_patcher_test.go`
-- [X] T028 [US2] Replace lock/spec path propagation with `hasOsPmPackages` in `pkg/build/build_phase.go` and pass `osPmEnabled` into the SBOM step
-- [X] T029 [US2] Move runtime-index collection and component/dependency integration behind the os-pm SBOM package operation, then invoke it before `externalref.ExternalRefPatcher` from `pkg/build/sbom_step.go` without duplicating merge logic
-- [X] T030 [US2] Preserve patcher error wrapping and component details so `ErrExternalRefEnrich` reaches `convergeSbomByImagesSets` and successful images remain absent from the aggregate in `pkg/build/build_phase.go` and `pkg/sbom/externalref/patcher.go`
-- [X] T031 [US2] Remove the variadic `osPmEnabled` checksum input and its `os-pm-enabled` checksum part; update checksum tests and verify cache behavior remains correct for generic scan/merge/signer/platform inputs in `pkg/build/sbom_step.go`
-- [X] T032 [US2] Run focused US2 unit tests with `task test:unit paths="./pkg/sbom/..." -- -focus="os-pm|external|SBOM"` and `task test:unit paths="./pkg/build/..."`
+- [ ] T031 [P] [US2] Reuse `packages_metadata.ContainerFactoryIndexPath`, `packages_metadata.ContainerFactoryVersionPath`, and `packages_metadata.CatalogerName` from the os-pm collector in `pkg/sbom/packages/os_pm/collect.go`.
+- [ ] T032 [P] [US2] Implement explicit expected-missing-file versus unexpected-read-error handling for the container-factory version in `pkg/sbom/packages/os_pm/collect.go`; unexpected errors must be logged with context or returned, never silently discarded.
+- [ ] T033 [P] [US2] Remove `PMBOMPatcher` and its tests from `pkg/sbom/packages/os_pm/pm_bom_patcher.go` and `pkg/sbom/packages/os_pm/pm_bom_patcher_test.go`.
+- [ ] T034 [US2] Replace lock/spec path propagation with `hasOsPmPackages` in `pkg/build/build_phase.go` and pass the required os-pm state into the SBOM pipeline.
+- [ ] T035 [US2] Move runtime-index collection and component/dependency integration behind the os-pm package operation, invoking it before `externalref.ExternalRefPatcher` without duplicate merge logic in `pkg/build/sbom_step.go` and `pkg/sbom/packages/os_pm/collect.go`.
+- [ ] T036 [US2] Preserve resolver error wrapping, component details, successful-image continuation, and hierarchical aggregation in `pkg/build/build_phase.go` and `pkg/sbom/externalref/patcher.go`.
+- [ ] T037 [US2] Remove the os-pm-specific checksum input and `os-pm-enabled` checksum part while preserving generic scan/merge/signer/platform inputs in `pkg/build/sbom_step.go`.
+- [ ] T038 [US2] Run focused US2 unit tests with `task test:unit paths="./pkg/sbom/..." -- -focus="os-pm|external|SBOM"` and `task test:unit paths="./pkg/build/..."`.
 
 ### PURL Resolver E2E Regression
 
-- [X] T033 [P] [US2] Verify the purl-resolver fixture declares or inherits every expected failing component, especially `openssl`, in `test/e2e/sbom/_fixtures/purl_resolver_errors/Dockerfile.builder-base` and `test/e2e/sbom/_fixtures/purl_resolver_errors/werf.yaml`
-- [X] T034 [US2] Update the mixed-outcome resolver test to assert only guaranteed component PURLs and preserve image-level hierarchical aggregation in `test/e2e/sbom/purl_resolver_errors_test.go`
-- [X] T035 [US2] Run the focused resolver regression with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="purl-resolver-errors"` and confirm it performs a fresh SBOM generation rather than a cache hit
+- [ ] T039 [P] [US2] Ensure every expected failing component, especially `openssl`, is guaranteed by the fixture declaration or base image in `test/e2e/sbom/_fixtures/purl_resolver_errors/Dockerfile.builder-base` and `test/e2e/sbom/_fixtures/purl_resolver_errors/werf.yaml`.
+- [ ] T040 [US2] Update the mixed-outcome resolver test to assert only guaranteed component PURLs and preserve image-level hierarchical aggregation in `test/e2e/sbom/purl_resolver_errors_test.go`.
+- [ ] T041 [US2] Run the focused resolver regression with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="purl-resolver-errors"` and confirm it exercises fresh SBOM generation rather than a cache hit.
 
-**Checkpoint**: Runtime os-pm components participate in PURL resolution, resolver failures are aggregated across images, and cache reuse cannot hide the regression.
+**Checkpoint**: Runtime os-pm components participate in PURL resolution, resolver failures aggregate correctly, and cache behavior cannot hide the regression.
 
 ---
 
@@ -128,40 +126,38 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 
 **Goal**: Skip os-pm command generation and runtime-index collection when no os-pm packages are configured.
 
-**Independent Test**: Config and build tests show `HasOSPMPackages()` is false for absent/non-os-pm directives, no pm command is generated, and `CollectBOM` is not invoked for the no-os-pm path.
+**Independent Test**: Config and build tests prove `HasOSPMPackages()` is false for absent/non-os-pm directives, no PM command is generated, and `CollectBOM` is not invoked.
 
 ### Tests for User Story 3
 
-- [X] T036 [P] [US3] Add no-package and non-os-pm-only cases to `pkg/config/stapel_image_base_test.go`
-- [X] T037 [P] [US3] Add managed-input coverage for skipping os-pm processing when no os-pm directive is present in `pkg/sbom/managedinput/managedinput_test.go`
-- [X] T038 [P] [US3] Add build/SBOM coverage for no `CollectBOM` call when os-pm is disabled in `pkg/build/sbom_step_test.go`
+- [ ] T042 [P] [US3] Add no-package and non-os-pm-only cases in `pkg/config/stapel_image_base_test.go`.
+- [ ] T043 [P] [US3] Add managed-input coverage for the no-os-pm path in `pkg/sbom/managedinput/managedinput_test.go`.
+- [ ] T044 [P] [US3] Add build/SBOM coverage proving `CollectBOM` is not called when os-pm is disabled in `pkg/build/sbom_step_test.go`.
 
 ### Implementation for User Story 3
 
-- [X] T039 [US3] Ensure `HasOSPMPackages()` gates command generation and SBOM collection without affecting other package ecosystems in `pkg/config/stapel_image_base.go`, `pkg/config/packages_commands.go`, and `pkg/build/sbom_step.go`
-- [X] T040 [US3] Run the US3 independent tests with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/sbom/..." -- -focus="os-pm"`
+- [ ] T045 [US3] Ensure `HasOSPMPackages()` gates command generation and SBOM collection without changing other ecosystems in `pkg/config/stapel_image_base.go`, `pkg/config/packages_commands.go`, and `pkg/build/sbom_step.go`.
+- [ ] T046 [US3] Run the independent US3 tests with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/sbom/..." -- -focus="os-pm"`.
 
 **Checkpoint**: Projects without os-pm packages retain existing behavior and do not perform unnecessary runtime-index SBOM processing.
 
 ---
 
-## Phase 6: E2E Fixtures, Polish, and Quality Gates
+## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Migrate all fixtures, remove obsolete references, and run the repository-required validation sequence.
+**Purpose**: Remove obsolete lock workflow, migrate fixtures, synchronize documentation, and execute repository quality gates.
 
-- [X] T041 [P] Update all os-pm SBOM fixtures under `test/e2e/sbom/_fixtures/` from `pm.yaml`/`pm.lock` to inline `spec` lists and remove obsolete fixture files
-- [X] T042 [P] Move the index constant to `ContainerFactoryIndexPath` and place `ContainerFactoryIndexPath`, `ContainerFactoryVersionPath`, and `CatalogerName` once in `pkg/sbom/packages/os_pm/collect.go` or a co-located SBOM file
-- [X] T043 [P] Reuse `os_pm.ContainerFactoryIndexPath` and `os_pm.ContainerFactoryVersionPath` from `pkg/config/packages_commands.go` and remove duplicate PM path constants
-- [X] T044 [P] Set `PackageEcosystem.CatalogerName` from `os_pm.CatalogerName` and add an exact ecosystem registration test in `pkg/config/packages_directive.go` and `pkg/config/packages_directive_test.go`
-- [X] T045 [P] Keep os-pm excluded from Syft derivation while retaining the config-facing cataloger metadata in `pkg/sbom/managedinput/managedinput.go` and `pkg/sbom/managedinput/managedinput_test.go`
-- [X] T046 [P] Remove the obsolete `pm:lock` task from `Taskfile.dist.yaml`; verify no `PMBOMPatcher` or os-pm build-context lock source remains
-- [X] T047 [P] Run the package-focused e2e suite with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="packages"` after the remaining SBOM changes
-- [X] T048 Run `task format` for changed Go packages and tests under `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `test/e2e/sbom/` after implementation
-- [X] T049 Run `task build` and fix implementation-caused compilation failures in the changed `pkg/config/`, `pkg/build/`, and `pkg/sbom/` code
-- [X] T050 Run `task lint` and fix implementation-caused diagnostics in the changed `pkg/config/`, `pkg/build/`, and `pkg/sbom/` code
-- [X] T051 Run `task test:unit` and record any unrelated pre-existing failures without masking implementation failures in `pkg/config/`, `pkg/build/`, and `pkg/sbom/`
-- [ ] T052 Run the full relevant SBOM e2e suite under `test/e2e/sbom/` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
-- [X] T053 Validate all changed task/design artifacts with `git diff --check` for `specs/017-inline-os-pm-syntax-again/`
+- [ ] T047 [P] Migrate all os-pm SBOM fixtures under `test/e2e/sbom/_fixtures/` from `pm.yaml`/`pm.lock` to inline `spec` lists and delete obsolete fixture files.
+- [ ] T048 [P] Remove the obsolete `pm:lock` task from `Taskfile.dist.yaml` and its stale lock-artifact instructions from `AGENTS.md`.
+- [ ] T049 [P] Verify no `PMBOMPatcher` or os-pm build-context lock source remains in `Taskfile.dist.yaml`, `AGENTS.md`, `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `test/e2e/sbom/`.
+- [ ] T050 [P] Verify `pkg/config/` consumes PM metadata only through `pkg/packages_metadata/` and that `pkg/packages_metadata/os_pm.go` remains dependency-neutral.
+- [ ] T051 [P] Run the package-focused e2e suite with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="packages"`.
+- [ ] T052 Run `task format` for changed Go packages under `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `pkg/packages_metadata/`.
+- [ ] T053 Run `task build` and resolve implementation-caused compilation failures in `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `pkg/packages_metadata/`.
+- [ ] T054 Run `task lint` and resolve implementation-caused diagnostics in `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `pkg/packages_metadata/`.
+- [ ] T055 Run `task test:unit` and record unrelated pre-existing failures without masking implementation failures in `pkg/config/`, `pkg/build/`, `pkg/sbom/`, and `pkg/packages_metadata/`.
+- [ ] T056 Run the full relevant SBOM e2e suite with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`.
+- [ ] T057 Validate changed authored artifacts with `git diff --check -- specs/017-inline-os-pm-syntax-again/`.
 
 ---
 
@@ -169,95 +165,83 @@ description: "Task list for Inline os-pm Syntax (reverting 015)"
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No implementation dependency.
-- **Foundational (Phase 2)**: Depends on Setup; blocks all user stories.
-- **US1 (Phase 3)**: Depends on Foundational.
-- **US2 (Phase 4)**: Depends on Foundational and the shared model; its SBOM tests can begin once the existing `CollectBOM` API is understood, but implementation integrates with the foundational build wiring.
-- **US3 (Phase 5)**: Depends on Foundational; can proceed in parallel with US1 and US2 where files do not overlap.
-- **Polish (Phase 6)**: Depends on completed US1, US2, and US3; metadata ownership tasks T042–T046 precede the final validation gates.
+- Setup (Phase 1) has no implementation dependency.
+- Foundational (Phase 2) depends on Setup and blocks all user stories.
+- US1 depends on Foundational and delivers the MVP config/command flow.
+- US2 depends on Foundational plus the `HasOSPMPackages()`/SBOM wiring; its e2e regression depends on the collector and pipeline implementation.
+- US3 depends on Foundational and can proceed in parallel with US1/US2 where files do not overlap.
+- Polish (Phase 6) depends on completed US1, US2, and US3; T052–T057 are sequential quality gates after implementation tasks.
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Foundational only; delivers the MVP command/config flow.
-- **US2 (P1)**: Foundational; depends on the resulting `HasOSPMPackages()`/`osPmEnabled` wiring and must be completed before the resolver e2e regression is meaningful.
-- **US3 (P2)**: Foundational; validates the no-os-pm boundary independently.
-
-### Within Each User Story
-
-- Write or update tests before implementation and verify the intended failure where practical.
-- Implement shared types before consumers.
-- Implement `CollectBOM` before changing the SBOM pipeline order.
-- Validate the focused story at its checkpoint before moving to cross-cutting polish.
+- US1 (P1): Foundational only.
+- US2 (P1): Foundational; shares build/config wiring with US1, so integrate after the shared model is stable.
+- US3 (P2): Foundational; validates the no-os-pm boundary independently.
 
 ### Parallel Opportunities
 
-- T002 and T003 can run in parallel.
-- T004–T009 can run in parallel when edits are in different files; T010 follows the ownership changes.
-- T011–T015 can run in parallel; T013 covers command generation while T044 covers config-facing cataloger metadata.
-- T021–T025 can run in parallel; T026–T027 can run in parallel before T028–T031.
-- T033 and T034 can proceed in parallel only if fixture ownership and test ownership are separated.
-- US1, US2, and US3 can be assigned to separate developers after Phase 2, subject to file conflicts in shared build/config files.
-- T041–T047 can run in parallel where files do not overlap after story implementations stabilize; T048–T053 are sequential quality gates.
-
----
+- T002–T004 can run in parallel.
+- T005–T006 and T007–T013 can run in parallel when files do not overlap; T014 follows foundational edits.
+- T015–T019 can run in parallel; implementation T020–T024 follows the relevant test updates.
+- T026–T030 can run in parallel; T031–T033 can run in parallel before T034–T037.
+- T039 and T040 can run in parallel if fixture and test ownership are separated.
+- T042–T044 can run in parallel.
+- T047–T051 can run in parallel after story implementations stabilize.
 
 ## Parallel Examples
 
 ### User Story 1
 
 ```text
-T011: pkg/config/raw_packages_directive_test.go
-T012: pkg/config/packages_directive_javascript_test.go
-T013: pkg/config/packages_commands_test.go
-T014: pkg/config/stapel_image_base_test.go
-T015: pkg/build/stage/packages_test.go
+T015: pkg/config/raw_packages_directive_test.go
+T016: pkg/config/packages_directive_javascript_test.go and pkg/config/packages_directive_test.go
+T017: pkg/config/packages_commands_test.go
+T018: pkg/config/stapel_image_base_test.go
+T019: pkg/build/stage/packages_test.go
 ```
 
 ### User Story 2
 
 ```text
-T021: pkg/sbom/packages/os_pm/collect_test.go
-T022: pkg/build/sbom_step_test.go
-T023: SBOM cache regression test file identified by T003
-T024: pkg/sbom/managedinput/managedinput_test.go
-T033: test/e2e/sbom/_fixtures/purl_resolver_errors/
+T026: pkg/sbom/packages/os_pm/collect_test.go
+T027: pkg/sbom/packages/os_pm/collect_test.go or co-located integration test
+T028: pkg/build/sbom_step_checksum_test.go and pkg/build/sbom_step_test.go
+T029: pkg/sbom/managedinput/managedinput_test.go
+T039: test/e2e/sbom/_fixtures/purl_resolver_errors/
 ```
 
 ### User Story 3
 
 ```text
-T036: pkg/config/stapel_image_base_test.go
-T037: pkg/sbom/managedinput/managedinput_test.go
-T038: pkg/build/sbom_step_test.go
+T042: pkg/config/stapel_image_base_test.go
+T043: pkg/sbom/managedinput/managedinput_test.go
+T044: pkg/build/sbom_step_test.go
 ```
-
----
 
 ## Implementation Strategy
 
 ### MVP First
 
 1. Complete Phase 1 and Phase 2.
-2. Complete US1 (inline parsing and command generation).
-3. Run `task test:unit paths="./pkg/config/..."` and stage tests.
+2. Complete US1: inline parsing, multiple sections, and correctly exported `pm install` commands.
+3. Run the US1 independent tests.
 4. Stop for review/demo if the inline os-pm MVP is sufficient.
 
 ### Incremental Delivery
 
 1. Deliver US1 as the inline syntax MVP.
-2. Deliver US2 with runtime-index SBOM collection and final-BOM PURL enrichment.
+2. Deliver US2 with runtime-index SBOM collection, final-BOM enrichment, meaningful checksum coverage, and resolver aggregation.
 3. Deliver US3 no-os-pm behavior.
-4. Complete fixture migration, resolver regression, cache verification, and full quality gates.
+4. Complete fixture migration, lock-workflow cleanup, documentation synchronization, and full quality gates.
 
 ### Final Validation Sequence
 
-After Go changes, run in order: `task format`, `task build`, `task lint`, `task test:unit`, then the targeted and full relevant e2e commands from Phase 6.
-
----
+After Go changes, run in order: `task format`, `task build`, `task lint`, `task test:unit`, then the targeted and full relevant e2e commands.
 
 ## Notes
 
 - Do not add dependencies without explicit review.
-- Use `task mock:generate` if generated mocks require changes; do not edit generated mocks manually.
+- Use `task mock:generate` if generated mocks require changes; never edit generated mocks manually.
 - Do not modify `CHANGELOG.md` or generated release files.
 - The PURL resolver fix is a pipeline-order change in `pkg/build/sbom_step.go`, not a resolver-service change.
+- Before implementation, reconcile the spec wording around `containerFactoryVersion` fallback with the plan decision: the collector must not read a host environment variable, and unexpected version-file errors must not be silently swallowed.

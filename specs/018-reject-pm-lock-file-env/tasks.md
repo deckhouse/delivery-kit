@@ -35,7 +35,7 @@ description: "Implementation tasks for rejecting PM_LOCK_FILE overrides"
 
 **Purpose**: Confirm the existing project structure is sufficient for this focused validation change.
 
-- [ ] T001 Confirm the existing `pkg/config` validation and co-located Ginkgo test structure are used without adding dependencies in `pkg/config/packages_directive.go`
+- [X] T001 Confirm the existing `pkg/config` validation and co-located Ginkgo test structure are used without adding dependencies in `pkg/config/packages_directive.go`
 
 ---
 
@@ -55,15 +55,15 @@ description: "Implementation tasks for rejecting PM_LOCK_FILE overrides"
 
 ### Tests for User Story 1
 
-- [ ] T002 [P] [US1] Add table-driven Ginkgo/Gomega validation cases for custom, default-path, relative, and empty `PM_LOCK_FILE` values through the parsed YAML helper in `pkg/config/raw_packages_directive_test.go`
-- [ ] T003 [P] [US1] Add acceptance cases for an `os-pm` directive without `PM_LOCK_FILE`, an unrelated `os-pm` environment variable, and an unrelated environment variable on a non-`os-pm` directive in `pkg/config/raw_packages_directive_test.go`
-- [ ] T004 [US1] Assert that each rejected parsed configuration reports both `PM_LOCK_FILE` and `metadata.ContainerFactoryIndexPath` in `pkg/config/raw_packages_directive_test.go`
+- [X] T002 [P] [US1] Add table-driven Ginkgo/Gomega validation cases for custom, default-path, relative, and empty `PM_LOCK_FILE` values through the parsed YAML helper in `pkg/config/raw_packages_directive_test.go`
+- [X] T003 [P] [US1] Add acceptance cases for an `os-pm` directive without `PM_LOCK_FILE`, an unrelated `os-pm` environment variable, and an unrelated environment variable on a non-`os-pm` directive in `pkg/config/raw_packages_directive_test.go`
+- [X] T004 [US1] Assert that each rejected parsed configuration reports both `PM_LOCK_FILE` and `metadata.ContainerFactoryIndexPath` in `pkg/config/raw_packages_directive_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Add an `os-pm`-scoped map-key presence check for `PM_LOCK_FILE` in `pkg/config/packages_directive.go`
-- [ ] T006 [US1] Return an actionable validation error explaining that the `pm` SBOM state must remain at `metadata.ContainerFactoryIndexPath` in `pkg/config/packages_directive.go`
-- [ ] T007 [US1] Verify the validation check remains before package command generation by preserving the `rawPackagesDirective.toDirective` validation boundary in `pkg/config/raw_packages_directive.go`
+- [X] T005 [US1] Add an `os-pm`-scoped map-key presence check for `PM_LOCK_FILE` in `pkg/config/packages_directive.go`
+- [X] T006 [US1] Return an actionable validation error explaining that the `pm` SBOM state must remain at `metadata.ContainerFactoryIndexPath` in `pkg/config/packages_directive.go`
+- [X] T007 [US1] Verify the validation check remains before package command generation by preserving the `rawPackagesDirective.toDirective` validation boundary in `pkg/config/raw_packages_directive.go`
 
 **Checkpoint**: User Story 1 independently prevents SBOM-breaking configuration before build or package installation and leaves unaffected configurations unchanged.
 
@@ -77,14 +77,14 @@ description: "Implementation tasks for rejecting PM_LOCK_FILE overrides"
 
 ### Tests for User Story 2
 
-- [ ] T008 [P] [US2] Extend the co-located metadata test to assert the fixed `ContainerFactoryIndexPath` remains `/var/lib/pm/index.json` in `pkg/sbom/os_pm/metadata/metadata_test.go`
-- [ ] T009 [P] [US2] Add a regression case confirming accepted `os-pm` configuration retains the metadata-backed cataloger registration in `pkg/config/packages_directive_test.go`
-- [ ] T010 [US2] Add parsed configuration cases for explicit `/var/lib/pm/index.json` and empty `PM_LOCK_FILE` values that verify no value is accepted as an override in `pkg/config/raw_packages_directive_test.go`
+- [X] T008 [P] [US2] Extend the co-located metadata test to assert the fixed `ContainerFactoryIndexPath` remains `/var/lib/pm/index.json` in `pkg/sbom/os_pm/metadata/metadata_test.go`
+- [X] T009 [P] [US2] Add a regression case confirming accepted `os-pm` configuration retains the metadata-backed cataloger registration in `pkg/config/packages_directive_test.go`
+- [X] T010 [US2] Add parsed configuration cases for explicit `/var/lib/pm/index.json` and empty `PM_LOCK_FILE` values that verify no value is accepted as an override in `pkg/config/raw_packages_directive_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] Reuse `metadata.ContainerFactoryIndexPath` in the validation error and do not introduce a configurable or duplicate SBOM path in `pkg/config/packages_directive.go`
-- [ ] T012 [US2] Verify the `pm` cataloger continues to consume `metadata.ContainerFactoryIndexPath` without path changes in `pkg/sbom/os_pm/metadata/metadata.go`
+- [X] T011 [US2] Reuse `metadata.ContainerFactoryIndexPath` in the validation error and do not introduce a configurable or duplicate SBOM path in `pkg/config/packages_directive.go`
+- [X] T012 [US2] Verify the `pm` cataloger continues to consume `metadata.ContainerFactoryIndexPath` without path changes in `pkg/sbom/os_pm/metadata/metadata.go`
 
 **Checkpoint**: User Story 2 independently guarantees the fixed SBOM source path and rejects both explicit-default and empty-value attempts to configure a path override.
 
@@ -94,9 +94,9 @@ description: "Implementation tasks for rejecting PM_LOCK_FILE overrides"
 
 **Purpose**: Run focused and repository-required quality gates without changing unrelated behavior.
 
-- [ ] T013 [P] Run focused configuration and SBOM unit tests using `task test:unit paths="./pkg/config/..." -- -focus="PM_LOCK_FILE|os-pm"` and `task test:unit paths="./pkg/sbom/os_pm/..."` after changes to `pkg/config/raw_packages_directive_test.go` and `pkg/sbom/os_pm/metadata/metadata_test.go`
-- [ ] T014 Run `task format` and inspect the resulting changes in `pkg/config/packages_directive.go`, `pkg/config/raw_packages_directive.go`, `pkg/config/raw_packages_directive_test.go`, `pkg/config/packages_directive_test.go`, and `pkg/sbom/os_pm/metadata/metadata_test.go`
-- [ ] T015 Run `task build` and `task deps:install:golangci-lint` to validate the implementation in `pkg/config/packages_directive.go`
+- [X] T013 [P] Run focused configuration and SBOM unit tests using `task test:unit paths="./pkg/config/..." -- -focus="PM_LOCK_FILE|os-pm"` and `task test:unit paths="./pkg/sbom/os_pm/..."` after changes to `pkg/config/raw_packages_directive_test.go` and `pkg/sbom/os_pm/metadata/metadata_test.go`
+- [X] T014 Run `task format` and inspect the resulting changes in `pkg/config/packages_directive.go`, `pkg/config/raw_packages_directive.go`, `pkg/config/raw_packages_directive_test.go`, `pkg/config/packages_directive_test.go`, and `pkg/sbom/os_pm/metadata/metadata_test.go`
+- [X] T015 Run `task build` and `task deps:install:golangci-lint` to validate the implementation in `pkg/config/packages_directive.go`
 - [ ] T016 Run `task lint` and the full `task test:unit` suite to validate all authored Go files and regression behavior
 - [ ] T017 Run a scoped `task test:e2e` command with `paths` and `labelFilter` covering the affected configuration/SBOM behavior, then run `task test:integration` against the prepared environment
 

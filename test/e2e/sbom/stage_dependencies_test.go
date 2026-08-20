@@ -25,7 +25,7 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 
-			By("state0: initial build with pm.yaml (jq only)")
+			By("state0: initial build with jq only")
 			out0 := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(out0).To(ContainSubstring(sbomRegenMarker), "expected initial SBOM generation")
 
@@ -98,7 +98,7 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			Expect(outCached).To(ContainSubstring(sbomCachedMarker),
 				"expected cache hit on unchanged build; output:\n%s", outCached)
 
-			By("state1: bump pm.yaml → Packages stage invalidates → SBOM must regenerate (stageDependencies.packages tracks [pm.yaml, pm.lock])")
+			By("state1: change werf.yaml → Packages stage invalidates → SBOM must regenerate (stageDependencies.packages tracks werf.yaml)")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "stage_deps_file/state1")
 			out1 := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(out1).To(ContainSubstring(sbomRegenMarker),

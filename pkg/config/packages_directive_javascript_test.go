@@ -25,7 +25,11 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 			Expect(packages).To(HaveLen(len(expected)))
 			for i, exp := range expected {
 				Expect(packages[i].Type).To(Equal(exp.Type))
-				Expect(packages[i].FileBased).To(Equal(exp.FileBased))
+				if exp.Type == PackagesDirectiveTypeOSPM {
+					Expect(packages[i].Spec).To(Equal(exp.Spec))
+				} else {
+					Expect(packages[i].FileBased).To(Equal(exp.FileBased))
+				}
 			}
 		},
 
@@ -231,7 +235,11 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 			Expect(packages).To(HaveLen(len(expected)))
 			for i, exp := range expected {
 				Expect(packages[i].Type).To(Equal(exp.Type))
-				Expect(packages[i].FileBased).To(Equal(exp.FileBased))
+				if exp.Type == PackagesDirectiveTypeOSPM {
+					Expect(packages[i].Spec).To(Equal(exp.Spec))
+				} else {
+					Expect(packages[i].FileBased).To(Equal(exp.FileBased))
+				}
 			}
 		},
 
@@ -242,7 +250,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				"packages": []map[string]interface{}{
 					{"type": "go-mod", "workdir": "/app"},
 					{"type": "javascript-npm", "workdir": "/app/web"},
-					{"type": "os-pm"},
+					{"type": "os-pm", "spec": []string{"curl", "jq"}},
 				},
 			},
 			[]*PackagesDirective{
@@ -264,10 +272,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				},
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 				},
 			},
 		),
@@ -309,7 +314,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 					{"type": "go-mod", "workdir": "/app"},
 					{"type": "rust-cargo", "workdir": "/app/native"},
 					{"type": "javascript-yarn", "workdir": "/app/web"},
-					{"type": "os-pm"},
+					{"type": "os-pm", "spec": []string{"curl", "jq"}},
 				},
 			},
 			[]*PackagesDirective{
@@ -339,10 +344,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				},
 				{
 					Type: PackagesDirectiveTypeOSPM,
-					FileBased: FileBasedSpec{
-						Spec: "pm.yaml",
-						Lock: "pm.lock",
-					},
+					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 				},
 			},
 		),

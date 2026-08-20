@@ -2,11 +2,13 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
 	"github.com/samber/lo"
 
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
@@ -24,11 +26,6 @@ func formatEnvVars(env map[string]string) string {
 	return strings.Join(parts, " ")
 }
 
-const (
-	ContainerFactoryVersionDir  = "/var/lib/pm"
-	ContainerFactoryVersionFile = ContainerFactoryVersionDir + "/container-factory-version"
-)
-
 func formatSecretVar(name string) string {
 	return fmt.Sprintf(
 		`%[1]s="${%[1]s:-$(%[2]s /run/secrets/%[1]s 2>/dev/null || true)}"`,
@@ -37,23 +34,26 @@ func formatSecretVar(name string) string {
 }
 
 func formatMkdirCommand() string {
-	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), ContainerFactoryVersionDir)
+	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
 func formatVersionFileCommand() string {
 	return fmt.Sprintf(
 		`%s && : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		formatSecretVar("PACKAGES_VERSION"), ContainerFactoryVersionFile,
+		formatSecretVar("PACKAGES_VERSION"), metadata.ContainerFactoryVersionPath,
 	)
 }
 
-func formatSyncCommand(lockFile string, env map[string]string) string {
-	var parts []string
-	if envPrefix := formatEnvVars(env); envPrefix != "" {
-		parts = append(parts, envPrefix)
-	}
-	parts = append(parts, formatSecretVar("PACKAGES_VERSION"), formatSecretVar("REGISTRY"), "pm sync --from", lockFile)
-	return strings.Join(parts, " ")
+func formatInstallCommand(pkgs []string, env map[string]string) string {
+	commandPrefix := []string{formatMkdirCommand(), formatVersionFileCommand()}
+	envPrefix := strings.TrimSpace(strings.Join([]string{
+		formatEnvVars(env),
+		formatSecretVar("PACKAGES_VERSION"),
+		formatSecretVar("REGISTRY"),
+	}, " "))
+	installCommand := fmt.Sprintf("%s pm install %s", envPrefix, strings.Join(pkgs, " "))
+
+	return strings.Join(append(commandPrefix, installCommand), "; ")
 }
 
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {
@@ -64,7 +64,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased.Spec, pkg.FileBased.Lock, pkg.Env))
+		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased, pkg.Spec.Packages, pkg.Env))
 	}
 	return commands
 }

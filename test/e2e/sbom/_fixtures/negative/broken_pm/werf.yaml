@@ -12,8 +12,8 @@ git:
     to: /
 shell:
   beforeInstall:
-    - printf 'this is not valid json at all, definitely broken output' > /pm.lock
+    - printf 'this is not valid json at all, definitely broken output' > /var/lib/pm/index.json
 packages:
   - type: os-pm
-    spec: "pm.yaml"
-    lock: "pm.lock"
+    spec:
+      - curl==8.12.1

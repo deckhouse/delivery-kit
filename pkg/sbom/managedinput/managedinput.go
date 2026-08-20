@@ -36,8 +36,7 @@ func buildResolvers() []inputResolver {
 		if eco.CatalogerName == "" {
 			continue
 		}
-		// FR-012: delivery-kit parses pm.lock directly via its own code.
-		// No syft cataloger is derived for os-pm.
+		// No syft cataloger is derived for os-pm; its runtime index is collected separately.
 		if t == config.PackagesDirectiveTypeOSPM {
 			continue
 		}

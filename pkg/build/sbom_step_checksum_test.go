@@ -50,6 +50,13 @@ var _ = Describe("SbomStep Checksum", func() {
 			"checksum must differ from format-v1 era (before format version was added)")
 	})
 
+	It("generic checksum excludes os-pm enablement", func() {
+		step := &sbomStep{}
+		withoutOsPm := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		withDifferentGenericInput := step.calculateStableChecksum(scanner.ScanOptions{Commands: []scanner.ScanCommand{{SourcePath: "image"}}}, cyclonedxutil.MergeOpts{}, "", "")
+		Expect(withDifferentGenericInput).NotTo(Equal(withoutOsPm))
+	})
+
 	Describe("target platform", func() {
 		step := &sbomStep{}
 

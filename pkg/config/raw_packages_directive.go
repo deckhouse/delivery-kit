@@ -55,8 +55,40 @@ func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error
 		Type: PackagesDirectiveType(r.Type),
 	}
 
-	if err := r.fillFileBasedSpec(d); err != nil {
-		return nil, err
+	if d.Type == PackagesDirectiveTypeOSPM {
+		if r.Workdir != "" {
+			return nil, fmt.Errorf("workdir is not supported for type %q", d.Type)
+		}
+		if r.Spec == nil {
+			return nil, fmt.Errorf("the `spec` is required for type %q", d.Type)
+		}
+
+		specList, ok := r.Spec.([]interface{})
+		if !ok {
+			if specStr, isStr := r.Spec.(string); isStr {
+				return nil, fmt.Errorf("unsupported packages spec type %q for type %q; use inline package list instead of file path", specStr, d.Type)
+			}
+			return nil, fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a list of package names", r.Spec, d.Type)
+		}
+
+		pkgs := make([]string, len(specList))
+		for i, item := range specList {
+			pkgStr, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("invalid package name type %T in packages[%d].spec[%d]", item, index, i)
+			}
+			pkgs[i] = pkgStr
+		}
+
+		if len(pkgs) == 0 {
+			return nil, fmt.Errorf("packages[%d].spec must not be empty for type %q", index, d.Type)
+		}
+
+		d.Spec = PackagesSpec{Packages: pkgs}
+	} else {
+		if err := r.fillFileBasedSpec(d); err != nil {
+			return nil, err
+		}
 	}
 
 	d.Env = r.Env

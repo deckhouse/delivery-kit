@@ -16,7 +16,7 @@ Keep everything private/internal as much as possible. Validate early, validate a
 
 ### IV. Test-Before-Merge
 
-Tests are co-located with source files (`*_test.go`). All tests MUST use Ginkgo + Gomega stack. Tests must pass via `task test:unit` before merging. E2E tests also use Ginkgo and run via `task test:e2e`.
+Tests are co-located with source files (`*_test.go`) and MUST use Ginkgo + Gomega. Mocks MUST be generated with `task mock:generate`.
 
 ### V. Conventional Commits
 
@@ -42,11 +42,24 @@ All commits MUST follow the Conventional Commits format: `type(scope): descripti
 
 ## Build & Quality Gates
 
+- **Formatting**: `task format` (NOT raw `go fmt`/`gofmt`)
 - **Build**: `task build` (NOT raw `go build`)
-- **Unit tests**: `task test:unit` (NOT raw `go test`)
-- **E2E tests**: `task test:e2e` with `paths="./pkg/..."` and `labelFilter="..."` (Ginkgo label filter) to target specific tests.
-- **Formatting**: `task format` (NOT raw `go fmt`)
-- **Documentation**: `task doc:gen` after changing CLI help text
+- **Lint**:
+  - **Prerequisites (once per session)**: run
+    `task deps:install:golangci-lint` before the first lint run.
+  - **Usage**: then run `task lint`.
+- **Unit tests**: `task test:unit` (NOT raw `go test`). Usage examples:
+  - Scoped: `task test:unit paths="./pkg/sbom/..."`.
+  - Focused: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest -v`.
+- **E2E tests**:
+  - **Prerequisites (once per session)**: the environment is already prepared. Do
+    not run or check `task test:setup:environment` or skip e2e tests for setup reasons.
+  - **Usage**: always run `task test:e2e` scoped with both `paths` and `labelFilter`.
+    - Scoped: `task test:e2e paths="./test/e2e/..." labelFilter="..."`.
+    - Focused: `task test:e2e paths="./test/e2e/..." labelFilter="..." -- -focus=MyTest -v`.
+- **Integration tests**: run `task test:integration` directly against the prepared environment.
+- **Mocks**: `task mock:generate`; validate with `task mock:check`.
+- **Documentation**: `task doc:gen` after changing CLI help text.
 
 ## Governance
 

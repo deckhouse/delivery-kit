@@ -18,5 +18,5 @@ secrets:
   - env: REGISTRY
 packages:
   - type: os-pm
-    spec: "pm.yaml"
-    lock: "pm.lock"
+    spec:
+      - curl==8.12.1

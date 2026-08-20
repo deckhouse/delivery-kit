@@ -10,10 +10,11 @@ import (
 	packageurl "github.com/package-url/packageurl-go"
 
 	"github.com/werf/werf/v2/pkg/sbom/cpe"
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
 
 const (
-	catalogerName      = "pm-cataloger"
+	catalogerName      = metadata.CatalogerName
 	artifactTypeBinary = "binary"
 	propFoundBy        = "werf:package:foundBy"
 	propArtifactType   = "werf:package:type"

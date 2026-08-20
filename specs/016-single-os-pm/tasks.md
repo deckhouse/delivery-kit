@@ -15,7 +15,7 @@ description: "Actionable task list for enforcing a single os-pm directive"
 
 **Purpose**: Confirm the existing brownfield boundaries before implementation; no project initialization or dependency changes are required.
 
-- [ ] T001 [P] Confirm the implementation boundary and existing test harness in `pkg/config/raw_stapel_image.go`, `pkg/config/raw_packages_directive.go`, `pkg/config/raw_stapel_image_test.go`, and `pkg/config/config_suite_test.go`
+- [X] T001 [P] Confirm the implementation boundary and existing test harness in `pkg/config/raw_stapel_image.go`, `pkg/config/raw_packages_directive.go`, `pkg/config/raw_stapel_image_test.go`, and `pkg/config/config_suite_test.go`
 
 ---
 
@@ -23,7 +23,7 @@ description: "Actionable task list for enforcing a single os-pm directive"
 
 **Purpose**: Establish the shared behavior that both user stories rely on before story-specific work begins.
 
-- [ ] T002 Record the list-level validation and compatibility matrix from `specs/016-single-os-pm/contracts/config-validation.md` in the test cases planned for `pkg/config/raw_stapel_image_test.go`
+- [X] T002 Record the list-level validation and compatibility matrix from `specs/016-single-os-pm/contracts/config-validation.md` in the test cases planned for `pkg/config/raw_stapel_image_test.go`
 
 **Checkpoint**: The target conversion boundary, existing detailed-error mechanism, and unchanged lower-level command-generation contract are identified.
 
@@ -37,13 +37,13 @@ description: "Actionable task list for enforcing a single os-pm directive"
 
 ### Tests for User Story 1
 
-- [ ] T003 [US1] Add co-located Ginkgo/Gomega table coverage in `pkg/config/raw_stapel_image_test.go` for zero `os-pm`, exactly one `os-pm`, two `os-pm` entries in both list orders, multiple non-`os-pm` entries with one `os-pm`, and distinct `package`, `workdir`, `spec`, and `lock` values
+- [X] T003 [US1] Add co-located Ginkgo/Gomega table coverage in `pkg/config/raw_stapel_image_test.go` for zero `os-pm`, exactly one `os-pm`, two `os-pm` entries in both list orders, multiple non-`os-pm` entries with one `os-pm`, and distinct `package`, `workdir`, `spec`, and `lock` values
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Add an O(n) raw-type count and early configuration failure in `pkg/config/raw_stapel_image.go` before `rawPackagesDirective.toDirective` conversion and before `GeneratePackagesCommands`
+- [X] T004 [US1] Add an O(n) raw-type count and early configuration failure in `pkg/config/raw_stapel_image.go` before `rawPackagesDirective.toDirective` conversion and before `GeneratePackagesCommands`
 
-- [ ] T005 [US1] Verify in `pkg/config/packages_commands_test.go` and `pkg/config/packages_commands.go` that lower-level `GeneratePackagesCommands` behavior remains unchanged for direct callers, including one command per supplied directive
+- [X] T005 [US1] Verify in `pkg/config/packages_commands_test.go` and `pkg/config/packages_commands.go` that lower-level `GeneratePackagesCommands` behavior remains unchanged for direct callers, including one command per supplied directive
 
 **Checkpoint**: User Story 1 is independently testable, rejects every invalid cardinality case before build processing, and preserves valid and non-`os-pm` configurations.
 
@@ -57,11 +57,11 @@ description: "Actionable task list for enforcing a single os-pm directive"
 
 ### Tests for User Story 2
 
-- [ ] T006 [US2] Add focused diagnostic assertions in `pkg/config/raw_stapel_image_test.go` that the multiple-`os-pm` error identifies `packages`, names `os-pm`, states that only one directive is allowed or equivalent, and includes the rendered configuration document context
+- [X] T006 [US2] Add focused diagnostic assertions in `pkg/config/raw_stapel_image_test.go` that the multiple-`os-pm` error identifies `packages`, names `os-pm`, states that only one directive is allowed or equivalent, and includes the rendered configuration document context
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] Use `newDetailedConfigError` with the existing raw image document in `pkg/config/raw_stapel_image.go` so the cardinality failure provides the required actionable message and source context
+- [X] T007 [US2] Use `newDetailedConfigError` with the existing raw image document in `pkg/config/raw_stapel_image.go` so the cardinality failure provides the required actionable message and source context
 
 **Checkpoint**: User Story 2 is independently testable through the configuration conversion path and provides a correction-oriented diagnostic without changing valid behavior.
 
@@ -71,17 +71,17 @@ description: "Actionable task list for enforcing a single os-pm directive"
 
 **Purpose**: Apply repository formatting and run the required build, lint, unit, e2e, and integration gates for the changed configuration behavior.
 
-- [ ] T008 [P] Format the changed Go files `pkg/config/raw_stapel_image.go` and `pkg/config/raw_stapel_image_test.go` with `task format`
+- [X] T008 [P] Format the changed Go files `pkg/config/raw_stapel_image.go` and `pkg/config/raw_stapel_image_test.go` with `task format`
 
-- [ ] T009 Build the repository after the `pkg/config` change with `task build`
+- [X] T009 Build the repository after the `pkg/config` change with `task build`
 
-- [ ] T010 Install the session lint prerequisite before checking `pkg/config/` with `task deps:install:golangci-lint`
+- [X] T010 Install the session lint prerequisite before checking `pkg/config/` with `task deps:install:golangci-lint`
 
-- [ ] T011 Run repository linting with `task lint` against the implementation and tests in `pkg/config/`
+- [X] T011 Run repository linting with `task lint` against the implementation and tests in `pkg/config/`
 
-- [ ] T012 Run focused unit coverage with `task test:unit paths="./pkg/config/..."` for `pkg/config/raw_stapel_image.go`, `pkg/config/raw_stapel_image_test.go`, and `pkg/config/packages_commands_test.go`
+- [X] T012 Run focused unit coverage with `task test:unit paths="./pkg/config/..."` for `pkg/config/raw_stapel_image.go`, `pkg/config/raw_stapel_image_test.go`, and `pkg/config/packages_commands_test.go`
 
-- [ ] T013 Run the applicable scoped e2e coverage with `task test:e2e paths="./test/e2e/..." labelFilter="packages"` and confirm no existing package/config suite is regressed
+- [X] T013 Run the applicable scoped e2e coverage with `task test:e2e paths="./test/e2e/..." labelFilter="packages"` and confirm no existing package/config suite is regressed
 
 - [ ] T014 Run the full integration gate for the `pkg/config/` behavior with `task test:integration` to verify invalid configurations fail before package installation and valid configurations retain prior behavior
 

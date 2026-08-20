@@ -18,6 +18,8 @@ const (
 	artifactTypeBinary = "binary"
 	propFoundBy        = "werf:package:foundBy"
 	propArtifactType   = "werf:package:type"
+
+	propContainerFactoryVersion = "werf:pm:containerFactoryVersion"
 )
 
 type PmPackageInfo struct {
@@ -75,7 +77,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion s
 		}
 
 		comp.Hashes = digestToHashes(pkg.Digest)
-		comp.Properties = packageProperties(pkg)
+		comp.Properties = packageProperties(pkg, containerFactoryVersion)
 		setCPEEvidence(&comp, pkg)
 
 		if pkg.OriginalRepo != "" {
@@ -135,7 +137,7 @@ func digestToHashes(digest string) *[]cdx.Hash {
 	return &[]cdx.Hash{{Algorithm: algorithm, Value: value}}
 }
 
-func packageProperties(pkg PmPackageInfo) *[]cdx.Property {
+func packageProperties(pkg PmPackageInfo, containerFactoryVersion string) *[]cdx.Property {
 	props := []cdx.Property{
 		{Name: propFoundBy, Value: catalogerName},
 		{Name: propArtifactType, Value: artifactTypeBinary},
@@ -148,6 +150,9 @@ func packageProperties(pkg PmPackageInfo) *[]cdx.Property {
 	}
 	if pkg.Repo != "" {
 		props = append(props, cdx.Property{Name: "werf:pm:repo", Value: pkg.Repo})
+	}
+	if containerFactoryVersion != "" {
+		props = append(props, cdx.Property{Name: propContainerFactoryVersion, Value: containerFactoryVersion})
 	}
 
 	return &props

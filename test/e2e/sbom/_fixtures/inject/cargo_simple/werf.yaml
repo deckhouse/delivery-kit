@@ -10,6 +10,10 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
+    stageDependencies:
+      packages:
+        - Cargo.toml
+        - Cargo.lock
 shell:
   install:
     - cd /app && cargo build --release

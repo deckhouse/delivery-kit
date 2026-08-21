@@ -1,22 +1,43 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
+	"github.com/werf/logboek"
 	werfImage "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	"github.com/werf/werf/v2/test/mock"
 )
 
 var _ = Describe("SbomStep", func() {
+	Describe("prepareGostComponents", func() {
+		It("prints the GOST experimental warning at most once per step instance", func() {
+			var output bytes.Buffer
+			ctx := logboek.NewContext(context.Background(), logboek.NewLogger(&output, &output))
+
+			step := &sbomStep{}
+			mergeOpts := cyclonedxutil.MergeOpts{Gost: gost.Config{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes}}
+
+			Expect(step.prepareGostComponents(ctx, &mergeOpts)).To(Succeed())
+			Expect(step.prepareGostComponents(ctx, &mergeOpts)).To(Succeed())
+			Expect(step.prepareGostComponents(ctx, &mergeOpts)).To(Succeed())
+
+			Expect(strings.Count(output.String(), "GOST SBOM integration is experimental")).To(Equal(1))
+		})
+	})
+
 	Describe("GetImageBOM()", func() {
 		It("should return error if image info is nil", func(ctx SpecContext) {
 			step := &sbomStep{}

@@ -10,6 +10,10 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
+    stageDependencies:
+      packages:
+        - pyproject.toml
+        - poetry.lock
 packages:
   - type: python-poetry
     workdir: /app

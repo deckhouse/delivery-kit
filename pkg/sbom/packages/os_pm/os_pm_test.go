@@ -280,6 +280,28 @@ var _ = Describe("ConvertToCycloneDX provenance and dependency graph (AI)", func
 		Expect(*curl.Properties).To(ContainElement(cdx.Property{Name: "werf:pm:repo", Value: "curl/curl"}))
 	})
 
+	It("records the container-factory version as a property for every pm component", func() {
+		bom := loadGoldenPmBOM()
+		for _, comp := range *bom.Components {
+			Expect(comp.Properties).ToNot(BeNil(), "component %s must have properties", comp.Name)
+			Expect(*comp.Properties).To(ContainElement(cdx.Property{Name: "werf:pm:containerFactoryVersion", Value: testContainerFactoryVersion}), "component %s must declare the container-factory version", comp.Name)
+		}
+	})
+
+	It("omits the container-factory version property when the version is unknown", func() {
+		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		Expect(err).To(Succeed())
+
+		bom := ConvertToCycloneDX(pkgs, "")
+		Expect(bom).ToNot(BeNil())
+		for _, comp := range *bom.Components {
+			Expect(comp.Properties).ToNot(BeNil(), "component %s must have properties", comp.Name)
+			for _, prop := range *comp.Properties {
+				Expect(prop.Name).ToNot(Equal("werf:pm:containerFactoryVersion"), "component %s must not declare an empty container-factory version", comp.Name)
+			}
+		}
+	})
+
 	It("records cataloger name and artifact type for every pm component", func() {
 		bom := loadGoldenPmBOM()
 		for _, comp := range *bom.Components {

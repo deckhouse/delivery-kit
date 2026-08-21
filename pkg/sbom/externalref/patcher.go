@@ -17,13 +17,17 @@ type ExternalRefPatcher struct {
 	enricher *Enricher
 }
 
-func NewExternalRefPatcher() (*ExternalRefPatcher, error) {
+type NewExternalRefPatcherOptions struct {
+	Breaker *ResolverBreaker
+}
+
+func NewExternalRefPatcher(opts NewExternalRefPatcherOptions) (*ExternalRefPatcher, error) {
 	serverURL := os.Getenv(EnvName)
 	if serverURL == "" {
 		return nil, fmt.Errorf("%s env var is required", EnvName)
 	}
 
-	svc := NewService(ServiceConfig{ServerURL: serverURL})
+	svc := NewService(ServiceConfig{ServerURL: serverURL, Breaker: opts.Breaker})
 	return &ExternalRefPatcher{enricher: NewEnricher(svc.Resolve)}, nil
 }
 

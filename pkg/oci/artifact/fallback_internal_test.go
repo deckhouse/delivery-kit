@@ -288,3 +288,35 @@ var _ = Describe("isAttached with an unnamed artifact", func() {
 		Expect(isAttached(indexOf(named, unnamed), named, "type/sbom", "app-a", nil)).To(BeTrue())
 	})
 })
+
+var _ = Describe("multipleArtifactEntriesWarning", func() {
+	makeEntry := func(name, imageName string) v1.Descriptor {
+		annotations := map[string]string{}
+		if imageName != "" {
+			annotations[image.WerfImageNameAnnotation] = imageName
+		}
+		return v1.Descriptor{
+			MediaType:    types.OCIManifestSchema1,
+			Digest:       digestForName(name),
+			Size:         42,
+			ArtifactType: "type/sbom",
+			Annotations:  annotations,
+		}
+	}
+
+	It("names the entry image names and the selected entry", func() {
+		matches := []v1.Descriptor{
+			makeEntry("a", "backend"),
+			makeEntry("b", "frontend"),
+			makeEntry("c", ""),
+		}
+
+		msg := multipleArtifactEntriesWarning("sha256:deadbeef", matches)
+		Expect(msg).To(ContainSubstring("sha256:deadbeef"))
+		Expect(msg).To(ContainSubstring("imageName not specified in lookup"))
+		Expect(msg).To(ContainSubstring("backend"))
+		Expect(msg).To(ContainSubstring("frontend"))
+		Expect(msg).To(ContainSubstring("<unnamed>"))
+		Expect(msg).To(ContainSubstring(`selected entry with image name "backend"`))
+	})
+})

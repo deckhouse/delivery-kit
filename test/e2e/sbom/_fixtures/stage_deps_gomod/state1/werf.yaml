@@ -1,4 +1,4 @@
-project: werf-test-e2e-sbom-lua-rock-simple
+project: werf-test-e2e-sbom-stage-deps-gomod
 configVersion: 1
 build:
   sbom:
@@ -12,8 +12,11 @@ git:
     to: /app
     stageDependencies:
       packages:
-        - werf-sbom-lua-app-0.1-1.rockspec
+        - go.mod
+        - go.sum
+shell:
+  install:
+    - cd /app && CGO_ENABLED=0 go build -o /bin/app .
 packages:
-  - type: lua-rock
+  - type: go-mod
     workdir: /app
-    spec: werf-sbom-lua-app-0.1-1.rockspec

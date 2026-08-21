@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/samber/lo"
+
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
@@ -106,6 +108,7 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 
 	// TODO(v3): make this a hard error instead of a warning.
 	warnStageDependenciesWithoutInstructions(ctx, imageBaseConfig, gitMappings)
+	warnFileBasedPackagesWithoutStageDependencies(ctx, imageBaseConfig, gitMappings)
 
 	imageCacheVersion := option.ValueOrDefault(stapelImageConfig.CacheVersion(), metaConfig.Build.CacheVersion)
 
@@ -206,6 +209,45 @@ func warnStageDependenciesWithoutInstructions(ctx context.Context, imageBaseConf
 			))
 		}
 	}
+}
+
+// warnFileBasedPackagesWithoutStageDependencies warns when a file-based packages directive
+// (any type except os-pm) is used, but no git mapping tracks its spec/lock files via
+// stageDependencies.packages: without it, changes to those files do not rebuild the packages
+// stage, so installed dependencies go stale while the SBOM keeps reporting the new file contents.
+func warnFileBasedPackagesWithoutStageDependencies(ctx context.Context, imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) {
+	if !shouldWarnFileBasedPackagesWithoutStageDependencies(imageBaseConfig, gitMappings) {
+		return
+	}
+
+	global_warnings.GlobalWarningLn(ctx, fmt.Sprintf(
+		"Image %q uses a file-based packages directive, but no git mapping declares git.stageDependencies.packages. "+
+			"Changes to the spec/lock files (e.g. go.mod, requirements.txt) will not rebuild the packages stage, "+
+			"leaving installed dependencies stale while the SBOM reports the updated files. "+
+			"Declare git.stageDependencies.packages with the spec/lock file paths.",
+		imageBaseConfig.Name,
+	))
+}
+
+func shouldWarnFileBasedPackagesWithoutStageDependencies(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) bool {
+	if len(gitMappings) == 0 {
+		return false
+	}
+
+	hasFileBasedPackages := lo.SomeBy(imageBaseConfig.Packages, func(pkg *config.PackagesDirective) bool {
+		return pkg.Type != config.PackagesDirectiveTypeOSPM
+	})
+	if !hasFileBasedPackages {
+		return false
+	}
+
+	for _, gitMapping := range gitMappings {
+		if len(gitMapping.StagesDependencies[stage.Packages]) > 0 {
+			return false
+		}
+	}
+
+	return true
 }
 
 func hasStageInstructions(imageBaseConfig *config.StapelImageBase, stageName stage.StageName) bool {

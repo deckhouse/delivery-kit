@@ -151,6 +151,8 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		SuiteData.InitTestRepo(ctx, repoDirname, "multiplatform")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
+		SuiteData.Stubs.SetEnv("WERF_EXPERIMENTAL_STAPEL_ARM", "1")
+
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		repo := suite_init.TestRepo(SuiteData.ProjectName)
 

@@ -101,9 +101,12 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 		sbomBundleDigestBefore := sbomBundle.Digest
 
 		vexPath := filepath.Join(testRepoPath, "vex.openvex.json")
-		vexContent, err := os.ReadFile(vexPath)
-		Expect(err).NotTo(HaveOccurred())
-		updated := []byte(string(vexContent[:len(vexContent)-2]) + `,
+		updated := []byte(`{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://example.com/vex/e2e-coexistence-002",
+  "author": "e2e-test",
+  "timestamp": "2024-07-01T00:00:00Z",
+  "statements": [
     {
       "vulnerability": {"name": "CVE-2024-E2E777"},
       "products": [{"@id": "pkg:oci/werf-test-app"}],

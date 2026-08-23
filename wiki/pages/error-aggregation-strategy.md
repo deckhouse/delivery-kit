@@ -9,7 +9,7 @@ updated: 2026-08-17
 
 `convergeSbomByImagesSets` in `pkg/build/` accumulates PURL failures across **all** image sets using a `sync.Map` (storing `imageName → purlFailureRecord`). A helper function `buildAggregatedPurlError` iterates the map, formats the failures hierarchically, and returns a single aggregated error at the end (S001).
 
-A `purlFailureRecord` is either a **direct failure** (`rootImage` equals the image's own name; carries component-level details from `ComponentError.ComponentDetails()`) or a **skip record** (`rootImage` points at the root-cause image). Any image whose record is present is treated as "SBOM not generated in this run": dependents found via `GetBaseImageName()` are skipped before converge with the root cause propagated transitively (A → B → C reports A).
+A `purlFailureRecord` is either a **direct failure** (`rootImage` equals the image's own name; carries component-level details from `ComponentError.ComponentDetails()`) or a **skip record** (`rootImage` points at the root-cause image). Any image whose record is present is treated as "SBOM not generated in this run": dependents — via `fromImage` (`GetBaseImageName()`) or internal `import` sources (`GetImportImagesInfo()`) — are skipped before converge with the root cause propagated transitively (A → B → C reports A). The same gate guards both `collectBaseImageSbom` and `collectImportImageSboms` (`dependencyPurlFailureError`).
 
 ## Why
 
@@ -29,7 +29,7 @@ resolve external references: N of M images failed:
   - image: <name>:
     - component: <name>: resolve "purl": ...: unexpected status 404
   - image: <dependent-name>:
-    - skipped: SBOM for base image "<root-name>" was not generated: <root cause>
+    - skipped: SBOM for image "<root-name>" was not generated: <root cause>
 ```
 
 The format has three levels: component details (or a skip line), grouped under image name, headed by a summary line; N counts direct failures plus skipped images (S001).

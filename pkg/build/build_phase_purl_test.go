@@ -15,6 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/build/image"
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	"github.com/werf/werf/v2/test/mock"
 )
@@ -318,7 +319,7 @@ var _ = Describe("buildAggregatedPurlError", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("resolve external references: 2 of 3 images failed:"))
 		Expect(err.Error()).To(ContainSubstring("  - image: a:\n    - component: apk-tools: empty url"))
-		Expect(err.Error()).To(ContainSubstring("  - image: b:\n    - skipped: SBOM for base image \"a\" was not generated: component: apk-tools: empty url"))
+		Expect(err.Error()).To(ContainSubstring("  - image: b:\n    - skipped: SBOM for image \"a\" was not generated: component: apk-tools: empty url"))
 	})
 })
 
@@ -372,18 +373,18 @@ var _ = Describe("classifySbomConvergeError", func() {
 })
 
 var _ = Describe("purl failure dependency skip", func() {
-	It("finds a failure record by base image name", func() {
+	It("finds a failure record by dependency image name", func() {
 		var failures sync.Map
 		failures.Store("a", purlFailureRecord{details: "    - component: apk-tools: empty url\n", rootImage: "a", rootCause: "component: apk-tools: empty url"})
 
-		record, found := purlFailureForBases(&failures, []string{"", "a"})
+		record, found := purlFailureForDependencies(&failures, []string{"", "a"})
 		Expect(found).To(BeTrue())
 		Expect(record.rootImage).To(Equal("a"))
 	})
 
-	It("returns false when no base failed", func() {
+	It("returns false when no dependency failed", func() {
 		var failures sync.Map
-		_, found := purlFailureForBases(&failures, []string{"", "other"})
+		_, found := purlFailureForDependencies(&failures, []string{"", "other"})
 		Expect(found).To(BeFalse())
 	})
 
@@ -391,46 +392,62 @@ var _ = Describe("purl failure dependency skip", func() {
 		var failures sync.Map
 		failures.Store("a", purlFailureRecord{details: "    - component: apk-tools: empty url\n", rootImage: "a", rootCause: "component: apk-tools: empty url"})
 
-		recordForB, found := purlFailureForBases(&failures, []string{"a"})
+		recordForB, found := purlFailureForDependencies(&failures, []string{"a"})
 		Expect(found).To(BeTrue())
 		failures.Store("b", purlFailureRecord{rootImage: recordForB.rootImage, rootCause: recordForB.rootCause})
 
-		recordForC, found := purlFailureForBases(&failures, []string{"b"})
+		recordForC, found := purlFailureForDependencies(&failures, []string{"b"})
 		Expect(found).To(BeTrue())
 		Expect(recordForC.rootImage).To(Equal("a"))
 		Expect(recordForC.rootCause).To(Equal("component: apk-tools: empty url"))
 	})
 })
 
-var _ = Describe("basePurlFailureError", func() {
-	It("reports the real cause for a base that failed enrichment in this run", func() {
+var _ = Describe("sbomDependencyImageNames", func() {
+	It("collects base image names and internal import image names, skipping external imports and empty bases", func() {
+		images := []sbomDependencyProvider{
+			testSbomDependencySource{baseImageName: "builder/golang", imports: []image.ImportImageInfo{
+				{ImageName: "src-artifact", ExternalImage: false},
+				{ImageName: "registry.example.com/external:tag", ExternalImage: true},
+			}},
+			testSbomDependencySource{baseImageName: "", imports: []image.ImportImageInfo{
+				{ImageName: "another-artifact", ExternalImage: false},
+			}},
+		}
+
+		Expect(sbomDependencyImageNames(images)).To(Equal([]string{"builder/golang", "src-artifact", "another-artifact"}))
+	})
+})
+
+var _ = Describe("dependencyPurlFailureError", func() {
+	It("reports the real cause for a dependency that failed enrichment in this run", func() {
 		var failures sync.Map
 		failures.Store("a", purlFailureRecord{details: "    - component: apk-tools: empty url\n", rootImage: "a", rootCause: "component: apk-tools: empty url"})
 
-		err, found := basePurlFailureError(&failures, "a")
+		err, found := dependencyPurlFailureError(&failures, "a")
 		Expect(found).To(BeTrue())
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(Equal(`SBOM for base image "a" was not generated: component: apk-tools: empty url`))
+		Expect(err.Error()).To(Equal(`SBOM for image "a" was not generated: component: apk-tools: empty url`))
 		Expect(err.Error()).NotTo(ContainSubstring("rebuild it with SBOM generation enabled"))
 	})
 
-	It("reports the transitive root cause for a skipped base", func() {
+	It("reports the transitive root cause for a skipped dependency", func() {
 		var failures sync.Map
 		failures.Store("b", purlFailureRecord{rootImage: "a", rootCause: "component: apk-tools: empty url"})
 
-		err, found := basePurlFailureError(&failures, "b")
+		err, found := dependencyPurlFailureError(&failures, "b")
 		Expect(found).To(BeTrue())
-		Expect(err.Error()).To(Equal(`SBOM for base image "a" was not generated: component: apk-tools: empty url`))
+		Expect(err.Error()).To(Equal(`SBOM for image "a" was not generated: component: apk-tools: empty url`))
 	})
 
-	It("keeps the rebuild advice path for bases not processed in this run", func() {
+	It("keeps the rebuild advice path for images not processed in this run", func() {
 		var failures sync.Map
-		_, found := basePurlFailureError(&failures, "foreign")
+		_, found := dependencyPurlFailureError(&failures, "foreign")
 		Expect(found).To(BeFalse())
 	})
 
 	It("does nothing when the failure map is nil", func() {
-		_, found := basePurlFailureError(nil, "a")
+		_, found := dependencyPurlFailureError(nil, "a")
 		Expect(found).To(BeFalse())
 	})
 })
@@ -506,6 +523,19 @@ var _ = Describe("logPurlResolverHelpHint", func() {
 type testImagePurlFailure struct {
 	imageName string
 	err       error
+}
+
+type testSbomDependencySource struct {
+	baseImageName string
+	imports       []image.ImportImageInfo
+}
+
+func (s testSbomDependencySource) GetBaseImageName() string {
+	return s.baseImageName
+}
+
+func (s testSbomDependencySource) GetImportImagesInfo() []image.ImportImageInfo {
+	return s.imports
 }
 
 func tripResolverBreaker(breaker *externalref.ResolverBreaker) {

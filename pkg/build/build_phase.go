@@ -311,15 +311,15 @@ func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, breaker
 			name := names[taskId]
 			images := imagesByName[name]
 
-			baseNames := lo.Map(images, func(img *image.Image, _ int) string {
-				return img.GetBaseImageName()
-			})
-			if record, found := purlFailureForBases(purlFailures, baseNames); found {
+			dependencyNames := sbomDependencyImageNames(lo.Map(images, func(img *image.Image, _ int) sbomDependencyProvider {
+				return img
+			}))
+			if record, found := purlFailureForDependencies(purlFailures, dependencyNames); found {
 				purlFailures.LoadOrStore(name, purlFailureRecord{
 					rootImage: record.rootImage,
 					rootCause: record.rootCause,
 				})
-				logboek.Context(ctx).Warn().LogF("WARNING: image %s: SBOM converge skipped: SBOM for base image %q was not generated: %s\n", name, record.rootImage, record.rootCause)
+				logboek.Context(ctx).Warn().LogF("WARNING: image %s: SBOM converge skipped: SBOM for image %q was not generated: %s\n", name, record.rootImage, record.rootCause)
 				return nil
 			}
 
@@ -366,28 +366,53 @@ func classifySbomConvergeError(err error, imageName string, purlFailures *sync.M
 	return nil
 }
 
-func purlFailureForBases(purlFailures *sync.Map, baseNames []string) (purlFailureRecord, bool) {
-	for _, baseName := range baseNames {
-		if baseName == "" {
+// sbomDependencyProvider exposes the SBOM-relevant dependencies of an image:
+// its base image and its import source images. Satisfied by *image.Image.
+type sbomDependencyProvider interface {
+	GetBaseImageName() string
+	GetImportImagesInfo() []image.ImportImageInfo
+}
+
+// sbomDependencyImageNames collects the in-project image names an image's SBOM
+// depends on: the base image plus internal import source images. A failed or
+// skipped dependency from this list makes the image's own SBOM ungenerable.
+func sbomDependencyImageNames(images []sbomDependencyProvider) []string {
+	var names []string
+	for _, img := range images {
+		if baseName := img.GetBaseImageName(); baseName != "" {
+			names = append(names, baseName)
+		}
+		for _, importInfo := range img.GetImportImagesInfo() {
+			if !importInfo.ExternalImage {
+				names = append(names, importInfo.ImageName)
+			}
+		}
+	}
+	return names
+}
+
+func purlFailureForDependencies(purlFailures *sync.Map, dependencyNames []string) (purlFailureRecord, bool) {
+	for _, dependencyName := range dependencyNames {
+		if dependencyName == "" {
 			continue
 		}
-		if value, found := purlFailures.Load(baseName); found {
+		if value, found := purlFailures.Load(dependencyName); found {
 			return value.(purlFailureRecord), true
 		}
 	}
 	return purlFailureRecord{}, false
 }
 
-func basePurlFailureError(purlFailures *sync.Map, baseName string) (error, bool) {
-	if purlFailures == nil || baseName == "" {
+func dependencyPurlFailureError(purlFailures *sync.Map, dependencyName string) (error, bool) {
+	if purlFailures == nil || dependencyName == "" {
 		return nil, false
 	}
-	value, found := purlFailures.Load(baseName)
+	value, found := purlFailures.Load(dependencyName)
 	if !found {
 		return nil, false
 	}
 	record := value.(purlFailureRecord)
-	return fmt.Errorf("SBOM for base image %q was not generated: %s", record.rootImage, record.rootCause), true
+	return fmt.Errorf("SBOM for image %q was not generated: %s", record.rootImage, record.rootCause), true
 }
 
 // canonicalResolverUnavailableError replaces a worker-wrapped breaker trip with the
@@ -1789,7 +1814,7 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 		return nil, nil
 	}
 
-	if err, found := basePurlFailureError(phase.sbomPurlFailures, img.GetBaseImageName()); found {
+	if err, found := dependencyPurlFailureError(phase.sbomPurlFailures, img.GetBaseImageName()); found {
 		return nil, err
 	}
 
@@ -1828,6 +1853,12 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	var importImageSboms []*cdx.BOM
 
 	for _, importInfo := range img.GetImportImagesInfo() {
+		if !importInfo.ExternalImage {
+			if err, found := dependencyPurlFailureError(phase.sbomPurlFailures, importInfo.ImageName); found {
+				return nil, err
+			}
+		}
+
 		var importImageInfo *imagePkg.Info
 
 		if importInfo.ExternalImage {
@@ -1891,7 +1922,7 @@ func buildAggregatedPurlError(purlFailures *sync.Map, totalImages int) error {
 		record := value.(purlFailureRecord)
 		sb.WriteString(fmt.Sprintf("\n  - image: %s:\n", imageName))
 		if record.rootImage != imageName {
-			sb.WriteString(fmt.Sprintf("    - skipped: SBOM for base image %q was not generated: %s\n", record.rootImage, record.rootCause))
+			sb.WriteString(fmt.Sprintf("    - skipped: SBOM for image %q was not generated: %s\n", record.rootImage, record.rootCause))
 			return true
 		}
 		for _, line := range strings.Split(record.details, "\n") {

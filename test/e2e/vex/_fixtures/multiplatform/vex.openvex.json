@@ -1,0 +1,15 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://example.com/vex/e2e-test-multiplatform-001",
+  "author": "e2e-test",
+  "timestamp": "2024-06-01T00:00:00Z",
+  "statements": [
+    {
+      "vulnerability": {"name": "CVE-2024-E2E101"},
+      "products": [{"@id": "pkg:oci/werf-test-app"}],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The vulnerable function is never called in this build."
+    }
+  ]
+}

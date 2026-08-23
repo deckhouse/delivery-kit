@@ -9,12 +9,20 @@ const (
 	// VEXPredicateURI is the in-toto predicate type for OpenVEX documents.
 	VEXPredicateURI = "https://openvex.dev/ns/v0.2.0"
 
+	// VEXPredicateURIUnversioned is the unversioned OpenVEX predicate type used for
+	// signed attestations: stock cosign resolves its `openvex` well-known type to
+	// this URI, so signed artifacts must carry it to be verifiable out of the box.
+	VEXPredicateURIUnversioned = "https://openvex.dev/ns"
+
 	// DSSEMediaType is the media type for DSSE envelopes used by VEX artifacts.
 	DSSEMediaType = "application/vnd.dsse.envelope.v1+json"
 
 	// InTotoMediaType is the media type for in-toto statements used by VEX artifacts.
 	InTotoMediaType = "application/vnd.in-toto+json"
 )
+
+// VEXPredicateTypes lists every predicate URI denoting the OpenVEX attestation kind.
+var VEXPredicateTypes = []string{VEXPredicateURIUnversioned, VEXPredicateURI}
 
 // openVEXDocument is a minimal representation of an OpenVEX JSON-LD document
 // used for format validation.

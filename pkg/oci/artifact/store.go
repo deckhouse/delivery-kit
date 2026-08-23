@@ -19,10 +19,11 @@ import (
 )
 
 type Store interface {
-	Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform string) error
-	GetAttachedContent(ctx context.Context, parentDigest, artifactType string) ([]byte, error)
-	GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string) ([]byte, error)
-	GetAttached(ctx context.Context, parentDigest, artifactType string) (v1.Descriptor, bool, error)
+	Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform, predicateType string) error
+	GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error)
+	GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error)
+	GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error)
+	GetContentByDigest(ctx context.Context, digest string) ([]byte, error)
 }
 
 // OCIStore manages OCI artifacts attached to container images.
@@ -47,15 +48,15 @@ func NewOCIStore(repo, imageName string, opts ...remote.Option) *OCIStore {
 	}
 }
 
-func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform string) error {
-	return s.AttachSuperseding(ctx, parentDigest, artifactType, payload, checksum, targetPlatform, nil)
+func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform, predicateType string) error {
+	return s.AttachSuperseding(ctx, parentDigest, artifactType, payload, checksum, targetPlatform, predicateType, nil)
 }
 
 // AttachSuperseding attaches the artifact like Attach and additionally removes
-// index entries of the superseded artifact types for the same image name, so a
+// index entries of the superseded artifact keys for the same image name, so a
 // format migration leaves a single artifact behind.
-func (s *OCIStore) AttachSuperseding(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform string, supersededTypes []string) error {
-	annotations := s.artifactAnnotations(checksum, targetPlatform)
+func (s *OCIStore) AttachSuperseding(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform, predicateType string, superseded []Key) error {
+	annotations := s.artifactAnnotations(checksum, targetPlatform, predicateType)
 
 	img, err := buildArtifactImage(payload, artifactType, annotations)
 	if err != nil {
@@ -87,7 +88,7 @@ func (s *OCIStore) AttachSuperseding(ctx context.Context, parentDigest, artifact
 			artifactDesc.Annotations = annotations
 		}
 
-		return attachDescriptor(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, supersededTypes, s.remoteOptions(ctx)...)
+		return attachDescriptor(ctx, s.repo, parentDigest, artifactDesc, artifactType, s.imageName, predicateType, superseded, s.remoteOptions(ctx)...)
 	})
 }
 
@@ -120,7 +121,7 @@ func buildArtifactImage(payload []byte, artifactType string, annotations map[str
 // written both into the artifact manifest and into its descriptor in the fallback index:
 // the manifest copy is what a registry reports through the Referrers API, the descriptor
 // copy is what the fallback index lookup filters on.
-func (s *OCIStore) artifactAnnotations(checksum, targetPlatform string) map[string]string {
+func (s *OCIStore) artifactAnnotations(checksum, targetPlatform, predicateType string) map[string]string {
 	annotations := make(map[string]string)
 	if checksum != "" {
 		annotations[image.WerfChecksumAnnotation] = checksum
@@ -131,6 +132,9 @@ func (s *OCIStore) artifactAnnotations(checksum, targetPlatform string) map[stri
 	if targetPlatform != "" {
 		annotations[image.WerfPlatformAnnotation] = targetPlatform
 	}
+	if predicateType != "" {
+		annotations[PredicateTypeAnnotation] = predicateType
+	}
 	return annotations
 }
 
@@ -138,13 +142,16 @@ func (s *OCIStore) artifactAnnotations(checksum, targetPlatform string) map[stri
 //
 // Two parent images with the same digest share the same attached artifact: if image A
 // at digest D has an SBOM attached, any image with digest D (same content) shares that SBOM.
-// The artifact is identified by the (parentDigest, artifactType, imageName) tuple.
-func (s *OCIStore) GetAttached(ctx context.Context, parentDigest, artifactType string) (v1.Descriptor, bool, error) {
-	return GetAttached(ctx, s.repo, parentDigest, artifactType, s.imageName, s.remoteOptions(ctx)...)
+// The artifact is identified by the (parentDigest, artifactType, imageName, predicateType)
+// tuple. Entries annotated with one of predicateTypes are preferred; an annotation-less
+// legacy entry is returned only when no annotated entry matches, and its kind must be
+// verified from its content by the caller (see PredicateTypeAnnotation).
+func (s *OCIStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error) {
+	return GetAttached(ctx, s.repo, parentDigest, artifactType, s.imageName, predicateTypes, s.remoteOptions(ctx)...)
 }
 
-func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {
-	desc, found, err := s.GetAttached(ctx, parentDigest, artifactType)
+func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
+	desc, found, err := s.GetAttached(ctx, parentDigest, artifactType, predicateTypes)
 	if err != nil {
 		return nil, fmt.Errorf("get attached artifact: %w", err)
 	}
@@ -161,8 +168,8 @@ func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifac
 // parent digest), the first match is returned and a warning is logged.
 // Callers needing a specific artifact should use GetAttachedContent with an
 // imageName-configured store instead.
-func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {
-	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", s.remoteOptions(ctx)...)
+func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
+	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", predicateTypes, s.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, fmt.Errorf("get attached artifact: %w", err)
 	}
@@ -171,6 +178,28 @@ func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, arti
 	}
 
 	return s.pullLayerContent(ctx, desc.Digest.String())
+}
+
+// GetAttachedLegacy returns the annotation-less legacy entry occupying the
+// (artifactType, imageName, "") slot, if any. Legacy entries predate predicate-type
+// annotations, so their kind is only known from their content.
+func (s *OCIStore) GetAttachedLegacy(ctx context.Context, parentDigest, artifactType string) (v1.Descriptor, bool, error) {
+	idx, err := pullFallbackIndex(ctx, s.repo, parentDigest, s.remoteOptions(ctx)...)
+	if err != nil {
+		return v1.Descriptor{}, false, err
+	}
+
+	im, err := idx.IndexManifest()
+	if err != nil {
+		return v1.Descriptor{}, false, fmt.Errorf("read fallback index manifest: %w", err)
+	}
+
+	for _, desc := range matchDescriptors(im, artifactType, s.imageName, nil) {
+		if desc.Annotations[PredicateTypeAnnotation] == "" {
+			return desc, true, nil
+		}
+	}
+	return v1.Descriptor{}, false, nil
 }
 
 // GetContentByDigest returns the content of the artifact image identified by the

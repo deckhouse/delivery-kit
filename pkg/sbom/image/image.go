@@ -43,6 +43,10 @@ func FallbackTag(parentDigest string) string {
 	return artifact.FallbackTag(parentDigest)
 }
 
+// CycloneDXPredicateTypes lists every predicate URI denoting the CycloneDX SBOM
+// attestation kind.
+var CycloneDXPredicateTypes = []string{CycloneDXPredicate, CycloneDX16Predicate}
+
 func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string, signer signature.Signer) error {
 	digestHex, err := artifact.DigestHex(parentDigest)
 	if err != nil {
@@ -64,6 +68,13 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 		return fmt.Errorf("wrap in-toto statement in DSSE: %w", err)
 	}
 
+	store := artifact.NewOCIStore(repo, imageName)
+
+	superseded, err := attestation.LegacySupersededKeys(ctx, store, parentDigest, CycloneDXPredicateTypes)
+	if err != nil {
+		return fmt.Errorf("resolve legacy SBOM entries: %w", err)
+	}
+
 	if signer != nil {
 		signed, err := attestation.HasSignatures(envelopeBytes)
 		if err != nil {
@@ -83,46 +94,24 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 			return fmt.Errorf("wrap dsse in sigstore bundle: %w", err)
 		}
 
-		store := artifact.NewOCIStore(repo, imageName)
-		return store.AttachSuperseding(ctx, parentDigest, attestation.BundleMediaType, bundleBytes, checksum, targetPlatform, []string{attestation.DSSEMediaType})
+		for _, alias := range CycloneDXPredicateTypes {
+			superseded = append(superseded, artifact.Key{ArtifactType: attestation.DSSEMediaType, PredicateType: alias})
+		}
+		return store.AttachSuperseding(ctx, parentDigest, attestation.BundleMediaType, bundleBytes, checksum, targetPlatform, predicateType, superseded)
 	}
 
-	store := artifact.NewOCIStore(repo, imageName)
-	return store.Attach(ctx, parentDigest, attestation.DSSEMediaType, envelopeBytes, checksum, targetPlatform)
+	return store.AttachSuperseding(ctx, parentDigest, attestation.DSSEMediaType, envelopeBytes, checksum, targetPlatform, predicateType, superseded)
 }
 
 func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte, error) {
 	store := artifact.NewOCIStore(repo, imageName)
 
-	envelopeJSON, err := pullSBOMArtifact(ctx, store, parentDigest, imageName)
+	envelopeJSON, err := attestation.PullAttestationEnvelope(ctx, store, parentDigest, CycloneDXPredicateTypes)
 	if err != nil {
 		return nil, err
 	}
 
 	return extractBOMFromEnvelope(envelopeJSON)
-}
-
-func pullSBOMArtifact(ctx context.Context, store *artifact.OCIStore, parentDigest, imageName string) ([]byte, error) {
-	getContent := store.GetAttachedContent
-	if imageName == "" {
-		getContent = store.GetAttachedContentAny
-	}
-
-	content, err := getContent(ctx, parentDigest, attestation.BundleMediaType)
-	if err == nil {
-		envelopeJSON, unwrapErr := attestation.UnwrapBundle(content)
-		if unwrapErr != nil {
-			return nil, fmt.Errorf("unwrap sigstore bundle: %w", unwrapErr)
-		}
-		return envelopeJSON, nil
-	}
-
-	content, err = getContent(ctx, parentDigest, attestation.DSSEMediaType)
-	if err != nil {
-		return nil, fmt.Errorf("get attached SBOM: %w", err)
-	}
-
-	return content, nil
 }
 
 func extractBOMFromEnvelope(envelopeJSON []byte) ([]byte, error) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,21 @@ import (
 )
 
 const FallbackTagPrefix = "sha256-"
+
+// PredicateTypeAnnotation is the cosign-convention annotation carrying the in-toto
+// predicate type of an attestation artifact. It is written both into the artifact
+// manifest and its fallback-index descriptor, and is part of the slot identity:
+// artifacts of different predicate kinds (e.g. SBOM and VEX) sharing one artifact
+// type occupy distinct slots. Entries without the annotation predate this scheme
+// and are treated as legacy candidates whose kind is only known from their content.
+const PredicateTypeAnnotation = "dev.sigstore.bundle.predicateType"
+
+// Key identifies a superseded artifact slot: the artifact type together with the
+// predicate type recorded in PredicateTypeAnnotation (empty for legacy entries).
+type Key struct {
+	ArtifactType  string
+	PredicateType string
+}
 
 const (
 	attachInitialInterval = 500 * time.Millisecond
@@ -91,7 +107,7 @@ func FallbackTag(parentDigest string) string {
 // until it observes it in the index. Every write is a merge of what was read
 // with the descriptor being attached, so concurrent writers accumulate each
 // other's entries rather than truncating them.
-func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string, opts ...remote.Option) error {
+func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName, predicateType string, superseded []Key, opts ...remote.Option) error {
 	eb := backoff.NewExponentialBackOff()
 	eb.InitialInterval = attachInitialInterval
 
@@ -100,7 +116,7 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 	}
 
 	_, err := backoff.Retry(ctx, func() (bool, error) {
-		attached, err := isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, supersededTypes, opts...)
+		attached, err := isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, predicateType, superseded, opts...)
 		if err != nil {
 			return false, err
 		}
@@ -113,12 +129,12 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 			return false, fmt.Errorf("pull fallback index: %w", err)
 		}
 
-		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName, supersededTypes)
+		next := updateFallbackIndex(current, artifactDesc, artifactType, imageName, predicateType, superseded)
 		if err := pushFallbackIndex(ctx, repo, parentDigest, next, opts...); err != nil {
 			return false, fmt.Errorf("push fallback index: %w", err)
 		}
 
-		attached, err = isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, supersededTypes, opts...)
+		attached, err = isAttachedInRegistry(ctx, repo, parentDigest, artifactDesc, artifactType, imageName, predicateType, superseded, opts...)
 		if err != nil {
 			return false, err
 		}
@@ -139,7 +155,7 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 	return nil
 }
 
-func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string, opts ...remote.Option) (bool, error) {
+func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifactDesc v1.Descriptor, artifactType, imageName, predicateType string, superseded []Key, opts ...remote.Option) (bool, error) {
 	idx, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 	if err != nil {
 		return false, fmt.Errorf("pull fallback index: %w", err)
@@ -150,7 +166,7 @@ func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifa
 		return false, fmt.Errorf("read fallback index manifest: %w", err)
 	}
 
-	return isAttached(im, artifactDesc, artifactType, imageName, supersededTypes), nil
+	return isAttached(im, artifactDesc, artifactType, imageName, predicateType, superseded), nil
 }
 
 // isAttached reports whether the index already resolves the artifact key to the
@@ -166,15 +182,13 @@ func isAttachedInRegistry(ctx context.Context, repo, parentDigest string, artifa
 // The key must resolve to that descriptor and to nothing else. A stale entry of
 // the same image, or the descriptor go-containerregistry adds on its own, also
 // occupies the key, and both have to be evicted before the attach is done.
-func isAttached(im *v1.IndexManifest, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string) bool {
+func isAttached(im *v1.IndexManifest, artifactDesc v1.Descriptor, artifactType, imageName, predicateType string, superseded []Key) bool {
 	occupied := 0
 	for _, desc := range im.Manifests {
-		for _, superseded := range supersededTypes {
-			if isArtifactKey(desc, superseded, imageName) {
-				return false
-			}
+		if supersededKey(desc, superseded, imageName) {
+			return false
 		}
-		if !isArtifactKey(desc, artifactType, imageName) {
+		if !isArtifactKey(desc, artifactType, imageName, predicateType) {
 			continue
 		}
 		if desc.Digest != artifactDesc.Digest {
@@ -186,48 +200,88 @@ func isAttached(im *v1.IndexManifest, artifactDesc v1.Descriptor, artifactType, 
 	return occupied == 1
 }
 
-// isArtifactKey reports whether a descriptor occupies the (artifactType, imageName)
-// slot of the index. Used by writers, which own exactly one slot.
-func isArtifactKey(desc v1.Descriptor, artifactType, imageName string) bool {
-	return desc.ArtifactType == artifactType && desc.Annotations[image.WerfImageNameAnnotation] == imageName
+// isArtifactKey reports whether a descriptor occupies the (artifactType, imageName,
+// predicateType) slot of the index. Used by writers, which own exactly one slot.
+// A descriptor without the predicate annotation occupies the legacy ("") predicate slot.
+func isArtifactKey(desc v1.Descriptor, artifactType, imageName, predicateType string) bool {
+	return desc.ArtifactType == artifactType &&
+		desc.Annotations[image.WerfImageNameAnnotation] == imageName &&
+		desc.Annotations[PredicateTypeAnnotation] == predicateType
 }
 
 // matchDescriptors selects the entries a reader asks for. An empty image name
 // means any image here, unlike the exact key used by writers.
+//
+// Entries annotated with one of the requested predicate types come first; entries
+// without the predicate annotation are legacy candidates appended last — their kind
+// is only known from their content, so callers must verify it before use. Entries
+// annotated with a different predicate type are excluded. An empty predicateTypes
+// set matches any entry.
 //
 // Entries are deduplicated by manifest digest: a descriptor only points at a
 // manifest, so two of them sharing a digest describe one artifact. An attach
 // interrupted between the artifact push and the index update leaves behind the
 // descriptor go-containerregistry writes on its own, which carries no werf
 // annotations and would otherwise be listed as a second, nameless artifact.
-func matchDescriptors(im *v1.IndexManifest, artifactType, imageName string) []v1.Descriptor {
-	position := make(map[v1.Hash]int)
-	var matches []v1.Descriptor
+func matchDescriptors(im *v1.IndexManifest, artifactType, imageName string, predicateTypes []string) []v1.Descriptor {
+	seen := make(map[v1.Hash]bool)
+	var annotated []v1.Descriptor
 
 	for _, desc := range im.Manifests {
-		if desc.ArtifactType != artifactType {
+		if !matchesReaderFilter(desc, artifactType, imageName) {
 			continue
 		}
-		if imageName != "" && desc.Annotations[image.WerfImageNameAnnotation] != imageName {
+		predicate, hasPredicate := desc.Annotations[PredicateTypeAnnotation]
+		if !hasPredicate {
+			continue
+		}
+		if len(predicateTypes) > 0 && !slices.Contains(predicateTypes, predicate) {
+			continue
+		}
+		if seen[desc.Digest] {
+			continue
+		}
+		seen[desc.Digest] = true
+		annotated = append(annotated, desc)
+	}
+
+	position := make(map[v1.Hash]int)
+	var legacy []v1.Descriptor
+
+	for _, desc := range im.Manifests {
+		if !matchesReaderFilter(desc, artifactType, imageName) {
+			continue
+		}
+		if _, hasPredicate := desc.Annotations[PredicateTypeAnnotation]; hasPredicate {
+			continue
+		}
+		if seen[desc.Digest] {
 			continue
 		}
 
-		i, seen := position[desc.Digest]
-		if !seen {
-			position[desc.Digest] = len(matches)
-			matches = append(matches, desc)
+		i, met := position[desc.Digest]
+		if !met {
+			position[desc.Digest] = len(legacy)
+			legacy = append(legacy, desc)
 			continue
 		}
 
-		if _, annotated := matches[i].Annotations[image.WerfImageNameAnnotation]; !annotated {
-			matches[i] = desc
+		if _, named := legacy[i].Annotations[image.WerfImageNameAnnotation]; !named {
+			legacy[i] = desc
 		}
 	}
 
-	return matches
+	return append(annotated, legacy...)
 }
 
-func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageName string, opts ...remote.Option) (v1.Descriptor, bool, error) {
+func matchesReaderFilter(desc v1.Descriptor, artifactType, imageName string) bool {
+	if desc.ArtifactType != artifactType {
+		return false
+	}
+	return imageName == "" || desc.Annotations[image.WerfImageNameAnnotation] == imageName
+}
+
+func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageName string, predicateTypes []string, opts ...remote.Option) (v1.Descriptor, bool, error) {
 	idx, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 	if err != nil {
 		return v1.Descriptor{}, false, err
@@ -238,7 +292,7 @@ func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageNam
 		return v1.Descriptor{}, false, fmt.Errorf("read fallback index manifest: %w", err)
 	}
 
-	matches := matchDescriptors(im, artifactType, imageName)
+	matches := matchDescriptors(im, artifactType, imageName, predicateTypes)
 	if len(matches) == 0 {
 		return v1.Descriptor{}, false, nil
 	}
@@ -318,7 +372,7 @@ func pushFallbackIndex(ctx context.Context, repo, parentDigest string, idx v1.Im
 	return nil
 }
 
-func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, artifactType, imageName string, supersededTypes []string) v1.ImageIndex {
+func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, artifactType, imageName, predicateType string, superseded []Key) v1.ImageIndex {
 	im, err := current.IndexManifest()
 	if err != nil || im == nil {
 		return newStaticIndex([]v1.Descriptor{artifactDesc})
@@ -333,10 +387,10 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 		if manifest.Digest == artifactDesc.Digest {
 			continue
 		}
-		if isArtifactKey(manifest, artifactType, imageName) {
+		if isArtifactKey(manifest, artifactType, imageName, predicateType) {
 			continue
 		}
-		if supersededKey(manifest, supersededTypes, imageName) {
+		if supersededKey(manifest, superseded, imageName) {
 			continue
 		}
 		kept = append(kept, manifest)
@@ -346,9 +400,9 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 	return newStaticIndex(kept)
 }
 
-func supersededKey(desc v1.Descriptor, supersededTypes []string, imageName string) bool {
-	for _, superseded := range supersededTypes {
-		if isArtifactKey(desc, superseded, imageName) {
+func supersededKey(desc v1.Descriptor, superseded []Key, imageName string) bool {
+	for _, key := range superseded {
+		if isArtifactKey(desc, key.ArtifactType, imageName, key.PredicateType) {
 			return true
 		}
 	}

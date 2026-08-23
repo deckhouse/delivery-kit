@@ -15,11 +15,24 @@ func Verify(ctx context.Context, repo, parentDigest, imageName, predicateType st
 		return nil, err
 	}
 
-	store := artifact.NewOCIStore(repo, imageName)
-
-	envelopeJSON, err := pullAttestationContent(ctx, store, parentDigest, imageName)
+	kindAliases, err := PredicateKindAliases(predicateType)
 	if err != nil {
 		return nil, err
+	}
+
+	store := artifact.NewOCIStore(repo, imageName)
+
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, kindAliases)
+	if err != nil {
+		return nil, err
+	}
+
+	signed, err := HasSignatures(envelopeJSON)
+	if err != nil {
+		return nil, fmt.Errorf("check DSSE signatures: %w", err)
+	}
+	if !signed {
+		return nil, fmt.Errorf("attestation for digest %s is present but unsigned (legacy format): rebuild with --sign-key to publish a signed attestation", parentDigest)
 	}
 
 	stmtBytes, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, verifiers)
@@ -32,7 +45,7 @@ func Verify(ctx context.Context, repo, parentDigest, imageName, predicateType st
 		return nil, fmt.Errorf("unwrap in-toto statement: %w", err)
 	}
 
-	if foundType != resolvedType {
+	if !PredicateTypeMatches(resolvedType, foundType) {
 		return nil, fmt.Errorf("attestation predicate type %q does not match requested %q", foundType, resolvedType)
 	}
 

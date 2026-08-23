@@ -100,16 +100,17 @@ var _ = Describe("OCIStore.artifactAnnotations", func() {
 	It("should collect every provided annotation", func() {
 		store := NewOCIStore("example.org/repo", "my-app")
 
-		Expect(store.artifactAnnotations("checksum-v1", "linux/amd64")).To(Equal(map[string]string{
+		Expect(store.artifactAnnotations("checksum-v1", "linux/amd64", "https://openvex.dev/ns")).To(Equal(map[string]string{
 			image.WerfImageNameAnnotation: "my-app",
 			image.WerfChecksumAnnotation:  "checksum-v1",
 			image.WerfPlatformAnnotation:  "linux/amd64",
+			PredicateTypeAnnotation:       "https://openvex.dev/ns",
 		}))
 	})
 
 	It("should skip empty values", func() {
 		store := NewOCIStore("example.org/repo", "")
 
-		Expect(store.artifactAnnotations("", "")).To(BeEmpty())
+		Expect(store.artifactAnnotations("", "", "")).To(BeEmpty())
 	})
 })

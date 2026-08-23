@@ -82,6 +82,15 @@ func ResolvePlatformDigest(ctx context.Context, repo, digestStr, platform string
 	return matchPlatformDigest(entries, platform)
 }
 
+// IsIndexReference reports whether the digest points to a multi-platform image index.
+func IsIndexReference(ctx context.Context, repo, digestStr string) (bool, error) {
+	desc, err := getManifestDescriptor(ctx, repo, digestStr)
+	if err != nil {
+		return false, err
+	}
+	return desc.MediaType.IsIndex(), nil
+}
+
 // ListIndexPlatforms returns the platform manifests of an image index. For a
 // non-index manifest it returns a single entry with an empty Platform and the
 // digest itself.

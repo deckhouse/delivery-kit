@@ -76,7 +76,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the image (e.g. sha256:abc123)")
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact lookup")
-	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. Not applicable with --type openvex: OpenVEX attestations are image-level and read from the index digest itself")
 
 	return cmd
 }
@@ -119,7 +119,7 @@ func runGet(ctx context.Context, predicateType, digest, tag, imageName, platform
 		digest = resolved
 	}
 
-	digest, err = artifact.ResolvePlatformDigest(ctx, repoAddr, digest, platform)
+	digest, err = attestation.ResolveAttestationDigest(ctx, repoAddr, digest, platform, predicateType)
 	if err != nil {
 		return err
 	}

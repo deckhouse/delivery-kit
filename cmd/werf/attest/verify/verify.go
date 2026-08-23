@@ -81,7 +81,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
 	cmd.Flags().StringArrayVarP(&keyFlags, "key", "", nil, "Path to public key PEM file for verification (repeatable, any match = success)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact lookup")
-	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. Not applicable with --type openvex: OpenVEX attestations are image-level and verified at the index digest itself")
 
 	return cmd
 }
@@ -124,7 +124,7 @@ func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths 
 		digest = resolved
 	}
 
-	digest, err = artifact.ResolvePlatformDigest(ctx, repoAddr, digest, platform)
+	digest, err = attestation.ResolveAttestationDigest(ctx, repoAddr, digest, platform, predicateType)
 	if err != nil {
 		return err
 	}

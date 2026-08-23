@@ -3,6 +3,8 @@ package vex
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/werf/werf/v2/pkg/attestation"
 )
 
 const (
@@ -22,7 +24,7 @@ const (
 )
 
 // VEXPredicateTypes lists every predicate URI denoting the OpenVEX attestation kind.
-var VEXPredicateTypes = []string{VEXPredicateURIUnversioned, VEXPredicateURI}
+var VEXPredicateTypes = attestation.PredicateKindOpenVEX.Types()
 
 // openVEXDocument is a minimal representation of an OpenVEX JSON-LD document
 // used for format validation.

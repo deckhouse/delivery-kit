@@ -4,16 +4,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/vex"
+	"github.com/werf/werf/v2/test/pkg/attestutils"
 	"github.com/werf/werf/v2/test/pkg/report"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
@@ -44,9 +40,9 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 		repo := os.Getenv("WERF_REPO")
 		Expect(repo).NotTo(BeEmpty())
 
-		sbomDesc := findArtifactDescriptorByPredicate(ctx, repo, digest, attestation.DSSEMediaType, sbomCycloneDX16Predicate)
+		sbomDesc := attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, attestation.DSSEMediaType, attestation.PredicateKindCycloneDX.UnsignedType)
 		Expect(sbomDesc).NotTo(BeNil(), "unsigned SBOM artifact must be present")
-		vexDesc := findArtifactDescriptorByPredicate(ctx, repo, digest, vex.DSSEMediaType, vex.VEXPredicateURI)
+		vexDesc := attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, vex.DSSEMediaType, vex.VEXPredicateURI)
 		Expect(vexDesc).NotTo(BeNil(), "unsigned VEX artifact must be present next to the SBOM")
 
 		By("attest ls lists both kinds with their predicate types")
@@ -66,14 +62,14 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 		)
 		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
 
-		sbomBundle := findArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, sbomCycloneDXPredicate)
+		sbomBundle := attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, attestation.PredicateKindCycloneDX.SignedType)
 		Expect(sbomBundle).NotTo(BeNil(), "signed SBOM bundle must be present")
-		vexBundle := findArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, vex.VEXPredicateURIUnversioned)
+		vexBundle := attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, vex.VEXPredicateURIUnversioned)
 		Expect(vexBundle).NotTo(BeNil(), "signed VEX bundle must be present next to the SBOM bundle")
 
-		Expect(findArtifactDescriptorByPredicate(ctx, repo, digest, attestation.DSSEMediaType, sbomCycloneDX16Predicate)).To(BeNil(),
+		Expect(attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, attestation.DSSEMediaType, attestation.PredicateKindCycloneDX.UnsignedType)).To(BeNil(),
 			"stale unsigned SBOM artifact must be superseded")
-		Expect(findArtifactDescriptorByPredicate(ctx, repo, digest, vex.DSSEMediaType, vex.VEXPredicateURI)).To(BeNil(),
+		Expect(attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, vex.DSSEMediaType, vex.VEXPredicateURI)).To(BeNil(),
 			"stale unsigned VEX artifact must be superseded")
 
 		By("both attestations are independently verifiable")
@@ -123,7 +119,7 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 		Expect(rebuildOut).To(ContainSubstring("Use previously generated SBOM from registry"))
 		Expect(rebuildOut).To(ContainSubstring("Published VEX artifact"))
 
-		sbomBundleAfter := findArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, sbomCycloneDXPredicate)
+		sbomBundleAfter := attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, attestation.PredicateKindCycloneDX.SignedType)
 		Expect(sbomBundleAfter).NotTo(BeNil())
 		Expect(sbomBundleAfter.Digest).To(Equal(sbomBundleDigestBefore), "SBOM artifact must stay byte-identical when only the VEX file changes")
 
@@ -139,31 +135,3 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 		Expect(vexGetOut).To(ContainSubstring("CVE-2024-E2E777"))
 	})
 })
-
-const (
-	sbomCycloneDXPredicate   = "https://cyclonedx.org/bom"
-	sbomCycloneDX16Predicate = "https://cyclonedx.org/bom/v1.6"
-)
-
-func findArtifactDescriptorByPredicate(ctx SpecContext, repo, parentDigest, artifactType, predicateType string) *v1.Descriptor {
-	tagRef, err := name.NewTag(repo+":"+artifact.FallbackTag(parentDigest), name.Insecure)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	ropts := []remote.Option{remote.WithContext(ctx), remote.WithAuth(authn.Anonymous)}
-
-	idx, err := remote.Index(tagRef, ropts...)
-	if err != nil {
-		return nil
-	}
-
-	im, err := idx.IndexManifest()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	for _, desc := range im.Manifests {
-		if desc.ArtifactType == artifactType && desc.Annotations[artifact.PredicateTypeAnnotation] == predicateType {
-			found := desc
-			return &found
-		}
-	}
-	return nil
-}

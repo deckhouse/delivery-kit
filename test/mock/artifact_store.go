@@ -41,20 +41,6 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 	return m.recorder
 }
 
-// Attach mocks base method.
-func (m *MockStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform, predicateType string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Attach", ctx, parentDigest, artifactType, payload, checksum, targetPlatform, predicateType)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Attach indicates an expected call of Attach.
-func (mr *MockStoreMockRecorder) Attach(ctx, parentDigest, artifactType, payload, checksum, targetPlatform, predicateType any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Attach", reflect.TypeOf((*MockStore)(nil).Attach), ctx, parentDigest, artifactType, payload, checksum, targetPlatform, predicateType)
-}
-
 // GetAttached mocks base method.
 func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error) {
 	m.ctrl.T.Helper()
@@ -69,49 +55,4 @@ func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType 
 func (mr *MockStoreMockRecorder) GetAttached(ctx, parentDigest, artifactType, predicateTypes any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttached", reflect.TypeOf((*MockStore)(nil).GetAttached), ctx, parentDigest, artifactType, predicateTypes)
-}
-
-// GetAttachedContent mocks base method.
-func (m *MockStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAttachedContent", ctx, parentDigest, artifactType, predicateTypes)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAttachedContent indicates an expected call of GetAttachedContent.
-func (mr *MockStoreMockRecorder) GetAttachedContent(ctx, parentDigest, artifactType, predicateTypes any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttachedContent", reflect.TypeOf((*MockStore)(nil).GetAttachedContent), ctx, parentDigest, artifactType, predicateTypes)
-}
-
-// GetAttachedContentAny mocks base method.
-func (m *MockStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAttachedContentAny", ctx, parentDigest, artifactType, predicateTypes)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAttachedContentAny indicates an expected call of GetAttachedContentAny.
-func (mr *MockStoreMockRecorder) GetAttachedContentAny(ctx, parentDigest, artifactType, predicateTypes any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttachedContentAny", reflect.TypeOf((*MockStore)(nil).GetAttachedContentAny), ctx, parentDigest, artifactType, predicateTypes)
-}
-
-// GetContentByDigest mocks base method.
-func (m *MockStore) GetContentByDigest(ctx context.Context, digest string) ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetContentByDigest", ctx, digest)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetContentByDigest indicates an expected call of GetContentByDigest.
-func (mr *MockStoreMockRecorder) GetContentByDigest(ctx, digest any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContentByDigest", reflect.TypeOf((*MockStore)(nil).GetContentByDigest), ctx, digest)
 }

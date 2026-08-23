@@ -1,22 +1,16 @@
 package e2e_vex_test
 
 import (
-	"io"
 	"path/filepath"
 
-	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sigstore/sigstore/pkg/cryptoutils"
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/vex"
+	"github.com/werf/werf/v2/test/pkg/attestutils"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -32,8 +26,8 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		repo := suite_init.TestRepo(SuiteData.ProjectName)
 
-		signKeys := generateVexSigningKeyPairWithCert(SuiteData.TmpDir)
-		otherKeys := generateVexSigningKeyPairWithCert(SuiteData.TmpDir)
+		signKeys := attestutils.GenerateSigningKeyPairWithCert(SuiteData.TmpDir)
+		otherKeys := attestutils.GenerateSigningKeyPairWithCert(SuiteData.TmpDir)
 		signEnv := []string{
 			"WERF_SIGN_KEY=" + signKeys.KeyPath,
 			"WERF_SIGN_CERT=" + signKeys.CertPath,
@@ -48,7 +42,7 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		})
 		digest := readDigestFromReport(buildReportPath, "app")
 
-		dsseDesc := findVexArtifactDescriptor(ctx, repo, digest, vex.DSSEMediaType)
+		dsseDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, vex.DSSEMediaType)
 		Expect(dsseDesc).NotTo(BeNil(), "keyless build must publish the bare-DSSE VEX artifact")
 
 		By("US5: attest verify classifies the unsigned artifact distinctly")
@@ -69,16 +63,16 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
 		Expect(buildOut).To(ContainSubstring("Published VEX artifact"))
 
-		bundleDesc := findVexArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
+		bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
 		Expect(bundleDesc).NotTo(BeNil(), "signed build must publish the sigstore bundle VEX artifact")
 		Expect(bundleDesc.Annotations[image.WerfImageNameAnnotation]).To(Equal("app"))
 		Expect(bundleDesc.Annotations[artifact.PredicateTypeAnnotation]).To(Equal(vex.VEXPredicateURIUnversioned))
 
-		Expect(findVexArtifactDescriptor(ctx, repo, digest, vex.DSSEMediaType)).To(BeNil(),
+		Expect(attestutils.FindArtifactDescriptor(ctx, repo, digest, vex.DSSEMediaType)).To(BeNil(),
 			"stale bare-DSSE VEX artifact must be superseded by the bundle")
 
 		By("US1: the bundle envelope is signed and its subject is the image digest")
-		bundleJSON := fetchVexArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
+		bundleJSON := attestutils.FetchArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
 		envelopeJSON, err := attestation.UnwrapBundle(bundleJSON)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -134,9 +128,9 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		downgradeOut := werfProject.Build(ctx, &werf.BuildOptions{})
 		Expect(downgradeOut).To(ContainSubstring("Published VEX artifact"))
 
-		Expect(findVexArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)).To(BeNil(),
+		Expect(attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)).To(BeNil(),
 			"stale signed bundle must be superseded by the unsigned artifact after key removal")
-		Expect(findVexArtifactDescriptor(ctx, repo, digest, vex.DSSEMediaType)).NotTo(BeNil())
+		Expect(attestutils.FindArtifactDescriptor(ctx, repo, digest, vex.DSSEMediaType)).NotTo(BeNil())
 
 		getOut := werfProject.AttestGet(ctx, &werf.AttestGetOptions{
 			CommonOptions: werf.CommonOptions{
@@ -160,7 +154,7 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		repo := suite_init.TestRepo(SuiteData.ProjectName)
 
-		signKeys := generateVexSigningKeyPairWithCert(SuiteData.TmpDir)
+		signKeys := attestutils.GenerateSigningKeyPairWithCert(SuiteData.TmpDir)
 		signEnv := []string{
 			"WERF_SIGN_KEY=" + signKeys.KeyPath,
 			"WERF_SIGN_CERT=" + signKeys.CertPath,
@@ -176,11 +170,11 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		indexDigest := readDigestFromReport(buildReportPath, "app")
 
 		By("the signed bundle is attached to the index digest")
-		bundleDesc := findVexArtifactDescriptor(ctx, repo, indexDigest, attestation.BundleMediaType)
+		bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, indexDigest, attestation.BundleMediaType)
 		Expect(bundleDesc).NotTo(BeNil(), "signed multi-platform build must publish the VEX bundle at the index digest")
 		Expect(bundleDesc.Annotations[artifact.PredicateTypeAnnotation]).To(Equal(vex.VEXPredicateURIUnversioned))
 
-		bundleJSON := fetchVexArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
+		bundleJSON := attestutils.FetchArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
 		envelopeJSON, err := attestation.UnwrapBundle(bundleJSON)
 		Expect(err).NotTo(HaveOccurred())
 		verifiers, err := attestation.LoadVerifiers([]string{signKeys.PubKeyPath})
@@ -194,9 +188,9 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(platforms).To(HaveLen(2))
 		for _, platform := range platforms {
-			Expect(findVexArtifactDescriptor(ctx, repo, platform.Digest, attestation.BundleMediaType)).To(BeNil(),
+			Expect(attestutils.FindArtifactDescriptor(ctx, repo, platform.Digest, attestation.BundleMediaType)).To(BeNil(),
 				"platform %s must not carry a VEX bundle", platform.Platform)
-			Expect(findVexArtifactDescriptor(ctx, repo, platform.Digest, vex.DSSEMediaType)).To(BeNil(),
+			Expect(attestutils.FindArtifactDescriptor(ctx, repo, platform.Digest, vex.DSSEMediaType)).To(BeNil(),
 				"platform %s must not carry a VEX artifact", platform.Platform)
 		}
 
@@ -233,66 +227,3 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		Expect(rebuildOut).To(ContainSubstring("VEX artifact is up to date"))
 	})
 })
-
-type vexSigningKeyPair struct {
-	KeyPath    string
-	PubKeyPath string
-	CertPath   string
-}
-
-func generateVexSigningKeyPairWithCert(dir string) vexSigningKeyPair {
-	certs := cert_utils.GenerateCertificatesWithOptions(cert_utils.GenerateCertificatesOptions{
-		KeyType:  cert_utils.KeyType_ED25519,
-		PassFunc: cryptoutils.SkipPassword,
-		TmpDir:   dir,
-	})
-
-	pubKeyPath := cert_utils.FormatPublicKeyToPEMFile(dir, certs.PrivKey.Public())
-
-	return vexSigningKeyPair{KeyPath: certs.PrivRef, PubKeyPath: pubKeyPath, CertPath: certs.LeafRef}
-}
-
-func findVexArtifactDescriptor(ctx SpecContext, repo, parentDigest, artifactType string) *v1.Descriptor {
-	tagRef, err := name.NewTag(repo+":"+artifact.FallbackTag(parentDigest), name.Insecure)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	ropts := []remote.Option{remote.WithContext(ctx), remote.WithAuth(authn.Anonymous)}
-
-	idx, err := remote.Index(tagRef, ropts...)
-	if err != nil {
-		return nil
-	}
-
-	im, err := idx.IndexManifest()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	for _, desc := range im.Manifests {
-		if desc.ArtifactType == artifactType {
-			found := desc
-			return &found
-		}
-	}
-	return nil
-}
-
-func fetchVexArtifactLayerContent(ctx SpecContext, repo, digest string) []byte {
-	imgRef, err := name.NewDigest(repo+"@"+digest, name.Insecure)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	ropts := []remote.Option{remote.WithContext(ctx), remote.WithAuth(authn.Anonymous)}
-
-	img, err := remote.Image(imgRef, ropts...)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	layers, err := img.Layers()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	ExpectWithOffset(1, layers).NotTo(BeEmpty())
-
-	rc, err := layers[0].Compressed()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	defer rc.Close()
-
-	content, err := io.ReadAll(rc)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	return content
-}

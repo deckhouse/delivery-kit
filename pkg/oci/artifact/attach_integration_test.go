@@ -125,7 +125,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		Expect(im.Manifests).To(HaveLen(1))
 
 		store := artifact.NewOCIStore(repo, "", remoteOpts...)
-		content, err := store.GetAttachedContentAny(ctx, parentDigest, artifactType, nil)
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":2}`))
 	})
@@ -251,7 +251,7 @@ var _ = Describe("Default registry authentication (integration)", func() {
 		Expect(attacher.Attach(ctx, parentDigest, artifactType, []byte(`{"sbom":"data"}`), "", "", "")).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, "")
-		content, err := store.GetAttachedContentAny(ctx, parentDigest, artifactType, nil)
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"sbom":"data"}`))
 	})
@@ -448,7 +448,7 @@ var _ = Describe("Attach with an unnamed artifact (integration)", func() {
 		Expect(err).To(Succeed())
 		Expect(im.Manifests).To(HaveLen(1))
 
-		content, err := unnamed.GetAttachedContentAny(ctx, parentDigest, artifactType, nil)
+		content, err := unnamed.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":2}`))
 	})

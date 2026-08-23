@@ -18,12 +18,10 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
+// Store is the artifact-store surface consumed by build steps (mockable subset
+// of OCIStore).
 type Store interface {
-	Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform, predicateType string) error
-	GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error)
-	GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error)
 	GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error)
-	GetContentByDigest(ctx context.Context, digest string) ([]byte, error)
 }
 
 // OCIStore manages OCI artifacts attached to container images.
@@ -152,24 +150,6 @@ func (s *OCIStore) GetAttached(ctx context.Context, parentDigest, artifactType s
 
 func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
 	desc, found, err := s.GetAttached(ctx, parentDigest, artifactType, predicateTypes)
-	if err != nil {
-		return nil, fmt.Errorf("get attached artifact: %w", err)
-	}
-	if !found {
-		return nil, fmt.Errorf("no artifact of type %q found for digest %q: %w", artifactType, parentDigest, ErrNotFound)
-	}
-
-	return s.pullLayerContent(ctx, desc.Digest.String())
-}
-
-// GetAttachedContentAny returns the content of the first matching artifact
-// attached to the given parent digest, regardless of image name. If multiple
-// artifacts of the same type exist (e.g., different images sharing the same
-// parent digest), the first match is returned and a warning is logged.
-// Callers needing a specific artifact should use GetAttachedContent with an
-// imageName-configured store instead.
-func (s *OCIStore) GetAttachedContentAny(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
-	desc, found, err := GetAttached(ctx, s.repo, parentDigest, artifactType, "", predicateTypes, s.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, fmt.Errorf("get attached artifact: %w", err)
 	}

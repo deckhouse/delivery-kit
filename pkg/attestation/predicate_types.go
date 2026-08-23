@@ -15,6 +15,69 @@ var WellKnownPredicateTypes = map[string]string{
 	"cyclonedx":       "https://cyclonedx.org/bom",
 }
 
+// PredicateKind describes an attestation kind whose artifacts may carry different
+// predicate URIs depending on how they were published: signed artifacts use the
+// unversioned URI (cosign convention), legacy unsigned ones the versioned URI.
+// The kind is the unit of artifact identity: slot selection, supersede scoping
+// and read-path matching all operate on the full URI set of one kind.
+type PredicateKind struct {
+	// Name is the cosign-compatible well-known short name.
+	Name string
+
+	// SignedType is the predicate URI of signed artifacts.
+	SignedType string
+
+	// UnsignedType is the predicate URI of legacy/unsigned artifacts.
+	UnsignedType string
+
+	// ImageLevel marks kinds attached to the image (index) digest itself rather
+	// than to per-platform manifests.
+	ImageLevel bool
+
+	// AliasMatching lets a request for any URI of the kind match every other on
+	// read and verify. Kinds without it keep exact predicate matching and use the
+	// URI set for slot selection only.
+	AliasMatching bool
+
+	// DowngradeSupersede makes an unsigned publish evict the stale signed bundle
+	// (019-vex-signing FR-009); kinds without it keep the 016-sbom-signing
+	// behavior where only a signed publish supersedes the unsigned artifact.
+	DowngradeSupersede bool
+}
+
+// Types returns every predicate URI the kind is known under.
+func (k PredicateKind) Types() []string {
+	return []string{k.SignedType, k.UnsignedType}
+}
+
+var (
+	PredicateKindOpenVEX = PredicateKind{
+		Name:               "openvex",
+		SignedType:         "https://openvex.dev/ns",
+		UnsignedType:       "https://openvex.dev/ns/v0.2.0",
+		ImageLevel:         true,
+		AliasMatching:      true,
+		DowngradeSupersede: true,
+	}
+
+	PredicateKindCycloneDX = PredicateKind{
+		Name:         "cyclonedx",
+		SignedType:   "https://cyclonedx.org/bom",
+		UnsignedType: "https://cyclonedx.org/bom/v1.6",
+	}
+)
+
+var predicateKinds = []PredicateKind{PredicateKindOpenVEX, PredicateKindCycloneDX}
+
+func predicateKindOf(uri string) (PredicateKind, bool) {
+	for _, kind := range predicateKinds {
+		if slices.Contains(kind.Types(), uri) {
+			return kind, true
+		}
+	}
+	return PredicateKind{}, false
+}
+
 func PredicateTypeHelp() string {
 	known := make([]string, 0, len(WellKnownPredicateTypes))
 	for k := range WellKnownPredicateTypes {
@@ -35,17 +98,6 @@ func ResolvePredicateType(shortOrURI string) (string, error) {
 	return "", fmt.Errorf("unknown predicate type %q: use a full URI or one of: %s", shortOrURI, PredicateTypeHelp())
 }
 
-// predicateKindAliases groups predicate URIs denoting the same attestation kind:
-// signed and legacy artifacts of one kind carry different URIs (unversioned by the
-// cosign convention vs versioned legacy), so artifact slot selection must accept
-// the whole set. Keyed by every member of the set.
-var predicateKindAliases = map[string][]string{
-	"https://openvex.dev/ns":         {"https://openvex.dev/ns", "https://openvex.dev/ns/v0.2.0"},
-	"https://openvex.dev/ns/v0.2.0":  {"https://openvex.dev/ns", "https://openvex.dev/ns/v0.2.0"},
-	"https://cyclonedx.org/bom":      {"https://cyclonedx.org/bom", "https://cyclonedx.org/bom/v1.6"},
-	"https://cyclonedx.org/bom/v1.6": {"https://cyclonedx.org/bom", "https://cyclonedx.org/bom/v1.6"},
-}
-
 // PredicateKindAliases resolves a short name or URI to every predicate URI of the
 // same attestation kind. Unknown kinds resolve to themselves.
 func PredicateKindAliases(shortOrURI string) ([]string, error) {
@@ -53,35 +105,30 @@ func PredicateKindAliases(shortOrURI string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if aliases, ok := predicateKindAliases[resolved]; ok {
-		return aliases, nil
+	if kind, ok := predicateKindOf(resolved); ok {
+		return kind.Types(), nil
 	}
 	return []string{resolved}, nil
 }
 
 // PredicateTypeMatches reports whether a found statement predicate satisfies the
-// requested one. OpenVEX predicates match across the versioned/unversioned alias
-// set (signed artifacts carry the unversioned URI, legacy ones the versioned);
-// every other predicate type requires an exact match.
+// requested one: exactly, or across the URI set of an alias-matching kind.
 func PredicateTypeMatches(requested, found string) bool {
 	if requested == found {
 		return true
 	}
-	aliases, ok := predicateKindAliases[requested]
-	if !ok || !strings.HasPrefix(requested, "https://openvex.dev/") {
-		return false
-	}
-	return slices.Contains(aliases, found)
+	kind, ok := predicateKindOf(requested)
+	return ok && kind.AliasMatching && slices.Contains(kind.Types(), found)
 }
 
 // ImageLevelPredicateType reports whether attestations of the given predicate
-// type are attached to the image (index) digest itself rather than to per-platform
-// manifests. OpenVEX documents are image-level: one document per image, matching
-// vexctl/docker scout behavior.
+// type are attached to the image (index) digest itself rather than to
+// per-platform manifests.
 func ImageLevelPredicateType(shortOrURI string) bool {
 	resolved, err := ResolvePredicateType(shortOrURI)
 	if err != nil {
 		return false
 	}
-	return slices.Contains(predicateKindAliases["https://openvex.dev/ns"], resolved)
+	kind, ok := predicateKindOf(resolved)
+	return ok && kind.ImageLevel
 }

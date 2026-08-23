@@ -319,6 +319,16 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
 	}
 
+	osPmDirectiveCount := 0
+	for _, rawPkg := range c.RawPackages {
+		if rawPkg.Type == string(PackagesDirectiveTypeOSPM) {
+			osPmDirectiveCount++
+		}
+	}
+	if osPmDirectiveCount > 1 {
+		return nil, newDetailedConfigError("the `packages` section allows only one `os-pm` directive", nil, c.doc)
+	}
+
 	for i, rawPkg := range c.RawPackages {
 		pkgDirective, err := rawPkg.toDirective(i)
 		if err != nil {

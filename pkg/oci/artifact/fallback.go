@@ -112,7 +112,7 @@ func attachDescriptor(ctx context.Context, repo, parentDigest string, artifactDe
 	eb.InitialInterval = attachInitialInterval
 
 	notify := func(err error, duration time.Duration) {
-		logboek.Context(ctx).Warn().LogF("SBOM attach not converged yet: %s. Retrying in %v...\n", err, duration)
+		logboek.Context(ctx).Warn().LogF("Artifact attach not converged yet: %s. Retrying in %v...\n", err, duration)
 	}
 
 	_, err := backoff.Retry(ctx, func() (bool, error) {

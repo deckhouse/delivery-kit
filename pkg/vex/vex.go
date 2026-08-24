@@ -7,24 +7,28 @@ import (
 	"github.com/werf/werf/v2/pkg/attestation"
 )
 
-const (
-	// VEXPredicateURI is the in-toto predicate type for OpenVEX documents.
-	VEXPredicateURI = "https://openvex.dev/ns/v0.2.0"
+// Predicate URIs and media types of VEX artifacts. attestation.PredicateKindOpenVEX
+// owns them; these aliases exist so VEX code reads in its own terms.
+var (
+	// VEXPredicateURI is the in-toto predicate type of unsigned OpenVEX documents.
+	VEXPredicateURI = attestation.PredicateKindOpenVEX.UnsignedType
 
-	// VEXPredicateURIUnversioned is the unversioned OpenVEX predicate type used for
-	// signed attestations: stock cosign resolves its `openvex` well-known type to
-	// this URI, so signed artifacts must carry it to be verifiable out of the box.
-	VEXPredicateURIUnversioned = "https://openvex.dev/ns"
+	// VEXPredicateURIUnversioned is the predicate type of signed OpenVEX
+	// attestations: stock cosign resolves its `openvex` well-known type to this
+	// URI, so signed artifacts must carry it to be verifiable out of the box.
+	VEXPredicateURIUnversioned = attestation.PredicateKindOpenVEX.SignedType
 
-	// DSSEMediaType is the media type for DSSE envelopes used by VEX artifacts.
-	DSSEMediaType = "application/vnd.dsse.envelope.v1+json"
-
-	// InTotoMediaType is the media type for in-toto statements used by VEX artifacts.
-	InTotoMediaType = "application/vnd.in-toto+json"
+	// VEXPredicateTypes lists every predicate URI denoting the OpenVEX attestation kind.
+	VEXPredicateTypes = attestation.PredicateKindOpenVEX.Types()
 )
 
-// VEXPredicateTypes lists every predicate URI denoting the OpenVEX attestation kind.
-var VEXPredicateTypes = attestation.PredicateKindOpenVEX.Types()
+const (
+	// DSSEMediaType is the media type for DSSE envelopes used by VEX artifacts.
+	DSSEMediaType = attestation.DSSEMediaType
+
+	// InTotoMediaType is the media type for in-toto statements used by VEX artifacts.
+	InTotoMediaType = attestation.InTotoMediaType
+)
 
 // openVEXDocument is a minimal representation of an OpenVEX JSON-LD document
 // used for format validation.

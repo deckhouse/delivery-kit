@@ -71,7 +71,7 @@ func checkVEXPublishNeeded(ctx context.Context, store artifact.Store, parentDige
 		return false, fmt.Errorf("check VEX cache (bundle): %w", err)
 	}
 	if !found {
-		desc, found, err = store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes)
+		desc, found, err = store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType, vex.VEXPredicateTypes)
 		if err != nil {
 			return false, fmt.Errorf("check VEX cache (dsse): %w", err)
 		}

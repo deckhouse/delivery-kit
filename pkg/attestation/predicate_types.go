@@ -7,12 +7,17 @@ import (
 	"strings"
 )
 
+// WellKnownPredicateTypes maps cosign-compatible short names to predicate URIs.
+// Entries of a PredicateKind are expressed through the kind, which owns the URIs.
 var WellKnownPredicateTypes = map[string]string{
-	"openvex":         "https://openvex.dev/ns/v0.2.0",
+	// Resolves to the versioned URI for backward compatibility; alias matching
+	// covers the unversioned URI signed artifacts carry.
+	PredicateKindOpenVEX.Name:   PredicateKindOpenVEX.UnsignedType,
+	PredicateKindCycloneDX.Name: PredicateKindCycloneDX.SignedType,
+
 	"slsaprovenance":  "https://slsa.dev/provenance/v0.2",
 	"slsaprovenance1": "https://slsa.dev/provenance/v1",
 	"spdxjson":        "https://spdx.dev/Document",
-	"cyclonedx":       "https://cyclonedx.org/bom",
 }
 
 // PredicateKind describes an attestation kind whose artifacts may carry different

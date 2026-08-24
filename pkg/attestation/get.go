@@ -11,6 +11,20 @@ import (
 )
 
 func Get(ctx context.Context, repo, parentDigest, imageName, predicateType string) ([]byte, error) {
+	return pullPredicate(ctx, repo, parentDigest, imageName, predicateType, func(_ context.Context, envelopeJSON []byte) ([]byte, error) {
+		stmtBytes, err := UnwrapDSSE(envelopeJSON, InTotoMediaType)
+		if err != nil {
+			return nil, fmt.Errorf("unwrap DSSE envelope: %w", err)
+		}
+		return stmtBytes, nil
+	})
+}
+
+// pullPredicate resolves the attestation of the requested predicate kind and
+// returns its predicate. openEnvelope turns the stored DSSE envelope into the
+// in-toto statement: reading it as-is for Get, verifying its signatures for
+// Verify.
+func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicateType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {
 	resolvedType, err := ResolvePredicateType(predicateType)
 	if err != nil {
 		return nil, err
@@ -28,9 +42,9 @@ func Get(ctx context.Context, repo, parentDigest, imageName, predicateType strin
 		return nil, err
 	}
 
-	stmtBytes, err := UnwrapDSSE(envelopeJSON, InTotoMediaType)
+	stmtBytes, err := openEnvelope(ctx, envelopeJSON)
 	if err != nil {
-		return nil, fmt.Errorf("unwrap DSSE envelope: %w", err)
+		return nil, err
 	}
 
 	predicate, foundType, err := UnwrapInTotoStatement(stmtBytes)

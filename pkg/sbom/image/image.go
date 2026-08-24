@@ -3,6 +3,7 @@ package image
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -14,10 +15,21 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
-const (
-	scratchImageName     = "scratch"
-	CycloneDX16Predicate = "https://cyclonedx.org/bom/v1.6"
-	CycloneDXPredicate   = "https://cyclonedx.org/bom"
+const scratchImageName = "scratch"
+
+// Predicate URIs of SBOM artifacts. attestation.PredicateKindCycloneDX owns them;
+// these aliases exist so SBOM code reads in its own terms.
+var (
+	// CycloneDX16Predicate is the predicate type of unsigned SBOM artifacts.
+	CycloneDX16Predicate = attestation.PredicateKindCycloneDX.UnsignedType
+
+	// CycloneDXPredicate is the predicate type of signed SBOM attestations
+	// (unversioned, per the cosign convention).
+	CycloneDXPredicate = attestation.PredicateKindCycloneDX.SignedType
+
+	// CycloneDXPredicateTypes lists every predicate URI denoting the CycloneDX SBOM
+	// attestation kind.
+	CycloneDXPredicateTypes = attestation.PredicateKindCycloneDX.Types()
 )
 
 func IsScratchRef(imageRef string) bool {
@@ -42,10 +54,6 @@ func IsScratchRef(imageRef string) bool {
 func FallbackTag(parentDigest string) string {
 	return artifact.FallbackTag(parentDigest)
 }
-
-// CycloneDXPredicateTypes lists every predicate URI denoting the CycloneDX SBOM
-// attestation kind.
-var CycloneDXPredicateTypes = attestation.PredicateKindCycloneDX.Types()
 
 func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string, signer signature.Signer) error {
 	return attestation.PublishAttestation(ctx, attestation.PredicateKindCycloneDX, bomJSON, repo, parentDigest, imageName, attestation.PublishAttestationOptions{
@@ -77,8 +85,8 @@ func extractBOMFromEnvelope(envelopeJSON []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unwrap in-toto statement: %w", err)
 	}
 
-	if predicateType != CycloneDX16Predicate && predicateType != CycloneDXPredicate {
-		return nil, fmt.Errorf("unexpected in-toto predicate type %q, expected %q or %q", predicateType, CycloneDX16Predicate, CycloneDXPredicate)
+	if !slices.Contains(CycloneDXPredicateTypes, predicateType) {
+		return nil, fmt.Errorf("unexpected in-toto predicate type %q, expected one of %s", predicateType, strings.Join(CycloneDXPredicateTypes, ", "))
 	}
 
 	return []byte(predicate), nil

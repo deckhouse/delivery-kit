@@ -246,7 +246,7 @@ var _ = Describe("Default registry authentication (integration)", func() {
 		server.Close()
 	})
 
-	It("should pull artifact content via GetAttachedContentAny using default docker_registry auth", func(ctx SpecContext) {
+	It("should pull artifact content of any image name using default docker_registry auth", func(ctx SpecContext) {
 		attacher := artifact.NewOCIStore(repo, "my-app", authOpts...)
 		Expect(attacher.Attach(ctx, parentDigest, artifactType, []byte(`{"sbom":"data"}`), "", "", "")).To(Succeed())
 

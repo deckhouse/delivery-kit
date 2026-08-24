@@ -232,5 +232,50 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		By("rebuilding unchanged hits the VEX cache")
 		rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
 		Expect(rebuildOut).To(ContainSubstring("VEX artifact is up to date"))
+
+		// Last step of the spec: it skips when no cosign binary is available, so
+		// every assertion above still runs on runners without cosign.
+		By("stock cosign verifies the index attestation offline when available")
+		attestutils.RunCosignOfflineVerify(ctx, attestutils.CosignVerifyOptions{
+			Repo:          repo,
+			Digest:        indexDigest,
+			PubKeyPath:    signKeys.PubKeyPath,
+			PredicateType: "openvex",
+			TmpDir:        SuiteData.TmpDir,
+		})
+	})
+
+	It("US1: stock cosign verifies the signed VEX attestation of a single-platform image offline", func(ctx SpecContext) {
+		setupVexEnv("vanilla-docker")
+
+		repoDirname := "repo_vex_signing_cosign"
+		SuiteData.InitTestRepo(ctx, repoDirname, "simple")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		repo := suite_init.TestRepo(SuiteData.ProjectName)
+
+		signKeys := attestutils.GenerateSigningKeyPairWithCert(SuiteData.TmpDir)
+		signEnv := []string{
+			"WERF_SIGN_KEY=" + signKeys.KeyPath,
+			"WERF_SIGN_CERT=" + signKeys.CertPath,
+		}
+
+		buildReportPath := filepath.Join(SuiteData.TmpDir, "vex_signing_cosign.json")
+		werfProject.Build(ctx, &werf.BuildOptions{
+			CommonOptions: werf.CommonOptions{
+				Envs:      signEnv,
+				ExtraArgs: []string{"--save-build-report", "--build-report-path", buildReportPath},
+			},
+		})
+		digest := readDigestFromReport(buildReportPath, "app")
+
+		attestutils.RunCosignOfflineVerify(ctx, attestutils.CosignVerifyOptions{
+			Repo:          repo,
+			Digest:        digest,
+			PubKeyPath:    signKeys.PubKeyPath,
+			PredicateType: "openvex",
+			TmpDir:        SuiteData.TmpDir,
+		})
 	})
 })

@@ -3,8 +3,6 @@ package e2e_build_test
 import (
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 
 	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -18,6 +16,7 @@ import (
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v2/test/pkg/attestutils"
 	"github.com/werf/werf/v2/test/pkg/report"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -226,37 +225,13 @@ func fetchArtifactLayerContent(ctx SpecContext, repo, digest string) []byte {
 	return content
 }
 
-// runCosignOfflineVerify runs the canonical offline cosign verification when a
-// cosign binary is available (env WERF_TEST_COSIGN_BIN or in PATH):
-//
-//	cosign trusted-root create --out tr.json
-//	cosign verify-attestation --new-bundle-format --trusted-root tr.json \
-//	  --insecure-ignore-tlog=true --key pub.pem --type cyclonedx <image>@<digest>
+// runCosignOfflineVerify verifies the SBOM attestation with stock cosign, offline.
 func runCosignOfflineVerify(ctx SpecContext, repo, digest, pubKeyPath string) {
-	cosignBin := os.Getenv("WERF_TEST_COSIGN_BIN")
-	if cosignBin == "" {
-		var err error
-		cosignBin, err = exec.LookPath("cosign")
-		if err != nil {
-			Skip("cosign binary not available: set WERF_TEST_COSIGN_BIN or add cosign to PATH")
-		}
-	}
-
-	trustedRootPath := filepath.Join(SuiteData.TmpDir, "cosign-trusted-root.json")
-	createCmd := exec.CommandContext(ctx, cosignBin, "trusted-root", "create", "--out", trustedRootPath)
-	createOut, err := createCmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "cosign trusted-root create failed: %s", string(createOut))
-
-	verifyCmd := exec.CommandContext(ctx, cosignBin, "verify-attestation",
-		"--new-bundle-format",
-		"--trusted-root", trustedRootPath,
-		"--insecure-ignore-tlog=true",
-		"--key", pubKeyPath,
-		"--type", "cyclonedx",
-		repo+"@"+digest,
-	)
-	verifyCmd.Env = append(os.Environ(), "COSIGN_ALLOW_INSECURE_REGISTRY=true")
-	verifyOut, err := verifyCmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "cosign verify-attestation failed: %s", string(verifyOut))
-	Expect(string(verifyOut)).To(ContainSubstring("verified"))
+	attestutils.RunCosignOfflineVerify(ctx, attestutils.CosignVerifyOptions{
+		Repo:          repo,
+		Digest:        digest,
+		PubKeyPath:    pubKeyPath,
+		PredicateType: "cyclonedx",
+		TmpDir:        SuiteData.TmpDir,
+	})
 }

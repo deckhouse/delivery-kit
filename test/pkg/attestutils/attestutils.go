@@ -3,12 +3,16 @@ package attestutils
 import (
 	"context"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 
@@ -99,4 +103,61 @@ func FetchArtifactLayerContent(ctx context.Context, repo, digest string) []byte 
 
 func remoteOptions(ctx context.Context) []remote.Option {
 	return []remote.Option{remote.WithContext(ctx), remote.WithAuth(authn.Anonymous)}
+}
+
+// CosignVerifyOptions describes one offline stock-cosign verification.
+type CosignVerifyOptions struct {
+	Repo string
+
+	// Digest identifies what to verify: an image manifest digest, or an image
+	// index digest for image-level attestations such as OpenVEX.
+	Digest string
+
+	// PubKeyPath is the bare public key the attestation is verified against.
+	PubKeyPath string
+
+	// PredicateType is the cosign --type value, e.g. "cyclonedx" or "openvex".
+	PredicateType string
+
+	// TmpDir holds the generated empty trusted root.
+	TmpDir string
+}
+
+// RunCosignOfflineVerify verifies an attestation with stock cosign, fully
+// offline, the way a client holding only the public key would:
+//
+//	cosign trusted-root create --out tr.json
+//	cosign verify-attestation --new-bundle-format --trusted-root tr.json \
+//	  --insecure-ignore-tlog=true --key pub.pem --type <predicate> <image>@<digest>
+//
+// The spec skips when no cosign binary is available (env WERF_TEST_COSIGN_BIN or
+// PATH): CI runners carry no cosign, so this check is a bonus over the
+// in-process DSSE verification the suites always perform.
+func RunCosignOfflineVerify(ctx context.Context, opts CosignVerifyOptions) {
+	cosignBin := os.Getenv("WERF_TEST_COSIGN_BIN")
+	if cosignBin == "" {
+		var err error
+		cosignBin, err = exec.LookPath("cosign")
+		if err != nil {
+			ginkgo.Skip("cosign binary not available: set WERF_TEST_COSIGN_BIN or add cosign to PATH")
+		}
+	}
+
+	trustedRootPath := filepath.Join(opts.TmpDir, "cosign-trusted-root.json")
+	createCmd := exec.CommandContext(ctx, cosignBin, "trusted-root", "create", "--out", trustedRootPath)
+	createOut, err := createCmd.CombinedOutput()
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "cosign trusted-root create failed: %s", string(createOut))
+
+	verifyCmd := exec.CommandContext(ctx, cosignBin, "verify-attestation",
+		"--new-bundle-format",
+		"--trusted-root", trustedRootPath,
+		"--insecure-ignore-tlog=true",
+		"--key", opts.PubKeyPath,
+		"--type", opts.PredicateType,
+		opts.Repo+"@"+opts.Digest,
+	)
+	verifyCmd.Env = append(os.Environ(), "COSIGN_ALLOW_INSECURE_REGISTRY=true")
+	verifyOut, err := verifyCmd.CombinedOutput()
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "cosign verify-attestation failed: %s", string(verifyOut))
+	gomega.ExpectWithOffset(1, string(verifyOut)).To(gomega.ContainSubstring("verified"))
 }

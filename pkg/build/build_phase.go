@@ -420,12 +420,8 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	var signer signature.Signer
 	var signerIdentity string
 	if phase.SbomSigningOptions.Enabled {
-		if sbomSigningSupported(images) {
-			signer = phase.SbomSigningOptions.Signer().SignerVerifier()
-			signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
-		} else {
-			logboek.Context(ctx).Warn().LogF("multi-platform SBOM signing is not yet supported, SBOM will be unsigned\n")
-		}
+		signer = phase.SbomSigningOptions.Signer().SignerVerifier()
+		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
 	}
 
 	for _, img := range images {
@@ -504,10 +500,6 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 	}
 
 	return nil
-}
-
-func sbomSigningSupported(images []*image.Image) bool {
-	return len(images) == 1
 }
 
 func (phase *BuildPhase) scanOptionsForImage(img *image.Image) scanner.ScanOptions {

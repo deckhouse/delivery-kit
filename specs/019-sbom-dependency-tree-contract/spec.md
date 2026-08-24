@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-24
 
-**Status**: Implemented (extraction pending)
+**Status**: Implemented
 
 **Input**: Review of PR #268: add a spec for these changes, and — if possible — move this logic into a dedicated subpackage inside SBOM (`pkg/build/build_phase.go` L268-286 and L338-442).
 

@@ -31,6 +31,6 @@
 
 ## Notes
 
-- Status of implementation at the time of writing: US1 (FR-001…FR-006) and US2 (FR-007) are implemented in this branch; US3 (FR-008…FR-011, the extraction into a dedicated SBOM subpackage) is the remaining work requested during review of PR #268.
+- All three user stories are implemented in this branch: US1 (FR-001…FR-006) and US2 (FR-007) as behaviour fixes, US3 (FR-008…FR-011) as the extraction into `pkg/sbom/convergefailure` requested during review of PR #268.
 - FR-008 lists what belongs to the extracted package by responsibility, not by function name, so the spec stays valid if signatures change during planning.
 - SC-005 makes output parity the acceptance gate for the extraction: it is a pure refactor and that is its entire risk surface.

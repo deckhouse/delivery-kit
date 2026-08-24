@@ -7,19 +7,19 @@ updated: 2026-08-17
 
 ## Chosen approach
 
-`convergeSbomByImagesSets` in `pkg/build/` accumulates PURL failures across **all** image sets using a `sync.Map` (storing `imageName → purlFailureRecord`). A helper function `buildAggregatedPurlError` iterates the map, formats the failures hierarchically, and returns a single aggregated error at the end (S001).
+`pkg/sbom/convergefailure` owns the failure semantics of an SBOM converge run; `convergeSbomByImagesSets` in `pkg/build/` only orchestrates it. A `Tracker` created per build accumulates failures across **all** image sets (an image-name-keyed `sync.Map` of `Record`), and `Tracker.AggregatedError` renders them hierarchically into a single error (S001).
 
-A `purlFailureRecord` is either a **direct failure** (`rootImage` equals the image's own name; carries component-level details from `ComponentError.ComponentDetails()`) or a **skip record** (`rootImage` points at the root-cause image). Any image whose record is present is treated as "SBOM not generated in this run": dependents — via `fromImage` (`GetBaseImageName()`) or internal `import` sources (`GetImportImagesInfo()`) — are skipped before converge with the root cause propagated transitively (A → B → C reports A). The same gate guards both `collectBaseImageSbom` and `collectImportImageSboms` (`dependencyPurlFailureError`).
+A `Record` is either a **direct failure** (`RootImage` equals the image's own name; carries component-level details from `ComponentError.ComponentDetails()`) or a **skip record** (`RootImage` points at the root-cause image). Any image with a record is treated as "SBOM not generated in this run": dependents — via `fromImage` or internal `import` sources, collected by `DependencyImageNames` — are skipped by `Tracker.SkipDependent` before converge, with the root cause propagated transitively (A → B → C reports A). The same store answers `Tracker.DependencyError`, which guards both `collectBaseImageSbom` and `collectImportImageSboms`.
 
 ## Why
 
-- The function already owns the `parallel.DoTasks` calls and iterates over all image sets — accumulating at this level is the natural integration point.
+- One package owns the whole contract, so a change to failure semantics (a new dependency kind, a new failure class, a report change) is made once and applies to every consumer; the import-dependency gap existed while base and import paths were handled separately.
 - A single aggregated error is cleaner for consumers than handling N separate errors from N image sets.
 - Non-PURL errors from `parallel.DoTasks` still propagate immediately (not aggregated) — with one exception: a resolver circuit-breaker trip (`ErrResolverUnavailable`) is checked **before** the `ErrExternalRefEnrich` defer branch, because `ExternalRefPatcher.Apply` wraps every enrich failure (including trips) with the enrich sentinel.
 
 ## Guarantees
 
-- The aggregated report is emitted on **every** exit path of `convergeSbomByImagesSets`: on the happy path it is the returned error; on a hard error (including a breaker trip) it is logged via `logboek` before the hard error propagates, and the hard error stays terminal.
+- `Tracker.Finish` emits the aggregated report on **every** exit path: on the happy path it is the returned error; on a hard error (including a breaker trip) it is logged via `logboek` before the hard error propagates, and the hard error stays terminal.
 - A breaker trip is canonicalized via `ResolverBreaker.UnavailableError()` so exactly one resolver-unavailable error naming the endpoint surfaces per build, regardless of how many parallel workers observed the trip.
 
 ## Hierarchical error format

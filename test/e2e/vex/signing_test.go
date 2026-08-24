@@ -11,6 +11,7 @@ import (
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/vex"
 	"github.com/werf/werf/v2/test/pkg/attestutils"
+	"github.com/werf/werf/v2/test/pkg/report"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -152,8 +153,10 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
 		SuiteData.Stubs.SetEnv("WERF_EXPERIMENTAL_STAPEL_ARM", "1")
+		SuiteData.Stubs.SetEnv("WERF_ENABLE_REPORT_BY_PLATFORM", "1")
 
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		reportProject := report.NewProjectWithReport(werfProject)
 		repo := suite_init.TestRepo(SuiteData.ProjectName)
 
 		signKeys := attestutils.GenerateSigningKeyPairWithCert(SuiteData.TmpDir)
@@ -162,14 +165,13 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 			"WERF_SIGN_CERT=" + signKeys.CertPath,
 		}
 
-		buildReportPath := filepath.Join(SuiteData.TmpDir, "vex_signing_multiplatform.json")
-		werfProject.Build(ctx, &werf.BuildOptions{
-			CommonOptions: werf.CommonOptions{
-				Envs:      signEnv,
-				ExtraArgs: []string{"--save-build-report", "--build-report-path", buildReportPath},
-			},
-		})
-		indexDigest := readDigestFromReport(buildReportPath, "app")
+		_, buildReport := reportProject.BuildWithReport(ctx,
+			SuiteData.GetBuildReportPath("vex_signing_multiplatform.json"),
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}},
+		)
+
+		indexDigest := buildReport.Images["app"].DockerImageDigest
+		Expect(indexDigest).NotTo(BeEmpty())
 
 		By("the signed bundle is attached to the index digest")
 		bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, indexDigest, attestation.BundleMediaType)
@@ -186,14 +188,17 @@ var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func()
 		Expect(string(stmtBytes)).To(ContainSubstring(indexDigest[len("sha256:"):]))
 
 		By("no VEX artifact is attached to any platform manifest digest")
-		platforms, err := artifact.ListIndexPlatforms(ctx, repo, indexDigest)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(platforms).To(HaveLen(2))
-		for _, platform := range platforms {
-			Expect(attestutils.FindArtifactDescriptor(ctx, repo, platform.Digest, attestation.BundleMediaType)).To(BeNil(),
-				"platform %s must not carry a VEX bundle", platform.Platform)
-			Expect(attestutils.FindArtifactDescriptor(ctx, repo, platform.Digest, vex.DSSEMediaType)).To(BeNil(),
-				"platform %s must not carry a VEX artifact", platform.Platform)
+		byPlatform := buildReport.ImagesByPlatform["app"]
+		Expect(byPlatform).To(HaveLen(2), "expected a build report record per platform")
+		for platform, record := range byPlatform {
+			platformDigest := record.DockerImageDigest
+			Expect(platformDigest).NotTo(BeEmpty())
+			Expect(platformDigest).NotTo(Equal(indexDigest))
+
+			Expect(attestutils.FindArtifactDescriptor(ctx, repo, platformDigest, attestation.BundleMediaType)).To(BeNil(),
+				"platform %s must not carry a VEX bundle", platform)
+			Expect(attestutils.FindArtifactDescriptor(ctx, repo, platformDigest, vex.DSSEMediaType)).To(BeNil(),
+				"platform %s must not carry a VEX artifact", platform)
 		}
 
 		By("attest verify on the index reference works without --platform")

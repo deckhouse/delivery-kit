@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/werf/common-go/pkg/util"
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
 
 var _ = Describe("rawPackagesDirective", func() {
@@ -363,6 +364,86 @@ var _ = Describe("rawPackagesDirective", func() {
 					},
 				},
 			},
+		),
+	)
+
+	DescribeTable("rejects PM_LOCK_FILE for os-pm",
+		func(ctx SpecContext, value string) {
+			_, err := directivesFromYaml(ctx, map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env": map[string]interface{}{
+							"PM_LOCK_FILE": value,
+						},
+					},
+				},
+			})
+			Expect(err).To(MatchError(ContainSubstring("PM_LOCK_FILE")))
+			Expect(err).To(MatchError(ContainSubstring(metadata.ContainerFactoryIndexPath)))
+		},
+
+		Entry("custom path", "/custom/index.json"),
+		Entry("default path", metadata.ContainerFactoryIndexPath),
+		Entry("relative path", "index.json"),
+		Entry("empty value", ""),
+	)
+
+	DescribeTable("accepts unaffected package environment configuration",
+		func(ctx SpecContext, yamlMap map[string]interface{}, expectedType PackagesDirectiveType, expectedEnv map[string]string) {
+			packages, err := directivesFromYaml(ctx, yamlMap)
+			Expect(err).To(Succeed())
+			Expect(packages).To(HaveLen(1))
+			Expect(packages[0].Type).To(Equal(expectedType))
+			Expect(packages[0].Env).To(Equal(expectedEnv))
+		},
+
+		Entry("os-pm without PM_LOCK_FILE",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+					},
+				},
+			},
+			PackagesDirectiveTypeOSPM,
+			nil,
+		),
+		Entry("os-pm with unrelated environment variable",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type": "os-pm",
+						"spec": []string{"curl"},
+						"env":  map[string]interface{}{"HTTP_PROXY": "http://proxy:8080"},
+					},
+				},
+			},
+			PackagesDirectiveTypeOSPM,
+			map[string]string{"HTTP_PROXY": "http://proxy:8080"},
+		),
+		Entry("non-os-pm with unrelated environment variable",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"packages": []map[string]interface{}{
+					{
+						"type":    "go-mod",
+						"workdir": "/app",
+						"env":     map[string]interface{}{"PM_LOCK_FILE": "/custom/index.json"},
+					},
+				},
+			},
+			PackagesDirectiveTypeGoMod,
+			map[string]string{"PM_LOCK_FILE": "/custom/index.json"},
 		),
 	)
 })

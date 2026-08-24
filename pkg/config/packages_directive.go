@@ -188,6 +188,9 @@ func (d *PackagesDirective) validate() error {
 
 	switch d.Type {
 	case PackagesDirectiveTypeOSPM:
+		if _, ok := d.Env["PM_LOCK_FILE"]; ok {
+			return fmt.Errorf("environment variable PM_LOCK_FILE is not supported for type %q; the pm SBOM state must remain at %s", d.Type, metadata.ContainerFactoryIndexPath)
+		}
 		if len(d.Spec.Packages) == 0 {
 			return fmt.Errorf("the `spec` is required for type %q", d.Type)
 		}

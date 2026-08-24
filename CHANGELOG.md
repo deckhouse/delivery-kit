@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.77.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.3...v2.77.0-dk.4) (2026-08-21)
+
+
+### Features
+
+* **sbom:** expose pm index version as a component property ([#258](https://github.com/deckhouse/delivery-kit/issues/258)) ([13c2b4e](https://github.com/deckhouse/delivery-kit/commit/13c2b4e0158c3c21108eb051e75358d545fa4c64))
+
+
+### Bug Fixes
+
+* **sbom:** ensure single os-pm config section ([#264](https://github.com/deckhouse/delivery-kit/issues/264)) ([afb3882](https://github.com/deckhouse/delivery-kit/commit/afb3882d845c035535fe72f0c63f225aefed3a04))
+* **sbom:** reject PM_LOCK_FILE env ([#265](https://github.com/deckhouse/delivery-kit/issues/265)) ([4709e65](https://github.com/deckhouse/delivery-kit/commit/4709e65a825528be8058fbf3e8a648c10363ee74))
+* **sbom:** report real causes and fail fast when PURL resolution fails ([#260](https://github.com/deckhouse/delivery-kit/issues/260)) ([9b2d351](https://github.com/deckhouse/delivery-kit/commit/9b2d351ad0c1422933fb509c88a79027db7351bb))
+* **sbom:** warn about missing stageDependencies for file-based packages ([#263](https://github.com/deckhouse/delivery-kit/issues/263)) ([17d44ab](https://github.com/deckhouse/delivery-kit/commit/17d44abfaabfcffd4226cd24b7f17ce92c1afb22))
+
 ## [2.77.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.2...v2.77.0-dk.3) (2026-08-18)
 
 

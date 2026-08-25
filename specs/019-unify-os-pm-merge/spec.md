@@ -56,7 +56,7 @@ As a maintainer of the SBOM subsystem, I want the pm merge to carry over every s
 ### Edge Cases
 
 - pm index present but yields zero packages → merge is skipped entirely; the incoming SBOM is returned as-is.
-- No incoming SBOM exists (pm is the only source) → a fresh valid SBOM document is created and the pm packages merged into it.
+- The SBOM under construction always exists by the time pm data is merged (it is created or parsed earlier in the pipeline), so pm merging never has to create a document of its own.
 - Duplicate packages between the scanner output and pm output (same normalized package identity) → exactly one component survives deduplication.
 - pm document reference identifiers colliding with identifiers already present in the incoming SBOM → references are rewritten to remain document-unique, and all internal links follow the rewrite.
 
@@ -71,7 +71,7 @@ As a maintainer of the SBOM subsystem, I want the pm merge to carry over every s
 - **FR-005**: The merged result MUST be deduplicated by normalized package identity, keeping a single component per identity.
 - **FR-006**: All sections of the pm-contributed document MUST propagate into the merged result, not a fixed subset.
 - **FR-007**: When the pm source yields no packages, the incoming SBOM MUST be returned unchanged.
-- **FR-008**: When no incoming SBOM exists, the merge MUST produce a new valid SBOM document containing the pm packages.
+- **FR-008**: There MUST be exactly one merge path for pm data: the SBOM under construction is always merged through the shared pipeline at the point of use, with no intermediate wrapper owning its own merge or document-creation rules.
 
 ### Key Entities
 

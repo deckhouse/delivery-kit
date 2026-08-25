@@ -489,6 +489,20 @@ var _ = Describe("MergeBOMs", func() {
 			}},
 			1,
 		),
+		Entry("import BOM merged into target — refs rewritten, both survive",
+			&cdx.BOM{
+				SpecVersion:  cdx.SpecVersion1_6,
+				Metadata:     &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeContainer, Name: "app"}},
+				Components:   &[]cdx.Component{{BOMRef: "pkg:deb/bash@5.2", PackageURL: "pkg:deb/bash@5.2", Name: "bash", Version: "5.2"}},
+				Dependencies: &[]cdx.Dependency{{Ref: "pkg:deb/bash@5.2"}},
+			},
+			MergeOpts{ImportBOMs: []*cdx.BOM{{
+				SpecVersion:  cdx.SpecVersion1_6,
+				Components:   &[]cdx.Component{{BOMRef: "pkg:generic/zlib@1.3", PackageURL: "pkg:generic/zlib@1.3", Name: "zlib", Version: "1.3"}},
+				Dependencies: &[]cdx.Dependency{{Ref: "pkg:generic/zlib@1.3"}},
+			}}},
+			2,
+		),
 	)
 })
 

@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -14,7 +13,6 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/level"
 	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	"github.com/werf/werf/v2/test/mock"
 )
@@ -137,7 +135,7 @@ var _ = Describe("CollectBOM (AI)", func() {
 			ReadFileFromImage(ctx, imageRef, ContainerFactoryVersionPath, container_backend.ReadFileFromImageOpts{}).
 			Return([]byte("image-version\n"), nil)
 
-		bom, err := CollectAndMergeBOM(ctx, mockBackend, imageRef, nil)
+		bom, err := CollectBOM(ctx, mockBackend, imageRef)
 		Expect(err).To(Succeed())
 		Expect(bom).ToNot(BeNil())
 		Expect((*bom.Components)[0].PackageURL).To(ContainSubstring("containerfactoryversion=image-version"))
@@ -149,39 +147,6 @@ var _ = Describe("CollectBOM (AI)", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("resolver unavailable"))
 		Expect(err.Error()).To(ContainSubstring((*bom.Components)[0].Name))
-	})
-
-	It("merges pm components into a non-nil target preserving its metadata and components", func() {
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, ContainerFactoryIndexPath, container_backend.ReadFileFromImageOpts{}).
-			Return(examplePmInstalledJSON, nil)
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, ContainerFactoryVersionPath, container_backend.ReadFileFromImageOpts{}).
-			Return([]byte("image-version\n"), nil)
-
-		target := cyclonedxutil.NewBOM()
-		target.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeContainer, Name: "app"}}
-		target.Components = &[]cdx.Component{{
-			BOMRef:     "pkg:deb/debian/bash@5.2",
-			Type:       cdx.ComponentTypeLibrary,
-			Name:       "bash",
-			Version:    "5.2",
-			PackageURL: "pkg:deb/debian/bash@5.2",
-		}}
-
-		bom, err := CollectAndMergeBOM(ctx, mockBackend, imageRef, target)
-		Expect(err).To(Succeed())
-		Expect(bom).ToNot(BeNil())
-		Expect(bom.Metadata).ToNot(BeNil())
-		Expect(bom.Metadata.Component.Name).To(Equal("app"))
-		Expect(*bom.Components).To(HaveLen(7))
-
-		var names []string
-		for _, comp := range *bom.Components {
-			names = append(names, comp.Name)
-			Expect(comp.BOMRef).To(ContainSubstring("package-id="))
-		}
-		Expect(names).To(ContainElement("bash"))
 	})
 
 	It("returns nil for an expected missing version file", func() {

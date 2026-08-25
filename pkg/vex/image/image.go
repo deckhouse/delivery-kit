@@ -4,42 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sigstore/sigstore/pkg/signature"
+
 	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/vex"
 )
 
-// PushVEX publishes a VEX document as an OCI artifact attached to the
-// specified image manifest via subject reference.
-//
-// Parameters:
-//   - ctx: context for cancellation and deadlines
-//   - vexJSON: the raw VEX document JSON bytes
-//   - repo: the OCI repository (e.g., "registry.example.com/my-project")
-//   - parentDigest: the digest of the parent image manifest (e.g., "sha256:abcd...")
-//   - imageName: the image name from werf.yaml
-//   - checksum: checksum for cache invalidation (e.g., SHA-256 of VEX file)
-//   - targetPlatform: target platform string (e.g., "linux/amd64")
-func PushVEX(ctx context.Context, vexJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string) error {
-	digestHex, err := artifact.DigestHex(parentDigest)
+// PushVEX publishes a VEX document as an OCI artifact attached to the specified
+// image manifest (or index) via subject reference: a signed Sigstore Bundle with
+// a signer, the legacy bare-DSSE form without one. See
+// attestation.PublishAttestation for the supersede semantics.
+func PushVEX(ctx context.Context, vexJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform string, signer signature.Signer) error {
+	err := attestation.PublishAttestation(ctx, attestation.PredicateKindOpenVEX, vexJSON, repo, parentDigest, imageName, attestation.PublishAttestationOptions{
+		Signer:         signer,
+		Checksum:       checksum,
+		TargetPlatform: targetPlatform,
+	})
 	if err != nil {
-		return fmt.Errorf("extract digest hex: %w", err)
-	}
-
-	stmtBytes, err := attestation.WrapInInTotoStatement(vexJSON, vex.VEXPredicateURI, repo, digestHex)
-	if err != nil {
-		return fmt.Errorf("wrap VEX in in-toto statement: %w", err)
-	}
-
-	envelopeBytes, err := attestation.WrapInDSSE(ctx, stmtBytes, vex.InTotoMediaType, nil)
-	if err != nil {
-		return fmt.Errorf("wrap in-toto statement in DSSE: %w", err)
-	}
-
-	store := artifact.NewOCIStore(repo, imageName)
-	if err := store.Attach(ctx, parentDigest, vex.DSSEMediaType, envelopeBytes, checksum, targetPlatform); err != nil {
 		return fmt.Errorf("attach VEX artifact to image %s: %w (if the registry does not support OCI subject references, use a registry that supports OCI Distribution Spec v1.1+)", imageName, err)
 	}
-
 	return nil
 }

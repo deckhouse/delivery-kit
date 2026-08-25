@@ -85,7 +85,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		srcDigest = pushRandomImage(ctx, srcRepo)
 
 		srcStore := artifact.NewOCIStore(srcRepo, "app", remoteOpts...)
-		Expect(srcStore.Attach(ctx, srcDigest, attestation.DSSEMediaType, []byte(`{"v":1}`), "checksum-v1", "")).To(Succeed())
+		Expect(srcStore.Attach(ctx, srcDigest, attestation.DSSEMediaType, []byte(`{"v":1}`), "checksum-v1", "", "")).To(Succeed())
 	})
 
 	AfterEach(func() {
@@ -99,7 +99,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), stageDescFor(finalRepo, srcDigest), nil)).To(Succeed())
 
 		finalStore := artifact.NewOCIStore(finalRepo, "app", remoteOpts...)
-		content, err := finalStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType)
+		content, err := finalStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})
@@ -116,7 +116,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), nil, caches)).To(Succeed())
 
 		cacheStore := artifact.NewOCIStore(cacheRepo, "app", remoteOpts...)
-		content, err := cacheStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType)
+		content, err := cacheStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})

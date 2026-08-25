@@ -31,33 +31,21 @@ type PlatformVerifyResult struct {
 }
 
 func Verify(ctx context.Context, repo, parentDigest, imageName, predicateType string, verifiers []signature.Verifier) ([]byte, error) {
-	resolvedType, err := ResolvePredicateType(predicateType)
-	if err != nil {
-		return nil, err
-	}
+	return pullPredicate(ctx, repo, parentDigest, imageName, predicateType, func(ctx context.Context, envelopeJSON []byte) ([]byte, error) {
+		signed, err := HasSignatures(envelopeJSON)
+		if err != nil {
+			return nil, fmt.Errorf("check DSSE signatures: %w", err)
+		}
+		if !signed {
+			return nil, fmt.Errorf("attestation for digest %s is present but unsigned (legacy format): rebuild with --sign-key to publish a signed attestation", parentDigest)
+		}
 
-	store := artifact.NewOCIStore(repo, imageName)
-
-	envelopeJSON, err := pullAttestationContent(ctx, store, parentDigest, imageName)
-	if err != nil {
-		return nil, err
-	}
-
-	stmtBytes, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, verifiers)
-	if err != nil {
-		return nil, fmt.Errorf("verify DSSE signature: %w", err)
-	}
-
-	predicate, foundType, err := UnwrapInTotoStatement(stmtBytes)
-	if err != nil {
-		return nil, fmt.Errorf("unwrap in-toto statement: %w", err)
-	}
-
-	if foundType != resolvedType {
-		return nil, fmt.Errorf("attestation predicate type %q does not match requested %q", foundType, resolvedType)
-	}
-
-	return []byte(predicate), nil
+		stmtBytes, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, verifiers)
+		if err != nil {
+			return nil, fmt.Errorf("verify DSSE signature: %w", err)
+		}
+		return stmtBytes, nil
+	})
 }
 
 // VerifyIndex verifies the attestations of every platform manifest of the
@@ -73,6 +61,11 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 		return nil, err
 	}
 
+	kindAliases, err := PredicateKindAliases(predicateType)
+	if err != nil {
+		return nil, err
+	}
+
 	entries, err := artifact.ListIndexPlatforms(ctx, repo, indexDigest, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("list index platforms: %w", err)
@@ -82,7 +75,7 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 
 	results := make([]PlatformVerifyResult, 0, len(entries))
 	for _, entry := range entries {
-		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, imageName, resolvedType, verifiers)
+		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, kindAliases, verifiers)
 		results = append(results, PlatformVerifyResult{
 			Platform: entry.Platform,
 			Digest:   entry.Digest,
@@ -113,8 +106,8 @@ func VerifyIndexResultError(results []PlatformVerifyResult) error {
 	return fmt.Errorf("attestation verification failed for %d of %d platforms:\n%s", len(failures), len(results), strings.Join(failures, "\n"))
 }
 
-func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, imageName, resolvedType string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
-	envelopeJSON, err := pullAttestationContent(ctx, store, digest, imageName)
+func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType string, kindAliases []string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, kindAliases)
 	if err != nil {
 		if errors.Is(err, artifact.ErrNotFound) {
 			return PlatformVerifyStatusMissing, fmt.Errorf("no attestation found for digest %s: %w", digest, err)
@@ -140,7 +133,7 @@ func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, di
 		return PlatformVerifyStatusInvalid, fmt.Errorf("unwrap in-toto statement: %w", err)
 	}
 
-	if foundType != resolvedType {
+	if !PredicateTypeMatches(resolvedType, foundType) {
 		return PlatformVerifyStatusInvalid, fmt.Errorf("attestation predicate type %q does not match requested %q", foundType, resolvedType)
 	}
 

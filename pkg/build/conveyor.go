@@ -89,6 +89,7 @@ type ConveyorOptions struct {
 	SkipImageSpecStage              bool
 	ManifestSigningOptions          signing.ManifestSigningOptions
 	SbomSigningOptions              signing.SbomSigningOptions
+	VexSigningOptions               signing.VexSigningOptions
 	VerityAnnotationOptions         verify_annotation.Options
 	UseBuildReport                  bool
 	BuildReportPath                 string

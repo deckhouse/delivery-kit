@@ -83,7 +83,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
 	cmd.Flags().StringArrayVarP(&keyFlags, "key", "", nil, "Path to public key PEM file for verification (repeatable, any match = success)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact lookup")
-	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform to verify when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. When omitted for an index, attestations of all its platforms are verified")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform to verify when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. When omitted for an index, attestations of all its platforms are verified. Not applicable with --type openvex: OpenVEX attestations are image-level and verified at the index digest itself")
 
 	return cmd
 }
@@ -131,7 +131,14 @@ func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths 
 		return fmt.Errorf("load verification keys: %w", err)
 	}
 
-	if platform == "" {
+	// Image-level attestations (OpenVEX) live on the index digest itself, so an
+	// index reference is verified as-is instead of being expanded per platform.
+	if attestation.ImageLevelPredicateType(predicateType) {
+		digest, err = attestation.ResolveAttestationDigest(ctx, repoAddr, digest, platform, predicateType)
+		if err != nil {
+			return err
+		}
+	} else if platform == "" {
 		entries, err := artifact.ListIndexPlatforms(ctx, repoAddr, digest)
 		if err != nil {
 			return err

@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.77.0-dk.5](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.4...v2.77.0-dk.5) (2026-08-25)
+
+
+### Features
+
+* **sbom, attest:** sign multi-platform SBOMs, verify every platform ([#262](https://github.com/deckhouse/delivery-kit/issues/262)) ([655c9fa](https://github.com/deckhouse/delivery-kit/commit/655c9fab80454b0ffbc8f065c1fef79efdb76532))
+* **vex, sbom, attest:** sign VEX documents at build time ([#267](https://github.com/deckhouse/delivery-kit/issues/267)) ([ad1b168](https://github.com/deckhouse/delivery-kit/commit/ad1b1688ff640aa86c3d438e3191617e28679b5e))
+
+
+### Bug Fixes
+
+* **sbom:** skip images importing from an image whose SBOM enrichment failed ([#268](https://github.com/deckhouse/delivery-kit/issues/268)) ([411148b](https://github.com/deckhouse/delivery-kit/commit/411148bca0e6144cb4a0a76f6640208c6992d746))
+
 ## [3.2.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.1.0-dk.1...v3.2.0-dk.1) (2026-08-11)
 
 
@@ -11,7 +24,7 @@
 * **cleanup:** name the --meta-repo address in the cleanup report ([c11fdfb](https://github.com/deckhouse/delivery-kit/commit/c11fdfbd8161779d957347a76dab8e216ff9afd6))
 * **deploy:** embed deno binary into werf release binaries behind `embedwerfdeno` ([#7725](https://github.com/deckhouse/delivery-kit/issues/7725)) ([468ba22](https://github.com/deckhouse/delivery-kit/commit/468ba229e05e7fb104a286386da43e0051da09ed))
 * **skills:** prevent agents publishing stale claims ([f8d938a](https://github.com/deckhouse/delivery-kit/commit/f8d938aec732b43c6509abbb972ac60c8a198814))
-* **skills:** prevent agents publishing stale claims ([#7780](https://github.com/deckhouse/delivery-kit/issues/7780)) ([78b4ac7](https://github.com/deckhouse/delivery-kit/commit/78b4ac78b8d621c04d8eee2d10067cf7c1813100))
+* **skills:** prevent agents publishing stale claims ([#7780](https://github.com/deckhouse/delivery-kit/issues/7780)) ([78b4ac78b8d621c04d8eee2d10067cf7c1813100))
 * **skills:** run challenge checks for risky reviews ([#7781](https://github.com/deckhouse/delivery-kit/issues/7781)) ([d16b172](https://github.com/deckhouse/delivery-kit/commit/d16b172013995186b30276788ef72a09338d35f4))
 
 
@@ -35,7 +48,7 @@
 * **logboek:** prevent concurrent stream races ([#7802](https://github.com/deckhouse/delivery-kit/issues/7802)) ([f80e827](https://github.com/deckhouse/delivery-kit/commit/f80e827577896f02d3605b3c7540d550e31f8e0a))
 * optimize `release get` ([8043316](https://github.com/deckhouse/delivery-kit/commit/8043316e0dc688d145627adb035254880fba309a))
 * **registry:** prevent concurrent export races ([#7799](https://github.com/deckhouse/delivery-kit/issues/7799)) ([2bf41ec](https://github.com/deckhouse/delivery-kit/commit/2bf41ecf9af9a54576cb13465816e0de977ff1d5))
-* **release:** preserve main release version state ([#7790](https://github.com/deckhouse/delivery-kit/issues/7790)) ([a0603b2](https://github.com/deckhouse/delivery-kit/commit/a0603b294c829abb510f938bd7817a8314bc144c))
+* **release:** preserve main release version state ([#7790](https://github.com/deckhouse/delivery-kit/issues/7790)) ([a0603b294c829abb510f938bd7817a8314bc144c))
 * **release:** preserve v3 release version state ([#7789](https://github.com/deckhouse/delivery-kit/issues/7789)) ([4b6564f](https://github.com/deckhouse/delivery-kit/commit/4b6564f7ff19484151640dc631ae23bfd83b8fe3))
 * **sbom:** add help link hint to aggregated PURL resolve error ([#233](https://github.com/deckhouse/delivery-kit/issues/233)) ([5dff183](https://github.com/deckhouse/delivery-kit/commit/5dff1830522142cccf61a5f9f3db29edc849428a))
 * **sbom:** converge the artifact index instead of failing on a lost update ([909edc0](https://github.com/deckhouse/delivery-kit/commit/909edc0a8b0b919bf6ecb72432bff5c475656bcc))

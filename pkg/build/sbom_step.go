@@ -118,9 +118,17 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if osPmEnabled {
-			resultBOM, err = osPm.CollectAndMergeBOM(ctx, step.containerBackend, stageDesc.Info.Name, resultBOM)
+			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
 			if err != nil {
-				return err
+				return fmt.Errorf("collect os-pm BOM: %w", err)
+			}
+			if pmBOM != nil {
+				resultBOM, err = cyclonedxutil.MergeBOMs(resultBOM, cyclonedxutil.MergeOpts{
+					ImportBOMs: []*cdx.BOM{pmBOM},
+				})
+				if err != nil {
+					return fmt.Errorf("merge os-pm BOM: %w", err)
+				}
 			}
 		}
 

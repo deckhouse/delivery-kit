@@ -44,22 +44,9 @@ func CollectAndMergeBOM(ctx context.Context, containerBackend container_backend.
 	if target == nil {
 		target = cyclonedxutil.NewBOM()
 	}
-	if pmBOM.Components != nil {
-		if target.Components == nil {
-			target.Components = pmBOM.Components
-		} else {
-			*target.Components = append(*target.Components, *pmBOM.Components...)
-		}
-	}
-	if pmBOM.Dependencies != nil {
-		if target.Dependencies == nil {
-			target.Dependencies = pmBOM.Dependencies
-		} else {
-			*target.Dependencies = append(*target.Dependencies, *pmBOM.Dependencies...)
-		}
-	}
-	cyclonedxutil.DedupBOM(target)
-	return target, nil
+	return cyclonedxutil.MergeBOMs(target, cyclonedxutil.MergeOpts{
+		ImportBOMs: []*cdx.BOM{pmBOM},
+	})
 }
 
 func CollectBOM(ctx context.Context, containerBackend container_backend.ContainerBackend, imageRef string) (*cdx.BOM, error) {

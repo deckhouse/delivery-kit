@@ -77,14 +77,14 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 	It("should copy attached artifacts onto the same digest in another repo", func(ctx SpecContext) {
 		srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
-		Expect(srcStore.Attach(ctx, srcDigest, artifactType, []byte(`{"v":1}`), "checksum-v1", "linux/amd64")).To(Succeed())
+		Expect(srcStore.Attach(ctx, srcDigest, artifactType, []byte(`{"v":1}`), "checksum-v1", "linux/amd64", "")).To(Succeed())
 
 		copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
 
 		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
 
 		dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-		content, err := dstStore.GetAttachedContent(ctx, srcDigest, artifactType)
+		content, err := dstStore.GetAttachedContent(ctx, srcDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 
@@ -96,7 +96,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 	It("should copy attached artifacts onto a different parent digest", func(ctx SpecContext) {
 		srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
-		Expect(srcStore.Attach(ctx, srcDigest, artifactType, []byte(`{"v":1}`), "checksum-v1", "")).To(Succeed())
+		Expect(srcStore.Attach(ctx, srcDigest, artifactType, []byte(`{"v":1}`), "checksum-v1", "", "")).To(Succeed())
 
 		dstDigest := pushRandomImage(ctx, dstRepo, "v1")
 		Expect(dstDigest).ToNot(Equal(srcDigest))
@@ -104,14 +104,14 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, remoteOpts...)).To(Succeed())
 
 		dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-		content, err := dstStore.GetAttachedContent(ctx, dstDigest, artifactType)
+		content, err := dstStore.GetAttachedContent(ctx, dstDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})
 
 	It("should be idempotent", func(ctx SpecContext) {
 		srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
-		Expect(srcStore.Attach(ctx, srcDigest, artifactType, []byte(`{"v":1}`), "checksum-v1", "")).To(Succeed())
+		Expect(srcStore.Attach(ctx, srcDigest, artifactType, []byte(`{"v":1}`), "checksum-v1", "", "")).To(Succeed())
 
 		copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
 
@@ -124,21 +124,21 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 	It("should copy artifacts of multiple images attached to the same parent", func(ctx SpecContext) {
 		storeA := artifact.NewOCIStore(srcRepo, "app-a", remoteOpts...)
-		Expect(storeA.Attach(ctx, srcDigest, artifactType, []byte(`{"app":"a"}`), "checksum-a", "")).To(Succeed())
+		Expect(storeA.Attach(ctx, srcDigest, artifactType, []byte(`{"app":"a"}`), "checksum-a", "", "")).To(Succeed())
 		storeB := artifact.NewOCIStore(srcRepo, "app-b", remoteOpts...)
-		Expect(storeB.Attach(ctx, srcDigest, artifactType, []byte(`{"app":"b"}`), "checksum-b", "")).To(Succeed())
+		Expect(storeB.Attach(ctx, srcDigest, artifactType, []byte(`{"app":"b"}`), "checksum-b", "", "")).To(Succeed())
 
 		copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
 
 		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
 
 		dstStoreA := artifact.NewOCIStore(dstRepo, "app-a", remoteOpts...)
-		contentA, err := dstStoreA.GetAttachedContent(ctx, srcDigest, artifactType)
+		contentA, err := dstStoreA.GetAttachedContent(ctx, srcDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(contentA).To(MatchJSON(`{"app":"a"}`))
 
 		dstStoreB := artifact.NewOCIStore(dstRepo, "app-b", remoteOpts...)
-		contentB, err := dstStoreB.GetAttachedContent(ctx, srcDigest, artifactType)
+		contentB, err := dstStoreB.GetAttachedContent(ctx, srcDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(contentB).To(MatchJSON(`{"app":"b"}`))
 	})

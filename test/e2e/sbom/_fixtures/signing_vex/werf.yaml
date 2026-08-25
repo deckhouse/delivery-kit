@@ -1,0 +1,13 @@
+project: werf-test-e2e-sbom-signing-vex
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: {{ env "BUILDER_BASE_IMAGE" }}
+shell:
+  setup:
+    - echo 'sbom-vex-coexistence-e2e-marker' > /marker
+vex: vex.openvex.json

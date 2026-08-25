@@ -1,23 +1,14 @@
 package e2e_build_test
 
 import (
-	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 
-	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sigstore/sigstore/pkg/cryptoutils"
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
-	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v2/test/pkg/attestutils"
 	"github.com/werf/werf/v2/test/pkg/report"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
@@ -56,17 +47,17 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 			Expect(repo).NotTo(BeEmpty())
 
 			By("locating the bundle artifact in the fallback index")
-			bundleDesc := findArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
+			bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
 			Expect(bundleDesc).NotTo(BeNil(), "no sigstore bundle artifact found in fallback index")
 			Expect(bundleDesc.Annotations[image.WerfImageNameAnnotation]).To(Equal("app"))
 			Expect(bundleDesc.Annotations[image.WerfChecksumAnnotation]).NotTo(BeEmpty())
 
 			By("asserting no stale bare-DSSE artifact remains for the same image")
-			dsseDesc := findArtifactDescriptor(ctx, repo, digest, attestation.DSSEMediaType)
+			dsseDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.DSSEMediaType)
 			Expect(dsseDesc).To(BeNil(), "stale bare-DSSE artifact must be superseded by the bundle")
 
 			By("fetching the bundle and verifying the DSSE signature with the public key")
-			bundleJSON := fetchArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
+			bundleJSON := attestutils.FetchArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
 
 			envelopeJSON, err := attestation.UnwrapBundle(bundleJSON)
 			Expect(err).NotTo(HaveOccurred())
@@ -128,13 +119,13 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 		digest := buildReport.Images["app"].DockerImageDigest
 		repo := os.Getenv("WERF_REPO")
 
-		dsseDesc := findArtifactDescriptor(ctx, repo, digest, attestation.DSSEMediaType)
+		dsseDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.DSSEMediaType)
 		Expect(dsseDesc).NotTo(BeNil(), "unsigned build must keep the legacy bare-DSSE artifact")
 
-		bundleDesc := findArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
+		bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
 		Expect(bundleDesc).To(BeNil(), "unsigned build must not produce a bundle artifact")
 
-		envelopeJSON := fetchArtifactLayerContent(ctx, repo, dsseDesc.Digest.String())
+		envelopeJSON := attestutils.FetchArtifactLayerContent(ctx, repo, dsseDesc.Digest.String())
 		signed, err := attestation.HasSignatures(envelopeJSON)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(signed).To(BeFalse(), "unsigned build must produce an unsigned envelope")
@@ -163,100 +154,19 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 	})
 })
 
-type signingKeyPair struct {
-	KeyPath    string
-	PubKeyPath string
-	CertPath   string
-}
+type signingKeyPair = attestutils.SigningKeyPair
 
 func generateSigningKeyPairWithCert(dir string) signingKeyPair {
-	certs := cert_utils.GenerateCertificatesWithOptions(cert_utils.GenerateCertificatesOptions{
-		KeyType:  cert_utils.KeyType_ED25519,
-		PassFunc: cryptoutils.SkipPassword,
-		TmpDir:   dir,
-	})
-
-	pubKeyPath := cert_utils.FormatPublicKeyToPEMFile(dir, certs.PrivKey.Public())
-
-	return signingKeyPair{KeyPath: certs.PrivRef, PubKeyPath: pubKeyPath, CertPath: certs.LeafRef}
+	return attestutils.GenerateSigningKeyPairWithCert(dir)
 }
 
-func findArtifactDescriptor(ctx SpecContext, repo, parentDigest, artifactType string) *v1.Descriptor {
-	tagRef, err := name.NewTag(repo+":"+sbomImage.FallbackTag(parentDigest), name.Insecure)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	ropts := []remote.Option{remote.WithContext(ctx), remote.WithAuth(authn.Anonymous)}
-
-	idx, err := remote.Index(tagRef, ropts...)
-	if err != nil {
-		return nil
-	}
-
-	im, err := idx.IndexManifest()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	for _, desc := range im.Manifests {
-		if desc.ArtifactType == artifactType {
-			found := desc
-			return &found
-		}
-	}
-	return nil
-}
-
-func fetchArtifactLayerContent(ctx SpecContext, repo, digest string) []byte {
-	imgRef, err := name.NewDigest(repo+"@"+digest, name.Insecure)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	ropts := []remote.Option{remote.WithContext(ctx), remote.WithAuth(authn.Anonymous)}
-
-	img, err := remote.Image(imgRef, ropts...)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-	layers, err := img.Layers()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	ExpectWithOffset(1, layers).NotTo(BeEmpty())
-
-	rc, err := layers[0].Compressed()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	defer rc.Close()
-
-	content, err := io.ReadAll(rc)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	return content
-}
-
-// runCosignOfflineVerify runs the canonical offline cosign verification when a
-// cosign binary is available (env WERF_TEST_COSIGN_BIN or in PATH):
-//
-//	cosign trusted-root create --out tr.json
-//	cosign verify-attestation --new-bundle-format --trusted-root tr.json \
-//	  --insecure-ignore-tlog=true --key pub.pem --type cyclonedx <image>@<digest>
+// runCosignOfflineVerify verifies the SBOM attestation with stock cosign, offline.
 func runCosignOfflineVerify(ctx SpecContext, repo, digest, pubKeyPath string) {
-	cosignBin := os.Getenv("WERF_TEST_COSIGN_BIN")
-	if cosignBin == "" {
-		var err error
-		cosignBin, err = exec.LookPath("cosign")
-		if err != nil {
-			Skip("cosign binary not available: set WERF_TEST_COSIGN_BIN or add cosign to PATH")
-		}
-	}
-
-	trustedRootPath := filepath.Join(SuiteData.TmpDir, "cosign-trusted-root.json")
-	createCmd := exec.CommandContext(ctx, cosignBin, "trusted-root", "create", "--out", trustedRootPath)
-	createOut, err := createCmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "cosign trusted-root create failed: %s", string(createOut))
-
-	verifyCmd := exec.CommandContext(ctx, cosignBin, "verify-attestation",
-		"--new-bundle-format",
-		"--trusted-root", trustedRootPath,
-		"--insecure-ignore-tlog=true",
-		"--key", pubKeyPath,
-		"--type", "cyclonedx",
-		repo+"@"+digest,
-	)
-	verifyCmd.Env = append(os.Environ(), "COSIGN_ALLOW_INSECURE_REGISTRY=true")
-	verifyOut, err := verifyCmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "cosign verify-attestation failed: %s", string(verifyOut))
-	Expect(string(verifyOut)).To(ContainSubstring("verified"))
+	attestutils.RunCosignOfflineVerify(ctx, attestutils.CosignVerifyOptions{
+		Repo:          repo,
+		Digest:        digest,
+		PubKeyPath:    pubKeyPath,
+		PredicateType: "cyclonedx",
+		TmpDir:        SuiteData.TmpDir,
+	})
 }

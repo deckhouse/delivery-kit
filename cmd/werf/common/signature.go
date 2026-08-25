@@ -148,6 +148,12 @@ func getSbomSigningOptions(commonCmdData *CmdData, signer *signing.Signer) signi
 	return options
 }
 
+func getVexSigningOptions(commonCmdData *CmdData, signer *signing.Signer) signing.VexSigningOptions {
+	options := signing.NewVexSigningOptions(signer)
+	options.Enabled = lo.FromPtr(commonCmdData.SignKey) != ""
+	return options
+}
+
 func getELFSigningOptions(commonCmdData *CmdData, signer *signing.Signer) (signing.ELFSigningOptions, error) {
 	options := signing.NewELFSigningOptions(signer)
 

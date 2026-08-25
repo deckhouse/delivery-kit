@@ -31,5 +31,5 @@ func Sign(ctx context.Context, predicate []byte, predicateType, repo, parentDige
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)
-	return store.Attach(ctx, parentDigest, DSSEMediaType, envelopeBytes, "", "")
+	return store.Attach(ctx, parentDigest, DSSEMediaType, envelopeBytes, "", "", resolvedType)
 }

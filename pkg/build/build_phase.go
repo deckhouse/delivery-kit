@@ -59,6 +59,7 @@ type BuildOptions struct {
 
 	ManifestSigningOptions  signing.ManifestSigningOptions
 	SbomSigningOptions      signing.SbomSigningOptions
+	VexSigningOptions       signing.VexSigningOptions
 	ELFSigningOptions       signing.ELFSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 
@@ -1677,7 +1678,14 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
 	}
 
-	if err := phase.vexStep.Converge(ctx, vexContent, stageDesc, name, primaryImg.TargetPlatform); err != nil {
+	var signer signature.Signer
+	var signerIdentity string
+	if phase.VexSigningOptions.Enabled {
+		signer = phase.VexSigningOptions.Signer().SignerVerifier()
+		signerIdentity = phase.VexSigningOptions.Signer().Fingerprint()
+	}
+
+	if err := phase.vexStep.Converge(ctx, vexContent, stageDesc, name, primaryImg.TargetPlatform, signer, signerIdentity); err != nil {
 		return fmt.Errorf("unable to converge VEX for image %q: %w", name, err)
 	}
 

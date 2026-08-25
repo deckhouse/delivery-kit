@@ -1,0 +1,13 @@
+project: werf-test-e2e-vex-multiplatform
+configVersion: 1
+build:
+  platform:
+    - linux/amd64
+    - linux/arm64
+---
+image: app
+from: registry.werf.io/werf/scratch
+git:
+  - add: /
+    to: /app
+vex: vex.openvex.json

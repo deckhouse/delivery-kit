@@ -81,7 +81,7 @@ var _ = Describe("VerifyIndex", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
-		Expect(store.Attach(ctx, digest, BundleMediaType, bundleJSON, "", "")).To(Succeed())
+		Expect(store.Attach(ctx, digest, BundleMediaType, bundleJSON, "", "", predicateType)).To(Succeed())
 	}
 
 	attachUnsignedBareDSSE := func(ctx SpecContext, digest string) {
@@ -92,7 +92,7 @@ var _ = Describe("VerifyIndex", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
-		Expect(store.Attach(ctx, digest, DSSEMediaType, envelopeJSON, "", "")).To(Succeed())
+		Expect(store.Attach(ctx, digest, DSSEMediaType, envelopeJSON, "", "", cyclonedxType)).To(Succeed())
 	}
 
 	resultByPlatform := func(results []PlatformVerifyResult) map[string]PlatformVerifyResult {
@@ -167,11 +167,14 @@ var _ = Describe("VerifyIndex", func() {
 		Entry("signed by a different key", func(ctx SpecContext) {
 			attachSignedBundle(ctx, arm64Digest, cyclonedxType, signerB)
 		}, PlatformVerifyStatusInvalid, "verify DSSE signature"),
-		Entry("predicate type mismatch", func(ctx SpecContext) {
+		// An attestation of another predicate kind occupies its own artifact slot,
+		// so it is never returned for this query: the platform simply has no
+		// cyclonedx attestation.
+		Entry("only an attestation of another predicate kind", func(ctx SpecContext) {
 			openvexType, err := ResolvePredicateType("openvex")
 			Expect(err).NotTo(HaveOccurred())
 			attachSignedBundle(ctx, arm64Digest, openvexType, signerA)
-		}, PlatformVerifyStatusInvalid, "does not match requested"),
+		}, PlatformVerifyStatusMissing, "no attestation found"),
 	)
 
 	It("lists every failing platform when all platforms fail verification", func(ctx SpecContext) {

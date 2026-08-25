@@ -3,6 +3,7 @@
 package config
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,7 +35,7 @@ func parseStapelImage(t *testing.T, yamlContent, imageName string) (*StapelImage
 	}
 
 	giterminismManager := newTestGiterminismManager()
-	stapelImage, err := rawStapelImage.toStapelImageDirective(giterminismManager, imageName)
+	stapelImage, err := rawStapelImage.toStapelImageDirective(context.Background(), giterminismManager, &Meta{}, imageName)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +156,7 @@ from: ubuntu
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must include a tag")
 }
@@ -177,7 +178,7 @@ from: ubuntu:22.04
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.NoError(t, err)
 }
 
@@ -198,7 +199,7 @@ from: ubuntu@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef123456
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.NoError(t, err)
 }
 
@@ -462,7 +463,7 @@ func parseImageFromDockerfile(t *testing.T, yamlContent, imageName string) (*Ima
 	}
 
 	giterminismManager := newTestGiterminismManager()
-	dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(giterminismManager, imageName)
+	dockerfileImage, err := rawDockerfileImage.toImageFromDockerfileDirective(context.Background(), giterminismManager, &Meta{}, imageName)
 	if err != nil {
 		return nil, err
 	}

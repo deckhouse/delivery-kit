@@ -110,3 +110,8 @@ func (img *MultiplatformImage) Sbom() *config.Sbom {
 	primaryImg := img.Images[0]
 	return primaryImg.Sbom()
 }
+
+func (img *MultiplatformImage) Vex() *config.Vex {
+	primaryImg := img.Images[0]
+	return primaryImg.Vex()
+}

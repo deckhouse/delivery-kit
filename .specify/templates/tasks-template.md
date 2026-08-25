@@ -31,9 +31,21 @@ description: "Task list template for feature implementation"
 ## Build & Test Commands
 
 - **Build**: `task build` (produces `./bin/werf`)
-- **Unit tests**: `task test:unit -- -run TestMyFunc ./pkg/...`
-- **E2E tests**: `task test:e2e` with `paths="./test/e2e/..."` and `labelFilter="..."` (Ginkgo label filter). NEVER place `KEY=VALUE` after `--` separator.
-  - Environment is pre-configured — `task test:setup:environment` has already been executed. Do not skip e2e tests citing environment setup.
+- **Unit tests**:
+  - Scoped: `task test:unit paths="./pkg/..."`.
+  - Focused: `task test:unit paths="./pkg/..." -- -focus=MyTest -v`.
+- **Lint**:
+  - **Prerequisites (once per session)**: run
+    `task deps:install:golangci-lint` before the first lint run.
+  - **Usage**: then run `task lint`.
+- **E2E tests**:
+  - **Prerequisites (once per session)**: the environment is already prepared; do
+    not run or check `task test:setup:environment` and do not skip e2e tests.
+  - **Usage**: always run `task test:e2e` scoped with both `paths` and
+    `labelFilter` (Ginkgo label filter).
+    - Scoped: `task test:e2e paths="./test/e2e/..." labelFilter="..."`.
+    - Focused: `task test:e2e paths="./test/e2e/..." labelFilter="..." -- -focus=MyTest -v`.
+- **Integration tests**: run `task test:integration` directly against the prepared environment.
 - **Formatting**: `task format`
 
 <!--

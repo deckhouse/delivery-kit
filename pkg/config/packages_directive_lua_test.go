@@ -18,8 +18,8 @@ var _ = Describe("rawPackagesDirective lua-rock", func() {
 	})
 
 	DescribeTable("unmarshal and convert succeed",
-		func(yamlMap map[string]interface{}, expected []*PackagesDirective) {
-			packages, err := directivesFromYaml(giterminismManager, yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}, expected []*PackagesDirective) {
+			packages, err := directivesFromYaml(ctx, giterminismManager, yamlMap)
 			Expect(err).To(Succeed())
 
 			Expect(packages).To(HaveLen(len(expected)))
@@ -71,8 +71,8 @@ var _ = Describe("rawPackagesDirective lua-rock", func() {
 	)
 
 	DescribeTable("convert to directive fails",
-		func(yamlMap map[string]interface{}) {
-			_, err := directivesFromYaml(giterminismManager, yamlMap)
+		func(ctx SpecContext, yamlMap map[string]interface{}) {
+			_, err := directivesFromYaml(ctx, giterminismManager, yamlMap)
 			Expect(err).To(HaveOccurred())
 		},
 

@@ -10,6 +10,9 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
+    stageDependencies:
+      packages:
+        - werf-sbom-lua-app-0.1-1.rockspec
 packages:
   - type: lua-rock
     workdir: /app

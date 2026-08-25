@@ -5,13 +5,19 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sync"
+
+	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/util/option"
+	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
+
+var sbomNetworkWarningOnce sync.Once
 
 func MapStapelConfigToImages(ctx context.Context, metaConfig *config.Meta, stapelImageConfig config.StapelImageInterface, targetPlatform string, useCustomTag bool, opts CommonImageOptions) ([]*Image, error) {
 	img, err := mapStapelConfigToImage(ctx, metaConfig, stapelImageConfig, targetPlatform, useCustomTag, opts)
@@ -32,6 +38,7 @@ func mapStapelConfigToImage(ctx context.Context, metaConfig *config.Meta, stapel
 		UseCustomTag:       useCustomTag,
 		StapelImageConfig:  stapelImageConfig,
 		Sbom:               stapelImageConfig.Sbom(),
+		Vex:                stapelImageConfig.Vex(),
 	}
 
 	var baseImageType BaseImageType
@@ -99,6 +106,10 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		return err
 	}
 
+	if err := validateFileBasedPackagesHaveStageDependencies(imageBaseConfig, gitMappings); err != nil {
+		return err
+	}
+
 	imageCacheVersion := option.ValueOrDefault(stapelImageConfig.CacheVersion(), metaConfig.Build.CacheVersion)
 
 	stages = appendIfExist(stages, stage.GenerateFromStage(imageBaseConfig, image.baseImageRepoId, imageCacheVersion, baseStageOptions))
@@ -157,7 +168,9 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		}
 
 		if hasShellStages {
-			logboek.Context(ctx).Warn().LogLn("Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
+			sbomNetworkWarningOnce.Do(func() {
+				global_warnings.GlobalWarningLn(ctx, "Network is disabled for shell stages (build.sbom.enable is true). Declare dependencies via 'packages' directive.")
+			})
 		}
 	}
 
@@ -197,6 +210,39 @@ func validateStageDependenciesHaveInstructions(imageBaseConfig *config.StapelIma
 	}
 
 	return nil
+}
+
+func validateFileBasedPackagesHaveStageDependencies(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) error {
+	if !hasFileBasedPackagesWithoutStageDependencies(imageBaseConfig, gitMappings) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"image %q uses a file-based packages directive, but no git mapping declares git.stageDependencies.packages: "+
+			"declare git.stageDependencies.packages with the spec/lock file paths",
+		imageBaseConfig.Name,
+	)
+}
+
+func hasFileBasedPackagesWithoutStageDependencies(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) bool {
+	if len(gitMappings) == 0 {
+		return false
+	}
+
+	hasFileBasedPackages := lo.SomeBy(imageBaseConfig.Packages, func(pkg *config.PackagesDirective) bool {
+		return pkg.Type != config.PackagesDirectiveTypeOSPM
+	})
+	if !hasFileBasedPackages {
+		return false
+	}
+
+	for _, gitMapping := range gitMappings {
+		if len(gitMapping.StagesDependencies[stage.Packages]) > 0 {
+			return false
+		}
+	}
+
+	return true
 }
 
 func hasStageInstructions(imageBaseConfig *config.StapelImageBase, stageName stage.StageName) bool {

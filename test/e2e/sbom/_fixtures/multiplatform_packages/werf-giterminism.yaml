@@ -1,0 +1,6 @@
+giterminismConfigVersion: 1
+config:
+  secrets:
+    allowEnvVariables:
+      - PACKAGES_VERSION
+      - REGISTRY

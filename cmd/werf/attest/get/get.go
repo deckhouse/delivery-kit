@@ -26,6 +26,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	var digestFlag string
 	var tagFlag string
 	var imageFlag string
+	var platformFlag string
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:                   "get",
@@ -53,7 +54,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			common.LogVersion()
 
 			return common.LogRunningTime(func() error {
-				return runGet(ctx, typeFlag, digestFlag, tagFlag, imageFlag)
+				return runGet(ctx, typeFlag, digestFlag, tagFlag, imageFlag, platformFlag)
 			})
 		},
 	})
@@ -75,11 +76,12 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the image (e.g. sha256:abc123)")
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact lookup")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. Not applicable with --type openvex: OpenVEX attestations are image-level and read from the index digest itself")
 
 	return cmd
 }
 
-func runGet(ctx context.Context, predicateType, digest, tag, imageName string) error {
+func runGet(ctx context.Context, predicateType, digest, tag, imageName, platform string) error {
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,
@@ -113,6 +115,11 @@ func runGet(ctx context.Context, predicateType, digest, tag, imageName string) e
 			return err
 		}
 		digest = resolved
+	}
+
+	digest, err = attestation.ResolveAttestationDigest(ctx, repoAddr, digest, platform, predicateType)
+	if err != nil {
+		return err
 	}
 
 	predicateBytes, err := attestation.Get(ctx, repoAddr, digest, imageName, predicateType)

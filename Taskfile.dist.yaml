@@ -663,16 +663,6 @@ tasks:
         cd -
         rm -rf "$git_dir"
 
-  pm:lock:
-    desc: 'Generate pm.lock from a pm manifest using pm from the container-factory image. Important vars: "workdir" (project directory, default "."), "from" (manifest path relative to workdir), "lock" (lock file path relative to workdir).'
-    cmds:
-      - docker run --rm --platform linux/amd64 --entrypoint "" -e PACKAGES_VERSION -e REGISTRY
-        -v "{{.absWorkdir}}:/workdir" -w /workdir "{{.pmImage}}"
-        pm lock {{if .from}}--from "{{.from}}" {{end}}{{if .lock}}--lock "{{.lock}}" {{end}}{{.CLI_ARGS}}
-    vars:
-      absWorkdir:
-        sh: realpath "{{.workdir | default "."}}"
-
   sign:
     desc: 'Sign last created version tag + origin/main and push signatures. Important vars: "refs".'
     cmds:

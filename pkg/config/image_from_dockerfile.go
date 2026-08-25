@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v2/pkg/vex"
 )
 
 type ImageFromDockerfile struct {
@@ -27,10 +29,11 @@ type ImageFromDockerfile struct {
 	platform     []string
 	final        bool
 	sbom         *Sbom
+	vex          *Vex
 	raw          *rawImageFromDockerfile
 }
 
-func (c *ImageFromDockerfile) validate(giterminismManager giterminism_manager.Interface) error {
+func (c *ImageFromDockerfile) validate(ctx context.Context, giterminismManager giterminism_manager.Interface) error {
 	switch {
 	case !isRelativePath(c.Context):
 		return newDetailedConfigError("`context: PATH` should be relative to project directory!", nil, c.raw.doc)
@@ -54,6 +57,25 @@ func (c *ImageFromDockerfile) validate(giterminismManager giterminism_manager.In
 				}
 			}
 		}
+	}
+
+	if c.vex != nil && c.vex.Document != "" {
+		if err := c.validateVexFile(ctx, giterminismManager); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *ImageFromDockerfile) validateVexFile(ctx context.Context, giterminismManager giterminism_manager.Interface) error {
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, c.vex.Document)
+	if err != nil {
+		return newDetailedConfigError(fmt.Sprintf("unable to read VEX file %q: %v", c.vex.Document, err), nil, c.raw.doc)
+	}
+
+	if err := vex.ValidateVEXDocument(vexContent); err != nil {
+		return newDetailedConfigError(fmt.Sprintf("invalid VEX document %q: %v", c.vex.Document, err), nil, c.raw.doc)
 	}
 
 	return nil
@@ -89,6 +111,10 @@ func (c *ImageFromDockerfile) SetFromExternal() {
 
 func (c *ImageFromDockerfile) Sbom() *Sbom {
 	return c.sbom
+}
+
+func (c *ImageFromDockerfile) Vex() *Vex {
+	return c.vex
 }
 
 func (c *ImageFromDockerfile) dependsOn() DependsOn {

@@ -87,6 +87,8 @@ type ConveyorOptions struct {
 	DeferBuildLog           bool
 	ImagesToProcess         config.ImagesToProcess
 	ManifestSigningOptions  signing.ManifestSigningOptions
+	SbomSigningOptions      signing.SbomSigningOptions
+	VexSigningOptions       signing.VexSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 	UseBuildReport          bool
 	BuildReportPath         string

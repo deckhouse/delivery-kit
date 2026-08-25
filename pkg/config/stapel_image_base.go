@@ -1,10 +1,12 @@
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v2/pkg/vex"
 )
 
 type StapelImageBase struct {
@@ -26,6 +28,7 @@ type StapelImageBase struct {
 	cacheVersion string
 	final        bool
 	sbom         *Sbom
+	vex          *Vex
 	platform     []string
 	raw          *rawStapelImage
 }
@@ -66,22 +69,17 @@ func (c *StapelImageBase) Sbom() *Sbom {
 	return c.sbom
 }
 
-func (c *StapelImageBase) OSPMLockPath() string {
-	for _, p := range c.Packages {
-		if p.Type == PackagesDirectiveTypeOSPM {
-			return p.FileBased.Lock
-		}
-	}
-	return ""
+func (c *StapelImageBase) Vex() *Vex {
+	return c.vex
 }
 
-func (c *StapelImageBase) OSPMSpecPath() string {
+func (c *StapelImageBase) HasOSPMPackages() bool {
 	for _, p := range c.Packages {
-		if p.Type == PackagesDirectiveTypeOSPM {
-			return p.FileBased.Spec
+		if p.Type == PackagesDirectiveTypeOSPM && len(p.Spec.Packages) > 0 {
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
 func (c *StapelImageBase) dependsOn() DependsOn {
@@ -147,7 +145,7 @@ func (c *StapelImageBase) exports() []autoExcludeExport {
 	return exports
 }
 
-func (c *StapelImageBase) validate(giterminismManager giterminism_manager.Interface) error {
+func (c *StapelImageBase) validate(ctx context.Context, giterminismManager giterminism_manager.Interface) error {
 	if c.From == "" {
 		return newDetailedConfigError("`from: IMAGE` required!", nil, c.raw.doc)
 	}
@@ -174,6 +172,25 @@ func (c *StapelImageBase) validate(giterminismManager giterminism_manager.Interf
 		}
 
 		mountByTo[mount.To] = true
+	}
+
+	if c.vex != nil && c.vex.Document != "" {
+		if err := c.validateVexFile(ctx, giterminismManager); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *StapelImageBase) validateVexFile(ctx context.Context, giterminismManager giterminism_manager.Interface) error {
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, c.vex.Document)
+	if err != nil {
+		return newDetailedConfigError(fmt.Sprintf("unable to read VEX file %q: %v", c.vex.Document, err), nil, c.raw.doc)
+	}
+
+	if err := vex.ValidateVEXDocument(vexContent); err != nil {
+		return newDetailedConfigError(fmt.Sprintf("invalid VEX document %q: %v", c.vex.Document, err), nil, c.raw.doc)
 	}
 
 	return nil

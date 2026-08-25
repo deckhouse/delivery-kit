@@ -10,28 +10,78 @@ import (
 )
 
 var _ = Describe("SbomStep Checksum", func() {
-	DescribeTable("calculateStableChecksum",
-		func(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, expectedChecksum string) {
-			step := &sbomStep{}
-			checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
-			Expect(checksum).To(Equal(expectedChecksum))
-		},
-
-		Entry("empty options",
-			scanner.ScanOptions{},
-			cyclonedxutil.MergeOpts{},
-			"aa969eabe2faad149265a94e60b173e527e0bc27898afcd0ec4e85a06b28f29b",
-		),
-
-		Entry("empty options with GOST configuration (should be invariant)",
-			scanner.ScanOptions{},
-			cyclonedxutil.MergeOpts{
-				Gost: gost.Config{
-					AttackSurface:    gost.GostValueYes,
-					SecurityFunction: gost.GostValueIndirect,
-				},
+	It("GOST config does not change unsigned checksum", func() {
+		step := &sbomStep{}
+		plain := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		withGost := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{
+			Gost: gost.Config{
+				AttackSurface:    gost.GostValueYes,
+				SecurityFunction: gost.GostValueIndirect,
 			},
-			"aa969eabe2faad149265a94e60b173e527e0bc27898afcd0ec4e85a06b28f29b",
-		),
-	)
+		}, "", "")
+		Expect(plain).To(Equal(withGost))
+	})
+
+	It("same inputs produce same checksum", func() {
+		step := &sbomStep{}
+		a := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		b := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		Expect(a).To(Equal(b))
+	})
+
+	It("signer identity changes checksum", func() {
+		step := &sbomStep{}
+		unsigned := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		signed := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "signer:abc", "")
+		Expect(unsigned).NotTo(Equal(signed))
+	})
+
+	It("different signer identities produce different checksums", func() {
+		step := &sbomStep{}
+		a := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "signer:key1", "")
+		b := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "signer:key2", "")
+		Expect(a).NotTo(Equal(b))
+	})
+
+	It("format version change invalidates cache", func() {
+		step := &sbomStep{}
+		checksum := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		Expect(checksum).NotTo(Equal("aa969eabe2faad149265a94e60b173e527e0bc27898afcd0ec4e85a06b28f29b"),
+			"checksum must differ from format-v1 era (before format version was added)")
+	})
+
+	It("generic checksum excludes os-pm enablement", func() {
+		step := &sbomStep{}
+		withoutOsPm := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+		withDifferentGenericInput := step.calculateStableChecksum(scanner.ScanOptions{Commands: []scanner.ScanCommand{{SourcePath: "image"}}}, cyclonedxutil.MergeOpts{}, "", "")
+		Expect(withDifferentGenericInput).NotTo(Equal(withoutOsPm))
+	})
+
+	Describe("target platform", func() {
+		step := &sbomStep{}
+
+		It("differs from the platformless checksum when platform is set", func() {
+			without := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "")
+			with := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/amd64")
+			Expect(with).NotTo(Equal(without))
+		})
+
+		It("differs between platforms", func() {
+			amd64 := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/amd64")
+			arm64 := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/arm64")
+			Expect(amd64).NotTo(Equal(arm64))
+		})
+
+		It("is stable for the same platform", func() {
+			first := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/arm64")
+			second := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/arm64")
+			Expect(first).To(Equal(second))
+		})
+
+		It("changes checksum together with signer identity independently", func() {
+			signedPlatformless := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "signer:abc", "")
+			signedPlatform := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "signer:abc", "linux/amd64")
+			Expect(signedPlatformless).NotTo(Equal(signedPlatform))
+		})
+	})
 })

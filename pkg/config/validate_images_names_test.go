@@ -1,6 +1,8 @@
 package config
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"gopkg.in/yaml.v2"
@@ -31,7 +33,7 @@ var _ = Describe("prepareWerfConfig image names", func() {
 		meta.ConfigVersion = 1
 		meta.Project = "test"
 
-		_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage}, nil, meta)
+		_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage}, nil, meta)
 		return err
 	}
 

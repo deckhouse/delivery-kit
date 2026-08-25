@@ -12,9 +12,9 @@ git:
     to: /
     stageDependencies:
       packages:
-        - pm.yaml
-        - pm.lock
+        - werf.yaml
 packages:
   - type: os-pm
-    spec: pm.yaml
-    lock: pm.lock
+    spec:
+      - jq==1.8.1
+      - tini==0.19.0

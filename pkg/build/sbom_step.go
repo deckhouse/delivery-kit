@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
@@ -36,6 +41,8 @@ var ErrSbomNotRequired = errors.New("sbom not required")
 type sbomStep struct {
 	containerBackend container_backend.ContainerBackend
 	stagesStorage    storage.StagesStorage
+
+	gostWarnOnce sync.Once
 }
 
 func newSbomStep(
@@ -48,7 +55,7 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmLockPath string, isStapelScratch bool, targetPlatform string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -58,10 +65,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts)
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
-	desc, found, err := store.GetAttached(ctx, parentDigest, sbomImage.DSSEMediaType)
+
+	desc, found, err := attestation.FindAttachedArtifact(ctx, store, parentDigest, attestation.PredicateKindCycloneDX)
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
 	}
@@ -70,14 +78,14 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return nil
 	}
 
-	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{}); err != nil {
+	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
 		return fmt.Errorf("unable to pull %q: %w", stageDesc.Info.Name, err)
 	}
 
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if (osPmLockPath != "" || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
 			targetBOM = cyclonedxutil.NewBOM()
 			targetBOM.Metadata = &cdx.Metadata{
 				Component: &cdx.Component{
@@ -109,8 +117,39 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
+		if osPmEnabled {
+			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
+			if err != nil {
+				return fmt.Errorf("collect os-pm BOM: %w", err)
+			}
+			if pmBOM != nil {
+				resultBOM, err = cyclonedxutil.MergeBOMs(resultBOM, cyclonedxutil.MergeOpts{
+					ImportBOMs: []*cdx.BOM{pmBOM},
+				})
+				if err != nil {
+					return fmt.Errorf("merge os-pm BOM: %w", err)
+				}
+			}
+		}
+
 		for _, patcher := range patchers {
 			if patcher == nil {
+				continue
+			}
+			if _, isExternalRef := patcher.(*externalref.ExternalRefPatcher); isExternalRef {
+				if err := logboek.Context(ctx).Default().LogProcess("Resolve external references").DoError(func() error {
+					patchedBOM, applyErr := patcher.Apply(ctx, resultBOM)
+					if applyErr != nil {
+						if errors.Is(applyErr, externalref.ErrExternalRefEnrich) {
+							logboek.Context(ctx).Warn().LogF("WARNING: %s\n", applyErr)
+						}
+						return applyErr
+					}
+					resultBOM = patchedBOM
+					return nil
+				}); err != nil {
+					return err
+				}
 				continue
 			}
 			resultBOM, err = patcher.Apply(ctx, resultBOM)
@@ -119,8 +158,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		// GOST Upsert must run AFTER patchers so that components added by patchers
-		// (e.g. PM BOMPatcher) also get GOST properties.
 		if err := gost.Upsert(resultBOM, mergeOpts.Gost); err != nil {
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
@@ -131,7 +168,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
-			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform)
+			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
 		}); err != nil {
 			return err
 		}
@@ -140,10 +177,17 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts) string {
+const sbomArtifactFormatVersion = "2"
+
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
 	var parts []string
+	parts = append(parts, sbomArtifactFormatVersion)
 	parts = append(parts, scanOpts.Checksum())
 	parts = append(parts, mergeOpts.Checksum())
+	parts = append(parts, signerIdentity)
+	if targetPlatform != "" {
+		parts = append(parts, targetPlatform)
+	}
 	return util.Sha256Hash(strings.Join(parts, "-"))
 }
 
@@ -155,7 +199,7 @@ func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName string
 	srcDigest := stageDesc.Info.GetDigest()
 
 	if finalStageDesc != nil && finalStageDesc.Info.Repository != srcRepo {
-		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo", werfImgName).DoError(func() error {
+		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo %s", werfImgName, finalStageDesc.Info.Repository).DoError(func() error {
 			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalStageDesc.Info.Repository, finalStageDesc.Info.GetDigest())
 		}); err != nil {
 			return fmt.Errorf("copy attached artifacts into final repo %s: %w", finalStageDesc.Info.Repository, err)
@@ -193,13 +237,17 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 				if os.Getenv("WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES") == "true" {
 					return nil, ErrSbomNotRequired
 				}
-				return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
+				return nil, fmt.Errorf("the image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
 			}
 		}
-		return nil, fmt.Errorf("the base image %q must either have the label %q set to \"true\" or have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled: %w", imageInfo.Name, image.DeckhouseInternalBuilderLabel, err)
+		return nil, sbomMissingError(imageInfo, err)
 	}
 
 	return bom, nil
+}
+
+func sbomMissingError(imageInfo *image.Info, err error) error {
+	return fmt.Errorf("the image %q must have an SBOM artifact attached; to generate an SBOM for the image, rebuild it with SBOM generation enabled; note: if the image is a multi-platform image built by an older werf version, its SBOM is attached in a legacy platform-ambiguous format and cannot be used — rebuild the image with a newer werf version: %w", imageInfo.Name, err)
 }
 
 func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
@@ -223,7 +271,9 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, image
 
 func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
 	if !mergeOpts.Gost.AttackSurface.IsUndefined() || !mergeOpts.Gost.SecurityFunction.IsUndefined() {
-		logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
+		step.gostWarnOnce.Do(func() {
+			logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
+		})
 	}
 
 	// Skip GOST validation and upsert for base/import BOMs when GOST is not configured.

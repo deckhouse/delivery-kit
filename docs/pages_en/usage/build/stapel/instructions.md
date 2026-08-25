@@ -278,6 +278,23 @@ packages:
       - libssl-dev
 ```
 
+For file-based types, declare the spec and lock files in `git.stageDependencies.packages` — otherwise changes to their contents will not rebuild the packages stage, leaving installed dependencies stale while the SBOM reports the updated files:
+
+```yaml
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+packages:
+  - type: go-mod
+    workdir: /app
+```
+
+The `os-pm` type does not need `stageDependencies`: its package list lives in `werf.yaml` itself, so any change to it rebuilds the stage automatically.
+
 ## Syntax
 
 The top-level ***builder directive*** for assembly instructions is `shell`. You build an image via ***shell instructions***.

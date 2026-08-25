@@ -11,8 +11,13 @@ import (
 func NewInfoFromInspect(ref string, inspect *dockerImage.InspectResponse) *image.Info {
 	var repository, tag, repoDigest string
 	if !strings.HasPrefix(ref, "sha256:") {
-		repository, tag = image.ParseRepositoryAndTag(ref)
-		repoDigest = image.ExtractRepoDigest(inspect.RepoDigests, repository)
+		var digest string
+		repository, tag, digest = image.ParseRef(ref)
+		if digest != "" {
+			repoDigest = repository + "@" + digest
+		} else {
+			repoDigest = image.ExtractRepoDigest(inspect.RepoDigests, repository)
+		}
 	}
 
 	var created string

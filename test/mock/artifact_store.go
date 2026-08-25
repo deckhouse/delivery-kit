@@ -41,24 +41,10 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 	return m.recorder
 }
 
-// Attach mocks base method.
-func (m *MockStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum string, targetPlatform string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Attach", ctx, parentDigest, artifactType, payload, checksum, targetPlatform)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Attach indicates an expected call of Attach.
-func (mr *MockStoreMockRecorder) Attach(ctx, parentDigest, artifactType, payload, checksum, targetPlatform any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Attach", reflect.TypeOf((*MockStore)(nil).Attach), ctx, parentDigest, artifactType, payload, checksum, targetPlatform)
-}
-
 // GetAttached mocks base method.
-func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType string) (v1.Descriptor, bool, error) {
+func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAttached", ctx, parentDigest, artifactType)
+	ret := m.ctrl.Call(m, "GetAttached", ctx, parentDigest, artifactType, predicateTypes)
 	ret0, _ := ret[0].(v1.Descriptor)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -66,22 +52,7 @@ func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType 
 }
 
 // GetAttached indicates an expected call of GetAttached.
-func (mr *MockStoreMockRecorder) GetAttached(ctx, parentDigest, artifactType any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetAttached(ctx, parentDigest, artifactType, predicateTypes any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttached", reflect.TypeOf((*MockStore)(nil).GetAttached), ctx, parentDigest, artifactType)
-}
-
-// GetAttachedContent mocks base method.
-func (m *MockStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string) ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAttachedContent", ctx, parentDigest, artifactType)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAttachedContent indicates an expected call of GetAttachedContent.
-func (mr *MockStoreMockRecorder) GetAttachedContent(ctx, parentDigest, artifactType any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttachedContent", reflect.TypeOf((*MockStore)(nil).GetAttachedContent), ctx, parentDigest, artifactType)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttached", reflect.TypeOf((*MockStore)(nil).GetAttached), ctx, parentDigest, artifactType, predicateTypes)
 }

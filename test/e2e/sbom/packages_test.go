@@ -36,8 +36,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			sbomtest.AssertHasLicense(bom, "curl", "8.12.1", "curl")
 			sbomtest.AssertHasHash(bom, "curl", "8.12.1", cdx.HashAlgoSHA256,
 				"e268b38b239a1217a8f0be27425eca1f14debb4de391b8bf8eb1a03ba0882340")
-			// pm uses the originalRepo from the pm.lock file as the external reference;
-			// the real short-repo path is exposed via the werf:pm:repo property instead.
+
 			sbomtest.AssertHasExternalReference(bom, "curl", "8.12.1", cdx.ERTypeVCS,
 				"https://github.com/curl/curl")
 			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:arch", "linux/amd64")

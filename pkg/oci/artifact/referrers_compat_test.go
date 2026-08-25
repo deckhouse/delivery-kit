@@ -60,7 +60,7 @@ var _ = Describe("Referrers API forward compatibility", func() {
 
 	attach := func(ctx SpecContext, imageName string) {
 		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
-		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"a":1}`), "checksum-v1", "linux/amd64")).To(Succeed())
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"a":1}`), "checksum-v1", "linux/amd64", "")).To(Succeed())
 	}
 
 	referrers := func(ctx SpecContext) *v1.IndexManifest {

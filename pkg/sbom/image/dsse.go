@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/sigstore/sigstore/pkg/signature"
+
 	"github.com/werf/werf/v2/pkg/attestation"
 )
 
-func WrapInDSSE(payload []byte, payloadType string) ([]byte, error) {
-	return attestation.WrapInDSSE(context.Background(), payload, payloadType, nil)
+func WrapInDSSE(ctx context.Context, payload []byte, payloadType string, signer signature.Signer) ([]byte, error) {
+	return attestation.WrapInDSSE(ctx, payload, payloadType, signer)
 }
 
 func UnwrapDSSE(envelopeJSON []byte, expectedPayloadType string) ([]byte, error) {

@@ -7,11 +7,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
+	"github.com/samber/lo"
+	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -29,13 +30,13 @@ import (
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/opstats"
+	"github.com/werf/werf/v2/pkg/sbom/convergefailure"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/sbom/managedinput"
-	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/stapel"
 	"github.com/werf/werf/v2/pkg/storage"
@@ -55,6 +56,8 @@ type BuildOptions struct {
 	IntrospectOptions
 
 	ManifestSigningOptions  signing.ManifestSigningOptions
+	SbomSigningOptions      signing.SbomSigningOptions
+	VexSigningOptions       signing.VexSigningOptions
 	ELFSigningOptions       signing.ELFSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 
@@ -90,6 +93,7 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 		BasePhase:         BasePhase{c},
 		BuildPhaseOptions: opts,
 		sbomStep:          newSbomStep(c.ContainerBackend, c.StorageManager.GetStagesStorage()),
+		vexStep:           newVexStep(),
 		ImagesReport:      NewImagesReport(),
 	}
 }
@@ -98,11 +102,14 @@ type BuildPhase struct {
 	BasePhase
 	BuildPhaseOptions
 	sbomStep *sbomStep
+	vexStep  *vexStep
 
 	StagesIterator *StagesIterator
 	ImagesReport   *ImagesReport
 
 	buildContextArchive container_backend.BuildContextArchiver
+
+	sbomFailures *convergefailure.Tracker
 }
 
 func GenerateImageEnv(werfImageName, imageName string) string {
@@ -249,6 +256,10 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
+	if err := phase.convergeVexByImagesSets(ctx); err != nil {
+		return err
+	}
+
 	telemetry.GetTelemetryWerfIO().BuildFinished(ctx, true)
 
 	return phase.createReport(ctx, imagesPairs)
@@ -268,7 +279,15 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
 	}
 
-	var purlErrors sync.Map
+	tracker := convergefailure.NewTracker(os.Getenv(externalref.EnvName))
+	phase.sbomFailures = tracker
+
+	totalImages, convergeErr := phase.doConvergeSbomByImagesSets(ctx, graph, tracker)
+
+	return tracker.Finish(ctx, totalImages, convergeErr)
+}
+
+func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, graph *image.ImagesGraph, tracker *convergefailure.Tracker) (int, error) {
 	var totalImages int
 
 	for _, imagesInSet := range graph.Levels() {
@@ -290,62 +309,71 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		}, func(ctx context.Context, taskId int) error {
 			name := names[taskId]
 			images := imagesByName[name]
-			err := phase.convergeImageSbom(ctx, name, images)
-			if err != nil {
-				if errors.Is(err, externalref.ErrExternalRefEnrich) {
-					var compErr *externalref.ComponentError
-					if errors.As(err, &compErr) {
-						purlErrors.Store(name, compErr.ComponentDetails())
-					}
-					return nil
-				}
-				return err
+
+			if tracker.SkipDependent(ctx, name, sbomImageDependencies(images)) {
+				return nil
+			}
+
+			if err := phase.convergeImageSbom(ctx, name, images, tracker.Breaker()); err != nil {
+				return tracker.Classify(err, name)
 			}
 			return nil
 		}); err != nil {
-			return err
+			return totalImages, err
 		}
 	}
 
-	if err := buildAggregatedPurlError(&purlErrors, totalImages); err != nil {
-		logPurlResolverHelpHint(ctx)
-		return err
+	return totalImages, nil
+}
+
+// sbomImageDependencies describes, for the SBOM failure semantics, the images
+// whose SBOMs are merged into this image's own SBOM.
+func sbomImageDependencies(images []*image.Image) []convergefailure.ImageDependencies {
+	return lo.Map(images, func(img *image.Image, _ int) convergefailure.ImageDependencies {
+		return convergefailure.ImageDependencies{
+			BaseImageName: img.GetBaseImageName(),
+			Imports: lo.Map(img.GetImportImagesInfo(), func(importInfo image.ImportImageInfo, _ int) convergefailure.ImportSource {
+				return convergefailure.ImportSource{
+					ImageName: importInfo.ImageName,
+					External:  importInfo.ExternalImage,
+				}
+			}),
+		}
+	})
+}
+
+func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image, breaker *externalref.ResolverBreaker) error {
+	var signer signature.Signer
+	var signerIdentity string
+	if phase.SbomSigningOptions.Enabled {
+		signer = phase.SbomSigningOptions.Signer().SignerVerifier()
+		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
+	}
+
+	for _, img := range images {
+		if err := phase.convergePlatformImageSbom(ctx, name, img, signer, signerIdentity, breaker); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image) error {
-	var stageDesc *imagePkg.StageDesc
-	var primaryImg *image.Image
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
+	stageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
 
-	if len(images) == 1 {
-		primaryImg = images[0]
-		stageDesc = primaryImg.GetContentTagDesc()
-		if stageDesc == nil {
-			return fmt.Errorf("content tag descriptor not set for image %q", name)
-		}
-	} else {
-		primaryImg = images[0]
-		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-			stageDesc = multiImg.GetStageDesc()
-		} else {
-			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
-		}
-	}
-
-	baseImageSbom, err := phase.collectBaseImageSbom(ctx, primaryImg)
+	baseImageSbom, err := phase.collectBaseImageSbom(ctx, img)
 	if err != nil {
 		return err
 	}
 
-	importImageSboms, err := phase.collectImportImageSboms(ctx, primaryImg)
+	importImageSboms, err := phase.collectImportImageSboms(ctx, img)
 	if err != nil {
 		return err
 	}
 
 	var gostConfig gost.Config
-	if imgSbom := primaryImg.Sbom(); imgSbom != nil {
+	if imgSbom := img.Sbom(); imgSbom != nil {
 		gostConfig = imgSbom.Gost
 	}
 
@@ -358,43 +386,41 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	gitRepo := phase.Conveyor.GiterminismManager().LocalGitRepo()
 	commit := phase.Conveyor.GiterminismManager().HeadCommit(ctx)
 	imageContext := ""
-	if primaryImg.IsDockerfileImage && primaryImg.DockerfileImageConfig != nil {
-		imageContext = primaryImg.DockerfileImageConfig.Context
+	if img.IsDockerfileImage && img.DockerfileImageConfig != nil {
+		imageContext = img.DockerfileImageConfig.Context
 	}
 
-	externalRefPatcher, err := externalref.NewExternalRefPatcher()
+	externalRefPatcher, err := externalref.NewExternalRefPatcher(externalref.NewExternalRefPatcherOptions{Breaker: breaker})
 	if err != nil {
 		return err
 	}
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
-	var osPmLockPath, osPmSpecPath string
-	if primaryImg.StapelImageConfig != nil && primaryImg.StapelImageConfig.ImageBaseConfig() != nil {
-		imageBase := primaryImg.StapelImageConfig.ImageBaseConfig()
-		osPmLockPath = imageBase.OSPMLockPath()
-		osPmSpecPath = imageBase.OSPMSpecPath()
+	var hasOsPmPackages bool
+	if img.StapelImageConfig != nil && img.StapelImageConfig.ImageBaseConfig() != nil {
+		imageBase := img.StapelImageConfig.ImageBaseConfig()
+		hasOsPmPackages = imageBase.HasOSPMPackages()
 	}
 
-	isStapelScratch := primaryImg.StapelImageConfig != nil && sbomImage.IsScratchRef(primaryImg.GetBaseImageReference())
+	isStapelScratch := img.StapelImageConfig != nil && sbomImage.IsScratchRef(img.GetBaseImageReference())
 
 	patchers := []BOMPatcherInterface{
 		goModPatcher,
 	}
 
-	if osPmLockPath != "" {
-		patchers = append(patchers, osPm.NewPMBOMPatcher(gitRepo, commit, osPmLockPath, osPmSpecPath, phase.sbomStep.containerBackend, stageDesc.Info.Name))
-	}
-
 	patchers = append(patchers, externalRefPatcher)
 
-	scanOpts := phase.scanOptionsForImage(primaryImg)
+	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmLockPath, isStapelScratch, primaryImg.TargetPlatform); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
+		if img.TargetPlatform != "" {
+			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
+		}
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	finalStageDesc := phase.finalStageDescForImage(name, images)
+	finalStageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
 	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
 		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
 	}
@@ -1651,6 +1677,100 @@ E.g.:
 		})
 }
 
+// convergeVexByImagesSets publishes VEX artifacts for all images respecting dependency order.
+
+func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
+	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
+		return nil
+	}
+
+	graph := phase.Conveyor.imagesTree.GetImagesGraph()
+	if graph == nil || len(graph.Nodes()) == 0 {
+		return nil
+	}
+
+	for _, imagesInSet := range graph.Levels() {
+		imagesByName := make(map[string][]*image.Image)
+
+		for _, img := range imagesInSet {
+			imagesByName[img.Name] = append(imagesByName[img.Name], img)
+		}
+
+		names := make([]string, 0, len(imagesByName))
+
+		for name := range imagesByName {
+			names = append(names, name)
+		}
+
+		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
+			MaxNumberOfWorkers: int(phase.Conveyor.ParallelTasksLimit),
+
+			InitDockerCLIForEachWorker: true,
+		}, func(ctx context.Context, taskId int) error {
+			name := names[taskId]
+
+			images := imagesByName[name]
+
+			return phase.convergeImageVex(ctx, name, images)
+		}); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, images []*image.Image) error {
+	var stageDesc *imagePkg.StageDesc
+
+	var primaryImg *image.Image
+
+	if len(images) == 1 {
+
+		primaryImg = images[0]
+
+		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+
+	} else {
+
+		primaryImg = images[0]
+
+		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+			stageDesc = multiImg.GetStageDesc()
+		} else {
+			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
+		}
+
+	}
+
+	vexConfig := primaryImg.Vex()
+
+	if vexConfig == nil || vexConfig.Document == "" {
+		return nil
+	}
+
+	// Read VEX file from the project directory through giterminism manager.
+	giterminismManager := phase.Conveyor.GiterminismManager()
+	vexContent, err := giterminismManager.FileReader().ReadVEXFile(ctx, vexConfig.Document)
+	if err != nil {
+		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
+	}
+
+	var signer signature.Signer
+	var signerIdentity string
+	if phase.VexSigningOptions.Enabled {
+		signer = phase.VexSigningOptions.Signer().SignerVerifier()
+		signerIdentity = phase.VexSigningOptions.Signer().Fingerprint()
+	}
+
+	if err := phase.vexStep.Converge(ctx, vexContent, stageDesc, name, primaryImg.TargetPlatform, signer, signerIdentity); err != nil {
+		return fmt.Errorf("unable to converge VEX for image %q: %w", name, err)
+	}
+
+	return nil
+}
+
 func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Image) (*cdx.BOM, error) {
 	if sbomImage.IsScratchRef(img.GetBaseImageReference()) {
 		return cyclonedxutil.NewBOM(), nil
@@ -1658,6 +1778,10 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 
 	if img.GetBaseImageReference() == "" {
 		return nil, nil
+	}
+
+	if err, found := phase.sbomFailures.DependencyError(img.GetBaseImageName()); found {
+		return nil, err
 	}
 
 	var baseImageInfo *imagePkg.Info
@@ -1695,6 +1819,12 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	var importImageSboms []*cdx.BOM
 
 	for _, importInfo := range img.GetImportImagesInfo() {
+		if !importInfo.ExternalImage {
+			if err, found := phase.sbomFailures.DependencyError(importInfo.ImageName); found {
+				return nil, err
+			}
+		}
+
 		var importImageInfo *imagePkg.Info
 
 		if importInfo.ExternalImage {
@@ -1746,47 +1876,6 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
-}
-
-// buildAggregatedPurlError builds a hierarchical aggregated error from accumulated PURL errors.
-func buildAggregatedPurlError(purlErrors *sync.Map, totalImages int) error {
-	var errorCount int
-	var sb strings.Builder
-	purlErrors.Range(func(key, value interface{}) bool {
-		errorCount++
-		imageName := key.(string)
-		details := value.(string)
-		sb.WriteString(fmt.Sprintf("\n  - image: %s:\n", imageName))
-		for _, line := range strings.Split(details, "\n") {
-			if line != "" {
-				sb.WriteString(line + "\n")
-			}
-		}
-		return true
-	})
-
-	if errorCount > 0 {
-		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
-	}
-
-	return nil
-}
-
-// logPurlResolverHelpHint prominently tells the user where to get help with purl-resolver errors.
-func logPurlResolverHelpHint(ctx context.Context) {
-	serverURL := os.Getenv(externalref.EnvName)
-	if serverURL == "" {
-		return
-	}
-
-	logboek.Context(ctx).Warn().LogBlock("External references resolution failed").
-		Options(func(options types.LogBlockOptionsInterface) {
-			options.Style(style.Highlight())
-		}).
-		Do(func() {
-			logboek.Context(ctx).Warn().LogF("Some package URLs could not be resolved by the external references service.\n")
-			logboek.Context(ctx).Warn().LogF("See %s/help for details on resolving these errors.\n", strings.TrimRight(serverURL, "/"))
-		})
 }
 
 func debugStageDigest() bool {

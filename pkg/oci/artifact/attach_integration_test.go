@@ -22,13 +22,14 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo/parallel"
 
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 )
 
 var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
-	const artifactType = "application/vnd.dsse.envelope.v1+json"
+	artifactType := attestation.DSSEMediaType
 
 	var (
 		server       *httptest.Server
@@ -61,7 +62,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 
 	attach := func(ctx context.Context, payload []byte, imageName string) {
 		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
-		Expect(store.Attach(ctx, parentDigest, artifactType, payload, "", "")).To(Succeed())
+		Expect(store.Attach(ctx, parentDigest, artifactType, payload, "", "", "")).To(Succeed())
 	}
 
 	pullIndex := func(ctx context.Context) *v1.IndexManifest {
@@ -75,7 +76,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 
 	attachE := func(ctx context.Context, payload []byte, imageName string) error {
 		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
-		return store.Attach(ctx, parentDigest, artifactType, payload, "", "")
+		return store.Attach(ctx, parentDigest, artifactType, payload, "", "", "")
 	}
 
 	It("should attach an artifact without imageName", func(ctx SpecContext) {
@@ -96,7 +97,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 
 	It("should write werf annotations into the artifact manifest itself", func(ctx SpecContext) {
 		store := artifact.NewOCIStore(repo, "my-app", remoteOpts...)
-		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"a":1}`), "checksum-v1", "linux/amd64")).To(Succeed())
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"a":1}`), "checksum-v1", "linux/amd64", "")).To(Succeed())
 
 		im := pullIndex(ctx)
 		Expect(im.Manifests).To(HaveLen(1))
@@ -124,7 +125,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		Expect(im.Manifests).To(HaveLen(1))
 
 		store := artifact.NewOCIStore(repo, "", remoteOpts...)
-		content, err := store.GetAttachedContentAny(ctx, parentDigest, artifactType)
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":2}`))
 	})
@@ -148,12 +149,12 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		Expect(im.Manifests[0].Digest).ToNot(Equal(im.Manifests[1].Digest))
 
 		storeA := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
-		contentA, err := storeA.GetAttachedContent(ctx, parentDigest, artifactType)
+		contentA, err := storeA.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(contentA).To(MatchJSON(`{"identical":"payload"}`))
 
 		storeB := artifact.NewOCIStore(repo, "app-b", remoteOpts...)
-		contentB, err := storeB.GetAttachedContent(ctx, parentDigest, artifactType)
+		contentB, err := storeB.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(contentB).To(MatchJSON(`{"identical":"payload"}`))
 	})
@@ -162,7 +163,7 @@ var _ = Describe("Attach / PullFallbackIndex (integration)", func() {
 		attach(ctx, []byte(`{"vex":"data"}`), "my-app")
 
 		store := artifact.NewOCIStore(repo, "my-app", remoteOpts...)
-		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType)
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"vex":"data"}`))
 	})
@@ -245,12 +246,12 @@ var _ = Describe("Default registry authentication (integration)", func() {
 		server.Close()
 	})
 
-	It("should pull artifact content via GetAttachedContentAny using default docker_registry auth", func(ctx SpecContext) {
+	It("should pull artifact content of any image name using default docker_registry auth", func(ctx SpecContext) {
 		attacher := artifact.NewOCIStore(repo, "my-app", authOpts...)
-		Expect(attacher.Attach(ctx, parentDigest, artifactType, []byte(`{"sbom":"data"}`), "", "")).To(Succeed())
+		Expect(attacher.Attach(ctx, parentDigest, artifactType, []byte(`{"sbom":"data"}`), "", "", "")).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, "")
-		content, err := store.GetAttachedContentAny(ctx, parentDigest, artifactType)
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"sbom":"data"}`))
 	})
@@ -302,33 +303,33 @@ var _ = Describe("Attach convergence (integration)", func() {
 
 	It("should restore its entry after another writer replaced the whole index", func(ctx SpecContext) {
 		storeA := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
-		Expect(storeA.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "")).To(Succeed())
+		Expect(storeA.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "", "")).To(Succeed())
 
-		descA, found, err := storeA.GetAttached(ctx, parentDigest, artifactType)
+		descA, found, err := storeA.GetAttached(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 
 		storeB := artifact.NewOCIStore(repo, "app-b", remoteOpts...)
-		Expect(storeB.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"b"}`), "", "")).To(Succeed())
+		Expect(storeB.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"b"}`), "", "", "")).To(Succeed())
 
-		descB, found, err := storeB.GetAttached(ctx, parentDigest, artifactType)
+		descB, found, err := storeB.GetAttached(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 
 		Expect(clobberIndex(ctx, repo, parentDigest, descB, remoteOpts)).To(Succeed())
 
-		_, found, err = storeA.GetAttached(ctx, parentDigest, artifactType)
+		_, found, err = storeA.GetAttached(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeFalse(), "precondition: the entry of app-a must be lost")
 
-		Expect(storeA.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "")).To(Succeed())
+		Expect(storeA.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "", "")).To(Succeed())
 
-		restored, found, err := storeA.GetAttached(ctx, parentDigest, artifactType)
+		restored, found, err := storeA.GetAttached(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 		Expect(restored.Digest).To(Equal(descA.Digest))
 
-		kept, found, err := storeB.GetAttached(ctx, parentDigest, artifactType)
+		kept, found, err := storeB.GetAttached(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue(), "the entry of app-b must survive the repair")
 		Expect(kept.Digest).To(Equal(descB.Digest))
@@ -337,8 +338,8 @@ var _ = Describe("Attach convergence (integration)", func() {
 	It("should replace its own previous entry instead of accumulating", func(ctx SpecContext) {
 		store := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
 
-		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"v":1}`), "", "")).To(Succeed())
-		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"v":2}`), "", "")).To(Succeed())
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"v":1}`), "", "", "")).To(Succeed())
+		Expect(store.Attach(ctx, parentDigest, artifactType, []byte(`{"v":2}`), "", "", "")).To(Succeed())
 
 		idx, err := artifact.PullFallbackIndex(ctx, repo, parentDigest, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
 		Expect(err).To(Succeed())
@@ -346,7 +347,7 @@ var _ = Describe("Attach convergence (integration)", func() {
 		Expect(err).To(Succeed())
 		Expect(im.Manifests).To(HaveLen(1))
 
-		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType)
+		content, err := store.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":2}`))
 	})
@@ -419,10 +420,10 @@ var _ = Describe("Attach with an unnamed artifact (integration)", func() {
 
 	It("should attach without an image name next to a named artifact", func(ctx SpecContext) {
 		named := artifact.NewOCIStore(repo, "app-a", remoteOpts...)
-		Expect(named.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "")).To(Succeed())
+		Expect(named.Attach(ctx, parentDigest, artifactType, []byte(`{"img":"a"}`), "", "", "")).To(Succeed())
 
 		unnamed := artifact.NewOCIStore(repo, "", remoteOpts...)
-		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"img":""}`), "", "")).To(Succeed())
+		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"img":""}`), "", "", "")).To(Succeed())
 
 		idx, err := artifact.PullFallbackIndex(ctx, repo, parentDigest, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
 		Expect(err).To(Succeed())
@@ -430,7 +431,7 @@ var _ = Describe("Attach with an unnamed artifact (integration)", func() {
 		Expect(err).To(Succeed())
 		Expect(im.Manifests).To(HaveLen(2))
 
-		content, err := named.GetAttachedContent(ctx, parentDigest, artifactType)
+		content, err := named.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"img":"a"}`))
 	})
@@ -438,8 +439,8 @@ var _ = Describe("Attach with an unnamed artifact (integration)", func() {
 	It("should replace its own unnamed entry on reattach", func(ctx SpecContext) {
 		unnamed := artifact.NewOCIStore(repo, "", remoteOpts...)
 
-		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"v":1}`), "", "")).To(Succeed())
-		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"v":2}`), "", "")).To(Succeed())
+		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"v":1}`), "", "", "")).To(Succeed())
+		Expect(unnamed.Attach(ctx, parentDigest, artifactType, []byte(`{"v":2}`), "", "", "")).To(Succeed())
 
 		idx, err := artifact.PullFallbackIndex(ctx, repo, parentDigest, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
 		Expect(err).To(Succeed())
@@ -447,7 +448,7 @@ var _ = Describe("Attach with an unnamed artifact (integration)", func() {
 		Expect(err).To(Succeed())
 		Expect(im.Manifests).To(HaveLen(1))
 
-		content, err := unnamed.GetAttachedContentAny(ctx, parentDigest, artifactType)
+		content, err := unnamed.GetAttachedContent(ctx, parentDigest, artifactType, nil)
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":2}`))
 	})

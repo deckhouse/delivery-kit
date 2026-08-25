@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -16,7 +17,9 @@ import (
 	"github.com/werf/werf/v2/pkg/build/image"
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
+	"github.com/werf/werf/v2/pkg/container_backend/thirdparty/platformutil"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/tmp_manager"
@@ -127,6 +130,20 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	return cmd
 }
 
+func singlePlatformParam() (string, error) {
+	platforms, err := platformutil.NormalizeUserParams(commonCmdData.GetPlatform())
+	if err != nil {
+		return "", fmt.Errorf("normalize platform params: %w", err)
+	}
+	if len(platforms) > 1 {
+		return "", fmt.Errorf("specify exactly one --platform")
+	}
+	if len(platforms) == 1 {
+		return platforms[0], nil
+	}
+	return "", nil
+}
+
 func runGetByTag(ctx context.Context, tag string) error {
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
@@ -148,7 +165,22 @@ func runGetByTag(ctx context.Context, tag string) error {
 		return fmt.Errorf("--repo is required when using --tag")
 	}
 
-	sbomJSON, err := sbomImage.PullSBOMByTag(ctx, repoAddr, tag, "")
+	platform, err := singlePlatformParam()
+	if err != nil {
+		return err
+	}
+
+	imageDigest, err := artifact.ResolveTag(ctx, repoAddr, tag)
+	if err != nil {
+		return fmt.Errorf("resolve image tag: %w", err)
+	}
+
+	platformDigest, err := artifact.ResolvePlatformDigest(ctx, repoAddr, imageDigest, platform)
+	if err != nil {
+		return err
+	}
+
+	sbomJSON, err := sbomImage.PullSBOM(ctx, repoAddr, platformDigest, "")
 	if err != nil {
 		return fmt.Errorf("pull SBOM: %w", err)
 	}
@@ -177,12 +209,56 @@ func runGetByDigest(ctx context.Context, imageDigest string) error {
 		return fmt.Errorf("--repo is required when using --digest")
 	}
 
-	sbomJSON, err := sbomImage.PullSBOM(ctx, repoAddr, imageDigest, "")
+	platform, err := singlePlatformParam()
+	if err != nil {
+		return err
+	}
+
+	platformDigest, err := artifact.ResolvePlatformDigest(ctx, repoAddr, imageDigest, platform)
+	if err != nil {
+		return err
+	}
+
+	sbomJSON, err := sbomImage.PullSBOM(ctx, repoAddr, platformDigest, "")
 	if err != nil {
 		return fmt.Errorf("pull SBOM: %w", err)
 	}
 
 	return writeSbomToStdout(sbomJSON)
+}
+
+func selectExportedImage(exportedImages []*image.Image, requestedImageName string) (*image.Image, error) {
+	matches := lo.Filter(exportedImages, func(item *image.Image, _ int) bool {
+		return item.Name == requestedImageName
+	})
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("unable to find requested image %q", requestedImageName)
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+
+	platform, err := singlePlatformParam()
+	if err != nil {
+		return nil, err
+	}
+	if platform == "" {
+		platforms := lo.Map(matches, func(item *image.Image, _ int) string {
+			return item.TargetPlatform
+		})
+		return nil, fmt.Errorf("image %q is built for multiple platforms (%s); specify --platform", requestedImageName, strings.Join(platforms, ", "))
+	}
+
+	platformImage, ok := lo.Find(matches, func(item *image.Image) bool {
+		return item.TargetPlatform == platform
+	})
+	if !ok {
+		platforms := lo.Map(matches, func(item *image.Image, _ int) string {
+			return item.TargetPlatform
+		})
+		return nil, fmt.Errorf("image %q is not built for platform %q; available platforms: %s", requestedImageName, platform, strings.Join(platforms, ", "))
+	}
+	return platformImage, nil
 }
 
 func writeSbomToStdout(data []byte) error {
@@ -303,11 +379,9 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return err
 	}
 
-	foundImage, ok := lo.Find(exportedImages, func(item *image.Image) bool {
-		return item.Name == requestedImageName
-	})
-	if !ok {
-		return fmt.Errorf("unable to find requested image %q", requestedImageName)
+	foundImage, err := selectExportedImage(exportedImages, requestedImageName)
+	if err != nil {
+		return err
 	}
 
 	imageInfo := foundImage.GetLastNonEmptyStageImageInfo()

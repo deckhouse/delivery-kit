@@ -50,6 +50,95 @@
 * force release 2.77.0-dk.1 ([c0c72f6](https://github.com/deckhouse/delivery-kit/commit/c0c72f6e425f1abaa0550f83476e6056e2f1b35f))
 * force release 3.2.0-dk.1 ([b3b0cb3](https://github.com/deckhouse/delivery-kit/commit/b3b0cb3c539dff7273e32ed65ecc938759ed1bf4))
 
+## [2.77.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.3...v2.77.0-dk.4) (2026-08-21)
+
+
+### Features
+
+* **sbom:** expose pm index version as a component property ([#258](https://github.com/deckhouse/delivery-kit/issues/258)) ([13c2b4e](https://github.com/deckhouse/delivery-kit/commit/13c2b4e0158c3c21108eb051e75358d545fa4c64))
+
+
+### Bug Fixes
+
+* **sbom:** ensure single os-pm config section ([#264](https://github.com/deckhouse/delivery-kit/issues/264)) ([afb3882](https://github.com/deckhouse/delivery-kit/commit/afb3882d845c035535fe72f0c63f225aefed3a04))
+* **sbom:** reject PM_LOCK_FILE env ([#265](https://github.com/deckhouse/delivery-kit/issues/265)) ([4709e65](https://github.com/deckhouse/delivery-kit/commit/4709e65a825528be8058fbf3e8a648c10363ee74))
+* **sbom:** report real causes and fail fast when PURL resolution fails ([#260](https://github.com/deckhouse/delivery-kit/issues/260)) ([9b2d351](https://github.com/deckhouse/delivery-kit/commit/9b2d351ad0c1422933fb509c88a79027db7351bb))
+* **sbom:** warn about missing stageDependencies for file-based packages ([#263](https://github.com/deckhouse/delivery-kit/issues/263)) ([17d44ab](https://github.com/deckhouse/delivery-kit/commit/17d44abfaabfcffd4226cd24b7f17ce92c1afb22))
+
+## [2.77.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.2...v2.77.0-dk.3) (2026-08-18)
+
+
+### Features
+
+* **sbom:** generate SBOM per platform for multi-platform images ([#232](https://github.com/deckhouse/delivery-kit/issues/232)) ([c6aaf47](https://github.com/deckhouse/delivery-kit/commit/c6aaf475cc51719e5936ac908d384b1d5c27e413))
+
+
+### Bug Fixes
+
+* **build, sbom:** warn about disabled network once, in the run summary ([e2a9f35](https://github.com/deckhouse/delivery-kit/commit/e2a9f35464124ffdd866e9156a6b2adb03e37719))
+* **sbom:** use inline pm syntax again ([#254](https://github.com/deckhouse/delivery-kit/issues/254)) ([28082ac](https://github.com/deckhouse/delivery-kit/commit/28082ac62f94a6a20f3439e7d79ae4240b3ef59c))
+
+## [2.77.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.1...v2.77.0-dk.2) (2026-08-13)
+
+
+### Features
+
+* **sbom, attest:** sign sbom during build with cosign compatibility ([#230](https://github.com/deckhouse/delivery-kit/issues/230)) ([2521b4e](https://github.com/deckhouse/delivery-kit/commit/2521b4e7f13d7d246358ec35880b3d9982a77271))
+* **vex:** add VEX lifecycle ([#218](https://github.com/deckhouse/delivery-kit/issues/218)) ([596f3c1](https://github.com/deckhouse/delivery-kit/commit/596f3c151a8bc263a77ead4799fea31c2c5ab690))
+
+
+### Bug Fixes
+
+* **image:** parse digest references correctly ([#245](https://github.com/deckhouse/delivery-kit/issues/245)) ([8201b1b](https://github.com/deckhouse/delivery-kit/commit/8201b1b6ef6a4098ca5e9ed0d3a6d53254ec15a7))
+* **release:** restore release automation on main ([#249](https://github.com/deckhouse/delivery-kit/issues/249)) ([60acbdf](https://github.com/deckhouse/delivery-kit/commit/60acbdfb54942763a12e75c67cb20787b0203aed))
+* **sbom:** drop internal builder label from missing-SBOM error ([297ec29](https://github.com/deckhouse/delivery-kit/commit/297ec296ac8dc56ea26d34df3ad65dc549cb9711))
+
+## [2.77.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.3...v2.77.0-dk.1) (2026-08-11)
+
+
+### Miscellaneous Chores
+
+* force release 2.77.0-dk.1 ([c0c72f6](https://github.com/deckhouse/delivery-kit/commit/c0c72f6e425f1abaa0550f83476e6056e2f1b35f))
+
+## [2.75.4-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.2...v2.75.4-dk.3) (2026-08-11)
+
+
+### Bug Fixes
+
+* **sbom:** propagate attached artifacts along stage copies ([#240](https://github.com/deckhouse/delivery-kit/issues/240)) ([6e40074](https://github.com/deckhouse/delivery-kit/commit/6e40074fa87e63fa504c32f8a874e55fc7665f75))
+
+## [2.75.4-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.75.4-dk.1...v2.75.4-dk.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* **sbom:** add help link hint to aggregated PURL resolve error ([#233](https://github.com/deckhouse/delivery-kit/issues/233)) ([5dff183](https://github.com/deckhouse/delivery-kit/commit/5dff1830522142cccf61a5f9f3db29edc849428a))
+* **sbom:** enforce pm determinism again ([#226](https://github.com/deckhouse/delivery-kit/issues/226)) ([c6b0349](https://github.com/deckhouse/delivery-kit/commit/c6b03498bfa10ef9ae94ef2e549189f235b778dd))
+
+## [2.75.4-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.3-dk.1...v2.75.4-dk.1) (2026-08-06)
+
+
+### Features
+
+* **sbom:** add language pkg env vars ([#220](https://github.com/deckhouse/delivery-kit/issues/220)) ([e42596e](https://github.com/deckhouse/delivery-kit/commit/e42596ee08f300cc914743165fa7ffe3cd5bb6e6))
+* **sbom:** support environment variables for os-pm ([#217](https://github.com/deckhouse/delivery-kit/issues/217)) ([8bc1d20](https://github.com/deckhouse/delivery-kit/commit/8bc1d204d0fd54037b4a6285aa6d75f892178d4b))
+
+
+### Bug Fixes
+
+* **build, buildah:** retry pull when cached image id is missing ([#7669](https://github.com/deckhouse/delivery-kit/issues/7669)) ([9d64035](https://github.com/deckhouse/delivery-kit/commit/9d640357576a029456d94516b64c0eda1214025a))
+* **build, buildah:** serialize concurrent base image pulls ([#7664](https://github.com/deckhouse/delivery-kit/issues/7664)) ([6eb9144](https://github.com/deckhouse/delivery-kit/commit/6eb9144a1f0b71b6c6df3d5ec8ba8b6d3bd14b82))
+* **build, stapel:** make service script executable regardless of umask ([#7720](https://github.com/deckhouse/delivery-kit/issues/7720)) ([8b67264](https://github.com/deckhouse/delivery-kit/commit/8b67264f781b361119a9d6be0a390afec616e258)), closes [#2339](https://github.com/deckhouse/delivery-kit/issues/2339)
+* **build:** drop empty image digest warnings from the build report ([#7717](https://github.com/deckhouse/delivery-kit/issues/7717)) ([24babbb](https://github.com/deckhouse/delivery-kit/commit/24babbbbb2bde473e45a1a8bd72c3ff4c64ea532)), closes [#7667](https://github.com/deckhouse/delivery-kit/issues/7667)
+* **build:** make repo-built from:scratch images readable by dive ([#7765](https://github.com/deckhouse/delivery-kit/issues/7765)) ([54b0921](https://github.com/deckhouse/delivery-kit/commit/54b092177796f41c5fce2944f4bf73f45e058da8))
+* **sbom:** prevent storage fallback inconsistency ([#210](https://github.com/deckhouse/delivery-kit/issues/210)) ([c690a26](https://github.com/deckhouse/delivery-kit/commit/c690a26cc79251ac01c8b1ffa99fd973a93360a6))
+* **sbom:** use default registry auth in GetAttachedContentAny ([34f1658](https://github.com/deckhouse/delivery-kit/commit/34f1658160cf710f70bf3e11cee7200b0809a9ca2))
+
+
+### Miscellaneous Chores
+
+* force release 2.75.4-dk.1 ([1ec2055](https://github.com/deckhouse/delivery-kit/commit/1ec205529ed9395e21a5a4cb3b0b77ec9fb097d2))
+
 ## [3.1.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.75.3-dk.1...v3.1.0-dk.1) (2026-08-05)
 
 

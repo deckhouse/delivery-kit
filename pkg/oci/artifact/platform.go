@@ -84,9 +84,10 @@ func ResolvePlatformDigest(ctx context.Context, repo, digestStr, platform string
 
 // ListIndexPlatforms returns the platform manifests of an image index. For a
 // non-index manifest it returns a single entry with an empty Platform and the
-// digest itself.
-func ListIndexPlatforms(ctx context.Context, repo, digestStr string) ([]PlatformDigest, error) {
-	desc, err := getManifestDescriptor(ctx, repo, digestStr)
+// digest itself. When no remote options are given, per-host defaults from
+// docker_registry are used.
+func ListIndexPlatforms(ctx context.Context, repo, digestStr string, opts ...remote.Option) ([]PlatformDigest, error) {
+	desc, err := getManifestDescriptor(ctx, repo, digestStr, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -98,13 +99,16 @@ func ListIndexPlatforms(ctx context.Context, repo, digestStr string) ([]Platform
 	return indexPlatformDigests(desc, repo, digestStr)
 }
 
-func getManifestDescriptor(ctx context.Context, repo, digestStr string) (*remote.Descriptor, error) {
+func getManifestDescriptor(ctx context.Context, repo, digestStr string, opts ...remote.Option) (*remote.Descriptor, error) {
 	ref, err := name.NewDigest(repo + "@" + digestStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse digest reference %q: %w", repo+"@"+digestStr, err)
 	}
 
-	opts := append([]remote.Option{remote.WithContext(ctx)}, docker_registry.API().RemoteOptionsForHost(ctx, repo)...)
+	if len(opts) == 0 {
+		opts = docker_registry.API().RemoteOptionsForHost(ctx, repo)
+	}
+	opts = append([]remote.Option{remote.WithContext(ctx)}, opts...)
 	desc, err := remote.Get(ref, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("get manifest %q: %w", ref.String(), err)

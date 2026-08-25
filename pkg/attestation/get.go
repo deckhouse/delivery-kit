@@ -81,6 +81,24 @@ func ResolveAttestationDigest(ctx context.Context, repo, digest, platform, predi
 	return digest, nil
 }
 
+// FindAttachedArtifact returns the descriptor of the attestation of the given
+// kind stored for parentDigest, preferring the signed Sigstore Bundle over the
+// legacy bare-DSSE artifact. Build steps use it to compare the stored checksum
+// annotation with the one the current inputs produce.
+func FindAttachedArtifact(ctx context.Context, store artifact.Store, parentDigest string, kind PredicateKind) (v1.Descriptor, bool, error) {
+	for _, artifactType := range []string{BundleMediaType, DSSEMediaType} {
+		desc, found, err := store.GetAttached(ctx, parentDigest, artifactType, kind.Types())
+		if err != nil {
+			return v1.Descriptor{}, false, fmt.Errorf("get attached %s artifact of type %q: %w", kind.Name, artifactType, err)
+		}
+		if found {
+			return desc, true, nil
+		}
+	}
+
+	return v1.Descriptor{}, false, nil
+}
+
 // PullAttestationEnvelope returns the DSSE envelope of the attestation of the
 // requested predicate kind: the Sigstore Bundle artifact is preferred over the
 // legacy bare-DSSE one, entries annotated with a matching predicate type are

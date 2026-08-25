@@ -12,7 +12,6 @@ import (
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/vex"
 	vexImage "github.com/werf/werf/v2/pkg/vex/image"
 )
 
@@ -66,15 +65,9 @@ func calculateVEXChecksum(vexJSON []byte, parentDigest, signerIdentity string) s
 // annotation-less entry never matches the current checksum formula, so it always
 // triggers a republish regardless of its actual kind.
 func checkVEXPublishNeeded(ctx context.Context, store artifact.Store, parentDigest, checksum string) (bool, error) {
-	desc, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes)
+	desc, found, err := attestation.FindAttachedArtifact(ctx, store, parentDigest, attestation.PredicateKindOpenVEX)
 	if err != nil {
-		return false, fmt.Errorf("check VEX cache (bundle): %w", err)
-	}
-	if !found {
-		desc, found, err = store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType, vex.VEXPredicateTypes)
-		if err != nil {
-			return false, fmt.Errorf("check VEX cache (dsse): %w", err)
-		}
+		return false, fmt.Errorf("check VEX cache: %w", err)
 	}
 	if found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
 		return false, nil

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
 	"github.com/werf/werf/v2/test/pkg/report"
@@ -241,9 +243,18 @@ func pullSbomFallbackIndexManifests(ctx SpecContext, repo, parentDigest string) 
 
 	var dsseDescs []v1.Descriptor
 	for _, desc := range im.Manifests {
-		if desc.ArtifactType == attestation.DSSEMediaType || desc.ArtifactType == attestation.BundleMediaType {
-			dsseDescs = append(dsseDescs, desc)
+		if desc.ArtifactType != attestation.DSSEMediaType && desc.ArtifactType != attestation.BundleMediaType {
+			continue
 		}
+		// Attestations of other kinds (e.g. an image-level OpenVEX document) share
+		// these artifact types and legitimately sit on the same digest, so entries
+		// annotated with another predicate are not SBOM artifacts. Entries with no
+		// predicate annotation predate the annotation and are counted as SBOMs.
+		predicate, annotated := desc.Annotations[artifact.PredicateTypeAnnotation]
+		if annotated && !slices.Contains(sbomImage.CycloneDXPredicateTypes, predicate) {
+			continue
+		}
+		dsseDescs = append(dsseDescs, desc)
 	}
 	return dsseDescs, true
 }

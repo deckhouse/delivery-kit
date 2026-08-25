@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.77.0-dk.5](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.4...v2.77.0-dk.5) (2026-08-25)
+
+
+### Features
+
+* **sbom, attest:** sign multi-platform SBOMs, verify every platform ([#262](https://github.com/deckhouse/delivery-kit/issues/262)) ([655c9fa](https://github.com/deckhouse/delivery-kit/commit/655c9fab80454b0ffbc8f065c1fef79efdb76532))
+* **vex, sbom, attest:** sign VEX documents at build time ([#267](https://github.com/deckhouse/delivery-kit/issues/267)) ([ad1b168](https://github.com/deckhouse/delivery-kit/commit/ad1b1688ff640aa86c3d438e3191617e28679b5e))
+
+
+### Bug Fixes
+
+* **sbom:** skip images importing from an image whose SBOM enrichment failed ([#268](https://github.com/deckhouse/delivery-kit/issues/268)) ([411148b](https://github.com/deckhouse/delivery-kit/commit/411148bca0e6144cb4a0a76f6640208c6992d746))
+
 ## [2.77.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.3...v2.77.0-dk.4) (2026-08-21)
 
 

@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -33,6 +32,7 @@ import (
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
 	"github.com/werf/werf/v2/pkg/opstats"
+	"github.com/werf/werf/v2/pkg/sbom/convergefailure"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
@@ -111,7 +111,7 @@ type BuildPhase struct {
 
 	buildContextArchive container_backend.BuildContextArchiver
 
-	sbomPurlFailures *sync.Map
+	sbomFailures *convergefailure.Tracker
 }
 
 func GenerateImageEnv(werfImageName, imageName string) string {
@@ -266,30 +266,15 @@ func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
 		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
 	}
 
-	var purlFailures sync.Map
-	phase.sbomPurlFailures = &purlFailures
+	tracker := convergefailure.NewTracker(os.Getenv(externalref.EnvName))
+	phase.sbomFailures = tracker
 
-	breaker := externalref.NewResolverBreaker(os.Getenv(externalref.EnvName))
-	totalImages, convergeErr := phase.doConvergeSbomByImagesSets(ctx, breaker, &purlFailures)
+	totalImages, convergeErr := phase.doConvergeSbomByImagesSets(ctx, tracker)
 
-	aggErr := buildAggregatedPurlError(&purlFailures, totalImages)
-	if convergeErr != nil {
-		if aggErr != nil {
-			logboek.Context(ctx).Warn().LogF("%s\n", aggErr)
-			logPurlResolverHelpHint(ctx)
-		}
-		return canonicalResolverUnavailableError(convergeErr, breaker)
-	}
-
-	if aggErr != nil {
-		logPurlResolverHelpHint(ctx)
-		return aggErr
-	}
-
-	return nil
+	return tracker.Finish(ctx, totalImages, convergeErr)
 }
 
-func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, breaker *externalref.ResolverBreaker, purlFailures *sync.Map) (int, error) {
+func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, tracker *convergefailure.Tracker) (int, error) {
 	var totalImages int
 
 	for _, imagesInSet := range phase.Conveyor.imagesTree.GetImagesSets() {
@@ -312,20 +297,12 @@ func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, breaker
 			name := names[taskId]
 			images := imagesByName[name]
 
-			baseNames := lo.Map(images, func(img *image.Image, _ int) string {
-				return img.GetBaseImageName()
-			})
-			if record, found := purlFailureForBases(purlFailures, baseNames); found {
-				purlFailures.LoadOrStore(name, purlFailureRecord{
-					rootImage: record.rootImage,
-					rootCause: record.rootCause,
-				})
-				logboek.Context(ctx).Warn().LogF("WARNING: image %s: SBOM converge skipped: SBOM for base image %q was not generated: %s\n", name, record.rootImage, record.rootCause)
+			if tracker.SkipDependent(ctx, name, sbomImageDependencies(images)) {
 				return nil
 			}
 
-			if err := phase.convergeImageSbom(ctx, name, images, breaker); err != nil {
-				return classifySbomConvergeError(err, name, purlFailures)
+			if err := phase.convergeImageSbom(ctx, name, images, tracker.Breaker()); err != nil {
+				return tracker.Classify(err, name)
 			}
 			return nil
 		}); err != nil {
@@ -336,85 +313,20 @@ func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, breaker
 	return totalImages, nil
 }
 
-// purlFailureRecord marks an image whose SBOM was not generated in this run.
-// A direct enrichment failure has rootImage equal to the image's own name and
-// carries component-level details; a skip record points at the root-cause image.
-type purlFailureRecord struct {
-	details   string
-	rootImage string
-	rootCause string
-}
-
-func classifySbomConvergeError(err error, imageName string, purlFailures *sync.Map) error {
-	if errors.Is(err, externalref.ErrResolverUnavailable) {
-		return err
-	}
-
-	if !errors.Is(err, externalref.ErrExternalRefEnrich) {
-		return err
-	}
-
-	details := ""
-	var compErr *externalref.ComponentError
-	if errors.As(err, &compErr) {
-		details = compErr.ComponentDetails()
-	}
-	purlFailures.LoadOrStore(imageName, purlFailureRecord{
-		details:   details,
-		rootImage: imageName,
-		rootCause: compactPurlCause(details),
-	})
-	return nil
-}
-
-func purlFailureForBases(purlFailures *sync.Map, baseNames []string) (purlFailureRecord, bool) {
-	for _, baseName := range baseNames {
-		if baseName == "" {
-			continue
+// sbomImageDependencies describes, for the SBOM failure semantics, the images
+// whose SBOMs are merged into this image's own SBOM.
+func sbomImageDependencies(images []*image.Image) []convergefailure.ImageDependencies {
+	return lo.Map(images, func(img *image.Image, _ int) convergefailure.ImageDependencies {
+		return convergefailure.ImageDependencies{
+			BaseImageName: img.GetBaseImageName(),
+			Imports: lo.Map(img.GetImportImagesInfo(), func(importInfo image.ImportImageInfo, _ int) convergefailure.ImportSource {
+				return convergefailure.ImportSource{
+					ImageName: importInfo.ImageName,
+					External:  importInfo.ExternalImage,
+				}
+			}),
 		}
-		if value, found := purlFailures.Load(baseName); found {
-			return value.(purlFailureRecord), true
-		}
-	}
-	return purlFailureRecord{}, false
-}
-
-func basePurlFailureError(purlFailures *sync.Map, baseName string) (error, bool) {
-	if purlFailures == nil || baseName == "" {
-		return nil, false
-	}
-	value, found := purlFailures.Load(baseName)
-	if !found {
-		return nil, false
-	}
-	record := value.(purlFailureRecord)
-	return fmt.Errorf("SBOM for base image %q was not generated: %s", record.rootImage, record.rootCause), true
-}
-
-// canonicalResolverUnavailableError replaces a worker-wrapped breaker trip with the
-// breaker's canonical error so exactly one resolver-unavailable error surfaces per build.
-func canonicalResolverUnavailableError(err error, breaker *externalref.ResolverBreaker) error {
-	if !errors.Is(err, externalref.ErrResolverUnavailable) {
-		return err
-	}
-	if canonical := breaker.UnavailableError(); canonical != nil {
-		return canonical
-	}
-	return err
-}
-
-func compactPurlCause(details string) string {
-	lines := lo.Filter(strings.Split(details, "\n"), func(line string, _ int) bool {
-		return strings.TrimSpace(line) != ""
 	})
-	if len(lines) == 0 {
-		return "external references enrichment failed"
-	}
-	cause := strings.TrimPrefix(strings.TrimSpace(lines[0]), "- ")
-	if len(lines) > 1 {
-		cause = fmt.Sprintf("%s (and %d more component errors)", cause, len(lines)-1)
-	}
-	return cause
 }
 
 func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image, breaker *externalref.ResolverBreaker) error {
@@ -1789,7 +1701,7 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 		return nil, nil
 	}
 
-	if err, found := basePurlFailureError(phase.sbomPurlFailures, img.GetBaseImageName()); found {
+	if err, found := phase.sbomFailures.DependencyError(img.GetBaseImageName()); found {
 		return nil, err
 	}
 
@@ -1828,6 +1740,12 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	var importImageSboms []*cdx.BOM
 
 	for _, importInfo := range img.GetImportImagesInfo() {
+		if !importInfo.ExternalImage {
+			if err, found := phase.sbomFailures.DependencyError(importInfo.ImageName); found {
+				return nil, err
+			}
+		}
+
 		var importImageInfo *imagePkg.Info
 
 		if importInfo.ExternalImage {
@@ -1879,51 +1797,6 @@ func (phase *BuildPhase) Clone() Phase {
 
 func (phase *BuildPhase) Report() *ImagesReport {
 	return phase.ImagesReport
-}
-
-// buildAggregatedPurlError builds a hierarchical aggregated error from accumulated PURL failures.
-func buildAggregatedPurlError(purlFailures *sync.Map, totalImages int) error {
-	var errorCount int
-	var sb strings.Builder
-	purlFailures.Range(func(key, value interface{}) bool {
-		errorCount++
-		imageName := key.(string)
-		record := value.(purlFailureRecord)
-		sb.WriteString(fmt.Sprintf("\n  - image: %s:\n", imageName))
-		if record.rootImage != imageName {
-			sb.WriteString(fmt.Sprintf("    - skipped: SBOM for base image %q was not generated: %s\n", record.rootImage, record.rootCause))
-			return true
-		}
-		for _, line := range strings.Split(record.details, "\n") {
-			if line != "" {
-				sb.WriteString(line + "\n")
-			}
-		}
-		return true
-	})
-
-	if errorCount > 0 {
-		return fmt.Errorf("resolve external references: %d of %d images failed:%s", errorCount, totalImages, sb.String())
-	}
-
-	return nil
-}
-
-// logPurlResolverHelpHint prominently tells the user where to get help with purl-resolver errors.
-func logPurlResolverHelpHint(ctx context.Context) {
-	serverURL := os.Getenv(externalref.EnvName)
-	if serverURL == "" {
-		return
-	}
-
-	logboek.Context(ctx).Warn().LogBlock("External references resolution failed").
-		Options(func(options types.LogBlockOptionsInterface) {
-			options.Style(style.Highlight())
-		}).
-		Do(func() {
-			logboek.Context(ctx).Warn().LogF("Some package URLs could not be resolved by the external references service.\n")
-			logboek.Context(ctx).Warn().LogF("See %s/help for details on resolving these errors.\n", strings.TrimRight(serverURL, "/"))
-		})
 }
 
 func debugStageDigest() bool {

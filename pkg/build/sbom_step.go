@@ -229,17 +229,17 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 				if os.Getenv("WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES") == "true" {
 					return nil, ErrSbomNotRequired
 				}
-				return nil, fmt.Errorf("the base image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
+				return nil, fmt.Errorf("the image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
 			}
 		}
-		return nil, baseSbomMissingError(imageInfo, err)
+		return nil, sbomMissingError(imageInfo, err)
 	}
 
 	return bom, nil
 }
 
-func baseSbomMissingError(imageInfo *image.Info, err error) error {
-	return fmt.Errorf("the base image %q must have an SBOM artifact attached; to generate an SBOM for the base image, rebuild it with SBOM generation enabled; note: if the base image is a multi-platform image built by an older werf version, its SBOM is attached in a legacy platform-ambiguous format and cannot be used — rebuild the base image with a newer werf version: %w", imageInfo.Name, err)
+func sbomMissingError(imageInfo *image.Info, err error) error {
+	return fmt.Errorf("the image %q must have an SBOM artifact attached; to generate an SBOM for the image, rebuild it with SBOM generation enabled; note: if the image is a multi-platform image built by an older werf version, its SBOM is attached in a legacy platform-ambiguous format and cannot be used — rebuild the image with a newer werf version: %w", imageInfo.Name, err)
 }
 
 func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {

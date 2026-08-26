@@ -350,8 +350,9 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
 	}
 
+	finalStageDesc := phase.finalStageDescForImage(name, images)
 	for _, img := range images {
-		if err := phase.convergePlatformImageSbom(ctx, name, img, signer, signerIdentity, breaker); err != nil {
+		if err := phase.convergePlatformImageSbom(ctx, name, img, finalStageDesc, signer, signerIdentity, breaker); err != nil {
 			return err
 		}
 	}
@@ -359,8 +360,11 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	return nil
 }
 
-func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
-	stageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, finalStageDesc *imagePkg.StageDesc, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
+	stageDesc := img.GetLastNonEmptyStageDesc()
+	if stageDesc == nil {
+		return fmt.Errorf("unable to converge sbom for image %q: stage descriptor is unavailable", name)
+	}
 
 	baseImageSbom, err := phase.collectBaseImageSbom(ctx, img)
 	if err != nil {
@@ -420,7 +424,6 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	finalStageDesc := img.GetLastNonEmptyStage().GetStageImage().Image.GetFinalStageDesc()
 	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
 		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
 	}
@@ -1727,10 +1730,11 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 	var primaryImg *image.Image
 
 	if len(images) == 1 {
-
 		primaryImg = images[0]
-
-		stageDesc = primaryImg.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc()
+		stageDesc = primaryImg.GetLastNonEmptyStageDesc()
+		if stageDesc == nil {
+			return fmt.Errorf("unable to converge VEX for image %q: stage descriptor is unavailable", name)
+		}
 
 	} else {
 

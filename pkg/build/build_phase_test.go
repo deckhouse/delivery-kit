@@ -123,12 +123,19 @@ var _ = Describe("BuildPhase", func() {
 		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
 	})
 
-	It("uses content tag image info for a reused image", func() {
-		expected := &imagePkg.Info{Name: "repo:image"}
-		img := &image.Image{}
-		img.SetContentTagDesc(&imagePkg.StageDesc{Info: expected})
+	Describe("last non-empty stage descriptor", func() {
+		It("uses the content tag descriptor for a reused image", func() {
+			expected := &imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:image"}}
+			img := &image.Image{}
+			img.SetContentTagDesc(expected)
 
-		Expect(img.GetLastNonEmptyStageImageInfo()).To(BeIdenticalTo(expected))
+			Expect(img.GetLastNonEmptyStageDesc()).To(BeIdenticalTo(expected))
+			Expect(img.GetLastNonEmptyStageImageInfo()).To(BeIdenticalTo(expected.Info))
+		})
+
+		It("returns nil when neither a content tag nor a built stage descriptor exists", func() {
+			Expect((&image.Image{}).GetLastNonEmptyStageDesc()).To(BeNil())
+		})
 	})
 
 	Describe("calculateDigest", func() {

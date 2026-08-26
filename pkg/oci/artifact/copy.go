@@ -70,6 +70,7 @@ func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dst
 			ctx, dstDigest, desc.ArtifactType, payload,
 			desc.Annotations[image.WerfChecksumAnnotation],
 			desc.Annotations[image.WerfPlatformAnnotation],
+			desc.Annotations[PredicateTypeAnnotation],
 		); err != nil {
 			return fmt.Errorf("attach artifact of type %q to %s: %w", desc.ArtifactType, dstRepo+"@"+dstDigest, err)
 		}
@@ -92,6 +93,9 @@ func hasEquivalentArtifact(dstIM *v1.IndexManifest, srcDesc v1.Descriptor) bool 
 			continue
 		}
 		if desc.Annotations[image.WerfPlatformAnnotation] != srcDesc.Annotations[image.WerfPlatformAnnotation] {
+			continue
+		}
+		if desc.Annotations[PredicateTypeAnnotation] != srcDesc.Annotations[PredicateTypeAnnotation] {
 			continue
 		}
 		return true

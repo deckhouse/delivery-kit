@@ -63,7 +63,7 @@ var _ = Describe("AttestationRoundTrip", func() {
 var _ = Describe("PushVEX", func() {
 	DescribeTable("error cases",
 		func(vexJSON []byte, repo, parentDigest, imageName, checksum, targetPlatform, expectedErr string) {
-			err := veximage.PushVEX(context.Background(), vexJSON, repo, parentDigest, imageName, checksum, targetPlatform)
+			err := veximage.PushVEX(context.Background(), vexJSON, repo, parentDigest, imageName, checksum, targetPlatform, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(expectedErr))
 		},

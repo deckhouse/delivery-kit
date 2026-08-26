@@ -135,7 +135,7 @@ var _ = Describe("CollectBOM (AI)", func() {
 			ReadFileFromImage(ctx, imageRef, ContainerFactoryVersionPath, container_backend.ReadFileFromImageOpts{}).
 			Return([]byte("image-version\n"), nil)
 
-		bom, err := CollectAndMergeBOM(ctx, mockBackend, imageRef, nil)
+		bom, err := CollectBOM(ctx, mockBackend, imageRef)
 		Expect(err).To(Succeed())
 		Expect(bom).ToNot(BeNil())
 		Expect((*bom.Components)[0].PackageURL).To(ContainSubstring("containerfactoryversion=image-version"))

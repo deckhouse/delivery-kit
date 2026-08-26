@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"text/tabwriter"
 
+	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/spf13/cobra"
 
 	"github.com/werf/logboek"
@@ -81,7 +83,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
 	cmd.Flags().StringArrayVarP(&keyFlags, "key", "", nil, "Path to public key PEM file for verification (repeatable, any match = success)")
 	cmd.Flags().StringVarP(&imageFlag, "image", "", "", "Image name for artifact lookup")
-	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform of the image when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Platform to verify when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. When omitted for an index, attestations of all its platforms are verified. Not applicable with --type openvex: OpenVEX attestations are image-level and verified at the index digest itself")
 
 	return cmd
 }
@@ -124,14 +126,31 @@ func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths 
 		digest = resolved
 	}
 
-	digest, err = artifact.ResolvePlatformDigest(ctx, repoAddr, digest, platform)
-	if err != nil {
-		return err
-	}
-
 	verifiers, err := attestation.LoadVerifiers(keyPaths)
 	if err != nil {
 		return fmt.Errorf("load verification keys: %w", err)
+	}
+
+	// Image-level attestations (OpenVEX) live on the index digest itself, so an
+	// index reference is verified as-is instead of being expanded per platform.
+	if attestation.ImageLevelPredicateType(predicateType) {
+		digest, err = attestation.ResolveAttestationDigest(ctx, repoAddr, digest, platform, predicateType)
+		if err != nil {
+			return err
+		}
+	} else if platform == "" {
+		entries, err := artifact.ListIndexPlatforms(ctx, repoAddr, digest)
+		if err != nil {
+			return err
+		}
+		if isIndex := len(entries) != 1 || entries[0].Platform != ""; isIndex {
+			return runVerifyIndex(ctx, repoAddr, digest, imageName, predicateType, verifiers)
+		}
+	} else {
+		digest, err = artifact.ResolvePlatformDigest(ctx, repoAddr, digest, platform)
+		if err != nil {
+			return err
+		}
 	}
 
 	predicateBytes, err := attestation.Verify(ctx, repoAddr, digest, imageName, predicateType, verifiers)
@@ -145,4 +164,24 @@ func runVerify(ctx context.Context, predicateType, digest, tag string, keyPaths 
 		}
 		return nil
 	})
+}
+
+func runVerifyIndex(ctx context.Context, repoAddr, indexDigest, imageName, predicateType string, verifiers []signature.Verifier) error {
+	results, err := attestation.VerifyIndex(ctx, repoAddr, indexDigest, imageName, predicateType, verifiers)
+	if err != nil {
+		return err
+	}
+
+	if err := logboek.Streams().DoErrorWithoutProxyStreamDataFormatting(func() error {
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "PLATFORM\tDIGEST\tSTATUS")
+		for _, result := range results {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", result.Platform, result.Digest, result.Status)
+		}
+		return w.Flush()
+	}); err != nil {
+		return err
+	}
+
+	return attestation.VerifyIndexResultError(results)
 }

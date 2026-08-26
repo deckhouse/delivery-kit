@@ -27,11 +27,11 @@ A `Record` is either a **direct failure** (`RootImage` equals the image's own na
 ```
 resolve external references: N of M images failed:
   - image: <name>:
-    - component: <name>: resolve "purl": ...: unexpected status 404
+    - component: <name> (<purl>): resolve: unexpected status 404
   - image: <dependent-name>:
     - skipped: SBOM for image "<root-name>" was not generated: <root cause>
 ```
 
-The format has three levels: component details (or a skip line), grouped under image name, headed by a summary line; N counts direct failures plus skipped images (S001).
+The format has three levels: component details (or a skip line), grouped under image name, headed by a summary line; N counts direct failures plus skipped images (S001). The purl is rendered once, by the enricher, so every component failure carries it regardless of which layer produced the error; components legitimately without a purl (see `purlNotExpected`) fall back to `- component: <name>: <error>`.
 
 See also: [PURL resolution](./purl-resolution.md), [ComponentError type](./component-error-type.md).

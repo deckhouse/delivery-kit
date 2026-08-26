@@ -3,6 +3,7 @@ package convergefailure
 import (
 	"context"
 	"errors"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
@@ -24,6 +25,13 @@ func componentEnrichError(componentName string) error {
 	}
 
 	return errors.Join(err, externalref.ErrExternalRefEnrich)
+}
+
+// unwrapLogboek collapses the soft line wrapping logboek applies to warnings —
+// it breaks a long line with a "↵" marker — so a single logical line can be
+// matched as one substring.
+func unwrapLogboek(s string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(s, "↵", "")), " ")
 }
 
 func trippedBreaker(endpoint string) *externalref.ResolverBreaker {

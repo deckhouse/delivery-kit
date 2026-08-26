@@ -38,8 +38,8 @@ var _ = Describe("compactCause", func() {
 		func(details, expected string) {
 			Expect(compactCause(details)).To(Equal(expected))
 		},
-		Entry("single component", "    - component: apk-tools: empty url\n", "component: apk-tools: empty url"),
-		Entry("multiple components", "    - component: apk-tools: empty url\n    - component: openssl: empty url\n", "component: apk-tools: empty url (and 1 more component errors)"),
+		Entry("single component", "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"),
+		Entry("multiple components", "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n    - component: openssl (pkg:apk/alpine/openssl@1.0.0): empty url\n", "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url (and 1 more component errors)"),
 		Entry("empty details", "", "external references enrichment failed"),
 	)
 })
@@ -52,34 +52,34 @@ var _ = Describe("Tracker.AggregatedError", func() {
 	It("keeps the direct-failure format byte-identical", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
 			"img1": {
-				Details:   "    - component: apk-tools: empty url\n",
+				Details:   "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n",
 				RootImage: "img1",
-				RootCause: "component: apk-tools: empty url",
+				RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url",
 			},
 		})
 
 		err := tracker.AggregatedError(1)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(Equal("resolve external references: 1 of 1 images failed:\n  - image: img1:\n    - component: apk-tools: empty url\n"))
+		Expect(err.Error()).To(Equal("resolve external references: 1 of 1 images failed:\n  - image: img1:\n    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n"))
 	})
 
 	It("renders skip records and counts them in the summary", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
 			"a": {
-				Details:   "    - component: apk-tools: empty url\n",
+				Details:   "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n",
 				RootImage: "a",
-				RootCause: "component: apk-tools: empty url",
+				RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url",
 			},
 			"b": {
 				RootImage: "a",
-				RootCause: "component: apk-tools: empty url",
+				RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url",
 			},
 		})
 
 		err := tracker.AggregatedError(3)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("resolve external references: 2 of 3 images failed:"))
-		Expect(err.Error()).To(ContainSubstring("  - image: a:\n    - component: apk-tools: empty url"))
-		Expect(err.Error()).To(ContainSubstring("  - image: b:\n    - skipped: SBOM for image \"a\" was not generated: component: apk-tools: empty url"))
+		Expect(err.Error()).To(ContainSubstring("  - image: a:\n    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"))
+		Expect(err.Error()).To(ContainSubstring("  - image: b:\n    - skipped: SBOM for image \"a\" was not generated: component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"))
 	})
 })

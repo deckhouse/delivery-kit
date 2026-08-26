@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -177,16 +176,25 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 const sbomArtifactFormatVersion = "2"
 
+// calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
+// parent stage digest it forms the cache key: a previously attached SBOM is reused only
+// when both match, so the checksum must cover every generation input outside the image
+// content. Intentionally excluded: image filesystem content, the scratch-base mode and
+// the os-pm packages directive (all covered by the parent digest — the directive feeds
+// the Packages stage digest through the generated install command), gomod patcher inputs
+// (build context changes alter the stage digest), external reference enrichment
+// (non-deterministic external data), and generator logic changes (covered by
+// sbomArtifactFormatVersion).
 func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
-	var parts []string
-	parts = append(parts, sbomArtifactFormatVersion)
-	parts = append(parts, scanOpts.Checksum())
-	parts = append(parts, mergeOpts.Checksum())
-	parts = append(parts, signerIdentity)
-	if targetPlatform != "" {
-		parts = append(parts, targetPlatform)
-	}
-	return util.Sha256Hash(strings.Join(parts, "-"))
+	return util.Sha256Hash(
+		sbomArtifactFormatVersion,
+		"scan", scanOpts.Checksum(),
+		"merge", mergeOpts.Checksum(),
+		"gost_attack_surface", mergeOpts.Gost.AttackSurface.String(),
+		"gost_security_function", mergeOpts.Gost.SecurityFunction.String(),
+		"signer", signerIdentity,
+		"platform", targetPlatform,
+	)
 }
 
 // PropagateArtifacts copies the artifacts attached to the image stage (e.g. its SBOM)

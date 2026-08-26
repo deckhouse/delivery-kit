@@ -344,9 +344,9 @@ func (i *Image) GetImportImagesInfo() []ImportImageInfo {
 	return result
 }
 
-func (i *Image) GetLastNonEmptyStageImageInfo() *image.Info {
+func (i *Image) GetLastNonEmptyStageDesc() *image.StageDesc {
 	if i.contentTagDesc != nil && i.contentTagDesc.Info != nil {
-		return i.contentTagDesc.Info
+		return i.contentTagDesc
 	}
 
 	lastStage := i.GetLastNonEmptyStage()
@@ -355,11 +355,20 @@ func (i *Image) GetLastNonEmptyStageImageInfo() *image.Info {
 	}
 
 	stageImage := lastStage.GetStageImage()
-	if stageImage == nil {
+	if stageImage == nil || stageImage.Image == nil {
 		return nil
 	}
 
 	stageDesc := stageImage.Image.GetStageDesc()
+	if stageDesc == nil || stageDesc.Info == nil {
+		return nil
+	}
+
+	return stageDesc
+}
+
+func (i *Image) GetLastNonEmptyStageImageInfo() *image.Info {
+	stageDesc := i.GetLastNonEmptyStageDesc()
 	if stageDesc == nil {
 		return nil
 	}

@@ -6,7 +6,7 @@ build:
     - linux/arm64
 ---
 image: app
-from: registry.werf.io/werf/scratch
+from: registry.werf.io/werf/scratch:latest
 git:
   - add: /
     to: /app

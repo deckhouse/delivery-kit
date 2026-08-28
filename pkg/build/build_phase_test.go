@@ -123,6 +123,43 @@ var _ = Describe("BuildPhase", func() {
 		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
 	})
 
+	Describe("VEX convergence", func() {
+		newMultiplatformImage := func(ctx SpecContext) (*image.MultiplatformImage, *image.Image) {
+			images := make([]*image.Image, 2)
+			for i, platform := range []string{"linux/amd64", "linux/arm64"} {
+				img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				img.SetContentTagDesc(&imagePkg.StageDesc{
+					StageID: imagePkg.NewStageID(platform, 1),
+					Info:    &imagePkg.Info{},
+				})
+				images[i] = img
+			}
+			return image.NewMultiplatformImage("app", images, 0, 1), images[0]
+		}
+
+		It("returns an error when a multi-image stage descriptor is unavailable", func(ctx SpecContext) {
+			multiImg, _ := newMultiplatformImage(ctx)
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.SetMultiplatformImage(multiImg)
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+
+			err := phase.convergeImageVex(ctx, "app", multiImg.Images)
+
+			Expect(err).To(MatchError(`unable to converge VEX for image "app": stage descriptor is unavailable`))
+		})
+
+		It("continues when a multi-image stage descriptor is available", func(ctx SpecContext) {
+			multiImg, primaryImg := newMultiplatformImage(ctx)
+			multiImg.SetStageDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{}})
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.SetMultiplatformImage(multiImg)
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+
+			Expect(phase.convergeImageVex(ctx, primaryImg.Name, multiImg.Images)).To(Succeed())
+		})
+	})
+
 	Describe("last non-empty stage descriptor", func() {
 		It("uses the content tag descriptor for a reused image", func() {
 			expected := &imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:image"}}

@@ -122,8 +122,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	commonCmdData.SetupPlatform(cmd)
 
-	lo.Must0(common.SetupKubeConnectionFlags(&commonCmdData, cmd))
-
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Content-based tag of the image to get SBOM for (mutually exclusive with --digest)")
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the image to get SBOM for (mutually exclusive with --tag)")
 

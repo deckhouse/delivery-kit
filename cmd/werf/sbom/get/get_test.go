@@ -14,6 +14,19 @@ func TestSbomGet(t *testing.T) {
 	RunSpecs(t, "Sbom Get Suite")
 }
 
+var _ = Describe("sbom get command", func() {
+	It("registers SBOM and platform flags without Kubernetes flags", func(ctx SpecContext) {
+		cmd := NewCmd(ctx)
+
+		Expect(cmd.Flags().Lookup("tag")).NotTo(BeNil())
+		Expect(cmd.Flags().Lookup("digest")).NotTo(BeNil())
+		Expect(cmd.Flags().Lookup("platform")).NotTo(BeNil())
+		Expect(cmd.Flags().Lookup("kube-api-server")).To(BeNil())
+		Expect(cmd.Flags().Lookup("kube-config")).To(BeNil())
+		Expect(cmd.Flags().Lookup("kube-context")).To(BeNil())
+	})
+})
+
 var _ = Describe("selectExportedImage", func() {
 	newImage := func(name, platform string) *image.Image {
 		return &image.Image{Name: name, TargetPlatform: platform}

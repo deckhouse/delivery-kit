@@ -1735,37 +1735,33 @@ func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
 	return nil
 }
 
-func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, images []*image.Image) error {
-	var stageDesc *imagePkg.StageDesc
-
-	var primaryImg *image.Image
-
+func (phase *BuildPhase) vexStageDesc(name string, images []*image.Image) *imagePkg.StageDesc {
 	if len(images) == 1 {
-		primaryImg = images[0]
-		stageDesc = primaryImg.GetLastNonEmptyStageDesc()
-		if stageDesc == nil {
-			return fmt.Errorf("unable to converge VEX for image %q: stage descriptor is unavailable", name)
-		}
-
-	} else {
-
-		primaryImg = images[0]
-
-		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-			stageDesc = multiImg.GetStageDesc()
-		} else {
-			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
-		}
-
-		if stageDesc == nil {
-			return fmt.Errorf("unable to converge VEX for image %q: stage descriptor is unavailable", name)
-		}
+		return images[0].GetLastNonEmptyStageDesc()
 	}
 
-	vexConfig := primaryImg.Vex()
+	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+		return multiImg.GetStageDesc()
+	}
 
+	return nil
+}
+
+func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, images []*image.Image) error {
+	if len(images) == 0 {
+		return nil
+	}
+
+	primaryImg := images[0]
+
+	vexConfig := primaryImg.Vex()
 	if vexConfig == nil || vexConfig.Document == "" {
 		return nil
+	}
+
+	stageDesc := phase.vexStageDesc(name, images)
+	if stageDesc == nil {
+		return fmt.Errorf("unable to converge VEX for image %q: stage descriptor is unavailable", name)
 	}
 
 	// Read VEX file from the project directory through giterminism manager.

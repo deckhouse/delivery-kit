@@ -8,6 +8,14 @@
       "source": "bundled",
       "installed_at": "2026-07-10T13:45:27.391851+00:00",
       "updated_at": "2026-07-10T13:45:27.391860+00:00"
+    },
+    "execution": {
+      "name": "Local Execution Loop",
+      "version": "1.0.0",
+      "description": "Runs implement, lint, unit tests, and converge until the current tasks are complete",
+      "source": ".specify/workflows/execution/workflow.yml",
+      "installed_at": "2026-08-28T00:00:00+00:00",
+      "updated_at": "2026-08-28T00:00:00+00:00"
     }
   }
 }

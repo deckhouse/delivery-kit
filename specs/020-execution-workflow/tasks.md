@@ -12,8 +12,8 @@
 
 **Purpose**: Establish the workflow source location and confirm the existing runtime conventions.
 
-- [ ] T001 [P] Create the project-local workflow directory `.specify/workflows/execution/` for the `execution` workflow definition
-- [ ] T002 Inspect `.specify/workflows/speckit/workflow.yml` and the supplied workflow architecture to record the exact `command`, `shell`, `if`, `while`, `do-while`, `continue_on_error`, step-output, and `max_iterations` shapes required by `.specify/workflows/execution/workflow.yml`
+- [X] T001 [P] Create the project-local workflow directory `.specify/workflows/execution/` for the `execution` workflow definition
+- [X] T002 Inspect `.specify/workflows/speckit/workflow.yml` and the supplied workflow architecture to record the exact `command`, `shell`, `if`, `while`, `do-while`, `continue_on_error`, step-output, and `max_iterations` shapes required by `.specify/workflows/execution/workflow.yml`
 
 ---
 
@@ -21,8 +21,8 @@
 
 **Purpose**: Prepare shared workflow registration before user-story implementation.
 
-- [ ] T003 Update `.specify/workflows/workflow-registry.json` with synchronized local metadata for workflow ID `execution`, version `1.0.0`, description, and source path `.specify/workflows/execution/workflow.yml`
-- [ ] T004 Confirm the selected Spec Kit runtime exposes `speckit.implement`, `speckit.converge`, the `from_json` filter, and persisted step outputs required by the workflow contract in `.specify/workflows/`
+- [X] T003 Update `.specify/workflows/workflow-registry.json` with synchronized local metadata for workflow ID `execution`, version `1.0.0`, description, and source path `.specify/workflows/execution/workflow.yml`
+- [X] T004 Confirm the selected Spec Kit runtime exposes `speckit.implement`, `speckit.converge`, the `from_json` filter, and persisted step outputs required by the workflow contract in `.specify/workflows/`
 
 **Checkpoint**: The source location, registry
  entry, and runtime prerequisites are ready for workflow implementation.
@@ -38,9 +38,9 @@ inter installation occurs once before the loop, the first implementation invocat
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Implement `.specify/workflows/execution/workflow.yml` with workflow ID `execution`, version `1.0.0`, an `integration` input defaulting to `auto`, no `spec` input, one pre-loop `task deps:install:golangci-lint` shell step, and an outer `do-while` loop configured with built-in `max_iterations: 10`
-- [ ] T006 [US1] Add current-feature resolution and the initial implementation step to `.specify/workflows/execution/workflow.yml`, invoking `.specify/scripts/python/check_prerequisites.py --paths-only --json`, extracting `TASKS` with `from_json`, failing before implementation on resolver errors, and passing empty arguments to the first `speckit.implement` invocation
-- [ ] T007 [US1] Add the ordered success path to `.specify/workflows/execution/workflow.yml`, running `task lint` and then `task test:unit` as separate shell steps with `continue_on_error: true`, preventing unit tests after failed lint, and invoking `speckit.converge` only after both checks pass
+- [X] T005 [US1] Implement `.specify/workflows/execution/workflow.yml` with workflow ID `execution`, version `1.0.0`, an `integration` input defaulting to `auto`, no `spec` input, one pre-loop `task deps:install:golangci-lint` shell step, and an outer `do-while` loop configured with built-in `max_iterations: 10`
+- [X] T006 [US1] Add current-feature resolution and the initial implementation step to `.specify/workflows/execution/workflow.yml`, invoking `.specify/scripts/python/check_prerequisites.py --paths-only --json`, extracting `TASKS` with `from_json`, failing before implementation on resolver errors, and passing empty arguments to the first `speckit.implement` invocation
+- [X] T007 [US1] Add the ordered success path to `.specify/workflows/execution/workflow.yml`, running `task lint` and then `task test:unit` as separate shell steps with `continue_on_error: true`, preventing unit tests after failed lint, and invoking `speckit.converge` only after both checks pass
 
 **Checkpoint**: User Story 1 provides a runnable standalone workflow and can be verified manually with valid and invalid current-feature configurations.
 
@@ -54,8 +54,8 @@ inter installation occurs once before the loop, the first implementation invocat
 
 ### Implementation for User Story 2
 
-- [ ] T008 [US2] Extend `.specify/workflows/execution/workflow.yml` with lint-failure branching based on the shell step's `output.exit_code`, `output.stdout`, and `output.stderr`, passing complete untruncated lint diagnostics as temporary implementation feedback and restarting checks at lint
-- [ ] T009 [US2] Extend `.specify/workflows/execution/workflow.yml` with unit-failure branching that passes complete unit-test diagnostics as temporary implementation feedback, returns through implementation to lint, and never persists feedback in `tasks.md`
+- [X] T008 [US2] Extend `.specify/workflows/execution/workflow.yml` with lint-failure branching based on the shell step's `output.exit_code`, `output.stdout`, and `output.stderr`, passing complete untruncated lint diagnostics as temporary implementation feedback and restarting checks at lint
+- [X] T009 [US2] Extend `.specify/workflows/execution/workflow.yml` with unit-failure branching that passes complete unit-test diagnostics as temporary implementation feedback, returns through implementation to lint, and never persists feedback in `tasks.md`
 
 **Checkpoint**: User Story 2 closes deterministic lint/unit feedback loops without modifying feature artifacts with diagnostic output.
 
@@ -69,9 +69,9 @@ inter installation occurs once before the loop, the first implementation invocat
 
 ### Implementation for User Story 3
 
-- [ ] T010 [US3] Add the pre-converge fingerprint step to `.specify/workflows/execution/workflow.yml`, hashing the resolver-provided `TASKS` path with `git hash-object` and exposing the object ID through a step output
-- [ ] T011 [US3] Add the post-converge fingerprint step and outer-loop condition to `.specify/workflows/execution/workflow.yml`, invoking `speckit.converge` without deterministic diagnostics and repeating only when the before/after object IDs differ
-- [ ] T012 [US3] Verify the complete workflow definition against `specs/020-execution-workflow/contracts/execution-workflow.yml.md` and `specs/020-execution-workflow/quickstart.md`, including resolver failures, unchanged fingerprints, changed fingerprints, and normal termination through built-in `max_iterations: 10`
+- [X] T010 [US3] Add the pre-converge fingerprint step to `.specify/workflows/execution/workflow.yml`, hashing the resolver-provided `TASKS` path with `git hash-object` and exposing the object ID through a step output
+- [X] T011 [US3] Add the post-converge fingerprint step and outer-loop condition to `.specify/workflows/execution/workflow.yml`, invoking `speckit.converge` without deterministic diagnostics and repeating only when the before/after object IDs differ
+- [X] T012 [US3] Verify the complete workflow definition against `specs/020-execution-workflow/contracts/execution-workflow.yml.md` and `specs/020-execution-workflow/quickstart.md`, including resolver failures, unchanged fingerprints, changed fingerprints, and normal termination through built-in `max_iterations: 10`
 
 **Checkpoint**: All three user stories are represented by one complete workflow and can be checked through the documented CLI scenarios.
 
@@ -81,9 +81,9 @@ inter installation occurs once before the loop, the first implementation invocat
 
 **Purpose**: Validate the workflow and keep the implementation focused on the requested local execution loop.
 
-- [ ] T013 [P] Validate `.specify/workflows/execution/workflow.yml` and its installed registration with `specify workflow info .specify/workflows/execution/workflow.yml` and `specify workflow info execution`
-- [ ] T014 [P] Review `.specify/workflows/execution/workflow.yml` and `.specify/workflows/workflow-registry.json` for duplicated orchestration, diagnostic truncation, persisted diagnostics, an unintended `spec` input, or a project-specific retry counter; remove any violation found
-- [ ] T015 Confirm the final diff is limited to the execution workflow, synchronized registry metadata, and this feature's task plan; run `git diff --check -- .specify/workflows specs/020-execution-workflow/tasks.md`
+- [X] T013 [P] Validate `.specify/workflows/execution/workflow.yml` and its installed registration with `specify workflow info .specify/workflows/execution/workflow.yml` and `specify workflow info execution`
+- [X] T014 [P] Review `.specify/workflows/execution/workflow.yml` and `.specify/workflows/workflow-registry.json` for duplicated orchestration, diagnostic truncation, persisted diagnostics, an unintended `spec` input, or a project-specific retry counter; remove any violation found
+- [X] T015 Confirm the final diff is limited to the execution workflow, synchronized registry metadata, and this feature's task plan; run `git diff --check -- .specify/workflows specs/020-execution-workflow/tasks.md`
 
 ---
 

@@ -1,0 +1,93 @@
+schema_version: "1.0"
+workflow:
+  id: "execution"
+  name: "Local Execution Loop"
+  version: "1.0.0"
+  author: "Delivery Kit"
+  description: "Runs implement, lint, unit tests, and converge until the current tasks are complete"
+
+inputs:
+  integration:
+    type: string
+    default: "auto"
+    prompt: "Integration to use (auto uses the project's initialized integration)"
+
+steps:
+  - id: install-linter
+    type: shell
+    run: "task deps:install:golangci-lint"
+    timeout: 1800
+
+  - id: execution-loop
+    type: do-while
+    max_iterations: 10
+    condition: "{{ steps.after-converge.output.stdout != steps.before-converge.output.stdout }}"
+    steps:
+      - id: resolve-paths
+        type: shell
+        run: ".specify/scripts/python/check_prerequisites.py --paths-only --json"
+        output_format: json
+
+      - id: checks-loop
+        type: do-while
+        condition: "{{ steps.lint.output.exit_code == null or steps.lint.output.exit_code != 0 or (steps.lint.output.exit_code == 0 and steps.run-unit-tests.output.exit_code != 0) }}"
+        steps:
+          - id: implementation-route
+            type: if
+            condition: "{{ steps.lint.output.exit_code != null and steps.lint.output.exit_code != 0 }}"
+            then:
+              - id: implement-lint-fix
+                command: speckit.implement
+                integration: "{{ inputs.integration }}"
+                input:
+                  args: "lint\n\nstdout:\n{{ steps.lint.output.stdout }}\n\nstderr:\n{{ steps.lint.output.stderr }}"
+            else:
+              - id: implement-route-unit-or-initial
+                type: if
+                condition: "{{ steps.run-unit-tests.output.exit_code != null and steps.run-unit-tests.output.exit_code != 0 }}"
+                then:
+                  - id: implement-unit-fix
+                    command: speckit.implement
+                    integration: "{{ inputs.integration }}"
+                    input:
+                      args: "unit tests\n\nstdout:\n{{ steps.run-unit-tests.output.stdout }}\n\nstderr:\n{{ steps.run-unit-tests.output.stderr }}"
+                else:
+                  - id: implement-initial
+                    command: speckit.implement
+                    integration: "{{ inputs.integration }}"
+                    input:
+                      args: ""
+
+          - id: lint
+            type: shell
+            run: "task lint"
+            timeout: 1800
+            continue_on_error: true
+
+          - id: unit-tests
+            type: if
+            condition: "{{ steps.lint.output.exit_code == 0 }}"
+            then:
+              - id: run-unit-tests
+                type: shell
+                run: "task test:unit"
+                timeout: 1800
+                continue_on_error: true
+
+      - id: convergence-route
+        type: if
+        condition: "{{ steps.lint.output.exit_code == 0 and steps.run-unit-tests.output.exit_code == 0 }}"
+        then:
+          - id: before-converge
+            type: shell
+            run: "git hash-object {{ steps.resolve-paths.output.data.TASKS }}"
+
+          - id: converge
+            command: speckit.converge
+            integration: "{{ inputs.integration }}"
+            input:
+              args: ""
+
+          - id: after-converge
+            type: shell
+            run: "git hash-object {{ steps.resolve-paths.output.data.TASKS }}"

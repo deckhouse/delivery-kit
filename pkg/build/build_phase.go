@@ -1746,6 +1746,9 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 			stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
 		}
 
+		if stageDesc == nil {
+			return fmt.Errorf("unable to converge VEX for image %q: stage descriptor is unavailable", name)
+		}
 	}
 
 	vexConfig := primaryImg.Vex()

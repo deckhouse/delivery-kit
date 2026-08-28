@@ -124,39 +124,64 @@ var _ = Describe("BuildPhase", func() {
 	})
 
 	Describe("VEX convergence", func() {
-		newMultiplatformImage := func(ctx SpecContext) (*image.MultiplatformImage, *image.Image) {
+		newImage := func(ctx SpecContext, platform string, vex *config.Vex) *image.Image {
+			img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{Vex: vex})
+			Expect(err).NotTo(HaveOccurred())
+			return img
+		}
+
+		newMultiplatformImages := func(ctx SpecContext, vex *config.Vex) []*image.Image {
 			images := make([]*image.Image, 2)
 			for i, platform := range []string{"linux/amd64", "linux/arm64"} {
-				img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{})
-				Expect(err).NotTo(HaveOccurred())
+				img := newImage(ctx, platform, vex)
 				img.SetContentTagDesc(&imagePkg.StageDesc{
 					StageID: imagePkg.NewStageID(platform, 1),
 					Info:    &imagePkg.Info{},
 				})
 				images[i] = img
 			}
-			return image.NewMultiplatformImage("app", images, 0, 1), images[0]
+			return images
+		}
+
+		newPhaseWithTree := func(multiImg *image.MultiplatformImage) *BuildPhase {
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.SetMultiplatformImage(multiImg)
+			return &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
 		}
 
 		It("returns an error when a multi-image stage descriptor is unavailable", func(ctx SpecContext) {
-			multiImg, _ := newMultiplatformImage(ctx)
-			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
-			tree.SetMultiplatformImage(multiImg)
-			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+			images := newMultiplatformImages(ctx, &config.Vex{Document: "vex.json"})
+			phase := newPhaseWithTree(image.NewMultiplatformImage("app", images, 0, 1))
 
-			err := phase.convergeImageVex(ctx, "app", multiImg.Images)
+			err := phase.convergeImageVex(ctx, "app", images)
 
 			Expect(err).To(MatchError(`unable to converge VEX for image "app": stage descriptor is unavailable`))
 		})
 
-		It("continues when a multi-image stage descriptor is available", func(ctx SpecContext) {
-			multiImg, primaryImg := newMultiplatformImage(ctx)
-			multiImg.SetStageDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{}})
-			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
-			tree.SetMultiplatformImage(multiImg)
-			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+		It("is a no-op for a multi-image without VEX configuration when the stage descriptor is unavailable", func(ctx SpecContext) {
+			images := newMultiplatformImages(ctx, nil)
+			phase := newPhaseWithTree(image.NewMultiplatformImage("app", images, 0, 1))
 
-			Expect(phase.convergeImageVex(ctx, primaryImg.Name, multiImg.Images)).To(Succeed())
+			Expect(phase.convergeImageVex(ctx, "app", images)).To(Succeed())
+		})
+
+		It("is a no-op for an image without VEX configuration and without a stage descriptor", func(ctx SpecContext) {
+			phase := &BuildPhase{}
+
+			Expect(phase.convergeImageVex(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", nil)})).To(Succeed())
+		})
+
+		It("is a no-op for an image with an empty VEX document", func(ctx SpecContext) {
+			phase := &BuildPhase{}
+
+			Expect(phase.convergeImageVex(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", &config.Vex{})})).To(Succeed())
+		})
+
+		It("reports an unavailable stage descriptor when VEX is configured", func(ctx SpecContext) {
+			phase := &BuildPhase{}
+
+			err := phase.convergeImageVex(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", &config.Vex{Document: "vex.json"})})
+			Expect(err).To(MatchError(ContainSubstring(`unable to converge VEX for image "app": stage descriptor is unavailable`)))
 		})
 	})
 
@@ -172,6 +197,60 @@ var _ = Describe("BuildPhase", func() {
 
 		It("returns nil when neither a content tag nor a built stage descriptor exists", func() {
 			Expect((&image.Image{}).GetLastNonEmptyStageDesc()).To(BeNil())
+		})
+	})
+
+	Describe("vexStageDesc", func() {
+		It("uses the content tag descriptor of a reused single-platform image", func(ctx SpecContext) {
+			expected := &imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:image"}}
+			img, err := image.NewImage(ctx, "linux/amd64", "app", image.NoBaseImage, image.ImageOptions{})
+			Expect(err).To(Succeed())
+			img.SetContentTagDesc(expected)
+
+			Expect((&BuildPhase{}).vexStageDesc("app", []*image.Image{img})).To(BeIdenticalTo(expected))
+		})
+
+		It("returns nil for a single-platform image without any descriptor", func(ctx SpecContext) {
+			img, err := image.NewImage(ctx, "linux/amd64", "app", image.NoBaseImage, image.ImageOptions{})
+			Expect(err).To(Succeed())
+
+			Expect((&BuildPhase{}).vexStageDesc("app", []*image.Image{img})).To(BeNil())
+		})
+
+		It("uses the descriptor of the registered multiplatform image", func(ctx SpecContext) {
+			images := make([]*image.Image, 0, 2)
+			for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+				img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{})
+				Expect(err).To(Succeed())
+				img.SetContentTagDesc(&imagePkg.StageDesc{
+					StageID: imagePkg.NewStageID("digest-"+platform, 0),
+					Info:    &imagePkg.Info{Name: "repo:" + platform},
+				})
+				images = append(images, img)
+			}
+
+			expected := &imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:multiplatform"}}
+			multiImg := image.NewMultiplatformImage("app", images, 0, 1)
+			multiImg.SetStageDesc(expected)
+
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.SetMultiplatformImage(multiImg)
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+
+			Expect(phase.vexStageDesc("app", images)).To(BeIdenticalTo(expected))
+		})
+
+		It("returns nil for a multiplatform image that was never registered", func(ctx SpecContext) {
+			images := make([]*image.Image, 0, 2)
+			for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+				img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{})
+				Expect(err).To(Succeed())
+				images = append(images, img)
+			}
+
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: image.NewImagesTree(nil, image.ImagesTreeOptions{})}}}
+
+			Expect(phase.vexStageDesc("app", images)).To(BeNil())
 		})
 	})
 

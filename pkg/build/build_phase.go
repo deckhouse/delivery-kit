@@ -1554,6 +1554,17 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 			}
 			args = append(args, s)
 		}
+		// The sign stage already covers the manifest certificate and chain; keep anchor inputs aligned with that checksum contract.
+		if opts.ELFSigningOptions.Enabled() {
+			if opts.ELFSigningOptions.BsignEnabled {
+				args = append(args, opts.ELFSigningOptions.PGPPrivateKeyFingerprint)
+			}
+
+			if opts.ELFSigningOptions.InHouseEnabled {
+				args = append(args, opts.ManifestSigningOptions.Signer().Cert())
+				args = append(args, opts.ManifestSigningOptions.Signer().Chain())
+			}
+		}
 		if conveyor != nil && conveyor.EnableSbom() {
 			args = append(args, "sbom_enabled")
 		}

@@ -5,6 +5,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/build/signing"
 )
 
 // anchorDigest is a thin wrapper that exercises the anchor branch of
@@ -19,6 +21,25 @@ func anchorDigest(targetPlatform string, deps []string) string {
 		panic(err)
 	}
 	return d
+}
+
+func anchorDigestWithELFSigning(opts signing.ELFSigningOptions) string {
+	d, err := calculateDigest(context.Background(), "anchor", "", nil, nil, calculateDigestOptions{
+		TargetPlatform:    "linux/amd64",
+		Anchor:            true,
+		HolisticInputs:    []string{"from-digest"},
+		ELFSigningOptions: opts,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+func withoutSigningWithHolistic(opts calculateDigestOptions) calculateDigestOptions {
+	opts.Anchor = true
+	opts.HolisticInputs = []string{"from-digest"}
+	return opts
 }
 
 var _ = Describe("anchor holistic digest", func() {
@@ -63,6 +84,48 @@ var _ = Describe("anchor holistic digest", func() {
 		deps := []string{"from-digest", "git-archive-digest"}
 		Expect(anchorDigest("linux/amd64", deps)).
 			NotTo(Equal(anchorDigest("linux/arm64", deps)))
+	})
+
+	Describe("ELF signing identities", func() {
+		It("is deterministic for an unchanged BSign fingerprint", func() {
+			opts := signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-a"}
+
+			Expect(anchorDigestWithELFSigning(opts)).To(Equal(anchorDigestWithELFSigning(opts)))
+		})
+
+		It("changes when the BSign fingerprint changes", func() {
+			first := signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-a"}
+			second := signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-b"}
+
+			Expect(anchorDigestWithELFSigning(first)).NotTo(Equal(anchorDigestWithELFSigning(second)))
+		})
+
+		It("excludes private BSign material when BSign is disabled", func() {
+			first := signing.ELFSigningOptions{PGPPrivateKeyFingerprint: "fingerprint-a", PGPPrivateKeyPassphrase: "passphrase-a"}
+			second := signing.ELFSigningOptions{PGPPrivateKeyFingerprint: "fingerprint-b", PGPPrivateKeyPassphrase: "passphrase-b"}
+
+			Expect(anchorDigestWithELFSigning(first)).To(Equal(anchorDigestWithELFSigning(second)))
+		})
+
+		It("uses the same BSign identity response in anchor and non-anchor paths", func(ctx SpecContext) {
+			withoutSigning := calculateDigestOptions{TargetPlatform: "linux/amd64"}
+			withSigning := calculateDigestOptions{
+				TargetPlatform:    "linux/amd64",
+				ELFSigningOptions: signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-a"},
+			}
+
+			anchorWithout, err := calculateDigest(ctx, "anchor", "", nil, nil, withoutSigningWithHolistic(withoutSigning))
+			Expect(err).To(Succeed())
+			anchorWith, err := calculateDigest(ctx, "anchor", "", nil, nil, withoutSigningWithHolistic(withSigning))
+			Expect(err).To(Succeed())
+			nonAnchorWithout, err := calculateDigest(ctx, "stage", "", nil, nil, withoutSigning)
+			Expect(err).To(Succeed())
+			nonAnchorWith, err := calculateDigest(ctx, "stage", "", nil, nil, withSigning)
+			Expect(err).To(Succeed())
+
+			Expect(anchorWith).NotTo(Equal(anchorWithout))
+			Expect(nonAnchorWith).NotTo(Equal(nonAnchorWithout))
+		})
 	})
 
 	It("anchor path is engaged even when every input is empty", func() {

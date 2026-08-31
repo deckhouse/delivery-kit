@@ -56,9 +56,9 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 			Expect(out).To(ContainSubstring("  - image: image-fail-partial"))
 
 			By("error lists component names of failing packages with PURL and error details")
-			Expect(out).To(ContainSubstring(`    - component: curl: resolve "pkg:generic/curl@8.12.1`))
-			Expect(out).To(ContainSubstring(`    - component: openssl: resolve "pkg:generic/openssl@3.6.2`))
-			Expect(out).To(ContainSubstring("unexpected status 404"))
+			Expect(out).To(ContainSubstring(`    - component: curl (pkg:generic/curl@8.12.1`))
+			Expect(out).To(ContainSubstring(`    - component: openssl (pkg:generic/openssl@3.6.2`))
+			Expect(out).To(ContainSubstring("resolve: unexpected status 404"))
 
 			By("aggregated error does NOT contain (image) image-ok")
 			Expect(out).NotTo(ContainSubstring("image: image-ok"))

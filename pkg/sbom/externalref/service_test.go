@@ -131,7 +131,7 @@ var _ = Describe("Service", func() {
 
 	Describe("failure classification", func() {
 		resolveOnce := func(purl string) error {
-			_, err := service.doResolve(ctx, ts.URL+"/api/v1/resolve?purl="+purl, purl)
+			_, err := service.doResolve(ctx, ts.URL+"/api/v1/resolve?purl="+purl)
 			return err
 		}
 
@@ -158,7 +158,7 @@ var _ = Describe("Service", func() {
 			deadTS.Close()
 
 			deadService := NewService(ServiceConfig{ServerURL: deadTS.URL})
-			_, err := deadService.doResolve(ctx, deadTS.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "pkg:npm/lodash@4.17.21")
+			_, err := deadService.doResolve(ctx, deadTS.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(classOf(err)).To(Equal(FailureClassInfra))
 		})
@@ -176,7 +176,7 @@ var _ = Describe("Service", func() {
 			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
 
 			for i := 0; i < resolverBreakerThreshold; i++ {
-				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "pkg:npm/server-error@1.0.0")
+				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0")
 				Expect(err).To(HaveOccurred())
 			}
 
@@ -196,7 +196,7 @@ var _ = Describe("Service", func() {
 			}
 
 			callsBefore := *calls
-			_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "pkg:npm/lodash@4.17.21")
+			_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
 			Expect(*calls).To(Equal(callsBefore))
@@ -207,7 +207,7 @@ var _ = Describe("Service", func() {
 			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
 
 			for i := 0; i < resolverBreakerThreshold-1; i++ {
-				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "pkg:npm/server-error@1.0.0")
+				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0")
 				Expect(err).To(HaveOccurred())
 			}
 
@@ -215,7 +215,7 @@ var _ = Describe("Service", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			for i := 0; i < resolverBreakerThreshold-1; i++ {
-				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "pkg:npm/server-error@1.0.0")
+				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0")
 				Expect(err).To(HaveOccurred())
 			}
 			Expect(breaker.Allow()).To(Succeed())

@@ -88,8 +88,7 @@ var _ = Describe("Enricher", func() {
 					Expect(err).To(HaveOccurred())
 					errMsg := err.Error()
 					Expect(errMsg).To(ContainSubstring("components failed:"))
-					Expect(errMsg).To(ContainSubstring("no-purl-lib"))
-					Expect(errMsg).To(ContainSubstring("has no purl"))
+					Expect(errMsg).To(ContainSubstring("    - component: no-purl-lib: component \"no-purl-lib\" (type \"library\") has no purl\n"))
 				},
 			}),
 			Entry("keeps enriching after a failed resolve", enrichCase{
@@ -205,8 +204,24 @@ var _ = Describe("Enricher", func() {
 			Expect(err).To(HaveOccurred())
 			errMsg := err.Error()
 			Expect(errMsg).To(ContainSubstring("components failed:"))
-			Expect(errMsg).To(ContainSubstring("- component: pkg-a: resolve failed"))
-			Expect(errMsg).To(ContainSubstring("- component: pkg-b: resolve failed"))
+			Expect(errMsg).To(ContainSubstring("- component: pkg-a (pkg:npm/pkg-a@1.0): resolve failed"))
+			Expect(errMsg).To(ContainSubstring("- component: pkg-b (pkg:npm/pkg-b@2.0): resolve failed"))
+		})
+
+		It("reports purl for errors produced by the enricher itself", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{URL: "https://example.com", Kind: "unknown"}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "commons-io", Version: "2.11.0", PackageURL: "pkg:maven/commons-io/commons-io@2.11.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`    - component: commons-io (pkg:maven/commons-io/commons-io@2.11.0): enrich: unknown external reference kind "unknown"` + "\n"))
 		})
 
 		It("uses public Resolve field for custom mock", func() {

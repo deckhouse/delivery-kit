@@ -10,7 +10,7 @@ updated: 2026-07-29
 ## Structure
 
 - Two private fields: `err` (joined inner errors via `errors.Join`) and `details` (per-component lines).
-- `Error()` returns: `"resolve external references: components failed:\n    - component: <name>: <err>\n"`
+- `Error()` returns: `"resolve external references: components failed:\n    - component: <name> (<purl>): <err>\n"`; the ` (<purl>)` part is omitted for components that have no purl.
 - `ComponentDetails()` returns just the per-component lines (without the header), used by the build-level aggregation.
 - `Unwrap()` returns the joined inner errors for `errors.Is`/`errors.As` traversal.
 

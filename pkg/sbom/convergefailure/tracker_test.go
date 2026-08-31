@@ -34,8 +34,8 @@ var _ = Describe("Tracker.Classify", func() {
 		Expect(found).To(BeTrue())
 		record := value.(Record)
 		Expect(record.RootImage).To(Equal("img1"))
-		Expect(record.Details).To(Equal("    - component: apk-tools: empty url\n"))
-		Expect(record.RootCause).To(Equal("component: apk-tools: empty url"))
+		Expect(record.Details).To(Equal("    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n"))
+		Expect(record.RootCause).To(Equal("component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"))
 	})
 
 	It("does not overwrite an existing record for the same image name (multiplatform)", func() {
@@ -47,7 +47,7 @@ var _ = Describe("Tracker.Classify", func() {
 		Expect(tracker.Classify(second, "img1")).To(Succeed())
 
 		value, _ := tracker.failures.Load("img1")
-		Expect(value.(Record).Details).To(Equal("    - component: apk-tools: empty url\n"))
+		Expect(value.(Record).Details).To(Equal("    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n"))
 	})
 
 	It("returns non-enrichment errors unchanged and records nothing", func() {
@@ -83,13 +83,13 @@ var _ = Describe("Tracker.SkipDependent", func() {
 
 	It("skips an image whose base image failed, warns with the real cause and records it", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"a": {Details: "    - component: apk-tools: empty url\n", RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"a": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		skipped, output := captureSkip(tracker, "b", []ImageDependencies{{BaseImageName: "a"}})
 
 		Expect(skipped).To(BeTrue())
-		Expect(output).To(ContainSubstring(`WARNING: image b: SBOM converge skipped: SBOM for image "a" was not generated: component: apk-tools: empty url`))
+		Expect(unwrapLogboek(output)).To(ContainSubstring(`WARNING: image b: SBOM converge skipped: SBOM for image "a" was not generated: component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url`))
 		Expect(output).NotTo(ContainSubstring("rebuild it with SBOM generation enabled"))
 
 		value, found := tracker.failures.Load("b")
@@ -99,7 +99,7 @@ var _ = Describe("Tracker.SkipDependent", func() {
 
 	It("skips an image whose import source failed", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"src-artifact": {Details: "    - component: apk-tools: empty url\n", RootImage: "src-artifact", RootCause: "component: apk-tools: empty url"},
+			"src-artifact": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "src-artifact", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		skipped, output := captureSkip(tracker, "consumer", []ImageDependencies{{
@@ -113,7 +113,7 @@ var _ = Describe("Tracker.SkipDependent", func() {
 
 	It("propagates the root cause transitively across mixed base and import chains", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"a": {Details: "    - component: apk-tools: empty url\n", RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"a": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		skippedB, _ := captureSkip(tracker, "b", []ImageDependencies{{BaseImageName: "a"}})
@@ -129,7 +129,7 @@ var _ = Describe("Tracker.SkipDependent", func() {
 
 	It("does not skip when no dependency failed and stays silent", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"a": {RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"a": {RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		skipped, output := captureSkip(tracker, "unrelated", []ImageDependencies{{
@@ -145,7 +145,7 @@ var _ = Describe("Tracker.SkipDependent", func() {
 
 	It("does not skip on an external import even when an image of that name failed", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"registry.example.com/foo:tag": {RootImage: "registry.example.com/foo:tag", RootCause: "component: apk-tools: empty url"},
+			"registry.example.com/foo:tag": {RootImage: "registry.example.com/foo:tag", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		skipped, _ := captureSkip(tracker, "consumer", []ImageDependencies{{
@@ -159,23 +159,23 @@ var _ = Describe("Tracker.SkipDependent", func() {
 var _ = Describe("Tracker.DependencyError", func() {
 	It("reports the real cause for a dependency that failed enrichment in this run", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"a": {Details: "    - component: apk-tools: empty url\n", RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"a": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		err, found := tracker.DependencyError("a")
 		Expect(found).To(BeTrue())
-		Expect(err.Error()).To(Equal(`SBOM for image "a" was not generated: component: apk-tools: empty url`))
+		Expect(err.Error()).To(Equal(`SBOM for image "a" was not generated: component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url`))
 		Expect(err.Error()).NotTo(ContainSubstring("rebuild it with SBOM generation enabled"))
 	})
 
 	It("reports the transitive root cause for a skipped dependency", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"b": {RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"b": {RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		err, found := tracker.DependencyError("b")
 		Expect(found).To(BeTrue())
-		Expect(err.Error()).To(Equal(`SBOM for image "a" was not generated: component: apk-tools: empty url`))
+		Expect(err.Error()).To(Equal(`SBOM for image "a" was not generated: component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url`))
 	})
 
 	It("keeps the rebuild advice path for images not processed in this run", func() {
@@ -212,7 +212,7 @@ var _ = Describe("Tracker.Finish", func() {
 
 	It("returns the aggregated report and the help hint when only enrichment failed", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"a": {Details: "    - component: apk-tools: empty url\n", RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"a": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 
 		err, output := finish(tracker, 2, nil)
@@ -223,7 +223,7 @@ var _ = Describe("Tracker.Finish", func() {
 
 	It("emits the report and keeps the hard error terminal", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"a": {Details: "    - component: apk-tools: empty url\n", RootImage: "a", RootCause: "component: apk-tools: empty url"},
+			"a": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "a", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 		hardErr := errors.New("registry push failed")
 
@@ -247,7 +247,7 @@ var _ = Describe("Tracker.Finish", func() {
 var _ = Describe("Tracker concurrency", func() {
 	It("records failures and skips from parallel workers safely", func() {
 		tracker := newTrackerWithRecords(map[string]Record{
-			"root": {Details: "    - component: apk-tools: empty url\n", RootImage: "root", RootCause: "component: apk-tools: empty url"},
+			"root": {Details: "    - component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url\n", RootImage: "root", RootCause: "component: apk-tools (pkg:apk/alpine/apk-tools@1.0.0): empty url"},
 		})
 		ctx := logboek.NewContext(context.Background(), logboek.NewLogger(&bytes.Buffer{}, &bytes.Buffer{}))
 

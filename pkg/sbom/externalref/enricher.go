@@ -117,7 +117,11 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		var details strings.Builder
 		var innerErrs []error
 		for _, ce := range failed {
-			fmt.Fprintf(&details, "    - component: %s: %s\n", ce.name, ce.err)
+			if ce.purl != "" {
+				fmt.Fprintf(&details, "    - component: %s (%s): %s\n", ce.name, ce.purl, ce.err)
+			} else {
+				fmt.Fprintf(&details, "    - component: %s: %s\n", ce.name, ce.err)
+			}
 			innerErrs = append(innerErrs, ce.err)
 		}
 		return &ComponentError{

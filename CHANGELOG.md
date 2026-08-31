@@ -1,5 +1,34 @@
 # Changelog
 
+## [3.2.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.2.0-dk.1...v3.2.0-dk.2) (2026-08-31)
+
+
+### Features
+
+* **sbom, attest:** sign multi-platform SBOMs, verify every platform ([#262](https://github.com/deckhouse/delivery-kit/issues/262)) ([655c9fa](https://github.com/deckhouse/delivery-kit/commit/655c9fab80454b0ffbc8f065c1fef79efdb76532))
+* **sbom, attest:** sign sbom during build with cosign compatibility ([#230](https://github.com/deckhouse/delivery-kit/issues/230)) ([2521b4e](https://github.com/deckhouse/delivery-kit/commit/2521b4e7f13d7d246358ec35880b3d9982a77271))
+* **sbom:** expose pm index version as a component property ([#258](https://github.com/deckhouse/delivery-kit/issues/258)) ([13c2b4e](https://github.com/deckhouse/delivery-kit/commit/13c2b4e0158c3c21108eb051e75358d545fa4c64))
+* **sbom:** generate SBOM per platform for multi-platform images ([#232](https://github.com/deckhouse/delivery-kit/issues/232)) ([c6aaf47](https://github.com/deckhouse/delivery-kit/commit/c6aaf475cc51719e5936ac908d384b1d5c27e413))
+* **vex, sbom, attest:** sign VEX documents at build time ([#267](https://github.com/deckhouse/delivery-kit/issues/267)) ([ad1b168](https://github.com/deckhouse/delivery-kit/commit/ad1b1688ff640aa86c3d438e3191617e28679b5e))
+* **vex:** add VEX lifecycle ([#218](https://github.com/deckhouse/delivery-kit/issues/218)) ([596f3c1](https://github.com/deckhouse/delivery-kit/commit/596f3c151a8bc263a77ead4799fea31c2c5ab690))
+
+
+### Bug Fixes
+
+* **build, sbom:** warn about disabled network once, in the run summary ([e2a9f35](https://github.com/deckhouse/delivery-kit/commit/e2a9f35464124ffdd866e9156a6b2adb03e37719))
+* **build:** handle cached image descriptors safely ([a891ed4](https://github.com/deckhouse/delivery-kit/commit/a891ed411064223ece5fdf85edce02a85fe73c51))
+* **image:** parse digest references correctly ([#245](https://github.com/deckhouse/delivery-kit/issues/245)) ([8201b1b](https://github.com/deckhouse/delivery-kit/commit/8201b1b6ef6a4098ca5e9ed0d3a6d53254ec15a7))
+* **release:** restore release automation on main ([#249](https://github.com/deckhouse/delivery-kit/issues/249)) ([60acbdf](https://github.com/deckhouse/delivery-kit/commit/60acbdfb54942763a12e75c67cb20787b0203aed))
+* **sbom, vex:** guard VEX descriptors and remove kube flags from sbom ([efbc794](https://github.com/deckhouse/delivery-kit/commit/efbc794ee915fcbf9814b437d033b94cc1d4fda2))
+* **sbom:** drop internal builder label from missing-SBOM error ([297ec29](https://github.com/deckhouse/delivery-kit/commit/297ec296ac8dc56ea26d34df3ad65dc549cb9711))
+* **sbom:** ensure single os-pm config section ([#264](https://github.com/deckhouse/delivery-kit/issues/264)) ([afb3882](https://github.com/deckhouse/delivery-kit/commit/afb3882d845c035535fe72f0c63f225aefed3a04))
+* **sbom:** reject PM_LOCK_FILE env ([#265](https://github.com/deckhouse/delivery-kit/issues/265)) ([4709e65](https://github.com/deckhouse/delivery-kit/commit/4709e65a825528be8058fbf3e8a648c10363ee74))
+* **sbom:** report real causes and fail fast when PURL resolution fails ([#260](https://github.com/deckhouse/delivery-kit/issues/260)) ([9b2d351](https://github.com/deckhouse/delivery-kit/commit/9b2d351ad0c1422933fb509c88a79027db7351bb))
+* **sbom:** skip images importing from an image whose SBOM enrichment failed ([#268](https://github.com/deckhouse/delivery-kit/issues/268)) ([411148b](https://github.com/deckhouse/delivery-kit/commit/411148bca0e6144cb4a0a76f6640208c6992d746))
+* **sbom:** use inline pm syntax again ([#254](https://github.com/deckhouse/delivery-kit/issues/254)) ([28082ac](https://github.com/deckhouse/delivery-kit/commit/28082ac62f94a6a20f3439e7d79ae4240b3ef59c))
+* **sbom:** warn about missing stageDependencies for file-based packages ([#263](https://github.com/deckhouse/delivery-kit/issues/263)) ([17d44ab](https://github.com/deckhouse/delivery-kit/commit/17d44abfaabfcffd4226cd24b7f17ce92c1afb22))
+* **vex:** qualify multiplatform fixture image ([01dc9b0](https://github.com/deckhouse/delivery-kit/commit/01dc9b0dff779ef24637dffea85994fa19fffffe))
+
 ## [2.77.0-dk.5](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.4...v2.77.0-dk.5) (2026-08-25)
 
 

@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/containers/storage/pkg/reexec"
-	"github.com/containers/storage/pkg/unshare"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/reexec"
+	"go.podman.io/storage/pkg/unshare"
 
 	"github.com/werf/werf/v2/pkg/buildah"
 	"github.com/werf/werf/v2/pkg/werf"
@@ -23,12 +23,6 @@ func init() {
 	if reexec.Init() {
 		return
 	}
-
-	result, err := unshare.HasCapSysAdmin()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("has_cap_sys_admin=%t", result)
 
 	unshare.MaybeReexecUsingUserNamespace(false)
 }

@@ -9,7 +9,7 @@ image: carrier
 from: {{ env "BUILDER_BASE_IMAGE" }}
 ---
 image: app
-from: registry.werf.io/werf/scratch
+from: registry.werf.io/werf/scratch:latest
 git:
   - add: /
     to: /

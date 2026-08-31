@@ -62,23 +62,6 @@ var _ = Describe("rawImageFromDockerfile", func() {
 				final:        true,
 			},
 		),
-		Entry(
-			"should handle sbom",
-			map[string]interface{}{
-				"image": "image1",
-				// "sbom": "..." TODO: restore when sbom is implemented
-			},
-			&ImageFromDockerfile{
-				Name:            "image1",
-				ContextAddFiles: []string{},
-				AddHost:         []string{},
-				Secrets:         []Secret{},
-				sbom:            nil, // SBOM is validated/built via buildImageSbom(...) during conversion; keep nil here in expected struct.
-
-				platform: []string{},
-				final:    true,
-			},
-		),
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",
@@ -104,7 +87,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 			Expect(err).To(Succeed())
 
 			for i, expectedDep := range expected {
-				Expect(expectedDep.ImageName).To(Equal(dockerfileImage.Dependencies[i].ImageName))
+				Expect(expectedDep.From).To(Equal(dockerfileImage.Dependencies[i].From))
 				Expect(expectedDep.After).To(Equal(dockerfileImage.Dependencies[i].After))
 				Expect(expectedDep.Before).To(Equal(dockerfileImage.Dependencies[i].Before))
 
@@ -125,7 +108,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 				}},
 			},
 			[]*Dependency{{
-				ImageName: "image2",
+				From: "image2",
 			}},
 		),
 		Entry(
@@ -142,7 +125,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 				}},
 			},
 			[]*Dependency{{
-				ImageName: "image2",
+				From: "image2",
 				Imports: []*DependencyImport{{
 					Type:           ImageTagImport,
 					TargetBuildArg: "IMAGE_TAG",
@@ -186,10 +169,6 @@ var _ = Describe("rawImageFromDockerfile", func() {
 								"targetBuildArg": "IMAGE_NAME_2",
 							},
 							{
-								"type":           string(ImageIDImport),
-								"targetBuildArg": "IMAGE_ID_2",
-							},
-							{
 								"type":           string(ImageDigestImport),
 								"targetBuildArg": "IMAGE_DIGEST_2",
 							},
@@ -203,10 +182,10 @@ var _ = Describe("rawImageFromDockerfile", func() {
 			},
 			[]*Dependency{
 				{
-					ImageName: "image2",
+					From: "image2",
 				},
 				{
-					ImageName: "image3",
+					From: "image3",
 					Imports: []*DependencyImport{
 						{
 							Type:           ImageTagImport,
@@ -219,7 +198,7 @@ var _ = Describe("rawImageFromDockerfile", func() {
 					},
 				},
 				{
-					ImageName: "image4",
+					From: "image4",
 					Imports: []*DependencyImport{
 						{
 							Type:           ImageTagImport,
@@ -228,10 +207,6 @@ var _ = Describe("rawImageFromDockerfile", func() {
 						{
 							Type:           ImageNameImport,
 							TargetBuildArg: "IMAGE_NAME_2",
-						},
-						{
-							Type:           ImageIDImport,
-							TargetBuildArg: "IMAGE_ID_2",
 						},
 						{
 							Type:           ImageDigestImport,
@@ -245,6 +220,35 @@ var _ = Describe("rawImageFromDockerfile", func() {
 				},
 			},
 		),
+	)
+
+	DescribeTable("validate dockerfile path",
+		func(ctx SpecContext, context, dockerfile string, valid bool) {
+			rawYaml, err := yaml.Marshal(map[string]interface{}{
+				"image":      "image1",
+				"context":    context,
+				"dockerfile": dockerfile,
+			})
+			Expect(err).To(Succeed())
+
+			doc := &doc{Content: rawYaml}
+			rawDockerfileImage := &rawImageFromDockerfile{doc: doc}
+
+			Expect(yaml.UnmarshalStrict(doc.Content, rawDockerfileImage)).To(Succeed())
+
+			_, err = rawDockerfileImage.toImageFromDockerfileDirective(ctx, giterminismManager, &Meta{}, "image1")
+			if valid {
+				Expect(err).To(Succeed())
+				return
+			}
+
+			var errConf *configError
+			Expect(errors.As(err, &errConf)).To(BeTrue())
+		},
+		Entry("inside context", "app", "Dockerfile", true),
+		Entry("outside context, inside project", "app", "../build/app.Dockerfile", true),
+		Entry("outside project", "app", "../../app.Dockerfile", false),
+		Entry("absolute", "app", "/app.Dockerfile", false),
 	)
 
 	DescribeTable("unmarshal and convert to directive fail with configError",

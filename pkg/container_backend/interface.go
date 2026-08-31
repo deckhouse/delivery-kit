@@ -17,12 +17,11 @@ type CommonOpts struct {
 }
 
 type (
-	TagOpts                           CommonOpts
-	PushOpts                          CommonOpts
-	PullOpts                          CommonOpts
-	GetImageInfoOpts                  CommonOpts
-	CalculateDependencyImportChecksum CommonOpts
-	ReadFileFromImageOpts             CommonOpts
+	TagOpts               CommonOpts
+	PushOpts              CommonOpts
+	PullOpts              CommonOpts
+	GetImageInfoOpts      CommonOpts
+	ReadFileFromImageOpts CommonOpts
 )
 
 type RmOpts struct {
@@ -101,7 +100,6 @@ type ContainerBackend interface {
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)
 	BuildStapelStage(ctx context.Context, baseImage string, opts BuildStapelStageOptions) (string, error)
-	CalculateDependencyImportChecksum(ctx context.Context, dependencyImport DependencyImportSpec, opts CalculateDependencyImportChecksum) (string, error)
 
 	HasStapelBuildSupport() bool
 	GetDefaultPlatform() string
@@ -109,8 +107,6 @@ type ContainerBackend interface {
 
 	Images(ctx context.Context, opts ImagesOptions) (image.ImagesList, error)
 	Containers(ctx context.Context, opts ContainersOptions) (image.ContainerList, error)
-
-	ClaimTargetPlatforms(ctx context.Context, targetPlatforms []string)
 
 	// PruneImages removes all dangling images
 	PruneImages(ctx context.Context, options prune.Options) (prune.Report, error)

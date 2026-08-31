@@ -20,12 +20,6 @@ werf verify --image-ref <image-ref> [--image-ref <image-ref>...] --verify-roots=
   $ werf verify --image-ref <DOCKER HUB USERNAME>/werf-guide-app:f4caaa836701e5346c4a0514bb977362ba5fe4ae114d0176f6a6c8cc-1612277803607 --verify-roots=/tmp/root-ca.pem --verify-manifest --verify-elf-files
 ```
 
-{{ header }} Environments
-
-```shell
-  $WERF_DEBUG_ANSIBLE_ARGS  Pass specified cli args to ansible ($ANSIBLE_ARGS)
-```
-
 {{ header }} Options
 
 ```shell

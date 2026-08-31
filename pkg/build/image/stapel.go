@@ -19,15 +19,13 @@ import (
 
 var sbomNetworkWarningOnce sync.Once
 
-func MapStapelConfigToImagesSets(ctx context.Context, metaConfig *config.Meta, stapelImageConfig config.StapelImageInterface, targetPlatform string, useCustomTag bool, opts CommonImageOptions) (ImagesSets, error) {
+func MapStapelConfigToImages(ctx context.Context, metaConfig *config.Meta, stapelImageConfig config.StapelImageInterface, targetPlatform string, useCustomTag bool, opts CommonImageOptions) ([]*Image, error) {
 	img, err := mapStapelConfigToImage(ctx, metaConfig, stapelImageConfig, targetPlatform, useCustomTag, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	ret := ImagesSets{[]*Image{img}}
-
-	return ret, nil
+	return []*Image{img}, nil
 }
 
 func mapStapelConfigToImage(ctx context.Context, metaConfig *config.Meta, stapelImageConfig config.StapelImageInterface, targetPlatform string, useCustomTag bool, opts CommonImageOptions) (*Image, error) {
@@ -45,17 +43,15 @@ func mapStapelConfigToImage(ctx context.Context, metaConfig *config.Meta, stapel
 
 	var baseImageType BaseImageType
 
-	if imageBaseConfig.FromExternal {
+	if imageBaseConfig.From == "scratch" {
+		baseImageType = ScratchBaseImage
+	} else if imageBaseConfig.FromExternal {
 		baseImageType = ImageFromRegistryAsBaseImage
 		imageOpts.BaseImageReference = imageBaseConfig.From
 		imageOpts.FetchLatestBaseImage = imageBaseConfig.FromLatest
 	} else {
-		fromImage := imageBaseConfig.From
-		baseImageType = StageAsBaseImage
-		if imageBaseConfig.FromArtifactName != "" {
-			fromImage = imageBaseConfig.FromArtifactName
-		}
-		imageOpts.BaseImageName = fromImage
+		baseImageType = FromImage
+		imageOpts.BaseImageName = imageBaseConfig.From
 	}
 
 	image, err := NewImage(ctx, targetPlatform, imageName, baseImageType, imageOpts)
@@ -106,9 +102,13 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 
 	gitMappingsExist := len(gitMappings) != 0
 
-	// TODO(v3): make this a hard error instead of a warning.
-	warnStageDependenciesWithoutInstructions(ctx, imageBaseConfig, gitMappings)
-	warnFileBasedPackagesWithoutStageDependencies(ctx, imageBaseConfig, gitMappings)
+	if err := validateStageDependenciesHaveInstructions(imageBaseConfig, gitMappings); err != nil {
+		return err
+	}
+
+	if err := validateFileBasedPackagesHaveStageDependencies(imageBaseConfig, gitMappings); err != nil {
+		return err
+	}
 
 	imageCacheVersion := option.ValueOrDefault(stapelImageConfig.CacheVersion(), metaConfig.Build.CacheVersion)
 
@@ -129,16 +129,12 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 	stages = appendIfExist(stages, stage.GenerateSetupStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateDependenciesAfterSetupStage(imageBaseConfig, baseStageOptions))
 
-	if !stapelImageConfig.IsGitAfterPatchDisabled() {
-		if gitMappingsExist {
-			stages = append(stages, stage.NewGitCacheStage(gitPatchStageOptions, baseStageOptions))
-			stages = append(stages, stage.NewGitLatestPatchStage(gitPatchStageOptions, baseStageOptions))
-		}
-
-		stages = appendIfExist(stages, stage.GenerateStapelDockerInstructionsStage(stapelImageConfig.(*config.StapelImage), baseStageOptions))
+	if gitMappingsExist {
+		stages = append(stages, stage.NewGitCacheStage(gitPatchStageOptions, baseStageOptions))
+		stages = append(stages, stage.NewGitLatestPatchStage(gitPatchStageOptions, baseStageOptions))
 	}
 
-	if imageBaseConfig.ImageSpec != nil && !opts.Conveyor.SkipImageSpecStage() {
+	if imageBaseConfig.ImageSpec != nil {
 		stages = appendIfExist(stages, stage.GenerateImageSpecStage(imageBaseConfig.ImageSpec, baseStageOptions))
 	}
 
@@ -178,6 +174,10 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		}
 	}
 
+	if len(stages) > 0 {
+		stages[len(stages)-1].SetContentAnchor(true)
+	}
+
 	image.SetStages(stages)
 
 	return nil
@@ -190,8 +190,7 @@ func stageHasNetworkAccess(s stage.Interface) bool {
 	return false
 }
 
-// TODO(v3): make this a hard error instead of a warning.
-func warnStageDependenciesWithoutInstructions(ctx context.Context, imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) {
+func validateStageDependenciesHaveInstructions(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) error {
 	for _, gitMapping := range gitMappings {
 		for stageName, depsPaths := range gitMapping.StagesDependencies {
 			if len(depsPaths) == 0 {
@@ -202,34 +201,30 @@ func warnStageDependenciesWithoutInstructions(ctx context.Context, imageBaseConf
 				continue
 			}
 
-			global_warnings.GlobalWarningLn(ctx, fmt.Sprintf(
-				"git.stageDependencies.%s is defined, but no %s instructions are provided for image %q. "+
-					"Changes to the specified paths will have no effect until corresponding instructions are added.",
-				stageName, stageName, imageBaseConfig.Name,
-			))
+			return fmt.Errorf(
+				"git.stageDependencies.%s is defined, but no %s instructions are provided for image %q: "+
+					"either add %s instructions or remove the stageDependencies.%s directive",
+				stageName, stageName, imageBaseConfig.Name, stageName, stageName,
+			)
 		}
 	}
+
+	return nil
 }
 
-// warnFileBasedPackagesWithoutStageDependencies warns when a file-based packages directive
-// (any type except os-pm) is used, but no git mapping tracks its spec/lock files via
-// stageDependencies.packages: without it, changes to those files do not rebuild the packages
-// stage, so installed dependencies go stale while the SBOM keeps reporting the new file contents.
-func warnFileBasedPackagesWithoutStageDependencies(ctx context.Context, imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) {
-	if !shouldWarnFileBasedPackagesWithoutStageDependencies(imageBaseConfig, gitMappings) {
-		return
+func validateFileBasedPackagesHaveStageDependencies(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) error {
+	if !hasFileBasedPackagesWithoutStageDependencies(imageBaseConfig, gitMappings) {
+		return nil
 	}
 
-	global_warnings.GlobalWarningLn(ctx, fmt.Sprintf(
-		"Image %q uses a file-based packages directive, but no git mapping declares git.stageDependencies.packages. "+
-			"Changes to the spec/lock files (e.g. go.mod, requirements.txt) will not rebuild the packages stage, "+
-			"leaving installed dependencies stale while the SBOM reports the updated files. "+
-			"Declare git.stageDependencies.packages with the spec/lock file paths.",
+	return fmt.Errorf(
+		"image %q uses a file-based packages directive, but no git mapping declares git.stageDependencies.packages: "+
+			"declare git.stageDependencies.packages with the spec/lock file paths",
 		imageBaseConfig.Name,
-	))
+	)
 }
 
-func shouldWarnFileBasedPackagesWithoutStageDependencies(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) bool {
+func hasFileBasedPackagesWithoutStageDependencies(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping) bool {
 	if len(gitMappings) == 0 {
 		return false
 	}
@@ -259,17 +254,8 @@ func hasStageInstructions(imageBaseConfig *config.StapelImageBase, stageName sta
 			return len(imageBaseConfig.Shell.BeforeSetup) > 0
 		case stage.Setup:
 			return len(imageBaseConfig.Shell.Setup) > 0
-		}
-	}
-
-	if imageBaseConfig.Ansible != nil {
-		switch stageName {
-		case stage.Install:
-			return len(imageBaseConfig.Ansible.Install) > 0
-		case stage.BeforeSetup:
-			return len(imageBaseConfig.Ansible.BeforeSetup) > 0
-		case stage.Setup:
-			return len(imageBaseConfig.Ansible.Setup) > 0
+		case stage.Packages:
+			return len(imageBaseConfig.Shell.Packages) > 0
 		}
 	}
 

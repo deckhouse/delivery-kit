@@ -2,7 +2,7 @@ package docker
 
 import (
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
+	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -15,7 +15,7 @@ var _ = Describe("NewInfoFromInspect", func() {
 			ID:          "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			RepoDigests: repoDigests,
 			Created:     "2026-01-01T00:00:00Z",
-			Config:      &container.Config{},
+			Config:      &v1.DockerOCIImageConfig{},
 		}
 	}
 

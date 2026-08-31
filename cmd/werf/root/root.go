@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
@@ -51,8 +50,13 @@ import (
 	managed_images_add "github.com/werf/werf/v2/cmd/werf/managed_images/add"
 	managed_images_ls "github.com/werf/werf/v2/cmd/werf/managed_images/ls"
 	managed_images_rm "github.com/werf/werf/v2/cmd/werf/managed_images/rm"
+	meta_repo_detach "github.com/werf/werf/v2/cmd/werf/meta_repo/detach"
+	meta_repo_migrate "github.com/werf/werf/v2/cmd/werf/meta_repo/migrate"
 	"github.com/werf/werf/v2/cmd/werf/plan"
 	"github.com/werf/werf/v2/cmd/werf/purge"
+	release_get "github.com/werf/werf/v2/cmd/werf/release/get"
+	release_history "github.com/werf/werf/v2/cmd/werf/release/history"
+	release_list "github.com/werf/werf/v2/cmd/werf/release/list"
 	"github.com/werf/werf/v2/cmd/werf/render"
 	"github.com/werf/werf/v2/cmd/werf/rollback"
 	"github.com/werf/werf/v2/cmd/werf/run"
@@ -62,7 +66,6 @@ import (
 	"github.com/werf/werf/v2/cmd/werf/slugify"
 	stage_image "github.com/werf/werf/v2/cmd/werf/stage/image"
 	stages_copy "github.com/werf/werf/v2/cmd/werf/stages/copy"
-	"github.com/werf/werf/v2/cmd/werf/synchronization"
 	"github.com/werf/werf/v2/cmd/werf/verify"
 	"github.com/werf/werf/v2/cmd/werf/version"
 	"github.com/werf/werf/v2/pkg/telemetry"
@@ -72,10 +75,6 @@ func ConstructRootCmd(ctx context.Context) (*cobra.Command, error) {
 	helmCmd, err := helm.NewCmd(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init helm commands: %w", err)
-	}
-
-	if filepath.Base(os.Args[0]) == "helm" || helm.IsHelm3Mode() {
-		return helmCmd, nil
 	}
 
 	rootCmd := common.SetCommandContext(ctx, &cobra.Command{
@@ -130,8 +129,10 @@ func ConstructRootCmd(ctx context.Context) (*cobra.Command, error) {
 			Commands: []*cobra.Command{
 				configCmd(ctx),
 				managedImagesCmd(ctx),
+				metaRepoCmd(ctx),
 				hostCmd(ctx),
 				helmCmd,
+				releaseCmd(ctx),
 				crCmd(ctx),
 				kubectl2.ReplaceKubectlDocs(kubectl.NewCmd(ctx)),
 			},
@@ -139,7 +140,6 @@ func ConstructRootCmd(ctx context.Context) (*cobra.Command, error) {
 		{
 			Message: "Other commands",
 			Commands: []*cobra.Command{
-				synchronization.NewCmd(ctx),
 				completion.NewCmd(ctx, rootCmd),
 				version.NewCmd(ctx),
 				docs.NewCmd(ctx, groups),
@@ -228,6 +228,20 @@ func attestCmd(ctx context.Context) *cobra.Command {
 	return cmd
 }
 
+func releaseCmd(ctx context.Context) *cobra.Command {
+	cmd := common.SetCommandContext(ctx, &cobra.Command{
+		Use:   "release",
+		Short: "Work with releases",
+	})
+	cmd.AddCommand(
+		release_get.NewCmd(ctx),
+		release_history.NewCmd(ctx),
+		release_list.NewCmd(ctx),
+	)
+
+	return cmd
+}
+
 func configCmd(ctx context.Context) *cobra.Command {
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:   "config",
@@ -251,6 +265,19 @@ func managedImagesCmd(ctx context.Context) *cobra.Command {
 		managed_images_add.NewCmd(ctx),
 		managed_images_ls.NewCmd(ctx),
 		managed_images_rm.NewCmd(ctx),
+	)
+
+	return cmd
+}
+
+func metaRepoCmd(ctx context.Context) *cobra.Command {
+	cmd := common.SetCommandContext(ctx, &cobra.Command{
+		Use:   "meta-repo",
+		Short: "Migrate metadata into a separate meta-repo and manage the meta-repo safeguard",
+	})
+	cmd.AddCommand(
+		meta_repo_migrate.NewCmd(ctx),
+		meta_repo_detach.NewCmd(ctx),
 	)
 
 	return cmd

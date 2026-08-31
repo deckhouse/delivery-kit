@@ -20,6 +20,103 @@ import (
 	"github.com/werf/werf/v2/test/mock"
 )
 
+var _ = Describe("deleteOrphanedArtifacts", func() {
+	DescribeTable("scenarios",
+		func(setupMocks func(s *mock.MockStagesStorage), dryRun, expectError bool, expectedErrorSubstr string) {
+			s := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+			setupMocks(s)
+
+			err := deleteOrphanedArtifacts(context.Background(), s, dryRun)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErrorSubstr))
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		},
+		Entry("no orphans — returns nil",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return(nil, nil)
+			},
+			false, false, "",
+		),
+		Entry("orphans deleted successfully",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123", "repo:sha256-def456"}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-abc123").Return(nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-def456").Return(nil)
+			},
+			false, false, "",
+		),
+		Entry("dry run — skips deletion",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123", "repo:sha256-def456"}, nil)
+			},
+			true, false, "",
+		),
+		Entry("GetOrphanedArtifactNames error — propagated",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return(nil, errors.New("registry unavailable"))
+			},
+			false, true, "get orphaned artifacts",
+		),
+		Entry("non-fatal deletion error — continues to next",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123", "repo:sha256-def456"}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-abc123").Return(errors.New("temporary network error"))
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-def456").Return(nil)
+			},
+			false, false, "",
+		),
+		Entry("fatal deletion error (UNAUTHORIZED) — stops and returns error",
+			func(s *mock.MockStagesStorage) {
+				s.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"repo:sha256-abc123"}, nil)
+				s.EXPECT().DeleteArtifact(gomock.Any(), "repo:sha256-abc123").Return(errors.New("UNAUTHORIZED"))
+			},
+			false, true, "UNAUTHORIZED",
+		),
+	)
+})
+
+var _ = Describe("cleanupManager.cleanupOrphanedArtifacts", func() {
+	It("cleans the primary repo when no final repo is configured", func() {
+		sm := newFakeStorageManager()
+		sm.stages.orphanedArtifactNames = []string{"repo:sha256-abc123"}
+		m := &cleanupManager{StorageManager: sm}
+
+		Expect(m.cleanupOrphanedArtifacts(context.Background())).To(Succeed())
+		Expect(sm.stages.deletedArtifacts).To(Equal([]string{"repo:sha256-abc123"}))
+	})
+
+	It("cleans both the primary and the final repo when a final repo is configured", func() {
+		sm := newFakeStorageManager()
+		sm.stages.orphanedArtifactNames = []string{"repo:sha256-abc123"}
+
+		final := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+		final.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"final-repo:sha256-def456"}, nil)
+		final.EXPECT().DeleteArtifact(gomock.Any(), "final-repo:sha256-def456").Return(nil)
+		sm.final = final
+
+		m := &cleanupManager{StorageManager: sm}
+
+		Expect(m.cleanupOrphanedArtifacts(context.Background())).To(Succeed())
+		Expect(sm.stages.deletedArtifacts).To(Equal([]string{"repo:sha256-abc123"}))
+	})
+
+	It("reports which repo failed when the final repo cannot be cleaned", func() {
+		sm := newFakeStorageManager()
+
+		final := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+		final.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return(nil, errors.New("registry unavailable"))
+		sm.final = final
+
+		m := &cleanupManager{StorageManager: sm}
+
+		err := m.cleanupOrphanedArtifacts(context.Background())
+		Expect(err).To(MatchError(ContainSubstring("delete orphaned artifacts from final repo")))
+	})
+})
+
 type fakePrimaryStagesStorage struct {
 	storage.PrimaryStagesStorage
 
@@ -28,13 +125,29 @@ type fakePrimaryStagesStorage struct {
 	rejectedStageIDs []image.StageID
 	rejectedErr      error
 
-	deleteImageErrs  map[string]error
-	deleteRecordErrs map[string]error
-	deleteTagErrs    map[string]error
+	deleteImageErrs   map[string]error
+	deleteRecordErrs  map[string]error
+	deleteTagErrs     map[string]error
+	unregisterTagErrs map[string]error
 
-	deletedImages  []image.StageID
-	deletedRecords []image.StageID
-	deletedTags    []string
+	deletedImages    []image.StageID
+	deletedRecords   []image.StageID
+	deletedTags      []string
+	unregisteredTags []string
+
+	orphanedArtifactNames []string
+	deletedArtifacts      []string
+}
+
+func (f *fakePrimaryStagesStorage) GetOrphanedArtifactNames(_ context.Context) ([]string, error) {
+	return f.orphanedArtifactNames, nil
+}
+
+func (f *fakePrimaryStagesStorage) DeleteArtifact(_ context.Context, imageName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedArtifacts = append(f.deletedArtifacts, imageName)
+	return nil
 }
 
 func (f *fakePrimaryStagesStorage) GetRejectedStageIDs(_ context.Context, _ ...storage.Option) ([]image.StageID, error) {
@@ -62,30 +175,58 @@ func (f *fakePrimaryStagesStorage) DeleteStageCustomTag(_ context.Context, tag s
 	return f.deleteTagErrs[tag]
 }
 
+func (f *fakePrimaryStagesStorage) UnregisterStageCustomTag(_ context.Context, tag string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unregisteredTags = append(f.unregisteredTags, tag)
+	return f.unregisterTagErrs[tag]
+}
+
 type fakeStorageManager struct {
 	manager.StorageManagerInterface
 
 	stages *fakePrimaryStagesStorage
-
-	importMetadataErrs map[string]error
+	meta   *fakePrimaryStagesStorage
+	final  storage.StagesStorage
 
 	stageDescSet      image.StageDescSet
 	finalStageDescSet image.StageDescSet
 }
 
 func newFakeStorageManager() *fakeStorageManager {
+	sm := &fakeStorageManager{
+		stages: newFakePrimaryStagesStorage(),
+	}
+	sm.meta = sm.stages
+	return sm
+}
+
+func newFakeStorageManagerWithSplitStorages() *fakeStorageManager {
 	return &fakeStorageManager{
-		stages: &fakePrimaryStagesStorage{
-			deleteImageErrs:  map[string]error{},
-			deleteRecordErrs: map[string]error{},
-			deleteTagErrs:    map[string]error{},
-		},
-		importMetadataErrs: map[string]error{},
+		stages: newFakePrimaryStagesStorage(),
+		meta:   newFakePrimaryStagesStorage(),
+	}
+}
+
+func newFakePrimaryStagesStorage() *fakePrimaryStagesStorage {
+	return &fakePrimaryStagesStorage{
+		deleteImageErrs:   map[string]error{},
+		deleteRecordErrs:  map[string]error{},
+		deleteTagErrs:     map[string]error{},
+		unregisterTagErrs: map[string]error{},
 	}
 }
 
 func (f *fakeStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
 	return f.stages
+}
+
+func (f *fakeStorageManager) GetMetaStorage() storage.PrimaryStagesStorage {
+	return f.meta
+}
+
+func (f *fakeStorageManager) GetFinalStagesStorage() storage.StagesStorage {
+	return f.final
 }
 
 func (f *fakeStorageManager) ForEachRejectedStage(ctx context.Context, stageIDs []image.StageID, cb func(ctx context.Context, stageID image.StageID) error) error {
@@ -100,15 +241,6 @@ func (f *fakeStorageManager) ForEachRejectedStage(ctx context.Context, stageIDs 
 func (f *fakeStorageManager) ForEachDeleteStageCustomTag(ctx context.Context, tags []string, cb func(ctx context.Context, tag string, err error) error) error {
 	for _, tag := range tags {
 		if err := cb(ctx, tag, f.stages.deleteTagErrs[tag]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (f *fakeStorageManager) ForEachRmImportMetadata(ctx context.Context, _ string, ids []string, cb func(ctx context.Context, id string, err error) error) error {
-	for _, id := range ids {
-		if err := cb(ctx, id, f.importMetadataErrs[id]); err != nil {
 			return err
 		}
 	}
@@ -217,6 +349,41 @@ func TestDeleteRejectedStagesWithLinkedTags_CustomTagFailureKeepsMarker(t *testi
 	assert.Equal(t, []image.StageID{*stageID}, sm.stages.deletedImages, "stage image already deleted")
 	assert.Equal(t, []string{"v1.0.0"}, sm.stages.deletedTags, "fail-fast on first custom tag failure; 'latest' not attempted")
 	assert.Empty(t, sm.stages.deletedRecords, "marker MUST remain so next cleanup retries linked tags")
+}
+
+func TestDeleteRejectedStagesWithLinkedTags_RoutesUnregisterToMetaStorage(t *testing.T) {
+	digest := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	stageID := image.NewStageID(digest, 1700000000)
+
+	sm := newFakeStorageManagerWithSplitStorages()
+	sm.stages.rejectedStageIDs = []image.StageID{*stageID}
+
+	deleted, err := deleteRejectedStagesWithLinkedTags(context.Background(), sm, map[string][]string{stageID.String(): {"v1.0.0", "latest"}}, false, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{stageID.String()}, deleted)
+	assert.Equal(t, []string{"v1.0.0", "latest"}, sm.stages.deletedTags, "alias custom tags deleted from stages storage")
+	assert.Equal(t, []string{"v1.0.0", "latest"}, sm.meta.unregisteredTags, "custom-tag metadata records unregistered from meta storage")
+	assert.Empty(t, sm.meta.deletedTags, "meta storage MUST NOT receive alias image deletes")
+	assert.Empty(t, sm.stages.unregisteredTags, "stages storage MUST NOT receive metadata unregister calls")
+	assert.Equal(t, []image.StageID{*stageID}, sm.stages.deletedRecords, "marker deleted on stages after both alias and metadata cleanup succeeded")
+}
+
+func TestDeleteRejectedStagesWithLinkedTags_UnregisterFailureKeepsMarker(t *testing.T) {
+	digest := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	stageID := image.NewStageID(digest, 1700000000)
+
+	sm := newFakeStorageManagerWithSplitStorages()
+	sm.stages.rejectedStageIDs = []image.StageID{*stageID}
+	sm.meta.unregisterTagErrs["v1.0.0"] = errors.New("temporary network glitch")
+
+	deleted, err := deleteRejectedStagesWithLinkedTags(context.Background(), sm, map[string][]string{stageID.String(): {"v1.0.0", "latest"}}, false, nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, deleted, "stage with failed metadata unregister must NOT be reported deleted")
+	assert.Equal(t, []string{"v1.0.0"}, sm.stages.deletedTags, "alias for v1.0.0 already deleted before unregister failed")
+	assert.Equal(t, []string{"v1.0.0"}, sm.meta.unregisteredTags, "fail-fast on first metadata unregister failure; latest not attempted")
+	assert.Empty(t, sm.stages.deletedRecords, "marker MUST remain so next cleanup retries orphan metadata")
 }
 
 func TestDeleteRejectedStagesWithLinkedTags_MarkerFailureExcludesFromDeleted(t *testing.T) {
@@ -353,31 +520,6 @@ func TestDeleteCustomTags_ReportDryRunMatchesRealRun(t *testing.T) {
 
 	dryReport := newTestReport()
 	require.NoError(t, deleteCustomTags(context.Background(), newFakeStorageManager(), tags, true, dryReport))
-
-	assert.ElementsMatch(t, realReport.Deleted, dryReport.Deleted)
-}
-
-func TestDeleteImportsMetadata_ReportRecordsOnlySucceeded(t *testing.T) {
-	sm := newFakeStorageManager()
-	sm.importMetadataErrs["broken"] = errors.New("temporary network glitch")
-
-	report := newTestReport()
-
-	require.NoError(t, deleteImportsMetadata(context.Background(), "myproject", sm, []string{"8c4a1f9b2d7e5a3c", "broken"}, false, report))
-
-	assert.Equal(t, []cleanup_report.Item{
-		{Type: cleanup_report.ItemTypeImportMetadata, ID: "8c4a1f9b2d7e5a3c"},
-	}, report.Deleted)
-}
-
-func TestDeleteImportsMetadata_ReportDryRunMatchesRealRun(t *testing.T) {
-	ids := []string{"8c4a1f9b2d7e5a3c", "1e09fb543b4ef442"}
-
-	realReport := newTestReport()
-	require.NoError(t, deleteImportsMetadata(context.Background(), "myproject", newFakeStorageManager(), ids, false, realReport))
-
-	dryReport := newTestReport()
-	require.NoError(t, deleteImportsMetadata(context.Background(), "myproject", newFakeStorageManager(), ids, true, dryReport))
 
 	assert.ElementsMatch(t, realReport.Deleted, dryReport.Deleted)
 }

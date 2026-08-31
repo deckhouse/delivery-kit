@@ -45,7 +45,7 @@ jobs:
         uses: ./.github/actions/set-up-ci-base
 
       - name: Unit tests
-        run: task -p --yes test:unit -- --keep-going
+        run: task -p --yes test:unit -- --race --keep-going
 
   kind_setup:
     if: always() && needs.lint.result == 'success' && needs.unit.result == 'success'
@@ -116,6 +116,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+          raceDetectorEnabled: "true"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
@@ -126,7 +127,7 @@ jobs:
       - name: Integration tests (main)
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
+          task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Upload coverage artifact
@@ -163,6 +164,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+          raceDetectorEnabled: "true"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
@@ -210,6 +212,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+          raceDetectorEnabled: "true"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
@@ -257,6 +260,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+          raceDetectorEnabled: "true"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
@@ -304,6 +308,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+          raceDetectorEnabled: "true"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
@@ -351,6 +356,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
+          raceDetectorEnabled: "true"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config

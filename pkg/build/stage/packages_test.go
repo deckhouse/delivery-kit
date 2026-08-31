@@ -88,6 +88,21 @@ var _ = Describe("PackagesStage", func() {
 		})
 	})
 
+	Describe("GetContentDependencies", func() {
+		It("includes packages commands", func(ctx context.Context) {
+			first := generateTestPackagesStage(ctx, "cd /app && go mod download")
+			second := generateTestPackagesStage(ctx, "cd /lib && go mod download")
+
+			firstDigest, err := first.GetContentDependencies(ctx, testConveyor(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			secondDigest, err := second.GetContentDependencies(ctx, testConveyor(), nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(firstDigest).NotTo(BeEmpty())
+			Expect(firstDigest).NotTo(Equal(secondDigest))
+		})
+	})
+
 	Describe("coexistence with other stages", func() {
 		It("does not affect install stage creation", func(ctx context.Context) {
 			imageBaseConfig := &config.StapelImageBase{

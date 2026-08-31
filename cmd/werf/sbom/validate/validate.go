@@ -75,8 +75,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runValidate(ctx context.Context, paths []string, isprasFormat checker.IsprasFormat, checkVCS bool) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                         &commonCmdData,
 		InitWerf:                    true,

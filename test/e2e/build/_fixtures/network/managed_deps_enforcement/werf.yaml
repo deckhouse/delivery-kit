@@ -6,7 +6,7 @@ build:
     standard: "cyclonedx@1.6"
 ---
 image: stapel
-from: registry.werf.io/base/alpine
+from: registry.werf.io/base/alpine:3.21
 shell:
   setup:
     - apk add --no-cache bash

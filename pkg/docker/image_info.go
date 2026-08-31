@@ -3,12 +3,12 @@ package docker
 import (
 	"strings"
 
-	"github.com/docker/docker/api/types"
+	dockerImage "github.com/docker/docker/api/types/image"
 
 	"github.com/werf/werf/v2/pkg/image"
 )
 
-func NewInfoFromInspect(ref string, inspect *types.ImageInspect) *image.Info {
+func NewInfoFromInspect(ref string, inspect *dockerImage.InspectResponse) *image.Info {
 	var repository, tag, repoDigest string
 	if !strings.HasPrefix(ref, "sha256:") {
 		var digest string
@@ -17,14 +17,6 @@ func NewInfoFromInspect(ref string, inspect *types.ImageInspect) *image.Info {
 			repoDigest = repository + "@" + digest
 		} else {
 			repoDigest = image.ExtractRepoDigest(inspect.RepoDigests, repository)
-		}
-	}
-
-	// TODO: remove this legacy logic in v3.
-	parentID := inspect.Config.Image
-	if parentID == "" {
-		if id, ok := inspect.Config.Labels[image.WerfBaseImageIDLabel]; ok { // built with werf
-			parentID = id
 		}
 	}
 
@@ -45,7 +37,6 @@ func NewInfoFromInspect(ref string, inspect *types.ImageInspect) *image.Info {
 		CreatedAtUnixNano: image.MustParseTimestampString(created).UnixNano(),
 		RepoDigest:        repoDigest,
 		ID:                inspect.ID,
-		ParentID:          parentID,
 		Size:              inspect.Size,
 		Volumes:           inspect.Config.Volumes,
 	}

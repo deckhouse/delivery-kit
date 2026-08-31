@@ -99,8 +99,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupRepoOptions(&commonCmdData, cmd, common.RepoDataOptions{OptionalRepo: true})
 	common.SetupFinalRepo(&commonCmdData, cmd)
 
-	common.SetupSynchronization(&commonCmdData, cmd)
-
 	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to read, pull and push images into the specified repo and to pull base images")
 	common.SetupInsecureRegistry(&commonCmdData, cmd)
 	common.SetupSkipTlsVerifyRegistry(&commonCmdData, cmd)
@@ -111,8 +109,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupSaveBuildReport(&commonCmdData, cmd)
 	common.SetupBuildReportPath(&commonCmdData, cmd)
-
-	common.SetupVirtualMerge(&commonCmdData, cmd)
 
 	common.SetupParallelOptions(&commonCmdData, cmd, common.DefaultBuildParallelTasksLimit)
 
@@ -125,10 +121,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupProjectName(&commonCmdData, cmd, false)
 
 	commonCmdData.SetupPlatform(cmd)
-
-	commonCmdData.SetupSkipImageSpecStage(cmd)
-
-	lo.Must0(common.SetupKubeConnectionFlags(&commonCmdData, cmd))
 
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Content-based tag of the image to get SBOM for (mutually exclusive with --digest)")
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the image to get SBOM for (mutually exclusive with --tag)")
@@ -151,8 +143,6 @@ func singlePlatformParam() (string, error) {
 }
 
 func runGetByTag(ctx context.Context, tag string) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,
@@ -197,8 +187,6 @@ func runGetByTag(ctx context.Context, tag string) error {
 }
 
 func runGetByDigest(ctx context.Context, imageDigest string) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,
@@ -281,8 +269,6 @@ func writeSbomToStdout(data []byte) error {
 }
 
 func runGet(ctx context.Context, requestedImageName string) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,
@@ -292,10 +278,9 @@ func runGet(ctx context.Context, requestedImageName string) error {
 		InitTrueGitWithOptions: &common.InitTrueGitOptions{
 			Options: true_git.Options{LiveGitOutput: *commonCmdData.LogDebug},
 		},
-		InitDockerRegistry:           true,
-		InitProcessContainerBackend:  true,
-		InitSSHAgent:                 true,
-		SetupOndemandKubeInitializer: true,
+		InitDockerRegistry:          true,
+		InitProcessContainerBackend: true,
+		InitSSHAgent:                true,
 	})
 	if err != nil {
 		return fmt.Errorf("component init error: %w", err)
@@ -364,12 +349,14 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return err
 	}
 
+	buildOptions.SkipImageMetadataPublication = *commonCmdData.Dev
+
 	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
 	if err != nil {
 		return err
 	}
 
-	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
+	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
 	defer conveyorWithRetry.Terminate()
 
 	var exportedImages []*image.Image
@@ -379,7 +366,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 				return err
 			}
 		} else {
-			if _, err := c.Build(ctx, build.BuildOptions{SkipImageMetadataPublication: *commonCmdData.Dev}); err != nil {
+			if _, err := c.Build(ctx, buildOptions); err != nil {
 				return err
 			}
 		}

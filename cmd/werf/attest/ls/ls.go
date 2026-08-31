@@ -73,8 +73,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runLs(ctx context.Context, digest, tag, platform string) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,

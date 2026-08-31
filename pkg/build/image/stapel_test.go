@@ -8,7 +8,7 @@ import (
 	"github.com/werf/werf/v2/pkg/config"
 )
 
-var _ = Describe("shouldWarnFileBasedPackagesWithoutStageDependencies", func() {
+var _ = Describe("hasFileBasedPackagesWithoutStageDependencies", func() {
 	newImageConfig := func(pkgTypes ...config.PackagesDirectiveType) *config.StapelImageBase {
 		imageBaseConfig := &config.StapelImageBase{Name: "app"}
 		for _, pkgType := range pkgTypes {
@@ -27,7 +27,7 @@ var _ = Describe("shouldWarnFileBasedPackagesWithoutStageDependencies", func() {
 
 	DescribeTable("warning decision",
 		func(imageBaseConfig *config.StapelImageBase, gitMappings []*stage.GitMapping, expected bool) {
-			Expect(shouldWarnFileBasedPackagesWithoutStageDependencies(imageBaseConfig, gitMappings)).To(Equal(expected))
+			Expect(hasFileBasedPackagesWithoutStageDependencies(imageBaseConfig, gitMappings)).To(Equal(expected))
 		},
 		Entry("file-based packages without stageDependencies.packages",
 			newImageConfig(config.PackagesDirectiveTypeGoMod),

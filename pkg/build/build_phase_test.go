@@ -8,7 +8,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/build/image"
+	"github.com/werf/werf/v2/pkg/build/signing"
+	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
+	imagePkg "github.com/werf/werf/v2/pkg/image"
 )
 
 var _ = Describe("BuildPhase", func() {
@@ -92,6 +96,85 @@ var _ = Describe("BuildPhase", func() {
 		)
 	})
 
+	It("skips SBOM convergence when no images were selected", func(ctx SpecContext) {
+		phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{
+			werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}},
+			imagesTree: &image.ImagesTree{},
+		}}}
+
+		Expect(phase.convergeSbomByImagesSets(ctx)).To(Succeed())
+	})
+
+	It("collects content dependencies from signing mutation stages", func(ctx SpecContext) {
+		signer, err := signing.NewSigner(ctx, signing.SignerOptions{})
+		Expect(err).To(Succeed())
+
+		baseStageOptions := &stage.BaseStageOptions{TargetPlatform: "linux/amd64"}
+		img := &image.Image{}
+		img.SetStages([]stage.Interface{
+			stage.GenerateVerityAnnotationStage(baseStageOptions),
+			stage.GenerateSignStage(baseStageOptions, signing.NewManifestSigningOptions(signer)),
+		})
+
+		inputs, err := collectHolisticInputs(ctx, img, nil, nil)
+		Expect(err).To(Succeed())
+		Expect(inputs).To(HaveLen(2))
+		Expect(inputs[0]).To(HavePrefix(string(stage.VerityAnnotation) + ":"))
+		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
+	})
+
+	Describe("VEX convergence", func() {
+		newMultiplatformImage := func(ctx SpecContext) (*image.MultiplatformImage, *image.Image) {
+			images := make([]*image.Image, 2)
+			for i, platform := range []string{"linux/amd64", "linux/arm64"} {
+				img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				img.SetContentTagDesc(&imagePkg.StageDesc{
+					StageID: imagePkg.NewStageID(platform, 1),
+					Info:    &imagePkg.Info{},
+				})
+				images[i] = img
+			}
+			return image.NewMultiplatformImage("app", images, 0, 1), images[0]
+		}
+
+		It("returns an error when a multi-image stage descriptor is unavailable", func(ctx SpecContext) {
+			multiImg, _ := newMultiplatformImage(ctx)
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.SetMultiplatformImage(multiImg)
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+
+			err := phase.convergeImageVex(ctx, "app", multiImg.Images)
+
+			Expect(err).To(MatchError(`unable to converge VEX for image "app": stage descriptor is unavailable`))
+		})
+
+		It("continues when a multi-image stage descriptor is available", func(ctx SpecContext) {
+			multiImg, primaryImg := newMultiplatformImage(ctx)
+			multiImg.SetStageDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{}})
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.SetMultiplatformImage(multiImg)
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+
+			Expect(phase.convergeImageVex(ctx, primaryImg.Name, multiImg.Images)).To(Succeed())
+		})
+	})
+
+	Describe("last non-empty stage descriptor", func() {
+		It("uses the content tag descriptor for a reused image", func() {
+			expected := &imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:image"}}
+			img := &image.Image{}
+			img.SetContentTagDesc(expected)
+
+			Expect(img.GetLastNonEmptyStageDesc()).To(BeIdenticalTo(expected))
+			Expect(img.GetLastNonEmptyStageImageInfo()).To(BeIdenticalTo(expected.Info))
+		})
+
+		It("returns nil when neither a content tag nor a built stage descriptor exists", func() {
+			Expect((&image.Image{}).GetLastNonEmptyStageDesc()).To(BeNil())
+		})
+	})
+
 	Describe("calculateDigest", func() {
 		It("digest is unchanged when EnableSbom() returns false (backward compatibility)", func(ctx SpecContext) {
 			conveyorNoSbom := &Conveyor{
@@ -145,6 +228,19 @@ var _ = Describe("BuildPhase", func() {
 			Expect(digestEnabled).NotTo(Equal(digestDisabled))
 		})
 
+		It("anchor digest changes when SBOM is enabled", func(ctx SpecContext) {
+			disabled := &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{}}}
+			enabled := &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}}}
+			opts := calculateDigestOptions{TargetPlatform: "linux/amd64", Anchor: true, HolisticInputs: []string{"from:digest"}}
+
+			disabledDigest, err := calculateDigest(ctx, "anchor", "", nil, disabled, opts)
+			Expect(err).To(Succeed())
+			enabledDigest, err := calculateDigest(ctx, "anchor", "", nil, enabled, opts)
+			Expect(err).To(Succeed())
+
+			Expect(enabledDigest).NotTo(Equal(disabledDigest))
+		})
+
 		It("digest returns to its original value when EnableSbom() goes back to false", func(ctx SpecContext) {
 			conveyorDisabled := &Conveyor{
 				werfConfig: &config.WerfConfig{
@@ -179,6 +275,14 @@ var _ = Describe("BuildPhase", func() {
 			Expect(err).To(Succeed())
 
 			Expect(digestDisabledAgain).To(Equal(digestBaseline))
+		})
+	})
+
+	Describe("finalStageDescForImage", func() {
+		It("returns nil for a single-platform image resolved from the cache, without a built stage image", func() {
+			phase := &BuildPhase{}
+
+			Expect(phase.finalStageDescForImage("app", []*image.Image{{}})).To(BeNil())
 		})
 	})
 })

@@ -143,49 +143,11 @@ var _ = Describe("Signature", Label("e2e", "signature", "simple"), func() {
 			Expect(totalFilesCount).To(Equal(5))
 			Expect(elfFilesCount).To(Equal(1))
 		},
-		// TODO: enable when it will be supported
-		// XEntry("without repo using Vanilla Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
-		//	 ContainerBackendMode:        "vanilla-docker",
-		//	 WithLocalRepo:               false,
-		//	 WithStagedDockerfileBuilder: false,
-		// }}),
-		Entry("with repo using Vanilla Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
-			ContainerBackendMode:        "vanilla-docker",
+		Entry("with repo using Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode:        "docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		// TODO: enable when it will be supported
-		// XEntry("without repo using BuildKit Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
-		//	 ContainerBackendMode:        "buildkit-docker",
-		//	 WithLocalRepo:               false,
-		//	 WithStagedDockerfileBuilder: false,
-		// }}),
-		Entry("with local repo using BuildKit Docker", integrityTestOptions{setupEnvOptions{
-			ContainerBackendMode:        "buildkit-docker",
-			WithLocalRepo:               true,
-			WithStagedDockerfileBuilder: false,
-		}}),
-		// TODO: enable when it will be supported
-		// XEntry("without local repo using Native Buildah with rootless isolation", integrityTestOptions{setupEnvOptions{
-		// 	ContainerBackendMode:        "native-rootless",
-		// 	WithLocalRepo:               false,
-		// 	WithStagedDockerfileBuilder: true,
-		// }}),
-		// XEntry("with local repo using Native Buildah with rootless isolation", integrityTestOptions{setupEnvOptions{
-		// 	ContainerBackendMode:        "native-rootless",
-		// 	WithLocalRepo:               true,
-		// 	WithStagedDockerfileBuilder: true,
-		// }}),
-		// XEntry("without local repo using Native Buildah with chroot isolation", integrityTestOptions{setupEnvOptions{
-		// 	ContainerBackendMode:        "native-chroot",
-		// 	WithLocalRepo:               false,
-		// 	WithStagedDockerfileBuilder: true,
-		// }}),
-		// XEntry("with local repo using Native Buildah with chroot isolation", integrityTestOptions{setupEnvOptions{
-		// 	ContainerBackendMode:        "native-chroot",
-		// 	WithLocalRepo:               true,
-		// 	WithStagedDockerfileBuilder: true,
-		// }}),
 	)
 
 	Describe("gpg host configuration", func() {
@@ -248,49 +210,11 @@ var _ = Describe("Signature", Label("e2e", "signature", "simple"), func() {
 				Expect(totalFilesCount).To(Equal(5))
 				Expect(elfFilesCount).To(Equal(1))
 			},
-			// TODO: enable when it will be supported
-			// XEntry("without repo using Vanilla Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
-			//	 ContainerBackendMode:        "vanilla-docker",
-			//	 WithLocalRepo:               false,
-			//	 WithStagedDockerfileBuilder: false,
-			// }}),
-			Entry("with repo using Vanilla Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
-				ContainerBackendMode:        "vanilla-docker",
+			Entry("with repo using Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
+				ContainerBackendMode:        "docker",
 				WithLocalRepo:               true,
 				WithStagedDockerfileBuilder: false,
 			}}),
-			// TODO: enable when it will be supported
-			// XEntry("without repo using BuildKit Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
-			//	 ContainerBackendMode:        "buildkit-docker",
-			//	 WithLocalRepo:               false,
-			//	 WithStagedDockerfileBuilder: false,
-			// }}),
-			Entry("with local repo using BuildKit Docker", integrityTestOptions{setupEnvOptions{
-				ContainerBackendMode:        "buildkit-docker",
-				WithLocalRepo:               true,
-				WithStagedDockerfileBuilder: false,
-			}}),
-			// TODO: enable when it will be supported
-			// XEntry("without local repo using Native Buildah with rootless isolation", integrityTestOptions{setupEnvOptions{
-			// 	ContainerBackendMode:        "native-rootless",
-			// 	WithLocalRepo:               false,
-			// 	WithStagedDockerfileBuilder: true,
-			// }}),
-			// XEntry("with local repo using Native Buildah with rootless isolation", integrityTestOptions{setupEnvOptions{
-			// 	ContainerBackendMode:        "native-rootless",
-			// 	WithLocalRepo:               true,
-			// 	WithStagedDockerfileBuilder: true,
-			// }}),
-			// XEntry("without local repo using Native Buildah with chroot isolation", integrityTestOptions{setupEnvOptions{
-			// 	ContainerBackendMode:        "native-chroot",
-			// 	WithLocalRepo:               false,
-			// 	WithStagedDockerfileBuilder: true,
-			// }}),
-			// XEntry("with local repo using Native Buildah with chroot isolation", integrityTestOptions{setupEnvOptions{
-			// 	ContainerBackendMode:        "native-chroot",
-			// 	WithLocalRepo:               true,
-			// 	WithStagedDockerfileBuilder: true,
-			// }}),
 		)
 	})
 })

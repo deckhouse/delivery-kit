@@ -126,84 +126,15 @@ werf sbom get [IMAGE_NAME] [options]
             several stages.
             
             There are the following formats to use:
-            * specify IMAGE_NAME/STAGE_NAME to introspect stage STAGE_NAME of either image or       
-            artifact IMAGE_NAME
+            * specify IMAGE_NAME/STAGE_NAME to introspect stage STAGE_NAME of image IMAGE_NAME
             * specify STAGE_NAME or */STAGE_NAME for the introspection of all existing stages with  
             name STAGE_NAME
             
-            IMAGE_NAME is the name of an image or artifact described in werf.yaml, the nameless     
-            image specified with ~.
+            IMAGE_NAME is the name of an image described in werf.yaml.
             STAGE_NAME should be one of the following: from, beforeInstall,                         
             dependenciesBeforeInstall, gitArchive, install, dependenciesAfterInstall, beforeSetup,  
             dependenciesBeforeSetup, setup, dependenciesAfterSetup, gitCache, gitLatestPatch,       
-            dockerInstructions, dockerfile, imageSpec
-      --kube-api-server=""
-            Kubernetes API server address (default $WERF_KUBE_API_SERVER)
-      --kube-auth-password=""
-            Basic auth password for Kubernetes API (default $WERF_KUBE_AUTH_PASSWORD)
-      --kube-auth-provider=""
-            Auth provider name for authentication in Kubernetes API (default                        
-            $WERF_KUBE_AUTH_PROVIDER)
-      --kube-auth-provider-config=[]
-            Auth provider config for authentication in Kubernetes API (default                      
-            $WERF_KUBE_AUTH_PROVIDER_CONFIG)
-      --kube-auth-username=""
-            Basic auth username for Kubernetes API (default $WERF_KUBE_AUTH_USERNAME)
-      --kube-burst-limit=100
-            Kubernetes client burst limit (default $WERF_KUBE_BURST_LIMIT or 100)
-      --kube-ca-data=""
-            Pass Kubernetes API server TLS CA data (default $WERF_KUBE_CA_DATA)
-      --kube-ca-path=""
-            Kubernetes API server CA path (default $WERF_KUBE_CA_PATH)
-      --kube-cert=""
-            Path to PEM-encoded TLS client cert for connecting to Kubernetes API (default           
-            $WERF_KUBE_CERT
-      --kube-cert-data=""
-            Pass PEM-encoded TLS client cert for connecting to Kubernetes API (default              
-            $WERF_KUBE_CERT_DATA)
-      --kube-config=""
-            Kubernetes config file path (default $WERF_KUBE_CONFIG, or $WERF_KUBECONFIG, or         
-            $KUBECONFIG)
-      --kube-config-base64=""
-            Kubernetes config data as base64 string (default $WERF_KUBE_CONFIG_BASE64 or            
-            $WERF_KUBECONFIG_BASE64 or $KUBECONFIG_BASE64)
-      --kube-context=""
-            Kubernetes config context (default $WERF_KUBE_CONTEXT)
-      --kube-context-cluster=""
-            Use cluster from Kubeconfig for current context (default $WERF_KUBE_CONTEXT_CLUSTER)
-      --kube-context-user=""
-            Use user from Kubeconfig for current context (default $WERF_KUBE_CONTEXT_USER)
-      --kube-impersonate-group=[]
-            Sets Impersonate-Group headers when authenticating in Kubernetes. Can be also set with  
-            $WERF_KUBE_IMPERSONATE_GROUP_* environment variables
-      --kube-impersonate-uid=""
-            Sets Impersonate-Uid header when authenticating in Kubernetes (default                  
-            $WERF_KUBE_IMPERSONATE_UID)
-      --kube-impersonate-user=""
-            Sets Impersonate-User header when authenticating in Kubernetes (default                 
-            $WERF_KUBE_IMPERSONATE_USER)
-      --kube-key=""
-            Path to PEM-encoded TLS client key for connecting to Kubernetes API (default            
-            $WERF_KUBE_KEY)
-      --kube-key-data=""
-            Pass PEM-encoded TLS client key for connecting to Kubernetes API (default               
-            $WERF_KUBE_KEY_DATA)
-      --kube-proxy-url=""
-            Proxy URL to use for proxying all requests to Kubernetes API (default                   
-            $WERF_KUBE_PROXY_URL)
-      --kube-qps-limit=30
-            Kubernetes client QPS limit (default $WERF_KUBE_QPS_LIMIT or 30)
-      --kube-request-timeout=0s
-            Timeout for all requests to Kubernetes API (default $WERF_KUBE_REQUEST_TIMEOUT)
-      --kube-tls-server=""
-            Server name to use for Kubernetes API server certificate validation. If it is not       
-            provided, the hostname used to contact the server is used (default                      
-            $WERF_KUBE_TLS_SERVER)
-      --kube-token=""
-            Kubernetes bearer token used for authentication (default $WERF_KUBE_TOKEN)
-      --kube-token-path=""
-            Path to file with bearer token for authentication in Kubernetes (default                
-            $WERF_KUBE_TOKEN_PATH)
+            dockerfile, imageSpec
       --log-color-mode="auto"
             Set log color mode.
             Supported on, off and auto (based on the stdout’s file descriptor referring to a        
@@ -270,9 +201,6 @@ werf sbom get [IMAGE_NAME] [options]
             cache.
             Also, can be specified with $WERF_SECONDARY_REPO_* (e.g. $WERF_SECONDARY_REPO_1=...,    
             $WERF_SECONDARY_REPO_2=...)
-      --skip-tls-verify-kube=false
-            Skip TLS certificate validation when accessing a Kubernetes cluster (default            
-            $WERF_SKIP_TLS_VERIFY_KUBE)
       --skip-tls-verify-registry=false
             Skip TLS certificate validation when accessing a registry (default                      
             $WERF_SKIP_TLS_VERIFY_REGISTRY)
@@ -281,22 +209,9 @@ werf sbom get [IMAGE_NAME] [options]
             Can be specified with $WERF_SSH_KEY_* (e.g. $WERF_SSH_KEY_REPO=~/.ssh/repo_rsa,         
             $WERF_SSH_KEY_NODEJS=~/.ssh/nodejs_rsa).
             Defaults to $WERF_SSH_KEY_*, system ssh-agent or ~/.ssh/{id_rsa|id_dsa}
-  -S, --synchronization=""
-            Address of synchronizer for multiple werf processes to work with a single repo.
-            
-            Default:
-             - $WERF_SYNCHRONIZATION, or
-             - :local if --repo is not specified, or
-             - https://synchronization.werf.io if --repo has been specified.
-            
-            The same address should be specified for all werf processes that work with a single     
-            repo. :local address allows execution of werf processes from a single host only
       --tag=""
             Content-based tag of the image to get SBOM for (mutually exclusive with --digest)
       --tmp-dir=""
             Use specified dir to store tmp files and dirs (default $WERF_TMP_DIR or system tmp dir)
-      --virtual-merge=false
-            Enable virtual/ephemeral merge commit mode when building current application state      
-            ($WERF_VIRTUAL_MERGE by default)
 ```
 

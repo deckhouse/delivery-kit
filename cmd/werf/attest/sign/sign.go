@@ -86,8 +86,6 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runSign(ctx context.Context, predicatePath, predicateType, digest, tag, imageName string) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,

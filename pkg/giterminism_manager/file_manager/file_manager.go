@@ -12,7 +12,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	"github.com/werf/nelm/pkg/export/helm/werf/file"
+	nelmcommon "github.com/werf/nelm/pkg/common"
 	"github.com/werf/werf/v2/pkg/giterminism_manager/file_reader"
 	"github.com/werf/werf/v2/pkg/giterminism_manager/inspector"
 	"github.com/werf/werf/v2/pkg/includes"
@@ -39,7 +39,7 @@ type FileReader interface {
 
 	IsRegularFileExist(ctx context.Context, relPath string) (exist bool, err error)
 
-	file.ChartFileReaderInterface
+	nelmcommon.ChartFileReaderer
 }
 
 type FileManager struct {
@@ -322,6 +322,17 @@ func (f *FileManager) LocateChart(ctx context.Context, name string) (string, err
 	return chartDir, nil
 }
 
+func (f *FileManager) ChartFileExists(ctx context.Context, filePath string) (bool, error) {
+	relToProjFilePath := util.GetRelativeToBaseFilepath(f.customProjectDir, filePath)
+
+	path := getDirAbsPath(relToProjFilePath, f.customProjectDir)
+	if exist, _ := util.FileExists(path); exist {
+		return true, nil
+	}
+
+	return includes.IsFileExists(ctx, f.includes, relToProjFilePath), nil
+}
+
 func (f *FileManager) ReadChartFile(ctx context.Context, filePath string) ([]byte, error) {
 	relToProjFilePath := util.GetRelativeToBaseFilepath(f.customProjectDir, filePath)
 
@@ -343,11 +354,11 @@ func (f *FileManager) ReadChartFile(ctx context.Context, filePath string) ([]byt
 	return data, nil
 }
 
-func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*file.ChartExtenderBufferedFile, error) {
+func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*nelmcommon.BufferedFile, error) {
 	chartLocalAbsPath := getDirAbsPath(dir, f.customProjectDir)
 	processed := make(map[string]bool)
 
-	var chartDir []*file.ChartExtenderBufferedFile
+	var chartDir []*nelmcommon.BufferedFile
 
 	readFromLocalFs, err := loadChartDirFromLocalSource(chartLocalAbsPath)
 	if err != nil {
@@ -388,7 +399,7 @@ func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*file.Cha
 
 			logboek.Context(ctx).Debug().LogF("--- %s read from includes \n", normToPath)
 
-			chartDir = append(chartDir, &file.ChartExtenderBufferedFile{
+			chartDir = append(chartDir, &nelmcommon.BufferedFile{
 				Name: strings.TrimPrefix(normToPath, normDir+"/"),
 				Data: data,
 			})

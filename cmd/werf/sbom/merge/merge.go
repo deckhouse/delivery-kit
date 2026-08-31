@@ -82,8 +82,6 @@ func setupMergeFlags(cmd *cobra.Command, opts *merge.Options) {
 }
 
 func runMerge(ctx context.Context, opts merge.Options) error {
-	global_warnings.PostponeMultiwerfNotUpToDateWarning(ctx)
-
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,

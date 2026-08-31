@@ -28,6 +28,13 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 				Fail(err.Error())
 			}
 
+			expectedBasicPorts := manifest.Schema2PortSet{"99": {}}
+			expectedCleanPorts := manifest.Schema2PortSet{"": {}}
+			if testOpts.ContainerBackendMode == "docker" {
+				expectedBasicPorts = manifest.Schema2PortSet{"99/tcp": {}}
+				expectedCleanPorts = manifest.Schema2PortSet{"invalid port": {}}
+			}
+
 			By(fmt.Sprintf("%s: starting", testOpts.State))
 			{
 				repoDirname := "repo0"
@@ -87,10 +94,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal("testuser"))
 
-						Expect(imgCfg.ExposedPorts).Should(SatisfyAny(
-							Equal(manifest.Schema2PortSet{"99": {}}),
-							Equal(manifest.Schema2PortSet{"99/tcp": {}}),
-						))
+						Expect(imgCfg.ExposedPorts).Should(Equal(expectedBasicPorts))
 
 						Expect(imgCfg.ExposedPorts).ShouldNot(HaveKey("1234/tcp"))
 
@@ -113,11 +117,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal(""))
 
-						Expect(imgCfg.ExposedPorts).Should(SatisfyAny(
-							Equal(manifest.Schema2PortSet{"": {}}),
-							Equal(manifest.Schema2PortSet{"/tcp": {}}),
-							Equal(manifest.Schema2PortSet{"invalid port": {}}),
-						))
+						Expect(imgCfg.ExposedPorts).Should(Equal(expectedCleanPorts))
 
 						Expect(imgCfg.WorkingDir).Should(Equal(""))
 
@@ -129,25 +129,14 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 				}
 			}
 		},
-		// Docker Vanilla
-		Entry("with repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
-			ContainerBackendMode:        "vanilla-docker",
+		// Docker
+		Entry("with repo using Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
 		}}),
-		Entry("without repo using Vanilla Docker", simpleTestOptions{setupEnvOptions{
-			ContainerBackendMode:        "vanilla-docker",
-			WithLocalRepo:               false,
-			WithStagedDockerfileBuilder: false,
-		}}),
-		// Docker BuildKit
-		Entry("with local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
-			ContainerBackendMode:        "buildkit-docker",
-			WithLocalRepo:               true,
-			WithStagedDockerfileBuilder: false,
-		}}),
-		Entry("without local repo using BuildKit Docker", simpleTestOptions{setupEnvOptions{
-			ContainerBackendMode:        "buildkit-docker",
+		Entry("without repo using Docker", simpleTestOptions{setupEnvOptions{
+			ContainerBackendMode:        "docker",
 			WithLocalRepo:               false,
 			WithStagedDockerfileBuilder: false,
 		}}),

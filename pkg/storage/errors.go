@@ -2,7 +2,6 @@ package storage
 
 import (
 	"errors"
-	"strings"
 )
 
 var (
@@ -14,7 +13,7 @@ var (
 )
 
 func IsErrBrokenImage(err error) bool {
-	return err != nil && strings.HasSuffix(err.Error(), ErrBrokenImage.Error())
+	return errors.Is(err, ErrBrokenImage)
 }
 
 func IsErrStageNotFound(err error) bool {

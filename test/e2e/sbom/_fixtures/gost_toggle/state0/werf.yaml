@@ -1,0 +1,12 @@
+project: gost-toggle
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: "cyclonedx@1.6"
+    gost:
+      attackSurface: yes
+      securityFunction: yes
+---
+image: app
+from: registry.werf.io/werf/scratch

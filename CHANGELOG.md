@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.2.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.2.0-dk.2...v3.2.0-dk.3) (2026-08-31)
+
+
+### Bug Fixes
+
+* **build:** handle cached image descriptors safely ([a891ed4](https://github.com/deckhouse/delivery-kit/commit/a891ed411064223ece5fdf85edce02a85fe73c51))
+* **sbom, externalref:** show package purl in SBOM enrichment errors ([080c23d](https://github.com/deckhouse/delivery-kit/commit/080c23d26bf0bd477d9a7acb894b33b92e56666c))
+* **sbom, vex:** guard VEX descriptors and remove kube flags from sbom ([efbc794](https://github.com/deckhouse/delivery-kit/commit/efbc794ee915fcbf9814b437d033b94cc1d4fda2))
+* **sbom:** regenerate the SBOM when the GOST configuration changes ([#271](https://github.com/deckhouse/delivery-kit/issues/271)) ([5d74fbe](https://github.com/deckhouse/delivery-kit/commit/5d74fbed7ba0c874bfde3a538c89dc143394ab9b))
+* **vex:** qualify multiplatform fixture image ([01dc9b0](https://github.com/deckhouse/delivery-kit/commit/01dc9b0dff779ef24637dffea85994fa19fffffe))
+
 ## [3.2.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.2.0-dk.1...v3.2.0-dk.2) (2026-08-31)
 
 

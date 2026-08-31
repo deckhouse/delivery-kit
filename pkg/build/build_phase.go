@@ -1163,6 +1163,7 @@ func (phase *BuildPhase) fetchBaseImageForStage(ctx context.Context, img *image.
 func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, stg stage.Interface) (bool, cleanup.Func, error) {
 	var opts calculateDigestOptions
 	opts.TargetPlatform = img.TargetPlatform
+	opts.BuildCacheVersion = imagePkg.BuildCacheVersion
 	opts.ManifestSigningOptions = phase.ManifestSigningOptions
 	opts.ELFSigningOptions = phase.ELFSigningOptions
 
@@ -1235,7 +1236,10 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 			panic(fmt.Sprintf("expected stage %q content digest label to be set!", stg.Name()))
 		}
 	} else {
-		stageContentSig, err = calculateDigest(ctx, fmt.Sprintf("%s-content", stg.Name()), "", stg, phase.Conveyor, calculateDigestOptions{TargetPlatform: img.TargetPlatform})
+		stageContentSig, err = calculateDigest(ctx, fmt.Sprintf("%s-content", stg.Name()), "", stg, phase.Conveyor, calculateDigestOptions{
+			TargetPlatform:    img.TargetPlatform,
+			BuildCacheVersion: imagePkg.BuildCacheVersion,
+		})
 		if err != nil {
 			return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, fmt.Errorf("unable to calculate stage %s content digest: %w", stg.Name(), err)
 		}
@@ -1536,6 +1540,7 @@ func introspectStage(ctx context.Context, s stage.Interface) error {
 
 type calculateDigestOptions struct {
 	TargetPlatform         string
+	BuildCacheVersion      string
 	ManifestSigningOptions signing.ManifestSigningOptions
 	ELFSigningOptions      signing.ELFSigningOptions
 	BaseImage              string
@@ -1553,6 +1558,17 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 				continue
 			}
 			args = append(args, s)
+		}
+		args = append(args, "BuildCacheVersion", opts.BuildCacheVersion)
+		// The sign stage already accounts for these checksum components; keep the anchor inputs aligned with its contract.
+		if opts.ELFSigningOptions.Enabled() {
+			if opts.ELFSigningOptions.BsignEnabled {
+				args = append(args, "ELF_SIGNING_PGP_KEY_FINGERPRINT", opts.ELFSigningOptions.PGPPrivateKeyFingerprint)
+			}
+			if opts.ELFSigningOptions.InHouseEnabled {
+				signer := opts.ManifestSigningOptions.Signer()
+				args = append(args, "MANIFEST_SIGNING_CERTIFICATE", signer.Cert(), "SIGNING_CERTIFICATE_CHAIN", signer.Chain())
+			}
 		}
 		if conveyor != nil && conveyor.EnableSbom() {
 			args = append(args, "sbom_enabled")
@@ -1574,13 +1590,14 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 		checksumArgsNames = append(checksumArgsNames, "TargetPlatform")
 	}
 
-	checksumArgs = append(checksumArgs, imagePkg.BuildCacheVersion, stageName, stageDependencies)
+	checksumArgs = append(checksumArgs, opts.BuildCacheVersion, stageName, stageDependencies)
 	checksumArgsNames = append(checksumArgsNames,
 		"BuildCacheVersion",
 		"StageName",
 		"StageDependencies",
 	)
 
+	// Keep these inputs aligned with the checksum components accounted for by the sign stage.
 	if opts.ELFSigningOptions.Enabled() {
 		if opts.ELFSigningOptions.BsignEnabled {
 			checksumArgs = append(checksumArgs, opts.ELFSigningOptions.PGPPrivateKeyFingerprint)

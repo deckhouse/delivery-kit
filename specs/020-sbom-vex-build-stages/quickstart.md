@@ -18,7 +18,7 @@ task test:unit paths="./pkg/vex/..."
 
 Expected results:
 
-- Artifact stages calculate stable dependencies and remain non-buildable/mutable.
+- `SbomStage` and `VexStage` calculate stable dependencies and remain non-buildable/mutable; the old `sbomStep` and `vexStep` implementations no longer exist.
 - Single-platform SBOM/VEX subjects resolve to the manifest digest.
 - Multi-platform SBOM subjects resolve per platform and VEX resolves to the index digest.
 - Propagation skips identical repositories, deduplicates existing identities, and distinguishes final errors from cache warnings.

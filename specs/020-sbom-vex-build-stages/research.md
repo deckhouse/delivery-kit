@@ -4,13 +4,13 @@
 
 SBOM and VEX will be represented by non-buildable, mutable build stages that run after the image content stage has produced a registry-backed descriptor. The existing `Stage` lifecycle remains the integration point: stage dependencies determine cache identity, `MutateImage` performs OCI-side publication, and the build phase invokes the stage for each applicable image/platform.
 
-The stages will reuse the existing `sbomStep`, `vexStep`, `pkg/oci/artifact`, signer implementations, and fallback-tag storage. They will not add layers or filesystem content. `BuildPhase.AfterImages` will retain image publication/report work but will no longer be the primary SBOM/VEX generation pass.
+The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...`, `pkg/oci/artifact`, the signer implementations, and fallback-tag storage. The existing `sbomStep` and `vexStep` types are transitional implementations: their behavior will be moved into `SbomStage` and `VexStage`, and the step types/files will be deleted. The stages will not add layers or filesystem content. `BuildPhase.AfterImages` will retain image publication/report work but will no longer perform SBOM/VEX generation.
 
 ### Rationale
 
 - It removes the current repository-dependent post-build pass from `AfterImages`.
 - It makes artifact generation part of the same cacheable lifecycle as the descriptor it describes.
-- It preserves existing stage cache and secondary-repository restoration behavior.
+- It preserves existing stage cache and secondary-repository restoration behavior without maintaining duplicate step abstractions.
 - It avoids introducing a second artifact storage model or an OCI Referrers migration.
 
 ### Alternatives considered
@@ -51,7 +51,7 @@ SBOM keeps its current stable checksum inputs: artifact format, scanner/merge/GO
 
 ### Rationale
 
-Existing checksum logic and tests already encode the required cache behavior. Reusing it minimizes behavioral risk while making stage selection aware of artifact configuration.
+Existing checksum logic and tests already encode the required cache behavior. Moving that logic directly into the corresponding stages minimizes behavioral risk while making stage selection aware of artifact configuration and avoids a permanent compatibility wrapper.
 
 ### Alternatives considered
 

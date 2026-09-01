@@ -2,7 +2,7 @@
 
 ## Artifact stage
 
-An internal build-stage operation associated with an image (and, for SBOM, a target platform).
+An internal build-stage operation associated with an image (and, for SBOM, a target platform). `SbomStage` and `VexStage` are the sole owners of their respective generation, cache, signing, and publication behavior; no `sbomStep` or `vexStep` compatibility layer remains.
 
 | Field | Description |
 |---|---|
@@ -22,7 +22,7 @@ Validation rules:
 
 ## Artifact identity
 
-The cache identity stored with the existing fallback artifact index.
+The cache identity stored with the existing fallback artifact index and calculated directly by the owning artifact stage.
 
 | Field | Description |
 |---|---|

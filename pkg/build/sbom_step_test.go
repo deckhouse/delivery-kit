@@ -4,24 +4,88 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/docker_registry"
 	werfImage "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/test/mock"
 )
 
 var _ = Describe("SbomStep", func() {
+	It("publishes platform metadata against the matching parent digest", func(ctx SpecContext) {
+		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
+		server := httptest.NewServer(registry.New())
+		DeferCleanup(server.Close)
+		repo := strings.TrimPrefix(server.URL, "http://") + "/test/images"
+		remoteOpts := []remote.Option{remote.WithAuth(authn.Anonymous)}
+		backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+		step := newSbomStep(backend, nil)
+		bomJSON := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1}`)
+		platforms := []struct {
+			name, platform string
+		}{
+			{name: "amd64", platform: "linux/amd64"},
+			{name: "arm64", platform: "linux/arm64"},
+		}
+		parentDigests := make(map[string]string, len(platforms))
+		artifactDigests := make(map[string]string, len(platforms))
+
+		for _, item := range platforms {
+			parent, err := random.Image(256, 1)
+			Expect(err).To(Succeed())
+			parentRef, err := name.NewTag(repo + ":" + item.name)
+			Expect(err).To(Succeed())
+			Expect(remote.Write(parentRef, parent, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+			parentDigest, err := parent.Digest()
+			Expect(err).To(Succeed())
+			parentDigests[item.platform] = parentDigest.String()
+			stageName := repo + ":stage-" + item.name
+			backend.EXPECT().Pull(gomock.Any(), stageName, gomock.Any()).Return(nil)
+			backend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(bomJSON, nil)
+			stageDesc := &werfImage.StageDesc{Info: &werfImage.Info{
+				Name: stageName, Repository: repo, RepoDigest: repo + "@" + parentDigest.String(), Tag: "stage-" + item.name,
+			}}
+			Expect(step.ConvergeWithMerge(ctx, "app", stageDesc, scanner.ScanOptions{Commands: []scanner.ScanCommand{{}}}, cyclonedxutil.MergeOpts{}, nil, false, false, item.platform, nil, "")).To(Succeed())
+			index, err := artifact.PullFallbackIndex(ctx, repo, parentDigest.String(), remoteOpts...)
+			Expect(err).To(Succeed())
+			manifest, err := index.IndexManifest()
+			Expect(err).To(Succeed())
+			Expect(manifest.Manifests).To(HaveLen(1))
+			artifactDescriptor := manifest.Manifests[0]
+			artifactDigests[item.platform] = artifactDescriptor.Digest.String()
+			artifactRef, err := name.NewDigest(repo + "@" + artifactDescriptor.Digest.String())
+			Expect(err).To(Succeed())
+			artifactImage, err := remote.Image(artifactRef, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+			Expect(err).To(Succeed())
+			artifactManifest, err := artifactImage.Manifest()
+			Expect(err).To(Succeed())
+			Expect(artifactManifest.Annotations).To(HaveKeyWithValue(werfImage.WerfPlatformAnnotation, item.platform))
+			Expect(artifactManifest.Subject).NotTo(BeNil())
+			Expect(artifactManifest.Subject.Digest.String()).To(Equal(parentDigest.String()))
+		}
+		Expect(parentDigests[platforms[0].platform]).NotTo(Equal(parentDigests[platforms[1].platform]))
+		Expect(artifactDigests[platforms[0].platform]).NotTo(Equal(artifactDigests[platforms[1].platform]))
+	})
+
 	Describe("prepareGostComponents", func() {
 		It("prints the GOST experimental warning at most once per step instance", func() {
 			var output bytes.Buffer

@@ -1052,6 +1052,15 @@ func (m *cleanupManager) cleanupOrphanedArtifacts(ctx context.Context) error {
 		}
 	}
 
+	for _, cacheStagesStorage := range m.StorageManager.GetCacheStagesStorageList() {
+		if cacheStagesStorage == nil || cacheStagesStorage.Address() == storage.LocalStorageAddress {
+			continue
+		}
+		if err := deleteOrphanedArtifacts(ctx, cacheStagesStorage, m.DryRun); err != nil {
+			return fmt.Errorf("delete orphaned artifacts from cache repo %s: %w", cacheStagesStorage.String(), err)
+		}
+	}
+
 	return nil
 }
 

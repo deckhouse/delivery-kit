@@ -13,6 +13,8 @@ import (
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/storage"
+	"github.com/werf/werf/v2/pkg/storage/manager"
 )
 
 var _ = Describe("BuildPhase", func() {
@@ -94,6 +96,37 @@ var _ = Describe("BuildPhase", func() {
 				expectRelease: true,
 			}),
 		)
+	})
+
+	Describe("artifact storage validation", func() {
+		It("detects VEX configuration", func(ctx SpecContext) {
+			img, err := image.NewImage(ctx, "linux/amd64", "app", image.NoBaseImage, image.ImageOptions{
+				Vex: &config.Vex{Document: "vex.json"},
+			})
+			Expect(err).To(Succeed())
+			tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+			tree.AppendImageForTests(img)
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{
+				werfConfig: &config.WerfConfig{Meta: &config.Meta{}},
+				imagesTree: tree,
+			}}}
+
+			Expect(phase.artifactsEnabled()).To(BeTrue())
+		})
+
+		It("rejects enabled artifacts with local-only storage", func() {
+			storageManager := &artifactValidationStorageManager{stages: storage.NewLocalStagesStorage(nil)}
+
+			err := validateArtifactStorage(storageManager, true)
+
+			Expect(err).To(MatchError("SBOM or VEX generation requires a container registry (specify --repo), or disable artifact generation"))
+		})
+
+		It("allows disabled artifacts with local-only storage", func() {
+			storageManager := &artifactValidationStorageManager{stages: storage.NewLocalStagesStorage(nil)}
+
+			Expect(validateArtifactStorage(storageManager, false)).To(Succeed())
+		})
 	})
 
 	It("skips SBOM convergence when no images were selected", func(ctx SpecContext) {
@@ -361,7 +394,16 @@ var _ = Describe("BuildPhase", func() {
 		It("returns nil for a single-platform image resolved from the cache, without a built stage image", func() {
 			phase := &BuildPhase{}
 
-			Expect(phase.finalStageDescForImage("app", []*image.Image{{}})).To(BeNil())
+			Expect(finalStageDescForImage(phase, "app", []*image.Image{{}})).To(BeNil())
 		})
 	})
 })
+
+type artifactValidationStorageManager struct {
+	manager.StorageManagerInterface
+	stages storage.PrimaryStagesStorage
+}
+
+func (m *artifactValidationStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
+	return m.stages
+}

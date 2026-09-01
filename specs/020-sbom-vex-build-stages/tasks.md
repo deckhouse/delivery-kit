@@ -10,9 +10,9 @@
 
 **Purpose**: Establish the implementation baseline without changing user-facing CLI semantics.
 
-- [ ] T001 Inventory existing stage, SBOM, VEX, artifact, storage-copy, and cleanup call paths in `pkg/build/`, `pkg/build/stage/`, `pkg/oci/artifact/`, `pkg/storage/manager/`, and `pkg/cleaning/`, recording the concrete integration points in the feature working notes at `specs/020-sbom-vex-build-stages/`
-- [ ] T002 [P] Inspect existing SBOM and VEX unit/e2e fixture conventions in `pkg/build/`, `test/e2e/sbom/`, and `test/e2e/vex/` and identify reusable helpers without adding a second test harness
-- [ ] T003 [P] Confirm the existing fallback-tag artifact index and cleanup compatibility expectations in `pkg/oci/artifact/` and `pkg/cleaning/` before modifying propagation code
+- [X] T001 Inventory existing stage, SBOM, VEX, artifact, storage-copy, and cleanup call paths in `pkg/build/`, `pkg/build/stage/`, `pkg/oci/artifact/`, `pkg/storage/manager/`, and `pkg/cleaning/`, recording the concrete integration points in the feature working notes at `specs/020-sbom-vex-build-stages/`
+- [X] T002 [P] Inspect existing SBOM and VEX unit/e2e fixture conventions in `pkg/build/`, `test/e2e/sbom/`, and `test/e2e/vex/` and identify reusable helpers without adding a second test harness
+- [X] T003 [P] Confirm the existing fallback-tag artifact index and cleanup compatibility expectations in `pkg/oci/artifact/` and `pkg/cleaning/` before modifying propagation code
 
 ---
 
@@ -22,10 +22,10 @@
 
 **Checkpoint**: The shared stage metadata, descriptor propagation shape, and early registry validation are understood and available before story implementation begins.
 
-- [ ] T004 Define internal artifact-stage metadata and stage-name constants in `pkg/build/stage/base.go`, including artifact kind, parent descriptor, target platform, mutable flag, and non-buildable flag
-- [ ] T005 Define the kind-neutral artifact propagation operation and source/destination descriptor data flow in `pkg/build/` using existing `pkg/oci/artifact/` and `pkg/storage/manager/` primitives, without introducing a public API or new dependency
-- [ ] T006 Locate the earliest common build initialization path and specify the registry-backed-storage validation seam in `pkg/build/build_phase.go` for both SBOM-enabled and VEX-enabled builds
-- [ ] T007 [P] Add shared test fixtures or helper functions needed to construct manifest/index descriptors and fallback artifact indexes in co-located files under `pkg/build/` and `pkg/oci/artifact/`
+- [X] T004 Define internal artifact-stage metadata and stage-name constants in `pkg/build/stage/base.go`, including artifact kind, parent descriptor, target platform, mutable flag, and non-buildable flag
+- [X] T005 Define the kind-neutral artifact propagation operation and source/destination descriptor data flow in `pkg/build/` using existing `pkg/oci/artifact/` and `pkg/storage/manager/` primitives, without introducing a public API or new dependency
+- [X] T006 Locate the earliest common build initialization path and specify the registry-backed-storage validation seam in `pkg/build/build_phase.go` for both SBOM-enabled and VEX-enabled builds
+- [X] T007 [P] Add shared test fixtures or helper functions needed to construct manifest/index descriptors and fallback artifact indexes in co-located files under `pkg/build/` and `pkg/oci/artifact/`
 
 ---
 
@@ -37,20 +37,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T008 [US1] Add Ginkgo/Gomega unit coverage for artifact-stage mutability, non-buildability, parent descriptor requirements, and stage lifecycle behavior in `pkg/build/stage/artifact_test.go`
+- [X] T008 [US1] Add Ginkgo/Gomega unit coverage for artifact-stage mutability, non-buildability, parent descriptor requirements, and stage lifecycle behavior in `pkg/build/stage/artifact_test.go
 - [ ] T009 [US1] Add Ginkgo/Gomega unit coverage for shared propagation, destination digest resolution, identical-repository skipping, and artifact identity deduplication in `pkg/build/artifact_propagation_test.go`
 - [ ] T010 [US1] Add Ginkgo/Gomega unit coverage for secondary-to-primary restoration and missing-source-artifact handling in `pkg/build/artifact_propagation_test.go`
 - [ ] T011 [US1] Extend the SBOM e2e suite in `test/e2e/sbom/` for primary-only, final, cache, combined final/cache, identical-address, and secondary-repository artifact availability scenarios
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Implement the registry-only mutable, non-buildable SBOM artifact stage in `pkg/build/stage/sbom.go` using the existing SBOM generation, signing, checksum, and fallback-index components
-- [ ] T013 [P] [US1] Implement the registry-only mutable, non-buildable VEX artifact stage in `pkg/build/stage/vex.go` using the existing VEX generation, signing, checksum, and fallback-index components
+- [X] T012 [P] [US1] Implement the registry-only mutable, non-buildable SBOM artifact stage in `pkg/build/stage/sbom.go` using the existing SBOM generation, signing, checksum, and fallback-index components
+- [X] T013 [P] [US1] Implement the registry-only mutable, non-buildable VEX artifact stage in `pkg/build/stage/vex.go` using the existing VEX generation, signing, checksum, and fallback-index components
 - [ ] T014 [US1] Register SBOM and VEX stages after the content-producing stage for Stapel, Dockerfile, and restored-stage image paths in `pkg/build/build_phase.go`
 - [ ] T015 [US1] Execute SBOM and VEX stage publication without changing image filesystem or layer content, and remove their duplicate generation pass while retaining unrelated image publication/report work in `pkg/build/build_phase.go`
-- [ ] T016 [US1] Implement shared idempotent artifact propagation with destination descriptor resolution, identical-address skipping, fallback-index deduplication, and all-artifact copying in `pkg/build/artifact_propagation.go`
-- [ ] T017 [US1] Connect primary-to-final and primary-to-cache image-copy paths to the shared propagation operation while preserving fatal final errors and best-effort cache warnings in `pkg/build/` and `pkg/storage/manager/`
-- [ ] T018 [US1] Connect secondary-stage restoration into primary storage to the same propagation operation, including explicit handling when a source artifact is absent, in `pkg/storage/manager/` and `pkg/build/`
+- [X] T016 [US1] Implement shared idempotent artifact propagation with destination descriptor resolution, identical-address skipping, fallback-index deduplication, and all-artifact copying in `pkg/build/artifact_propagation.go`
+- [X] T017 [US1] Connect primary-to-final and primary-to-cache image-copy paths to the shared propagation operation while preserving fatal final errors and best-effort cache warnings in `pkg/build/` and `pkg/storage/manager/`
+- [X] T018 [US1] Connect secondary-stage restoration into primary storage to the same propagation operation, including explicit handling when a source artifact is absent, in `pkg/storage/manager/` and `pkg/build/`
 
 **Checkpoint**: User Story 1 is independently functional; artifacts are generated in the lifecycle and follow every applicable published image.
 
@@ -64,17 +64,17 @@
 
 ### Tests for User Story 2
 
-- [ ] T019 [P] [US2] Add Ginkgo/Gomega unit tests for single-platform and multi-platform subject selection in `pkg/build/artifact_subject_test.go`
-- [ ] T020 [P] [US2] Add Ginkgo/Gomega unit tests proving platform SBOM metadata and parent digest are distinct per platform in `pkg/build/sbom_step_test.go`
+- [X] T019 [P] [US2] Add Ginkgo/Gomega unit tests for single-platform and multi-platform subject selection in `pkg/build/artifact_subject_test.go`
+- [X] T020 [P] [US2] Add Ginkgo/Gomega unit tests proving platform SBOM metadata and parent digest are distinct per platform in `pkg/build/sbom_step_test.go`
 - [ ] T021 [US2] Extend `test/e2e/sbom/` with two-platform subject and metadata assertions for each platform manifest
-- [ ] T022 [US2] Extend `test/e2e/vex/` with single-platform manifest placement and multi-platform index-only placement assertions
+- [X] T022 [US2] Extend `test/e2e/vex/` with single-platform manifest placement and multi-platform index-only placement assertions
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Implement explicit artifact subject resolution for published manifest and index descriptors in `pkg/build/artifact_subject.go`
+- [X] T023 [US2] Implement explicit artifact subject resolution for published manifest and index descriptors in `pkg/build/artifact_subject.go`
 - [ ] T024 [US2] Pass the target platform and resolved platform manifest descriptor through SBOM stage creation and publication in `pkg/build/sbom_step.go` and `pkg/build/build_phase.go`
 - [ ] T025 [US2] Make VEX stage registration run once per multi-platform image set with the top-level index subject, and use the image manifest subject for single-platform builds in `pkg/build/vex_step.go` and `pkg/build/build_phase.go`
-- [ ] T026 [US2] Ensure propagation resolves the corresponding destination platform manifest or image index before attaching artifacts, including destinations with differing source digests, in `pkg/build/artifact_propagation.go`
+- [X] T026 [US2] Ensure propagation resolves the corresponding destination platform manifest or image index before attaching artifacts, including destinations with differing source digests, in `pkg/build/artifact_propagation.go`
 
 **Checkpoint**: User Story 2 is independently testable and no artifact can silently use an index subject for a platform SBOM or duplicate multi-platform VEX onto platform manifests.
 
@@ -88,17 +88,17 @@
 
 ### Tests for User Story 3
 
-- [ ] T027 [P] [US3] Add Ginkgo/Gomega tests for SBOM stage dependency identity across image digest, scanner, merge/GOST, format, signer, and target-platform inputs in `pkg/build/sbom_step_test.go`
-- [ ] T028 [P] [US3] Add Ginkgo/Gomega tests for VEX stage dependency identity across parent digest, document content, format, and signer inputs in `pkg/build/vex_step_test.go`
-- [ ] T029 [US3] Add Ginkgo/Gomega tests for repeated idempotent publication and cache-restored artifact processing in `pkg/build/artifact_propagation_test.go`
-- [ ] T030 [US3] Extend `test/e2e/sbom/` and `test/e2e/vex/` with unchanged rebuild, changed-input, signing-identity, and restored-cache scenarios
+- [X] T027 [P] [US3] Add Ginkgo/Gomega tests for SBOM stage dependency identity across image digest, scanner, merge/GOST, format, signer, and target-platform inputs in `pkg/build/sbom_step_test.go`
+- [X] T028 [P] [US3] Add Ginkgo/Gomega tests for VEX stage dependency identity across parent digest, document content, format, and signer inputs in `pkg/build/vex_step_test.go`
+- [X] T029 [US3] Add Ginkgo/Gomega tests for repeated idempotent publication and cache-restored artifact processing in `pkg/build/artifact_propagation_test.go`
+- [X] T030 [US3] Extend `test/e2e/sbom/` and `test/e2e/vex/` with unchanged rebuild, changed-input, signing-identity, and restored-cache scenarios
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Include all effective SBOM inputs and the parent image identity in artifact-stage dependency calculation while preserving existing checksum semantics in `pkg/build/sbom_step.go` and `pkg/build/stage/sbom.go`
-- [ ] T032 [US3] Include VEX document content, parent descriptor identity, format version, and signer identity in artifact-stage dependency calculation in `pkg/build/vex_step.go` and `pkg/build/stage/vex.go`
+- [X] T031 [US3] Include all effective SBOM inputs and the parent image identity in artifact-stage dependency calculation while preserving existing checksum semantics in `pkg/build/sbom_step.go` and `pkg/build/stage/sbom.go`
+- [X] T032 [US3] Include VEX document content, parent descriptor identity, format version, and signer identity in artifact-stage dependency calculation in `pkg/build/vex_step.go` and `pkg/build/stage/vex.go`
 - [ ] T033 [US3] Select reusable artifact-bearing stages from primary and secondary storage using the complete dependency identity, and apply identical processing to locally built and cache-restored images in `pkg/build/` and `pkg/storage/manager/`
-- [ ] T034 [US3] Preserve fallback-index convergence and prevent duplicate entries during repeated or concurrent artifact publication in `pkg/oci/artifact/` and `pkg/build/artifact_propagation.go`
+- [X] T034 [US3] Preserve fallback-index convergence and prevent duplicate entries during repeated or concurrent artifact publication in `pkg/oci/artifact/` and `pkg/build/artifact_propagation.go`
 
 **Checkpoint**: User Story 3 is independently testable; unchanged inputs reuse artifacts and every effective changed input invalidates only the affected artifact identity.
 
@@ -112,18 +112,18 @@
 
 ### Tests for User Story 4
 
-- [ ] T035 [P] [US4] Add Ginkgo/Gomega unit tests proving artifact-enabled local-only builds fail before any image stage executes in `pkg/build/build_phase_test.go`
-- [ ] T036 [P] [US4] Add Ginkgo/Gomega unit tests for fatal final propagation errors and non-fatal, clearly logged cache propagation errors in `pkg/build/artifact_propagation_test.go`
-- [ ] T037 [P] [US4] Add Ginkgo/Gomega concurrency tests that retain every fallback-index artifact entry during concurrent attachment in `pkg/oci/artifact/`
+- [X] T035 [P] [US4] Add Ginkgo/Gomega unit tests proving artifact-enabled local-only builds fail before any image stage executes in `pkg/build/build_phase_test.go`
+- [X] T036 [P] [US4] Add Ginkgo/Gomega unit tests for fatal final propagation errors and non-fatal, clearly logged cache propagation errors in `pkg/build/artifact_propagation_test.go
+- [X] T037 [P] [US4] Add Ginkgo/Gomega concurrency tests that retain every fallback-index artifact entry during concurrent attachment in `pkg/oci/artifact/`
 - [ ] T038 [US4] Extend `test/e2e/sbom/` and `test/e2e/vex/` for unavailable final/cache repositories, local-only rejection, and missing secondary source artifact behavior
-- [ ] T039 [US4] Extend cleanup coverage in `pkg/cleaning/` and relevant e2e fixtures to verify orphan fallback artifact indexes are removed from primary and propagated repositories
+- [X] T039 [US4] Extend cleanup coverage in `pkg/cleaning/` and relevant e2e fixtures to verify orphan fallback artifact indexes are removed from primary and propagated repositories
 
 ### Implementation for User Story 4
 
-- [ ] T040 [US4] Add earliest-phase registry-backed-storage validation for enabled SBOM/VEX with an actionable `--repo` or disable-artifacts message in `pkg/build/build_phase.go`
-- [ ] T041 [US4] Enforce fatal final-repository publication/propagation errors and best-effort cache-repository warnings through one shared error-policy path in `pkg/build/artifact_propagation.go` and `pkg/storage/manager/`
-- [ ] T042 [US4] Ensure missing secondary source artifacts return an incomplete/error result rather than claiming artifact-complete restoration in `pkg/build/` and `pkg/storage/manager/`
-- [ ] T043 [US4] Verify artifact propagation does not bypass existing cleanup and purge behavior, updating only the necessary repository traversal in `pkg/cleaning/`
+- [X] T040 [US4] Add earliest-phase registry-backed-storage validation for enabled SBOM/VEX with an actionable `--repo` or disable-artifacts message in `pkg/build/build_phase.go`
+- [X] T041 [US4] Enforce fatal final-repository publication/propagation errors and best-effort cache-repository warnings through one shared error-policy path in `pkg/build/artifact_propagation.go` and `pkg/storage/manager/`
+- [X] T042 [US4] Ensure missing secondary source artifacts return an incomplete/error result rather than claiming artifact-complete restoration in `pkg/build/` and `pkg/storage/manager/`
+- [X] T043 [US4] Verify artifact propagation does not bypass existing cleanup and purge behavior, updating only the necessary repository traversal in `pkg/cleaning/`
 
 **Checkpoint**: User Story 4 is independently testable; registry failures and local-only configuration produce predictable results without changing repository flag semantics.
 
@@ -133,16 +133,16 @@
 
 **Purpose**: Validate the complete implementation against all feature constraints and repository quality gates.
 
-- [ ] T044 [P] Review `pkg/build/`, `pkg/build/stage/`, `pkg/storage/manager/`, `pkg/oci/artifact/`, and `pkg/cleaning/` for unnecessary public surface, duplicate convergence paths, unwrapped errors, and comments that do not explain non-obvious logic
+- [X] T044 [P] Review `pkg/build/`, `pkg/build/stage/`, `pkg/storage/manager/`, `pkg/oci/artifact/`, and `pkg/cleaning/` for unnecessary public surface, duplicate convergence paths, unwrapped errors, and comments that do not explain non-obvious logic
 - [ ] T045 [P] Verify existing builds with SBOM/VEX disabled and existing `--repo`, `--final-repo`, `--cache-repo`, and `--secondary-repo` semantics in `test/legacy_e2e/` and relevant unit fixtures
-- [ ] T046 Run formatting with `task format` for authored Go directories
-- [ ] T047 Run compilation with `task build`
-- [ ] T048 Install the lint prerequisite with `task deps:install:golangci-lint` and run repository lint with `task lint`
+- [X] T046 Run formatting with `task format` for authored Go directories
+- [X] T047 Run compilation with `task build`
+- [X] T048 Install the lint prerequisite with `task deps:install:golangci-lint` and run repository lint with `task lint`
 - [ ] T049 Run the complete unit suite with `task test:unit`
-- [ ] T050 Run scoped SBOM e2e coverage with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
-- [ ] T051 Run scoped VEX e2e coverage with `task test:e2e paths="./test/e2e/vex/..." labelFilter="vex"`
+- [X] T050 Run scoped SBOM e2e coverage with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
+- [X] T051 Run scoped VEX e2e coverage with `task test:e2e paths="./test/e2e/vex/..." labelFilter="vex"`
 - [ ] T052 Run legacy integration coverage with `task test:integration`
-- [ ] T053 Confirm authored-file whitespace and generated-file scope with `git diff --check` limited to changed authored files, without modifying `CHANGELOG.md` or generated CLI reference files
+- [X] T053 Confirm authored-file whitespace and generated-file scope with `git diff --check` limited to changed authored files, without modifying `CHANGELOG.md` or generated CLI reference files
 
 ---
 

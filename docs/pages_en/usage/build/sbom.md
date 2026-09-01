@@ -7,6 +7,8 @@ permalink: usage/build/sbom.html
 
 To enable scanning and generation of SBOM artifacts during the build process, you need to configure the global `build.sbom` section and, optionally, per-image components.
 
+The split of SBOM work between roles (module developer and product SBOM owner) and the step-by-step workflows are described on the [SBOM roles and workflow]({{ "/usage/build/sbom_workflow.html" | true_relative_url }}) page.
+
 The scanning result is saved as an OCI artifact in the container registry, attached to the corresponding image. **The `--repo` flag is required** when SBOM generation is enabled. If `--repo` is not specified, the build fails with:
 
 ```
@@ -14,6 +16,15 @@ SBOM generation requires a container registry (specify --repo)
 ```
 
 No local image with a `-sbom` suffix is created.
+
+## Restrictions
+
+- Only the **Docker backend** is supported.
+- Only the **Stapel syntax** for describing images (`werf.yaml`) is supported.
+- **Network is disabled in shell stages**: downloading dependencies with a command in `shell.install` (`apt-get install`, `pip install`, `go mod download`, and so on) will not work — dependencies are installed declaratively via the [`packages` directive]({{ "/usage/build/stapel/instructions.html#installing-binary-packages" | true_relative_url }}) only. This is what guarantees that all dependencies are recorded in the SBOM.
+- The SBOM is built from **controlled inputs**: every `packages` entry is handled by its own cataloger (for file-based types syft reads the manifest/lock file — `go.sum`, `package-lock.json`, and so on; for `os-pm` — a dedicated collector). The list of supported ecosystems is fixed.
+- **Vendored dependencies are not recorded**: dependencies committed to the repository directly (`vendor/`, `third_party/`, and so on) bypass `packages` and do not end up in the SBOM. Do not use vendoring — all dependencies must come in via `packages`.
+- An SBOM exists only for images built with `build.sbom.enable: true` — previously built images have no SBOM and must be rebuilt.
 
 ## Global project configuration (`build.sbom`)
 
@@ -124,6 +135,36 @@ build:
       securityFunction: no
 ```
 
+## VCS external references enrichment
+
+When SBOM is enabled, werf enriches components with VCS external references at build time via an external purl resolution service. The service URL is set with the `WERF_EXTERNAL_REFS_SERVER_URL` environment variable (there is no CLI flag):
+
+```bash
+export WERF_EXTERNAL_REFS_SERVER_URL="https://purl-resolver.example.com/"
+```
+
+With `build.sbom.enable: true`, the variable is **required** — without it the build fails with:
+
+```
+WERF_EXTERNAL_REFS_SERVER_URL env var is required
+```
+
+When SBOM is disabled, the variable is not used.
+
+## SBOM signing
+
+SBOM signing is an optional build step. It is enabled by passing a signing key to `werf build`:
+
+| Flag | Environment variable | Purpose |
+|---|---|---|
+| `--sign-key` | `WERF_SIGN_KEY` | the private key: a path to a PEM file, a base64-encoded PEM, or `hashivault://[KEY]` |
+| `--sign-cert` | `WERF_SIGN_CERT` | the leaf certificate: a path to a PEM file or a base64-encoded PEM |
+| `--sign-intermediates` | `WERF_SIGN_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
+
+If `--sign-key` is not provided, the SBOM is generated and published unsigned — this is not an error.
+
+The `werf sbom get`, `werf sbom merge`, and `werf sbom validate` commands accept no signing flags: `get` downloads the artifact as is, while `merge` and `validate` operate on already downloaded SBOMs. To verify the signature of an SBOM artifact, use `werf attest verify` with a public key (`--key`).
+
 ## Caching and rebuilds
 
 Toggling `build.sbom.enable` changes the stage digest, so enabling or disabling SBOM generation invalidates the cache and triggers a full rebuild.
@@ -134,7 +175,7 @@ Changing GOST properties (`sbom.gost`) does not affect stage digests. Cached sta
 
 ## Inspecting and merging SBOMs
 
-[`werf sbom get`]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) retrieves the SBOM for an image described in `werf.yaml` and prints it to stdout. The SBOM is read as an OCI artifact from the container registry, so `--repo` is required. If no SBOM is found for the requested image, the command automatically triggers a build to generate one. You can select a specific version with `--tag` or `--digest`; these flags are mutually exclusive.
+[`werf sbom get`]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) retrieves the SBOM for an image described in `werf.yaml` and prints it to stdout. The SBOM is read as an OCI artifact from the container registry, so `--repo` is required. When invoked with an image name, the command runs the standard werf build conveyor: missing stages and SBOM artifacts are created, just like with `werf build` (with the `--require-built-images` flag the command fails instead). You can select a specific version with `--tag` or `--digest` (mutually exclusive) — in this mode the command only downloads the ready-made SBOM and fails if it is not found.
 
 [`werf sbom merge`]({{ "/reference/cli/werf_sbom_merge.html" | true_relative_url }}) assembles a product-level SBOM from several per-image SBOMs. It takes a JSON file that maps image names to sha256 digests, pulls the individual SBOMs from the registry, and merges them into a single CycloneDX document with dependency graphs preserved. Two ISPRAS output formats are available: `container` (hierarchical, each image becomes a top-level component with nested packages) and `oss` (flat, all packages deduplicated into one list). GOST `attack_surface` and `security_function` properties are aggregated bottom-up with the precedence `yes > indirect > no`.
 

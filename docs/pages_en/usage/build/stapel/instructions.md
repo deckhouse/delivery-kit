@@ -144,7 +144,9 @@ No limitations are imposed on assembly instructions. The suggested use of _user 
 
 The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When [SBOM generation]({{ "/usage/build/sbom.html" | true_relative_url }}) is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
 
-Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`).
+When SBOM generation is enabled, network is disabled in shell stages, so installing dependencies with a command in `shell.install` is impossible — the `packages` directive becomes the only channel for installing dependencies (see [SBOM restrictions]({{ "/usage/build/sbom.html#restrictions" | true_relative_url }})).
+
+Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`, `javascript-npm`, `javascript-yarn`, `javascript-pnpm`).
 
 ### OS packages
 
@@ -156,14 +158,15 @@ from: registry.example.com/base/ubuntu:22.04
 packages:
   - type: os-pm
     spec:
-      - curl
+      - curl==8.12.1
       - jq
 ```
 
 - `type: os-pm` — selects the `pm` package manager.
-- `spec` — an inline list of package names to install.
+- `spec` — an inline list of packages to install; a version is pinned with `==` (`curl==8.12.1`), without a version the default one is installed. This is the only format: a file with a package list instead of the inline list is not supported.
+- `workdir` is not supported for `os-pm`.
 
-The base image must provide the `pm` binary in `$PATH` (for example, a Deckhouse builder base image labeled `io.deckhouse.internal.builder=true`). Otherwise the build fails because `pm` cannot be found.
+The base image must provide the `pm` binary in `$PATH` — otherwise the build fails because `pm` cannot be found. The `PACKAGES_VERSION` and `REGISTRY` environment variables are set in the builder base images themselves — there is no need to set them manually.
 
 Packages installed in a parent image are inherited by images based on it via `fromImage` and remain present in the child image SBOM.
 
@@ -209,7 +212,7 @@ packages:
     workdir: /app
 ```
 
-Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
+Runs `poetry sync --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
 
 **Rust — Cargo** (`rust-cargo`):
 
@@ -262,7 +265,7 @@ packages:
 
 Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:

@@ -61,6 +61,9 @@ entries:
               - title: SBOM
                 url: /usage/build/sbom.html
 
+              - title: SBOM roles and workflow
+                url: /usage/build/sbom_workflow.html
+
           - title: Deploy
             f:
               - title: Overview
@@ -227,6 +230,9 @@ entries:
 
               - title: SBOM
                 url: /usage/build/sbom.html
+
+              - title: Роли и процесс работы со SBOM
+                url: /usage/build/sbom_workflow.html
 
           - title: Развертывание
             f:

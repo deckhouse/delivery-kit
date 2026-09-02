@@ -46,7 +46,7 @@
 - [X] T014 [US1] Add Ginkgo/Gomega unit coverage for artifact-stage mutability, non-buildability, final-image descriptor association, no filesystem mutation, dedicated `MutateArtifact` dispatch, and stage lifecycle behavior in `pkg/build/stage/artifact_test.go`
 - [X] T015 [US1] Add Ginkgo/Gomega unit coverage for shared propagation, destination digest resolution, identical-repository skipping, and artifact identity deduplication in `pkg/build/artifact_propagation_test.go`
 - [X] T016 [US1] Add Ginkgo/Gomega unit coverage for secondary-to-primary restoration and missing-source-artifact handling in `pkg/build/artifact_propagation_test.go`
-- [ ] T017 [US1] Extend the SBOM e2e suite in `test/e2e/sbom/` for primary-only, final, cache, combined final/cache, identical-address, and secondary-repository artifact availability scenarios
+- [X] T017 [US1] Extend the SBOM e2e suite in `test/e2e/sbom/` for primary-only, final, cache, combined final/cache, identical-address, and secondary-repository artifact availability scenarios
 - [X] T018 [US1] Add Ginkgo/Gomega migration coverage proving all SBOM callers use `SbomStage` and all VEX callers use `VexStage`, with no `sbomStep` or `vexStep` references remaining in `pkg/build/`
 - [X] T019 [US1] Add Ginkgo/Gomega tests proving `SbomStage` and `VexStage` route registry reads, writes, copies, metadata, and artifact operations through `StorageManager`, with the manager selecting the appropriate `storage.StagesStorage`, in `pkg/build/stage/` and `pkg/storage/manager/`
 

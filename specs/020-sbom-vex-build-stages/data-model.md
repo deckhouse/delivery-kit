@@ -12,12 +12,12 @@ An internal build-stage operation associated with the final image digest (and, f
 | Artifact kind | CycloneDX SBOM or OpenVEX. |
 | Generation inputs | Scanner/merge inputs for SBOM, document content for VEX, format version, and signer identity. |
 | Mutable/buildable flags | Non-buildable and mutable, matching registry-only stages such as signing, but unlike signing the output is an associated OCI artifact rather than a manifest mutation. |
-| Storage abstraction | `storage.StagesStorage` used for all registry operations. |
+| Storage abstraction | `StorageManager` routes all registry operations to primary, secondary, cache, or final `storage.StagesStorage`. |
 
 Validation rules:
 
 - The final image descriptor/digest must be available before `MutateImage` runs.
-- The stage must use `storage.StagesStorage` for registry access.
+- The stage must use `StorageManager` for registry access; repository selection is performed by the manager.
 - SBOM for a multi-platform image must use the corresponding platform manifest.
 - VEX must use the platform manifest for single-platform images and the top-level index for multi-platform images.
 - An enabled artifact stage requires registry-backed storage.
@@ -58,4 +58,4 @@ primary image + artifacts -> final image + artifacts
 primary image + artifacts -> cache image + artifacts
 ```
 
-The artifact stage does not become an image layer and does not operate on an image filesystem. It publishes separate OCI artifacts whose subjects are the final image descriptors. All registry interaction is performed through `storage.StagesStorage`; existing fallback-tag indexes remain the source of truth and remain readable by current consumers.
+The artifact stage does not become an image layer and does not operate on an image filesystem. It publishes separate OCI artifacts whose subjects are the final image descriptors. All registry interaction is performed through `StorageManager` and its primary/secondary/cache/final `storage.StagesStorage` backends; existing fallback-tag indexes remain the source of truth and remain readable by current consumers.

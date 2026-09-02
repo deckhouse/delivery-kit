@@ -19,7 +19,7 @@ task test:unit paths="./pkg/vex/..."
 Expected results:
 
 - `SbomStage` and `VexStage` calculate stable dependencies and remain non-buildable/mutable; the old `sbomStep` and `vexStep` implementations no longer exist.
-- Both stages are associated with the final image digest, operate only on separate OCI artifacts, and use `storage.StagesStorage` for registry interaction.
+- Both stages are associated with the final image digest, operate only on separate OCI artifacts, and use `StorageManager` for registry interaction. The manager routes requests to primary, secondary, cache, or final `storage.StagesStorage` as appropriate.
 - Single-platform SBOM/VEX subjects resolve to the final image manifest digest.
 - Multi-platform SBOM subjects resolve to each final platform manifest digest and VEX resolves to the final top-level index digest.
 - Propagation skips identical repositories, deduplicates existing identities, and distinguishes final errors from cache warnings.
@@ -44,7 +44,7 @@ Cover these repository combinations:
 7. Two-platform image.
 8. Unavailable final repository, unavailable cache repository, and local-only artifact-enabled build.
 
-For each successful case, retrieve artifact descriptors by the actual final image digest from every repository containing the image. Verify that repeated builds do not add duplicate fallback-index entries and that stage code did not create or modify an image layer. Registry access used by the stages must be observable through the `StagesStorage` test double/backend rather than a direct registry client.
+For each successful case, retrieve artifact descriptors by the actual final image digest from every repository containing the image. Verify that repeated builds do not add duplicate fallback-index entries and that stage code did not create or modify an image layer. Registry access used by the stages must be observable through `StorageManager` routing and the selected `StagesStorage` test double/backend rather than a direct registry client.
 
 Then run the repository integration suite:
 

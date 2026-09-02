@@ -82,6 +82,10 @@ type StagesStorage interface {
 	GetOrphanedArtifactNames(ctx context.Context) ([]string, error)
 	DeleteArtifact(ctx context.Context, imageName string) error
 
+	ListAttachedArtifacts(ctx context.Context, parentDigest string) ([]v1.Descriptor, error)
+	PublishArtifact(ctx context.Context, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error
+	CopyAttachedArtifacts(ctx context.Context, sourceRepository, sourceDigest, destinationRepository, destinationDigest string) error
+
 	PutImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string) error
 	RmImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageNameOrImageMetadataID, commit, stageID string) error
 	IsImageMetadataExist(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string, opts ...Option) (bool, error)

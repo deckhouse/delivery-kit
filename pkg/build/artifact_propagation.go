@@ -31,7 +31,7 @@ func ensureAttachedArtifacts(ctx context.Context, repository, digest string) err
 	return nil
 }
 
-func propagateArtifacts(ctx context.Context, projectName, imageName string, source, destination *image.StageDesc, caches []storage.StagesStorage) error {
+func propagateArtifacts(ctx context.Context, projectName, imageName string, source, destination *image.StageDesc, caches []storage.StagesStorage, sourceStorages ...storage.StagesStorage) error {
 	if source == nil || source.Info == nil {
 		return fmt.Errorf("source image descriptor is unavailable")
 	}
@@ -39,12 +39,20 @@ func propagateArtifacts(ctx context.Context, projectName, imageName string, sour
 		return nil
 	}
 
+	var sourceStorage storage.StagesStorage
+	if len(sourceStorages) > 0 {
+		sourceStorage = sourceStorages[0]
+	}
+	if sourceStorage == nil {
+		sourceStorage = &storage.RepoStagesStorage{RepoAddress: source.Info.Repository}
+	}
+
 	if destination != nil && destination.Info != nil &&
 		destination.Info.Repository != "" &&
 		destination.Info.Repository != storage.LocalStorageAddress &&
 		destination.Info.Repository != source.Info.Repository {
 		if err := logboek.Context(ctx).Default().LogProcess("image %s: copy artifacts into final repo %s", imageName, destination.Info.Repository).DoError(func() error {
-			return artifact.CopyAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest(), destination.Info.Repository, destination.Info.GetDigest())
+			return sourceStorage.CopyAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest(), destination.Info.Repository, destination.Info.GetDigest())
 		}); err != nil {
 			return fmt.Errorf("copy attached artifacts into final repo %s: %w", destination.Info.Repository, err)
 		}
@@ -68,7 +76,7 @@ func propagateArtifacts(ctx context.Context, projectName, imageName string, sour
 			destinationDigest = cacheDesc.Info.GetDigest()
 		}
 
-		if err := artifact.CopyAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest(), cache.Address(), destinationDigest); err != nil {
+		if err := sourceStorage.CopyAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest(), cache.Address(), destinationDigest); err != nil {
 			logboek.Context(ctx).Warn().LogF("Warning: unable to copy artifacts into cache stages storage %s: %s\n", cache.String(), err)
 		}
 	}

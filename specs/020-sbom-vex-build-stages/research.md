@@ -4,7 +4,7 @@
 
 SBOM and VEX will be represented by non-buildable, mutable build stages that run after the image content stage has produced a registry-backed descriptor. The existing `Stage` lifecycle remains the integration point: stage dependencies determine cache identity, `MutateImage` performs OCI-side publication, and the build phase invokes the stage for each applicable image/platform.
 
-The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...`, `pkg/oci/artifact`, the signer implementations, and fallback-tag storage. The existing `sbomStep` and `vexStep` types are transitional implementations: their behavior will be moved into `SbomStage` and `VexStage`, and the step types/files will be deleted. The stages are intentionally different from ordinary image stages: each stage is associated with the final image digest, operates on a separate OCI artifact, and never changes image layers or filesystem content. All registry interaction must go through `storage.StagesStorage`, just as ordinary build stages use the storage abstraction. `BuildPhase.AfterImages` will retain image publication/report work but will no longer perform SBOM/VEX generation.
+The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...`, `pkg/oci/artifact`, the signer implementations, and fallback-tag storage. The existing `sbomStep` and `vexStep` types are transitional implementations: their behavior will be moved into `SbomStage` and `VexStage`, and the step types/files will be deleted. The stages are intentionally different from ordinary image stages: each stage is associated with the final image digest, operates on a separate OCI artifact, and never changes image layers or filesystem content. All registry interaction must go through `StorageManager`, which owns and routes to the primary, secondary, cache, and final `storage.StagesStorage` abstractions, just as ordinary build stages use the storage manager path. `BuildPhase.AfterImages` will retain image publication/report work but will no longer perform SBOM/VEX generation.
 
 ### Rationale
 
@@ -21,11 +21,11 @@ The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...
 
 ## Decision: Treat SBOM/VEX stages as final-image-digest-associated OCI-artifact stages
 
-`SbomStage` and `VexStage` are not image-producing stages in the ordinary sense. They do not create or mutate a container image, add layers, or store a filesystem snapshot. Their output is a separate OCI artifact associated with the final image digest. The stages must use `storage.StagesStorage` for registry reads/writes, copying, metadata, and repository operations; the abstraction should expose only the minimal artifact-oriented operations required to find/list attached artifacts, publish an OCI artifact for a final image digest, and copy attached artifacts between destination image descriptors. Direct registry access from stage code is not permitted.
+`SbomStage` and `VexStage` are not image-producing stages in the ordinary sense. They do not create or mutate a container image, add layers, or store a filesystem snapshot. Their output is a separate OCI artifact associated with the final image digest. The stages must use `StorageManager` for registry reads/writes, copying, metadata, and repository operations. `StorageManager` selects the appropriate primary, secondary, cache, or final `storage.StagesStorage`; those backends should expose only the minimal artifact-oriented operations required to find/list attached artifacts, publish an OCI artifact for a final image digest, and copy attached artifacts between destination image descriptors. Direct registry access or repository selection from stage code is not permitted.
 
 ### Rationale
 
-This preserves the distinction between an image lifecycle and its supply-chain metadata while still making metadata generation deterministic and cacheable as part of the lifecycle. Reusing `StagesStorage` keeps registry behavior consistent with existing build stages and avoids coupling stages to a concrete registry implementation.
+This preserves the distinction between an image lifecycle and its supply-chain metadata while still making metadata generation deterministic and cacheable as part of the lifecycle. Reusing `StorageManager` and its `StagesStorage` backends keeps registry behavior consistent with existing build stages, centralizes repository routing, and avoids coupling stages to a concrete registry implementation.
 
 ### Alternatives considered
 
@@ -51,7 +51,7 @@ Introduce one internal propagation operation that accepts source and destination
 
 ### Rationale
 
-The existing `sbomStep.PropagateArtifacts` only names SBOM and is called after image publication. A kind-neutral `StagesStorage`-backed operation prevents VEX from acquiring different propagation semantics and makes secondary restoration follow the same rules.
+The existing `sbomStep.PropagateArtifacts` only names SBOM and is called after image publication. A kind-neutral `StorageManager`-routed operation prevents VEX from acquiring different propagation semantics and makes secondary restoration follow the same rules.
 
 ### Alternatives considered
 

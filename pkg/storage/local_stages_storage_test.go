@@ -43,6 +43,15 @@ func (b *localMutationBackendStub) Tag(ctx context.Context, ref, newRef string, 
 }
 
 var _ = Describe("LocalStagesStorage", func() {
+	It("rejects OCI artifact operations explicitly", func(ctx SpecContext) {
+		storage := NewLocalStagesStorage(nil)
+
+		_, err := storage.ListAttachedArtifacts(ctx, "sha256:parent")
+		Expect(err).To(MatchError("local stages storage does not support artifact operations"))
+		Expect(storage.PublishArtifact(ctx, "sha256:parent", "application/test", []byte("payload"), "image", "checksum", "", "")).To(MatchError("local stages storage does not support artifact operations"))
+		Expect(storage.CopyAttachedArtifacts(ctx, "source", "sha256:source", "destination", "sha256:destination")).To(MatchError("local stages storage does not support artifact operations"))
+	})
+
 	It("tags the mutated local image under the destination reference", func(ctx SpecContext) {
 		logCtx := logboek.NewContext(ctx, logboek.NewLogger(io.Discard, io.Discard))
 

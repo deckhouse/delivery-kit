@@ -324,7 +324,7 @@ func (phase *BuildPhase) propagateArtifactsByImages(ctx context.Context) error {
 			if source == nil {
 				continue
 			}
-			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, source, finalStageDescForPlatform(phase, name, images, img.TargetPlatform), phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
+			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, source, finalStageDescForPlatform(phase, name, images, img.TargetPlatform), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage()); err != nil {
 				return fmt.Errorf("propagate artifacts for image %q: %w", name, err)
 			}
 		}
@@ -334,7 +334,7 @@ func (phase *BuildPhase) propagateArtifactsByImages(ctx context.Context) error {
 			if multiImage == nil || multiImage.GetStageDesc() == nil {
 				continue
 			}
-			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, multiImage.GetStageDesc(), multiImage.GetFinalStageDesc(), phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
+			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, multiImage.GetStageDesc(), multiImage.GetFinalStageDesc(), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage()); err != nil {
 				return fmt.Errorf("propagate multiplatform artifacts for image %q: %w", name, err)
 			}
 		}
@@ -1177,7 +1177,7 @@ func (phase *BuildPhase) findAndFetchStageFromSecondaryStagesStorage(ctx context
 			if err := ensureAttachedArtifacts(ctx, secondaryStageDesc.Info.Repository, secondaryStageDesc.Info.GetDigest()); err != nil {
 				return fmt.Errorf("secondary stage %s has incomplete artifacts: %w", secondaryStageDesc.StageID.String(), err)
 			}
-			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), img.Name, secondaryStageDesc, stageDescCopy, storageManager.GetCacheStagesStorageList()); err != nil {
+			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), img.Name, secondaryStageDesc, stageDescCopy, storageManager.GetCacheStagesStorageList(), secondaryStagesStorage); err != nil {
 				return fmt.Errorf("unable to propagate artifacts restored from secondary storage: %w", err)
 			}
 		}
@@ -1893,7 +1893,7 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return fmt.Errorf("unable to converge VEX for image %q: %w", name, err)
 	}
 
-	if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, stageDesc, finalStageDescForImage(phase, name, images), phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
+	if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, stageDesc, finalStageDescForImage(phase, name, images), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage()); err != nil {
 		return fmt.Errorf("unable to propagate VEX for image %q: %w", name, err)
 	}
 

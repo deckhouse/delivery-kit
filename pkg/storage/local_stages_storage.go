@@ -262,6 +262,18 @@ func (storage *LocalStagesStorage) RmImageMetadata(ctx context.Context, projectN
 	return nil
 }
 
+func (storage *LocalStagesStorage) ListAttachedArtifacts(_ context.Context, _ string) ([]v1.Descriptor, error) {
+	return nil, fmt.Errorf("local stages storage does not support artifact operations")
+}
+
+func (storage *LocalStagesStorage) PublishArtifact(_ context.Context, _, _ string, _ []byte, _, _, _, _ string) error {
+	return fmt.Errorf("local stages storage does not support artifact operations")
+}
+
+func (storage *LocalStagesStorage) CopyAttachedArtifacts(_ context.Context, _, _, _, _ string) error {
+	return fmt.Errorf("local stages storage does not support artifact operations")
+}
+
 func (storage *LocalStagesStorage) GetOrphanedArtifactNames(_ context.Context) ([]string, error) {
 	return nil, nil
 }

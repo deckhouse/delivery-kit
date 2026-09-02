@@ -114,6 +114,20 @@ func (mr *MockStagesStorageMockRecorder) ConstructStageImageName(projectName, di
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConstructStageImageName", reflect.TypeOf((*MockStagesStorage)(nil).ConstructStageImageName), projectName, digest, creationTs)
 }
 
+// CopyAttachedArtifacts mocks base method.
+func (m *MockStagesStorage) CopyAttachedArtifacts(ctx context.Context, sourceRepository, sourceDigest, destinationRepository, destinationDigest string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CopyAttachedArtifacts", ctx, sourceRepository, sourceDigest, destinationRepository, destinationDigest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CopyAttachedArtifacts indicates an expected call of CopyAttachedArtifacts.
+func (mr *MockStagesStorageMockRecorder) CopyAttachedArtifacts(ctx, sourceRepository, sourceDigest, destinationRepository, destinationDigest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyAttachedArtifacts", reflect.TypeOf((*MockStagesStorage)(nil).CopyAttachedArtifacts), ctx, sourceRepository, sourceDigest, destinationRepository, destinationDigest)
+}
+
 // CopyFromStorage mocks base method.
 func (m *MockStagesStorage) CopyFromStorage(ctx context.Context, src storage.StagesStorage, projectName string, stageID image.StageID, opts storage.CopyFromStorageOptions) (*image.StageDesc, error) {
 	m.ctrl.T.Helper()
@@ -461,6 +475,21 @@ func (mr *MockStagesStorageMockRecorder) IsManagedImageExist(ctx, projectName, i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsManagedImageExist", reflect.TypeOf((*MockStagesStorage)(nil).IsManagedImageExist), varargs...)
 }
 
+// ListAttachedArtifacts mocks base method.
+func (m *MockStagesStorage) ListAttachedArtifacts(ctx context.Context, parentDigest string) ([]v1.Descriptor, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAttachedArtifacts", ctx, parentDigest)
+	ret0, _ := ret[0].([]v1.Descriptor)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAttachedArtifacts indicates an expected call of ListAttachedArtifacts.
+func (mr *MockStagesStorageMockRecorder) ListAttachedArtifacts(ctx, parentDigest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttachedArtifacts", reflect.TypeOf((*MockStagesStorage)(nil).ListAttachedArtifacts), ctx, parentDigest)
+}
+
 // MutateAndPushImage mocks base method.
 func (m *MockStagesStorage) MutateAndPushImage(ctx context.Context, src, dest string, newConfig image.SpecConfig, stageImage container_backend.LegacyImageInterface) error {
 	m.ctrl.T.Helper()
@@ -515,6 +544,20 @@ func (m *MockStagesStorage) PostMultiplatformImage(ctx context.Context, projectN
 func (mr *MockStagesStorageMockRecorder) PostMultiplatformImage(ctx, projectName, tag, allPlatformsImages, platforms any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostMultiplatformImage", reflect.TypeOf((*MockStagesStorage)(nil).PostMultiplatformImage), ctx, projectName, tag, allPlatformsImages, platforms)
+}
+
+// PublishArtifact mocks base method.
+func (m *MockStagesStorage) PublishArtifact(ctx context.Context, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishArtifact", ctx, parentDigest, artifactType, payload, imageName, checksum, targetPlatform, predicateType)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishArtifact indicates an expected call of PublishArtifact.
+func (mr *MockStagesStorageMockRecorder) PublishArtifact(ctx, parentDigest, artifactType, payload, imageName, checksum, targetPlatform, predicateType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishArtifact", reflect.TypeOf((*MockStagesStorage)(nil).PublishArtifact), ctx, parentDigest, artifactType, payload, imageName, checksum, targetPlatform, predicateType)
 }
 
 // PutImageMetadata mocks base method.

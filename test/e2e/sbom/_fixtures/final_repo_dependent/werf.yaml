@@ -1,0 +1,18 @@
+project: werf-test-e2e-sbom-final-repo-dependent
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: base
+from: registry.werf.io/werf/scratch:latest
+git:
+  - add: /
+    to: /b
+---
+image: app
+fromImage: base
+git:
+  - add: /
+    to: /a

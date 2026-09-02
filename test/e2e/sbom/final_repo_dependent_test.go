@@ -12,8 +12,14 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
+// The fixtures build from scratch on purpose: an image derived from a trusted
+// builder base inherits the io.deckhouse.internal.builder label, and together
+// with WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES a failed base SBOM lookup silently
+// degrades into ErrSbomNotRequired instead of failing the build. A scratch
+// base leaves no such escape, so these tables actually falsify the base/import
+// SBOM lookup.
 var _ = Describe("SBOM final repo with dependent images", Label("e2e", "sbom", "final-repo", "dependent"), func() {
-	DescribeTable("image built from another image of the project: build with --final-repo succeeds and merges the base SBOM",
+	DescribeTable("image built from another image of the project: build with --final-repo succeeds",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
@@ -21,10 +27,8 @@ var _ = Describe("SBOM final repo with dependent images", Label("e2e", "sbom", "
 			SuiteData.Stubs.SetEnv("WERF_FINAL_REPO", finalRepo)
 
 			repoDirname := "repo_sbom_final_repo_dependent"
-			SuiteData.InitTestRepo(ctx, repoDirname, "packages_merge/base_with_child")
+			SuiteData.InitTestRepo(ctx, repoDirname, "final_repo_dependent")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
-
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-final-repo-dependent-builder")
 
 			// The build itself is the primary assertion: SBOM convergence of the
 			// dependent image has to find the SBOM of its base image, so a lookup
@@ -33,28 +37,23 @@ var _ = Describe("SBOM final repo with dependent images", Label("e2e", "sbom", "
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
-				SuiteData.GetBuildReportPath("sbom_final_repo_dependent.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
-			)
+				SuiteData.GetBuildReportPath("sbom_final_repo_dependent.json"), nil)
 
 			appRecord, found := buildReport.Images["app"]
 			Expect(found).To(BeTrue(), "expected image %q in build report", "app")
 			Expect(appRecord.DockerRepo).To(Equal(finalRepo))
 			Expect(appRecord.DockerImageDigest).NotTo(BeEmpty())
 
-			By("reading the dependent image's SBOM and checking the base image contribution")
+			By("reading the dependent image's SBOM from the final repo")
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"--repo", finalRepo, "--digest", appRecord.DockerImageDigest},
-					Envs:      builderEnv,
 				},
 			})
-			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertHasComponent(bom, "jq", "1.8.1")
-			sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
+			sbomtest.MustParseSBOMOutput(sbomOut)
 
 			By("rebuilding and checking the SBOMs are served from cache, not regenerated")
-			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			rebuildOut := werfProject.Build(ctx, nil)
 			Expect(strings.Count(rebuildOut, "Use previously generated SBOM from registry")).To(BeNumerically(">=", 2),
 				"both the base and the dependent image SBOMs must be reused on rebuild")
 		},
@@ -73,8 +72,6 @@ var _ = Describe("SBOM final repo with dependent images", Label("e2e", "sbom", "
 			SuiteData.InitTestRepo(ctx, repoDirname, "final_repo_import")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-final-repo-import-builder")
-
 			// SBOM convergence of the importing image has to find the SBOM of the
 			// import source, exercising the import-side lookup the same way the
 			// fromImage table exercises the base-image one.
@@ -82,19 +79,16 @@ var _ = Describe("SBOM final repo with dependent images", Label("e2e", "sbom", "
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
-				SuiteData.GetBuildReportPath("sbom_final_repo_import.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
-			)
+				SuiteData.GetBuildReportPath("sbom_final_repo_import.json"), nil)
 
 			appRecord, found := buildReport.Images["app"]
 			Expect(found).To(BeTrue(), "expected image %q in build report", "app")
 			Expect(appRecord.DockerImageDigest).NotTo(BeEmpty())
 
-			By("reading the importing image's SBOM")
+			By("reading the importing image's SBOM from the final repo")
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"--repo", finalRepo, "--digest", appRecord.DockerImageDigest},
-					Envs:      builderEnv,
 				},
 			})
 			sbomtest.MustParseSBOMOutput(sbomOut)

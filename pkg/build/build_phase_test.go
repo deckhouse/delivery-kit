@@ -129,13 +129,13 @@ var _ = Describe("BuildPhase", func() {
 		})
 	})
 
-	It("skips SBOM convergence when no images were selected", func(ctx SpecContext) {
+	It("skips artifact propagation when no images were selected", func(ctx SpecContext) {
 		phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{
 			werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}},
 			imagesTree: &image.ImagesTree{},
 		}}}
 
-		Expect(phase.convergeSbomByImagesSets(ctx)).To(Succeed())
+		Expect(phase.propagateArtifactsByImages(ctx)).To(Succeed())
 	})
 
 	It("collects content dependencies from signing mutation stages", func(ctx SpecContext) {

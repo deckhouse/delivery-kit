@@ -2,27 +2,29 @@
 
 ## Artifact stage
 
-An internal build-stage operation associated with an image (and, for SBOM, a target platform). `SbomStage` and `VexStage` are the sole owners of their respective generation, cache, signing, and publication behavior; no `sbomStep` or `vexStep` compatibility layer remains.
+An internal build-stage operation associated with the final image digest (and, for SBOM, a target platform). `SbomStage` and `VexStage` are the sole owners of their respective generation, cache, signing, and publication behavior; no `sbomStep` or `vexStep` compatibility layer remains. These stages are OCI-artifact stages, not image-content stages.
 
 | Field | Description |
 |---|---|
 | Stage name | Stable stage identifier for cache/logging and stage selection. |
-| Parent descriptor | The image manifest or image index that the artifact describes. |
+| Final image descriptor | The final image manifest or image index whose digest is the artifact subject. |
 | Target platform | Required for platform-specific SBOM; empty for image-level multi-platform VEX. |
 | Artifact kind | CycloneDX SBOM or OpenVEX. |
 | Generation inputs | Scanner/merge inputs for SBOM, document content for VEX, format version, and signer identity. |
-| Mutable/buildable flags | Non-buildable and mutable, matching registry-only stages such as signing. |
+| Mutable/buildable flags | Non-buildable and mutable, matching registry-only stages such as signing, but unlike signing the output is an associated OCI artifact rather than a manifest mutation. |
+| Storage abstraction | `storage.StagesStorage` used for all registry operations. |
 
 Validation rules:
 
-- A parent descriptor must be available before `MutateImage` runs.
+- The final image descriptor/digest must be available before `MutateImage` runs.
+- The stage must use `storage.StagesStorage` for registry access.
 - SBOM for a multi-platform image must use the corresponding platform manifest.
 - VEX must use the platform manifest for single-platform images and the top-level index for multi-platform images.
 - An enabled artifact stage requires registry-backed storage.
 
 ## Artifact identity
 
-The cache identity stored with the existing fallback artifact index and calculated directly by the owning artifact stage.
+The cache identity stored with the existing fallback artifact index and calculated directly by the owning artifact stage. It identifies the associated final image digest, not a synthetic artifact image.
 
 | Field | Description |
 |---|---|
@@ -56,4 +58,4 @@ primary image + artifacts -> final image + artifacts
 primary image + artifacts -> cache image + artifacts
 ```
 
-The artifact stage does not become an image layer. It publishes separate OCI artifacts whose subjects are resolved image descriptors. Existing fallback-tag indexes remain the source of truth and remain readable by current consumers.
+The artifact stage does not become an image layer and does not operate on an image filesystem. It publishes separate OCI artifacts whose subjects are the final image descriptors. All registry interaction is performed through `storage.StagesStorage`; existing fallback-tag indexes remain the source of truth and remain readable by current consumers.

@@ -120,7 +120,7 @@ func (s *VexStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPu
 	}
 
 	return logboek.Context(ctx).Default().LogProcess("image %s: Published VEX artifact", stageImage.Image.Name()).DoError(func() error {
-		return vexImage.PushVEX(ctx, s.vexJSON, parentDesc.Info.Repository, parentDigest, stageImage.Image.Name(), checksum, s.TargetPlatform(), s.signer)
+		return vexImage.PushVEX(ctx, s.vexJSON, parentDesc.Info.Repository, parentDigest, s.ImageName(), checksum, s.TargetPlatform(), s.signer)
 	})
 }
 

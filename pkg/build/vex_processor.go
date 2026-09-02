@@ -15,13 +15,13 @@ import (
 	vexImage "github.com/werf/werf/v2/pkg/vex/image"
 )
 
-type vexStep struct{}
+type vexProcessor struct{}
 
-func newVexStep() *vexStep {
-	return &vexStep{}
+func newVexProcessor() *vexProcessor {
+	return &vexProcessor{}
 }
 
-func (step *vexStep) Converge(ctx context.Context, vexJSON []byte, stageDesc *image.StageDesc, werfImgName, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (processor *vexProcessor) Converge(ctx context.Context, vexJSON []byte, stageDesc *image.StageDesc, werfImgName, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 

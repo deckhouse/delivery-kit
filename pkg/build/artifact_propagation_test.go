@@ -59,6 +59,17 @@ var _ = Describe("artifact propagation", func() {
 			}}
 		}
 
+		pushImageToRepo := func(ctx SpecContext, repo string) string {
+			img, err := random.Image(256, 1)
+			Expect(err).To(Succeed())
+			ref, err := name.NewTag(repo + ":v1")
+			Expect(err).To(Succeed())
+			Expect(remote.Write(ref, img, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+			digest, err := img.Digest()
+			Expect(err).To(Succeed())
+			return digest.String()
+		}
+
 		BeforeEach(func(ctx SpecContext) {
 			Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
 
@@ -88,6 +99,99 @@ var _ = Describe("artifact propagation", func() {
 			err := propagateArtifacts(ctx, "project", "app", stageDescFor(sourceRepo, sourceDigest), stageDescFor("127.0.0.1:1/unreachable/final", sourceDigest), nil)
 
 			Expect(err).To(MatchError(ContainSubstring("copy attached artifacts into final repo")))
+		})
+
+		It("propagates artifacts to final and cache repositories", func(ctx SpecContext) {
+			finalRepo := strings.TrimPrefix(server.URL, "http://") + "/test/final"
+			cacheRepo := strings.TrimPrefix(server.URL, "http://") + "/test/cache"
+			finalDigest := pushImageToRepo(ctx, finalRepo)
+			cacheDigest := pushImageToRepo(ctx, cacheRepo)
+			cache := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+			cache.EXPECT().Address().Return(cacheRepo).AnyTimes()
+			cache.EXPECT().String().Return(cacheRepo).AnyTimes()
+			cache.EXPECT().GetStageDesc(gomock.Any(), "project", image.StageID{Digest: "stage-digest"}).Return(stageDescFor(cacheRepo, cacheDigest), nil)
+
+			source := stageDescFor(sourceRepo, sourceDigest)
+			source.StageID = &image.StageID{Digest: "stage-digest"}
+			err := propagateArtifacts(ctx, "project", "app", source, stageDescFor(finalRepo, finalDigest), []storage.StagesStorage{cache})
+			Expect(err).To(Succeed())
+
+			for _, destination := range []struct {
+				repo   string
+				digest string
+			}{
+				{repo: finalRepo, digest: finalDigest},
+				{repo: cacheRepo, digest: cacheDigest},
+			} {
+				store := artifact.NewOCIStore(destination.repo, "app", remoteOpts...)
+				content, err := store.GetAttachedContent(ctx, destination.digest, attestation.DSSEMediaType, nil)
+				Expect(err).To(Succeed())
+				Expect(content).To(MatchJSON(`{"v":1}`))
+			}
+		})
+
+		It("resolves the cache destination digest before propagation", func(ctx SpecContext) {
+			cacheRepo := strings.TrimPrefix(server.URL, "http://") + "/test/cache-digest"
+			cacheDigest := pushImageToRepo(ctx, cacheRepo)
+			cache := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+			cache.EXPECT().Address().Return(cacheRepo).AnyTimes()
+			cache.EXPECT().String().Return(cacheRepo).AnyTimes()
+			cache.EXPECT().GetStageDesc(gomock.Any(), "project", gomock.Any()).Return(stageDescFor(cacheRepo, cacheDigest), nil)
+
+			source := stageDescFor(sourceRepo, sourceDigest)
+			source.StageID = &image.StageID{Digest: "stage-digest"}
+			Expect(propagateArtifacts(ctx, "project", "app", source, nil, []storage.StagesStorage{cache})).To(Succeed())
+
+			store := artifact.NewOCIStore(cacheRepo, "app", remoteOpts...)
+			content, err := store.GetAttachedContent(ctx, cacheDigest, attestation.DSSEMediaType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"v":1}`))
+		})
+
+		It("skips propagation when the destination repository is identical", func(ctx SpecContext) {
+			destination := stageDescFor(sourceRepo, "sha256:does-not-exist")
+			Expect(propagateArtifacts(ctx, "project", "app", stageDescFor(sourceRepo, sourceDigest), destination, nil)).To(Succeed())
+		})
+
+		It("deduplicates an artifact with the same identity", func(ctx SpecContext) {
+			destinationRepo := strings.TrimPrefix(server.URL, "http://") + "/test/dedup"
+			destinationDigest := pushImageToRepo(ctx, destinationRepo)
+			destinationStore := artifact.NewOCIStore(destinationRepo, "app", remoteOpts...)
+			Expect(destinationStore.Attach(ctx, destinationDigest, attestation.DSSEMediaType, []byte(`{"v":2}`), "checksum-v1", "", "")).To(Succeed())
+
+			Expect(propagateArtifacts(ctx, "project", "app", stageDescFor(sourceRepo, sourceDigest), stageDescFor(destinationRepo, destinationDigest), nil)).To(Succeed())
+
+			content, err := destinationStore.GetAttachedContent(ctx, destinationDigest, attestation.DSSEMediaType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"v":2}`))
+			index, err := artifact.PullFallbackIndex(ctx, destinationRepo, destinationDigest, remoteOpts...)
+			Expect(err).To(Succeed())
+			manifest, err := index.IndexManifest()
+			Expect(err).To(Succeed())
+			Expect(manifest.Manifests).To(HaveLen(1))
+		})
+
+		It("restores artifacts from a secondary repository onto the primary digest", func(ctx SpecContext) {
+			primaryRepo := strings.TrimPrefix(server.URL, "http://") + "/test/primary"
+			primaryDigest := pushImageToRepo(ctx, primaryRepo)
+			source := stageDescFor(sourceRepo, sourceDigest)
+			destination := stageDescFor(primaryRepo, primaryDigest)
+
+			Expect(ensureAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest())).To(Succeed())
+			Expect(propagateArtifacts(ctx, "project", "app", source, destination, nil)).To(Succeed())
+
+			store := artifact.NewOCIStore(primaryRepo, "app", remoteOpts...)
+			content, err := store.GetAttachedContent(ctx, primaryDigest, attestation.DSSEMediaType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"v":1}`))
+		})
+
+		It("rejects a secondary source image without attached artifacts", func(ctx SpecContext) {
+			repo := strings.TrimPrefix(server.URL, "http://") + "/test/missing-artifacts"
+			digest := pushImageToRepo(ctx, repo)
+
+			err := ensureAttachedArtifacts(ctx, repo, digest)
+			Expect(err).To(MatchError(ContainSubstring("has no attached artifacts")))
 		})
 
 		It("logs cache propagation errors and continues", func(ctx SpecContext) {

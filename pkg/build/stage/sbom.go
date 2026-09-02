@@ -108,7 +108,7 @@ func (s *SbomStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorP
 	metadata := s.GetArtifactMetadata()
 	metadata.ParentDigest = parentDesc.Info.GetDigest()
 
-	return s.publisher(ctx, parentDesc, stageImage.Image.Name(), s.TargetPlatform())
+	return s.publisher(ctx, parentDesc, s.ImageName(), s.TargetPlatform())
 }
 
 const sbomArtifactFormatVersion = "2"

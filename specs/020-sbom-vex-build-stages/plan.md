@@ -6,7 +6,7 @@
 
 ## Summary
 
-Move SBOM and VEX generation out of the `BuildPhase.AfterImages` post-build pass and replace the `sbomStep` and `vexStep` implementations with registry-backed, non-buildable mutable stages modeled after `pkg/build/stage/sign.go`. The new `SbomStage` and `VexStage` become the sole owners of SBOM/VEX cache identity, generation, signing, attestation publication, and fallback-index interaction while publishing separate OCI artifacts.
+Move SBOM and VEX generation out of the `BuildPhase.AfterImages` post-build pass and replace the `sbomStep` and `vexStep` implementations with registry-backed, non-buildable mutable stages modeled after `pkg/build/stage/sign.go`. The new `SbomStage` and `VexStage` become the sole owners of SBOM/VEX cache identity, generation, signing, attestation publication, and fallback-index interaction. Unlike ordinary image stages, they are associated with the final image digest, operate on the associated OCI artifact rather than on the image filesystem or image layers, and perform all registry operations through `storage.StagesStorage`.
 
 Artifact publication will use explicit source and destination image descriptors. SBOM remains platform-specific; VEX is attached once at the top-level image index for multi-platform images and to the image manifest for single-platform images. A shared idempotent propagation operation will cover primary-to-final, primary-to-cache, and secondary-to-primary copies, resolving the destination digest and preserving fatal final-repository versus best-effort cache error policies.
 
@@ -21,10 +21,11 @@ Artifact publication will use explicit source and destination image descriptors.
 - Existing `pkg/build/sbom_step.go` and `pkg/build/vex_step.go` are transitional sources only and must be removed after their logic is migrated.
 - Existing OCI artifact and fallback-index operations in `pkg/oci/artifact` and `pkg/attestation`.
 - Existing registry/storage copy operations in `pkg/storage`, `pkg/storage/manager`, and `pkg/docker_registry`.
+- `storage.StagesStorage` in `pkg/storage/stages_storage.go` is the required registry boundary. It must be extended with the minimal OCI-artifact operations needed by `SbomStage`, `VexStage`, and propagation; stage code must not call concrete registry clients directly.
 - Existing signing options in `pkg/build/signing`.
 - Ginkgo + Gomega test framework and existing e2e fixtures.
 
-**Storage**: OCI registry for image manifests/indexes and fallback-tag artifact indexes; local Buildah/container storage remains supported when artifacts are disabled.
+**Storage**: OCI registry for image manifests/indexes and fallback-tag artifact indexes, accessed through the `storage.StagesStorage` abstraction; local Buildah/container storage remains supported when artifacts are disabled.
 
 **Testing**: Co-located Ginkgo/Gomega unit tests, existing `test/e2e/sbom` and `test/e2e/vex` suites, and legacy integration tests.
 
@@ -46,6 +47,7 @@ Artifact publication will use explicit source and destination image descriptors.
 *GATE: Must pass before Phase 0 research. Re-checked after Phase 1 design.*
 
 - **Simplicity over abstraction**: PASS. Use two explicit stages, `SbomStage` and `VexStage`, instead of retaining parallel step and stage abstractions. Add one focused shared propagation path rather than duplicating repository-copy logic.
+- **Stage distinction**: PASS. The plan explicitly requires that SBOM/VEX stages are final-image-digest-associated OCI-artifact stages, not ordinary image-mutating stages, and that registry access goes through `storage.StagesStorage`.
 - **Go idioms and errors**: PASS. New public methods, if required, take `context.Context` first; errors wrap operation context; stage-specific helpers remain private where possible.
 - **Minimal public surface**: PASS. Artifact stages and propagation contracts are internal to `pkg/build`; no new CLI flags or external API are planned.
 - **Testing**: PASS. Tests remain alongside source and use Ginkgo/Gomega. E2E coverage extends existing SBOM/VEX suites rather than introducing a parallel harness.
@@ -73,7 +75,10 @@ Detailed findings are in [research.md](./research.md). Key decisions:
 - Extend `pkg/build/stage` with stage names and constructors for `SbomStage` and `VexStage`, following the shape of `SignStage`.
 - Move all behavior currently owned by `sbomStep` into `SbomStage`; remove `sbom_step.go` and its step-specific tests once callers are migrated.
 - Move all behavior currently owned by `vexStep` into `VexStage`; remove `vex_step.go` and its step-specific tests once callers are migrated.
-- Artifact stages must not mutate the image filesystem. Their `PrepareImage` path is a no-op; their `MutateImage` path owns registry-side generation and publication.
+- Artifact stages must not mutate, rebuild, fetch, or store the image filesystem. Their `PrepareImage` path is a no-op; their `MutateImage` path operates on the associated OCI artifact and owns registry-side generation and publication.
+- The stage's subject is the final image digest: for single-platform images this is the published image manifest digest; for multi-platform images SBOM uses each final platform manifest digest and VEX uses the final top-level image index digest. The artifact stage must never be treated as an image layer or as a replacement image.
+- All registry reads, writes, copies, metadata operations, and artifact-related repository interaction from `SbomStage` and `VexStage` must use `storage.StagesStorage`, following the existing build-stage storage path. Direct registry client access from the stages is prohibited.
+- Extend `StagesStorage` only with the minimal artifact-oriented methods required to preserve the existing fallback-index behavior: find/list attached artifacts, publish an OCI artifact for a final image digest, and copy attached artifacts between destination image descriptors. Implement these methods for every supported registry-backed storage implementation and keep local storage behavior explicit.
 - Ensure stage dependencies include the parent image identity and all effective artifact inputs. SBOM dependencies include scanner, merge/GOST, signer, format version, and target platform. VEX dependencies include document content, parent identity, signer, and format version.
 - Register the stages after the content-producing stage and before the lifecycle completes for applicable images. The registration must work for Stapel and Dockerfile image paths and for restored stages.
 - Preserve stage cache behavior: a suitable artifact-bearing stage can be selected from primary/secondary storage; changed effective inputs produce a different stage identity.
@@ -88,7 +93,8 @@ Detailed findings are in [research.md](./research.md). Key decisions:
 
 ### Publication and propagation
 
-- Consolidate artifact copying behind a kind-neutral internal operation that copies every attached supported artifact from a source descriptor to a destination descriptor. This propagation helper is the only shared artifact operation; generation remains owned independently by `SbomStage` and `VexStage`.
+- Consolidate artifact copying behind a kind-neutral internal operation exposed through or implemented using `storage.StagesStorage`; it copies every attached supported artifact from a source descriptor to a destination descriptor. This propagation helper is the only shared artifact operation; generation remains owned independently by `SbomStage` and `VexStage`.
+- The propagation contract must carry the final image digest/descriptor explicitly and must never attach an artifact to the digest of the artifact stage itself.
 - Use it after primary-to-final and primary-to-cache image copies, and when a suitable stage is copied from `--secondary-repo` into primary storage.
 - Resolve the destination image descriptor/digest rather than assuming source and destination digests match.
 - Skip local storage and identical repository addresses. Deduplicate by existing artifact identity/fallback index semantics.
@@ -135,8 +141,9 @@ pkg/build/
 
 pkg/build/sbom_step.go and pkg/build/vex_step.go are removed after migration; their behavior is not retained behind compatibility wrappers.
 
-pkg/storage/manager/         # secondary/final/cache image-copy artifact propagation hooks
-pkg/oci/artifact/            # shared artifact copy/deduplication support if needed
+pkg/storage/                  # StagesStorage interface and backend implementations for artifact stages
+pkg/storage/manager/           # secondary/final/cache image-copy artifact propagation hooks
+pkg/oci/artifact/              # OCI artifact encoding and fallback-index support called by StagesStorage backends
 
 Tests remain co-located under pkg/build and pkg/build/stage, with scenario coverage in:
 test/e2e/sbom/
@@ -159,10 +166,10 @@ Completed in [data-model.md](./data-model.md) and [quickstart.md](./quickstart.m
 
 The subsequent `/speckit-tasks` workflow should decompose at least these work items:
 
-1. Implement `SbomStage` and `VexStage`, including stage identity, lifecycle integration, generation, cache checks, signing, and publication.
+1. Implement `SbomStage` and `VexStage`, including stage identity, lifecycle integration, final image-digest association, OCI-artifact handling, cache checks, signing, publication, and `StagesStorage` access.
 2. Migrate all SBOM behavior from `sbomStep` into `SbomStage`, then delete the step implementation and update callers/tests.
 3. Migrate all VEX behavior from `vexStep` into `VexStage`, then delete the step implementation and update callers/tests.
-4. Implement shared artifact propagation for final, cache, and secondary-to-primary copies.
+4. Extend `StagesStorage` with the minimal OCI-artifact operations and implement shared `StagesStorage`-backed artifact propagation for final, cache, and secondary-to-primary copies.
 5. Move registry validation before image building and remove duplicate `AfterImages` convergence.
 6. Add/adjust unit tests for stage flags, dependency identities, subjects, propagation, idempotency, and failure policies.
 7. Extend e2e coverage for repository combinations, secondary restore, multi-platform placement, caching, and local-only rejection.
@@ -187,4 +194,4 @@ While iterating, use scoped `task lint:golangci-lint` and `task test:unit` paths
 
 ## Complexity Tracking
 
-No constitution violations or new architectural projects are proposed. The only additional internal abstraction is a shared artifact propagation operation because SBOM-only propagation cannot satisfy VEX and secondary-to-primary requirements without duplication.
+No constitution violations or new architectural projects are proposed. The only additional internal abstraction is a shared `StagesStorage`-backed artifact propagation operation because SBOM-only propagation cannot satisfy VEX and secondary-to-primary requirements without duplication. The explicit distinction between ordinary image stages and OCI-artifact stages is required by the feature and is not an optional abstraction.

@@ -68,6 +68,13 @@ func (iterator *StagesIterator) OnImageStage(ctx context.Context, img *build_ima
 	iterator.PrevStage = stg
 
 	if !isEmpty {
+		artifactStage, isArtifactStage := stg.(interface {
+			GetArtifactMetadata() *stage.ArtifactStageMetadata
+		})
+		if isArtifactStage && artifactStage.GetArtifactMetadata() != nil {
+			return nil
+		}
+
 		iterator.PrevNonEmptyStage = stg
 
 		if iterator.PrevNonEmptyStage.GetStageImage().Image.GetStageDesc() != nil {

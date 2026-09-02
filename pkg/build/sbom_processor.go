@@ -27,7 +27,7 @@ import (
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
-//go:generate mockgen -source sbom_step.go -package mock -destination ../../test/mock/bom_patcher.go -mock_names BOMPatcherInterface=MockBOMPatcher
+//go:generate mockgen -source sbom_processor.go -package mock -destination ../../test/mock/bom_patcher.go -mock_names BOMPatcherInterface=MockBOMPatcher
 
 type BOMPatcherInterface interface {
 	Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error)
@@ -37,34 +37,34 @@ type BOMPatcherInterface interface {
 // (e.g. it is a trusted builder image). Callers should handle this silently.
 var ErrSbomNotRequired = errors.New("sbom not required")
 
-type sbomStep struct {
+type sbomProcessor struct {
 	containerBackend container_backend.ContainerBackend
 	stagesStorage    storage.StagesStorage
 
 	gostWarnOnce sync.Once
 }
 
-func newSbomStep(
+func newSbomProcessor(
 	backend container_backend.ContainerBackend,
 	stagesStorage storage.StagesStorage,
-) *sbomStep {
-	return &sbomStep{
+) *sbomProcessor {
+	return &sbomProcessor{
 		containerBackend: backend,
 		stagesStorage:    stagesStorage,
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (processor *sbomProcessor) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
 	scanOpts.Commands[0].SourcePath = stageDesc.Info.Name
 
-	if err := step.prepareGostComponents(ctx, &mergeOpts); err != nil {
+	if err := processor.prepareGostComponents(ctx, &mergeOpts); err != nil {
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
+	checksum := processor.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -77,7 +77,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return nil
 	}
 
-	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
+	if err := processor.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
 		return fmt.Errorf("unable to pull %q: %w", stageDesc.Info.Name, err)
 	}
 
@@ -94,7 +94,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 				},
 			}
 		} else {
-			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
+			bomJSON, err := processor.containerBackend.GenerateSBOM(ctx, scanOpts)
 			if err != nil {
 				return fmt.Errorf("generate SBOM: %w", err)
 			}
@@ -117,7 +117,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 
 		if osPmEnabled {
-			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
+			pmBOM, err := osPm.CollectBOM(ctx, processor.containerBackend, stageDesc.Info.Name)
 			if err != nil {
 				return fmt.Errorf("collect os-pm BOM: %w", err)
 			}
@@ -187,7 +187,7 @@ const sbomArtifactFormatVersion = "2"
 // (build context changes alter the stage digest), external reference enrichment
 // (non-deterministic external data), and generator logic changes (covered by
 // sbomArtifactFormatVersion).
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
+func (processor *sbomProcessor) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
 	return util.Sha256Hash(
 		sbomArtifactFormatVersion,
 		"scan", scanOpts.Checksum(),
@@ -202,16 +202,16 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 // PropagateArtifacts copies the artifacts attached to the image stage (e.g. its SBOM)
 // into the final repo and the cache repos. Stages themselves are copied there before
 // SBOM generation runs, so the artifacts have to catch up separately.
-func (step *sbomStep) PropagateArtifacts(ctx context.Context, projectName, werfImgName string, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
+func (processor *sbomProcessor) PropagateArtifacts(ctx context.Context, projectName, werfImgName string, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
 	return propagateArtifacts(ctx, projectName, werfImgName, stageDesc, finalStageDesc, cacheStagesStorageList)
 }
 
-func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
+func (processor *sbomProcessor) GetImageBOM(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
 	if imageInfo == nil {
 		return nil, fmt.Errorf("image info is nil for %q", imageName)
 	}
 
-	bom, err := step.pullImageSbom(ctx, imageName, imageInfo)
+	bom, err := processor.pullImageSbom(ctx, imageName, imageInfo)
 	if err != nil {
 		if isTrustedBuilderImage(imageInfo.Labels) {
 			switch {
@@ -236,7 +236,7 @@ func sbomMissingError(imageInfo *image.Info, err error) error {
 	return fmt.Errorf("the image %q must have an SBOM artifact attached; to generate an SBOM for the image, rebuild it with SBOM generation enabled; note: if the image is a multi-platform image built by an older werf version, its SBOM is attached in a legacy platform-ambiguous format and cannot be used — rebuild the image with a newer werf version: %w", imageInfo.Name, err)
 }
 
-func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
+func (processor *sbomProcessor) pullImageSbom(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {
 	parentDigest := imageInfo.GetDigest()
 	if parentDigest == "" {
 		return nil, fmt.Errorf("image digest not available for %q", imageInfo.Name)
@@ -255,9 +255,9 @@ func (step *sbomStep) pullImageSbom(ctx context.Context, imageName string, image
 	return bom, nil
 }
 
-func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
+func (processor *sbomProcessor) prepareGostComponents(ctx context.Context, mergeOpts *cyclonedxutil.MergeOpts) error {
 	if !mergeOpts.Gost.AttackSurface.IsUndefined() || !mergeOpts.Gost.SecurityFunction.IsUndefined() {
-		step.gostWarnOnce.Do(func() {
+		processor.gostWarnOnce.Do(func() {
 			logboek.Context(ctx).Default().LogF("Warning: GOST SBOM integration is experimental and its behavior may change in the future\n")
 		})
 	}

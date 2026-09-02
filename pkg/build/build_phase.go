@@ -262,7 +262,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
-	if err := phase.convergeMultiplatformVexByImageSets(ctx); err != nil {
+	if err := phase.publishMultiplatformVexArtifacts(ctx); err != nil {
 		return err
 	}
 
@@ -1458,7 +1458,14 @@ func (phase *BuildPhase) buildStage(ctx context.Context, img *image.Image, stg s
 		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
 	}
 
-	if err := logboek.Context(ctx).Default().LogProcess("Building stage %s%s", stg.LogDetailedName(), phase.emptyAnchorRebuildNote(ctx, img, stg)).
+	processName := "Building stage %s%s"
+	if artifactStage, ok := stg.(interface {
+		GetArtifactMetadata() *stage.ArtifactStageMetadata
+	}); ok && artifactStage.GetArtifactMetadata() != nil {
+		processName = "Processing artifact stage %s%s"
+	}
+
+	if err := logboek.Context(ctx).Default().LogProcess(processName, stg.LogDetailedName(), phase.emptyAnchorRebuildNote(ctx, img, stg)).
 		Options(func(options types.LogProcessOptionsInterface) {
 			options.InfoSectionFunc(infoSectionFunc)
 			options.Style(style.Highlight())
@@ -1809,8 +1816,8 @@ E.g.:
 		})
 }
 
-// convergeMultiplatformVexByImageSets publishes the image-level VEX artifact after the final index exists.
-func (phase *BuildPhase) convergeMultiplatformVexByImageSets(ctx context.Context) error {
+// publishMultiplatformVexArtifacts publishes the image-level VEX artifact after the final index exists.
+func (phase *BuildPhase) publishMultiplatformVexArtifacts(ctx context.Context) error {
 	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
 		return nil
 	}
@@ -1845,7 +1852,7 @@ func (phase *BuildPhase) convergeMultiplatformVexByImageSets(ctx context.Context
 				return nil
 			}
 
-			return phase.runMultiplatformVexStage(ctx, name, images)
+			return phase.runMultiplatformVexArtifactStage(ctx, name, images)
 		}); err != nil {
 			return err
 		}
@@ -1855,7 +1862,7 @@ func (phase *BuildPhase) convergeMultiplatformVexByImageSets(ctx context.Context
 	return nil
 }
 
-func (phase *BuildPhase) runMultiplatformVexStage(ctx context.Context, name string, images []*image.Image) error {
+func (phase *BuildPhase) runMultiplatformVexArtifactStage(ctx context.Context, name string, images []*image.Image) error {
 	if len(images) == 0 {
 		return nil
 	}

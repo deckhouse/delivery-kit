@@ -237,6 +237,9 @@ func (api *api) getRepoImageByDesc(ctx context.Context, originalTag string, desc
 			if err != nil {
 				return nil, fmt.Errorf("error getting image %s descriptor: %w", subref, err)
 			}
+			if desc.Platform != nil {
+				subInfo.Platform = desc.Platform.String()
+			}
 			repoImage.Index = append(repoImage.Index, subInfo)
 		}
 	} else {

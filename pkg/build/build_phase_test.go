@@ -186,7 +186,7 @@ var _ = Describe("BuildPhase", func() {
 			images := newMultiplatformImages(ctx, &config.Vex{Document: "vex.json"})
 			phase := newPhaseWithTree(image.NewMultiplatformImage("app", images, 0, 1))
 
-			err := phase.runMultiplatformVexStage(ctx, "app", images)
+			err := phase.runMultiplatformVexArtifactStage(ctx, "app", images)
 
 			Expect(err).To(MatchError(`unable to converge VEX for image "app": stage descriptor is unavailable`))
 		})
@@ -195,25 +195,25 @@ var _ = Describe("BuildPhase", func() {
 			images := newMultiplatformImages(ctx, nil)
 			phase := newPhaseWithTree(image.NewMultiplatformImage("app", images, 0, 1))
 
-			Expect(phase.runMultiplatformVexStage(ctx, "app", images)).To(Succeed())
+			Expect(phase.runMultiplatformVexArtifactStage(ctx, "app", images)).To(Succeed())
 		})
 
 		It("is a no-op for an image without VEX configuration and without a stage descriptor", func(ctx SpecContext) {
 			phase := &BuildPhase{}
 
-			Expect(phase.runMultiplatformVexStage(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", nil)})).To(Succeed())
+			Expect(phase.runMultiplatformVexArtifactStage(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", nil)})).To(Succeed())
 		})
 
 		It("is a no-op for an image with an empty VEX document", func(ctx SpecContext) {
 			phase := &BuildPhase{}
 
-			Expect(phase.runMultiplatformVexStage(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", &config.Vex{})})).To(Succeed())
+			Expect(phase.runMultiplatformVexArtifactStage(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", &config.Vex{})})).To(Succeed())
 		})
 
 		It("reports an unavailable stage descriptor when VEX is configured", func(ctx SpecContext) {
 			phase := &BuildPhase{}
 
-			err := phase.runMultiplatformVexStage(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", &config.Vex{Document: "vex.json"})})
+			err := phase.runMultiplatformVexArtifactStage(ctx, "app", []*image.Image{newImage(ctx, "linux/amd64", &config.Vex{Document: "vex.json"})})
 			Expect(err).To(MatchError(ContainSubstring(`unable to converge VEX for image "app": stage descriptor is unavailable`)))
 		})
 
@@ -223,7 +223,7 @@ var _ = Describe("BuildPhase", func() {
 			multiImg.SetStageDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{}})
 			phase := newPhaseWithTree(multiImg)
 
-			Expect(phase.runMultiplatformVexStage(ctx, "app", images)).To(Succeed())
+			Expect(phase.runMultiplatformVexArtifactStage(ctx, "app", images)).To(Succeed())
 		})
 	})
 

@@ -51,8 +51,14 @@ func finalStageDescForPlatform(phase *BuildPhase, name string, images []*image.I
 		return finalStageDesc
 	}
 
+	for _, manifest := range finalStageDesc.Info.Index {
+		if manifest != nil && manifest.Platform == targetPlatform {
+			return &imagePkg.StageDesc{Info: manifest}
+		}
+	}
+
 	for index, img := range images {
-		if img.TargetPlatform != targetPlatform || index >= len(finalStageDesc.Info.Index) {
+		if img == nil || img.TargetPlatform != targetPlatform || index >= len(finalStageDesc.Info.Index) {
 			continue
 		}
 

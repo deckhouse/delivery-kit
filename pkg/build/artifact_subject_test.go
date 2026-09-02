@@ -43,6 +43,29 @@ var _ = Describe("artifact subjects", func() {
 		Expect(descriptor.Info.GetDigest()).To(Equal("sha256:arm64"))
 	})
 
+	It("selects a platform manifest by platform metadata regardless of index order", func() {
+		images := []*image.Image{
+			newImage("app", "linux/amd64", "sha256:amd64"),
+			newImage("app", "linux/arm64", "sha256:arm64"),
+		}
+		multiImage := image.NewMultiplatformImage("app", images, 0, 1)
+		multiImage.SetFinalStageDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{
+			IsIndex: true,
+			Index: []*imagePkg.Info{
+				{Platform: "linux/arm64", RepoDigest: "final@sha256:arm64"},
+				{Platform: "linux/amd64", RepoDigest: "final@sha256:amd64"},
+			},
+		}})
+		tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
+		tree.SetMultiplatformImage(multiImage)
+		phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree}}}
+
+		descriptor := finalStageDescForPlatform(phase, "app", images, "linux/amd64")
+
+		Expect(descriptor).NotTo(BeNil())
+		Expect(descriptor.Info.GetDigest()).To(Equal("sha256:amd64"))
+	})
+
 	It("keeps the top-level index as the VEX subject for a multi-platform image", func() {
 		images := []*image.Image{
 			newImage("app", "linux/amd64", "sha256:amd64"),

@@ -27,11 +27,15 @@ import (
 
 type recordingArtifactStorageManager struct {
 	manager.StorageManagerInterface
-	copyCalls int
+	copyCalls             int
+	lastSourceDigest      string
+	lastDestinationDigest string
 }
 
-func (m *recordingArtifactStorageManager) CopyAttachedArtifacts(context.Context, storage.StagesStorage, string, storage.StagesStorage, string) error {
+func (m *recordingArtifactStorageManager) CopyAttachedArtifacts(_ context.Context, _ storage.StagesStorage, sourceDigest string, _ storage.StagesStorage, destinationDigest string) error {
 	m.copyCalls++
+	m.lastSourceDigest = sourceDigest
+	m.lastDestinationDigest = destinationDigest
 	return nil
 }
 
@@ -55,6 +59,31 @@ var _ = Describe("artifact propagation", func() {
 
 		Expect(propagateArtifactsWithManager(ctx, "project", "app", source, destination, nil, nil, nil, storageManager)).To(Succeed())
 		Expect(storageManager.copyCalls).To(Equal(1))
+	})
+
+	It("propagates a multi-platform index using its resolved destination digest", func(ctx SpecContext) {
+		storageManager := &recordingArtifactStorageManager{}
+		source := &image.StageDesc{
+			StageID: image.NewStageID("stage-digest", 1),
+			Info: &image.Info{
+				IsIndex:    true,
+				Repository: "registry.example/source",
+				RepoDigest: "registry.example/source@sha256:source-index",
+			},
+		}
+		cache := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+		cache.EXPECT().Address().Return("registry.example/cache").AnyTimes()
+		cache.EXPECT().String().Return("registry.example/cache").AnyTimes()
+		cache.EXPECT().GetStageDesc(ctx, "project", *source.StageID).Return(&image.StageDesc{Info: &image.Info{
+			IsIndex:    true,
+			Repository: "registry.example/cache",
+			RepoDigest: "registry.example/cache@sha256:destination-index",
+		}}, nil)
+
+		Expect(propagateArtifactsWithManager(ctx, "project", "app", source, nil, []storage.StagesStorage{cache}, nil, nil, storageManager)).To(Succeed())
+		Expect(storageManager.copyCalls).To(Equal(1))
+		Expect(storageManager.lastSourceDigest).To(Equal("sha256:source-index"))
+		Expect(storageManager.lastDestinationDigest).To(Equal("sha256:destination-index"))
 	})
 
 	It("skips local-only artifact sources", func(ctx SpecContext) {

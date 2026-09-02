@@ -54,11 +54,11 @@
 
 - [X] T020 [P] [US1] Implement the registry-only mutable, non-buildable `SbomStage` in `pkg/build/stage/sbom.go`, including final-image-digest association and SBOM generation, cache identity, signing, attestation publication, and fallback-index interaction through `StorageManager`
 - [X] T021 [P] [US1] Implement the registry-only mutable, non-buildable `VexStage` in `pkg/build/stage/vex.go`, including final-image-digest association and VEX generation, cache identity, signing, attestation publication, and fallback-index interaction through `StorageManager`
-- [ ] T022 [US1] Migrate all SBOM behavior and callers from `sbomStep` into `SbomStage` in `pkg/build/`, preserving existing generation, checksum, signing, publication, and fallback-index behavior while routing repository operations through `StorageManager`
-- [ ] T023 [US1] Migrate all VEX behavior and callers from `vexStep` into `VexStage` in `pkg/build/`, preserving existing generation, checksum, signing, publication, and fallback-index behavior while routing repository operations through `StorageManager`
-- [ ] T024 [US1] Ensure `PrepareImage` is a no-op, `MutateArtifact` operates only on the associated OCI artifact through `StorageManager`, and the artifact stages do not implement or invoke `MutateImage`; do not fetch, rebuild, store, or mutate image filesystem/layers in `pkg/build/stage/sbom.go` and `pkg/build/stage/vex.go
-- [ ] T025 [US1] Register `SbomStage` and `VexStage` after the content-producing stage for Stapel, Dockerfile, and restored-stage image paths in `pkg/build/build_phase.go`
-- [ ] T026 [US1] Execute artifact publication through stage `MutateArtifact` without changing image filesystem or layer content, and remove duplicate SBOM/VEX generation from `BuildPhase.AfterImages` while retaining unrelated publication/report work in `pkg/build/build_phase.go`
+- [X] T022 [US1] Migrate all SBOM behavior and callers from `sbomStep` into `SbomStage` in `pkg/build/`, preserving existing generation, checksum, signing, publication, and fallback-index behavior while routing repository operations through `StorageManager`
+- [X] T023 [US1] Migrate all VEX behavior and callers from `vexStep` into `VexStage` in `pkg/build/`, preserving existing generation, checksum, signing, publication, and fallback-index behavior while routing repository operations through `StorageManager`
+- [X] T024 [US1] Ensure `PrepareImage` is a no-op, `MutateArtifact` operates only on the associated OCI artifact through `StorageManager`, and the artifact stages do not implement or invoke `MutateImage`; do not fetch, rebuild, store, or mutate image filesystem/layers in `pkg/build/stage/sbom.go` and `pkg/build/stage/vex.go
+- [X] T025 [US1] Register `SbomStage` and `VexStage` after the content-producing stage for Stapel, Dockerfile, and restored-stage image paths in `pkg/build/build_phase.go`
+- [X] T026 [US1] Execute artifact publication through stage `MutateArtifact` without changing image filesystem or layer content, and remove duplicate SBOM/VEX generation from `BuildPhase.AfterImages` while retaining unrelated publication/report work in `pkg/build/build_phase.go
 - [X] T027 [US1] Delete transitional `pkg/build/sbom_step.go`, `pkg/build/vex_step.go`, and their step-specific tests after all callers and migration tests use `SbomStage` and `VexStage`
 - [X] T028 [US1] Implement shared idempotent artifact propagation through `StorageManager`, with manager-routed source/destination backends, destination descriptor resolution, identical-address skipping, fallback-index deduplication, and all-artifact copying in `pkg/build/artifact_propagation.go` and `pkg/storage/manager/`
 - [X] T029 [US1] Connect primary-to-final and primary-to-cache image-copy paths to the `StorageManager`-routed propagation operation while preserving fatal final errors and best-effort cache warnings in `pkg/build/` and `pkg/storage/manager/`
@@ -79,15 +79,15 @@
 - [X] T031 [P] [US2] Add Ginkgo/Gomega unit tests for single-platform and multi-platform final-image subject selection in `pkg/build/artifact_subject_test.go`
 - [X] T032 [P] [US2] Add Ginkgo/Gomega unit tests proving platform SBOM metadata and final parent digest are distinct per platform in `pkg/build/stage/sbom_test.go`
 - [X] T033 [US2] Move or rename platform-subject tests from transitional `pkg/build/sbom_step_test.go` into stage-owned tests and ensure the final suite contains no step-specific test dependency
-- [ ] T034 [US2] Extend `test/e2e/sbom/` with two-platform subject and metadata assertions for each final platform manifest
+- [X] T034 [US2] Extend `test/e2e/sbom/` with two-platform subject and metadata assertions for each final platform manifest
 - [X] T035 [US2] Extend `test/e2e/vex/` with single-platform final-manifest placement and multi-platform final-index-only placement assertions
-- [ ] T036 [US2] Add storage-backed tests for destination platform/index descriptor resolution when the copied image digest differs from the source in `pkg/build/artifact_propagation_test.go`
+- [X] T036 [US2] Add storage-backed tests for destination platform/index descriptor resolution when the copied image digest differs from the source in `pkg/build/artifact_propagation_test.go`
 
 ### Implementation for User Story 2
 
 - [X] T037 [US2] Implement explicit final-image artifact subject resolution for published manifest and index descriptors in `pkg/build/artifact_subject.go`
-- [ ] T038 [US2] Pass the final target platform and resolved final platform manifest descriptor through `SbomStage` creation and publication in `pkg/build/stage/sbom.go` and `pkg/build/build_phase.go`
-- [ ] T039 [US2] Make `VexStage` registration run once per multi-platform image set with the final top-level index subject, and use the final image manifest subject for single-platform builds in `pkg/build/stage/vex.go` and `pkg/build/build_phase.go`
+- [X] T038 [US2] Pass the final target platform and resolved final platform manifest descriptor through `SbomStage` creation and publication in `pkg/build/stage/sbom.go` and `pkg/build/build_phase.go
+- [X] T039 [US2] Make `VexStage` registration run once per multi-platform image set with the final top-level index subject, and use the final image manifest subject for single-platform builds in `pkg/build/stage/vex.go` and `pkg/build/build_phase.go`
 - [X] T040 [US2] Ensure `StorageManager`-routed propagation resolves the corresponding destination platform manifest or image index before attaching artifacts, including destinations with differing source digests, in `pkg/build/artifact_propagation.go`, `pkg/storage/manager/`, and `pkg/storage/`
 
 **Checkpoint**: User Story 2 is independently testable and no artifact can silently use an index subject for a platform SBOM or duplicate multi-platform VEX onto platform manifests.

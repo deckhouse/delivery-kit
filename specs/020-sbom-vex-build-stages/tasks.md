@@ -105,14 +105,14 @@
 - [X] T041 [P] [US3] Add Ginkgo/Gomega tests for `SbomStage` dependency identity across final image digest, scanner, merge/GOST, format, signer, and target-platform inputs in `pkg/build/stage/sbom_test.go`
 - [X] T042 [P] [US3] Add Ginkgo/Gomega tests for `VexStage` dependency identity across final parent digest, document content, format, and signer inputs in `pkg/build/stage/vex_test.go`
 - [X] T043 [US3] Add Ginkgo/Gomega tests for repeated idempotent publication and cache-restored artifact processing through `StorageManager` in `pkg/build/artifact_propagation_test.go`
-- [ ] T044 [US3] Extend `test/e2e/sbom/` and `test/e2e/vex/` with unchanged rebuild, changed-input, signing-identity, and restored-cache scenarios
+- [X] T044 [US3] Extend `test/e2e/sbom/` and `test/e2e/vex/` with unchanged rebuild, changed-input, signing-identity, and restored-cache scenarios
 - [X] T045 [US3] Remove or migrate any remaining cache-identity assertions from deleted `pkg/build/sbom_step_test.go` and `pkg/build/vex_step_test.go` into stage-owned tests
 
 ### Implementation for User Story 3
 
 - [X] T046 [US3] Include all effective SBOM inputs and the final parent image identity in `SbomStage` dependency calculation while preserving existing checksum semantics in `pkg/build/stage/sbom.go`
 - [X] T047 [US3] Include VEX document content, final parent descriptor identity, format version, and signer identity in `VexStage` dependency calculation in `pkg/build/stage/vex.go`
-- [ ] T048 [US3] Select reusable artifact-bearing stages from primary and secondary storage through `StorageManager` using the complete dependency identity, and apply identical processing to locally built and cache-restored images in `pkg/build/` and `pkg/storage/manager/`
+- [X] T048 [US3] Select reusable artifact-bearing stages from primary and secondary storage through `StorageManager` using the complete dependency identity, and apply identical processing to locally built and cache-restored images in `pkg/build/` and `pkg/storage/manager/`
 - [X] T049 [US3] Preserve fallback-index convergence and prevent duplicate entries during repeated or concurrent artifact publication in `pkg/oci/artifact/`, `pkg/storage/`, and `pkg/build/artifact_propagation.go`
 
 **Checkpoint**: User Story 3 is independently testable; unchanged inputs reuse artifacts and every effective changed input invalidates only the affected artifact identity.

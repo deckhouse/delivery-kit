@@ -158,7 +158,7 @@
 - [X] T066 Run the complete unit suite with `task test:unit`
 - [X] T067 Run scoped SBOM e2e coverage with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="sbom"`
 - [X] T068 Run scoped VEX e2e coverage with `task test:e2e paths="./test/e2e/vex/..." labelFilter="vex"`
-- [ ] T069 Run legacy integration coverage with `task test:integration`
+- [X] T069 Run legacy integration coverage with `task test:integration`
 - [X] T070 Confirm authored-file whitespace and generated-file scope with `git diff --check` limited to changed authored files, without modifying `CHANGELOG.md` or generated CLI reference files
 
 ---

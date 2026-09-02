@@ -14,6 +14,24 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
+var _ = Describe("VEX artifact repository failures", Label("e2e", "vex", "artifact-failures"), func() {
+	It("rejects VEX generation without a registry before image work", func(ctx SpecContext) {
+		setupVexEnv("vanilla-docker")
+		SuiteData.Stubs.UnsetEnv("WERF_REPO")
+		SuiteData.Stubs.UnsetEnv("WERF_FINAL_REPO")
+
+		SuiteData.InitTestRepo(ctx, "repo_vex_local_only", "simple")
+		testRepoPath := SuiteData.GetTestRepoPath("repo_vex_local_only")
+		project := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+
+		out, err := project.BuildWithErr(ctx, nil)
+
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("requires a container registry"))
+		Expect(out).NotTo(ContainSubstring("Building stage"))
+	})
+})
+
 var _ = Describe("VEX lifecycle", Label("e2e", "VEX", "lifecycle", "simple"), func() {
 	DescribeTable("US1: publish VEX artifact during build",
 		Label("publish"),

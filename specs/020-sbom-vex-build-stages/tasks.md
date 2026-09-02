@@ -149,8 +149,8 @@
 **Purpose**: Validate the complete implementation against the revised stage-ownership and storage-abstraction boundaries.
 
 - [X] T059 [P] Review `pkg/build/`, `pkg/build/stage/`, `pkg/storage/`, `pkg/storage/manager/`, `pkg/oci/artifact/`, and `pkg/cleaning/` for unnecessary public surface, direct registry-client access from stages, duplicate convergence paths, unwrapped errors, and comments that do not explain non-obvious logic
-- [ ] T060 [P] Verify no `sbomStep` or `vexStep` types, constructors, callers, or compatibility wrappers remain in `pkg/build/`, verify no step-specific tests remain, and verify `SbomStage`/`VexStage` are the sole lifecycle owners
-- [ ] T061 [P] Verify all stage registry interaction goes through `StorageManager`, the manager routes to all supported registry-backed `storage.StagesStorage` implementations, and local storage rejects artifact publication explicitly in `pkg/storage/` and `pkg/storage/manager/`
+- [X] T060 [P] Verify no `sbomStep` or `vexStep` types, constructors, callers, or compatibility wrappers remain in `pkg/build/`, verify no step-specific tests remain, and verify `SbomStage`/`VexStage` are the sole lifecycle owners
+- [X] T061 [P] Verify all stage registry interaction goes through `StorageManager`, the manager routes to all supported registry-backed `storage.StagesStorage` implementations, and local storage rejects artifact publication explicitly in `pkg/storage/` and `pkg/storage/manager/`
 - [ ] T062 [P] Verify existing builds with SBOM/VEX disabled and existing `--repo`, `--final-repo`, `--cache-repo`, and `--secondary-repo` semantics in `test/legacy_e2e/` and relevant unit fixtures
 - [X] T063 Run formatting with `task format` for authored Go directories
 - [X] T064 Run compilation with `task build`

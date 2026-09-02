@@ -15,5 +15,8 @@ var _ = Describe("VexStage dependencies", func() {
 		Expect(err).To(Succeed())
 
 		Expect(first).NotTo(Equal(second))
+		content, err := GenerateVexStage([]byte(`{"statements":[]}`), &BaseStageOptions{TargetPlatform: ""}, signing.VexSigningOptions{}).GetContentDependencies(ctx, nil, nil)
+		Expect(err).To(Succeed())
+		Expect(content).To(Equal(first))
 	})
 })

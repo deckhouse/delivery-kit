@@ -25,13 +25,13 @@
 - [X] T004 Define internal artifact-stage metadata and stage-name constants in `pkg/build/stage/base.go`, including final image descriptor, artifact kind, target platform, mutable flag, and non-buildable flag
 - [X] T005 Define the kind-neutral artifact propagation operation and explicit source/destination final-image descriptor flow in `pkg/build/` using existing `pkg/oci/artifact/` primitives, without introducing a public API or new dependency
 - [X] T006 Locate the earliest common build initialization path and specify the registry-backed-storage validation seam in `pkg/build/build_phase.go` for both SBOM-enabled and VEX-enabled builds
-- [ ] T007 Extend `StorageManager` with minimal artifact listing, publication, destination-descriptor resolution, and copy operations in `pkg/storage/manager/`, routing each operation to the correct primary, secondary, cache, or final `storage.StagesStorage` instance
-- [ ] T008 Add the dedicated `MutateArtifact` lifecycle hook and scheduler/conveyor dispatch contract, keeping `MutateImage` reserved for image-manifest mutations, in `pkg/build/stage/`, `pkg/build/conveyor.go`, and `pkg/build/`
-- [ ] T009 [P] Define the artifact-stage checksum contract using `GetDependencies`, `GetContentDependencies`, and `util.Sha256Hash(args...)` in `pkg/build/stage/`, following `SignStage`
+- [X] T007 Extend `StorageManager` with minimal artifact listing, publication, destination-descriptor resolution, and copy operations in `pkg/storage/manager/`, routing each operation to the correct primary, secondary, cache, or final `storage.StagesStorage` instance
+- [X] T008 Add the dedicated `MutateArtifact` lifecycle hook and scheduler/conveyor dispatch contract, keeping `MutateImage` reserved for image-manifest mutations, in `pkg/build/stage/`, `pkg/build/conveyor.go`, and `pkg/build/`
+- [X] T009 [P] Define the artifact-stage checksum contract using `GetDependencies`, `GetContentDependencies`, and `util.Sha256Hash(args...)` in `pkg/build/stage/`, following `SignStage`
 - [X] T010 [P] Add shared test fixtures or helper functions needed to construct final manifest/index descriptors and fallback artifact indexes in co-located files under `pkg/build/` and `pkg/oci/artifact/`
 - [X] T011 [P] Define the minimal OCI-artifact primitives on `storage.StagesStorage` in `pkg/storage/stages_storage.go` for listing attached artifacts, publishing an artifact for a final image digest, and copying attached artifacts between destination descriptors; keep repository selection outside the backend
 - [X] T012 [P] Implement the new `StagesStorage` artifact primitives for every registry-backed storage implementation under `pkg/storage/` and keep local-storage behavior explicit and unsupported for artifact publication
-- [ ] T013 [P] Add Ginkgo/Gomega contract tests for `StagesStorage` artifact primitives, `StorageManager` repository routing, and `MutateArtifact` dispatch, verifying stage code imports neither concrete registry clients nor repository-selection logic in `pkg/storage/stages_storage_test.go`, `pkg/storage/manager/`, `pkg/build/stage/`, and `pkg/build/`
+- [X] T013 [P] Add Ginkgo/Gomega contract tests for `StagesStorage` artifact primitives, `StorageManager` repository routing, and `MutateArtifact` dispatch, verifying stage code imports neither concrete registry clients nor repository-selection logic in `pkg/storage/stages_storage_test.go`, `pkg/storage/manager/`, `pkg/build/stage/`, and `pkg/build/`
 
 ---
 

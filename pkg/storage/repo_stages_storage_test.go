@@ -58,6 +58,11 @@ func (r *pushImageRegistryStub) MutateAndPushImage(ctx context.Context, _, desti
 	return nil
 }
 
+var (
+	_ StagesStorage = (*RepoStagesStorage)(nil)
+	_ StagesStorage = (*LocalStagesStorage)(nil)
+)
+
 var _ = Describe("RepoStagesStorage", func() {
 	It("pushes a manifest-only image to the registry in PostManifest", func(ctx SpecContext) {
 		registry := &pushImageRegistryStub{}

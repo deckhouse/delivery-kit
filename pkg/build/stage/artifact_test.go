@@ -54,9 +54,10 @@ var _ = Describe("artifact stages", func() {
 		parent := NewStageImage(NewContainerBackendStub(), "", parentImage)
 		stageImage := NewStageImage(NewContainerBackendStub(), "", mock.NewMockLegacyImageInterface(ctrl))
 
-		Expect(artifactStage.MutateImage(ctx, nil, parent, stageImage)).To(Succeed())
+		Expect(artifactStage.MutateArtifact(ctx, parent, stageImage)).To(Succeed())
 		Expect(publisherCalls).To(Equal(1))
 		Expect(artifactStage.GetArtifactMetadata().ParentDigest).To(Equal("sha256:parent"))
+		Expect(artifactStage.MutateImage(ctx, nil, parent, stageImage)).To(MatchError("SBOM stage must be mutated as an artifact"))
 	})
 
 	It("publishes VEX through its stage publisher without requiring image mutation", func(ctx SpecContext) {
@@ -81,9 +82,10 @@ var _ = Describe("artifact stages", func() {
 		parent := NewStageImage(NewContainerBackendStub(), "", parentImage)
 		stageImage := NewStageImage(NewContainerBackendStub(), "", mock.NewMockLegacyImageInterface(ctrl))
 
-		Expect(artifactStage.MutateImage(ctx, nil, parent, stageImage)).To(Succeed())
+		Expect(artifactStage.MutateArtifact(ctx, parent, stageImage)).To(Succeed())
 		Expect(publisherCalls).To(Equal(1))
 		Expect(artifactStage.GetArtifactMetadata().ParentDigest).To(Equal("sha256:parent"))
+		Expect(artifactStage.MutateImage(ctx, nil, parent, stageImage)).To(MatchError("VEX stage must be mutated as an artifact"))
 	})
 
 	DescribeTable("is mutable and non-buildable",

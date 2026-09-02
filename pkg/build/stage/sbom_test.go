@@ -26,6 +26,9 @@ var _ = Describe("SbomStage dependencies", func() {
 		Expect(err).To(Succeed())
 
 		Expect(amd).NotTo(Equal(arm))
+		content, err := newStage("linux/amd64").GetContentDependencies(ctx, nil, nil)
+		Expect(err).To(Succeed())
+		Expect(content).To(Equal(amd))
 	})
 
 	It("changes when the effective SBOM inputs change", func(ctx SpecContext) {

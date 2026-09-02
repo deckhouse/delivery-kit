@@ -96,7 +96,7 @@ func (s *VexStage) GetContentDependencies(ctx context.Context, c Conveyor, build
 	return s.GetDependencies(ctx, c, nil, nil, nil, buildContextArchive)
 }
 
-func (s *VexStage) MutateImage(ctx context.Context, _ ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
+func (s *VexStage) MutateArtifact(ctx context.Context, prevBuiltImage, stageImage *StageImage) error {
 	if prevBuiltImage == nil || prevBuiltImage.Image == nil {
 		return fmt.Errorf("VEX stage parent image is unavailable")
 	}
@@ -125,6 +125,10 @@ func (s *VexStage) MutateImage(ctx context.Context, _ ImageMutatorPusher, prevBu
 	}
 
 	return s.publisher(ctx, parentDesc, s.ImageName(), s.TargetPlatform(), s.vexJSON, s.signer, s.signerIdentity)
+}
+
+func (s *VexStage) MutateImage(_ context.Context, _ ImageMutatorPusher, _, _ *StageImage) error {
+	return fmt.Errorf("VEX stage must be mutated as an artifact")
 }
 
 const vexStageArtifactFormatVersion = "2"

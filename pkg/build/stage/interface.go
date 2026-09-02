@@ -39,6 +39,7 @@ type Interface interface {
 	GetGitMappings() []*GitMapping
 
 	MutateImage(ctx context.Context, registry ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error
+	MutateArtifact(ctx context.Context, prevBuiltImage, stageImage *StageImage) error
 
 	SelectSuitableStageDesc(context.Context, Conveyor, image.StageDescSet) (*image.StageDesc, error)
 

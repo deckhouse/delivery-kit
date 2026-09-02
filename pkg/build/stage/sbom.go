@@ -96,7 +96,7 @@ func (s *SbomStage) GetContentDependencies(ctx context.Context, c Conveyor, buil
 	return s.GetDependencies(ctx, c, nil, nil, nil, buildContextArchive)
 }
 
-func (s *SbomStage) MutateImage(ctx context.Context, _ ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
+func (s *SbomStage) MutateArtifact(ctx context.Context, prevBuiltImage, stageImage *StageImage) error {
 	if s.publisher == nil {
 		return fmt.Errorf("SBOM stage publisher is unavailable")
 	}
@@ -122,6 +122,10 @@ func (s *SbomStage) MutateImage(ctx context.Context, _ ImageMutatorPusher, prevB
 	metadata.ParentDigest = parentDesc.Info.GetDigest()
 
 	return s.publisher(ctx, parentDesc, s.ImageName(), s.TargetPlatform())
+}
+
+func (s *SbomStage) MutateImage(_ context.Context, _ ImageMutatorPusher, _, _ *StageImage) error {
+	return fmt.Errorf("SBOM stage must be mutated as an artifact")
 }
 
 const sbomArtifactFormatVersion = "2"

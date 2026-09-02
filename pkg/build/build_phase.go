@@ -1498,8 +1498,8 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 		if prevBuiltImage == nil || prevBuiltImage.Image == nil {
 			return fmt.Errorf("expected previous built image for artifact stage %s", stg.Name())
 		}
-		if err := stg.MutateImage(ctx, phase.Conveyor.StorageManager.GetStagesStorage(), prevBuiltImage, stageImage); err != nil {
-			return fmt.Errorf("unable to mutate %s: %w", stg.Name(), err)
+		if err := stg.MutateArtifact(ctx, prevBuiltImage, stageImage); err != nil {
+			return fmt.Errorf("unable to mutate artifact %s: %w", stg.Name(), err)
 		}
 		stageImage.Image.SetStageDesc(prevBuiltImage.Image.GetStageDesc())
 		return nil

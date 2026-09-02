@@ -130,7 +130,7 @@
 - [X] T050 [P] [US4] Add Ginkgo/Gomega unit tests proving artifact-enabled local-only builds fail before any image stage executes in `pkg/build/build_phase_test.go`
 - [X] T051 [P] [US4] Add Ginkgo/Gomega unit tests for fatal final propagation errors and non-fatal, clearly logged cache propagation errors in `pkg/build/artifact_propagation_test.go`
 - [X] T052 [P] [US4] Add Ginkgo/Gomega concurrency tests that retain every fallback-index artifact entry during concurrent `StorageManager`-routed attachment in `pkg/oci/artifact/`, `pkg/storage/manager/`, and `pkg/storage/`
-- [ ] T053 [US4] Extend `test/e2e/sbom/` and `test/e2e/vex/` for unavailable final/cache repositories, local-only rejection, and missing secondary source artifact behavior
+- [X] T053 [US4] Extend `test/e2e/sbom/` and `test/e2e/vex/` for unavailable final/cache repositories, local-only rejection, and missing secondary source artifact behavior
 - [X] T054 [US4] Extend cleanup coverage in `pkg/cleaning/` and relevant e2e fixtures to verify orphan fallback artifact indexes are removed from primary and propagated repositories
 
 ### Implementation for User Story 4

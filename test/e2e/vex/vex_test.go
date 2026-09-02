@@ -6,15 +6,94 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/oci/artifact"
+	"github.com/werf/werf/v2/test/pkg/report"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
 var _ = Describe("VEX artifact repository failures", Label("e2e", "vex", "artifact-failures"), func() {
+	It("publishes VEX artifacts into a separate cache repository namespace", func(ctx SpecContext) {
+		setupVexEnv("vanilla-docker")
+		cacheRepo := suite_init.TestRepo(SuiteData.ProjectName + "-cache")
+		SuiteData.InitTestRepo(ctx, "repo_vex_cache_repo", "simple")
+		testRepoPath := SuiteData.GetTestRepoPath("repo_vex_cache_repo")
+		project := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		reportPath := filepath.Join(SuiteData.TmpDir, "vex_cache_repo.json")
+		_, buildReport := report.NewProjectWithReport(project).BuildWithReport(ctx, reportPath, &werf.WithReportOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--cache-repo", cacheRepo}},
+		})
+		record, found := buildReport.Images["app"]
+		Expect(found).To(BeTrue())
+
+		out := project.AttestGet(ctx, &werf.AttestGetOptions{CommonOptions: werf.CommonOptions{
+			ExtraArgs: []string{"--type", "openvex", "--repo", cacheRepo, "--digest", record.DockerImageDigest},
+		}})
+		Expect(out).To(ContainSubstring("CVE-2024-E2E001"))
+	})
+
+	It("continues successfully when the cache repository is unavailable", func(ctx SpecContext) {
+		setupVexEnv("vanilla-docker")
+		SuiteData.InitTestRepo(ctx, "repo_vex_unavailable_cache", "simple")
+		testRepoPath := SuiteData.GetTestRepoPath("repo_vex_unavailable_cache")
+		project := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+
+		out, err := project.BuildWithErr(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{
+			ExtraArgs: []string{"--cache-repo", "127.0.0.1:1/unreachable/cache"},
+		}})
+		Expect(err).NotTo(HaveOccurred(), out)
+	})
+
+	It("fails when the final VEX repository is unavailable", func(ctx SpecContext) {
+		setupVexEnv("vanilla-docker")
+		SuiteData.InitTestRepo(ctx, "repo_vex_unavailable_final", "simple")
+		testRepoPath := SuiteData.GetTestRepoPath("repo_vex_unavailable_final")
+		project := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+
+		out, err := project.BuildWithErr(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{
+			ExtraArgs: []string{"--final-repo", "127.0.0.1:1/unreachable/final"},
+		}})
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("unable to init storage manager cache"))
+		Expect(out).To(ContainSubstring("127.0.0.1:1/unreachable/final"))
+	})
+
+	It("rejects a secondary image whose VEX fallback index is missing", func(ctx SpecContext) {
+		setupVexEnv("vanilla-docker")
+		secondaryRepo := suite_init.TestRepo(SuiteData.ProjectName + "-secondary")
+		primaryRepo := suite_init.TestRepo(SuiteData.ProjectName + "-restored")
+		SuiteData.InitTestRepo(ctx, "repo_vex_missing_secondary_artifact", "simple")
+		testRepoPath := SuiteData.GetTestRepoPath("repo_vex_missing_secondary_artifact")
+		project := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		reportPath := filepath.Join(SuiteData.TmpDir, "vex_secondary_source.json")
+		_, buildReport := report.NewProjectWithReport(project).BuildWithReport(ctx, reportPath, &werf.WithReportOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--repo", secondaryRepo}},
+		})
+		record, found := buildReport.Images["app"]
+		Expect(found).To(BeTrue())
+
+		ref, err := name.NewTag(secondaryRepo+":"+artifact.FallbackTag(record.DockerImageDigest), name.Insecure)
+		Expect(err).NotTo(HaveOccurred())
+		fallbackDesc, err := remote.Get(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
+		Expect(err).NotTo(HaveOccurred())
+		fallbackDigest, err := name.NewDigest(secondaryRepo+"@"+fallbackDesc.Digest.String(), name.Insecure)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(remote.Delete(fallbackDigest, remote.WithAuth(authn.Anonymous))).To(Succeed())
+
+		out, err := project.BuildWithErr(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{
+			ExtraArgs: []string{"--repo", primaryRepo, "--secondary-repo", secondaryRepo},
+		}})
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("has incomplete artifacts"))
+	})
+
 	It("rejects VEX generation without a registry before image work", func(ctx SpecContext) {
 		setupVexEnv("vanilla-docker")
 		SuiteData.Stubs.UnsetEnv("WERF_REPO")

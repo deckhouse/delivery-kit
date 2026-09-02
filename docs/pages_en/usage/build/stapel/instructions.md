@@ -144,9 +144,12 @@ No limitations are imposed on assembly instructions. The suggested use of _user 
 
 The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When [SBOM generation]({{ "/usage/build/sbom.html" | true_relative_url }}) is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
 
-When SBOM generation is enabled, network is disabled in shell stages, so installing dependencies with a command in `shell.install` is impossible — the `packages` directive becomes the only channel for installing dependencies (see [SBOM restrictions]({{ "/usage/build/sbom.html#restrictions" | true_relative_url }})).
+When SBOM generation is enabled, network is disabled in shell stages, so installing dependencies with commands in any shell stage (`beforeInstall`, `install`, `beforeSetup`, `setup`) is impossible — the `packages` directive becomes the only channel for installing dependencies (see [SBOM technical limitations]({{ "/usage/build/sbom.html#technical-limitations" | true_relative_url }})).
 
-Two kinds of package sources are supported: OS package manager (`os-pm`) and file-based package ecosystems (`go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`, `javascript-npm`, `javascript-yarn`, `javascript-pnpm`).
+Two kinds of package sources are supported:
+
+- **OS-level package managers**: `os-pm`;
+- **Language package managers** (file-based): `go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`, `javascript-npm`, `javascript-yarn`, `javascript-pnpm`.
 
 ### OS packages
 
@@ -163,7 +166,7 @@ packages:
 ```
 
 - `type: os-pm` — selects the `pm` package manager.
-- `spec` — an inline list of packages to install; a version is pinned with `==` (`curl==8.12.1`), without a version the default one is installed. This is the only format: a file with a package list instead of the inline list is not supported.
+- `spec` — an inline list of packages to install; a version is pinned with `==` (`curl==8.12.1`) or `@` (`curl@8.12.1`), without a version the default one is installed. This is the only format: a file with a package list instead of the inline list is not supported.
 - `workdir` is not supported for `os-pm`.
 
 The base image must provide the `pm` binary in `$PATH` — otherwise the build fails because `pm` cannot be found. The `PACKAGES_VERSION` and `REGISTRY` environment variables are set in the builder base images themselves — there is no need to set them manually.

@@ -15,10 +15,10 @@ SBOM не собирает образы. Всё, что нужно ответс�
 знать, **какие образы** (по их digest'ам) входят в продукт.
 
 ```
-Разработчик модуля:             werf build   [→ werf sbom get]
+Разработчик модуля:             dk build   [→ dk sbom get]
                                     │
                                     ▼   per-image SBOM в registry
-Ответственный за SBOM:          werf sbom merge  →  werf sbom validate
+Ответственный за SBOM:          dk sbom merge  →  dk sbom validate
 ```
 
 ## Flow разработчика модуля
@@ -32,7 +32,8 @@ SBOM не собирает образы. Всё, что нужно ответс�
   туда (флаг `--repo` / переменная `WERF_REPO`);
 - **обогащение VCS external references** — задайте переменную окружения
   `WERF_EXTERNAL_REFS_SERVER_URL` (URL сервиса обогащения); при включённом SBOM
-  она обязательна — без неё сборка завершится ошибкой.
+  она обязательна — без неё сборка завершится ошибкой (подробнее — в разделе
+  [«Обогащение VCS external references»]({{ "/usage/build/sbom.html#обогащение-vcs-external-references" | true_relative_url }})).
 
 | Переменная | Зачем | Обязательна |
 |------------|-------|-------------|
@@ -44,9 +45,10 @@ export WERF_REPO="registry.example.com/my-project"
 export WERF_EXTERNAL_REFS_SERVER_URL="https://purl-resolver.example.com/"
 ```
 
-#### Требования к базовым образам
+#### Базовые образы
 
-Базовые образы бывают двух разновидностей, и flow для них различается:
+**Классификация.** Базовые образы бывают двух разновидностей, и flow для них
+различается:
 
 - **сборочные** (builder) — в них выполняются стадия `packages` и shell-инструкции;
   в SBOM собранного на них образа могут попадать **сборочные зависимости**
@@ -54,20 +56,21 @@ export WERF_EXTERNAL_REFS_SERVER_URL="https://purl-resolver.example.com/"
 - **финальные** (runtime, например distroless) — база итогового образа поставки;
   в его SBOM входят только runtime-зависимости.
 
-Требования:
+**Требования:**
 
-- **werf не поставляет пакетный менеджер `pm`.** Если образ использует
+- **Delivery Kit не поставляет пакетный менеджер `pm`.** Если образ использует
   `packages: type: os-pm`, его базовый образ обязан содержать бинарь `pm` в `$PATH`
   (подробнее — в описании [директивы `packages`]({{ "/usage/build/stapel/instructions.html#установка-бинарных-пакетов" | true_relative_url }}));
 - **у каждого base/import-образа должен быть прикреплённый SBOM** в registry —
   иначе сборка с включённым SBOM завершится ошибкой; такие образы нужно собирать
-  с `build.sbom.enable: true`;
+  с `build.sbom.enable: true` (подробнее — в разделе
+  [«Требования к базовому образу»]({{ "/usage/build/sbom.html#требования-к-базовому-образу" | true_relative_url }}));
 - для file-based экосистем (`go-mod` и др.) `pm` не нужен — нужен соответствующий
   тулчейн в базовом образе (например, Go для `go mod download`).
 
-#### Ограничения
+#### Технические ограничения
 
-См. раздел [«Ограничения»]({{ "/usage/build/sbom.html#ограничения" | true_relative_url }})
+См. раздел [«Технические ограничения»]({{ "/usage/build/sbom.html#технические-ограничения" | true_relative_url }})
 на странице SBOM.
 
 ### Шаг 1. Опишите зависимости в `werf.yaml`
@@ -88,18 +91,18 @@ export WERF_EXTERNAL_REFS_SERVER_URL="https://purl-resolver.example.com/"
 - привяжите стадию `packages` к манифестам языковых зависимостей через
   `stageDependencies`.
 
-### Шаг 2. Соберите образы: `werf build`
+### Шаг 2. Соберите образы: `dk build`
 
 |  |  |
 |---|---|
 | **Вход** | исходники + `werf.yaml` с шага 1 |
-| **Команда** | `werf build` |
+| **Команда** | `dk build` |
 | **Выход** | образы в registry; per-image SBOM-артефакт рядом с каждым образом |
 
-Для каждого образа на этапе сборки werf:
+Для каждого образа на этапе сборки Delivery Kit:
 
 - учитывает объявленные в `packages` зависимости (каталогизаторы syft по
-  манифестам/lock-файлам, os-pm collector);
+  манифестам/lock-файлам, каталогизатор os-pm);
 - обогащает компоненты свойствами безопасности ГОСТ (`attackSurface`,
   `securityFunction`);
 - выполняет purl-resolving: обогащает VCS external references через сервис из
@@ -111,31 +114,31 @@ export WERF_EXTERNAL_REFS_SERVER_URL="https://purl-resolver.example.com/"
 опубликованы в registry вместе с образами. На этом задача разработчика модуля
 выполнена.
 
-### Шаг 3 (опционально). Self-check: `werf sbom get`
+### Шаг 3 (опционально). Self-check: `dk sbom get`
 
 |  |  |
 |---|---|
 | **Вход** | имя образа из `werf.yaml` |
-| **Команда** | `werf sbom get <image>` |
+| **Команда** | `dk sbom get <image>` |
 | **Выход** | SBOM образа — чистый CycloneDX 1.6 JSON |
 
 По желанию убедитесь, что SBOM вашего модуля полный:
 
 ```bash
-werf sbom get <image> > sbom.json
+dk sbom get <image> > sbom.json
 ```
 
 `sbom get` выгружает SBOM из registry (сгенерированный на шаге 2) в stdout.
 SBOM всегда ассоциирован с **digest'ом** образа; имя из `werf.yaml` — это удобный
-ярлык: werf резолвит его в digest текущей сборки и по нему находит SBOM. Если
-образы ещё не собраны, команда сначала запускает стандартный сборочный конвейер,
-как `werf build`.
+ярлык: Delivery Kit резолвит его в digest текущей сборки и по нему находит SBOM.
+Если образы ещё не собраны, команда сначала запускает стандартный сборочный
+конвейер, как `dk build`.
 
 **Ожидаемый результат:** валидный JSON с `"bomFormat": "CycloneDX"` и
 `"specVersion": "1.6"`; в `components` — зависимости модуля, у компонентов
 проставлены свойства ГОСТ и VCS external references.
 
-> Альтернатива позиционному имени: `werf sbom get --tag <content-based-tag>` или
+> Альтернатива позиционному имени: `dk sbom get --tag <content-based-tag>` или
 > `--digest sha256:...` (взаимоисключающие, требуют `--repo`).
 
 У разработчика модуля нет операций merge/validate — это зона ответственности
@@ -176,18 +179,18 @@ per-image SBOM, которые разработчики модулей уже о
 один модуль, срез продукта или весь продукт — решаете вы.
 
 Один из способов получить digest'ы — build-report сборки
-(`werf build --save-build-report`), поле `.Images.<image>.DockerImageDigest`.
+(`dk build --save-build-report`), поле `.Images.<image>.DockerImageDigest`.
 
-### Шаг 2. Соберите merged SBOM: `werf sbom merge`
+### Шаг 2. Соберите merged SBOM: `dk sbom merge`
 
 |  |  |
 |---|---|
 | **Вход** | `images_digests.json` с шага 1 |
-| **Команда** | `werf sbom merge --input=... --ispras-format=... --app-name=... --app-version=... --manufacturer=... -o <файл>` |
+| **Команда** | `dk sbom merge --input=... --ispras-format=... --app-name=... --app-version=... --manufacturer=... -o <файл>` |
 | **Выход** | единый SBOM в формате ИСПРАС |
 
 ```bash
-werf sbom merge \
+dk sbom merge \
   --input=images_digests.json \
   --ispras-format=container \
   --app-name=<app> \
@@ -204,16 +207,16 @@ werf sbom merge \
 **Ожидаемый результат:** единый SBOM в выбранном формате ИСПРАС, включающий
 компоненты всех образов из `--input`.
 
-### Шаг 3. Провалидируйте: `werf sbom validate`
+### Шаг 3. Провалидируйте: `dk sbom validate`
 
 |  |  |
 |---|---|
 | **Вход** | merged SBOM с шага 2 (или любой локальный SBOM-файл) |
-| **Команда** | `werf sbom validate --path=... --ispras-format=...` |
+| **Команда** | `dk sbom validate --path=... --ispras-format=...` |
 | **Выход** | результат проверки по схемам ИСПРАС |
 
 ```bash
-werf sbom validate --path=merged-sbom.json --ispras-format=container
+dk sbom validate --path=merged-sbom.json --ispras-format=container
 ```
 
 **Ожидаемый результат:** валидация завершается успешно (exit code 0). При

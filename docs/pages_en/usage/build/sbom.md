@@ -3,9 +3,7 @@ title: SBOM
 permalink: usage/build/sbom.html
 ---
 
-> **Note**: SBOM scanning and artifact generation is an experimental feature. Its behavior and configuration options may change in future releases.
-
-To enable scanning and generation of SBOM artifacts during the build process, you need to configure the global `build.sbom` section and, optionally, per-image components.
+SBOM scanning and artifact generation is **enabled** with the `build.sbom.enable` setting and, optionally, **configured** globally (the `build.sbom` section) or per image (for example, `image.sbom.gost`).
 
 The split of SBOM work between roles (module developer and product SBOM owner) and the step-by-step workflows are described on the [SBOM roles and workflow]({{ "/usage/build/sbom_workflow.html" | true_relative_url }}) page.
 
@@ -15,14 +13,12 @@ The scanning result is saved as an OCI artifact in the container registry, attac
 SBOM generation requires a container registry (specify --repo)
 ```
 
-No local image with a `-sbom` suffix is created.
-
-## Restrictions
+## Technical limitations
 
 - Only the **Docker backend** is supported.
 - Only the **Stapel syntax** for describing images (`werf.yaml`) is supported.
-- **Network is disabled in shell stages**: downloading dependencies with a command in `shell.install` (`apt-get install`, `pip install`, `go mod download`, and so on) will not work — dependencies are installed declaratively via the [`packages` directive]({{ "/usage/build/stapel/instructions.html#installing-binary-packages" | true_relative_url }}) only. This is what guarantees that all dependencies are recorded in the SBOM.
-- The SBOM is built from **controlled inputs**: every `packages` entry is handled by its own cataloger (for file-based types syft reads the manifest/lock file — `go.sum`, `package-lock.json`, and so on; for `os-pm` — a dedicated collector). The list of supported ecosystems is fixed.
+- **Network is disabled in shell stages**: downloading dependencies with a command in any shell stage (`beforeInstall`, `install`, `beforeSetup`, `setup`) will not work — dependencies are installed declaratively via the [`packages` directive]({{ "/usage/build/stapel/instructions.html#installing-binary-packages" | true_relative_url }}) only. This is what guarantees that all dependencies are recorded in the SBOM.
+- The SBOM is built from **controlled inputs**: every `packages` entry is handled by its own cataloger (for file-based types syft reads the manifest/lock file — `go.sum`, `package-lock.json`, and so on; for `os-pm` — a dedicated cataloger). The list of supported ecosystems is fixed.
 - **Vendored dependencies are not recorded**: dependencies committed to the repository directly (`vendor/`, `third_party/`, and so on) bypass `packages` and do not end up in the SBOM. Do not use vendoring — all dependencies must come in via `packages`.
 - An SBOM exists only for images built with `build.sbom.enable: true` — previously built images have no SBOM and must be rebuilt.
 

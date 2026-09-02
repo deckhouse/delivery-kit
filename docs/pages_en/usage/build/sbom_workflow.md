@@ -15,10 +15,10 @@ SBOM owner never builds images. All the SBOM owner needs from the developers is
 to know **which images** (by their digests) make up the product.
 
 ```
-Module developer:               werf build   [→ werf sbom get]
+Module developer:               dk build   [→ dk sbom get]
                                     │
                                     ▼   per-image SBOMs in the registry
-SBOM owner:                     werf sbom merge  →  werf sbom validate
+SBOM owner:                     dk sbom merge  →  dk sbom validate
 ```
 
 ## Module developer flow
@@ -33,7 +33,8 @@ registry.
   published there (the `--repo` flag / the `WERF_REPO` variable);
 - **VCS external references enrichment** — set the `WERF_EXTERNAL_REFS_SERVER_URL`
   environment variable (the URL of the enrichment service); it is required when
-  SBOM is enabled — without it the build fails.
+  SBOM is enabled — without it the build fails (see
+  [VCS external references enrichment]({{ "/usage/build/sbom.html#vcs-external-references-enrichment" | true_relative_url }})).
 
 | Variable | Purpose | Required |
 |----------|---------|----------|
@@ -45,9 +46,10 @@ export WERF_REPO="registry.example.com/my-project"
 export WERF_EXTERNAL_REFS_SERVER_URL="https://purl-resolver.example.com/"
 ```
 
-#### Base image requirements
+#### Base images
 
-Base images come in two flavors, and the flow differs between them:
+**Classification.** Base images come in two flavors, and the flow differs
+between them:
 
 - **builder** images — the `packages` stage and shell instructions run in them;
   the SBOM of an image built on top of them may include **build dependencies**
@@ -55,21 +57,22 @@ Base images come in two flavors, and the flow differs between them:
 - **final** (runtime, e.g. distroless) images — the base of the shipped image;
   its SBOM contains runtime dependencies only.
 
-Requirements:
+**Requirements:**
 
-- **werf does not ship the `pm` package manager.** If an image uses
+- **Delivery Kit does not ship the `pm` package manager.** If an image uses
   `packages: type: os-pm`, its base image must provide the `pm` binary in `$PATH`
   (see the [`packages` directive]({{ "/usage/build/stapel/instructions.html#installing-binary-packages" | true_relative_url }}));
 - **every base/import image must have an SBOM artifact attached** in the
   registry — otherwise a build with SBOM enabled fails; such images must be
-  built with `build.sbom.enable: true`;
+  built with `build.sbom.enable: true` (see
+  [Base image requirements]({{ "/usage/build/sbom.html#base-image-requirements" | true_relative_url }}));
 - file-based ecosystems (`go-mod` and others) do not need `pm` — they need the
   corresponding toolchain in the base image (for example, Go for
   `go mod download`).
 
-#### Restrictions
+#### Technical limitations
 
-See the [Restrictions]({{ "/usage/build/sbom.html#restrictions" | true_relative_url }})
+See the [Technical limitations]({{ "/usage/build/sbom.html#technical-limitations" | true_relative_url }})
 section on the SBOM page.
 
 ### Step 1. Declare dependencies in `werf.yaml`
@@ -90,18 +93,18 @@ section. The section applies to the whole `werf.yaml`: by setting it, you move
 - bind the `packages` stage to the language dependency manifests via
   `stageDependencies`.
 
-### Step 2. Build the images: `werf build`
+### Step 2. Build the images: `dk build`
 
 |  |  |
 |---|---|
 | **Input** | sources + the `werf.yaml` from step 1 |
-| **Command** | `werf build` |
+| **Command** | `dk build` |
 | **Output** | images in the registry; a per-image SBOM artifact next to each image |
 
-For each image, at build time werf:
+For each image, at build time Delivery Kit:
 
 - records the dependencies declared in `packages` (syft catalogers over
-  manifests/lock files, the os-pm collector);
+  manifests/lock files, the os-pm cataloger);
 - enriches components with GOST security properties (`attackSurface`,
   `securityFunction`);
 - performs purl resolving: enriches VCS external references via the service from
@@ -114,31 +117,31 @@ For each image, at build time werf:
 published to the registry along with the images. The module developer's task
 ends here.
 
-### Step 3 (optional). Self-check: `werf sbom get`
+### Step 3 (optional). Self-check: `dk sbom get`
 
 |  |  |
 |---|---|
 | **Input** | an image name from `werf.yaml` |
-| **Command** | `werf sbom get <image>` |
+| **Command** | `dk sbom get <image>` |
 | **Output** | the image SBOM — plain CycloneDX 1.6 JSON |
 
 Optionally verify that your module's SBOM is complete:
 
 ```bash
-werf sbom get <image> > sbom.json
+dk sbom get <image> > sbom.json
 ```
 
 `sbom get` downloads the SBOM from the registry (generated at step 2) to
 stdout. The SBOM is always associated with the image **digest**; the name from
-`werf.yaml` is a convenient label: werf resolves it to the digest of the current
-build and finds the SBOM by it. If the images are not built yet, the command
-first runs the standard build conveyor, just like `werf build`.
+`werf.yaml` is a convenient label: Delivery Kit resolves it to the digest of the
+current build and finds the SBOM by it. If the images are not built yet, the
+command first runs the standard build conveyor, just like `dk build`.
 
 **Expected result:** valid JSON with `"bomFormat": "CycloneDX"` and
 `"specVersion": "1.6"`; `components` lists the module dependencies with GOST
 properties and VCS external references set.
 
-> An alternative to the positional name: `werf sbom get --tag <content-based-tag>`
+> An alternative to the positional name: `dk sbom get --tag <content-based-tag>`
 > or `--digest sha256:...` (mutually exclusive, require `--repo`).
 
 The module developer has no merge/validate operations — that is the next role's
@@ -182,19 +185,19 @@ SBOM: a single module, a slice of the product, or the whole product — it is up
 to you.
 
 One way to obtain the digests is the build report
-(`werf build --save-build-report`), the `.Images.<image>.DockerImageDigest`
+(`dk build --save-build-report`), the `.Images.<image>.DockerImageDigest`
 field.
 
-### Step 2. Assemble the merged SBOM: `werf sbom merge`
+### Step 2. Assemble the merged SBOM: `dk sbom merge`
 
 |  |  |
 |---|---|
 | **Input** | the `images_digests.json` from step 1 |
-| **Command** | `werf sbom merge --input=... --ispras-format=... --app-name=... --app-version=... --manufacturer=... -o <file>` |
+| **Command** | `dk sbom merge --input=... --ispras-format=... --app-name=... --app-version=... --manufacturer=... -o <file>` |
 | **Output** | a single SBOM in an ISPRAS format |
 
 ```bash
-werf sbom merge \
+dk sbom merge \
   --input=images_digests.json \
   --ispras-format=container \
   --app-name=<app> \
@@ -212,16 +215,16 @@ merged SBOM is printed to stdout.
 **Expected result:** a single SBOM in the chosen ISPRAS format that includes the
 components of all images from `--input`.
 
-### Step 3. Validate: `werf sbom validate`
+### Step 3. Validate: `dk sbom validate`
 
 |  |  |
 |---|---|
 | **Input** | the merged SBOM from step 2 (or any local SBOM file) |
-| **Command** | `werf sbom validate --path=... --ispras-format=...` |
+| **Command** | `dk sbom validate --path=... --ispras-format=...` |
 | **Output** | the result of validation against the ISPRAS schemas |
 
 ```bash
-werf sbom validate --path=merged-sbom.json --ispras-format=container
+dk sbom validate --path=merged-sbom.json --ispras-format=container
 ```
 
 **Expected result:** validation succeeds (exit code 0). If the SBOM does not

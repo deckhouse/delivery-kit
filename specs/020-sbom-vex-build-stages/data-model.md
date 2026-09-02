@@ -12,12 +12,14 @@ An internal build-stage operation associated with the final image digest (and, f
 | Artifact kind | CycloneDX SBOM or OpenVEX. |
 | Generation inputs | Scanner/merge inputs for SBOM, document content for VEX, format version, and signer identity. |
 | Mutable/buildable flags | Non-buildable and mutable, matching registry-only stages such as signing, but unlike signing the output is an associated OCI artifact rather than a manifest mutation. |
-| Storage abstraction | `StorageManager` routes all registry operations to primary, secondary, cache, or final `storage.StagesStorage`. |
+| Storage abstraction | `StorageManager` routes all registry operations initiated by `MutateArtifact` to primary, secondary, cache, or final `storage.StagesStorage`. |
 
 Validation rules:
 
-- The final image descriptor/digest must be available before `MutateImage` runs.
-- The stage must use `StorageManager` for registry access; repository selection is performed by the manager.
+- The final image descriptor/digest must be available before `MutateArtifact` runs.
+- The stage must use `GetDependencies`/`GetContentDependencies` for checksum calculation according to the `SignStage` convention.
+- The stage must use `MutateArtifact` for registry access through `StorageManager`; repository selection is performed by the manager.
+- `MutateImage` is not used by these artifact stages.
 - SBOM for a multi-platform image must use the corresponding platform manifest.
 - VEX must use the platform manifest for single-platform images and the top-level index for multi-platform images.
 - An enabled artifact stage requires registry-backed storage.

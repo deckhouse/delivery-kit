@@ -6,7 +6,7 @@
 
 ## Summary
 
-Move SBOM and VEX generation out of the `BuildPhase.AfterImages` post-build pass and replace the `sbomStep` and `vexStep` implementations with registry-backed, non-buildable mutable stages modeled after `pkg/build/stage/sign.go`. The new `SbomStage` and `VexStage` become the sole owners of SBOM/VEX cache identity, generation, signing, attestation publication, and fallback-index interaction. Unlike ordinary image stages, they are associated with the final image digest, operate on the associated OCI artifact rather than on the image filesystem or image layers, and perform all registry operations through `StorageManager`, which routes them to the appropriate primary, secondary, cache, or final `StagesStorage`.
+Move SBOM and VEX generation out of the `BuildPhase.AfterImages` post-build pass and replace the `sbomStep` and `vexStep` implementations with registry-backed, non-buildable mutable stages modeled after `pkg/build/stage/sign.go`. The new `SbomStage` and `VexStage` become the sole owners of SBOM/VEX cache identity, generation, signing, attestation publication, and fallback-index interaction. Unlike ordinary image stages, they are associated with the final image digest, operate on the associated OCI artifact rather than on the image filesystem or image layers, and perform all registry operations through a dedicated artifact-stage API, `MutateArtifact`, which uses `StorageManager` to route them to the appropriate primary, secondary, cache, or final `StagesStorage`.
 
 Artifact publication will use explicit source and destination image descriptors. SBOM remains platform-specific; VEX is attached once at the top-level image index for multi-platform images and to the image manifest for single-platform images. A shared idempotent propagation operation will cover primary-to-final, primary-to-cache, and secondary-to-primary copies, resolving the destination digest and preserving fatal final-repository versus best-effort cache error policies.
 
@@ -75,11 +75,13 @@ Detailed findings are in [research.md](./research.md). Key decisions:
 - Extend `pkg/build/stage` with stage names and constructors for `SbomStage` and `VexStage`, following the shape of `SignStage`.
 - Move all behavior currently owned by `sbomStep` into `SbomStage`; remove `sbom_step.go` and its step-specific tests once callers are migrated.
 - Move all behavior currently owned by `vexStep` into `VexStage`; remove `vex_step.go` and its step-specific tests once callers are migrated.
-- Artifact stages must not mutate, rebuild, fetch, or store the image filesystem. Their `PrepareImage` path is a no-op; their `MutateImage` path operates on the associated OCI artifact and owns registry-side generation and publication.
+- Artifact stages must not mutate, rebuild, fetch, or store the image filesystem. Their `PrepareImage` path is a no-op.
+- Add a dedicated stage lifecycle method `MutateArtifact` for stages that work with registry-backed OCI artifacts without mutating the image. `SbomStage` and `VexStage` must implement and use `MutateArtifact` for generation, cache checks, signing, and publication through `StorageManager`.
+- `MutateImage` remains the method for stages that mutate/publish an image, such as `SignStage`; it must not be used as the OCI-artifact operation for `SbomStage` or `VexStage`.
 - The stage's subject is the final image digest: for single-platform images this is the published image manifest digest; for multi-platform images SBOM uses each final platform manifest digest and VEX uses the final top-level image index digest. The artifact stage must never be treated as an image layer or as a replacement image.
-- All registry reads, writes, copies, metadata operations, and artifact-related repository interaction from `SbomStage` and `VexStage` must use `StorageManager`. The manager selects primary, secondary, cache, or final `StagesStorage` according to the operation; direct registry client access and direct repository selection from the stages are prohibited.
+- All registry reads, writes, copies, metadata operations, and artifact-related repository interaction from `SbomStage` and `VexStage` must be performed from `MutateArtifact` through `StorageManager`. The manager selects primary, secondary, cache, or final `StagesStorage` according to the operation; direct registry client access and direct repository selection from the stages are prohibited.
 - Extend `StorageManager` with the minimal artifact-oriented operations required by the stages and propagation. Implement the corresponding `StagesStorage` primitives only where needed to preserve fallback-index behavior: find/list attached artifacts, publish an OCI artifact for a final image digest, and copy attached artifacts between destination image descriptors. Implement these methods for every supported registry-backed storage implementation and keep local storage behavior explicit.
-- Ensure stage dependencies include the parent image identity and all effective artifact inputs. SBOM dependencies include scanner, merge/GOST, signer, format version, and target platform. VEX dependencies include document content, parent identity, signer, and format version.
+- Preserve the existing stage checksum convention from `SignStage`: implement `GetDependencies` by assembling all effective inputs and returning `util.Sha256Hash(args...)`; implement `GetContentDependencies` consistently for the stage lifecycle. SBOM dependencies include final image identity, scanner, merge/GOST, signer, format version, and target platform. VEX dependencies include final image identity, document content, signer, and format version. The checksum must be calculated from stage inputs, while the artifact subject remains the final image digest.
 - Register the stages after the content-producing stage and before the lifecycle completes for applicable images. The registration must work for Stapel and Dockerfile image paths and for restored stages.
 - Preserve stage cache behavior: a suitable artifact-bearing stage can be selected from primary/secondary storage; changed effective inputs produce a different stage identity.
 
@@ -89,7 +91,7 @@ Detailed findings are in [research.md](./research.md). Key decisions:
 - Multi-platform SBOM processing runs once per platform image and targets that platform manifest digest.
 - Multi-platform VEX processing runs once for the image set and targets the top-level image index digest.
 - Do not use the index digest as a platform SBOM subject or duplicate image-level VEX onto platform manifests.
-- Keep existing signing behavior and include signer identity in cache identity. The signing and cache logic must live in the corresponding artifact stage, not in a retained step wrapper.
+- Keep existing signing behavior and include signer identity in cache identity. The signing, checksum, and cache logic must live in the corresponding artifact stage, not in a retained step wrapper. Registry publication must use the dedicated `MutateArtifact` convention, intentionally separate from `MutateImage`, because SBOM/VEX do not mutate the image itself.
 
 ### Publication and propagation
 
@@ -166,7 +168,7 @@ Completed in [data-model.md](./data-model.md) and [quickstart.md](./quickstart.m
 
 The subsequent `/speckit-tasks` workflow should decompose at least these work items:
 
-1. Implement `SbomStage` and `VexStage`, including stage identity, lifecycle integration, final image-digest association, OCI-artifact handling, cache checks, signing, publication, and `StagesStorage` access.
+1. Add the dedicated `MutateArtifact` stage API and implement `SbomStage` and `VexStage`, including `GetDependencies`/`GetContentDependencies` checksum conventions, lifecycle integration, final image-digest association, OCI-artifact handling, cache checks, signing, publication through `MutateArtifact`, and `StorageManager` routing.
 2. Migrate all SBOM behavior from `sbomStep` into `SbomStage`, then delete the step implementation and update callers/tests.
 3. Migrate all VEX behavior from `vexStep` into `VexStage`, then delete the step implementation and update callers/tests.
 4. Extend `StorageManager` with the minimal OCI-artifact operations, add any required `StagesStorage` backend primitives, and implement manager-routed artifact propagation for final, cache, and secondary-to-primary copies.

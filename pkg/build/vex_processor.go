@@ -3,13 +3,12 @@ package build
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/attestation"
+	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	vexImage "github.com/werf/werf/v2/pkg/vex/image"
@@ -25,7 +24,7 @@ func (processor *vexProcessor) Converge(ctx context.Context, vexJSON []byte, sta
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
-	checksum := calculateVEXChecksum(vexJSON, parentDigest, signerIdentity)
+	checksum := stage.CalculateVexStageChecksum(vexJSON, parentDigest, signerIdentity)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -41,22 +40,6 @@ func (processor *vexProcessor) Converge(ctx context.Context, vexJSON []byte, sta
 	return logboek.Context(ctx).Default().LogProcess("image %s: Published VEX artifact", werfImgName).DoError(func() error {
 		return vexImage.PushVEX(ctx, vexJSON, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
 	})
-}
-
-const vexArtifactFormatVersion = "2"
-
-// calculateVEXChecksum builds the cache identity of the VEX artifact: document
-// content and parent digest (FR-011 of 013-vex-lifecycle), the bump-able artifact
-// format version, and the signer public-key fingerprint — so enabling signing,
-// rotating the key, or bumping the format each republish the artifact.
-func calculateVEXChecksum(vexJSON []byte, parentDigest, signerIdentity string) string {
-	parts := []string{
-		vexArtifactFormatVersion,
-		util.Sha256Hash(string(vexJSON)),
-		parentDigest,
-		signerIdentity,
-	}
-	return util.Sha256Hash(strings.Join(parts, "-"))
 }
 
 // checkVEXPublishNeeded returns true if the VEX artifact should be published

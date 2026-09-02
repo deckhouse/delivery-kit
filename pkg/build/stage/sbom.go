@@ -12,6 +12,13 @@ import (
 
 type SbomStagePublisher func(ctx context.Context, parentDesc *image.StageDesc, imageName, targetPlatform string) error
 
+type SbomStageOptions struct {
+	BaseStageOptions *BaseStageOptions
+	SigningOptions   signing.SbomSigningOptions
+	Dependency       string
+	Publisher        SbomStagePublisher
+}
+
 type SbomStage struct {
 	*BaseStage
 
@@ -21,7 +28,16 @@ type SbomStage struct {
 }
 
 func GenerateSbomStage(baseStageOptions *BaseStageOptions, sbomSigningOptions signing.SbomSigningOptions, dependency string, publisher SbomStagePublisher) *SbomStage {
-	return newSbomStage(baseStageOptions, sbomSigningOptions, dependency, publisher)
+	return NewSbomStage(SbomStageOptions{
+		BaseStageOptions: baseStageOptions,
+		SigningOptions:   sbomSigningOptions,
+		Dependency:       dependency,
+		Publisher:        publisher,
+	})
+}
+
+func NewSbomStage(options SbomStageOptions) *SbomStage {
+	return newSbomStage(options.BaseStageOptions, options.SigningOptions, options.Dependency, options.Publisher)
 }
 
 func newSbomStage(baseStageOptions *BaseStageOptions, sbomSigningOptions signing.SbomSigningOptions, dependency string, publisher SbomStagePublisher) *SbomStage {
@@ -80,10 +96,7 @@ func (s *SbomStage) GetContentDependencies(ctx context.Context, c Conveyor, buil
 	return s.GetDependencies(ctx, c, nil, nil, nil, buildContextArchive)
 }
 
-func (s *SbomStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
-	if _, err := registryFromImageMutatorPusher(stagesStorage); err != nil {
-		return err
-	}
+func (s *SbomStage) MutateImage(ctx context.Context, _ ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
 	if s.publisher == nil {
 		return fmt.Errorf("SBOM stage publisher is unavailable")
 	}

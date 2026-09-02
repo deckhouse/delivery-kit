@@ -262,7 +262,7 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
-	if err := phase.convergeVexByImagesSets(ctx); err != nil {
+	if err := phase.convergeMultiplatformVexByImageSets(ctx); err != nil {
 		return err
 	}
 
@@ -784,7 +784,15 @@ func (phase *BuildPhase) registerSinglePlatformVexStage(ctx context.Context, img
 		signingOptions = phase.VexSigningOptions
 	}
 	stages := img.GetStages()
-	img.SetStages(append(stages, stage.GenerateVexStage(vexContent, baseOptions, signingOptions)))
+	publisher := func(ctx context.Context, parentDesc *imagePkg.StageDesc, imageName, targetPlatform string, content []byte, signer signature.Signer, signerIdentity string) error {
+		return phase.vexProcessor.Converge(ctx, content, parentDesc, imageName, targetPlatform, signer, signerIdentity)
+	}
+	img.SetStages(append(stages, stage.NewVexStage(stage.VexStageOptions{
+		VexJSON:          vexContent,
+		BaseStageOptions: baseOptions,
+		SigningOptions:   signingOptions,
+		Publisher:        publisher,
+	})))
 	return nil
 }
 
@@ -1799,9 +1807,8 @@ E.g.:
 		})
 }
 
-// convergeVexByImagesSets publishes VEX artifacts for all images respecting dependency order.
-
-func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
+// convergeMultiplatformVexByImageSets publishes the image-level VEX artifact after the final index exists.
+func (phase *BuildPhase) convergeMultiplatformVexByImageSets(ctx context.Context) error {
 	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
 		return nil
 	}
@@ -1832,6 +1839,9 @@ func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
 			name := names[taskId]
 
 			images := imagesByName[name]
+			if len(images) == 1 {
+				return nil
+			}
 
 			return phase.convergeImageVex(ctx, name, images)
 		}); err != nil {

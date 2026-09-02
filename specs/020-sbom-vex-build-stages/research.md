@@ -2,9 +2,9 @@
 
 ## Decision: Move artifact convergence into the image/stage lifecycle
 
-SBOM and VEX will be represented by non-buildable, mutable build stages that run after the image content stage has produced a registry-backed descriptor. The existing `Stage` lifecycle remains the integration point: stage dependencies determine cache identity, `MutateImage` performs OCI-side publication, and the build phase invokes the stage for each applicable image/platform.
+SBOM and VEX will be represented by non-buildable, mutable build stages that run after the image content stage has produced a registry-backed descriptor. The existing `Stage` lifecycle remains the integration point: `GetDependencies`/`GetContentDependencies` determine cache identity using the same `util.Sha256Hash(args...)` convention as `SignStage`, a dedicated `MutateArtifact` method performs OCI-side publication, and the build phase invokes the stage for each applicable image/platform.
 
-The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...`, `pkg/oci/artifact`, the signer implementations, and fallback-tag storage. The existing `sbomStep` and `vexStep` types are transitional implementations: their behavior will be moved into `SbomStage` and `VexStage`, and the step types/files will be deleted. The stages are intentionally different from ordinary image stages: each stage is associated with the final image digest, operates on a separate OCI artifact, and never changes image layers or filesystem content. All registry interaction must go through `StorageManager`, which owns and routes to the primary, secondary, cache, and final `storage.StagesStorage` abstractions, just as ordinary build stages use the storage manager path. `BuildPhase.AfterImages` will retain image publication/report work but will no longer perform SBOM/VEX generation.
+The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...`, `pkg/oci/artifact`, the signer implementations, and fallback-tag storage. The existing `sbomStep` and `vexStep` types are transitional implementations: their behavior will be moved into `SbomStage` and `VexStage`, and the step types/files will be deleted. The stages are intentionally different from ordinary image stages: each stage is associated with the final image digest, operates on a separate OCI artifact, and never changes image layers or filesystem content. They require a dedicated registry-working stage hook: `MutateArtifact` performs artifact registry work without invoking `MutateImage`. `MutateImage` remains reserved for image-manifest/image-content mutations. All registry interaction from `MutateArtifact` must go through `StorageManager`, which owns and routes to the primary, secondary, cache, and final `storage.StagesStorage` abstractions, just as ordinary registry-working build stages use the storage manager path. `BuildPhase.AfterImages` will retain image publication/report work but will no longer perform SBOM/VEX generation.
 
 ### Rationale
 
@@ -25,7 +25,7 @@ The new stages will reuse low-level primitives from `pkg/sbom/...`, `pkg/vex/...
 
 ### Rationale
 
-This preserves the distinction between an image lifecycle and its supply-chain metadata while still making metadata generation deterministic and cacheable as part of the lifecycle. Reusing `StorageManager` and its `StagesStorage` backends keeps registry behavior consistent with existing build stages, centralizes repository routing, and avoids coupling stages to a concrete registry implementation.
+This preserves the distinction between an image lifecycle and its supply-chain metadata while still making metadata generation deterministic and cacheable as part of the lifecycle. Keeping the standard dependency conventions while adding a distinct `MutateArtifact` hook makes the new stages compatible with the existing scheduler and stage cache without pretending that an OCI artifact is an image mutation. Reusing `StorageManager` and its `StagesStorage` backends keeps registry behavior consistent with existing build stages, centralizes repository routing, and avoids coupling stages to a concrete registry implementation.
 
 ### Alternatives considered
 

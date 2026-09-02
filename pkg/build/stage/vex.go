@@ -8,14 +8,19 @@ import (
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/build/signing"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	vexImage "github.com/werf/werf/v2/pkg/vex/image"
 )
+
+type VexStagePublisher func(ctx context.Context, parentDesc *image.StageDesc, imageName, targetPlatform string, vexJSON []byte, signer signature.Signer, signerIdentity string) error
+
+type VexStageOptions struct {
+	VexJSON          []byte
+	BaseStageOptions *BaseStageOptions
+	SigningOptions   signing.VexSigningOptions
+	Publisher        VexStagePublisher
+}
 
 type VexStage struct {
 	*BaseStage
@@ -23,13 +28,22 @@ type VexStage struct {
 	vexJSON        []byte
 	signer         signature.Signer
 	signerIdentity string
+	publisher      VexStagePublisher
 }
 
 func GenerateVexStage(vexJSON []byte, baseStageOptions *BaseStageOptions, vexSigningOptions signing.VexSigningOptions) *VexStage {
-	return newVexStage(vexJSON, baseStageOptions, vexSigningOptions)
+	return NewVexStage(VexStageOptions{
+		VexJSON:          vexJSON,
+		BaseStageOptions: baseStageOptions,
+		SigningOptions:   vexSigningOptions,
+	})
 }
 
-func newVexStage(vexJSON []byte, baseStageOptions *BaseStageOptions, vexSigningOptions signing.VexSigningOptions) *VexStage {
+func NewVexStage(options VexStageOptions) *VexStage {
+	return newVexStage(options.VexJSON, options.BaseStageOptions, options.SigningOptions, options.Publisher)
+}
+
+func newVexStage(vexJSON []byte, baseStageOptions *BaseStageOptions, vexSigningOptions signing.VexSigningOptions, publisher VexStagePublisher) *VexStage {
 	var signer signature.Signer
 	var signerIdentity string
 	if vexSigningOptions.Enabled {
@@ -42,6 +56,7 @@ func newVexStage(vexJSON []byte, baseStageOptions *BaseStageOptions, vexSigningO
 		vexJSON:        vexJSON,
 		signer:         signer,
 		signerIdentity: signerIdentity,
+		publisher:      publisher,
 	}
 	stage.SetArtifactMetadata(&ArtifactStageMetadata{
 		Kind:           ArtifactKindVex,
@@ -74,17 +89,14 @@ func (s *VexStage) GetDependencies(_ context.Context, _ Conveyor, _ container_ba
 		}
 	}
 
-	return calculateVexStageChecksum(s.vexJSON, parentDigest, s.signerIdentity), nil
+	return CalculateVexStageChecksum(s.vexJSON, parentDigest, s.signerIdentity), nil
 }
 
 func (s *VexStage) GetContentDependencies(ctx context.Context, c Conveyor, buildContextArchive container_backend.BuildContextArchiver) (string, error) {
 	return s.GetDependencies(ctx, c, nil, nil, nil, buildContextArchive)
 }
 
-func (s *VexStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
-	if _, err := registryFromImageMutatorPusher(stagesStorage); err != nil {
-		return err
-	}
+func (s *VexStage) MutateImage(ctx context.Context, _ ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error {
 	if prevBuiltImage == nil || prevBuiltImage.Image == nil {
 		return fmt.Errorf("VEX stage parent image is unavailable")
 	}
@@ -108,25 +120,17 @@ func (s *VexStage) MutateImage(ctx context.Context, stagesStorage ImageMutatorPu
 	metadata := s.GetArtifactMetadata()
 	metadata.ParentDigest = parentDigest
 
-	checksum := calculateVexStageChecksum(s.vexJSON, parentDigest, s.signerIdentity)
-	store := artifact.NewOCIStore(parentDesc.Info.Repository, stageImage.Image.Name())
-	needed, err := checkVexStagePublishNeeded(ctx, store, parentDigest, checksum)
-	if err != nil {
-		return fmt.Errorf("check VEX publish needed: %w", err)
-	}
-	if !needed {
-		logboek.Context(ctx).Default().LogF("image %s: VEX artifact is up to date — skipping publish\n", stageImage.Image.Name())
-		return nil
+	if s.publisher == nil {
+		return fmt.Errorf("VEX stage publisher is unavailable")
 	}
 
-	return logboek.Context(ctx).Default().LogProcess("image %s: Published VEX artifact", stageImage.Image.Name()).DoError(func() error {
-		return vexImage.PushVEX(ctx, s.vexJSON, parentDesc.Info.Repository, parentDigest, s.ImageName(), checksum, s.TargetPlatform(), s.signer)
-	})
+	return s.publisher(ctx, parentDesc, s.ImageName(), s.TargetPlatform(), s.vexJSON, s.signer, s.signerIdentity)
 }
 
 const vexStageArtifactFormatVersion = "2"
 
-func calculateVexStageChecksum(vexJSON []byte, parentDigest, signerIdentity string) string {
+// CalculateVexStageChecksum returns the cache identity for a VEX artifact.
+func CalculateVexStageChecksum(vexJSON []byte, parentDigest, signerIdentity string) string {
 	parts := []string{
 		vexStageArtifactFormatVersion,
 		util.Sha256Hash(string(vexJSON)),
@@ -134,15 +138,4 @@ func calculateVexStageChecksum(vexJSON []byte, parentDigest, signerIdentity stri
 		signerIdentity,
 	}
 	return util.Sha256Hash(strings.Join(parts, "-"))
-}
-
-func checkVexStagePublishNeeded(ctx context.Context, store artifact.Store, parentDigest, checksum string) (bool, error) {
-	desc, found, err := attestation.FindAttachedArtifact(ctx, store, parentDigest, attestation.PredicateKindOpenVEX)
-	if err != nil {
-		return false, fmt.Errorf("check VEX cache: %w", err)
-	}
-	if found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
-		return false, nil
-	}
-	return true, nil
 }

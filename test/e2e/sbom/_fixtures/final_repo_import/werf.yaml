@@ -6,22 +6,18 @@ build:
     standard: cyclonedx@1.6
 ---
 image: carrier
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.werf.io/werf/scratch:latest
 git:
   - add: /
-    to: /
-packages:
-  - type: os-pm
-    spec:
-      - jq==1.8.1
+    to: /c
 ---
 image: app
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.werf.io/werf/scratch:latest
 git:
   - add: /
-    to: /app
+    to: /a
 import:
   - image: carrier
-    add: /werf.yaml
+    add: /c/werf.yaml
     to: /imported/werf.yaml
-    before: install
+    before: setup

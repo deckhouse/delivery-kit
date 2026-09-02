@@ -120,17 +120,27 @@ var _ = Describe("anchor holistic digest", func() {
 			Expect(anchorDigestWithELFSigning(first, signing.ManifestSigningOptions{})).To(Equal(anchorDigestWithELFSigning(second, signing.ManifestSigningOptions{})))
 		})
 
-		It("changes when InHouse signing certificate or chain is configured", func(ctx SpecContext) {
+		It("changes when the InHouse signing certificate changes", func(ctx SpecContext) {
 			keysDir := filepath.Join("..", "..", "test", "e2e", "build", "_fixtures", "signature", "inhouse", "keys")
-			withoutCertificateChain := signing.NewManifestSigningOptions(&signing.Signer{})
-			withCertificateChain := inHouseManifestSigningOptions(
+			withoutCertificate := signing.NewManifestSigningOptions(&signing.Signer{})
+			withCertificate := inHouseManifestSigningOptions(
 				ctx,
 				filepath.Join(keysDir, "delivery-kit_1666162742.pem.crt"),
-				filepath.Join(keysDir, "delivery-kit_chain_3247019714.pem.crt"),
+				"",
 			)
 			elfSigningOptions := signing.ELFSigningOptions{InHouseEnabled: true}
 
-			Expect(anchorDigestWithELFSigning(elfSigningOptions, withoutCertificateChain)).NotTo(Equal(anchorDigestWithELFSigning(elfSigningOptions, withCertificateChain)))
+			Expect(anchorDigestWithELFSigning(elfSigningOptions, withoutCertificate)).NotTo(Equal(anchorDigestWithELFSigning(elfSigningOptions, withCertificate)))
+		})
+
+		It("changes when the InHouse signing chain changes", func(ctx SpecContext) {
+			keysDir := filepath.Join("..", "..", "test", "e2e", "build", "_fixtures", "signature", "inhouse", "keys")
+			certRef := filepath.Join(keysDir, "delivery-kit_1666162742.pem.crt")
+			withoutChain := inHouseManifestSigningOptions(ctx, certRef, "")
+			withChain := inHouseManifestSigningOptions(ctx, certRef, filepath.Join(keysDir, "delivery-kit_chain_3247019714.pem.crt"))
+			elfSigningOptions := signing.ELFSigningOptions{InHouseEnabled: true}
+
+			Expect(anchorDigestWithELFSigning(elfSigningOptions, withoutChain)).NotTo(Equal(anchorDigestWithELFSigning(elfSigningOptions, withChain)))
 		})
 
 		It("uses the same BSign identity response in anchor and non-anchor paths", func(ctx SpecContext) {

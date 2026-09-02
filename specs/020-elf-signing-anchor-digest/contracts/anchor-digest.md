@@ -8,11 +8,11 @@ This is an internal package contract, not a public API or wire protocol.
 
 When ELF signing is enabled:
 
-- `BsignEnabled` appends `PGPPrivateKeyFingerprint` with the non-anchor label `ELF_SIGNING_PGP_KEY_FINGERPRINT`.
-- `InHouseEnabled` appends `ManifestSigningOptions.Signer().Cert()` with `MANIFEST_SIGNING_CERTIFICATE`.
-- `InHouseEnabled` appends `ManifestSigningOptions.Signer().Chain()` with `SIGNING_CERTIFICATE_CHAIN`.
+- `BsignEnabled` appends `PGPPrivateKeyFingerprint`.
+- `InHouseEnabled` appends `ManifestSigningOptions.Signer().Cert()`.
+- `InHouseEnabled` appends `ManifestSigningOptions.Signer().Chain()`.
 
-The anchor path must not append private keys, passphrases, or an independent signing enabled/disabled marker. The `sign` stage already accounts for its relevant manifest certificate and chain, so the anchor inputs must remain aligned with that existing checksum coverage rather than duplicating it under different labels or conditions.
+The anchor path must not append private keys, passphrases, labels, or an independent signing enabled/disabled marker. The `sign` stage already accounts for its relevant manifest certificate and chain, so the anchor inputs must remain aligned with that existing checksum coverage.
 
 ## Compatibility
 

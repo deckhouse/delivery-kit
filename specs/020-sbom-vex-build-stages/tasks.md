@@ -48,7 +48,7 @@
 - [X] T016 [US1] Add Ginkgo/Gomega unit coverage for secondary-to-primary restoration and missing-source-artifact handling in `pkg/build/artifact_propagation_test.go`
 - [ ] T017 [US1] Extend the SBOM e2e suite in `test/e2e/sbom/` for primary-only, final, cache, combined final/cache, identical-address, and secondary-repository artifact availability scenarios
 - [X] T018 [US1] Add Ginkgo/Gomega migration coverage proving all SBOM callers use `SbomStage` and all VEX callers use `VexStage`, with no `sbomStep` or `vexStep` references remaining in `pkg/build/`
-- [ ] T019 [US1] Add Ginkgo/Gomega tests proving `SbomStage` and `VexStage` route registry reads, writes, copies, metadata, and artifact operations through `StorageManager`, with the manager selecting the appropriate `storage.StagesStorage`, in `pkg/build/stage/` and `pkg/storage/manager/`
+- [X] T019 [US1] Add Ginkgo/Gomega tests proving `SbomStage` and `VexStage` route registry reads, writes, copies, metadata, and artifact operations through `StorageManager`, with the manager selecting the appropriate `storage.StagesStorage`, in `pkg/build/stage/` and `pkg/storage/manager/`
 
 ### Implementation for User Story 1
 
@@ -56,7 +56,7 @@
 - [X] T021 [P] [US1] Implement the registry-only mutable, non-buildable `VexStage` in `pkg/build/stage/vex.go`, including final-image-digest association and VEX generation, cache identity, signing, attestation publication, and fallback-index interaction through `StorageManager`
 - [ ] T022 [US1] Migrate all SBOM behavior and callers from `sbomStep` into `SbomStage` in `pkg/build/`, preserving existing generation, checksum, signing, publication, and fallback-index behavior while routing repository operations through `StorageManager`
 - [ ] T023 [US1] Migrate all VEX behavior and callers from `vexStep` into `VexStage` in `pkg/build/`, preserving existing generation, checksum, signing, publication, and fallback-index behavior while routing repository operations through `StorageManager`
-- [ ] T024 [US1] Ensure `PrepareImage` is a no-op, `MutateArtifact` operates only on the associated OCI artifact through `StorageManager`, and the artifact stages do not implement or invoke `MutateImage`; do not fetch, rebuild, store, or mutate image filesystem/layers in `pkg/build/stage/sbom.go` and `pkg/build/stage/vex.go`
+- [ ] T024 [US1] Ensure `PrepareImage` is a no-op, `MutateArtifact` operates only on the associated OCI artifact through `StorageManager`, and the artifact stages do not implement or invoke `MutateImage`; do not fetch, rebuild, store, or mutate image filesystem/layers in `pkg/build/stage/sbom.go` and `pkg/build/stage/vex.go
 - [ ] T025 [US1] Register `SbomStage` and `VexStage` after the content-producing stage for Stapel, Dockerfile, and restored-stage image paths in `pkg/build/build_phase.go`
 - [ ] T026 [US1] Execute artifact publication through stage `MutateArtifact` without changing image filesystem or layer content, and remove duplicate SBOM/VEX generation from `BuildPhase.AfterImages` while retaining unrelated publication/report work in `pkg/build/build_phase.go`
 - [X] T027 [US1] Delete transitional `pkg/build/sbom_step.go`, `pkg/build/vex_step.go`, and their step-specific tests after all callers and migration tests use `SbomStage` and `VexStage`

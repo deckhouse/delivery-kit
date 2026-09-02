@@ -15,7 +15,6 @@ import (
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/externalref"
@@ -24,6 +23,7 @@ import (
 	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/pkg/storage"
+	"github.com/werf/werf/v2/pkg/storage/manager"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
@@ -40,6 +40,7 @@ var ErrSbomNotRequired = errors.New("sbom not required")
 type sbomProcessor struct {
 	containerBackend container_backend.ContainerBackend
 	stagesStorage    storage.StagesStorage
+	storageManager   manager.StorageManagerInterface
 
 	gostWarnOnce sync.Once
 }
@@ -47,15 +48,16 @@ type sbomProcessor struct {
 func newSbomProcessor(
 	backend container_backend.ContainerBackend,
 	stagesStorage storage.StagesStorage,
+	storageManager manager.StorageManagerInterface,
 ) *sbomProcessor {
 	return &sbomProcessor{
 		containerBackend: backend,
 		stagesStorage:    stagesStorage,
+		storageManager:   storageManager,
 	}
 }
 
 func (processor *sbomProcessor) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
-	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
 	scanOpts.Commands[0].SourcePath = stageDesc.Info.Name
@@ -66,9 +68,7 @@ func (processor *sbomProcessor) ConvergeWithMerge(ctx context.Context, werfImgNa
 
 	checksum := processor.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
 
-	store := artifact.NewOCIStore(repo, werfImgName)
-
-	desc, found, err := attestation.FindAttachedArtifact(ctx, store, parentDigest, attestation.PredicateKindCycloneDX)
+	desc, found, err := processor.storageManager.FindAttachedArtifact(ctx, processor.stagesStorage, parentDigest, werfImgName, attestation.PredicateKindCycloneDX)
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
 	}
@@ -167,7 +167,11 @@ func (processor *sbomProcessor) ConvergeWithMerge(ctx context.Context, werfImgNa
 		}
 
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
-			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
+			return processor.storageManager.PublishAttestation(ctx, processor.stagesStorage, attestation.PredicateKindCycloneDX, resultJSON, parentDigest, werfImgName, attestation.PublishAttestationOptions{
+				Signer:         signer,
+				Checksum:       checksum,
+				TargetPlatform: targetPlatform,
+			})
 		}); err != nil {
 			return err
 		}
@@ -197,13 +201,6 @@ func (processor *sbomProcessor) calculateStableChecksum(scanOpts scanner.ScanOpt
 		"signer", signerIdentity,
 		"platform", targetPlatform,
 	)
-}
-
-// PropagateArtifacts copies the artifacts attached to the image stage (e.g. its SBOM)
-// into the final repo and the cache repos. Stages themselves are copied there before
-// SBOM generation runs, so the artifacts have to catch up separately.
-func (processor *sbomProcessor) PropagateArtifacts(ctx context.Context, projectName, werfImgName string, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
-	return propagateArtifacts(ctx, projectName, werfImgName, stageDesc, finalStageDesc, cacheStagesStorageList)
 }
 
 func (processor *sbomProcessor) GetImageBOM(ctx context.Context, imageName string, imageInfo *image.Info) (*cdx.BOM, error) {

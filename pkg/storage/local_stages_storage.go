@@ -10,6 +10,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
@@ -264,6 +265,14 @@ func (storage *LocalStagesStorage) RmImageMetadata(ctx context.Context, projectN
 
 func (storage *LocalStagesStorage) ListAttachedArtifacts(_ context.Context, _ string) ([]v1.Descriptor, error) {
 	return nil, fmt.Errorf("local stages storage does not support artifact operations")
+}
+
+func (storage *LocalStagesStorage) FindAttachedArtifact(_ context.Context, _, _ string, _ attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	return v1.Descriptor{}, false, fmt.Errorf("local stages storage does not support artifact operations")
+}
+
+func (storage *LocalStagesStorage) PublishAttestation(_ context.Context, _ attestation.PredicateKind, _ []byte, _, _ string, _ attestation.PublishAttestationOptions) error {
+	return fmt.Errorf("local stages storage does not support artifact operations")
 }
 
 func (storage *LocalStagesStorage) PublishArtifact(_ context.Context, _, _ string, _ []byte, _, _, _, _ string) error {

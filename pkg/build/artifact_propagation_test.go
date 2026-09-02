@@ -2,6 +2,7 @@ package build
 
 import (
 	"bytes"
+	"context"
 	"net/http/httptest"
 	"strings"
 
@@ -20,8 +21,19 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/storage"
+	"github.com/werf/werf/v2/pkg/storage/manager"
 	"github.com/werf/werf/v2/test/mock"
 )
+
+type recordingArtifactStorageManager struct {
+	manager.StorageManagerInterface
+	copyCalls int
+}
+
+func (m *recordingArtifactStorageManager) CopyAttachedArtifacts(context.Context, storage.StagesStorage, string, storage.StagesStorage, string) error {
+	m.copyCalls++
+	return nil
+}
 
 var _ = Describe("artifact propagation", func() {
 	It("rejects an incomplete artifact source descriptor", func(ctx SpecContext) {
@@ -34,6 +46,15 @@ var _ = Describe("artifact propagation", func() {
 		err := propagateArtifacts(ctx, "project", "app", nil, nil, nil)
 
 		Expect(err).To(MatchError("source image descriptor is unavailable"))
+	})
+
+	It("routes production propagation through StorageManager", func(ctx SpecContext) {
+		storageManager := &recordingArtifactStorageManager{}
+		source := &image.StageDesc{Info: &image.Info{Repository: "registry.example/source", RepoDigest: "registry.example/source@sha256:source"}}
+		destination := &image.StageDesc{Info: &image.Info{Repository: "registry.example/final", RepoDigest: "registry.example/final@sha256:destination"}}
+
+		Expect(propagateArtifactsWithManager(ctx, "project", "app", source, destination, nil, nil, nil, storageManager)).To(Succeed())
+		Expect(storageManager.copyCalls).To(Equal(1))
 	})
 
 	It("skips local-only artifact sources", func(ctx SpecContext) {

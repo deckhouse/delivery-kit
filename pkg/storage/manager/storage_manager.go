@@ -17,6 +17,7 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
@@ -80,6 +81,8 @@ type StorageManagerInterface interface {
 	CopyStageIntoFinalStorage(ctx context.Context, stageID image.StageID, finalStagesStorage storage.StagesStorage, opts CopyStageIntoStorageOptions) (*image.StageDesc, error)
 
 	ListAttachedArtifacts(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest string) ([]v1.Descriptor, error)
+	FindAttachedArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error)
+	PublishAttestation(ctx context.Context, stagesStorage storage.StagesStorage, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error
 	PublishArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error
 	ResolveStageDescriptor(ctx context.Context, stagesStorage storage.StagesStorage, stageID image.StageID) (*image.StageDesc, error)
 	CopyAttachedArtifacts(ctx context.Context, sourceStorage storage.StagesStorage, sourceDigest string, destinationStorage storage.StagesStorage, destinationDigest string) error
@@ -236,6 +239,46 @@ func (m *StorageManager) ListAttachedArtifacts(ctx context.Context, stagesStorag
 		return nil, fmt.Errorf("list attached artifacts from %s: %w", stagesStorage.String(), err)
 	}
 	return artifacts, nil
+}
+
+func (m *StorageManager) FindAttachedArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	if stagesStorage == nil {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: stages storage is nil")
+	}
+	if stagesStorage.Address() == storage.LocalStorageAddress {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: local stages storage does not support artifact operations")
+	}
+	if parentDigest == "" {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: parent digest is empty")
+	}
+	if imageName == "" {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: image name is empty")
+	}
+
+	descriptor, found, err := stagesStorage.FindAttachedArtifact(ctx, parentDigest, imageName, kind)
+	if err != nil {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached %s artifact from %s: %w", kind.Name, stagesStorage.String(), err)
+	}
+	return descriptor, found, nil
+}
+
+func (m *StorageManager) PublishAttestation(ctx context.Context, stagesStorage storage.StagesStorage, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error {
+	if stagesStorage == nil {
+		return fmt.Errorf("publish attestation: stages storage is nil")
+	}
+	if stagesStorage.Address() == storage.LocalStorageAddress {
+		return fmt.Errorf("publish attestation: local stages storage does not support artifact operations")
+	}
+	if parentDigest == "" {
+		return fmt.Errorf("publish attestation: parent digest is empty")
+	}
+	if imageName == "" {
+		return fmt.Errorf("publish attestation: image name is empty")
+	}
+	if err := stagesStorage.PublishAttestation(ctx, kind, payload, parentDigest, imageName, options); err != nil {
+		return fmt.Errorf("publish attestation to %s: %w", stagesStorage.String(), err)
+	}
+	return nil
 }
 
 func (m *StorageManager) PublishArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error {

@@ -57,7 +57,28 @@ var _ = Describe("artifact stages", func() {
 		Expect(artifactStage.MutateArtifact(ctx, parent, stageImage)).To(Succeed())
 		Expect(publisherCalls).To(Equal(1))
 		Expect(artifactStage.GetArtifactMetadata().ParentDigest).To(Equal("sha256:parent"))
-		Expect(artifactStage.MutateImage(ctx, nil, parent, stageImage)).To(MatchError("SBOM stage must be mutated as an artifact"))
+	})
+
+	It("publishes VEX through an explicit descriptor without requiring an image stage", func(ctx SpecContext) {
+		parentDesc := &image.StageDesc{Info: &image.Info{Repository: "registry.example/app", RepoDigest: "registry.example/app@sha256:index"}}
+		publisherCalls := 0
+		artifactStage := NewVexStage(VexStageOptions{
+			VexJSON:          []byte(`{"statements":[]}`),
+			BaseStageOptions: &BaseStageOptions{ImageName: "app"},
+			Publisher: func(_ context.Context, gotDesc *image.StageDesc, imageName, platform string, content []byte, _ signature.Signer, identity string) error {
+				publisherCalls++
+				Expect(gotDesc).To(BeIdenticalTo(parentDesc))
+				Expect(imageName).To(Equal("app"))
+				Expect(platform).To(BeEmpty())
+				Expect(content).To(MatchJSON(`{"statements":[]}`))
+				Expect(identity).To(BeEmpty())
+				return nil
+			},
+		})
+
+		Expect(artifactStage.MutateArtifactWithDescriptor(ctx, parentDesc)).To(Succeed())
+		Expect(publisherCalls).To(Equal(1))
+		Expect(artifactStage.GetArtifactMetadata().ParentDigest).To(Equal("sha256:index"))
 	})
 
 	It("publishes VEX through its stage publisher without requiring image mutation", func(ctx SpecContext) {
@@ -85,18 +106,20 @@ var _ = Describe("artifact stages", func() {
 		Expect(artifactStage.MutateArtifact(ctx, parent, stageImage)).To(Succeed())
 		Expect(publisherCalls).To(Equal(1))
 		Expect(artifactStage.GetArtifactMetadata().ParentDigest).To(Equal("sha256:parent"))
-		Expect(artifactStage.MutateImage(ctx, nil, parent, stageImage)).To(MatchError("VEX stage must be mutated as an artifact"))
 	})
 
-	DescribeTable("is mutable and non-buildable",
-		func(artifactStage Interface) {
-			Expect(artifactStage.IsMutable()).To(BeTrue())
-			Expect(artifactStage.IsBuildable()).To(BeFalse())
+	DescribeTable("is mutable, non-buildable, and artifact-only",
+		func(artifactStage ArtifactStage, stageLifecycle Interface) {
+			Expect(stageLifecycle.IsMutable()).To(BeTrue())
+			Expect(stageLifecycle.IsBuildable()).To(BeFalse())
+			Expect(artifactStage).NotTo(BeNil())
 		},
 		Entry("SBOM", GenerateSbomStage(&BaseStageOptions{TargetPlatform: "linux/amd64"}, signing.SbomSigningOptions{}, "dependency", func(context.Context, *image.StageDesc, string, string) error {
 			return nil
+		}), GenerateSbomStage(&BaseStageOptions{TargetPlatform: "linux/amd64"}, signing.SbomSigningOptions{}, "dependency", func(context.Context, *image.StageDesc, string, string) error {
+			return nil
 		})),
-		Entry("VEX", GenerateVexStage([]byte(`{"statements":[]}`), &BaseStageOptions{TargetPlatform: "linux/amd64"}, signing.VexSigningOptions{})),
+		Entry("VEX", GenerateVexStage([]byte(`{"statements":[]}`), &BaseStageOptions{TargetPlatform: "linux/amd64"}, signing.VexSigningOptions{}), GenerateVexStage([]byte(`{"statements":[]}`), &BaseStageOptions{TargetPlatform: "linux/amd64"}, signing.VexSigningOptions{})),
 	)
 
 	It("includes the parent descriptor in artifact stage dependencies", func(ctx SpecContext) {

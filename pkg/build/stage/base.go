@@ -362,10 +362,6 @@ func (s *BaseStage) MutateImage(_ context.Context, _ ImageMutatorPusher, _, _ *S
 	panic("not implemented")
 }
 
-func (s *BaseStage) MutateArtifact(_ context.Context, _, _ *StageImage) error {
-	panic("not implemented")
-}
-
 func (s *BaseStage) PreRun(_ context.Context, _ Conveyor) error {
 	return nil
 }

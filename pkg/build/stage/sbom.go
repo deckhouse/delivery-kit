@@ -61,7 +61,10 @@ func newSbomStage(baseStageOptions *BaseStageOptions, sbomSigningOptions signing
 	return stage
 }
 
-var _ Interface = (*SbomStage)(nil)
+var (
+	_ Interface     = (*SbomStage)(nil)
+	_ ArtifactStage = (*SbomStage)(nil)
+)
 
 func (s *SbomStage) IsBuildable() bool {
 	return false
@@ -122,10 +125,6 @@ func (s *SbomStage) MutateArtifact(ctx context.Context, prevBuiltImage, stageIma
 	metadata.ParentDigest = parentDesc.Info.GetDigest()
 
 	return s.publisher(ctx, parentDesc, s.ImageName(), s.TargetPlatform())
-}
-
-func (s *SbomStage) MutateImage(_ context.Context, _ ImageMutatorPusher, _, _ *StageImage) error {
-	return fmt.Errorf("SBOM stage must be mutated as an artifact")
 }
 
 const sbomArtifactFormatVersion = "2"

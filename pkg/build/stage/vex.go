@@ -67,7 +67,10 @@ func newVexStage(vexJSON []byte, baseStageOptions *BaseStageOptions, vexSigningO
 	return stage
 }
 
-var _ Interface = (*VexStage)(nil)
+var (
+	_ Interface     = (*VexStage)(nil)
+	_ ArtifactStage = (*VexStage)(nil)
+)
 
 func (s *VexStage) IsBuildable() bool {
 	return false
@@ -104,7 +107,10 @@ func (s *VexStage) MutateArtifact(ctx context.Context, prevBuiltImage, stageImag
 		return fmt.Errorf("VEX stage image is unavailable")
 	}
 
-	parentDesc := prevBuiltImage.Image.GetStageDesc()
+	return s.MutateArtifactWithDescriptor(ctx, prevBuiltImage.Image.GetStageDesc())
+}
+
+func (s *VexStage) MutateArtifactWithDescriptor(ctx context.Context, parentDesc *image.StageDesc) error {
 	if parentDesc == nil || parentDesc.Info == nil {
 		return fmt.Errorf("VEX stage parent descriptor is unavailable")
 	}
@@ -125,10 +131,6 @@ func (s *VexStage) MutateArtifact(ctx context.Context, prevBuiltImage, stageImag
 	}
 
 	return s.publisher(ctx, parentDesc, s.ImageName(), s.TargetPlatform(), s.vexJSON, s.signer, s.signerIdentity)
-}
-
-func (s *VexStage) MutateImage(_ context.Context, _ ImageMutatorPusher, _, _ *StageImage) error {
-	return fmt.Errorf("VEX stage must be mutated as an artifact")
 }
 
 const vexStageArtifactFormatVersion = "2"

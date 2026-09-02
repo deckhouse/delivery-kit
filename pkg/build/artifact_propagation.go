@@ -8,6 +8,7 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/storage"
+	"github.com/werf/werf/v2/pkg/storage/manager"
 )
 
 func ensureAttachedArtifacts(ctx context.Context, repository, digest string) error {
@@ -32,6 +33,14 @@ func ensureAttachedArtifacts(ctx context.Context, repository, digest string) err
 }
 
 func propagateArtifacts(ctx context.Context, projectName, imageName string, source, destination *image.StageDesc, caches []storage.StagesStorage, sourceStorages ...storage.StagesStorage) error {
+	var sourceStorage storage.StagesStorage
+	if len(sourceStorages) > 0 {
+		sourceStorage = sourceStorages[0]
+	}
+	return propagateArtifactsWithManager(ctx, projectName, imageName, source, destination, caches, sourceStorage, nil, nil)
+}
+
+func propagateArtifactsWithManager(ctx context.Context, projectName, imageName string, source, destination *image.StageDesc, caches []storage.StagesStorage, sourceStorage, destinationStorage storage.StagesStorage, storageManager manager.StorageManagerInterface) error {
 	if source == nil || source.Info == nil {
 		return fmt.Errorf("source image descriptor is unavailable")
 	}
@@ -39,20 +48,26 @@ func propagateArtifacts(ctx context.Context, projectName, imageName string, sour
 		return nil
 	}
 
-	var sourceStorage storage.StagesStorage
-	if len(sourceStorages) > 0 {
-		sourceStorage = sourceStorages[0]
-	}
 	if sourceStorage == nil {
 		sourceStorage = &storage.RepoStagesStorage{RepoAddress: source.Info.Repository}
+	}
+
+	copyArtifacts := func(ctx context.Context, sourceStorage storage.StagesStorage, sourceDigest string, destinationStorage storage.StagesStorage, destinationDigest string) error {
+		if storageManager != nil {
+			return storageManager.CopyAttachedArtifacts(ctx, sourceStorage, sourceDigest, destinationStorage, destinationDigest)
+		}
+		return sourceStorage.CopyAttachedArtifacts(ctx, sourceStorage.Address(), sourceDigest, destinationStorage.Address(), destinationDigest)
 	}
 
 	if destination != nil && destination.Info != nil &&
 		destination.Info.Repository != "" &&
 		destination.Info.Repository != storage.LocalStorageAddress &&
 		destination.Info.Repository != source.Info.Repository {
+		if destinationStorage == nil || destinationStorage.Address() != destination.Info.Repository {
+			destinationStorage = &storage.RepoStagesStorage{RepoAddress: destination.Info.Repository}
+		}
 		if err := logboek.Context(ctx).Default().LogProcess("image %s: copy artifacts into final repo %s", imageName, destination.Info.Repository).DoError(func() error {
-			return sourceStorage.CopyAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest(), destination.Info.Repository, destination.Info.GetDigest())
+			return copyArtifacts(ctx, sourceStorage, source.Info.GetDigest(), destinationStorage, destination.Info.GetDigest())
 		}); err != nil {
 			return fmt.Errorf("copy attached artifacts into final repo %s: %w", destination.Info.Repository, err)
 		}
@@ -76,7 +91,7 @@ func propagateArtifacts(ctx context.Context, projectName, imageName string, sour
 			destinationDigest = cacheDesc.Info.GetDigest()
 		}
 
-		if err := sourceStorage.CopyAttachedArtifacts(ctx, source.Info.Repository, source.Info.GetDigest(), cache.Address(), destinationDigest); err != nil {
+		if err := copyArtifacts(ctx, sourceStorage, source.Info.GetDigest(), cache, destinationDigest); err != nil {
 			logboek.Context(ctx).Warn().LogF("Warning: unable to copy artifacts into cache stages storage %s: %s\n", cache.String(), err)
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	attestation "github.com/werf/werf/v2/pkg/attestation"
 	container_backend "github.com/werf/werf/v2/pkg/container_backend"
 	image "github.com/werf/werf/v2/pkg/image"
 	storage "github.com/werf/werf/v2/pkg/storage"
@@ -282,6 +283,22 @@ func (m *MockStagesStorage) FilterStageDescSetAndProcessRelatedData(ctx context.
 func (mr *MockStagesStorageMockRecorder) FilterStageDescSetAndProcessRelatedData(ctx, stageDescSet, options any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FilterStageDescSetAndProcessRelatedData", reflect.TypeOf((*MockStagesStorage)(nil).FilterStageDescSetAndProcessRelatedData), ctx, stageDescSet, options)
+}
+
+// FindAttachedArtifact mocks base method.
+func (m *MockStagesStorage) FindAttachedArtifact(ctx context.Context, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAttachedArtifact", ctx, parentDigest, imageName, kind)
+	ret0, _ := ret[0].(v1.Descriptor)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// FindAttachedArtifact indicates an expected call of FindAttachedArtifact.
+func (mr *MockStagesStorageMockRecorder) FindAttachedArtifact(ctx, parentDigest, imageName, kind any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAttachedArtifact", reflect.TypeOf((*MockStagesStorage)(nil).FindAttachedArtifact), ctx, parentDigest, imageName, kind)
 }
 
 // GetAllAndGroupImageMetadataByImageName mocks base method.
@@ -558,6 +575,20 @@ func (m *MockStagesStorage) PublishArtifact(ctx context.Context, parentDigest, a
 func (mr *MockStagesStorageMockRecorder) PublishArtifact(ctx, parentDigest, artifactType, payload, imageName, checksum, targetPlatform, predicateType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishArtifact", reflect.TypeOf((*MockStagesStorage)(nil).PublishArtifact), ctx, parentDigest, artifactType, payload, imageName, checksum, targetPlatform, predicateType)
+}
+
+// PublishAttestation mocks base method.
+func (m *MockStagesStorage) PublishAttestation(ctx context.Context, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishAttestation", ctx, kind, payload, parentDigest, imageName, options)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishAttestation indicates an expected call of PublishAttestation.
+func (mr *MockStagesStorageMockRecorder) PublishAttestation(ctx, kind, payload, parentDigest, imageName, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishAttestation", reflect.TypeOf((*MockStagesStorage)(nil).PublishAttestation), ctx, kind, payload, parentDigest, imageName, options)
 }
 
 // PutImageMetadata mocks base method.

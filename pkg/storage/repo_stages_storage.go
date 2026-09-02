@@ -14,6 +14,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
@@ -859,6 +860,15 @@ func (storage *RepoStagesStorage) ListAttachedArtifacts(ctx context.Context, par
 		return nil, fmt.Errorf("read artifact index: %w", err)
 	}
 	return manifest.Manifests, nil
+}
+
+func (storage *RepoStagesStorage) FindAttachedArtifact(ctx context.Context, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	store := artifact.NewOCIStore(storage.RepoAddress, imageName)
+	return attestation.FindAttachedArtifact(ctx, store, parentDigest, kind)
+}
+
+func (storage *RepoStagesStorage) PublishAttestation(ctx context.Context, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error {
+	return attestation.PublishAttestation(ctx, kind, payload, storage.RepoAddress, parentDigest, imageName, options)
 }
 
 func (storage *RepoStagesStorage) PublishArtifact(ctx context.Context, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error {

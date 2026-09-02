@@ -91,8 +91,8 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 	return &BuildPhase{
 		BasePhase:         BasePhase{c},
 		BuildPhaseOptions: opts,
-		sbomProcessor:     newSbomProcessor(c.ContainerBackend, c.StorageManager.GetStagesStorage()),
-		vexProcessor:      newVexProcessor(),
+		sbomProcessor:     newSbomProcessor(c.ContainerBackend, c.StorageManager.GetStagesStorage(), c.StorageManager),
+		vexProcessor:      newVexProcessor(c.StorageManager.GetStagesStorage(), c.StorageManager),
 		ImagesReport:      NewImagesReport(),
 	}
 }
@@ -324,7 +324,7 @@ func (phase *BuildPhase) propagateArtifactsByImages(ctx context.Context) error {
 			if source == nil {
 				continue
 			}
-			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, source, finalStageDescForPlatform(phase, name, images, img.TargetPlatform), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage()); err != nil {
+			if err := propagateArtifactsWithManager(ctx, phase.Conveyor.ProjectName(), name, source, finalStageDescForPlatform(phase, name, images, img.TargetPlatform), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage(), phase.Conveyor.StorageManager.GetFinalStagesStorage(), phase.Conveyor.StorageManager); err != nil {
 				return fmt.Errorf("propagate artifacts for image %q: %w", name, err)
 			}
 		}
@@ -334,7 +334,7 @@ func (phase *BuildPhase) propagateArtifactsByImages(ctx context.Context) error {
 			if multiImage == nil || multiImage.GetStageDesc() == nil {
 				continue
 			}
-			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, multiImage.GetStageDesc(), multiImage.GetFinalStageDesc(), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage()); err != nil {
+			if err := propagateArtifactsWithManager(ctx, phase.Conveyor.ProjectName(), name, multiImage.GetStageDesc(), multiImage.GetFinalStageDesc(), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage(), phase.Conveyor.StorageManager.GetFinalStagesStorage(), phase.Conveyor.StorageManager); err != nil {
 				return fmt.Errorf("propagate multiplatform artifacts for image %q: %w", name, err)
 			}
 		}
@@ -342,7 +342,7 @@ func (phase *BuildPhase) propagateArtifactsByImages(ctx context.Context) error {
 	return nil
 }
 
-func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, sourceStageDesc, finalStageDesc *imagePkg.StageDesc, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker, propagate bool) error {
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, sourceStageDesc *imagePkg.StageDesc, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
 	stageDesc := sourceStageDesc
 	if stageDesc == nil {
 		stageDesc = contentStageDesc(img)
@@ -407,12 +407,6 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
-	}
-
-	if propagate {
-		if err := phase.sbomProcessor.PropagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
-			return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
-		}
 	}
 
 	return nil
@@ -837,7 +831,7 @@ func (phase *BuildPhase) registerSbomStage(img *image.Image) {
 		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
 	}
 	publisher := func(ctx context.Context, parentDesc *imagePkg.StageDesc, _, targetPlatform string) error {
-		return phase.convergePlatformImageSbom(ctx, img.Name, img, parentDesc, nil, signer, signerIdentity, nil, false)
+		return phase.convergePlatformImageSbom(ctx, img.Name, img, parentDesc, signer, signerIdentity, nil)
 	}
 	artifactStage := stage.GenerateSbomStage(baseOptions, phase.SbomSigningOptions, dependency, publisher)
 	img.SetStages(append(stages, artifactStage))
@@ -1185,7 +1179,7 @@ func (phase *BuildPhase) findAndFetchStageFromSecondaryStagesStorage(ctx context
 			if err := ensureAttachedArtifacts(ctx, secondaryStageDesc.Info.Repository, secondaryStageDesc.Info.GetDigest()); err != nil {
 				return fmt.Errorf("secondary stage %s has incomplete artifacts: %w", secondaryStageDesc.StageID.String(), err)
 			}
-			if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), img.Name, secondaryStageDesc, stageDescCopy, storageManager.GetCacheStagesStorageList(), secondaryStagesStorage); err != nil {
+			if err := propagateArtifactsWithManager(ctx, phase.Conveyor.ProjectName(), img.Name, secondaryStageDesc, stageDescCopy, storageManager.GetCacheStagesStorageList(), secondaryStagesStorage, storageManager.GetStagesStorage(), storageManager); err != nil {
 				return fmt.Errorf("unable to propagate artifacts restored from secondary storage: %w", err)
 			}
 		}
@@ -1494,11 +1488,15 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 	if artifactStage, ok := stg.(interface {
 		GetArtifactMetadata() *stage.ArtifactStageMetadata
 	}); ok && artifactStage.GetArtifactMetadata() != nil {
+		artifactMutator, ok := stg.(stage.ArtifactStage)
+		if !ok {
+			return fmt.Errorf("artifact stage %s does not implement artifact mutation", stg.Name())
+		}
 		prevBuiltImage := phase.StagesIterator.GetPrevBuiltImage(img, stg)
 		if prevBuiltImage == nil || prevBuiltImage.Image == nil {
 			return fmt.Errorf("expected previous built image for artifact stage %s", stg.Name())
 		}
-		if err := stg.MutateArtifact(ctx, prevBuiltImage, stageImage); err != nil {
+		if err := artifactMutator.MutateArtifact(ctx, prevBuiltImage, stageImage); err != nil {
 			return fmt.Errorf("unable to mutate artifact %s: %w", stg.Name(), err)
 		}
 		stageImage.Image.SetStageDesc(prevBuiltImage.Image.GetStageDesc())
@@ -1586,7 +1584,11 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 				return fmt.Errorf("expected previous built image for mutable stage %s", stg.Name())
 			}
 
-			if err := stg.MutateImage(ctx, phase.Conveyor.StorageManager.GetStagesStorage(), prevBuiltImage, stageImage); err != nil {
+			imageMutator, ok := stg.(stage.ImageStage)
+			if !ok {
+				return fmt.Errorf("mutable stage %s does not implement image mutation", stg.Name())
+			}
+			if err := imageMutator.MutateImage(ctx, phase.Conveyor.StorageManager.GetStagesStorage(), prevBuiltImage, stageImage); err != nil {
 				if storage.IsErrBrokenImage(err) {
 					// Invalidate manifest cache for the broken previous stage
 					prevStageDesc := prevBuiltImage.Image.GetStageDesc()
@@ -1843,7 +1845,7 @@ func (phase *BuildPhase) convergeMultiplatformVexByImageSets(ctx context.Context
 				return nil
 			}
 
-			return phase.convergeImageVex(ctx, name, images)
+			return phase.runMultiplatformVexStage(ctx, name, images)
 		}); err != nil {
 			return err
 		}
@@ -1853,11 +1855,10 @@ func (phase *BuildPhase) convergeMultiplatformVexByImageSets(ctx context.Context
 	return nil
 }
 
-func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, images []*image.Image) error {
+func (phase *BuildPhase) runMultiplatformVexStage(ctx context.Context, name string, images []*image.Image) error {
 	if len(images) == 0 {
 		return nil
 	}
-
 	if len(images) == 1 {
 		for _, stg := range images[0].GetStages() {
 			if stg.Name() == stage.Vex {
@@ -1892,19 +1893,21 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
 	}
 
-	var signer signature.Signer
-	var signerIdentity string
-	if phase.VexSigningOptions.Enabled {
-		signer = phase.VexSigningOptions.Signer().SignerVerifier()
-		signerIdentity = phase.VexSigningOptions.Signer().Fingerprint()
+	baseOptions := &stage.BaseStageOptions{
+		ImageName:      name,
+		ProjectName:    phase.Conveyor.ProjectName(),
+		TargetPlatform: vexTargetPlatform(images),
 	}
-
-	if err := phase.vexProcessor.Converge(ctx, vexContent, stageDesc, name, vexTargetPlatform(images), signer, signerIdentity); err != nil {
+	vexStage := stage.NewVexStage(stage.VexStageOptions{
+		VexJSON:          vexContent,
+		BaseStageOptions: baseOptions,
+		SigningOptions:   phase.VexSigningOptions,
+		Publisher: func(ctx context.Context, parentDesc *imagePkg.StageDesc, imageName, targetPlatform string, content []byte, signer signature.Signer, signerIdentity string) error {
+			return phase.vexProcessor.Converge(ctx, content, parentDesc, imageName, targetPlatform, signer, signerIdentity)
+		},
+	})
+	if err := vexStage.MutateArtifactWithDescriptor(ctx, stageDesc); err != nil {
 		return fmt.Errorf("unable to converge VEX for image %q: %w", name, err)
-	}
-
-	if err := propagateArtifacts(ctx, phase.Conveyor.ProjectName(), name, stageDesc, finalStageDescForImage(phase, name, images), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage()); err != nil {
-		return fmt.Errorf("unable to propagate VEX for image %q: %w", name, err)
 	}
 
 	return nil

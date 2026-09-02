@@ -37,6 +37,6 @@ var _ = Describe("artifact stage migration", func() {
 		Expect(string(buildPhase)).To(ContainSubstring("GenerateSbomStage"))
 		Expect(string(buildPhase)).To(ContainSubstring("NewVexStage"))
 		Expect(string(buildPhase)).To(ContainSubstring("if len(images) == 1"))
-		Expect(string(buildPhase)).To(ContainSubstring("convergeMultiplatformVexByImageSets"))
+		Expect(string(buildPhase)).To(ContainSubstring("runMultiplatformVexStage"))
 	})
 })

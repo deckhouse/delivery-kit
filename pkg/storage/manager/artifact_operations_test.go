@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/storage"
 )
@@ -16,16 +17,22 @@ type artifactOperationsStorage struct {
 	storage.StagesStorage
 	address string
 
-	listedParent       string
-	publishedParent    string
-	copiedSourceRepo   string
-	copiedSourceDigest string
-	copiedDestRepo     string
-	copiedDestDigest   string
-	resolvedProject    string
-	resolvedStage      image.StageID
-	resolveResult      *image.StageDesc
-	operationError     error
+	listedParent         string
+	publishedParent      string
+	copiedSourceRepo     string
+	copiedSourceDigest   string
+	copiedDestRepo       string
+	copiedDestDigest     string
+	resolvedProject      string
+	resolvedStage        image.StageID
+	resolveResult        *image.StageDesc
+	operationError       error
+	foundArtifact        v1.Descriptor
+	foundArtifactPresent bool
+	foundArtifactKind    attestation.PredicateKind
+	foundArtifactName    string
+	publishedKind        attestation.PredicateKind
+	publishedImageName   string
 }
 
 func (s *artifactOperationsStorage) Address() string { return s.address }
@@ -46,6 +53,18 @@ func (s *artifactOperationsStorage) CopyAttachedArtifacts(_ context.Context, sou
 	s.copiedSourceDigest = sourceDigest
 	s.copiedDestRepo = destinationRepository
 	s.copiedDestDigest = destinationDigest
+	return s.operationError
+}
+
+func (s *artifactOperationsStorage) FindAttachedArtifact(_ context.Context, _, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	s.foundArtifactName = imageName
+	s.foundArtifactKind = kind
+	return s.foundArtifact, s.foundArtifactPresent, s.operationError
+}
+
+func (s *artifactOperationsStorage) PublishAttestation(_ context.Context, kind attestation.PredicateKind, _ []byte, _, imageName string, _ attestation.PublishAttestationOptions) error {
+	s.publishedKind = kind
+	s.publishedImageName = imageName
 	return s.operationError
 }
 
@@ -85,6 +104,22 @@ var _ = Describe("StorageManager artifact operations", func() {
 		Expect(destination.copiedDestDigest).To(Equal("sha256:destination"))
 	})
 
+	It("routes attestation lookup and publication through the selected storage", func(ctx SpecContext) {
+		stages := &artifactOperationsStorage{address: "registry.example/repository", foundArtifactPresent: true, foundArtifact: v1.Descriptor{Digest: v1.Hash{Algorithm: "sha256", Hex: "artifact"}}}
+		manager := &StorageManager{}
+
+		descriptor, found, err := manager.FindAttachedArtifact(ctx, stages, "sha256:parent", "app", attestation.PredicateKindOpenVEX)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(descriptor.Digest.Hex).To(Equal("artifact"))
+		Expect(stages.foundArtifactName).To(Equal("app"))
+		Expect(stages.foundArtifactKind).To(Equal(attestation.PredicateKindOpenVEX))
+
+		Expect(manager.PublishAttestation(ctx, stages, attestation.PredicateKindOpenVEX, []byte("{}"), "sha256:parent", "app", attestation.PublishAttestationOptions{})).To(Succeed())
+		Expect(stages.publishedKind).To(Equal(attestation.PredicateKindOpenVEX))
+		Expect(stages.publishedImageName).To(Equal("app"))
+	})
+
 	It("skips copying between identical repository addresses", func(ctx SpecContext) {
 		source := &artifactOperationsStorage{address: "registry.example/repository"}
 		destination := &artifactOperationsStorage{address: source.address}
@@ -100,6 +135,15 @@ var _ = Describe("StorageManager artifact operations", func() {
 
 		Expect(manager.PublishArtifact(ctx, local, "sha256:parent", "application/test", []byte("payload"), "image", "checksum", "", "")).To(MatchError(ContainSubstring("local stages storage")))
 		Expect(manager.CopyAttachedArtifacts(ctx, local, "sha256:source", &artifactOperationsStorage{address: "registry.example/destination"}, "sha256:destination")).To(MatchError(ContainSubstring("local stages storage")))
+	})
+
+	It("rejects incomplete attestation operations", func(ctx SpecContext) {
+		stages := &artifactOperationsStorage{address: "registry.example/repository"}
+		manager := &StorageManager{}
+
+		_, _, err := manager.FindAttachedArtifact(ctx, stages, "", "app", attestation.PredicateKindOpenVEX)
+		Expect(err).To(MatchError("find attached artifact: parent digest is empty"))
+		Expect(manager.PublishAttestation(ctx, stages, attestation.PredicateKindOpenVEX, []byte("{}"), "", "app", attestation.PublishAttestationOptions{})).To(MatchError("publish attestation: parent digest is empty"))
 	})
 
 	It("wraps backend errors with the routed operation", func(ctx SpecContext) {

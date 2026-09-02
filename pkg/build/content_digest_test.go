@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -23,17 +24,29 @@ func anchorDigest(targetPlatform string, deps []string) string {
 	return d
 }
 
-func anchorDigestWithELFSigning(opts signing.ELFSigningOptions) string {
+func anchorDigestWithELFSigning(opts signing.ELFSigningOptions, manifestSigningOptions signing.ManifestSigningOptions) string {
 	d, err := calculateDigest(context.Background(), "anchor", "", nil, nil, calculateDigestOptions{
-		TargetPlatform:    "linux/amd64",
-		Anchor:            true,
-		HolisticInputs:    []string{"from-digest"},
-		ELFSigningOptions: opts,
+		TargetPlatform:         "linux/amd64",
+		Anchor:                 true,
+		HolisticInputs:         []string{"from-digest"},
+		ELFSigningOptions:      opts,
+		ManifestSigningOptions: manifestSigningOptions,
 	})
 	if err != nil {
 		panic(err)
 	}
 	return d
+}
+
+func inHouseManifestSigningOptions(ctx SpecContext, certRef, chainRef string) signing.ManifestSigningOptions {
+	signer, err := signing.NewSigner(ctx, signing.SignerOptions{
+		KeyRef:           filepath.Join("..", "..", "test", "e2e", "build", "_fixtures", "signature", "inhouse", "keys", "delivery-kit_959497322.pem.key"),
+		CertRef:          certRef,
+		IntermediatesRef: chainRef,
+	})
+	Expect(err).To(Succeed())
+
+	return signing.NewManifestSigningOptions(signer)
 }
 
 func withoutSigningWithHolistic(opts calculateDigestOptions) calculateDigestOptions {
@@ -90,21 +103,34 @@ var _ = Describe("anchor holistic digest", func() {
 		It("is deterministic for an unchanged BSign fingerprint", func() {
 			opts := signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-a"}
 
-			Expect(anchorDigestWithELFSigning(opts)).To(Equal(anchorDigestWithELFSigning(opts)))
+			Expect(anchorDigestWithELFSigning(opts, signing.ManifestSigningOptions{})).To(Equal(anchorDigestWithELFSigning(opts, signing.ManifestSigningOptions{})))
 		})
 
 		It("changes when the BSign fingerprint changes", func() {
 			first := signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-a"}
 			second := signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: "fingerprint-b"}
 
-			Expect(anchorDigestWithELFSigning(first)).NotTo(Equal(anchorDigestWithELFSigning(second)))
+			Expect(anchorDigestWithELFSigning(first, signing.ManifestSigningOptions{})).NotTo(Equal(anchorDigestWithELFSigning(second, signing.ManifestSigningOptions{})))
 		})
 
 		It("excludes private BSign material when BSign is disabled", func() {
 			first := signing.ELFSigningOptions{PGPPrivateKeyFingerprint: "fingerprint-a", PGPPrivateKeyPassphrase: "passphrase-a"}
 			second := signing.ELFSigningOptions{PGPPrivateKeyFingerprint: "fingerprint-b", PGPPrivateKeyPassphrase: "passphrase-b"}
 
-			Expect(anchorDigestWithELFSigning(first)).To(Equal(anchorDigestWithELFSigning(second)))
+			Expect(anchorDigestWithELFSigning(first, signing.ManifestSigningOptions{})).To(Equal(anchorDigestWithELFSigning(second, signing.ManifestSigningOptions{})))
+		})
+
+		It("changes when InHouse signing certificate or chain is configured", func(ctx SpecContext) {
+			keysDir := filepath.Join("..", "..", "test", "e2e", "build", "_fixtures", "signature", "inhouse", "keys")
+			withoutCertificateChain := signing.NewManifestSigningOptions(&signing.Signer{})
+			withCertificateChain := inHouseManifestSigningOptions(
+				ctx,
+				filepath.Join(keysDir, "delivery-kit_1666162742.pem.crt"),
+				filepath.Join(keysDir, "delivery-kit_chain_3247019714.pem.crt"),
+			)
+			elfSigningOptions := signing.ELFSigningOptions{InHouseEnabled: true}
+
+			Expect(anchorDigestWithELFSigning(elfSigningOptions, withoutCertificateChain)).NotTo(Equal(anchorDigestWithELFSigning(elfSigningOptions, withCertificateChain)))
 		})
 
 		It("uses the same BSign identity response in anchor and non-anchor paths", func(ctx SpecContext) {

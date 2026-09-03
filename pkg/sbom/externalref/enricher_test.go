@@ -2,8 +2,11 @@ package externalref
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -165,6 +168,89 @@ var _ = Describe("Enricher", func() {
 
 			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
 			Expect(*bom.ExternalReferences).To(HaveLen(2))
+		})
+
+		It("resolves a duplicated package URL once and enriches every duplicate", func() {
+			var calls int32
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				atomic.AddInt32(&calls, 1)
+				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "vcs"}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "dup", Version: "1.0", PackageURL: "pkg:npm/dup@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "dup", Version: "1.0", PackageURL: "pkg:npm/dup@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "dup", Version: "1.0", PackageURL: "pkg:npm/dup@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "other", Version: "2.0", PackageURL: "pkg:npm/other@2.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			Expect(atomic.LoadInt32(&calls)).To(Equal(int32(2)))
+			for i := 0; i < 3; i++ {
+				Expect((*bom.Components)[i].ExternalReferences).NotTo(BeNil())
+				Expect(*(*bom.Components)[i].ExternalReferences).To(HaveLen(1))
+			}
+		})
+
+		It("reports a duplicated failing package URL once", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return nil, fmt.Errorf("resolve failed")
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "dup", Version: "1.0", PackageURL: "pkg:npm/dup@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "dup", Version: "1.0", PackageURL: "pkg:npm/dup@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "dup", Version: "1.0", PackageURL: "pkg:npm/dup@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			Expect(strings.Count(err.Error(), "pkg:npm/dup@1.0")).To(Equal(1))
+		})
+
+		It("collapses resolver-unavailable failures into a single summary line", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return nil, ErrResolverUnavailable
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "pkg-b", Version: "2.0", PackageURL: "pkg:npm/pkg-b@2.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "pkg-c", Version: "3.0", PackageURL: "pkg:npm/pkg-c@3.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("    - PURL resolver unavailable: resolution skipped for 3 package URLs\n"))
+			Expect(err.Error()).NotTo(ContainSubstring("- component: pkg-a"))
+			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue(), "terminality detection must survive the grouping")
+		})
+
+		It("keeps per-component lines for content failures next to the unavailable summary", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				if purl == "pkg:npm/pkg-a@1.0" {
+					return nil, fmt.Errorf("resolve: unexpected status 404")
+				}
+				return nil, ErrResolverUnavailable
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+					{Name: "pkg-b", Version: "2.0", PackageURL: "pkg:npm/pkg-b@2.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("- component: pkg-a (pkg:npm/pkg-a@1.0): resolve: unexpected status 404"))
+			Expect(err.Error()).To(ContainSubstring("resolution skipped for 1 package URLs"))
 		})
 
 		It("preserves existing ExternalReferences on component", func() {

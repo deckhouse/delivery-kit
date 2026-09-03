@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
@@ -94,49 +93,59 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		return nil
 	}
 
-	var g errgroup.Group
-	g.SetLimit(10)
-
-	var seen sync.Map
-
 	components := *bom.Components
-	compErrs := make([]*componentError, len(components))
+	seen := make(map[string]cdx.ExternalReference)
+	var purls []string
 	for i := range components {
 		comp := &components[i]
-		g.Go(func() error {
-			if err := e.enrichComponent(ctx, comp, &seen); err != nil {
-				compErrs[i] = &componentError{name: comp.Name, purl: comp.PackageURL, err: err}
+		if comp.ExternalReferences != nil {
+			for _, ref := range *comp.ExternalReferences {
+				seen[refKey(ref)] = ref
 			}
-			return nil
-		})
-	}
-
-	_ = g.Wait()
-
-	if failed := lo.Compact(compErrs); len(failed) > 0 {
-		var details strings.Builder
-		var innerErrs []error
-		for _, ce := range failed {
-			if ce.purl != "" {
-				fmt.Fprintf(&details, "    - component: %s (%s): %s\n", ce.name, ce.purl, ce.err)
-			} else {
-				fmt.Fprintf(&details, "    - component: %s: %s\n", ce.name, ce.err)
-			}
-			innerErrs = append(innerErrs, ce.err)
 		}
-		return &ComponentError{
-			err:     errors.Join(innerErrs...),
-			details: details.String(),
+		if componentNeedsResolve(comp) {
+			purls = append(purls, comp.PackageURL)
 		}
 	}
 
-	var bomRefs []cdx.ExternalReference
-	seen.Range(func(_, value any) bool {
-		bomRefs = append(bomRefs, value.(cdx.ExternalReference))
-		return true
-	})
+	outcomes := e.resolvePurls(ctx, lo.Uniq(purls))
 
-	if len(bomRefs) > 0 {
+	var failed []*componentError
+	reported := make(map[string]struct{})
+	for i := range components {
+		comp := &components[i]
+		if comp.PackageURL == "" {
+			if !purlNotExpected(comp.Type) {
+				failed = append(failed, &componentError{name: comp.Name, err: fmt.Errorf("component %q (type %q) has no purl", comp.Name, comp.Type)})
+			}
+			continue
+		}
+		if !componentNeedsResolve(comp) {
+			continue
+		}
+
+		outcome := outcomes[comp.PackageURL]
+		if outcome.err != nil {
+			if _, done := reported[comp.PackageURL]; !done {
+				reported[comp.PackageURL] = struct{}{}
+				failed = append(failed, &componentError{name: comp.Name, purl: comp.PackageURL, err: outcome.err})
+			}
+			continue
+		}
+
+		if comp.ExternalReferences == nil {
+			comp.ExternalReferences = &[]cdx.ExternalReference{}
+		}
+		*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
+		seen[refKey(outcome.ref)] = outcome.ref
+	}
+
+	if len(failed) > 0 {
+		return newComponentError(failed)
+	}
+
+	if len(seen) > 0 {
+		bomRefs := lo.Values(seen)
 		bom.ExternalReferences = &bomRefs
 		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
 	}
@@ -144,44 +153,79 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	return nil
 }
 
-func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, seen *sync.Map) error {
-	if comp.ExternalReferences != nil && len(*comp.ExternalReferences) > 0 {
-		for _, ref := range *comp.ExternalReferences {
-			seen.Store(ref.URL+"|"+string(ref.Type), ref)
-		}
+type purlOutcome struct {
+	ref cdx.ExternalReference
+	err error
+}
+
+func (e *Enricher) resolvePurls(ctx context.Context, purls []string) map[string]*purlOutcome {
+	outcomes := make(map[string]*purlOutcome, len(purls))
+	for _, purl := range purls {
+		outcomes[purl] = &purlOutcome{}
 	}
 
-	if comp.PackageURL == "" {
-		if purlNotExpected(comp.Type) {
+	var g errgroup.Group
+	g.SetLimit(10)
+	for _, purl := range purls {
+		g.Go(func() error {
+			outcome := outcomes[purl]
+
+			res, err := e.Resolve(ctx, purl)
+			if err != nil {
+				outcome.err = err
+				return nil
+			}
+
+			if err := validateRefKind(res.Kind); err != nil {
+				outcome.err = err
+				return nil
+			}
+
+			outcome.ref = cdx.ExternalReference{
+				URL:  res.URL,
+				Type: cdx.ExternalReferenceType(res.Kind),
+			}
 			return nil
+		})
+	}
+	_ = g.Wait()
+
+	return outcomes
+}
+
+// newComponentError renders per-component failure lines. Resolver-unavailable
+// failures are collapsed into one summary line: after the breaker trips every
+// remaining PURL fails with the same sentinel, and repeating it per component
+// only obscures the real failures.
+func newComponentError(failed []*componentError) *ComponentError {
+	var details strings.Builder
+	var innerErrs []error
+	var unavailablePurls int
+	for _, ce := range failed {
+		innerErrs = append(innerErrs, ce.err)
+		if errors.Is(ce.err, ErrResolverUnavailable) {
+			unavailablePurls++
+			continue
 		}
-		return fmt.Errorf("component %q (type %q) has no purl", comp.Name, comp.Type)
+		if ce.purl != "" {
+			fmt.Fprintf(&details, "    - component: %s (%s): %s\n", ce.name, ce.purl, ce.err)
+		} else {
+			fmt.Fprintf(&details, "    - component: %s: %s\n", ce.name, ce.err)
+		}
 	}
-
-	if comp.Version == "(devel)" {
-		return nil
+	if unavailablePurls > 0 {
+		fmt.Fprintf(&details, "    - PURL resolver unavailable: resolution skipped for %d package URLs\n", unavailablePurls)
 	}
-
-	res, err := e.Resolve(ctx, comp.PackageURL)
-	if err != nil {
-		return err
+	return &ComponentError{
+		err:     errors.Join(innerErrs...),
+		details: details.String(),
 	}
+}
 
-	if err := validateRefKind(res.Kind); err != nil {
-		return err
-	}
+func componentNeedsResolve(comp *cdx.Component) bool {
+	return comp.PackageURL != "" && comp.Version != "(devel)"
+}
 
-	extRef := cdx.ExternalReference{
-		URL:  res.URL,
-		Type: cdx.ExternalReferenceType(res.Kind),
-	}
-
-	if comp.ExternalReferences == nil {
-		comp.ExternalReferences = &[]cdx.ExternalReference{}
-	}
-	*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
-
-	seen.Store(res.URL+"|"+res.Kind, extRef)
-
-	return nil
+func refKey(ref cdx.ExternalReference) string {
+	return ref.URL + "|" + string(ref.Type)
 }

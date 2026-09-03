@@ -57,12 +57,15 @@ func NewResolverBreaker(endpoint string) *ResolverBreaker {
 }
 
 // Allow reports whether resolution may proceed; once the breaker is tripped it
-// returns the canonical unavailable error.
+// fails with the bare ErrResolverUnavailable sentinel. The endpoint and the last
+// infrastructure error belong to another PURL, so they surface once in the
+// terminal error (UnavailableError) instead of being misattributed to every
+// component that hits the tripped breaker.
 func (b *ResolverBreaker) Allow() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.tripped {
-		return b.unavailableErrorLocked()
+		return ErrResolverUnavailable
 	}
 	return nil
 }

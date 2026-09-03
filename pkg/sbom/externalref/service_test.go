@@ -178,6 +178,31 @@ var _ = Describe("Service", func() {
 			Expect(classOf(err)).To(Equal(FailureClassInfra))
 		})
 
+		It("does not embed the cancellation cause into the error", func() {
+			cancelCtx, cancel := context.WithCancelCause(ctx)
+			cancel(errors.New("sibling image failure report"))
+
+			_, err := service.doResolve(cancelCtx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).NotTo(ContainSubstring("sibling image failure report"))
+			Expect(err.Error()).To(ContainSubstring("context canceled"))
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
+
+		It("does not count canceled resolutions toward the breaker", func() {
+			breaker := NewResolverBreaker(ts.URL)
+			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
+
+			cancelCtx, cancel := context.WithCancelCause(ctx)
+			cancel(errors.New("sibling image failure report"))
+
+			for i := 0; i < resolverBreakerThreshold; i++ {
+				_, err := breakerService.doResolve(cancelCtx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
+				Expect(err).To(HaveOccurred())
+			}
+			Expect(breaker.Allow()).To(Succeed())
+		})
+
 		It("surfaces the classification through the Resolve retry loop", func() {
 			_, err := service.Resolve(ctx, "pkg:npm/unknown@0.0.0")
 			Expect(err).To(HaveOccurred())

@@ -90,13 +90,13 @@ func (s *Service) doResolve(ctx context.Context, u string) (*ResolveResult, erro
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, s.classify(FailureClassInfra, fmt.Errorf("resolve: %w", err))
+		return nil, s.infraError(ctx, fmt.Errorf("resolve: %w", err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, s.classify(FailureClassInfra, fmt.Errorf("resolve: read body: %w", err))
+		return nil, s.infraError(ctx, fmt.Errorf("resolve: read body: %w", err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -136,6 +136,18 @@ func (s *Service) classify(class FailureClass, err error) error {
 		s.breaker.RecordFailure(class, classified)
 	}
 	return classified
+}
+
+// infraError guards canceled resolutions: errgroup cancels sibling workers with the
+// first failure as the context cause and net/http returns context.Cause(ctx), so a
+// canceled resolve would otherwise embed another image's entire error report.
+// Cancellation is terminal for this build and says nothing about resolver health,
+// so it is permanent and not counted by the breaker.
+func (s *Service) infraError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return backoff.Permanent(&ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("resolve: %w", ctxErr)})
+	}
+	return s.classify(FailureClassInfra, err)
 }
 
 const maxErrorBodyDetailLen = 200

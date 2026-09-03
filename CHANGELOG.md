@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.3.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.2.0-dk.3...v3.3.1-dk.1) (2026-09-02)
+
+
+### Features
+
+* **deploy,secrets:** write authenticated secret values ([#7818](https://github.com/deckhouse/delivery-kit/issues/7818)) ([b48d43d](https://github.com/deckhouse/delivery-kit/commit/b48d43dcdd20189dc2a9431081e1d05b2139147c))
+
+
+### Bug Fixes
+
+* **build, elf:** include signing identities in anchor digest ([#281](https://github.com/deckhouse/delivery-kit/issues/281)) ([8a9bd77](https://github.com/deckhouse/delivery-kit/commit/8a9bd77ae958c2aa41e318099bcdfb217250dce9))
+* **build, stapel:** stop panicking when the base image is gone at commit ([#7819](https://github.com/deckhouse/delivery-kit/issues/7819)) ([17f71c5](https://github.com/deckhouse/delivery-kit/commit/17f71c55c417567a3b3346c87f88bbd0d284bc01))
+* **build:** ignore a cache repo pointing at the primary repo ([#7820](https://github.com/deckhouse/delivery-kit/issues/7820)) ([d02c20c](https://github.com/deckhouse/delivery-kit/commit/d02c20cd32cc6613f5fc3ae03d394c2813c7e0a2))
+* **host-cleanup:** report freed space measured from the actual disk state ([296c839](https://github.com/deckhouse/delivery-kit/commit/296c8391941b14c73d9230d6984d32944a490fc2))
+* **host-cleanup:** report the real retention of pruned dangling images ([#7822](https://github.com/deckhouse/delivery-kit/issues/7822)) ([958f84c](https://github.com/deckhouse/delivery-kit/commit/958f84cd002367fef96df7b0a0cd2ab88f478bde))
+
+
+### Miscellaneous Chores
+
+* force release 3.3.1-dk.1 ([c2a8309](https://github.com/deckhouse/delivery-kit/commit/c2a83098d28b830e5c6abc35de2f8c4e01e3f29a))
+
 ## [3.2.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.2.0-dk.2...v3.2.0-dk.3) (2026-08-31)
 
 

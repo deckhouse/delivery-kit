@@ -260,6 +260,10 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
+	if err := phase.propagateArtifacts(ctx); err != nil {
+		return err
+	}
+
 	telemetry.GetTelemetryWerfIO().BuildFinished(ctx, true)
 
 	return phase.createReport(ctx, imagesPairs)
@@ -350,9 +354,8 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
 	}
 
-	finalStageDesc := phase.finalStageDescForImage(name, images)
 	for _, img := range images {
-		if err := phase.convergePlatformImageSbom(ctx, name, img, finalStageDesc, signer, signerIdentity, breaker); err != nil {
+		if err := phase.convergePlatformImageSbom(ctx, name, img, signer, signerIdentity, breaker); err != nil {
 			return err
 		}
 	}
@@ -360,7 +363,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 	return nil
 }
 
-func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, finalStageDesc *imagePkg.StageDesc, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
 	stageDesc := img.GetLastNonEmptyStageDesc()
 	if stageDesc == nil {
 		return fmt.Errorf("unable to converge sbom for image %q: stage descriptor is unavailable", name)
@@ -424,25 +427,81 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
-		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
-	}
-
 	return nil
 }
 
-// finalStageDescForImage returns the final repo descriptor to copy the SBOM artifacts into, or nil
-// when there is nothing to copy. A single-platform image never has one: publishFinalImage stores the
-// final repo descriptor in the content tag desc, which convergeImageSbom already uses as the SBOM
-// target. Reaching for the last non-empty stage here instead panics, because an image resolved from
-// the cache short-circuits in BeforeImageStages and never gets one.
-func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Image) *imagePkg.StageDesc {
-	if len(images) == 1 {
-		return nil
+// propagateArtifacts copies the artifacts attached to every image in the stages repo
+// into the final repo and the cache repos. It runs after both SBOM and VEX
+// convergence so it carries every attached artifact kind, and it runs on every build,
+// so a destination holding the image without its artifacts is repaired by the next
+// run. For a multi-platform image the per-platform artifacts are copied onto the
+// platform manifest digests — preserved by the registry-level index copy — and the
+// image-level artifacts (e.g. VEX) onto the index digest.
+func (phase *BuildPhase) propagateArtifacts(ctx context.Context) error {
+	cacheStagesStorageList := phase.Conveyor.StorageManager.GetCacheStagesStorageList()
+
+	for _, pair := range phase.Conveyor.imagesTree.GetImagesByName(false) {
+		name, images := pair.Unpair()
+
+		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+			var finalRepo string
+			finalDesc := multiImg.GetFinalStageDesc()
+			if finalDesc != nil {
+				finalRepo = finalDesc.Info.Repository
+			}
+
+			for _, img := range images {
+				stageDesc := img.GetContentTagDesc()
+				if stageDesc == nil {
+					continue
+				}
+				if err := phase.sbomStep.PropagateArtifacts(ctx, name,
+					stageDesc.Info.Repository, stageDesc.Info.GetDigest(),
+					finalRepo, stageDesc.Info.GetDigest(),
+					cacheStagesStorageList,
+				); err != nil {
+					return fmt.Errorf("unable to propagate artifacts for image %q (platform %s): %w", name, img.TargetPlatform, err)
+				}
+			}
+
+			if idxDesc := multiImg.GetStageDesc(); idxDesc != nil {
+				var finalDigest string
+				if finalDesc != nil {
+					finalDigest = finalDesc.Info.GetDigest()
+				}
+				if err := phase.sbomStep.PropagateArtifacts(ctx, name,
+					idxDesc.Info.Repository, idxDesc.Info.GetDigest(),
+					finalRepo, finalDigest,
+					cacheStagesStorageList,
+				); err != nil {
+					return fmt.Errorf("unable to propagate artifacts for image %q: %w", name, err)
+				}
+			}
+
+			continue
+		}
+
+		img := images[0]
+		stageDesc := img.GetContentTagDesc()
+		if stageDesc == nil {
+			continue
+		}
+
+		var finalRepo, finalDigest string
+		if finalDesc := img.GetFinalContentTagDesc(); finalDesc != nil {
+			finalRepo = finalDesc.Info.Repository
+			finalDigest = finalDesc.Info.GetDigest()
+		}
+
+		if err := phase.sbomStep.PropagateArtifacts(ctx, name,
+			stageDesc.Info.Repository, stageDesc.Info.GetDigest(),
+			finalRepo, finalDigest,
+			cacheStagesStorageList,
+		); err != nil {
+			return fmt.Errorf("unable to propagate artifacts for image %q: %w", name, err)
+		}
 	}
-	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-		return multiImg.GetFinalStageDesc()
-	}
+
 	return nil
 }
 
@@ -527,7 +586,7 @@ func (phase *BuildPhase) publishFinalImage(ctx context.Context, name string, img
 	if err != nil {
 		return fmt.Errorf("unable to copy image into final repo: %w", err)
 	}
-	img.SetContentTagDesc(desc)
+	img.SetFinalContentTagDesc(desc)
 
 	return nil
 }

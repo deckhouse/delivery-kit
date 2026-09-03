@@ -10,17 +10,18 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"gopkg.in/yaml.v2"
 
 	"github.com/werf/lockgate"
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/lrumeta"
 	"github.com/werf/werf/v2/pkg/util/parallel"
@@ -78,6 +79,13 @@ type StorageManagerInterface interface {
 	CopySuitableStageDescByDigest(ctx context.Context, stageDesc *image.StageDesc, sourceStagesStorage, destinationStagesStorage storage.StagesStorage, containerBackend container_backend.ContainerBackend, targetPlatform string) (*image.StageDesc, error)
 	CopyStageIntoCacheStorages(ctx context.Context, stageID image.StageID, cacheStagesStorages []storage.StagesStorage, opts CopyStageIntoStorageOptions) error
 	CopyStageIntoFinalStorage(ctx context.Context, stageID image.StageID, finalStagesStorage storage.StagesStorage, opts CopyStageIntoStorageOptions) (*image.StageDesc, error)
+
+	ListAttachedArtifacts(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest string) ([]v1.Descriptor, error)
+	FindAttachedArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error)
+	PublishAttestation(ctx context.Context, stagesStorage storage.StagesStorage, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error
+	PublishArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error
+	ResolveStageDescriptor(ctx context.Context, stagesStorage storage.StagesStorage, stageID image.StageID) (*image.StageDesc, error)
+	CopyAttachedArtifacts(ctx context.Context, sourceStorage storage.StagesStorage, sourceDigest string, destinationStorage storage.StagesStorage, destinationDigest string) error
 
 	ForEachDeleteStage(ctx context.Context, options ForEachDeleteStageOptions, stageDescSet image.StageDescSet, f func(ctx context.Context, stageDesc *image.StageDesc, err error) error) error
 	ForEachDeleteFinalStage(ctx context.Context, options ForEachDeleteStageOptions, stageDescSet image.StageDescSet, f func(ctx context.Context, stageDesc *image.StageDesc, err error) error) error
@@ -216,6 +224,107 @@ func (m *StorageManager) GetSecondaryStagesStorageList() []storage.StagesStorage
 
 func (m *StorageManager) GetCacheStagesStorageList() []storage.StagesStorage {
 	return m.CacheStagesStorageList
+}
+
+func (m *StorageManager) ListAttachedArtifacts(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest string) ([]v1.Descriptor, error) {
+	if stagesStorage == nil {
+		return nil, fmt.Errorf("list attached artifacts: stages storage is nil")
+	}
+	if parentDigest == "" {
+		return nil, fmt.Errorf("list attached artifacts: parent digest is empty")
+	}
+
+	artifacts, err := stagesStorage.ListAttachedArtifacts(ctx, parentDigest)
+	if err != nil {
+		return nil, fmt.Errorf("list attached artifacts from %s: %w", stagesStorage.String(), err)
+	}
+	return artifacts, nil
+}
+
+func (m *StorageManager) FindAttachedArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	if stagesStorage == nil {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: stages storage is nil")
+	}
+	if stagesStorage.Address() == storage.LocalStorageAddress {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: local stages storage does not support artifact operations")
+	}
+	if parentDigest == "" {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: parent digest is empty")
+	}
+	if imageName == "" {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached artifact: image name is empty")
+	}
+
+	descriptor, found, err := stagesStorage.FindAttachedArtifact(ctx, parentDigest, imageName, kind)
+	if err != nil {
+		return v1.Descriptor{}, false, fmt.Errorf("find attached %s artifact from %s: %w", kind.Name, stagesStorage.String(), err)
+	}
+	return descriptor, found, nil
+}
+
+func (m *StorageManager) PublishAttestation(ctx context.Context, stagesStorage storage.StagesStorage, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error {
+	if stagesStorage == nil {
+		return fmt.Errorf("publish attestation: stages storage is nil")
+	}
+	if stagesStorage.Address() == storage.LocalStorageAddress {
+		return fmt.Errorf("publish attestation: local stages storage does not support artifact operations")
+	}
+	if parentDigest == "" {
+		return fmt.Errorf("publish attestation: parent digest is empty")
+	}
+	if imageName == "" {
+		return fmt.Errorf("publish attestation: image name is empty")
+	}
+	if err := stagesStorage.PublishAttestation(ctx, kind, payload, parentDigest, imageName, options); err != nil {
+		return fmt.Errorf("publish attestation to %s: %w", stagesStorage.String(), err)
+	}
+	return nil
+}
+
+func (m *StorageManager) PublishArtifact(ctx context.Context, stagesStorage storage.StagesStorage, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error {
+	if stagesStorage == nil {
+		return fmt.Errorf("publish artifact: stages storage is nil")
+	}
+	if stagesStorage.Address() == storage.LocalStorageAddress {
+		return fmt.Errorf("publish artifact: local stages storage does not support artifact operations")
+	}
+	if parentDigest == "" {
+		return fmt.Errorf("publish artifact: parent digest is empty")
+	}
+
+	if err := stagesStorage.PublishArtifact(ctx, parentDigest, artifactType, payload, imageName, checksum, targetPlatform, predicateType); err != nil {
+		return fmt.Errorf("publish artifact to %s: %w", stagesStorage.String(), err)
+	}
+	return nil
+}
+
+func (m *StorageManager) ResolveStageDescriptor(ctx context.Context, stagesStorage storage.StagesStorage, stageID image.StageID) (*image.StageDesc, error) {
+	if stagesStorage == nil {
+		return nil, fmt.Errorf("resolve stage descriptor: stages storage is nil")
+	}
+
+	desc, err := stagesStorage.GetStageDesc(ctx, m.ProjectName, stageID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve stage %s descriptor from %s: %w", stageID.String(), stagesStorage.String(), err)
+	}
+	return desc, nil
+}
+
+func (m *StorageManager) CopyAttachedArtifacts(ctx context.Context, sourceStorage storage.StagesStorage, sourceDigest string, destinationStorage storage.StagesStorage, destinationDigest string) error {
+	if sourceStorage == nil || destinationStorage == nil {
+		return fmt.Errorf("copy attached artifacts: source and destination storage are required")
+	}
+	if sourceStorage.Address() == storage.LocalStorageAddress || destinationStorage.Address() == storage.LocalStorageAddress {
+		return fmt.Errorf("copy attached artifacts: local stages storage does not support artifact operations")
+	}
+	if sourceStorage.Address() == destinationStorage.Address() {
+		return nil
+	}
+
+	if err := destinationStorage.CopyAttachedArtifacts(ctx, sourceStorage.Address(), sourceDigest, destinationStorage.Address(), destinationDigest); err != nil {
+		return fmt.Errorf("copy attached artifacts from %s to %s: %w", sourceStorage.String(), destinationStorage.String(), err)
+	}
+	return nil
 }
 
 func (m *StorageManager) GetServiceValuesRepo() string {
@@ -811,7 +920,7 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 		return nil, fmt.Errorf("unable to get stage %s description from %s: %w", stageDesc.StageID.String(), destinationStagesStorage.String(), err)
 	} else {
 		if sourceStagesStorage.Address() != storage.LocalStorageAddress && destinationStagesStorage.Address() != storage.LocalStorageAddress {
-			if err := artifact.CopyAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
+			if err := destinationStagesStorage.CopyAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
 				return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
 			}
 		}

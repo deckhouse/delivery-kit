@@ -31,8 +31,9 @@ type Info struct {
 	CreatedAtUnixNano int64               `json:"createdAtUnixNano"`
 	Volumes           map[string]struct{} `json:"volumes"`
 
-	IsIndex bool
-	Index   []*Info
+	IsIndex  bool
+	Platform string `json:"platform,omitempty"`
+	Index    []*Info
 }
 
 func (info *Info) GetDigest() string {
@@ -74,7 +75,8 @@ func (info *Info) GetCopy() *Info {
 		CreatedAtUnixNano: info.CreatedAtUnixNano,
 		Volumes:           util.CopyMap(info.Volumes),
 
-		IsIndex: info.IsIndex,
+		IsIndex:  info.IsIndex,
+		Platform: info.Platform,
 	}
 
 	for _, i := range info.Index {

@@ -103,6 +103,20 @@ var _ = Describe("cleanupManager.cleanupOrphanedArtifacts", func() {
 		Expect(sm.stages.deletedArtifacts).To(Equal([]string{"repo:sha256-abc123"}))
 	})
 
+	It("cleans propagated cache repositories", func() {
+		sm := newFakeStorageManager()
+		cache := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
+		cache.EXPECT().Address().Return("registry.example.com/cache").AnyTimes()
+		cache.EXPECT().String().Return("registry.example.com/cache").AnyTimes()
+		cache.EXPECT().GetOrphanedArtifactNames(gomock.Any()).Return([]string{"cache:sha256-abc123"}, nil)
+		cache.EXPECT().DeleteArtifact(gomock.Any(), "cache:sha256-abc123").Return(nil)
+		sm.caches = []storage.StagesStorage{cache}
+
+		m := &cleanupManager{StorageManager: sm}
+
+		Expect(m.cleanupOrphanedArtifacts(context.Background())).To(Succeed())
+	})
+
 	It("reports which repo failed when the final repo cannot be cleaned", func() {
 		sm := newFakeStorageManager()
 
@@ -188,6 +202,7 @@ type fakeStorageManager struct {
 	stages *fakePrimaryStagesStorage
 	meta   *fakePrimaryStagesStorage
 	final  storage.StagesStorage
+	caches []storage.StagesStorage
 
 	stageDescSet      image.StageDescSet
 	finalStageDescSet image.StageDescSet
@@ -227,6 +242,10 @@ func (f *fakeStorageManager) GetMetaStorage() storage.PrimaryStagesStorage {
 
 func (f *fakeStorageManager) GetFinalStagesStorage() storage.StagesStorage {
 	return f.final
+}
+
+func (f *fakeStorageManager) GetCacheStagesStorageList() []storage.StagesStorage {
+	return f.caches
 }
 
 func (f *fakeStorageManager) ForEachRejectedStage(ctx context.Context, stageIDs []image.StageID, cb func(ctx context.Context, stageID image.StageID) error) error {

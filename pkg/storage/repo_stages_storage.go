@@ -14,6 +14,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/docker_registry/api"
@@ -849,6 +850,35 @@ func (storage *RepoStagesStorage) Address() string {
 	return storage.RepoAddress
 }
 
+func (storage *RepoStagesStorage) ListAttachedArtifacts(ctx context.Context, parentDigest string) ([]v1.Descriptor, error) {
+	index, err := artifact.PullFallbackIndex(ctx, storage.RepoAddress, parentDigest)
+	if err != nil {
+		return nil, fmt.Errorf("pull artifact index: %w", err)
+	}
+	manifest, err := index.IndexManifest()
+	if err != nil {
+		return nil, fmt.Errorf("read artifact index: %w", err)
+	}
+	return manifest.Manifests, nil
+}
+
+func (storage *RepoStagesStorage) FindAttachedArtifact(ctx context.Context, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error) {
+	store := artifact.NewOCIStore(storage.RepoAddress, imageName)
+	return attestation.FindAttachedArtifact(ctx, store, parentDigest, kind)
+}
+
+func (storage *RepoStagesStorage) PublishAttestation(ctx context.Context, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error {
+	return attestation.PublishAttestation(ctx, kind, payload, storage.RepoAddress, parentDigest, imageName, options)
+}
+
+func (storage *RepoStagesStorage) PublishArtifact(ctx context.Context, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error {
+	return artifact.NewOCIStore(storage.RepoAddress, imageName).Attach(ctx, parentDigest, artifactType, payload, checksum, targetPlatform, predicateType)
+}
+
+func (storage *RepoStagesStorage) CopyAttachedArtifacts(ctx context.Context, sourceRepository, sourceDigest, destinationRepository, destinationDigest string) error {
+	return artifact.CopyAttachedArtifacts(ctx, sourceRepository, sourceDigest, destinationRepository, destinationDigest)
+}
+
 func (storage *RepoStagesStorage) GetOrphanedArtifactNames(ctx context.Context) ([]string, error) {
 	tags, err := storage.Tags(ctx, storage.RepoAddress)
 	if err != nil {
@@ -974,7 +1004,7 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
 
-	if err := artifact.CopyAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
+	if err := storage.CopyAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
 		return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
 	}
 

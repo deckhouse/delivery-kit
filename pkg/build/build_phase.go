@@ -11,7 +11,6 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
-	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
@@ -92,8 +91,8 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 	return &BuildPhase{
 		BasePhase:         BasePhase{c},
 		BuildPhaseOptions: opts,
-		sbomStep:          newSbomStep(c.ContainerBackend, c.StorageManager.GetStagesStorage()),
-		vexStep:           newVexStep(),
+		sbomProcessor:     newSbomProcessor(c.ContainerBackend, c.StorageManager.GetStagesStorage(), c.StorageManager),
+		vexProcessor:      newVexProcessor(c.StorageManager.GetStagesStorage(), c.StorageManager),
 		ImagesReport:      NewImagesReport(),
 	}
 }
@@ -101,8 +100,8 @@ func NewBuildPhase(c *Conveyor, opts BuildPhaseOptions) *BuildPhase {
 type BuildPhase struct {
 	BasePhase
 	BuildPhaseOptions
-	sbomStep *sbomStep
-	vexStep  *vexStep
+	sbomProcessor *sbomProcessor
+	vexProcessor  *vexProcessor
 
 	StagesIterator *StagesIterator
 	ImagesReport   *ImagesReport
@@ -126,6 +125,10 @@ func (phase *BuildPhase) Name() string {
 }
 
 func (phase *BuildPhase) BeforeImages(ctx context.Context) error {
+	if err := validateArtifactStorage(phase.Conveyor.StorageManager, phase.artifactsEnabled()); err != nil {
+		return err
+	}
+
 	if err := phase.Conveyor.StorageManager.InitCache(ctx); err != nil {
 		return fmt.Errorf("unable to init storage manager cache: %w", err)
 	}
@@ -152,6 +155,13 @@ func (phase *BuildPhase) BeforeImages(ctx context.Context) error {
 func collectHolisticInputs(ctx context.Context, img *image.Image, conveyor stage.Conveyor, buildContextArchive container_backend.BuildContextArchiver) ([]string, error) {
 	var inputs []string
 	for _, stg := range img.GetStages() {
+		artifactStage, isArtifactStage := stg.(interface {
+			GetArtifactMetadata() *stage.ArtifactStageMetadata
+		})
+		if isArtifactStage && artifactStage.GetArtifactMetadata() != nil {
+			continue
+		}
+
 		deps, err := stg.GetContentDependencies(ctx, conveyor, buildContextArchive)
 		if err != nil {
 			return nil, fmt.Errorf("stage %q GetContentDependencies: %w", stg.Name(), err)
@@ -252,11 +262,11 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
-	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
+	if err := phase.publishMultiplatformVexArtifacts(ctx); err != nil {
 		return err
 	}
 
-	if err := phase.convergeVexByImagesSets(ctx); err != nil {
+	if err := phase.propagateArtifactsByImages(ctx); err != nil {
 		return err
 	}
 
@@ -265,103 +275,78 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 	return phase.createReport(ctx, imagesPairs)
 }
 
-func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
-	if !phase.Conveyor.EnableSbom() {
+func validateArtifactStorage(storageManager manager.StorageManagerInterface, artifactsEnabled bool) error {
+	if !artifactsEnabled {
 		return nil
 	}
-
-	graph := phase.Conveyor.imagesTree.GetImagesGraph()
-	if graph == nil || len(graph.Nodes()) == 0 {
-		return nil
+	if _, isLocal := storageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
+		return fmt.Errorf("SBOM or VEX generation requires a container registry (specify --repo), or disable artifact generation")
 	}
-
-	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
-		return fmt.Errorf("SBOM generation requires a container registry (specify --repo). Use --repo to enable SBOM or disable SBOM in the werf config (build.sbom.enable)")
-	}
-
-	tracker := convergefailure.NewTracker(os.Getenv(externalref.EnvName))
-	phase.sbomFailures = tracker
-
-	totalImages, convergeErr := phase.doConvergeSbomByImagesSets(ctx, graph, tracker)
-
-	return tracker.Finish(ctx, totalImages, convergeErr)
-}
-
-func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, graph *image.ImagesGraph, tracker *convergefailure.Tracker) (int, error) {
-	var totalImages int
-
-	for _, imagesInSet := range graph.Levels() {
-		imagesByName := make(map[string][]*image.Image)
-		for _, img := range imagesInSet {
-			imagesByName[img.Name] = append(imagesByName[img.Name], img)
-		}
-
-		names := make([]string, 0, len(imagesByName))
-		for name := range imagesByName {
-			names = append(names, name)
-		}
-
-		totalImages += len(names)
-
-		if err := parallel.DoTasks(ctx, len(names), parallel.DoTasksOptions{
-			MaxNumberOfWorkers:         int(phase.Conveyor.ParallelTasksLimit),
-			InitDockerCLIForEachWorker: true,
-		}, func(ctx context.Context, taskId int) error {
-			name := names[taskId]
-			images := imagesByName[name]
-
-			if tracker.SkipDependent(ctx, name, sbomImageDependencies(images)) {
-				return nil
-			}
-
-			if err := phase.convergeImageSbom(ctx, name, images, tracker.Breaker()); err != nil {
-				return tracker.Classify(err, name)
-			}
-			return nil
-		}); err != nil {
-			return totalImages, err
-		}
-	}
-
-	return totalImages, nil
-}
-
-// sbomImageDependencies describes, for the SBOM failure semantics, the images
-// whose SBOMs are merged into this image's own SBOM.
-func sbomImageDependencies(images []*image.Image) []convergefailure.ImageDependencies {
-	return lo.Map(images, func(img *image.Image, _ int) convergefailure.ImageDependencies {
-		return convergefailure.ImageDependencies{
-			BaseImageName: img.GetBaseImageName(),
-			Imports: lo.Map(img.GetImportImagesInfo(), func(importInfo image.ImportImageInfo, _ int) convergefailure.ImportSource {
-				return convergefailure.ImportSource{
-					ImageName: importInfo.ImageName,
-					External:  importInfo.ExternalImage,
-				}
-			}),
-		}
-	})
-}
-
-func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, images []*image.Image, breaker *externalref.ResolverBreaker) error {
-	var signer signature.Signer
-	var signerIdentity string
-	if phase.SbomSigningOptions.Enabled {
-		signer = phase.SbomSigningOptions.Signer().SignerVerifier()
-		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
-	}
-
-	finalStageDesc := phase.finalStageDescForImage(name, images)
-	for _, img := range images {
-		if err := phase.convergePlatformImageSbom(ctx, name, img, finalStageDesc, signer, signerIdentity, breaker); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, finalStageDesc *imagePkg.StageDesc, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
-	stageDesc := img.GetLastNonEmptyStageDesc()
+func (phase *BuildPhase) artifactsEnabled() bool {
+	if phase.Conveyor.EnableSbom() {
+		return true
+	}
+
+	if phase.Conveyor.imagesTree == nil {
+		return false
+	}
+
+	for _, pair := range phase.Conveyor.imagesTree.GetImagesByName(false) {
+		_, images := pair.Unpair()
+		for _, img := range images {
+			if img == nil {
+				continue
+			}
+			if vex := img.Vex(); vex != nil && vex.Document != "" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (phase *BuildPhase) propagateArtifactsByImages(ctx context.Context) error {
+	if !phase.artifactsEnabled() {
+		return nil
+	}
+
+	for _, pair := range phase.Conveyor.imagesTree.GetImagesByName(false) {
+		name, images := pair.Unpair()
+		for _, img := range images {
+			if img == nil {
+				continue
+			}
+			source := contentStageDesc(img)
+			if source == nil {
+				continue
+			}
+			if err := propagateArtifactsWithManager(ctx, phase.Conveyor.ProjectName(), name, source, finalStageDescForPlatform(phase, name, images, img.TargetPlatform), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage(), phase.Conveyor.StorageManager.GetFinalStagesStorage(), phase.Conveyor.StorageManager); err != nil {
+				return fmt.Errorf("propagate artifacts for image %q: %w", name, err)
+			}
+		}
+
+		if len(images) > 1 {
+			multiImage := phase.Conveyor.imagesTree.GetMultiplatformImage(name)
+			if multiImage == nil || multiImage.GetStageDesc() == nil {
+				continue
+			}
+			if err := propagateArtifactsWithManager(ctx, phase.Conveyor.ProjectName(), name, multiImage.GetStageDesc(), multiImage.GetFinalStageDesc(), phase.Conveyor.StorageManager.GetCacheStagesStorageList(), phase.Conveyor.StorageManager.GetStagesStorage(), phase.Conveyor.StorageManager.GetFinalStagesStorage(), phase.Conveyor.StorageManager); err != nil {
+				return fmt.Errorf("propagate multiplatform artifacts for image %q: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, sourceStageDesc *imagePkg.StageDesc, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
+	stageDesc := sourceStageDesc
+	if stageDesc == nil {
+		stageDesc = contentStageDesc(img)
+	}
 	if stageDesc == nil {
 		return fmt.Errorf("unable to converge sbom for image %q: stage descriptor is unavailable", name)
 	}
@@ -417,32 +402,13 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
+	if err := phase.sbomProcessor.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc, finalStageDesc, phase.Conveyor.StorageManager.GetCacheStagesStorageList()); err != nil {
-		return fmt.Errorf("unable to propagate sbom for image %q: %w", name, err)
-	}
-
-	return nil
-}
-
-// finalStageDescForImage returns the final repo descriptor to copy the SBOM artifacts into, or nil
-// when there is nothing to copy. A single-platform image never has one: publishFinalImage stores the
-// final repo descriptor in the content tag desc, which convergeImageSbom already uses as the SBOM
-// target. Reaching for the last non-empty stage here instead panics, because an image resolved from
-// the cache short-circuits in BeforeImageStages and never gets one.
-func (phase *BuildPhase) finalStageDescForImage(name string, images []*image.Image) *imagePkg.StageDesc {
-	if len(images) == 1 {
-		return nil
-	}
-	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-		return multiImg.GetFinalStageDesc()
-	}
 	return nil
 }
 
@@ -703,8 +669,14 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 	if len(stages) == 0 {
 		return deferFn, nil
 	}
-	anchor := stages[len(stages)-1]
-	if !anchor.IsContentAnchor() {
+	var anchor stage.Interface
+	for index := len(stages) - 1; index >= 0; index-- {
+		if stages[index].IsContentAnchor() {
+			anchor = stages[index]
+			break
+		}
+	}
+	if anchor == nil {
 		return deferFn, nil
 	}
 
@@ -756,12 +728,113 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 			logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s by content-based tag\n", img.LogName())
 			container_backend.LogImageInfoByStageDesc(ctx, stageDesc, platform)
 		}
+		phase.StagesIterator.PrevStage = anchor
+		phase.StagesIterator.PrevNonEmptyStage = anchor
+		phase.StagesIterator.PrevBuiltStage = anchor
 	} else if phase.ShouldBeBuiltMode {
 		logboek.Context(ctx).Warn().LogFHighlight("Content-based digest %s for image %s not found\n", anchor.GetDigest(), img.LogName())
 		logboek.Context(ctx).Warn().LogLn()
 	}
 
+	phase.registerSbomStage(img)
+	if err := phase.registerSinglePlatformVexStage(ctx, img); err != nil {
+		return deferFn, err
+	}
+
 	return deferFn, nil
+}
+
+func (phase *BuildPhase) registerSinglePlatformVexStage(ctx context.Context, img *image.Image) error {
+	if img == nil || img.Vex() == nil || img.Vex().Document == "" {
+		return nil
+	}
+
+	images := phase.Conveyor.imagesTree.GetImagesByName(false)
+	for _, pair := range images {
+		name, imageSet := pair.Unpair()
+		if name == img.Name && len(imageSet) != 1 {
+			return nil
+		}
+	}
+	for _, existing := range img.GetStages() {
+		if existing.Name() == stage.Vex {
+			return nil
+		}
+	}
+
+	vexContent, err := phase.Conveyor.GiterminismManager().FileReader().ReadVEXFile(ctx, img.Vex().Document)
+	if err != nil {
+		return fmt.Errorf("read VEX file %q for image %q: %w", img.Vex().Document, img.Name, err)
+	}
+	baseOptions := &stage.BaseStageOptions{
+		TargetPlatform:   img.TargetPlatform,
+		ImageName:        img.Name,
+		ImageTmpDir:      img.TmpDir,
+		ContainerWerfDir: img.ContainerWerfDir,
+		ProjectName:      phase.Conveyor.ProjectName(),
+	}
+	var signingOptions signing.VexSigningOptions
+	if phase.VexSigningOptions.Enabled {
+		signingOptions = phase.VexSigningOptions
+	}
+	stages := img.GetStages()
+	publisher := func(ctx context.Context, parentDesc *imagePkg.StageDesc, imageName, targetPlatform string, content []byte, signer signature.Signer, signerIdentity string) error {
+		return phase.vexProcessor.Converge(ctx, content, parentDesc, imageName, targetPlatform, signer, signerIdentity)
+	}
+	img.SetStages(append(stages, stage.NewVexStage(stage.VexStageOptions{
+		VexJSON:          vexContent,
+		BaseStageOptions: baseOptions,
+		SigningOptions:   signingOptions,
+		Publisher:        publisher,
+	})))
+	return nil
+}
+
+func (phase *BuildPhase) registerSbomStage(img *image.Image) {
+	if img == nil || !phase.Conveyor.EnableSbom() {
+		return
+	}
+	for _, existing := range img.GetStages() {
+		if existing.Name() == stage.Sbom {
+			return
+		}
+	}
+
+	stages := img.GetStages()
+	if len(stages) == 0 {
+		return
+	}
+	if phase.sbomFailures == nil {
+		phase.sbomFailures = convergefailure.NewTracker(os.Getenv(externalref.EnvName))
+	}
+
+	baseOptions := &stage.BaseStageOptions{
+		TargetPlatform:   img.TargetPlatform,
+		ImageName:        img.Name,
+		ImageTmpDir:      img.TmpDir,
+		ContainerWerfDir: img.ContainerWerfDir,
+		ProjectName:      phase.Conveyor.ProjectName(),
+	}
+	dependency := phase.scanOptionsForImage(img).Checksum()
+	if sbomConfig := img.Sbom(); sbomConfig != nil {
+		dependency = util.Sha256Hash(
+			dependency,
+			"standard", fmt.Sprintf("%d", sbomConfig.Standard),
+			"gost_attack_surface", sbomConfig.Gost.AttackSurface.String(),
+			"gost_security_function", sbomConfig.Gost.SecurityFunction.String(),
+		)
+	}
+	var signer signature.Signer
+	var signerIdentity string
+	if phase.SbomSigningOptions.Enabled {
+		signer = phase.SbomSigningOptions.Signer().SignerVerifier()
+		signerIdentity = phase.SbomSigningOptions.Signer().Fingerprint()
+	}
+	publisher := func(ctx context.Context, parentDesc *imagePkg.StageDesc, _, targetPlatform string) error {
+		return phase.convergePlatformImageSbom(ctx, img.Name, img, parentDesc, signer, signerIdentity, nil)
+	}
+	artifactStage := stage.GenerateSbomStage(baseOptions, phase.SbomSigningOptions, dependency, publisher)
+	img.SetStages(append(stages, artifactStage))
 }
 
 func (phase *BuildPhase) AfterImageStages(ctx context.Context, img *image.Image) error {
@@ -1073,30 +1146,42 @@ func (phase *BuildPhase) findAndFetchStageFromSecondaryStagesStorage(ctx context
 
 	storageManager := phase.Conveyor.StorageManager
 	atomicCopySuitableStageFromSecondaryStagesStorage := func(secondaryStageDesc *imagePkg.StageDesc, secondaryStagesStorage storage.StagesStorage) error {
+		var stageDescCopy *imagePkg.StageDesc
 		err := logboek.Context(ctx).Default().LogProcess("Copy suitable stage from secondary %s", secondaryStagesStorage.String()).DoError(func() error {
-			if stageDescCopy, err := storageManager.CopySuitableStageDescByDigest(ctx, secondaryStageDesc, secondaryStagesStorage, storageManager.GetStagesStorage(), phase.Conveyor.ContainerBackend, img.TargetPlatform); err != nil {
+			var err error
+			stageDescCopy, err = storageManager.CopySuitableStageDescByDigest(ctx, secondaryStageDesc, secondaryStagesStorage, storageManager.GetStagesStorage(), phase.Conveyor.ContainerBackend, img.TargetPlatform)
+			if err != nil {
 				return fmt.Errorf("unable to copy suitable stage %s from %s to %s: %w", secondaryStageDesc.StageID.String(), secondaryStagesStorage.String(), storageManager.GetStagesStorage().String(), err)
-			} else {
-				i := phase.Conveyor.GetOrCreateStageImage(stageDescCopy.Info.Name, phase.StagesIterator.GetPrevImage(img, stg), stg, img)
-				i.Image.SetStageDesc(stageDescCopy)
-				stg.SetStageImage(i)
-
-				// The stage digest remains the same, but the content digest may differ (e.g., the content digest of git and some user stages depends on the git commit).
-				contentDigest, exist := stageDescCopy.Info.Labels[imagePkg.WerfStageContentDigestLabel]
-				if exist {
-					stg.SetContentDigest(contentDigest)
-				} else {
-					panic(fmt.Sprintf("expected stage %q content digest label to be set!", stg.Name()))
-				}
-
-				logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s\n", stg.LogDetailedName())
-				container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
-
-				return nil
 			}
+
+			i := phase.Conveyor.GetOrCreateStageImage(stageDescCopy.Info.Name, phase.StagesIterator.GetPrevImage(img, stg), stg, img)
+			i.Image.SetStageDesc(stageDescCopy)
+			stg.SetStageImage(i)
+
+			// The stage digest remains the same, but the content digest may differ (e.g., the content digest of git and some user stages depends on the git commit).
+			contentDigest, exist := stageDescCopy.Info.Labels[imagePkg.WerfStageContentDigestLabel]
+			if exist {
+				stg.SetContentDigest(contentDigest)
+			} else {
+				panic(fmt.Sprintf("expected stage %q content digest label to be set!", stg.Name()))
+			}
+
+			logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s\n", stg.LogDetailedName())
+			container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+
+			return nil
 		})
 		if err != nil {
 			return err
+		}
+
+		if phase.artifactsEnabled() {
+			if err := ensureAttachedArtifacts(ctx, secondaryStageDesc.Info.Repository, secondaryStageDesc.Info.GetDigest()); err != nil {
+				return fmt.Errorf("secondary stage %s has incomplete artifacts: %w", secondaryStageDesc.StageID.String(), err)
+			}
+			if err := propagateArtifactsWithManager(ctx, phase.Conveyor.ProjectName(), img.Name, secondaryStageDesc, stageDescCopy, storageManager.GetCacheStagesStorageList(), secondaryStagesStorage, storageManager.GetStagesStorage(), storageManager); err != nil {
+				return fmt.Errorf("unable to propagate artifacts restored from secondary storage: %w", err)
+			}
 		}
 
 		if err := storageManager.CopyStageIntoCacheStorages(
@@ -1207,6 +1292,17 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 			defer opstats.Observe(ctx, opstats.OperationStageDigestLockWait)()
 			phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Lock()
 		})
+
+	if artifactStage, ok := stg.(interface {
+		GetArtifactMetadata() *stage.ArtifactStageMetadata
+	}); ok && artifactStage.GetArtifactMetadata() != nil {
+		stageContentSig, err := calculateDigest(ctx, fmt.Sprintf("%s-content", stg.Name()), "", stg, phase.Conveyor, calculateDigestOptions{TargetPlatform: img.TargetPlatform})
+		if err != nil {
+			return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, fmt.Errorf("unable to calculate artifact stage %s content digest: %w", stg.Name(), err)
+		}
+		stg.SetContentDigest(stageContentSig)
+		return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, nil
+	}
 
 	storageManager := phase.Conveyor.StorageManager
 	stageDescSet, err := storageManager.GetStageDescSetByDigestWithCache(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg))
@@ -1362,7 +1458,14 @@ func (phase *BuildPhase) buildStage(ctx context.Context, img *image.Image, stg s
 		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
 	}
 
-	if err := logboek.Context(ctx).Default().LogProcess("Building stage %s%s", stg.LogDetailedName(), phase.emptyAnchorRebuildNote(ctx, img, stg)).
+	processName := "Building stage %s%s"
+	if artifactStage, ok := stg.(interface {
+		GetArtifactMetadata() *stage.ArtifactStageMetadata
+	}); ok && artifactStage.GetArtifactMetadata() != nil {
+		processName = "Processing artifact stage %s%s"
+	}
+
+	if err := logboek.Context(ctx).Default().LogProcess(processName, stg.LogDetailedName(), phase.emptyAnchorRebuildNote(ctx, img, stg)).
 		Options(func(options types.LogProcessOptionsInterface) {
 			options.InfoSectionFunc(infoSectionFunc)
 			options.Style(style.Highlight())
@@ -1388,6 +1491,24 @@ func (phase *BuildPhase) buildStage(ctx context.Context, img *image.Image, stg s
 
 func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.Image, stg stage.Interface) error {
 	stageImage := stg.GetStageImage()
+
+	if artifactStage, ok := stg.(interface {
+		GetArtifactMetadata() *stage.ArtifactStageMetadata
+	}); ok && artifactStage.GetArtifactMetadata() != nil {
+		artifactMutator, ok := stg.(stage.ArtifactStage)
+		if !ok {
+			return fmt.Errorf("artifact stage %s does not implement artifact mutation", stg.Name())
+		}
+		prevBuiltImage := phase.StagesIterator.GetPrevBuiltImage(img, stg)
+		if prevBuiltImage == nil || prevBuiltImage.Image == nil {
+			return fmt.Errorf("expected previous built image for artifact stage %s", stg.Name())
+		}
+		if err := artifactMutator.MutateArtifact(ctx, prevBuiltImage, stageImage); err != nil {
+			return fmt.Errorf("unable to mutate artifact %s: %w", stg.Name(), err)
+		}
+		stageImage.Image.SetStageDesc(prevBuiltImage.Image.GetStageDesc())
+		return nil
+	}
 
 	if stg.IsBuildable() {
 		if err := logboek.Context(ctx).Streams().DoErrorWithTag(fmt.Sprintf("%s/%s", img.LogName(), stg.Name()), img.LogTagStyle(), func() error {
@@ -1470,7 +1591,11 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 				return fmt.Errorf("expected previous built image for mutable stage %s", stg.Name())
 			}
 
-			if err := stg.MutateImage(ctx, phase.Conveyor.StorageManager.GetStagesStorage(), prevBuiltImage, stageImage); err != nil {
+			imageMutator, ok := stg.(stage.ImageStage)
+			if !ok {
+				return fmt.Errorf("mutable stage %s does not implement image mutation", stg.Name())
+			}
+			if err := imageMutator.MutateImage(ctx, phase.Conveyor.StorageManager.GetStagesStorage(), prevBuiltImage, stageImage); err != nil {
 				if storage.IsErrBrokenImage(err) {
 					// Invalidate manifest cache for the broken previous stage
 					prevStageDesc := prevBuiltImage.Image.GetStageDesc()
@@ -1691,9 +1816,8 @@ E.g.:
 		})
 }
 
-// convergeVexByImagesSets publishes VEX artifacts for all images respecting dependency order.
-
-func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
+// publishMultiplatformVexArtifacts publishes the image-level VEX artifact after the final index exists.
+func (phase *BuildPhase) publishMultiplatformVexArtifacts(ctx context.Context) error {
 	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
 		return nil
 	}
@@ -1724,8 +1848,11 @@ func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
 			name := names[taskId]
 
 			images := imagesByName[name]
+			if len(images) == 1 {
+				return nil
+			}
 
-			return phase.convergeImageVex(ctx, name, images)
+			return phase.runMultiplatformVexArtifactStage(ctx, name, images)
 		}); err != nil {
 			return err
 		}
@@ -1735,21 +1862,16 @@ func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
 	return nil
 }
 
-func (phase *BuildPhase) vexStageDesc(name string, images []*image.Image) *imagePkg.StageDesc {
-	if len(images) == 1 {
-		return images[0].GetLastNonEmptyStageDesc()
-	}
-
-	if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-		return multiImg.GetStageDesc()
-	}
-
-	return nil
-}
-
-func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, images []*image.Image) error {
+func (phase *BuildPhase) runMultiplatformVexArtifactStage(ctx context.Context, name string, images []*image.Image) error {
 	if len(images) == 0 {
 		return nil
+	}
+	if len(images) == 1 {
+		for _, stg := range images[0].GetStages() {
+			if stg.Name() == stage.Vex {
+				return nil
+			}
+		}
 	}
 
 	primaryImg := images[0]
@@ -1759,7 +1881,14 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return nil
 	}
 
-	stageDesc := phase.vexStageDesc(name, images)
+	var stageDesc *imagePkg.StageDesc
+	if len(images) == 1 {
+		stageDesc = contentStageDesc(primaryImg)
+	} else if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
+		stageDesc = multiImg.GetStageDesc()
+	} else {
+		stageDesc = image.NewMultiplatformImage(name, images, 0, 1).GetStageDesc()
+	}
 	if stageDesc == nil {
 		return fmt.Errorf("unable to converge VEX for image %q: stage descriptor is unavailable", name)
 	}
@@ -1771,14 +1900,20 @@ func (phase *BuildPhase) convergeImageVex(ctx context.Context, name string, imag
 		return fmt.Errorf("read VEX file %q for image %q: %w", vexConfig.Document, name, err)
 	}
 
-	var signer signature.Signer
-	var signerIdentity string
-	if phase.VexSigningOptions.Enabled {
-		signer = phase.VexSigningOptions.Signer().SignerVerifier()
-		signerIdentity = phase.VexSigningOptions.Signer().Fingerprint()
+	baseOptions := &stage.BaseStageOptions{
+		ImageName:      name,
+		ProjectName:    phase.Conveyor.ProjectName(),
+		TargetPlatform: vexTargetPlatform(images),
 	}
-
-	if err := phase.vexStep.Converge(ctx, vexContent, stageDesc, name, primaryImg.TargetPlatform, signer, signerIdentity); err != nil {
+	vexStage := stage.NewVexStage(stage.VexStageOptions{
+		VexJSON:          vexContent,
+		BaseStageOptions: baseOptions,
+		SigningOptions:   phase.VexSigningOptions,
+		Publisher: func(ctx context.Context, parentDesc *imagePkg.StageDesc, imageName, targetPlatform string, content []byte, signer signature.Signer, signerIdentity string) error {
+			return phase.vexProcessor.Converge(ctx, content, parentDesc, imageName, targetPlatform, signer, signerIdentity)
+		},
+	})
+	if err := vexStage.MutateArtifactWithDescriptor(ctx, stageDesc); err != nil {
 		return fmt.Errorf("unable to converge VEX for image %q: %w", name, err)
 	}
 
@@ -1818,7 +1953,7 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 		return nil, nil
 	}
 
-	baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, img.GetBaseImageName(), baseImageInfo)
+	baseImageSbom, err := phase.sbomProcessor.GetImageBOM(ctx, img.GetBaseImageName(), baseImageInfo)
 	if err != nil {
 		if errors.Is(err, ErrSbomNotRequired) {
 			return nil, nil
@@ -1870,7 +2005,7 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			importLookupName = importInfo.ImageName
 		}
 
-		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importLookupName, importImageInfo)
+		importImageSbom, err := phase.sbomProcessor.GetImageBOM(ctx, importLookupName, importImageInfo)
 		if err != nil {
 			if errors.Is(err, ErrSbomNotRequired) {
 				continue

@@ -39,6 +39,8 @@ const (
 	Dockerfile       StageName = "dockerfile"
 	ImageSpec        StageName = "imageSpec"
 	Sign             StageName = "sign"
+	Sbom             StageName = "sbom"
+	Vex              StageName = "vex"
 	VerityAnnotation StageName = "verityAnnotation"
 )
 
@@ -106,6 +108,7 @@ type BaseStage struct {
 	networkOverride  string
 	needsNetwork     bool
 	meta             *StageMeta
+	artifactMetadata *ArtifactStageMetadata
 	isContentAnchor  bool
 }
 
@@ -115,6 +118,29 @@ func (s *BaseStage) IsContentAnchor() bool {
 
 func (s *BaseStage) SetContentAnchor(v bool) {
 	s.isContentAnchor = v
+}
+
+type ArtifactKind string
+
+const (
+	ArtifactKindSbom ArtifactKind = "sbom"
+	ArtifactKindVex  ArtifactKind = "vex"
+)
+
+type ArtifactStageMetadata struct {
+	Kind           ArtifactKind
+	ParentDigest   string
+	TargetPlatform string
+	Mutable        bool
+	Buildable      bool
+}
+
+func (s *BaseStage) SetArtifactMetadata(metadata *ArtifactStageMetadata) {
+	s.artifactMetadata = metadata
+}
+
+func (s *BaseStage) GetArtifactMetadata() *ArtifactStageMetadata {
+	return s.artifactMetadata
 }
 
 type StageMeta struct {

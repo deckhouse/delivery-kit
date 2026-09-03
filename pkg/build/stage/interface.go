@@ -8,6 +8,14 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
+type ArtifactStage interface {
+	MutateArtifact(ctx context.Context, prevBuiltImage, stageImage *StageImage) error
+}
+
+type ImageStage interface {
+	MutateImage(ctx context.Context, registry ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error
+}
+
 type Interface interface {
 	Name() StageName
 	LogDetailedName() string
@@ -37,8 +45,6 @@ type Interface interface {
 
 	SetGitMappings([]*GitMapping)
 	GetGitMappings() []*GitMapping
-
-	MutateImage(ctx context.Context, registry ImageMutatorPusher, prevBuiltImage, stageImage *StageImage) error
 
 	SelectSuitableStageDesc(context.Context, Conveyor, image.StageDescSet) (*image.StageDesc, error)
 

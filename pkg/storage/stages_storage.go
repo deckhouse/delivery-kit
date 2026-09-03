@@ -7,6 +7,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
+	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/image"
 )
@@ -81,6 +82,12 @@ type StagesStorage interface {
 
 	GetOrphanedArtifactNames(ctx context.Context) ([]string, error)
 	DeleteArtifact(ctx context.Context, imageName string) error
+
+	ListAttachedArtifacts(ctx context.Context, parentDigest string) ([]v1.Descriptor, error)
+	FindAttachedArtifact(ctx context.Context, parentDigest, imageName string, kind attestation.PredicateKind) (v1.Descriptor, bool, error)
+	PublishAttestation(ctx context.Context, kind attestation.PredicateKind, payload []byte, parentDigest, imageName string, options attestation.PublishAttestationOptions) error
+	PublishArtifact(ctx context.Context, parentDigest, artifactType string, payload []byte, imageName, checksum, targetPlatform, predicateType string) error
+	CopyAttachedArtifacts(ctx context.Context, sourceRepository, sourceDigest, destinationRepository, destinationDigest string) error
 
 	PutImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string) error
 	RmImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageNameOrImageMetadataID, commit, stageID string) error

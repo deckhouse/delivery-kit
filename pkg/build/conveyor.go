@@ -942,6 +942,9 @@ func (c *Conveyor) doImage(ctx context.Context, img *image.Image, phases []Phase
 
 				if contentTagDesc := img.GetContentTagDesc(); contentTagDesc != nil {
 					logboek.Context(ctx).LogOptionalLn()
+					if err := runRestoredArtifactStages(ctx, img, phase); err != nil {
+						return fmt.Errorf("run restored artifact stages for image %s: %w", img.GetLogName(), err)
+					}
 					return nil
 				}
 

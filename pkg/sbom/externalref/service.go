@@ -100,7 +100,7 @@ func (s *Service) doResolve(ctx context.Context, u string) (*ResolveResult, erro
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("resolve: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("resolve: unexpected status %s", statusErrorDetail(resp.Status, resp.Header.Get("Content-Type"), body))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, s.classify(FailureClassInfra, err)
 		}
@@ -136,4 +136,20 @@ func (s *Service) classify(class FailureClass, err error) error {
 		s.breaker.RecordFailure(class, classified)
 	}
 	return classified
+}
+
+const maxErrorBodyDetailLen = 200
+
+// statusErrorDetail builds the error detail for a non-200 resolver response: HTML
+// bodies are proxy boilerplate carrying nothing beyond the status line and are
+// dropped, other bodies are collapsed to a single line and truncated.
+func statusErrorDetail(status, contentType string, body []byte) string {
+	detail := strings.Join(strings.Fields(string(body)), " ")
+	if detail == "" || strings.Contains(contentType, "text/html") || strings.HasPrefix(detail, "<") {
+		return status
+	}
+	if runes := []rune(detail); len(runes) > maxErrorBodyDetailLen {
+		detail = string(runes[:maxErrorBodyDetailLen]) + "..."
+	}
+	return fmt.Sprintf("%s: %s", status, detail)
 }

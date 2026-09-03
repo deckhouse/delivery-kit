@@ -554,7 +554,40 @@ func (f *fakeStorageManager) GetFinalStageDescSet(_ context.Context) (image.Stag
 	return f.finalStageDescSet, nil
 }
 
-func TestCleanupFinalStages_ReportRecordsKeptFinalStageWithReason(t *testing.T) {
+func TestCleanupFinalStages_KeepsFinalStageWhoseStageIsRetained(t *testing.T) {
+	ctx := context.Background()
+
+	finalStageDesc := &image.StageDesc{
+		StageID: image.NewStageID("ff0011", 1748001122334),
+		Info:    &image.Info{Tag: "ff0011-1748001122334"},
+	}
+	stageDesc := &image.StageDesc{
+		StageID: image.NewStageID("ff0011", 1748001122334),
+		Info:    &image.Info{Tag: "ff0011-1748001122334"},
+	}
+
+	sm := newFakeStorageManager()
+	sm.finalStageDescSet = image.NewStageDescSet(finalStageDesc)
+	sm.stageDescSet = image.NewStageDescSet(stageDesc)
+
+	stageManager := stage_manager.NewManager()
+	require.NoError(t, stageManager.InitStageDescSet(ctx, sm))
+	require.NoError(t, stageManager.InitFinalStageDescSet(ctx, sm))
+
+	report := newTestReport()
+	m := &cleanupManager{stageManager: stageManager, StorageManager: sm, report: report, DryRun: true}
+
+	require.NoError(t, m.cleanupFinalStages(ctx))
+
+	assert.Equal(t, []cleanup_report.Item{{
+		Type:   cleanup_report.ItemTypeFinalStage,
+		Tag:    "ff0011-1748001122334",
+		Reason: stage_manager.ProtectionReasonFoundInRepo.String(),
+	}}, report.Kept)
+	assert.Empty(t, report.Deleted)
+}
+
+func TestCleanupFinalStages_DeletesFinalStageAbsentFromStagesRepo(t *testing.T) {
 	ctx := context.Background()
 
 	finalStageDesc := &image.StageDesc{
@@ -571,16 +604,15 @@ func TestCleanupFinalStages_ReportRecordsKeptFinalStageWithReason(t *testing.T) 
 	require.NoError(t, stageManager.InitFinalStageDescSet(ctx, sm))
 
 	report := newTestReport()
-	m := &cleanupManager{stageManager: stageManager, StorageManager: sm, report: report}
+	m := &cleanupManager{stageManager: stageManager, StorageManager: sm, report: report, DryRun: true}
 
 	require.NoError(t, m.cleanupFinalStages(ctx))
 
+	assert.Empty(t, report.Kept)
 	assert.Equal(t, []cleanup_report.Item{{
-		Type:   cleanup_report.ItemTypeFinalStage,
-		Tag:    "ff0011-1748001122334",
-		Reason: stage_manager.ProtectionReasonNotFoundInRepo.String(),
-	}}, report.Kept)
-	assert.Empty(t, report.Deleted)
+		Type: cleanup_report.ItemTypeFinalStage,
+		Tag:  "ff0011-1748001122334",
+	}}, report.Deleted)
 }
 
 var _ = Describe("deleteOrphanedArtifacts", func() {

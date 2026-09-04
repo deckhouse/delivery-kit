@@ -15,7 +15,6 @@ import (
 
 	"github.com/werf/werf/v2/pkg/attestation"
 	"github.com/werf/werf/v2/pkg/docker_registry"
-	werfImage "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/test/mock"
@@ -55,16 +54,6 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		Expect(remote.Write(toRef, img, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
 	}
 
-	stageDescFor := func(repo, digest string) *werfImage.StageDesc {
-		return &werfImage.StageDesc{
-			StageID: &werfImage.StageID{},
-			Info: &werfImage.Info{
-				Repository: repo,
-				RepoDigest: repo + "@" + digest,
-			},
-		}
-	}
-
 	cacheStorage := func(address string) storage.StagesStorage {
 		s := mock.NewMockStagesStorage(gomock.NewController(GinkgoT()))
 		s.EXPECT().Address().Return(address).AnyTimes()
@@ -96,7 +85,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		copyImageByDigest(ctx, srcRepo, finalRepo, srcDigest)
 
 		step := &sbomStep{}
-		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), stageDescFor(finalRepo, srcDigest), nil)).To(Succeed())
+		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, finalRepo, srcDigest, nil)).To(Succeed())
 
 		finalStore := artifact.NewOCIStore(finalRepo, "app", remoteOpts...)
 		content, err := finalStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
@@ -113,7 +102,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 			cacheStorage(srcRepo),
 			cacheStorage(cacheRepo),
 		}
-		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), nil, caches)).To(Succeed())
+		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, "", "", caches)).To(Succeed())
 
 		cacheStore := artifact.NewOCIStore(cacheRepo, "app", remoteOpts...)
 		content, err := cacheStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
@@ -123,23 +112,23 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 
 	It("should do nothing without a final repo and caches", func(ctx SpecContext) {
 		step := &sbomStep{}
-		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), nil, nil)).To(Succeed())
+		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, "", "", nil)).To(Succeed())
 	})
 
 	It("should skip the final repo when it matches the stages repo", func(ctx SpecContext) {
 		step := &sbomStep{}
-		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), stageDescFor(srcRepo, srcDigest), nil)).To(Succeed())
+		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, srcRepo, srcDigest, nil)).To(Succeed())
 	})
 
 	It("should not fail when a cache repo is unreachable", func(ctx SpecContext) {
 		step := &sbomStep{}
 		caches := []storage.StagesStorage{cacheStorage("127.0.0.1:1/unreachable/cache")}
-		Expect(step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), nil, caches)).To(Succeed())
+		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, "", "", caches)).To(Succeed())
 	})
 
 	It("should fail when the final repo copy fails", func(ctx SpecContext) {
 		step := &sbomStep{}
-		err := step.PropagateArtifacts(ctx, "app", stageDescFor(srcRepo, srcDigest), stageDescFor("127.0.0.1:1/unreachable/final", srcDigest), nil)
+		err := step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, "127.0.0.1:1/unreachable/final", srcDigest, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("copy attached artifacts into final repo"))
 	})

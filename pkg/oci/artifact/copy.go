@@ -12,6 +12,34 @@ import (
 	"github.com/werf/werf/v2/pkg/image"
 )
 
+// CopyAllAttachedArtifacts copies every artifact attached to srcDigest in srcRepo
+// onto dstDigest in dstRepo, and when srcDigest is an image index it also copies
+// the artifacts attached to every manifest the index references. Referenced
+// manifests are addressed by the same digest in both repositories, which holds for
+// registry-level copies — the only in-scope way an index travels between
+// repositories.
+func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, opts ...remote.Option) error {
+	if err := CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, opts...); err != nil {
+		return err
+	}
+
+	entries, err := ListIndexPlatforms(ctx, srcRepo, srcDigest, opts...)
+	if err != nil {
+		return fmt.Errorf("list index manifests of %s: %w", srcRepo+"@"+srcDigest, err)
+	}
+
+	for _, entry := range entries {
+		if entry.Digest == srcDigest {
+			continue
+		}
+		if err := CopyAttachedArtifacts(ctx, srcRepo, entry.Digest, dstRepo, entry.Digest, opts...); err != nil {
+			return fmt.Errorf("copy artifacts of index manifest %s: %w", entry.Digest, err)
+		}
+	}
+
+	return nil
+}
+
 // CopyAttachedArtifacts copies every artifact attached to srcDigest in srcRepo onto
 // dstDigest in dstRepo. Artifacts are re-attached from their payload rather than
 // copied manifest-by-manifest, so the parent digests may differ (e.g. when a stage

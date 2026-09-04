@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -153,6 +154,20 @@ var _ = Describe("Service", func() {
 			Entry("HTTP 500 is an infrastructure failure", "pkg:npm/server-error@1.0.0", FailureClassInfra),
 		)
 
+		It("drops HTML error page bodies from the error message", func() {
+			err := resolveOnce("pkg:npm/html-502@1.0.0")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("unexpected status 502 Bad Gateway"))
+			Expect(err.Error()).NotTo(ContainSubstring("<html>"))
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
+
+		It("keeps non-HTML error body details", func() {
+			err := resolveOnce("pkg:npm/server-error@1.0.0")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`unexpected status 500 Internal Server Error: {"error":"internal error"}`))
+		})
+
 		It("classifies transport errors as infrastructure failures", func() {
 			deadTS := httptest.NewServer(http.NotFoundHandler())
 			deadTS.Close()
@@ -163,10 +178,54 @@ var _ = Describe("Service", func() {
 			Expect(classOf(err)).To(Equal(FailureClassInfra))
 		})
 
+		It("does not embed the cancellation cause into the error", func() {
+			cancelCtx, cancel := context.WithCancelCause(ctx)
+			cancel(errors.New("sibling image failure report"))
+
+			_, err := service.doResolve(cancelCtx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).NotTo(ContainSubstring("sibling image failure report"))
+			Expect(err.Error()).To(ContainSubstring("context canceled"))
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
+
+		It("does not count canceled resolutions toward the breaker", func() {
+			breaker := NewResolverBreaker(ts.URL)
+			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
+
+			cancelCtx, cancel := context.WithCancelCause(ctx)
+			cancel(errors.New("sibling image failure report"))
+
+			for i := 0; i < resolverBreakerThreshold; i++ {
+				_, err := breakerService.doResolve(cancelCtx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
+				Expect(err).To(HaveOccurred())
+			}
+			Expect(breaker.Allow()).To(Succeed())
+		})
+
 		It("surfaces the classification through the Resolve retry loop", func() {
 			_, err := service.Resolve(ctx, "pkg:npm/unknown@0.0.0")
 			Expect(err).To(HaveOccurred())
 			Expect(classOf(err)).To(Equal(FailureClassContent))
+		})
+	})
+
+	Describe("statusErrorDetail", func() {
+		DescribeTable("sanitizes error body details",
+			func(contentType, body, expected string) {
+				Expect(statusErrorDetail("502 Bad Gateway", contentType, []byte(body))).To(Equal(expected))
+			},
+			Entry("empty body yields status only", "", "", "502 Bad Gateway"),
+			Entry("whitespace-only body yields status only", "", "  \n\t ", "502 Bad Gateway"),
+			Entry("html content type is dropped", "text/html; charset=utf-8", `{"error":"x"}`, "502 Bad Gateway"),
+			Entry("html-looking body is dropped", "", "<html><body>502</body></html>", "502 Bad Gateway"),
+			Entry("json body is kept", "application/json", `{"error":"upstream down"}`, `502 Bad Gateway: {"error":"upstream down"}`),
+			Entry("multi-line body is collapsed to one line", "text/plain", "upstream\ndown\n", "502 Bad Gateway: upstream down"),
+		)
+
+		It("truncates overly long bodies", func() {
+			detail := statusErrorDetail("502 Bad Gateway", "text/plain", []byte(strings.Repeat("x", maxErrorBodyDetailLen+50)))
+			Expect(detail).To(Equal("502 Bad Gateway: " + strings.Repeat("x", maxErrorBodyDetailLen) + "..."))
 		})
 	})
 

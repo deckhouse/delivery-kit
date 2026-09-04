@@ -35,8 +35,7 @@ var _ = Describe("ResolverBreaker", func() {
 		err := breaker.Allow()
 		Expect(err).To(HaveOccurred())
 		Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
-		Expect(err.Error()).To(ContainSubstring("https://refs.example.com"))
-		Expect(err.Error()).To(ContainSubstring("connection refused"))
+		Expect(err.Error()).To(Equal("PURL resolver unavailable"), "Allow must not misattribute the endpoint and another PURL's last error to arbitrary components")
 	})
 
 	It("behaves identically when the threshold is reached on the final attempt of the build", func() {
@@ -102,6 +101,7 @@ var _ = Describe("ResolverBreaker", func() {
 		err := breaker.UnavailableError()
 		Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
 		Expect(err.Error()).To(ContainSubstring("https://refs.example.com"))
+		Expect(err.Error()).To(ContainSubstring("connection refused"))
 	})
 
 	It("is safe under concurrent recording", func() {

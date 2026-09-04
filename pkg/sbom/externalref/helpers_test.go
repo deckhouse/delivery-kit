@@ -40,6 +40,10 @@ func mockResolver() (http.Handler, *int) {
 			status: http.StatusInternalServerError,
 			body:   `{"error":"internal error"}`,
 		},
+		"pkg:npm/html-502@1.0.0": {
+			status: http.StatusBadGateway,
+			body:   "<html>\n<head><title>502 Bad Gateway</title></head>\n<body>\n<center><h1>502 Bad Gateway</h1></center>\n<hr><center>nginx</center>\n</body>\n</html>",
+		},
 		"pkg:npm/unknown@0.0.0": {
 			status: http.StatusNotFound,
 			body:   `{"error":"not found"}`,

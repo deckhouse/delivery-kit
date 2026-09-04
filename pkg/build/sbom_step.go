@@ -54,7 +54,17 @@ func newSbomStep(
 	}
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapelScratch bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+// syftScanRequired reports whether the image content must be scanned by syft.
+// A stapel image is scanned only for the file-based ecosystems declared via the
+// packages directive (represented by catalogers): all its other content comes from
+// the base image, imports and werf-managed instructions, so without catalogers its
+// SBOM is fully derived from the base image and import SBOMs. Non-stapel
+// (Dockerfile) images are always scanned.
+func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
+	return !isStapel || len(catalogers) > 0
+}
+
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -84,7 +94,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if (osPmEnabled || isStapelScratch) && len(scanOpts.Commands[0].Catalogers) == 0 {
+		if !syftScanRequired(isStapel, scanOpts.Commands[0].Catalogers) {
 			targetBOM = cyclonedxutil.NewBOM()
 			targetBOM.Metadata = &cdx.Metadata{
 				Component: &cdx.Component{
@@ -176,16 +186,17 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-const sbomArtifactFormatVersion = "2"
+const sbomArtifactFormatVersion = "3"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only
 // when both match, so the checksum must cover every generation input outside the image
-// content. Intentionally excluded: image filesystem content, the scratch-base mode and
-// the os-pm packages directive (all covered by the parent digest — the directive feeds
-// the Packages stage digest through the generated install command), gomod patcher inputs
-// (build context changes alter the stage digest), external reference enrichment
-// (non-deterministic external data), and generator logic changes (covered by
+// content. Intentionally excluded: image filesystem content, the syft skip decision and
+// the os-pm packages directive (all covered by the parent digest — the packages directive
+// feeds the Packages stage digest through the generated install command, and the skip
+// decision is derived from catalogers already covered by the scan options checksum),
+// gomod patcher inputs (build context changes alter the stage digest), external reference
+// enrichment (non-deterministic external data), and generator logic changes (covered by
 // sbomArtifactFormatVersion).
 func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
 	return util.Sha256Hash(

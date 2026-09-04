@@ -18,10 +18,24 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/gomod"
+	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/test/mock"
 )
 
 var _ = Describe("SbomStep", func() {
+	Describe("syftScanRequired", func() {
+		DescribeTable("should decide whether syft must scan the image",
+			func(isStapel bool, catalogers []scanner.Cataloger, expected bool) {
+				Expect(syftScanRequired(isStapel, catalogers)).To(Equal(expected))
+			},
+			Entry("stapel image without packages catalogers", true, nil, false),
+			Entry("stapel image with empty catalogers list", true, []scanner.Cataloger{}, false),
+			Entry("stapel image with packages catalogers", true, []scanner.Cataloger{{Name: "python-pip-cataloger"}}, true),
+			Entry("dockerfile image without catalogers", false, nil, true),
+			Entry("dockerfile image with catalogers", false, []scanner.Cataloger{{Name: "python-pip-cataloger"}}, true),
+		)
+	})
+
 	Describe("prepareGostComponents", func() {
 		It("prints the GOST experimental warning at most once per step instance", func() {
 			var output bytes.Buffer

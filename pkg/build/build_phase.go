@@ -407,7 +407,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		hasOsPmPackages = imageBase.HasOSPMPackages()
 	}
 
-	isStapelScratch := img.StapelImageConfig != nil && sbomImage.IsScratchRef(img.GetBaseImageReference())
+	isStapel := img.StapelImageConfig != nil
 
 	patchers := []BOMPatcherInterface{
 		goModPatcher,
@@ -417,7 +417,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapelScratch, img.TargetPlatform, signer, signerIdentity); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}

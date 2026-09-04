@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.3.1-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.3.1-dk.1...v3.3.1-dk.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* **sbom:** stop flooding the build log on PURL resolver failures ([#287](https://github.com/deckhouse/delivery-kit/issues/287)) ([87f6b24](https://github.com/deckhouse/delivery-kit/commit/87f6b240b55519fd093e2fabb15dd7c162efc10e))
+* **sbom:** stop syft scans for stapel images without packages ([72de28c](https://github.com/deckhouse/delivery-kit/commit/72de28c78b2c258ecdc07f64b0af1f90524e1b4c))
+
 ## [3.3.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.2.0-dk.3...v3.3.1-dk.1) (2026-09-02)
 
 

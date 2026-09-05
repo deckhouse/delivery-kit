@@ -90,6 +90,65 @@ var _ = Describe("FromStage", func() {
 			}),
 	)
 
+	Describe("external base image identity", func() {
+		newExternalFromStage := func(ref string) *FromStage {
+			imageBaseConfig := &config.StapelImageBase{From: ref}
+			imageBaseConfig.SetFromExternal()
+			return GenerateFromStage(imageBaseConfig, "", "", &BaseStageOptions{})
+		}
+
+		newConveyor := func() Conveyor {
+			return NewConveyorStubForDependencies(NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"), NewGiterminismInspectorStub()), make([]*TestDependency, 0))
+		}
+
+		It("gives different digests to from stages with different external bases", func(ctx SpecContext) {
+			conveyor := newConveyor()
+
+			golangStage := newExternalFromStage("registry.example.com/factory@sha256:1111111111111111111111111111111111111111111111111111111111111111")
+			distrolessStage := newExternalFromStage("registry.example.com/factory@sha256:2222222222222222222222222222222222222222222222222222222222222222")
+
+			golangDigest, err := golangStage.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).To(Succeed())
+
+			distrolessDigest, err := distrolessStage.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).To(Succeed())
+
+			Expect(golangDigest).NotTo(Equal(distrolessDigest),
+				"from stages with different external base images must not share one stage digest")
+		})
+
+		It("gives different content digests to from stages with different external bases", func(ctx SpecContext) {
+			conveyor := newConveyor()
+
+			golangStage := newExternalFromStage("registry.example.com/factory@sha256:1111111111111111111111111111111111111111111111111111111111111111")
+			distrolessStage := newExternalFromStage("registry.example.com/factory@sha256:2222222222222222222222222222222222222222222222222222222222222222")
+
+			golangDigest, err := golangStage.GetContentDependencies(ctx, conveyor, nil)
+			Expect(err).To(Succeed())
+
+			distrolessDigest, err := distrolessStage.GetContentDependencies(ctx, conveyor, nil)
+			Expect(err).To(Succeed())
+
+			Expect(golangDigest).NotTo(Equal(distrolessDigest),
+				"content-based stage lookup must not match a stage built from a different external base image")
+		})
+
+		It("gives equal digests to from stages with the same external base", func(ctx SpecContext) {
+			conveyor := newConveyor()
+
+			stageOne := newExternalFromStage("registry.example.com/factory@sha256:1111111111111111111111111111111111111111111111111111111111111111")
+			stageTwo := newExternalFromStage("registry.example.com/factory@sha256:1111111111111111111111111111111111111111111111111111111111111111")
+
+			digestOne, err := stageOne.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).To(Succeed())
+
+			digestTwo, err := stageTwo.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).To(Succeed())
+
+			Expect(digestOne).To(Equal(digestTwo))
+		})
+	})
+
 	Describe("scratch semantics", func() {
 		It("marks scratch from stage as mutable and not buildable", func() {
 			stage := GenerateFromStage(&config.StapelImageBase{From: "scratch"}, "", "", &BaseStageOptions{})

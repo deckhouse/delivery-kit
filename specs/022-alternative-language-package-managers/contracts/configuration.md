@@ -33,14 +33,21 @@ packages:
 
 ## Command contract
 
-For each alternative directive, generated commands must execute in this order:
+`PackageEcosystem` exposes two callback fields beside `InstallCmd`:
+
+```go
+InstallAlternativeManagerCmd func(workdir string, files FileBasedSpec, env map[string]string) string
+CleanupAlternativeManagerCmd  func(workdir string, files FileBasedSpec, env map[string]string) string
+```
+
+For each alternative type, `InstallCmd` calls these callbacks to generate one ordered command sequence:
 
 1. fail if the manager executable is already present;
-2. install the exact manager package through npm or pip;
-3. run the existing frozen dependency command;
-4. remove only the temporary manager installation.
+2. install the exact manager package globally through npm or pip (`npm install --global ...`; for pip, install into the system interpreter without `--user` or a virtual environment);
+3. run the existing frozen dependency command through the global executable;
+4. remove only the temporary global manager installation.
 
-Commands are part of the package-stage checksum. Each directive's version and workdir must affect its generated command and therefore its cache identity.
+The cleanup callback is reached only after the dependency command succeeds and removes the globally installed manager package (`npm uninstall --global ...` or the corresponding system-interpreter `pip uninstall`), not project dependencies. Commands are part of the package-stage checksum. Each directive's version and workdir must affect its generated command and therefore its cache identity.
 
 ## Failure contract
 

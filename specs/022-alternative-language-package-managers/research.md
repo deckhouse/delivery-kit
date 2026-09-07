@@ -34,18 +34,18 @@ The parser stores the field as a string and validates a non-empty exact semantic
 
 ## Decision: Bootstrap, install, and cleanup in one package-stage command sequence
 
-`GeneratePackagesCommands` will generate one ordered shell sequence per alternative directive:
+`PackageEcosystem` will expose two callback fields beside `InstallCmd`: `InstallAlternativeManagerCmd` and `CleanupAlternativeManagerCmd`. Each alternative ecosystem's `InstallCmd` calls those callbacks to generate one ordered shell sequence:
 
 1. Verify the alternative-manager executable is absent; fail with an actionable pre-existing-manager error if found.
-2. Use npm or pip to install the exact requested manager version.
-3. Run the existing frozen dependency-install command.
-4. Remove only the manager installation created by this sequence; cleanup success is required.
+2. Use npm to install JavaScript managers with `--global`, or pip to install Python managers into the system interpreter without `--user` or a virtual environment.
+3. Run the existing frozen dependency-install command through that global executable.
+4. Remove only the globally installed manager package created by this sequence; cleanup success is required.
 
 The primary manager is not bootstrapped for `javascript-npm` or `python-pip`, and those generated commands remain unchanged.
 
-**Rationale:** `PackagesStage` already has network access, command content participates in `PackagesChecksum`, and a single sequence preserves failure ordering. Shell `&&` sequencing ensures dependency failure returns the original error and prevents successful-install cleanup from masking it.
+**Rationale:** `PackagesStage` already has network access, command content participates in `PackagesChecksum`, and a single sequence preserves failure ordering. Global installation makes the manager executable available independently of the project workdir while leaving project dependencies and files untouched. Shell `&&` sequencing ensures dependency failure returns the original error and prevents successful-install cleanup from masking it.
 
-**Alternatives considered:** A new build stage would duplicate stage/cache plumbing and make per-directive cleanup harder. A general cleanup abstraction would be premature; the four manager-specific bootstrap and cleanup commands can be generated directly from the ecosystem registry.
+**Alternatives considered:** A new build stage would duplicate stage/cache plumbing and make per-directive cleanup harder. A local/project installation would depend on manager-specific bin-path behavior and could pollute the project dependency tree. A separate package-manager interface would add an abstraction layer not used by the existing registry. The two callback fields keep global bootstrap and cleanup manager-specific while making their invocation explicit inside `InstallCmd`.
 
 ## Decision: Preserve existing lock and SBOM behavior
 

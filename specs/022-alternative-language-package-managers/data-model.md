@@ -12,22 +12,39 @@ The existing `PackagesDirective` remains the unit of configuration and execution
 | `FileBased.Lock` | string | ecosystem-dependent | Lock path, defaulted by the ecosystem registry. |
 | `FileBased.Version` | string | yes for alternative types; forbidden for other types | Exact alternative-manager version in `X.Y.Z` form. |
 | `Env` | map[string]string | no | Existing per-directive environment variables. |
+| `PackageEcosystem.InstallAlternativeManagerCmd` | callback | alternative types | Generates the manager absence check and exact global npm/pip bootstrap command; called by the ecosystem's `InstallCmd`. |
+| `PackageEcosystem.CleanupAlternativeManagerCmd` | callback | alternative types | Generates cleanup for the globally installed manager package created by the current directive; called by the ecosystem's `InstallCmd` after dependency installation succeeds. |
 | `Spec.Packages` | []string | only for `os-pm` | Existing inline OS package list; unchanged by this feature. |
+
+## PackageEcosystem command callbacks
+
+The existing `PackageEcosystem` registry gains two callback fields beside `InstallCmd`:
+
+```go
+type PackageEcosystem struct {
+    // existing fields
+    InstallCmd                    func(workdir string, files FileBasedSpec, pkgs []string, env map[string]string) string
+    InstallAlternativeManagerCmd  func(workdir string, files FileBasedSpec, env map[string]string) string
+    CleanupAlternativeManagerCmd  func(workdir string, files FileBasedSpec, env map[string]string) string
+}
+```
+
+For each alternative type, `InstallCmd` invokes `InstallAlternativeManagerCmd`, then its existing frozen dependency command, then `CleanupAlternativeManagerCmd` in a success-only shell sequence. Primary types leave the two callbacks unset and retain their current `InstallCmd` behavior.
 
 ## Supported alternative-manager mapping
 
 | Directive type | Manager | Bootstrap tool | Bootstrap package/version form | Existing install command |
 |---|---|---|---|---|
-| `javascript-yarn` | Yarn | npm | `yarn@<version>` | `yarn install --frozen-lockfile` |
-| `javascript-pnpm` | pnpm | npm | `pnpm@<version>` | `pnpm install --frozen-lockfile` |
-| `python-uv` | uv | pip | `uv==<version>` | `uv sync --frozen` |
-| `python-poetry` | Poetry | pip | `poetry==<version>` | `poetry sync --no-root` |
+| `javascript-yarn` | Yarn | npm global | `npm install --global yarn@<version>` | `yarn install --frozen-lockfile` |
+| `javascript-pnpm` | pnpm | npm global | `npm install --global pnpm@<version>` | `pnpm install --frozen-lockfile` |
+| `python-uv` | uv | pip system interpreter | `pip install uv==<version>` without `--user` or a virtual environment | `uv sync --frozen` |
+| `python-poetry` | Poetry | pip system interpreter | `pip install poetry==<version>` without `--user` or a virtual environment | `poetry sync --no-root` |
 
 ## Lifecycle state
 
 Each alternative directive has an independent logical lifecycle:
 
-`Configured` → `AlternativeAbsent` → `Bootstrapped` → `DependenciesInstalled` → `AlternativeRemoved`.
+`Configured` → `AlternativeAbsent` → `GloballyBootstrapped` → `DependenciesInstalled` → `GlobalAlternativeRemoved`.
 
 Failure transitions stop at the failing state and return an error with the operation context:
 
@@ -41,5 +58,5 @@ Failure transitions stop at the failing state and return an error with the opera
 - Alternative directives require a non-empty exact `X.Y.Z` version.
 - Primary `javascript-npm` and `python-pip` directives do not use `Version` and generate their current commands.
 - A pre-existing alternative-manager executable is invalid for the builder image.
-- Cleanup is directive-local and may not delete files belonging to another directive or pre-existing image state.
+- Bootstrap installs the alternative manager globally; cleanup removes only that global package and may not delete files belonging to another directive or pre-existing image state.
 - Manifest, lock, installed dependency, and SBOM source paths remain unchanged.

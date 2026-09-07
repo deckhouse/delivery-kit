@@ -52,9 +52,9 @@ task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"
 Expected outcomes for every scenario:
 
 1. the builder image lacks the selected alternative manager but provides npm or pip;
-2. the exact configured manager version is bootstrapped;
-3. the locked project dependencies install successfully;
-4. the resulting image does not retain the temporary manager;
+2. the exact configured manager version is installed globally through npm or into the Python system interpreter through pip;
+3. the locked project dependencies install successfully through the global manager executable;
+4. the resulting image does not retain the temporary global manager package;
 5. `werf sbom get app` contains the fixture dependency from its manifest/lock file.
 
 For a full feature validation after implementation, run the required project gates in order: `task format`, `task build`, `task deps:install:golangci-lint`, `task lint`, `task test:unit`, the four scoped e2e commands above, and `task test:integration`.

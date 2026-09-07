@@ -28,10 +28,10 @@
 
 - [ ] T004 [P] Add the per-directive `Version` field and YAML decoding support to `pkg/config/packages_directive.go` and `pkg/config/raw_packages_directive.go`
 - [ ] T005 [P] Define shared exact `X.Y.Z` validation and alternative-versus-primary version rules in `pkg/config/packages_directive.go`, including required versions for `javascript-yarn`, `javascript-pnpm`, `python-uv`, and `python-poetry` and rejection for all other package types
-- [ ] T006 [P] Extend the existing ecosystem registry metadata in `pkg/config/packages_directive.go` with alternative manager executable, bootstrap tool/package, and cleanup information without introducing a new public interface
+- [ ] T006 [P] Extend `PackageEcosystem` beside `InstallCmd` with `InstallAlternativeManagerCmd` and `CleanupAlternativeManagerCmd` callbacks in `pkg/config/packages_directive.go`, leaving both callbacks unset for primary and unrelated ecosystems
 - [ ] T007 Wire version parsing, defaults, unknown-field behavior, and validation errors through the existing raw directive conversion in `pkg/config/raw_packages_directive.go`
 - [ ] T008 [P] Add Ginkgo/Gomega parsing and validation coverage for exact versions, omitted versions, malformed/ranged versions, versions on primary types, and versions on unrelated ecosystems in `pkg/config/raw_packages_directive_test.go` and the applicable `pkg/config/packages_directive_*_test.go` files
-- [ ] T009 [P] Add registry metadata and directive-model coverage for all four alternative managers and unchanged primary-manager defaults in `pkg/config/packages_directive_javascript_test.go` and `pkg/config/packages_directive_python_test.go`
+- [ ] T009 [P] Add registry metadata and callback-presence coverage for all four alternative managers plus unchanged primary-manager defaults in `pkg/config/packages_directive_javascript_test.go` and `pkg/config/packages_directive_python_test.go`
 
 ---
 
@@ -43,14 +43,14 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add generated-command tests for Yarn and pnpm pre-existing-manager detection, exact npm bootstrap, frozen dependency installation, and success-only cleanup ordering in `pkg/config/packages_commands_test.go`
-- [ ] T011 [P] [US1] Add failure-ordering tests proving bootstrap/version failures prevent dependency installation and dependency failures preserve the original error without running successful-install cleanup in `pkg/config/packages_commands_test.go`
+- [ ] T010 [P] [US1] Add generated-command tests proving Yarn and pnpm `InstallCmd` invoke their alternative-manager install and cleanup callbacks around the frozen dependency command, including pre-existing-manager detection, exact global npm bootstrap, and success-only cleanup ordering in `pkg/config/packages_commands_test.go`
+- [ ] T011 [P] [US1] Add callback-sequence failure tests proving bootstrap/version failures prevent dependency installation and dependency failures preserve the original error without invoking successful-install cleanup in `pkg/config/packages_commands_test.go`
 - [ ] T012 [P] [US1] Add primary JavaScript regression tests proving `javascript-npm` still generates only its existing `npm ci` behavior and does not bootstrap or clean up an alternative manager in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_javascript_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Generate directive-local Yarn and pnpm shell sequences in `pkg/config/packages_commands.go` with executable absence checks, exact npm package versions, existing frozen install commands, and cleanup chained only after successful installation
-- [ ] T014 [US1] Preserve per-directive environment, workdir, manifest/lock paths, and actionable bootstrap/install/cleanup error context for JavaScript alternative commands in `pkg/config/packages_commands.go`
+- [ ] T013 [US1] Implement Yarn and pnpm `InstallAlternativeManagerCmd` and `CleanupAlternativeManagerCmd` callbacks in `pkg/config/packages_directive.go`, using executable absence checks, exact `npm install --global <manager>@<version>` bootstrap, and removal of only the globally installed manager package
+- [ ] T014 [US1] Update each alternative JavaScript `InstallCmd` in `pkg/config/packages_commands.go` to invoke install callback, existing frozen dependency command through the global executable, and cleanup callback in a success-only `&&` sequence while preserving per-directive environment, workdir, manifest/lock paths, and actionable operation context
 - [ ] T015 [US1] Ensure Yarn and pnpm command content, configured versions, and workdirs flow into the existing package-stage checksum in `pkg/build/stage/packages.go` and `pkg/build/stage/packages_test.go`
 - [ ] T016 [P] [US1] Update the Yarn fixture configuration and builder image to use an exact version, provide npm, and omit preinstalled Yarn in `test/e2e/sbom/_fixtures/inject/yarn_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/yarn_simple/Dockerfile.builder-base`
 - [ ] T017 [P] [US1] Update the pnpm fixture configuration and builder image to use an exact version, provide npm, and omit preinstalled pnpm in `test/e2e/sbom/_fixtures/inject/pnpm_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/pnpm_simple/Dockerfile.builder-base`
@@ -69,14 +69,14 @@
 
 ### Tests for User Story 2
 
-- [ ] T020 [P] [US2] Add generated-command tests for uv and Poetry pre-existing-manager detection, exact pip bootstrap, existing frozen/sync install commands, and success-only cleanup ordering in `pkg/config/packages_commands_test.go`
+- [ ] T020 [P] [US2] Add generated-command tests proving uv and Poetry `InstallCmd` invoke their alternative-manager install and cleanup callbacks around the locked dependency command, including pre-existing-manager detection, exact system-interpreter pip bootstrap, and success-only cleanup ordering in `pkg/config/packages_commands_test.go`
 - [ ] T021 [P] [US2] Add primary Python regression tests proving `python-pip` retains its current install command and does not bootstrap or clean up an alternative manager in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_python_test.go`
 - [ ] T022 [P] [US2] Add multi-directive tests proving separate Python directives do not share versions, bootstrap state, workdirs, or cleanup state in `pkg/config/packages_commands_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Generate directive-local uv and Poetry shell sequences in `pkg/config/packages_commands.go` with executable absence checks, exact pip package versions, existing locked install commands, and cleanup chained only after successful installation
-- [ ] T024 [US2] Preserve per-directive environment, workdir, manifest/lock paths, and actionable bootstrap/install/cleanup error context for Python alternative commands in `pkg/config/packages_commands.go`
+- [ ] T023 [US2] Implement uv and Poetry `InstallAlternativeManagerCmd` and `CleanupAlternativeManagerCmd` callbacks in `pkg/config/packages_directive.go`, using executable absence checks, exact `pip install <manager>==<version>` into the system interpreter without `--user` or a virtual environment, and removal of only the globally installed manager package
+- [ ] T024 [US2] Update each alternative Python `InstallCmd` in `pkg/config/packages_commands.go` to invoke install callback, existing `uv sync --frozen` or `poetry sync --no-root` through the system executable, and cleanup callback in a success-only `&&` sequence while preserving per-directive environment, workdir, manifest/lock paths, and actionable operation context
 - [ ] T025 [P] [US2] Update the uv fixture configuration and builder image to use an exact version, provide pip, and omit preinstalled uv in `test/e2e/sbom/_fixtures/inject/uv_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/uv_simple/Dockerfile.builder-base`
 - [ ] T026 [P] [US2] Update the Poetry fixture configuration and builder image to use an exact version, provide pip, and omit preinstalled Poetry in `test/e2e/sbom/_fixtures/inject/poetry_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/poetry_simple/Dockerfile.builder-base`
 - [ ] T027 [P] [US2] Extend the uv acceptance scenario to assert exact-version dependency installation, temporary-manager removal, and existing SBOM dependency visibility in `test/e2e/sbom/uv_test.go`
@@ -94,13 +94,13 @@
 
 ### Tests for User Story 3
 
-- [ ] T029 [P] [US3] Add lifecycle command tests for pre-existing manager rejection, missing bootstrap prerequisite, invalid lock/install failure, cleanup failure, and exact operation-specific error context in `pkg/config/packages_commands_test.go`
+- [ ] T029 [P] [US3] Add callback lifecycle tests for pre-existing manager rejection, missing npm/pip prerequisite, invalid lock/install failure, global package cleanup failure, and exact bootstrap/dependency/cleanup operation context in `pkg/config/packages_commands_test.go`
 - [ ] T030 [P] [US3] Add package-stage tests proving generated manager versions and lifecycle commands affect package checksum while manifest/lock and managed-input SBOM paths remain unchanged in `pkg/build/stage/packages_test.go`
 - [ ] T031 [P] [US3] Add configuration tests covering multiple mixed JavaScript/Python directives and unchanged unsupported ecosystems in `pkg/config/packages_directive_test.go` and `pkg/config/raw_packages_directive_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Verify and adjust package-stage integration in `pkg/build/stage/packages.go` so all generated alternative-manager commands remain in the existing single network-enabled stage and no extra stage or lock scan is introduced
+- [ ] T032 [US3] Verify and adjust package-stage integration in `pkg/build/stage/packages.go` so callback-composed alternative-manager commands remain in the existing single network-enabled stage and no extra stage, local manager installation, or independent lock scan is introduced
 - [ ] T033 [US3] Verify and adjust managed-input and cataloger integration so Yarn/pnpm retain JavaScript lock cataloging and uv/Poetry retain Python cataloging with unchanged workdir/spec/lock source paths in `pkg/config/packages_directive.go` and `pkg/build/stage/packages.go`
 - [ ] T034 [US3] Add or update failure-path assertions in the four manager e2e scenarios so dependency failures are diagnosable and successful cleanup does not mask the original install failure in `test/e2e/sbom/yarn_test.go`, `test/e2e/sbom/pnpm_test.go`, `test/e2e/sbom/uv_test.go`, and `test/e2e/sbom/poetry_test.go`
 
@@ -117,7 +117,7 @@
 - [ ] T037 Run formatting and validate authored-file whitespace for the changed Go, test, fixture, and documentation files with `task format` and the scoped repository checks
 - [ ] T038 Run the feature's build, lint, and unit gates with `task build`, `task deps:install:golangci-lint`, `task lint`, and `task test:unit`
 - [ ] T039 [P] Run the dedicated Yarn, pnpm, uv, and Poetry e2e scenarios with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="yarn"`, `labelFilter="pnpm"`, `labelFilter="uv"`, and `labelFilter="poetry"`
-- [ ] T040 Run the full legacy integration gate with `task test:integration` and record any failures attributable to this feature in the implementation handoff
+- [ ] T040 Run the full legacy integration gate with `task test:integration` and record any failures attributable to global manager installation, callback composition, or cleanup semantics in the implementation handoff
 
 ---
 
@@ -204,5 +204,5 @@ Developer D: T023-T024 — Python command generation and failure-context integra
 ### Notes
 
 - Every task follows the required checklist format: checkbox, sequential task ID, optional `[P]`, optional story label in story phases, and a concrete file path.
-- No new external dependency, build stage, public manager interface, or generated release file is planned.
+- No new external dependency, build stage, package-manager service/interface hierarchy, local manager installation, or generated release file is planned; the only registry extension is the two internal callback fields.
 - Cleanup is chained only after successful dependency installation; failed builds may retain temporary manager state for diagnosis as specified.

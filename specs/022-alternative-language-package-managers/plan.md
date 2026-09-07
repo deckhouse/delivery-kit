@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add ephemeral bootstrap support for Yarn, pnpm, uv, and Poetry in file-based `packages` directives. Each directive receives a required exact `version`, rejects a pre-existing alternative manager, bootstraps through npm or pip, performs the existing frozen dependency installation, and removes only the temporary manager after success. The implementation extends the existing `pkg/config` ecosystem registry and package-stage command generation, preserving current primary-manager and SBOM behavior.
+Add ephemeral global bootstrap support for Yarn, pnpm, uv, and Poetry in file-based `packages` directives. Each directive receives a required exact `version`, rejects a pre-existing alternative manager, installs the manager globally through npm or pip, performs the existing frozen dependency installation, and removes only the temporary global manager package after success. The implementation extends the existing `pkg/config` ecosystem registry and package-stage command generation, preserving current primary-manager and SBOM behavior.
 
 ## Technical Context
 
@@ -81,7 +81,7 @@ docs/
 └── package-directive references # document version field and supported alternatives
 ```
 
-**Structure Decision**: Reuse the existing monolith CLI boundaries. Keep manager-specific metadata in the existing `PackageEcosystem` registry and generate a single directive-local shell sequence around each existing install command. Do not add a package-manager service, interface hierarchy, persistent state, or new stage.
+**Structure Decision**: Reuse the existing monolith CLI boundaries. Keep manager-specific metadata in the existing `PackageEcosystem` registry. Add `InstallAlternativeManagerCmd` and `CleanupAlternativeManagerCmd` callback fields beside `InstallCmd`; each alternative ecosystem implements those callbacks, and its `InstallCmd` invokes them to assemble one directive-local shell sequence. Do not add a package-manager service, interface hierarchy, persistent state, or new stage.
 
 ## Phase 0: Research Summary
 
@@ -103,8 +103,8 @@ Research is recorded in [research.md](research.md). Key resolved decisions:
 
 1. Extend raw and typed package directive models with `Version`; apply defaults without changing existing spec/lock behavior.
 2. Add early validation for required exact versions on the four alternative types and reject version on primary/other types.
-3. Extend ecosystem metadata or command generation with manager executable, bootstrap tool/package, and cleanup commands; retain existing install commands and environment handling.
-4. Generate directive-local ordered commands with pre-existing-manager detection, exact bootstrap, frozen install, and success-only cleanup. Ensure errors remain operation-specific and command content affects package-stage caching.
+3. Extend `PackageEcosystem` with `InstallAlternativeManagerCmd` and `CleanupAlternativeManagerCmd` callbacks beside `InstallCmd`; retain existing install commands and environment handling.
+4. Make each alternative `InstallCmd` call the two callbacks in order around the frozen dependency install: pre-existing-manager check, global npm/pip bootstrap, existing install command through the global executable, then global package cleanup on success. Ensure errors remain operation-specific and command content affects package-stage caching.
 5. Add focused Ginkgo/Gomega tests for parsing, invalid versions, generated commands, failure ordering, cleanup, primary types, and multiple directives.
 6. Update the four existing SBOM e2e fixtures/tests with exact versions and absence/cleanup assertions; retain existing dependency SBOM assertions.
 7. Update package-directive reference documentation for the new required field and examples in supported languages, without modifying generated release files.

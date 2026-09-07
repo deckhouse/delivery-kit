@@ -121,7 +121,14 @@
 - [X] T043 [P] Run the pnpm e2e scenario in `test/e2e/sbom/pnpm_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="pnpm"`
 - [X] T044 [P] Run the uv e2e scenario in `test/e2e/sbom/uv_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="uv"`
 - [X] T045 [P] Run the Poetry e2e scenario in `test/e2e/sbom/poetry_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"`
-- [ ] T046 Run the full legacy integration gate with `task test:integration` for `test/legacy_e2e/` and record any failures attributable to isolated manager installation, wrapper composition, or cleanup semantics in the implementation handoff
+- [X] T046 Run the full legacy integration gate with `task test:integration` for `test/legacy_e2e/` and record any failures attributable to isolated manager installation, wrapper composition, or cleanup semantics in the implementation handoff
+
+---
+
+## Phase 7: Convergence
+
+- [X] T047 Extend the Yarn, pnpm, uv, and Poetry success scenarios to verify that the temporary alternative-manager scope is absent from the resulting image per FR-006 / SC-002 / SC-009
+- [X] T048 Run `task test:integration` and record feature-related results for the remaining legacy integration gate per T046 / plan: quality gates (completed)
 
 ---
 

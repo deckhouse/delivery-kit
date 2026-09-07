@@ -1,6 +1,10 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -153,7 +157,19 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		func(entry backwardCompatEntry) {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
 			Expect(cmds).To(HaveLen(1))
-			Expect(cmds[0]).To(Equal(entry.substring))
+			cmd := cmds[0]
+			if isAlternativeManager(entry.directive.Type) {
+				Expect(cmd).To(ContainSubstring(entry.directive.FileBased.Version))
+				Expect(cmd).To(ContainSubstring("mktemp -d"))
+				Expect(cmd).To(ContainSubstring("rm -rf \"$scope\""))
+				if entry.directive.Type == PackagesDirectiveTypePythonUV || entry.directive.Type == PackagesDirectiveTypePythonPoetry {
+					Expect(cmd).To(ContainSubstring("sync"))
+				} else {
+					Expect(cmd).To(ContainSubstring("install --frozen-lockfile"))
+				}
+				return
+			}
+			Expect(cmd).To(Equal(entry.substring))
 		},
 
 		Entry("GoMod env is nil", backwardCompatEntry{
@@ -165,12 +181,12 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 			substring: `cd "/app" && go mod download`,
 		}),
 		Entry("PythonUV env is nil", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
-			substring: `cd "/app" && uv sync --frozen`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.4.20"}},
+			substring: `unused`,
 		}),
 		Entry("PythonUV env is empty", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
-			substring: `cd "/app" && uv sync --frozen`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.4.20"}, Env: map[string]string{}},
+			substring: `unused`,
 		}),
 		Entry("PythonPip env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
@@ -181,12 +197,12 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 			substring: `cd "/app" && pip install --no-cache-dir -r "requirements.txt"`,
 		}),
 		Entry("PythonPoetry env is nil", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
-			substring: `cd "/app" && poetry sync --no-root`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}},
+			substring: `unused`,
 		}),
 		Entry("PythonPoetry env is empty", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
-			substring: `cd "/app" && poetry sync --no-root`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}, Env: map[string]string{}},
+			substring: `unused`,
 		}),
 		Entry("RustCargo env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}},
@@ -205,20 +221,20 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 			substring: `cd "/app" && npm ci`,
 		}),
 		Entry("JavaScriptYarn env is nil", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
-			substring: `cd "/app" && yarn install --frozen-lockfile`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}},
+			substring: `unused`,
 		}),
 		Entry("JavaScriptYarn env is empty", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
-			substring: `cd "/app" && yarn install --frozen-lockfile`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}, Env: map[string]string{}},
+			substring: `unused`,
 		}),
 		Entry("JavaScriptPnpm env is nil", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
-			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}},
+			substring: `unused`,
 		}),
 		Entry("JavaScriptPnpm env is empty", backwardCompatEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
-			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}, Env: map[string]string{}},
+			substring: `unused`,
 		}),
 		Entry("LuaRock env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeLuaRock, FileBased: FileBasedSpec{Workdir: "/app", Spec: "rockspec"}},
@@ -288,8 +304,8 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 		}),
 
 		Entry("PythonUV with UV_EXTRA_INDEX_URL", langEnvVarEntry{
-			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"UV_EXTRA_INDEX_URL": "http://pypi:8080"}},
-			substring:  `cd "/app" && uv sync --frozen`,
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.4.20"}, Env: map[string]string{"UV_EXTRA_INDEX_URL": "http://pypi:8080"}},
+			substring:  `sync --frozen`,
 			envVarName: "UV_EXTRA_INDEX_URL",
 			envValue:   "http://pypi:8080",
 		}),
@@ -302,8 +318,8 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 		}),
 
 		Entry("PythonPoetry with POETRY_HTTP_BASIC_MYREGISTRY_USERNAME", langEnvVarEntry{
-			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"POETRY_HTTP_BASIC_MYREGISTRY_USERNAME": "user"}},
-			substring:  `cd "/app" && poetry sync --no-root`,
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}, Env: map[string]string{"POETRY_HTTP_BASIC_MYREGISTRY_USERNAME": "user"}},
+			substring:  `sync --no-root`,
 			envVarName: "POETRY_HTTP_BASIC_MYREGISTRY_USERNAME",
 			envValue:   "user",
 		}),
@@ -323,15 +339,15 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 		}),
 
 		Entry("JavaScriptYarn with YARN_ENABLE_IMMUTABLE_INSTALLS", langEnvVarEntry{
-			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"YARN_ENABLE_IMMUTABLE_INSTALLS": "false"}},
-			substring:  `cd "/app" && yarn install --frozen-lockfile`,
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}, Env: map[string]string{"YARN_ENABLE_IMMUTABLE_INSTALLS": "false"}},
+			substring:  `install --frozen-lockfile`,
 			envVarName: "YARN_ENABLE_IMMUTABLE_INSTALLS",
 			envValue:   "false",
 		}),
 
 		Entry("JavaScriptPnpm with PNPM_HOME", langEnvVarEntry{
-			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"PNPM_HOME": "/custom/path"}},
-			substring:  `cd "/app" && pnpm install --frozen-lockfile`,
+			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}, Env: map[string]string{"PNPM_HOME": "/custom/path"}},
+			substring:  `install --frozen-lockfile`,
 			envVarName: "PNPM_HOME",
 			envValue:   "/custom/path",
 		}),
@@ -374,8 +390,8 @@ var _ = Describe("GeneratePackagesCommands non-os-pm multiple env vars", func() 
 		}),
 
 		Entry("PythonUV with two env vars sorted alphabetically", multiEnvVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"BBB": "two", "AAA": "one"}},
-			substring: `cd "/app" && uv sync --frozen`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.4.20"}, Env: map[string]string{"BBB": "two", "AAA": "one"}},
+			substring: `sync --frozen`,
 			checks: []func(cmd string){
 				func(cmd string) { Expect(cmd).To(HavePrefix(`AAA="one" BBB="two"`)) },
 			},
@@ -429,10 +445,209 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 		}),
 
 		Entry("JavaScriptYarn with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
-			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
-			substring: `cd "/app" && yarn install --frozen-lockfile`,
+			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
+			substring: `install --frozen-lockfile`,
 		}),
 	)
+})
+
+var _ = Describe("GeneratePackagesCommands alternative managers", func() {
+	DescribeTable("isolates each manager and cleans up only after installation",
+		func(directive *PackagesDirective, manager, version, install string) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
+			Expect(cmds).To(HaveLen(1))
+			cmd := cmds[0]
+			Expect(cmd).To(ContainSubstring(version))
+			Expect(cmd).To(ContainSubstring("mktemp -d"))
+			Expect(cmd).To(ContainSubstring(install))
+			Expect(cmd).To(ContainSubstring("\"$scope/bin/" + manager + "\""))
+			Expect(cmd).NotTo(ContainSubstring("export PATH"))
+			Expect(strings.Index(cmd, install)).To(BeNumerically("<", strings.Index(cmd, "rm -rf \"$scope\"")))
+		},
+		Entry("yarn", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}, "yarn", "1.22.22", "install --frozen-lockfile"),
+		Entry("pnpm", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}}, "pnpm", "9.15.4", "install --frozen-lockfile"),
+		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
+		Entry("poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
+	)
+
+	It("checks both Yarn command names before bootstrapping", func() {
+		cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}})[0]
+		Expect(cmd).To(ContainSubstring("command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1"))
+	})
+
+	It("keeps primary manager commands unchanged", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
+			{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
+		})
+		Expect(cmds).To(ConsistOf(`cd "/app" && npm ci`, `cd "/app" && pip install --no-cache-dir -r "requirements.txt"`))
+	})
+})
+
+var _ = Describe("GeneratePackagesCommands alternative manager failures", func() {
+	type alternativeFailureEntry struct {
+		directiveType PackagesDirectiveType
+		manager       string
+		version       string
+	}
+
+	DescribeTable("stops before dependency installation when bootstrap or version verification fails",
+		func(entry alternativeFailureEntry, bootstrapMode, managerVersion string, expectedExitCode int) {
+			cmd, env, markers := prepareAlternativeManagerCommand(entry, bootstrapMode, managerVersion, 0)
+			result := exec.Command("sh", "-c", cmd)
+			result.Env = env
+			err := result.Run()
+
+			var exitError *exec.ExitError
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(BeAssignableToTypeOf(exitError))
+			Expect(err.(*exec.ExitError).ExitCode()).To(Equal(expectedExitCode))
+			Expect(markers.dependency).NotTo(BeAnExistingFile())
+			Expect(markers.cleanup).NotTo(BeAnExistingFile())
+			if bootstrapMode == "fail" {
+				Expect(markers.bootstrap).NotTo(BeAnExistingFile())
+			} else {
+				Expect(markers.bootstrap).To(BeAnExistingFile())
+			}
+		},
+		Entry("Yarn bootstrap failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptYarn, "yarn", "1.22.22"}, "fail", "", 17),
+		Entry("Yarn version verification failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptYarn, "yarn", "1.22.22"}, "wrong-version", "0.0.0", 1),
+		Entry("pnpm bootstrap failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptPnpm, "pnpm", "9.15.4"}, "fail", "", 17),
+		Entry("pnpm version verification failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptPnpm, "pnpm", "9.15.4"}, "wrong-version", "0.0.0", 1),
+	)
+
+	DescribeTable("returns dependency failure and skips successful-install cleanup",
+		func(entry alternativeFailureEntry) {
+			cmd, env, markers := prepareAlternativeManagerCommand(entry, "success", entry.version, 23)
+			result := exec.Command("sh", "-c", cmd)
+			result.Env = env
+			err := result.Run()
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.(*exec.ExitError).ExitCode()).To(Equal(23))
+			Expect(markers.bootstrap).To(BeAnExistingFile())
+			Expect(markers.dependency).To(BeAnExistingFile())
+			Expect(markers.cleanup).NotTo(BeAnExistingFile())
+			Expect(markers.scope).To(BeAnExistingFile())
+		},
+		Entry("Yarn", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptYarn, "yarn", "1.22.22"}),
+		Entry("pnpm", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptPnpm, "pnpm", "9.15.4"}),
+	)
+})
+
+func prepareAlternativeManagerCommand(entry struct {
+	directiveType PackagesDirectiveType
+	manager       string
+	version       string
+}, bootstrapMode, managerVersion string, dependencyExitCode int,
+) (string, []string, struct{ dependency, cleanup, bootstrap, scope string }) {
+	root := GinkgoT().TempDir()
+	binDir := filepath.Join(root, "bin")
+	Expect(os.Mkdir(binDir, 0o755)).To(Succeed())
+
+	dependencyMarker := filepath.Join(root, "dependency")
+	cleanupMarker := filepath.Join(root, "cleanup")
+	bootstrapMarker := filepath.Join(root, "bootstrap")
+	scopePath := filepath.Join(root, "scope")
+	managerTemplate := filepath.Join(root, "manager")
+	npmPath := filepath.Join(binDir, "npm")
+	mktempPath := filepath.Join(binDir, "mktemp")
+
+	managerScript := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf '%%s\\n' %q; exit 0; fi\ntouch %q\nexit %d\n", managerVersion, dependencyMarker, dependencyExitCode)
+	Expect(os.WriteFile(managerTemplate, []byte(managerScript), 0o755)).To(Succeed())
+
+	npmScript := fmt.Sprintf("#!/bin/sh\ncase \" $* \" in *\" uninstall \"*) touch %q; exit 0;; esac\nif [ \"$BOOTSTRAP_MODE\" = \"fail\" ]; then exit 17; fi\ntouch %q\nprefix=\"\"\nprevious=\"\"\nfor arg in \"$@\"; do\n  if [ \"$previous\" = \"--prefix\" ]; then prefix=\"$arg\"; fi\n  previous=\"$arg\"\ndone\nmkdir -p \"$prefix/bin\"\ncp \"$MANAGER_TEMPLATE\" \"$prefix/bin/%s\"\nchmod 755 \"$prefix/bin/%s\"\n", cleanupMarker, bootstrapMarker, entry.manager, entry.manager)
+	Expect(os.WriteFile(npmPath, []byte(npmScript), 0o755)).To(Succeed())
+	mktempScript := fmt.Sprintf("#!/bin/sh\nmkdir -p %q\nprintf '%%s\\n' %q\n", scopePath, scopePath)
+	Expect(os.WriteFile(mktempPath, []byte(mktempScript), 0o755)).To(Succeed())
+
+	directive := &PackagesDirective{Type: entry.directiveType, FileBased: FileBasedSpec{Workdir: root, Spec: "package.json", Version: entry.version}}
+	cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
+	env := append(os.Environ(),
+		"PATH="+binDir+":/usr/bin:/bin",
+		"BOOTSTRAP_MODE="+bootstrapMode,
+		"MANAGER_TEMPLATE="+managerTemplate,
+	)
+	return cmd, env, struct{ dependency, cleanup, bootstrap, scope string }{dependencyMarker, cleanupMarker, bootstrapMarker, scopePath}
+}
+
+var _ = Describe("GeneratePackagesCommands Python alternative managers", func() {
+	DescribeTable("generates isolated locked-install commands",
+		func(directive *PackagesDirective, manager, version, install string) {
+			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
+			Expect(cmd).To(ContainSubstring("command -v " + manager + " >/dev/null 2>&1"))
+			Expect(cmd).To(ContainSubstring("python3 -m venv \"$scope\""))
+			Expect(cmd).To(ContainSubstring("pip install --no-cache-dir " + manager + "==" + version))
+			Expect(cmd).To(ContainSubstring("\"$scope/bin/" + manager + "\" " + install))
+			Expect(cmd).To(ContainSubstring("rm -rf \"$scope\""))
+			Expect(strings.Index(cmd, install)).To(BeNumerically("<", strings.Index(cmd, "rm -rf \"$scope\"")))
+		},
+		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
+		Entry("Poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
+	)
+
+	It("keeps python-pip free of alternative-manager lifecycle commands", func() {
+		cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}}})[0]
+		Expect(cmd).To(Equal(`cd "/app" && pip install --no-cache-dir -r "requirements.txt"`))
+		Expect(cmd).NotTo(ContainSubstring("mktemp"))
+		Expect(cmd).NotTo(ContainSubstring("venv"))
+		Expect(cmd).NotTo(ContainSubstring("rm -rf"))
+	})
+
+	It("preserves Python dependency failures before cleanup", func() {
+		for _, entry := range []struct {
+			typeName PackagesDirectiveType
+			manager  string
+			install  string
+		}{
+			{PackagesDirectiveTypePythonUV, "uv", "sync --frozen"},
+			{PackagesDirectiveTypePythonPoetry, "poetry", "sync --no-root"},
+		} {
+			cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "1.2.3"}}})[0]
+			installIndex := strings.Index(cmd, `"$scope/bin/`+entry.manager+`" `+entry.install)
+			cleanupIndex := strings.Index(cmd, `rm -rf "$scope"`)
+			Expect(installIndex).To(BeNumerically(">=", 0), string(entry.typeName))
+			Expect(cleanupIndex).To(BeNumerically(">", installIndex), string(entry.typeName))
+			Expect(strings.Count(cmd, `rm -rf "$scope"`)).To(Equal(1), string(entry.typeName))
+		}
+	})
+
+	It("rejects every pre-existing alternative manager before bootstrap", func() {
+		entries := []struct {
+			typeName PackagesDirectiveType
+			manager  string
+		}{
+			{PackagesDirectiveTypeJavaScriptYarn, "yarn"},
+			{PackagesDirectiveTypeJavaScriptPnpm, "pnpm"},
+			{PackagesDirectiveTypePythonUV, "uv"},
+			{PackagesDirectiveTypePythonPoetry, "poetry"},
+		}
+		for _, entry := range entries {
+			cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "manifest", Version: "1.2.3"}}})[0]
+			check := "command -v " + entry.manager + " >/dev/null 2>&1"
+			if entry.typeName == PackagesDirectiveTypeJavaScriptYarn {
+				check = "command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1"
+			}
+			Expect(cmd).To(ContainSubstring(check))
+			Expect(strings.Index(cmd, check)).To(BeNumerically("<", strings.Index(cmd, "mktemp -d")))
+		}
+	})
+
+	It("keeps multiple Python directives independent", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/uv", Spec: "pyproject.toml", Version: "0.8.17"}},
+			{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/poetry", Spec: "pyproject.toml", Version: "2.1.3"}},
+		})
+		Expect(cmds).To(HaveLen(2))
+		Expect(cmds[0]).To(ContainSubstring(`cd "/uv"`))
+		Expect(cmds[0]).To(ContainSubstring("uv==0.8.17"))
+		Expect(cmds[0]).NotTo(ContainSubstring("poetry==2.1.3"))
+		Expect(cmds[1]).To(ContainSubstring(`cd "/poetry"`))
+		Expect(cmds[1]).To(ContainSubstring("poetry==2.1.3"))
+		Expect(cmds[1]).NotTo(ContainSubstring("uv==0.8.17"))
+		Expect(cmds[0]).To(ContainSubstring("scope=$(mktemp -d)"))
+		Expect(cmds[1]).To(ContainSubstring("scope=$(mktemp -d)"))
+	})
 })
 
 var _ = Describe("GeneratePackagesCommands no os-pm", func() {

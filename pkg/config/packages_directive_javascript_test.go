@@ -83,7 +83,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"image": "image1",
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
-					{"type": "javascript-yarn", "workdir": "/app"},
+					{"type": "javascript-yarn", "workdir": "/app", "version": "1.22.22"},
 				},
 			},
 			[]*PackagesDirective{
@@ -93,6 +93,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 						Workdir: "/app",
 						Spec:    "package.json",
 						Lock:    "yarn.lock",
+						Version: "1.22.22",
 					},
 				},
 			},
@@ -103,7 +104,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"image": "image1",
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
-					{"type": "javascript-pnpm", "workdir": "/app"},
+					{"type": "javascript-pnpm", "workdir": "/app", "version": "9.15.4"},
 				},
 			},
 			[]*PackagesDirective{
@@ -113,6 +114,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 						Workdir: "/app",
 						Spec:    "package.json",
 						Lock:    "pnpm-lock.yaml",
+						Version: "9.15.4",
 					},
 				},
 			},
@@ -126,6 +128,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 					{
 						"type":    "javascript-pnpm",
 						"workdir": "/app",
+						"version": "9.15.4",
 						"spec":    "custom/package.json",
 						"lock":    "custom/pnpm-lock.yaml",
 					},
@@ -138,6 +141,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 						Workdir: "/app",
 						Spec:    "custom/package.json",
 						Lock:    "custom/pnpm-lock.yaml",
+						Version: "9.15.4",
 					},
 				},
 			},
@@ -151,6 +155,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 					{
 						"type":    "javascript-yarn",
 						"workdir": "/app",
+						"version": "1.22.22",
 						"spec":    "yarn/package.json",
 						"lock":    "yarn/yarn.lock",
 					},
@@ -163,6 +168,7 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 						Workdir: "/app",
 						Spec:    "yarn/package.json",
 						Lock:    "yarn/yarn.lock",
+						Version: "1.22.22",
 					},
 				},
 			},
@@ -283,7 +289,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
 					{"type": "javascript-npm", "workdir": "/app"},
-					{"type": "javascript-pnpm", "workdir": "/app/packages/sdk"},
+					{"type": "javascript-pnpm", "workdir": "/app/packages/sdk", "version": "9.15.4"},
 				},
 			},
 			[]*PackagesDirective{
@@ -301,6 +307,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 						Workdir: "/app/packages/sdk",
 						Spec:    "package.json",
 						Lock:    "pnpm-lock.yaml",
+						Version: "9.15.4",
 					},
 				},
 			},
@@ -313,7 +320,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 				"packages": []map[string]interface{}{
 					{"type": "go-mod", "workdir": "/app"},
 					{"type": "rust-cargo", "workdir": "/app/native"},
-					{"type": "javascript-yarn", "workdir": "/app/web"},
+					{"type": "javascript-yarn", "workdir": "/app/web", "version": "1.22.22"},
 					{"type": "os-pm", "spec": []string{"curl", "jq"}},
 				},
 			},
@@ -340,6 +347,7 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 						Workdir: "/app/web",
 						Spec:    "package.json",
 						Lock:    "yarn.lock",
+						Version: "1.22.22",
 					},
 				},
 				{

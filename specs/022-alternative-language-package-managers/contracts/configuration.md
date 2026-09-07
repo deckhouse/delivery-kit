@@ -33,21 +33,16 @@ packages:
 
 ## Command contract
 
-`PackageEcosystem` exposes two callback fields beside `InstallCmd`:
+Alternative-manager selection is defined by a switch helper over `PackagesDirectiveType`, with cases only for `javascript-yarn`, `javascript-pnpm`, `python-uv`, and `python-poetry`. `PackageEcosystem` does not contain an `isAlternativeManager` field.
 
-```go
-InstallAlternativeManagerCmd func(workdir string, files FileBasedSpec, env map[string]string) string
-CleanupAlternativeManagerCmd  func(workdir string, files FileBasedSpec, env map[string]string) string
-```
-
-For each alternative type, `InstallCmd` calls these callbacks to generate one ordered command sequence:
+A new internal command-wrapper type/factory centralizes the repeated `cd` and environment-prefix logic and returns an install-command function. For alternative types, the returned function creates an ephemeral scope, selects the isolated executable, and pairs it with cleanup:
 
 1. fail if the manager executable is already present;
-2. install the exact manager package globally through npm or pip (`npm install --global ...`; for pip, install into the system interpreter without `--user` or a virtual environment);
-3. run the existing frozen dependency command through the global executable;
-4. remove only the temporary global manager installation.
+2. create the ecosystem-specific unique directive-local scope and install the exact manager there;
+3. return and use the isolated absolute executable path for the existing frozen dependency command;
+4. run the cleanup command returned by the command-wrapper factory only after dependency installation succeeds.
 
-The cleanup callback is reached only after the dependency command succeeds and removes the globally installed manager package (`npm uninstall --global ...` or the corresponding system-interpreter `pip uninstall`), not project dependencies. Commands are part of the package-stage checksum. Each directive's version and workdir must affect its generated command and therefore its cache identity.
+The cleanup command removes the directive-local scope (`npm uninstall --global --prefix <prefix> ...` followed by prefix removal, or removal of `<venv>`), not project dependencies. It is reached only after the dependency command succeeds. The temporary path is generated inside the command sequence and is not part of the deterministic checksum; manager version, isolation strategy, executable selection, dependency command, and cleanup semantics are. Each directive's version and workdir must affect its generated command and therefore its cache identity.
 
 ## Failure contract
 

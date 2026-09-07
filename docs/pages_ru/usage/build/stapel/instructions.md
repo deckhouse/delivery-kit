@@ -188,7 +188,7 @@ packages:
 
 ### Файловые экосистемы пакетов
 
-Файловые типы запускают команду установки экосистемы внутри контейнера сборки и передают полученный lock-файл в syft для генерации SBOM. Пакетный менеджер должен быть предустановлен в образе сборщика.
+Файловые типы запускают команду установки экосистемы внутри контейнера сборки и передают полученный lock-файл в syft для генерации SBOM. Пакетный менеджер должен быть предустановлен в образе сборщика. Для Yarn, pnpm, uv и Poetry укажите точную `version`, например `1.22.22`: werf установит выбранный менеджер через npm или pip для стадии packages и удалит его после успешной установки. В образе сборщика должны быть npm для Yarn/pnpm или pip для uv/Poetry; выбранный альтернативный менеджер не должен быть установлен заранее.
 
 **Go-модули** (`go-mod`):
 
@@ -206,9 +206,10 @@ packages:
 packages:
   - type: python-uv
     workdir: /app
+    version: 0.4.20
 ```
 
-Выполняет `uv sync --frozen`. Файлы по умолчанию: `pyproject.toml` (spec) и `uv.lock` (lock).
+Выполняет `uv sync --frozen` после установки точной версии через pip. Файлы по умолчанию: `pyproject.toml` (spec) и `uv.lock` (lock).
 
 **Python — pip** (`python-pip`):
 
@@ -226,9 +227,10 @@ packages:
 packages:
   - type: python-poetry
     workdir: /app
+    version: 2.1.3
 ```
 
-Выполняет `poetry sync --no-root`. Файлы по умолчанию: `pyproject.toml` (spec) и `poetry.lock` (lock).
+Выполняет `poetry sync --no-root` после установки точной версии через pip. Файлы по умолчанию: `pyproject.toml` (spec) и `poetry.lock` (lock).
 
 **JavaScript — npm** (`javascript-npm`):
 
@@ -246,9 +248,10 @@ packages:
 packages:
   - type: javascript-yarn
     workdir: /app
+    version: 1.22.22
 ```
 
-Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock).
+Выполняет `yarn install --frozen-lockfile` после установки точной версии через npm. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock).
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 
@@ -256,9 +259,10 @@ packages:
 packages:
   - type: javascript-pnpm
     workdir: /app
+    version: 9.15.4
 ```
 
-Выполняет `pnpm install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `pnpm-lock.yaml` (lock).
+Выполняет `pnpm install --frozen-lockfile` после установки точной версии через npm. Файлы по умолчанию: `package.json` (spec) и `pnpm-lock.yaml` (lock).
 
 **Rust — Cargo** (`rust-cargo`):
 

@@ -34,7 +34,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 				"image": "image1",
 				"from":  "python:3.12",
 				"packages": []map[string]interface{}{
-					{"type": "python-uv", "workdir": "/app"},
+					{"type": "python-uv", "workdir": "/app", "version": "0.4.20"},
 				},
 			},
 			[]*PackagesDirective{
@@ -44,6 +44,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 						Workdir: "/app",
 						Spec:    "pyproject.toml",
 						Lock:    "uv.lock",
+						Version: "0.4.20",
 					},
 				},
 			},
@@ -74,7 +75,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 				"image": "image1",
 				"from":  "python:3.12",
 				"packages": []map[string]interface{}{
-					{"type": "python-poetry", "workdir": "/app"},
+					{"type": "python-poetry", "workdir": "/app", "version": "2.1.3"},
 				},
 			},
 			[]*PackagesDirective{
@@ -84,6 +85,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 						Workdir: "/app",
 						Spec:    "pyproject.toml",
 						Lock:    "poetry.lock",
+						Version: "2.1.3",
 					},
 				},
 			},
@@ -97,6 +99,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 					{
 						"type":    "python-uv",
 						"workdir": "/app",
+						"version": "0.4.20",
 						"spec":    "custom.toml",
 						"lock":    "custom.lock",
 					},
@@ -109,6 +112,7 @@ var _ = Describe("rawPackagesDirective python", func() {
 						Workdir: "/app",
 						Spec:    "custom.toml",
 						Lock:    "custom.lock",
+						Version: "0.4.20",
 					},
 				},
 			},

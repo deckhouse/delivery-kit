@@ -10,6 +10,7 @@ type rawPackagesDirective struct {
 	Spec    interface{}       `yaml:"spec,omitempty"`
 	Workdir string            `yaml:"workdir,omitempty"`
 	Lock    string            `yaml:"lock,omitempty"`
+	Version string            `yaml:"version,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty"`
 
 	rawStapelImage *rawStapelImage `yaml:"-"`
@@ -115,6 +116,7 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 	d.FileBased.Workdir = r.Workdir
 	d.FileBased.Spec = eco.DefaultSpecFile
 	d.FileBased.Lock = eco.DefaultLockFile
+	d.FileBased.Version = r.Version
 
 	if r.Spec != nil {
 		specStr, ok := r.Spec.(string)

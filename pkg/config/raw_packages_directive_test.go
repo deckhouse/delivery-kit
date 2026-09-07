@@ -92,6 +92,21 @@ var _ = Describe("rawPackagesDirective", func() {
 			},
 		),
 
+		Entry("mixed JavaScript and Python directives preserve ecosystem defaults",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "python:3.12",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-pnpm", "workdir": "/web", "version": "9.15.4"},
+					{"type": "python-uv", "workdir": "/api", "version": "0.8.17"},
+				},
+			},
+			[]*PackagesDirective{
+				{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/web", Spec: "package.json", Lock: "pnpm-lock.yaml", Version: "9.15.4"}},
+				{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/api", Spec: "pyproject.toml", Lock: "uv.lock", Version: "0.8.17"}},
+			},
+		),
+
 		Entry("packages section is optional (omitted)",
 			map[string]interface{}{
 				"image": "image1",

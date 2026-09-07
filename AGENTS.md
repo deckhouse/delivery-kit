@@ -80,8 +80,6 @@ Correct: `task test:unit paths="./pkg/sbom/..." -- -focus=MyTest`
 
 - `task deps:install:pm` — extract the pm binary (linux/amd64) to `dest=<path>` (default `./bin/pm`). Optional.
 
-`format` and `lint*` come from a remote taskfile ([werf/common-ci](https://github.com/werf/common-ci)), so they need `TASK_X_REMOTE_TASKFILES=1` and network access.
-
 ## Verifying changes (MANDATORY)
 
 After changing Go code, run these in order — `task format` mutates files, so it goes first:

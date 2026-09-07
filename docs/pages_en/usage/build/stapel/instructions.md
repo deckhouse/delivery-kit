@@ -175,7 +175,7 @@ Packages installed in a parent image are inherited by images based on it via `fr
 
 ### File-based package ecosystems
 
-File-based types run the ecosystem's install command inside the build container and feed the resulting lock file to syft for SBOM generation. The package manager itself must be pre-installed in the builder image.
+File-based types run the ecosystem's install command inside the build container and feed the resulting lock file to syft for SBOM generation. The package manager itself must be pre-installed in the builder image. Yarn, pnpm, uv, and Poetry are exceptions: specify an exact `version` such as `1.22.22`; werf bootstraps the selected manager through npm or pip for the package stage and removes it after a successful install. The builder image must provide npm for Yarn/pnpm or pip for uv/Poetry and must not already contain the selected alternative manager.
 
 **Go modules** (`go-mod`):
 
@@ -193,9 +193,10 @@ Runs `go mod download`. Default files: `go.mod` (spec) and `go.sum` (lock).
 packages:
   - type: python-uv
     workdir: /app
+    version: 0.4.20
 ```
 
-Runs `uv sync --frozen`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock).
+Runs `uv sync --frozen` after bootstrapping the exact version through pip. Default files: `pyproject.toml` (spec) and `uv.lock` (lock).
 
 **Python — pip** (`python-pip`):
 
@@ -213,9 +214,10 @@ Runs `pip install --no-cache-dir -r requirements.txt`. Default spec: `requiremen
 packages:
   - type: python-poetry
     workdir: /app
+    version: 2.1.3
 ```
 
-Runs `poetry sync --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
+Runs `poetry sync --no-root` after bootstrapping the exact version through pip. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
 
 **Rust — Cargo** (`rust-cargo`):
 
@@ -254,9 +256,10 @@ Runs `npm ci`. Default files: `package.json` (spec) and `package-lock.json` (loc
 packages:
   - type: javascript-yarn
     workdir: /app
+    version: 1.22.22
 ```
 
-Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock).
+Runs `yarn install --frozen-lockfile` after bootstrapping the exact version through npm. Default files: `package.json` (spec) and `yarn.lock` (lock).
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 
@@ -264,9 +267,10 @@ Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and 
 packages:
   - type: javascript-pnpm
     workdir: /app
+    version: 9.15.4
 ```
 
-Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
+Runs `pnpm install --frozen-lockfile` after bootstrapping the exact version through npm. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
 
 All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Multiple entries of the same or different types can be combined in one image:
 

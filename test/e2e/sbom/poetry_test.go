@@ -20,7 +20,8 @@ var _ = Describe("SBOM python-poetry packages", Label("e2e", "sbom", "poetry", "
 			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-python-poetry-builder")
 
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			Expect(buildOut).NotTo(ContainSubstring("alternative manager poetry is already installed"))
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{

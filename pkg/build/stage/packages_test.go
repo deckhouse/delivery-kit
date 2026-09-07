@@ -238,28 +238,34 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		Entry("python-poetry /svc", []*config.PackagesDirective{
 			{
 				Type:      config.PackagesDirectiveTypePythonPoetry,
-				FileBased: config.FileBasedSpec{Workdir: "/svc"},
+				FileBased: config.FileBasedSpec{Workdir: "/svc", Version: "2.1.3"},
 			},
-		}, []string{"cd \"/svc\" && poetry sync --no-root"}),
+		}, func() []string {
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypePythonPoetry, FileBased: config.FileBasedSpec{Workdir: "/svc", Version: "2.1.3"}}})
+		}()),
 
 		Entry("python-uv /api", []*config.PackagesDirective{
 			{
 				Type:      config.PackagesDirectiveTypePythonUV,
-				FileBased: config.FileBasedSpec{Workdir: "/api"},
+				FileBased: config.FileBasedSpec{Workdir: "/api", Version: "0.8.17"},
 			},
-		}, []string{"cd \"/api\" && uv sync --frozen"}),
+		}, func() []string {
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypePythonUV, FileBased: config.FileBasedSpec{Workdir: "/api", Version: "0.8.17"}}})
+		}()),
 
 		Entry("mixed: go-mod + python-uv + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 			{
 				Type:      config.PackagesDirectiveTypePythonUV,
-				FileBased: config.FileBasedSpec{Workdir: "/lib"},
+				FileBased: config.FileBasedSpec{Workdir: "/lib", Version: "0.8.17"},
 			},
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
 		}, func() []string {
-			return append([]string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{
+				{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
+				{Type: config.PackagesDirectiveTypePythonUV, FileBased: config.FileBasedSpec{Workdir: "/lib", Version: "0.8.17"}},
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})...)
+			})
 		}()),
 
 		Entry("rust-cargo /app produces cargo fetch", []*config.PackagesDirective{
@@ -298,17 +304,23 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, []string{"cd \"/src/web\" && npm ci"}),
 
 		Entry("javascript-yarn /app produces yarn install --frozen-lockfile", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app"}},
-		}, []string{"cd \"/app\" && yarn install --frozen-lockfile"}),
+			{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "1.22.22"}},
+		}, func() []string {
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "1.22.22"}}})
+		}()),
 
 		Entry("javascript-pnpm /app produces pnpm install --frozen-lockfile", []*config.PackagesDirective{
-			{Type: config.PackagesDirectiveTypeJavaScriptPnpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
-		}, []string{"cd \"/app\" && pnpm install --frozen-lockfile"}),
+			{Type: config.PackagesDirectiveTypeJavaScriptPnpm, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "9.15.4"}},
+		}, func() []string {
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypeJavaScriptPnpm, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "9.15.4"}}})
+		}()),
 
 		Entry("multiple javascript entries", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptNpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
-			{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app/web"}},
-		}, []string{"cd \"/app\" && npm ci", "cd \"/app/web\" && yarn install --frozen-lockfile"}),
+			{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app/web", Version: "1.22.22"}},
+		}, func() []string {
+			return config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypeJavaScriptNpm, FileBased: config.FileBasedSpec{Workdir: "/app"}}, {Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app/web", Version: "1.22.22"}}})
+		}()),
 
 		Entry("mixed: javascript-npm + go-mod + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptNpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
@@ -416,6 +428,14 @@ var _ = Describe("Builder interface Packages methods", func() {
 		Entry("different commands — different checksum",
 			[]string{"cd /app && go mod download"},
 			[]string{"cd /lib && go mod download"},
+			false),
+		Entry("manager version changes checksum",
+			config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypePythonUV, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "0.8.17"}}}),
+			config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypePythonUV, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "0.8.18"}}}),
+			false),
+		Entry("manager lifecycle changes checksum",
+			config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "1.22.22"}}}),
+			config.GeneratePackagesCommands([]*config.PackagesDirective{{Type: config.PackagesDirectiveTypeJavaScriptPnpm, FileBased: config.FileBasedSpec{Workdir: "/app", Version: "1.22.22"}}}),
 			false),
 	)
 

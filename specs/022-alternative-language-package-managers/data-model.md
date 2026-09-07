@@ -12,39 +12,38 @@ The existing `PackagesDirective` remains the unit of configuration and execution
 | `FileBased.Lock` | string | ecosystem-dependent | Lock path, defaulted by the ecosystem registry. |
 | `FileBased.Version` | string | yes for alternative types; forbidden for other types | Exact alternative-manager version in `X.Y.Z` form. |
 | `Env` | map[string]string | no | Existing per-directive environment variables. |
-| `PackageEcosystem.InstallAlternativeManagerCmd` | callback | alternative types | Generates the manager absence check and exact global npm/pip bootstrap command; called by the ecosystem's `InstallCmd`. |
-| `PackageEcosystem.CleanupAlternativeManagerCmd` | callback | alternative types | Generates cleanup for the globally installed manager package created by the current directive; called by the ecosystem's `InstallCmd` after dependency installation succeeds. |
+| `isAlternativeManager(type)` | switch helper | all directive types | Returns true only for Yarn, pnpm, uv, and Poetry; used for version validation and alternative-manager command selection. |
+| `PackageCommandWrapper` | internal factory/type | file-based ecosystems | Centralizes `cd` and environment-prefix composition and returns an install-command function. For alternative types it creates an ephemeral scope, selects the isolated executable, and associates cleanup with the generated command. |
 | `Spec.Packages` | []string | only for `os-pm` | Existing inline OS package list; unchanged by this feature. |
 
-## PackageEcosystem command callbacks
+## Package command wrapper
 
-The existing `PackageEcosystem` registry gains two callback fields beside `InstallCmd`:
+`PackageEcosystem` keeps its existing `InstallCmd` field. A new internal `PackageCommandWrapper` factory returns that function shape and centralizes the repeated shell composition:
 
 ```go
-type PackageEcosystem struct {
-    // existing fields
-    InstallCmd                    func(workdir string, files FileBasedSpec, pkgs []string, env map[string]string) string
-    InstallAlternativeManagerCmd  func(workdir string, files FileBasedSpec, env map[string]string) string
-    CleanupAlternativeManagerCmd  func(workdir string, files FileBasedSpec, env map[string]string) string
+type PackageCommandWrapper struct {
+    // manager-specific wrapper configuration
 }
+
+func (w PackageCommandWrapper) InstallCmd(...) string
 ```
 
-For each alternative type, `InstallCmd` invokes `InstallAlternativeManagerCmd`, then its existing frozen dependency command, then `CleanupAlternativeManagerCmd` in a success-only shell sequence. Primary types leave the two callbacks unset and retain their current `InstallCmd` behavior.
+The wrapper adds `cd` and sorted environment assignments for every file-based command. For the four alternative types selected by the switch helper, it creates an ephemeral ecosystem-specific scope, invokes the isolated executable, and runs the associated cleanup command only after successful dependency installation. Primary and unrelated types use the same wrapper without an ephemeral manager scope.
 
 ## Supported alternative-manager mapping
 
-| Directive type | Manager | Bootstrap tool | Bootstrap package/version form | Existing install command |
+| Directive type | Manager | Bootstrap tool | Isolated bootstrap form | Existing install command |
 |---|---|---|---|---|
-| `javascript-yarn` | Yarn | npm global | `npm install --global yarn@<version>` | `yarn install --frozen-lockfile` |
-| `javascript-pnpm` | pnpm | npm global | `npm install --global pnpm@<version>` | `pnpm install --frozen-lockfile` |
-| `python-uv` | uv | pip system interpreter | `pip install uv==<version>` without `--user` or a virtual environment | `uv sync --frozen` |
-| `python-poetry` | Poetry | pip system interpreter | `pip install poetry==<version>` without `--user` or a virtual environment | `poetry sync --no-root` |
+| `javascript-yarn` | Yarn | npm | `npm install --global --prefix <prefix> yarn@<version>`; invoke `<prefix>/bin/yarn` | `yarn install --frozen-lockfile` |
+| `javascript-pnpm` | pnpm | npm | `npm install --global --prefix <prefix> pnpm@<version>`; invoke `<prefix>/bin/pnpm` | `pnpm install --frozen-lockfile` |
+| `python-uv` | uv | pip in venv | `python3 -m venv <venv>` then `<venv>/bin/python -m pip install uv==<version>`; invoke `<venv>/bin/uv` | `uv sync --frozen` |
+| `python-poetry` | Poetry | pip in venv | `python3 -m venv <venv>` then `<venv>/bin/python -m pip install poetry==<version>`; invoke `<venv>/bin/poetry` | `poetry sync --no-root` |
 
 ## Lifecycle state
 
 Each alternative directive has an independent logical lifecycle:
 
-`Configured` → `AlternativeAbsent` → `GloballyBootstrapped` → `DependenciesInstalled` → `GlobalAlternativeRemoved`.
+`Configured` → `AlternativeAbsent` → `ScopedBootstrapComplete` → `DependenciesInstalled` → `TemporaryScopeRemoved`.
 
 Failure transitions stop at the failing state and return an error with the operation context:
 
@@ -58,5 +57,6 @@ Failure transitions stop at the failing state and return an error with the opera
 - Alternative directives require a non-empty exact `X.Y.Z` version.
 - Primary `javascript-npm` and `python-pip` directives do not use `Version` and generate their current commands.
 - A pre-existing alternative-manager executable is invalid for the builder image.
-- Bootstrap installs the alternative manager globally; cleanup removes only that global package and may not delete files belonging to another directive or pre-existing image state.
+- The switch helper identifies exactly the four supported alternative types; no registry boolean is required.
+- The command wrapper installs the alternative manager only in a unique directive-local npm prefix or Python venv and removes only that ephemeral scope; it may not delete files belonging to another directive or pre-existing image state.
 - Manifest, lock, installed dependency, and SBOM source paths remain unchanged.

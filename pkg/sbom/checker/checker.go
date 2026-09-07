@@ -9,6 +9,7 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/docker"
+	"github.com/werf/werf/v2/pkg/sbom/ispras"
 )
 
 const (
@@ -22,12 +23,12 @@ type RunOptions struct {
 	CheckVCS bool
 }
 
-func Run(ctx context.Context, paths []string, isprasFormat IsprasFormat, opts RunOptions) error {
+func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOptions) error {
 	if err := checkFilesExisting(paths); err != nil {
 		return err
 	}
 
-	header := fmt.Sprintf("Validating %d SBOM file(s) as %q", len(paths), isprasFormat)
+	header := fmt.Sprintf("Validating %d SBOM file(s) as %q", len(paths), format)
 	if opts.CheckVCS {
 		header += " with VCS check"
 	}
@@ -39,7 +40,7 @@ func Run(ctx context.Context, paths []string, isprasFormat IsprasFormat, opts Ru
 		total := len(paths)
 
 		for i, p := range paths {
-			args, err := buildDockerArgs(p, isprasFormat, opts.CheckVCS)
+			args, err := buildDockerArgs(p, format, opts.CheckVCS)
 			if err != nil {
 				return fmt.Errorf("build docker args for %q: %w", p, err)
 			}
@@ -77,7 +78,7 @@ func checkFilesExisting(paths []string) error {
 	return nil
 }
 
-func buildDockerArgs(path string, isprasFormat IsprasFormat, checkVCS bool) ([]string, error) {
+func buildDockerArgs(path string, format ispras.Format, checkVCS bool) ([]string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute path for %q: %w", path, err)
@@ -87,7 +88,7 @@ func buildDockerArgs(path string, isprasFormat IsprasFormat, checkVCS bool) ([]s
 		"--rm",
 		"-v", absPath + ":" + containerPath + ":ro",
 		Image,
-		"--format", isprasFormat.String(),
+		"--format", format.String(),
 		"--errors", "0",
 	}
 

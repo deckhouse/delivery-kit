@@ -7,9 +7,11 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-func ResolveUnknownGoVersions(bom *cdx.BOM, version, modulePath string, localReplaceTargets, localReplacePaths []string) *cdx.BOM {
+// ResolveUnknownGoVersions mutates bom in place, replacing UNKNOWN/(devel)
+// versions of the main module and local replace targets with version.
+func ResolveUnknownGoVersions(bom *cdx.BOM, version, modulePath string, localReplaceTargets, localReplacePaths []string) {
 	if version == "" {
-		return bom
+		return
 	}
 
 	pathToModule := make(map[string]string, len(localReplacePaths))
@@ -56,8 +58,6 @@ func ResolveUnknownGoVersions(bom *cdx.BOM, version, modulePath string, localRep
 	}
 
 	PatchComponents(bom, match, patch)
-
-	return bom
 }
 
 func isUnresolvedVersion(v string) bool {

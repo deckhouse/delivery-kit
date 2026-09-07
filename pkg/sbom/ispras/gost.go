@@ -1,4 +1,4 @@
-package convert
+package ispras
 
 import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -19,15 +19,6 @@ func aggregateGOST(components []cdx.Component) GOSTValues {
 		cfg := gost.GetComponent(&components[i])
 		result.AttackSurface = maxGOSTValue(result.AttackSurface, cfg.AttackSurface)
 		result.SecurityFunction = maxGOSTValue(result.SecurityFunction, cfg.SecurityFunction)
-	}
-	return result
-}
-
-func aggregateImageGOST(images []*ImageSBOM) GOSTValues {
-	var result GOSTValues
-	for _, img := range images {
-		result.AttackSurface = maxGOSTValue(result.AttackSurface, img.GOST.AttackSurface)
-		result.SecurityFunction = maxGOSTValue(result.SecurityFunction, img.GOST.SecurityFunction)
 	}
 	return result
 }

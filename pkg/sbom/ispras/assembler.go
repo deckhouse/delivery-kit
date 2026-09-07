@@ -1,7 +1,8 @@
-package convert
+package ispras
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -11,15 +12,18 @@ type Assembler interface {
 	Assemble(ctx context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error)
 }
 
-type Converter struct {
-	Assembler Assembler
+func NewAssembler(format Format) (Assembler, error) {
+	switch format {
+	case FormatContainer:
+		return &ContainerAssembler{}, nil
+	case FormatOSS:
+		return &OSSAssembler{}, nil
+	default:
+		return nil, fmt.Errorf("unknown format %q", format)
+	}
 }
 
-func (c *Converter) Convert(ctx context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
-	return c.Assembler.Assemble(ctx, images, meta)
-}
-
-func buildProductMetadata(meta ProductMeta, gostValues GOSTValues) *cdx.Metadata {
+func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
 	metaComponent := &cdx.Component{
 		Type:    cdx.ComponentTypeApplication,
 		Name:    meta.AppName,

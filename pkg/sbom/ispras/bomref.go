@@ -1,4 +1,4 @@
-package convert
+package ispras
 
 import (
 	"fmt"
@@ -7,7 +7,9 @@ import (
 	"github.com/samber/lo"
 )
 
-func namespaceBOMRefs(bom *cdx.BOM, prefix string) {
+// NamespaceBOMRefs prefixes every BOM ref in bom (components recursively and
+// dependencies) with prefix, mutating bom in place.
+func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 	namespaceComponentBOMRefs(lo.FromPtr(bom.Components), prefix)
 
 	for i, dep := range lo.FromPtr(bom.Dependencies) {

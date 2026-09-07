@@ -11,9 +11,9 @@ import (
 	"github.com/opencontainers/go-digest"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/sbom/convert"
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v2/pkg/sbom/ispras"
 )
 
 type Options struct {
@@ -32,7 +32,7 @@ func Run(ctx context.Context, repo string, opts Options) error {
 
 	var (
 		mapping map[string]string
-		images  []*convert.ImageSBOM
+		images  []*ispras.ImageSBOM
 		result  *cdx.BOM
 	)
 
@@ -59,7 +59,12 @@ func Run(ctx context.Context, repo string, opts Options) error {
 	}
 
 	err = logboek.Context(ctx).Default().LogProcess("Merging SBOMs into %s format", opts.IsprasFormat).DoError(func() error {
-		assembler, err := convert.NewAssembler(opts.IsprasFormat)
+		format, err := ispras.ParseFormat(opts.IsprasFormat)
+		if err != nil {
+			return err
+		}
+
+		assembler, err := ispras.NewAssembler(format)
 		if err != nil {
 			return fmt.Errorf("unable to select assembler: %w", err)
 		}
@@ -69,17 +74,17 @@ func Run(ctx context.Context, repo string, opts Options) error {
 			logboek.Context(ctx).Default().LogF("[%d/%d] %s\n", i+1, total, img.Name)
 		}
 
-		result, err = (&convert.Converter{Assembler: assembler}).Convert(ctx, images, convert.ProductMeta{
+		result, err = assembler.Assemble(ctx, images, ispras.ProductMeta{
 			AppName:      opts.AppName,
 			AppVersion:   opts.AppVersion,
 			Manufacturer: opts.Manufacturer,
 		})
 		if err != nil {
-			return fmt.Errorf("unable to convert: %w", err)
+			return fmt.Errorf("unable to assemble: %w", err)
 		}
 
 		if result == nil {
-			return fmt.Errorf("converter returned nil result")
+			return fmt.Errorf("assembler returned nil result")
 		}
 
 		compCount := 0
@@ -141,8 +146,8 @@ func ValidateOptions(opts Options) error {
 		return fmt.Errorf("required flag(s) not set: %v", missing)
 	}
 
-	if opts.IsprasFormat != "oss" && opts.IsprasFormat != "container" {
-		return fmt.Errorf("--ispras-format must be \"oss\" or \"container\", got %q", opts.IsprasFormat)
+	if _, err := ispras.ParseFormat(opts.IsprasFormat); err != nil {
+		return err
 	}
 
 	return nil
@@ -183,9 +188,9 @@ func ValidateInputMapping(mapping map[string]string) error {
 	return nil
 }
 
-func PullAndParseImages(ctx context.Context, repo string, mapping map[string]string) ([]*convert.ImageSBOM, error) {
+func PullAndParseImages(ctx context.Context, repo string, mapping map[string]string) ([]*ispras.ImageSBOM, error) {
 	total := len(mapping)
-	images := make([]*convert.ImageSBOM, 0, total)
+	images := make([]*ispras.ImageSBOM, 0, total)
 
 	logboek.Context(ctx).Default().LogF("Pulling SBOMs: %d image(s)\n", total)
 
@@ -201,12 +206,8 @@ func PullAndParseImages(ctx context.Context, repo string, mapping map[string]str
 					return fmt.Errorf("pull SBOM for %q: %w", imageName, err)
 				}
 
-				img, err := convert.NewImageSBOMFromCycloneDX16(ctx, imageName, bom)
-				if err != nil {
-					return fmt.Errorf("parse SBOM for %q: %w", imageName, err)
-				}
-
-				images = append(images, img)
+				ispras.NamespaceBOMRefs(bom, imageName)
+				images = append(images, ispras.NewImageSBOM(imageName, bom))
 				return nil
 			})
 		if err != nil {

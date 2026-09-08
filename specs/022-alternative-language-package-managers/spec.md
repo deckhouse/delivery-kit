@@ -13,7 +13,7 @@ source: user description and Kaiten card 69642569
 
 - Q: Should the alternative-manager version field accept only an exact version or also version ranges? → A: Only an exact version, such as `2.4.3`.
 - Q: What should happen if an exact alternative-manager version is not specified? → A: The configuration without an exact version must be rejected.
-- Q: If the alternative manager is already installed in the builder image, should the build use it only when its version exactly matches the version in `werf.yaml`? → A: The build must fail if the alternative manager is already installed.
+- Q: If the alternative manager is already installed in the builder image, should the build use it only when its version exactly matches the version in `werf.yaml`? → A: The build may reuse the existing executable; the configured version controls newly isolated installations, while an existing manager is never removed by this directive.
 - Q: If dependency installation fails after the alternative manager has been installed successfully, must the system remove that manager before returning the error? → A: Cleanup runs only after dependency installation succeeds.
 - Q: Should e2e tests cover every alternative manager — Yarn, pnpm, uv, and Poetry — or is one manager per ecosystem sufficient? → A: Each manager requires a separate e2e test.
 
@@ -53,7 +53,7 @@ A user builds a Python project whose dependencies are managed by uv or Poetry, w
 
 ### User Story 3 - Preserve deterministic dependency installation and SBOM coverage (Priority: P1)
 
-A user expects the same lock-file validation and package inventory when the alternative package manager is bootstrapped for the current build. If the alternative manager is already present in the builder image, the user must receive a clear configuration/build error rather than an ambiguous or non-reproducible installation.
+A user expects the same lock-file validation and package inventory when the alternative package manager is used for the current build. If the alternative manager is already present in the builder image, the build may use that existing executable; otherwise it creates and removes an ephemeral manager scope without changing shared builder state.
 
 **Why this priority**: Ephemeral installation must not weaken reproducibility or cause the SBOM to omit dependencies installed by the alternative manager.
 
@@ -72,7 +72,7 @@ A user expects the same lock-file validation and package inventory when the alte
 - The requested alternative manager version does not exist or cannot be downloaded; the build fails with an actionable error and does not continue to dependency installation.
 - The user specifies an empty, malformed, or otherwise invalid manager version; configuration validation rejects it before starting the build.
 - The primary manager required for bootstrapping is absent from the builder image; the build fails and identifies the missing prerequisite.
-- The alternative manager is already present in the builder image; the build fails before dependency installation and reports that the builder image must not contain the alternative manager.
+- The alternative manager is already present in the builder image; the build uses the existing executable and does not create or remove an ephemeral scope.
 - A project contains multiple package directives for different work directories; each directive bootstraps, uses, and cleans up its selected alternative manager without changing the behavior of unrelated directives.
 - The primary package type is selected for JavaScript/TypeScript or Python; no temporary alternative manager is installed.
 - Cleanup must not remove files or tools that were present in the builder image before the directive ran.
@@ -88,7 +88,7 @@ A user expects the same lock-file validation and package inventory when the alte
 - **FR-004**: For Python alternative package types, pip MUST be used as the primary manager to install the selected alternative manager before dependency installation.
 - **FR-005**: The selected alternative manager MUST be available for the dependency installation operation when it was not present in the builder image at the beginning of the operation.
 - **FR-006**: The selected alternative manager MUST be removed after it has successfully installed the project dependencies and before the successful build stage completes.
-- **FR-007**: Cleanup MUST remove only the alternative-manager installation created for the current operation; a pre-existing alternative-manager installation is an invalid builder-image state and MUST cause the build to fail before dependency installation.
+- **FR-007**: Cleanup MUST remove only the alternative-manager installation created for the current operation. A pre-existing alternative-manager installation is valid, MUST be reused, and MUST NOT be removed by the current operation.
 - **FR-008**: Each alternative package type MUST retain its existing manifest, lock-file, dependency-installation, and SBOM behavior except for the additional bootstrap and cleanup lifecycle.
 - **FR-009**: Users MUST specify an exact alternative-manager version for every supported alternative package directive; omitting the version MUST be rejected during configuration validation.
 - **FR-010**: Users MUST be able to specify an alternative manager version for each supported alternative package directive through `werf.yaml`.
@@ -114,14 +114,14 @@ A user expects the same lock-file validation and package inventory when the alte
 ### Measurable Outcomes
 
 - **SC-001**: Projects using each supported alternative package type complete dependency installation successfully in a builder image that contains the corresponding primary manager but not the alternative manager.
-- **SC-002**: In 100% of successful builds using a supported alternative package type, the alternative manager installed for the operation is absent from the resulting image; cleanup is not required for failed builds.
+- **SC-002**: In 100% of successful builds where the alternative manager was absent initially, the temporary manager scope is absent from the resulting image; pre-existing manager installations are preserved and cleanup is not required for failed builds.
 - **SC-003**: In 100% of successful builds with a valid specified manager version, the dependency installation uses that exact requested version.
 - **SC-004**: In 100% of builds with a missing or inconsistent required lock file, the build fails rather than completing with an unvalidated dependency set.
 - **SC-005**: SBOM output for each supported alternative package type contains the project dependencies represented by its manifest and lock file, with no loss caused by temporary manager installation or removal.
 - **SC-006**: Existing projects using `javascript-npm` or `python-pip` produce the same dependency installation outcome as before the feature is enabled and do not incur alternative-manager lifecycle steps.
 - **SC-007**: A user can enable an alternative manager without changing the builder image, provided the corresponding primary manager and network/package source access are available.
-- **SC-008**: Error output identifies whether bootstrap, dependency installation, version resolution, lock validation, cleanup, or a pre-existing alternative-manager installation caused failure in all tested failure scenarios.
-- **SC-009**: Four dedicated e2e scenarios — Yarn, pnpm, uv, and Poetry — pass with updated builder fixtures that omit preinstalled alternative managers and verify successful dependency installation, SBOM generation, and removal of the temporary manager; the Poetry fixture uses a builder image with pip but without a preinstalled Poetry environment as one representative Python case.
+- **SC-008**: Error output identifies whether bootstrap, dependency installation, version resolution, lock validation, or cleanup caused failure in all tested failure scenarios; a pre-existing alternative-manager installation is not reported as an error.
+- **SC-009**: Four dedicated e2e scenarios — Yarn, pnpm, uv, and Poetry — pass with coverage for existing-manager reuse and missing-manager isolation, verifying successful dependency installation, SBOM generation, and removal only of temporary manager scopes; the Poetry fixture uses a builder image with pip as one representative Python case.
 
 ## Assumptions
 

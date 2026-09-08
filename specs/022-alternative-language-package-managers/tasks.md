@@ -35,20 +35,20 @@
 
 ## Phase 3: User Story 1 - Install JavaScript dependencies with an unavailable alternative manager (Priority: P1) 🎯 MVP
 
-**Goal**: Install Yarn or pnpm at the exact configured version into a directive-local npm prefix, run the existing frozen install through its absolute executable, and remove only that temporary prefix after success.
+**Goal**: Reuse an existing Yarn or pnpm executable when available; otherwise install the exact configured version inside one readable `if ... fi` block, run the frozen install through its isolated executable, and remove only the temporary prefix after success.
 
-**Independent Test**: Build the Yarn and pnpm fixtures with npm present and the selected alternative manager absent; verify locked dependencies and SBOM output, then verify the absolute prefix executable works during installation and the temporary prefix is absent from the successful result.
+**Independent Test**: Build Yarn and pnpm fixtures both with and without the alternative executable; verify the existing-manager branch performs no cleanup, the absent-manager branch installs and removes its prefix, and both produce locked dependencies and SBOM output.
 
 ### Tests for User Story 1
 
-- [X] T010 [P] [US1] Add generated-command tests proving Yarn and pnpm use the command wrapper to create an ephemeral npm prefix, invoke the returned absolute executable, and run cleanup around the frozen dependency command, including pre-existing-manager detection and success-only scope cleanup ordering in `pkg/config/packages_commands_test.go`
-- [X] T011 [P] [US1] Add wrapper-sequence failure tests proving bootstrap/version failures prevent dependency installation and dependency failures preserve the original error without invoking successful-install cleanup in `pkg/config/packages_commands_test.go`
+- [X] T010 [P] [US1] Add generated-command tests comparing the complete Yarn and pnpm wrapper snippets, including the existing-manager branch without cleanup and the absent-manager branch containing bootstrap, version verification, frozen dependency execution, and prefix cleanup in one readable `if ... fi` block in `pkg/config/packages_commands_test.go`
+- [X] T011 [P] [US1] Add wrapper-sequence failure tests proving bootstrap/version failures prevent dependency installation, dependency failures preserve the original error without cleanup, and an existing manager is reused without error or cleanup in `pkg/config/packages_commands_test.go`
 - [X] T012 [P] [US1] Add primary JavaScript regression tests proving `javascript-npm` still generates only its existing `npm ci` behavior and does not bootstrap or clean up an alternative manager in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_javascript_test.go`
 
 ### Implementation for User Story 1
 
-- [X] T013 [US1] Configure the command wrapper for Yarn and pnpm in `pkg/config/packages_directive.go`, using executable absence checks, a unique temporary prefix, exact npm bootstrap, post-bootstrap version verification, and returning the prefix executable plus cleanup command
-- [X] T014 [US1] Refactor Yarn and pnpm `InstallCmd` generation to use the command wrapper, invoke the isolated absolute executable for the existing frozen dependency command, and run ephemeral-prefix cleanup in a success-only `&&` sequence without mutating shared `PATH`
+- [X] T013 [US1] Configure the command wrapper for Yarn and pnpm in `pkg/config/packages_directive.go`, using an existing-manager branch plus an absent-manager branch with a unique temporary prefix, exact npm bootstrap, post-bootstrap version verification, dependency execution, and cleanup inside one readable `if ... fi` block
+- [X] T014 [US1] Refactor Yarn and pnpm `InstallCmd` generation to use the command wrapper, invoke the isolated absolute executable for the existing frozen dependency command, and run ephemeral-prefix cleanup inside the absent-manager `if ... fi` branch without mutating shared `PATH`
 - [X] T015 [US1] Ensure Yarn and pnpm command content, configured versions, and workdirs flow into the existing package-stage checksum in `pkg/build/stage/packages.go` and `pkg/build/stage/packages_test.go`
 - [X] T016 [P] [US1] Update the Yarn fixture configuration and builder image to use an exact version, provide npm, and omit preinstalled Yarn in `test/e2e/sbom/_fixtures/inject/yarn_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/yarn_simple/Dockerfile.builder-base`
 - [X] T017 [P] [US1] Update the pnpm fixture configuration and builder image to use an exact version, provide npm, and omit preinstalled pnpm in `test/e2e/sbom/_fixtures/inject/pnpm_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/pnpm_simple/Dockerfile.builder-base`
@@ -61,20 +61,20 @@
 
 ## Phase 4: User Story 2 - Install Python dependencies with an unavailable alternative manager (Priority: P1)
 
-**Goal**: Install uv or Poetry at the exact configured version into a directive-local Python virtual environment, run the existing locked install through its absolute executable, and remove only that temporary virtual environment after success.
+**Goal**: Reuse an existing uv or Poetry executable when available; otherwise install the exact configured version inside one readable `if ... fi` block, run the locked install through its isolated executable, and remove only the temporary virtual environment after success.
 
-**Independent Test**: Build the uv and Poetry fixtures with Python/pip present and the selected alternative manager absent; verify locked dependencies and SBOM output, then verify the absolute venv executable works during installation and the temporary virtual environment is absent from the successful result.
+**Independent Test**: Build uv and Poetry fixtures both with and without the alternative executable; verify existing-manager reuse, absent-manager bootstrap and venv cleanup, locked dependencies, and SBOM output.
 
 ### Tests for User Story 2
 
-- [X] T020 [P] [US2] Add generated-command tests proving uv and Poetry use the command wrapper to create an ephemeral virtual environment, invoke the returned absolute executable, and run cleanup around the locked dependency command, including pre-existing-manager detection and success-only scope cleanup ordering in `pkg/config/packages_commands_test.go`
-- [X] T021 [P] [US2] Add primary Python regression tests proving `python-pip` retains its current install command and does not bootstrap or clean up an alternative manager in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_python_test.go`
+- [X] T020 [P] [US2] Add generated-command tests comparing the complete uv and Poetry wrapper snippets, including existing-manager reuse without cleanup and the absent-manager branch containing venv creation, bootstrap, version verification, locked dependency execution, and cleanup in one readable `if ... fi` block in `pkg/config/packages_commands_test.go`
+- [X] T021 [P] [US2] Add primary Python regression tests proving `python-pip` retains its current install command and does not add an alternative-manager wrapper in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_python_test.go`
 - [X] T022 [P] [US2] Add multi-directive tests proving separate Python directives do not share versions, bootstrap state, workdirs, or cleanup state in `pkg/config/packages_commands_test.go`
 
 ### Implementation for User Story 2
 
-- [X] T023 [US2] Configure the command wrapper for uv and Poetry in `pkg/config/packages_directive.go`, using executable absence checks, `python3 -m venv <venv>`, exact pip bootstrap, post-bootstrap version verification, and returning the venv executable plus cleanup command
-- [X] T024 [US2] Refactor uv and Poetry `InstallCmd` generation to use the command wrapper, invoke the isolated absolute executable for `uv sync --frozen` or `poetry sync --no-root`, and run ephemeral-venv cleanup in a success-only `&&` sequence without mutating shared `PATH`
+- [X] T023 [US2] Configure the command wrapper for uv and Poetry in `pkg/config/packages_directive.go`, using an existing-manager branch plus an absent-manager branch with `python3 -m venv <venv>`, exact pip bootstrap, post-bootstrap version verification, dependency execution, and cleanup inside one readable `if ... fi` block
+- [X] T024 [US2] Refactor uv and Poetry `InstallCmd` generation to use the command wrapper, invoke the isolated absolute executable for `uv sync --frozen` or `poetry sync --no-root`, and run ephemeral-venv cleanup inside the absent-manager `if ... fi` branch without mutating shared `PATH`
 - [X] T025 [P] [US2] Update the uv fixture configuration and builder image to use an exact version, provide pip, and omit preinstalled uv in `test/e2e/sbom/_fixtures/inject/uv_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/uv_simple/Dockerfile.builder-base`
 - [X] T026 [P] [US2] Update the Poetry fixture configuration and builder image to use an exact version, provide pip, and omit preinstalled Poetry in `test/e2e/sbom/_fixtures/inject/poetry_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/poetry_simple/Dockerfile.builder-base`
 - [X] T027 [P] [US2] Extend the uv acceptance scenario to assert exact-version dependency installation, temporary-manager removal, and existing SBOM dependency visibility in `test/e2e/sbom/uv_test.go`
@@ -86,13 +86,13 @@
 
 ## Phase 5: User Story 3 - Preserve deterministic dependency installation and SBOM coverage (Priority: P1)
 
-**Goal**: Prove the complete lifecycle remains deterministic and diagnosable across all four managers, including invalid locks, pre-existing managers, cleanup failures, cache identity, and SBOM source paths.
+**Goal**: Prove the complete lifecycle remains deterministic and diagnosable across all four managers, including invalid locks, existing-manager reuse, absent-manager cleanup failures, cache identity, and SBOM source paths.
 
-**Independent Test**: Exercise successful and failing lifecycle sequences for each manager and verify lock enforcement, original failure preservation, pre-existing-manager rejection, cleanup semantics, package-stage invalidation, and SBOM dependency/cataloger behavior.
+**Independent Test**: Exercise successful and failing lifecycle sequences for each manager and verify lock enforcement, original failure preservation, existing-manager reuse, cleanup semantics, package-stage invalidation, and SBOM dependency/cataloger behavior.
 
 ### Tests for User Story 3
 
-- [X] T029 [P] [US3] Add isolated-lifecycle tests for pre-existing manager rejection, missing npm/python/venv prerequisite, invalid lock/install failure, temporary-prefix or venv cleanup failure, and exact bootstrap/dependency/cleanup operation context in `pkg/config/packages_commands_test.go`
+- [X] T029 [P] [US3] Add isolated-lifecycle tests for existing-manager reuse without cleanup, missing npm/python/venv prerequisite, invalid lock/install failure, temporary-prefix or venv cleanup failure, complete wrapper-snippet ordering, and exact bootstrap/dependency/cleanup operation context in `pkg/config/packages_commands_test.go`
 - [X] T030 [P] [US3] Add package-stage tests proving generated manager versions and lifecycle commands affect package checksum while manifest/lock and managed-input SBOM paths remain unchanged in `pkg/build/stage/packages_test.go`
 - [X] T031 [P] [US3] Add configuration tests covering multiple mixed JavaScript/Python directives and unchanged unsupported ecosystems in `pkg/config/packages_directive_test.go`
 
@@ -100,7 +100,7 @@
 
 - [X] T032 [US3] Verify and adjust package-stage integration in `pkg/build/stage/packages.go` so wrapper-composed commands remain in the existing single network-enabled stage and no extra stage, shared global mutation, or independent lock scan is introduced
 - [X] T033 [US3] Verify and adjust managed-input and cataloger integration so Yarn/pnpm retain JavaScript lock cataloging and uv/Poetry retain Python cataloging with unchanged workdir/spec/lock source paths in `pkg/config/packages_directive.go` and `pkg/build/stage/packages.go`
-- [X] T034 [US3] Add or update failure-path assertions in the four manager e2e scenarios so dependency failures are diagnosable and successful cleanup does not mask the original install failure in `test/e2e/sbom/yarn_test.go`, `test/e2e/sbom/pnpm_test.go`, `test/e2e/sbom/uv_test.go`, and `test/e2e/sbom/poetry_test.go`
+- [X] T034 [US3] Add or update failure-path assertions in the four manager e2e scenarios so dependency failures are diagnosable and successful cleanup does not mask the original install failure and existing-manager reuse does not remove pre-existing tools in `test/e2e/sbom/yarn_test.go`, `test/e2e/sbom/pnpm_test.go`, `test/e2e/sbom/uv_test.go`, and `test/e2e/sbom/poetry_test.go`
 
 **Checkpoint**: All four alternative managers preserve deterministic lock installation, cache behavior, failure semantics, and SBOM coverage.
 
@@ -117,10 +117,10 @@
 - [X] T039 Run the one-time lint prerequisite with `task deps:install:golangci-lint` and record the installed tool state used by `Taskfile.dist.yaml`
 - [X] T040 Run the repository lint gate with `task lint` and record any feature-related diagnostics for the changed `pkg/config/` and `pkg/build/stage/` files
 - [X] T041 Run the unit-test gate with `task test:unit` and record any feature-related failures in `pkg/config/` and `pkg/build/stage/`
-- [X] T042 [P] Run the Yarn e2e scenario in `test/e2e/sbom/yarn_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="yarn"`
-- [X] T043 [P] Run the pnpm e2e scenario in `test/e2e/sbom/pnpm_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="pnpm"`
-- [X] T044 [P] Run the uv e2e scenario in `test/e2e/sbom/uv_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="uv"`
-- [X] T045 [P] Run the Poetry e2e scenario in `test/e2e/sbom/poetry_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"`
+- [X] T042 [P] Run the Yarn e2e scenario in `test/e2e/sbom/yarn_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="yarn"`, covering existing-manager reuse and missing-manager isolation
+- [X] T043 [P] Run the pnpm e2e scenario in `test/e2e/sbom/pnpm_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="pnpm"`, covering existing-manager reuse and missing-manager isolation
+- [X] T044 [P] Run the uv e2e scenario in `test/e2e/sbom/uv_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="uv"`, covering existing-manager reuse and missing-manager isolation
+- [X] T045 [P] Run the Poetry e2e scenario in `test/e2e/sbom/poetry_test.go` with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"`, covering existing-manager reuse and missing-manager isolation
 - [X] T046 Run the full legacy integration gate with `task test:integration` for `test/legacy_e2e/` and record any failures attributable to isolated manager installation, wrapper composition, or cleanup semantics in the implementation handoff
 
 ---

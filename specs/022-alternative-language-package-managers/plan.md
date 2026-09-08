@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add ephemeral isolated bootstrap support for Yarn, pnpm, uv, and Poetry in file-based `packages` directives. Each directive receives a required exact `version`, rejects a pre-existing alternative manager, installs the manager into a directive-local temporary scope through npm or pip, performs the existing frozen dependency installation through that scope, and removes only the temporary scope after success. The implementation extends the existing `pkg/config` ecosystem registry and package-stage command generation, preserving current primary-manager and SBOM behavior.
+Add isolated bootstrap support for Yarn, pnpm, uv, and Poetry in file-based `packages` directives. Each directive receives a required exact `version`. If the alternative manager already exists, the generated command uses it unchanged; otherwise it installs the manager into a directive-local temporary scope through npm or pip, performs the existing frozen dependency installation through that scope, and removes only the temporary scope after success. The implementation extends the existing `pkg/config` ecosystem registry and package-stage command generation, preserving current primary-manager and SBOM behavior.
 
 ## Technical Context
 
@@ -81,7 +81,7 @@ docs/
 └── package-directive references # document version field and supported alternatives
 ```
 
-**Structure Decision**: Reuse the existing monolith CLI boundaries and `PackageEcosystem` registry. Determine alternative-manager behavior with a switch over the four supported directive types; do not add an `isAlternativeManager` field to the registry. Introduce one internal command-wrapper type/factory that centralizes the repeated `cd` and environment-prefix logic and returns an install-command function. When configured for an alternative manager, the wrapper creates an ephemeral manager scope, invokes the manager through the isolated executable, and returns/executes cleanup after success. Do not add a package-manager service, interface hierarchy, persistent cleanup state, or new build stage.
+**Structure Decision**: Reuse the existing monolith CLI boundaries and `PackageEcosystem` registry. Determine alternative-manager behavior with a switch over the four supported directive types; do not add an `isAlternativeManager` field to the registry. Introduce one internal command-wrapper type/factory that centralizes the repeated `cd` and environment-prefix logic and returns an install-command function. When configured for an alternative manager, the wrapper emits one readable `if ... fi` shell block: the existing executable branch runs the dependency command without cleanup, while the absent-manager branch creates an ephemeral scope, installs and verifies the manager, runs the dependency command, and removes only that scope after success. Do not add a package-manager service, interface hierarchy, persistent cleanup state, or new build stage.
 
 ## Phase 0: Research Summary
 
@@ -104,8 +104,8 @@ Research is recorded in [research.md](research.md). Key resolved decisions:
 1. Extend raw and typed package directive models with `Version`; apply defaults without changing existing spec/lock behavior.
 2. Add an internal switch helper that returns true only for `javascript-yarn`, `javascript-pnpm`, `python-uv`, and `python-poetry`; use it for version validation and alternative-manager command selection.
 3. Introduce the internal command-wrapper type/factory that centralizes `cd` and environment-prefix generation and returns the `InstallCmd` function shape used by `PackageEcosystem`.
-4. Configure the wrapper for alternative managers so it creates an ephemeral ecosystem-specific scope, returns the isolated executable path and cleanup command, invokes the existing frozen dependency command through that executable, and cleans up only after success.
-5. Refactor duplicated `InstallCmd` closures in `pkg/config/packages_directive.go` to use the wrapper while preserving primary and unrelated ecosystem behavior. Keep temporary scope variables local, avoid persistent `PATH` changes, and ensure errors remain operation-specific and command content affects package-stage caching.
+4. Configure the wrapper for alternative managers so it emits one readable `if ... fi` block. The existing-manager branch invokes the existing executable without cleanup; the absent-manager branch creates an ecosystem-specific scope, installs and verifies the manager, invokes the existing frozen dependency command, and cleans up only that scope after success.
+5. Refactor duplicated `InstallCmd` closures in `pkg/config/packages_directive.go` to use the wrapper while preserving primary and unrelated ecosystem behavior. Keep the complete alternative-manager lifecycle inside one readable `if ... fi` block, avoid persistent `PATH` changes, and ensure errors remain operation-specific and command content affects package-stage caching.
 6. Add focused Ginkgo/Gomega tests for the switch helper, wrapper command generation, parsing, invalid versions, failure ordering, cleanup, primary types, and multiple directives.
 7. Update the four existing SBOM e2e fixtures/tests with exact versions and absence/cleanup assertions; retain existing dependency SBOM assertions.
 8. Update package-directive reference documentation for the new required field and examples in supported languages, without modifying generated release files.

@@ -37,13 +37,12 @@ Alternative-manager selection is defined by a switch helper over `PackagesDirect
 
 A new internal command-wrapper type/factory centralizes the repeated `cd` and environment-prefix logic and returns an install-command function. For alternative types, the returned function creates an ephemeral scope, selects the isolated executable, and pairs it with cleanup:
 
-1. fail if the manager executable is already present;
-2. create the ecosystem-specific unique directive-local scope and install the exact manager there;
-3. return and use the isolated absolute executable path for the existing frozen dependency command;
-4. run the cleanup command returned by the command-wrapper factory only after dependency installation succeeds.
+1. open one readable `if ... fi` block that checks whether the manager executable exists;
+2. in the existing-manager branch, use the existing executable to run the frozen dependency command and do not clean it up;
+3. in the absent-manager branch, create the ecosystem-specific unique directive-local scope, install and verify the exact manager there, run the frozen dependency command through its isolated absolute executable, and remove only that scope after success.
 
 The cleanup command removes the directive-local scope (`npm uninstall --global --prefix <prefix> ...` followed by prefix removal, or removal of `<venv>`), not project dependencies. It is reached only after the dependency command succeeds. The temporary path is generated inside the command sequence and is not part of the deterministic checksum; manager version, isolation strategy, executable selection, dependency command, and cleanup semantics are. Each directive's version and workdir must affect its generated command and therefore its cache identity.
 
 ## Failure contract
 
-Errors must identify bootstrap, exact-version resolution, dependency/lock installation, pre-existing manager, or cleanup as applicable. A dependency installation error must not be replaced by cleanup output because cleanup after a failed dependency install is not executed.
+Errors must identify bootstrap, exact-version resolution, dependency/lock installation, or cleanup as applicable. A dependency installation error must not be replaced by cleanup output because cleanup after a failed dependency install is not executed. Finding an existing manager is a successful selection path, not an error.

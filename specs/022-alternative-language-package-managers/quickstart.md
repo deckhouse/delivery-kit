@@ -29,27 +29,33 @@ The complete wire contract is in [`contracts/configuration.md`](contracts/config
 
 ## Isolated command decomposition
 
-The generated command sequence must be equivalent to these manager-family operations, with a unique temporary path per directive and no persistent `PATH` mutation:
+The generated command sequence must be one readable `if ... fi` block per alternative directive, with no persistent `PATH` mutation. An existing manager is reused without cleanup; only the absent-manager branch creates and removes an ephemeral scope:
 
 ```sh
-# JavaScript: npm-backed manager in an isolated prefix
-manager_prefix=$(mktemp -d)
-npm install --global --prefix "$manager_prefix" --no-save --package-lock=false yarn@1.22.22
-"$manager_prefix/bin/yarn" --version
-"$manager_prefix/bin/yarn" install --frozen-lockfile
-npm uninstall --global --prefix "$manager_prefix" yarn
-rm -rf "$manager_prefix"
+if command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1; then
+  yarn install --frozen-lockfile
+else
+  scope=$(mktemp -d)
+  npm install --global --prefix "$scope" --no-save --package-lock=false yarn@1.22.22
+  "$scope/bin/yarn" --version | grep -Fx '1.22.22'
+  "$scope/bin/yarn" install --frozen-lockfile
+  npm uninstall --global --prefix "$scope" yarn
+  rm -rf "$scope"
+fi
 
-# Python: pip-backed manager in an isolated virtual environment
-manager_venv=$(mktemp -d)
-python3 -m venv "$manager_venv"
-"$manager_venv/bin/python" -m pip install --no-cache-dir uv==0.8.17
-"$manager_venv/bin/uv" --version
-"$manager_venv/bin/uv" sync --frozen
-rm -rf "$manager_venv"
+if command -v uv >/dev/null 2>&1; then
+  uv sync --frozen
+else
+  scope=$(mktemp -d)
+  python3 -m venv "$scope"
+  "$scope/bin/python" -m pip install --no-cache-dir uv==0.8.17
+  "$scope/bin/uv" --version | grep -F '0.8.17'
+  "$scope/bin/uv" sync --frozen
+  rm -rf "$scope"
+fi
 ```
 
-The implementation plan substitutes `pnpm` or `poetry` and the configured exact version as appropriate. The pre-existing-manager check must run before the temporary prefix or venv is added; dependency failures preserve the dependency error and do not claim successful cleanup, while cleanup failures after success fail the stage.
+The implementation substitutes `pnpm` or `poetry` and the configured exact version as appropriate. Bootstrap, dependency, and cleanup failures remain diagnosable; a pre-existing manager is a successful reuse path and must not be removed.
 
 ## Unit validation
 
@@ -60,7 +66,7 @@ task test:unit paths="./pkg/config/..."
 task test:unit paths="./pkg/build/stage/..."
 ```
 
-The tests should cover exact command ordering, version propagation, cache checksum changes, primary-manager compatibility, pre-existing-manager rejection, cleanup failure, and independent directives.
+The tests should compare each complete generated wrapper snippet as one readable block, including existing-manager reuse, absent-manager bootstrap, exact-version verification, dependency execution, cleanup placement, version propagation, cache checksum changes, primary-manager compatibility, cleanup failure, and independent directives.
 
 ## E2E validation
 

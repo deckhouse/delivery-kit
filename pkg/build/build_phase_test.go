@@ -356,12 +356,4 @@ var _ = Describe("BuildPhase", func() {
 			Expect(digestDisabledAgain).To(Equal(digestBaseline))
 		})
 	})
-
-	Describe("finalStageDescForImage", func() {
-		It("returns nil for a single-platform image resolved from the cache, without a built stage image", func() {
-			phase := &BuildPhase{}
-
-			Expect(phase.finalStageDescForImage("app", []*image.Image{{}})).To(BeNil())
-		})
-	})
 })

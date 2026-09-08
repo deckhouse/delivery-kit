@@ -8,6 +8,7 @@ import (
 	"github.com/werf/werf/v2/pkg/build"
 	"github.com/werf/werf/v2/pkg/docker_registry"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	"github.com/werf/werf/v2/pkg/ref"
 	"github.com/werf/werf/v2/pkg/storage/manager"
 )
@@ -83,6 +84,12 @@ func (s *RemoteStorage) copyCurrentBuildStagesFromRemote(ctx context.Context, fr
 			if err = fromRemote.RegistryClient.CopyImage(ctx, infoGetterName, reference.FullName(), docker_registry.CopyImageOptions{}); err != nil {
 				return fmt.Errorf("error copying stage %s into %s: %w", infoGetterName, reference.FullName(), err)
 			}
+
+			if infoGetter.Digest != "" {
+				if err := artifact.CopyAllAttachedArtifacts(ctx, infoGetter.Repo, infoGetter.Digest, reference.Repo, infoGetter.Digest); err != nil {
+					return fmt.Errorf("error copying artifacts attached to stage %s into %s: %w", infoGetterName, reference.Repo, err)
+				}
+			}
 		}
 
 		return nil
@@ -115,6 +122,10 @@ func (s *RemoteStorage) copyAllFromRemote(ctx context.Context, fromRemote *Remot
 
 		if err = fromRemote.RegistryClient.CopyImage(ctx, stageName, reference.FullName(), docker_registry.CopyImageOptions{}); err != nil {
 			return fmt.Errorf("error copying stage %s into %s: %w", stageName, reference.FullName(), err)
+		}
+
+		if err := artifact.CopyAllAttachedArtifacts(ctx, stageDesc.Info.Repository, stageDesc.Info.GetDigest(), reference.Repo, stageDesc.Info.GetDigest()); err != nil {
+			return fmt.Errorf("error copying artifacts attached to stage %s into %s: %w", stageName, reference.Repo, err)
 		}
 	}
 

@@ -13,6 +13,7 @@ import (
 	nelmcommon "github.com/werf/nelm/pkg/common"
 	chart "github.com/werf/nelm/pkg/helm/pkg/chart/v2"
 	"github.com/werf/werf/v2/pkg/docker_registry"
+	"github.com/werf/werf/v2/pkg/oci/artifact"
 	bundles_registry "github.com/werf/werf/v2/pkg/ref"
 )
 
@@ -182,6 +183,7 @@ func (bundle *RemoteBundle) CopyFromRemote(ctx context.Context, fromRemote *Remo
 							return err
 						}
 
+						srcRepo := ref.Repo
 						ref.Repo = bundle.RegistryAddress.Repo
 
 						// TODO: copy images in parallel
@@ -191,6 +193,14 @@ func (bundle *RemoteBundle) CopyFromRemote(ctx context.Context, fromRemote *Remo
 
 							if err := fromRemote.RegistryClient.CopyImage(ctx, image, ref.FullName(), docker_registry.CopyImageOptions{}); err != nil {
 								return fmt.Errorf("error copying image %s into %s: %w", image, ref.FullName(), err)
+							}
+
+							if imgInfo, err := fromRemote.RegistryClient.TryGetRepoImage(ctx, image); err != nil {
+								return fmt.Errorf("error resolving image %s to copy its attached artifacts: %w", image, err)
+							} else if imgInfo != nil {
+								if err := artifact.CopyAllAttachedArtifacts(ctx, srcRepo, imgInfo.GetDigest(), ref.Repo, imgInfo.GetDigest()); err != nil {
+									return fmt.Errorf("error copying artifacts attached to image %s into %s: %w", image, ref.Repo, err)
+								}
 							}
 						}
 

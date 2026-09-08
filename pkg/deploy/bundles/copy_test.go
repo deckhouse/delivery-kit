@@ -15,6 +15,7 @@ import (
 	chartcommon "github.com/werf/nelm/pkg/helm/pkg/chart/common"
 	chart "github.com/werf/nelm/pkg/helm/pkg/chart/v2"
 	"github.com/werf/werf/v2/pkg/docker_registry"
+	"github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/logging"
 	bundles_registry "github.com/werf/werf/v2/pkg/ref"
 )
@@ -684,6 +685,13 @@ func (registry *DockerRegistryStub) PullImageArchive(ctx context.Context, archiv
 		return fmt.Errorf("error copying image archive: %w", err)
 	}
 	return nil
+}
+
+// TryGetRepoImage reports every image as absent: the stub holds archives, not
+// registry manifests, so there are no attached artifacts to resolve and the
+// artifact-carrying step is skipped.
+func (registry *DockerRegistryStub) TryGetRepoImage(_ context.Context, _ string) (*image.Info, error) {
+	return nil, nil
 }
 
 func (registry *DockerRegistryStub) CopyImage(_ context.Context, sourceReference, destinationReference string, _ docker_registry.CopyImageOptions) error {

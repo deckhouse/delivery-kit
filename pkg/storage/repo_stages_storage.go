@@ -960,6 +960,13 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
 	if desc != nil {
+		// The manifest is already in place, but its artifacts may not be: an earlier
+		// run could have copied the stage and failed before the artifacts, or the
+		// artifacts could have appeared in the source afterwards. The copy is
+		// idempotent, so repeating it here repairs such a destination.
+		if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
+			return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
+		}
 		return desc, nil
 	}
 
@@ -974,7 +981,7 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
 
-	if err := artifact.CopyAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
+	if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
 		return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
 	}
 

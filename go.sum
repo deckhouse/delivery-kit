@@ -298,14 +298,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/deckarep/golang-set/v2 v2.6.0 h1:XfcQbWM1LlMB8BsJ8N9vW5ehnnPVIw0je80NsVHagjM=
 github.com/deckarep/golang-set/v2 v2.6.0/go.mod h1:VAky9rY/yGXJOLEDv3OMci+7wtDpOF4IN+y82NBOac4=
-github.com/deckhouse/delivery-kit-sdk v1.2.2-0.20260611091416-9ec2ae7d6491 h1:Aaq/EU1fO/mIx2UG4yfg+TFvfIp/Rk+VRe4oGjEfwv4=
-github.com/deckhouse/delivery-kit-sdk v1.2.2-0.20260611091416-9ec2ae7d6491/go.mod h1:HgPk8RNOxcy1FZ37pB9RMQRdYHa13pGYAmKnLJh0I9A=
-github.com/deckhouse/delivery-kit-sdk v1.4.0 h1:KLyczgHBjEr4hUo+VoRx98XUn5JZqqYFLsPCG0iF8H8=
-github.com/deckhouse/delivery-kit-sdk v1.4.0/go.mod h1:ppXlSNBjtaUPhBwRIUshDs7NPbi1sfZwU4k8g8cpL8I=
 github.com/deckhouse/delivery-kit-sdk v1.4.1 h1:y9QvZUarFmu3ywbxbA2cdO5FGUkrtnGORrEjJgFLbmU=
 github.com/deckhouse/delivery-kit-sdk v1.4.1/go.mod h1:1tBrH6JgNMTtRjYc1R/RXBEH/I8Lmr5G8zyt+FErztY=
-github.com/deckhouse/elfedit v0.0.0-20260907205808-d969ba637ddd h1:+w8geIwnxbyZlR/CefwtvNHk4hXA4kkqyW0Ej0El/jA=
-github.com/deckhouse/elfedit v0.0.0-20260907205808-d969ba637ddd/go.mod h1:Qdsqyxx1eur+519iAS4slYEf5m4QMZDERZ5WMaeqQWg=
 github.com/deckhouse/elfedit v0.1.0 h1:EyJ0HpQu9XgYN1B2jNHL0JHXH1EcS5ms+xZ/pBMQoq0=
 github.com/deckhouse/elfedit v0.1.0/go.mod h1:Qdsqyxx1eur+519iAS4slYEf5m4QMZDERZ5WMaeqQWg=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 h1:NMZiJj8QnKe1LgsbDayM4UoHwbvwDRwnI3hwNaAHRnc=

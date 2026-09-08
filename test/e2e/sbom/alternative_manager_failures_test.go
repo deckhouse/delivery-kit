@@ -7,7 +7,7 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
-var _ = Describe("SBOM alternative package manager failures", Label("e2e", "sbom", "alternative-manager-failure"), func() {
+var _ = Describe("SBOM alternative package manager failures", Label("e2e", "sbom", "alternative-manager-failure", "simple"), func() {
 	type failureEntry struct {
 		name      string
 		fixture   string
@@ -64,7 +64,7 @@ var _ = Describe("SBOM alternative package manager failures", Label("e2e", "sbom
 			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, entry.builderID)
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			out := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ShouldFail: true, Envs: builderEnv}})
-			Expect(out).To(ContainSubstring("alternative manager " + entry.manager + " is already installed"))
+			Expect(out).To(ContainSubstring(entry.manager + " must not be pre-installed"))
 			Expect(out).NotTo(ContainSubstring("bootstrap failed"))
 			Expect(out).NotTo(ContainSubstring("cleanup failed"))
 		},

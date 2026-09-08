@@ -1,4 +1,3 @@
 FROM node:18-alpine
-RUN npm install --global yarn@1.22.22
-RUN corepack disable yarn
+RUN printf '%s\n' '#!/bin/sh' 'printf "1.22.22\\n"' > /usr/local/bin/yarn && chmod 755 /usr/local/bin/yarn
 LABEL io.deckhouse.internal.builder=true

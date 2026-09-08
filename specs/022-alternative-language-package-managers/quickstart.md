@@ -33,20 +33,19 @@ The generated command sequence must use one complete `if ... then ... else ... f
 
 ```sh
 if command -v yarn >/dev/null 2>&1; then
-  echo 'alternative manager must not be pre-installed' >&2
+  echo 'yarn must not be pre-installed' >&2
   exit 1
 else
   set -e
   scope=$(mktemp -d)
-  npm install --global --prefix "$scope" --no-save --package-lock=false yarn@1.22.22
+  npm install --prefix "$scope" --no-save --package-lock=false yarn@1.22.22
   "$scope/bin/yarn" --version | grep -Fx '1.22.22'
   "$scope/bin/yarn" install --frozen-lockfile
-  npm uninstall --global --prefix "$scope" yarn
   rm -rf "$scope"
 fi
 
 if command -v uv >/dev/null 2>&1; then
-  echo 'alternative manager must not be pre-installed' >&2
+  echo 'uv must not be pre-installed' >&2
   exit 1
 else
   set -e
@@ -57,7 +56,6 @@ else
   "$scope/bin/uv" sync --frozen
   rm -rf "$scope"
 fi
-
 ```
 
 Every ecosystem uses the same complete conditional shape. Each lifecycle command occupies its own line under fail-fast shell execution: bootstrap or dependency failures prevent later steps, cleanup runs only after successful dependency installation, and cleanup failures remain visible. A pre-installed manager is rejected and never removed.

@@ -28,14 +28,14 @@ type PackageCommandWrapper struct {
 func (w PackageCommandWrapper) InstallCmd(...) string
 ```
 
-The wrapper adds `cd` and sorted environment assignments for every file-based command. For each of the four alternative types selected by the switch helper, it emits one complete `if ... then ... else ... fi` block: the `then` branch rejects a discovered pre-installed executable; the `else` branch creates an ephemeral ecosystem-specific scope, invokes the isolated executable, and runs the associated cleanup command only after successful dependency installation in the same ordered chain. Primary and unrelated types use the same wrapper without an ephemeral manager scope.
+The wrapper adds `cd` and sorted environment assignments for every file-based command. For each of the four alternative types selected by the switch helper, it emits one complete `if ... then ... else ... fi` block: the `then` branch rejects a discovered pre-installed executable; the `else` branch creates an ephemeral ecosystem-specific scope, installs and verifies the manager, invokes the isolated executable, and removes the scope with `rm -rf "$scope"` only after successful dependency installation. Primary and unrelated types use the same wrapper without an ephemeral manager scope.
 
 ## Supported alternative-manager mapping
 
 | Directive type | Manager | Bootstrap tool | Isolated bootstrap form | Existing install command |
 |---|---|---|---|---|
-| `javascript-yarn` | Yarn | npm | `npm install --global --prefix <prefix> yarn@<version>`; invoke `<prefix>/bin/yarn` | `yarn install --frozen-lockfile` |
-| `javascript-pnpm` | pnpm | npm | `npm install --global --prefix <prefix> pnpm@<version>`; invoke `<prefix>/bin/pnpm` | `pnpm install --frozen-lockfile` |
+| `javascript-yarn` | Yarn | npm | `npm install --prefix <prefix> --no-save --package-lock=false yarn@<version>`; invoke `<prefix>/bin/yarn` | `yarn install --frozen-lockfile` |
+| `javascript-pnpm` | pnpm | npm | `npm install --prefix <prefix> --no-save --package-lock=false pnpm@<version>`; invoke `<prefix>/bin/pnpm` | `pnpm install --frozen-lockfile` |
 | `python-uv` | uv | pip in venv | `python3 -m venv <venv>` then `<venv>/bin/python -m pip install uv==<version>`; invoke `<venv>/bin/uv` | `uv sync --frozen` |
 | `python-poetry` | Poetry | pip in venv | `python3 -m venv <venv>` then `<venv>/bin/python -m pip install poetry==<version>`; invoke `<venv>/bin/poetry` | `poetry sync --no-root` |
 
@@ -58,5 +58,5 @@ Failure transitions stop at the failing state and return an error with the opera
 - Primary `javascript-npm` and `python-pip` directives do not use `Version` and generate their current commands.
 - A selected alternative-manager executable must not be present in the builder image; its presence fails image validation before bootstrap.
 - The switch helper identifies exactly the four supported alternative types; no registry boolean is required.
-- The command wrapper keeps the full alternative-manager lifecycle in one readable command sequence. It installs the manager only in a unique directive-local npm prefix or Python venv and removes only that ephemeral scope; it may not delete files belonging to another directive or image state.
+- The command wrapper keeps the full alternative-manager lifecycle in one readable `if ... then ... else ... fi` block. It installs the manager only in a unique directive-local npm prefix or Python venv and removes only that ephemeral scope with `rm -rf "$scope"`; it may not delete files belonging to another directive or image state.
 - Manifest, lock, installed dependency, and SBOM source paths remain unchanged.

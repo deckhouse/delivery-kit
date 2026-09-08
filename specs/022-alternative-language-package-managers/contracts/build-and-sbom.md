@@ -14,7 +14,7 @@ The existing package ecosystem cataloger mapping remains authoritative:
 - uv and Poetry use the Python package cataloger.
 - Source paths remain the configured `workdir/spec` and `workdir/lock`.
 
-The wrapped command's `then` branch rejects an existing manager. Its `else` branch installs the manager in a unique directive-local npm prefix or Python virtual environment, runs dependency installation, and removes that scope after success. Bootstrap, verification, dependency installation, and cleanup remain ordered on separate readable lines under fail-fast shell execution. Project dependencies and manifest/lock files remain available for the existing SBOM scan; cleanup must not remove them. The temporary path must not be included as nondeterministic checksum input. No new SBOM format or cataloger is introduced.
+The wrapped command's `then` branch rejects an existing manager. Its `else` branch installs the manager in a unique directive-local npm prefix or Python virtual environment, runs dependency installation, and removes that scope with `rm -rf "$scope"` after success. Bootstrap, verification, dependency installation, and cleanup remain ordered on separate readable lines under fail-fast shell execution. Project dependencies and manifest/lock files remain available for the existing SBOM scan; cleanup must not remove them. The temporary path must not be included as nondeterministic checksum input. No new SBOM format or cataloger is introduced.
 
 ## Primary package types
 

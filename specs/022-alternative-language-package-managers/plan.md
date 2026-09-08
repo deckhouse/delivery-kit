@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add isolated bootstrap support for Yarn, pnpm, uv, and Poetry in file-based `packages` directives. Each directive receives a required exact `version`, and the selected alternative manager must be absent from the builder image. The generated command rejects a pre-installed alternative manager, installs the manager into a directive-local temporary scope through npm or pip, performs the existing frozen dependency installation through that scope, and removes only the temporary scope after success. The implementation extends the existing `pkg/config` ecosystem registry and package-stage command generation, preserving current primary-manager and SBOM behavior.
+Add isolated bootstrap support for Yarn, pnpm, uv, and Poetry in file-based `packages` directives. Each directive receives a required exact `version`, and the selected alternative manager must be absent from the builder image. The generated command uses one readable `if ... then ... else ... fi` block: it rejects a pre-installed alternative manager, otherwise installs the manager into a directive-local temporary scope through npm or pip, performs the existing frozen dependency installation through that scope, and removes only the temporary scope after success. The implementation extends the existing `pkg/config` ecosystem registry and package-stage command generation, preserving current primary-manager and SBOM behavior.
 
 ## Technical Context
 
@@ -89,9 +89,9 @@ Research is recorded in [research.md](research.md). Key resolved decisions:
 
 1. YAML field name is `version`, stored as a string and validated as exact `X.Y.Z` for alternative types.
 2. The switch helper selects the four alternative manager types without storing a classification field in `PackageEcosystem`.
-3. The command-wrapper factory rejects a pre-installed alternative manager, creates the ecosystem-specific ephemeral scope, returns the isolated executable path and cleanup command, and composes them into the generated install function.
+3. The command-wrapper factory emits the complete readable conditional, rejects a pre-installed alternative manager, creates the ecosystem-specific ephemeral scope, invokes the isolated executable, and composes scope removal into the generated install function.
 4. Existing lock flags, package-stage checksum, managed-input catalogers, and SBOM source paths remain authoritative.
-5. Existing four alternative-manager e2e scenarios are the dedicated acceptance coverage; their fixtures need exact versions and must omit preinstalled alternatives.
+5. Existing four alternative-manager e2e scenarios are the dedicated acceptance coverage; their fixtures need exact versions and must omit pre-installed alternatives, with negative coverage for the rejection branch where feasible.
 
 ## Phase 1: Design Summary
 
@@ -104,10 +104,10 @@ Research is recorded in [research.md](research.md). Key resolved decisions:
 1. Extend raw and typed package directive models with `Version`; apply defaults without changing existing spec/lock behavior.
 2. Add an internal switch helper that returns true only for `javascript-yarn`, `javascript-pnpm`, `python-uv`, and `python-poetry`; use it for version validation and alternative-manager command selection.
 3. Introduce the internal command-wrapper type/factory that centralizes `cd` and environment-prefix generation and returns the `InstallCmd` function shape used by `PackageEcosystem`.
-4. Configure the wrapper for alternative managers so each ecosystem emits one complete `if ... then ... else ... fi` block: the `then` branch rejects a pre-installed executable, while the `else` branch keeps scope creation, exact-version bootstrap and verification, frozen dependency installation, and cleanup on separate readable lines under fail-fast shell execution. Keep the lifecycle readable and ensure a pre-installed manager cannot be silently reused.
+4. Configure the wrapper for alternative managers so each ecosystem emits one complete `if ... then ... else ... fi` block: the `then` branch rejects a pre-installed executable, while the `else` branch keeps scope creation, exact-version bootstrap and verification, frozen dependency installation, and `rm -rf "$scope"` cleanup on separate readable lines under fail-fast shell execution. Keep the lifecycle readable and ensure a pre-installed manager cannot be silently reused.
 5. Refactor duplicated `InstallCmd` closures in `pkg/config/packages_directive.go` to use the wrapper while preserving primary and unrelated ecosystem behavior. Keep the complete alternative-manager lifecycle inside one readable `if ... then ... else ... fi` block per ecosystem, avoid persistent `PATH` changes, and ensure errors remain operation-specific and command content affects package-stage caching.
-6. Add focused Ginkgo/Gomega tests for the switch helper, wrapper command generation, parsing, invalid versions, failure ordering, cleanup, primary types, and multiple directives.
-7. Update the four existing SBOM e2e fixtures/tests with exact versions and absence/cleanup assertions; retain existing dependency SBOM assertions.
+6. Add focused Ginkgo/Gomega tests for the switch helper, complete generated wrapper snippets, parsing, invalid versions, pre-installed-manager rejection, failure ordering, scope cleanup, primary types, and multiple directives; compare each full snippet rather than isolated command lines.
+7. Update the four existing SBOM e2e fixtures/tests with exact versions, pre-installed-manager rejection coverage where representable, temporary-scope cleanup assertions, and existing dependency SBOM assertions.
 8. Update package-directive reference documentation for the new required field and examples in supported languages, without modifying generated release files.
 
 ## Constitution Check (Post-Design)

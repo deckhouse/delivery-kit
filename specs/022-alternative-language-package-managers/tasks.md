@@ -52,8 +52,8 @@
 - [X] T015 [US1] Ensure Yarn and pnpm command content, configured versions, and workdirs flow into the existing package-stage checksum in `pkg/build/stage/packages.go` and `pkg/build/stage/packages_test.go`
 - [X] T016 [P] [US1] Update the Yarn fixture configuration and builder image to use an exact version, provide npm, and omit preinstalled Yarn in `test/e2e/sbom/_fixtures/inject/yarn_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/yarn_simple/Dockerfile.builder-base`
 - [X] T017 [P] [US1] Update the pnpm fixture configuration and builder image to use an exact version, provide npm, and omit preinstalled pnpm in `test/e2e/sbom/_fixtures/inject/pnpm_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/pnpm_simple/Dockerfile.builder-base`
-- [X] T018 [P] [US1] Extend the Yarn acceptance scenario to assert exact-version dependency installation, temporary-manager removal, and existing SBOM dependency visibility in `test/e2e/sbom/yarn_test.go`
-- [X] T019 [P] [US1] Extend the pnpm acceptance scenario to assert exact-version dependency installation, temporary-manager removal, and existing SBOM dependency visibility in `test/e2e/sbom/pnpm_test.go`
+- [X] T018 [P] [US1] Extend the Yarn acceptance scenario to assert exact-version dependency installation, pre-installed-manager rejection where representable, temporary-scope removal, and existing SBOM dependency visibility in `test/e2e/sbom/yarn_test.go`
+- [X] T019 [P] [US1] Extend the pnpm acceptance scenario to assert exact-version dependency installation, pre-installed-manager rejection where representable, temporary-scope removal, and existing SBOM dependency visibility in `test/e2e/sbom/pnpm_test.go`
 
 **Checkpoint**: Yarn and pnpm independently support isolated bootstrap, frozen installation, temporary-prefix cleanup, caching, and SBOM coverage without changing npm behavior.
 
@@ -77,8 +77,8 @@
 - [X] T024 [US2] Refactor uv and Poetry `InstallCmd` generation to use the command wrapper, invoke the isolated absolute executable for `uv sync --frozen` or `poetry sync --no-root`, and run ephemeral-venv cleanup inside the absent-manager `if ... then ... else ... fi` branch without mutating shared `PATH`
 - [X] T025 [P] [US2] Update the uv fixture configuration and builder image to use an exact version, provide pip, and omit preinstalled uv in `test/e2e/sbom/_fixtures/inject/uv_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/uv_simple/Dockerfile.builder-base`
 - [X] T026 [P] [US2] Update the Poetry fixture configuration and builder image to use an exact version, provide pip, and omit preinstalled Poetry in `test/e2e/sbom/_fixtures/inject/poetry_simple/werf.yaml` and `test/e2e/sbom/_fixtures/inject/poetry_simple/Dockerfile.builder-base`
-- [X] T027 [P] [US2] Extend the uv acceptance scenario to assert exact-version dependency installation, temporary-manager removal, and existing SBOM dependency visibility in `test/e2e/sbom/uv_test.go`
-- [X] T028 [P] [US2] Extend the Poetry acceptance scenario to assert exact-version dependency installation, temporary-manager removal, and existing SBOM dependency visibility in `test/e2e/sbom/poetry_test.go`
+- [X] T027 [P] [US2] Extend the uv acceptance scenario to assert exact-version dependency installation, pre-installed-manager rejection where representable, temporary-venv removal, and existing SBOM dependency visibility in `test/e2e/sbom/uv_test.go`
+- [X] T028 [P] [US2] Extend the Poetry acceptance scenario to assert exact-version dependency installation, pre-installed-manager rejection where representable, temporary-venv removal, and existing SBOM dependency visibility in `test/e2e/sbom/poetry_test.go`
 
 **Checkpoint**: uv and Poetry independently support isolated bootstrap, locked installation, temporary-venv cleanup, caching, and SBOM coverage without changing pip behavior.
 
@@ -100,7 +100,7 @@
 
 - [X] T032 [US3] Verify and adjust package-stage integration in `pkg/build/stage/packages.go` so wrapper-composed commands remain in the existing single network-enabled stage and no extra stage, shared global mutation, or independent lock scan is introduced
 - [X] T033 [US3] Verify and adjust managed-input and cataloger integration so Yarn/pnpm retain JavaScript lock cataloging and uv/Poetry retain Python cataloging with unchanged workdir/spec/lock source paths in `pkg/config/packages_directive.go` and `pkg/build/stage/packages.go`
-- [X] T034 [US3] Add or update failure-path assertions in the four manager e2e scenarios so pre-installed selected managers are rejected without cleanup where fixtures can represent that state, dependency failures remain diagnosable, and successful cleanup does not mask the original install failure in `test/e2e/sbom/yarn_test.go`, `test/e2e/sbom/pnpm_test.go`, `test/e2e/sbom/uv_test.go`, and `test/e2e/sbom/poetry_test.go`
+- [X] T034 [US3] Add or update invalid-lock failure assertions so dependency failures remain diagnosable and successful cleanup does not mask the original install failure in `test/e2e/sbom/alternative_manager_failures_test.go` and the existing invalid-lock fixtures under `test/e2e/sbom/_fixtures/negative/`
 
 **Checkpoint**: All four alternative managers preserve deterministic lock installation, cache behavior, failure semantics, and SBOM coverage.
 
@@ -127,8 +127,8 @@
 
 ## Phase 7: Convergence
 
-- [X] T047 Extend the Yarn, pnpm, uv, and Poetry success scenarios to verify that the temporary alternative-manager scope is absent from the resulting image per FR-006 / SC-002 / SC-009
-- [X] T048 Run `task test:integration` and record feature-related results for the remaining legacy integration gate per T046 / plan: quality gates (completed)
+- [X] T047 Extend the Yarn, pnpm, uv, and Poetry success scenarios in `test/e2e/sbom/{yarn_test.go,pnpm_test.go,uv_test.go,poetry_test.go}` to verify that the temporary alternative-manager scope is absent from the resulting image per FR-006 / SC-002 / SC-009
+- [X] T048 Run `task test:integration` against `test/legacy_e2e/` and record feature-related results for the remaining legacy integration gate per T046 / plan: quality gates (completed)
 
 ---
 
@@ -142,6 +142,7 @@
 - **User Story 2 (Phase 4)**: Depends on Foundational; can proceed in parallel with US1 after the shared model work, although shared command-file edits should be coordinated.
 - **User Story 3 (Phase 5)**: Depends on the lifecycle implementation from US1 and US2 because it validates all four managers and their shared stage/SBOM behavior.
 - **Polish (Phase 6)**: Depends on the desired user stories being implemented; documentation can proceed in parallel with implementation, while gates run after code and fixture changes are complete.
+- **Convergence (Phases 7–8)**: Depends on the implementation and validation phases; T047–T051 capture follow-up acceptance, diagnostics, readable lifecycle composition, and negative-fixture coverage.
 
 ### User Story Dependencies
 
@@ -156,6 +157,7 @@
 - T025–T028 can run in parallel because uv and Poetry use separate fixtures/tests, while T020–T022 should coordinate edits to the shared command test file.
 - T029–T031 can run in parallel across command lifecycle, stage checksum, and mixed-directive configuration coverage.
 - T035–T036 and T042–T045 can run in parallel once their respective implementation inputs are ready; T039 must precede T040.
+- T047–T051 can be reviewed in parallel by success-path e2e, integration-gate, lifecycle-diagnostics, and negative-fixture owners; T051 depends on the generated rejection branch.
 
 ### Suggested dependency graph
 
@@ -171,6 +173,8 @@ T004-T009
              +--> T029-T034 (US3: deterministic lifecycle and SBOM)
                               |
                               +--> T035-T046 (polish and full validation)
+                                             |
+                                             +--> T047-T051 (convergence and negative e2e coverage)
 ```
 
 ---
@@ -211,9 +215,18 @@ Developer D: T023-T024 — Python command-wrapper isolation, command composition
 3. US2: Python alternative-manager bootstrap and cleanup.
 4. US3: deterministic failure, cache, multi-directive, and SBOM verification.
 5. Documentation and full repository gates.
+6. Convergence checks for temporary-scope removal, diagnostics, and pre-installed-manager negative fixtures.
 
 ### Notes
 
 - Every task follows the required checklist format: checkbox, sequential task ID, optional `[P]`, optional story label in story phases, and a concrete file path.
 - No new external dependency, build stage, package-manager service/interface hierarchy, or generated release file is planned; the registry reuses its existing install-command field with the internal switch and command-wrapper factory, with no shared environment mutation or pre-installed-manager reuse.
 - Cleanup removes only the directive-local npm prefix or Python venv and is chained only after successful dependency installation; failed builds may retain temporary state for diagnosis as specified.
+
+---
+
+## Phase 8: Convergence
+
+- [X] T049 Restructure the Yarn, pnpm, uv, and Poetry generated lifecycle commands in `pkg/config/packages_directive.go` into one readable `if ... then ... else ... fi` block per manager, with pre-installed-manager rejection in the `then` branch and isolated bootstrap, dependency installation, and successful scope cleanup in the `else` branch
+- [X] T050 Add operation-specific diagnostics for bootstrap, version verification, dependency installation, and cleanup failures in `pkg/config/packages_directive.go` and `pkg/config/packages_commands_test.go`, preserving the original dependency error and successful-cleanup semantics
+- [X] T051 Add pre-installed-manager fixtures and negative e2e coverage for Yarn, pnpm, uv, and Poetry in `test/e2e/sbom/alternative_manager_failures_test.go` and `test/e2e/sbom/_fixtures/negative/{yarn_preinstalled,pnpm_preinstalled,uv_preinstalled,poetry_preinstalled}/`, verifying rejection before bootstrap and absence of successful-installation cleanup

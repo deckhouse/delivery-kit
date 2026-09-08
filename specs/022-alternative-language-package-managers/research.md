@@ -2,7 +2,7 @@
 
 ## Scope
 
-This research resolves the implementation choices for ephemeral Yarn, pnpm, uv, and Poetry installation in `packages` directives. The existing feature specification requires each alternative manager to be bootstrapped through npm or pip, used for a frozen dependency install, and removed after successful installation.
+This research resolves the implementation choices for ephemeral Yarn, pnpm, uv, and Poetry installation in `packages` directives. The selected manager must be absent from the builder image; the generated command rejects a pre-installed manager, bootstraps a missing manager through npm or pip, uses it for a frozen dependency install, and removes the temporary scope after successful installation.
 
 ## Decision: Extend the existing file-based package directive
 
@@ -42,9 +42,9 @@ Alternative-manager classification will use a switch helper over `PackagesDirect
 
 The primary manager is not bootstrapped for `javascript-npm` or `python-pip`, and those generated commands remain unchanged.
 
-**Rationale:** `PackagesStage` already has network access, command content participates in `PackagesChecksum`, and one conditional block per ecosystem keeps each lifecycle self-contained. Rejecting an executable already present in the image enforces one deterministic installation path and avoids ambiguous version/state ownership. A prefix or virtual environment makes a newly installed manager available independently of the project workdir. Absolute executable paths avoid `PATH` leakage between directives. Fail-fast shell execution ensures a failed bootstrap or dependency step prevents later steps, while cleanup runs only after successful dependency installation and remains diagnosable if it fails.
+**Rationale:** `PackagesStage` already has network access, command content participates in `PackagesChecksum`, and one conditional block per ecosystem keeps each lifecycle self-contained and readable. Rejecting an executable already present in the image enforces one deterministic installation path and avoids ambiguous version/state ownership. A prefix or virtual environment makes a newly installed manager available independently of the project workdir. Absolute executable paths avoid `PATH` leakage between directives. Fail-fast shell execution ensures a failed bootstrap or dependency step prevents later steps, while `rm -rf "$scope"` runs only after successful dependency installation and remains diagnosable if it fails.
 
-**Alternatives considered:** A new build stage would duplicate stage/cache plumbing and make per-directive cleanup harder. A project-local installation could pollute the project dependency tree. A shared global npm prefix or system Python installation would violate isolation and make cleanup unsafe. Reusing an image-provided manager was rejected for this phase because it makes exact-version ownership and cleanup semantics ambiguous. A registry boolean would duplicate the type classification and add metadata that can drift from the supported-type switch. Separate install and cleanup callbacks would split one lifecycle result; the wrapper keeps the executable and matching cleanup command together while centralizing repeated shell composition.
+**Alternatives considered:** A new build stage would duplicate stage/cache plumbing and make per-directive cleanup harder. A project-local installation could pollute the project dependency tree. A shared global npm prefix or system Python installation would violate isolation and make cleanup unsafe. Reusing an image-provided manager is rejected for this phase because it makes exact-version ownership and cleanup semantics ambiguous. A registry boolean would duplicate the type classification and add metadata that can drift from the supported-type switch. Separate install and cleanup callbacks would split one lifecycle result; the wrapper keeps the executable and matching cleanup command together while centralizing repeated shell composition.
 
 ## Decision: Preserve existing lock and SBOM behavior
 
@@ -56,7 +56,7 @@ Keep `--frozen-lockfile` for Yarn/pnpm, `uv sync --frozen`, and `poetry sync --n
 
 ## Decision: Test at configuration, command, stage, and e2e levels
 
-Add Ginkgo/Gomega tests for version parsing and validation, generated bootstrap/use/cleanup ordering, exact version propagation, primary-manager non-regression, and independent multiple directives. Retain and update the four existing manager e2e scenarios and fixtures to specify exact versions, verify the builder images do not preinstall alternatives, verify pre-installed alternatives are rejected where fixture coverage is available, and verify that successful output remains SBOM-visible.
+Add Ginkgo/Gomega tests for version parsing and validation, generated bootstrap/use/cleanup ordering, exact version propagation, primary-manager non-regression, and independent multiple directives. Retain and update the four existing manager e2e scenarios and fixtures to specify exact versions, verify the builder images do not pre-install alternatives, verify pre-installed alternatives are rejected in negative cases where fixture coverage is available, and verify that successful output remains SBOM-visible.
 
 **Rationale:** Unit tests provide deterministic coverage of shell generation and validation; e2e tests prove the real package managers, builder images, cleanup, and SBOM path.
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"strings"
 
 	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
@@ -61,7 +60,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonUV,
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "uv.lock",
-		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypePythonUV, `%s sync --frozen`).InstallCmd,
+		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypePythonUV, `sync --frozen`).InstallCmd,
 		CatalogerName:   "python-package-cataloger",
 	},
 	PackagesDirectiveTypePythonPip: {
@@ -81,7 +80,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonPoetry,
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "poetry.lock",
-		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypePythonPoetry, `%s sync --no-root`).InstallCmd,
+		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypePythonPoetry, `sync --no-root`).InstallCmd,
 		CatalogerName:   "python-package-cataloger",
 	},
 	PackagesDirectiveTypeRustCargo: {
@@ -114,14 +113,14 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptYarn,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "yarn.lock",
-		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypeJavaScriptYarn, `%s install --frozen-lockfile`).InstallCmd,
+		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypeJavaScriptYarn, `install --frozen-lockfile`).InstallCmd,
 		CatalogerName:   "javascript-lock-cataloger",
 	},
 	PackagesDirectiveTypeJavaScriptPnpm: {
 		Type:            PackagesDirectiveTypeJavaScriptPnpm,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "pnpm-lock.yaml",
-		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypeJavaScriptPnpm, `%s install --frozen-lockfile`).InstallCmd,
+		InstallCmd:      newPackageCommandWrapper(PackagesDirectiveTypeJavaScriptPnpm, `install --frozen-lockfile`).InstallCmd,
 		CatalogerName:   "javascript-lock-cataloger",
 	},
 	PackagesDirectiveTypeLuaRock: {
@@ -172,9 +171,8 @@ func newPackageCommandWrapper(typeName PackagesDirectiveType, installFormat stri
 }
 
 func (w packageCommandWrapper) InstallCmd(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-	bootstrapCmd, executablePath, cleanupCmd := alternativeManagerCommands(w.typeName, files)
-	installCmd := fmt.Sprintf("cd %q && "+w.installFormat, workdir, executablePath)
-	return prefixCommand(strings.Join([]string{bootstrapCmd, installCmd, cleanupCmd}, " && "), env)
+	lifecycle := alternativeManagerCommands(w.typeName, files, workdir, w.installFormat)
+	return prefixCommand(lifecycle, env)
 }
 
 func prefixCommand(cmd string, env map[string]string) string {
@@ -193,39 +191,63 @@ func isAlternativeManager(typeName PackagesDirectiveType) bool {
 	}
 }
 
-func alternativeManagerCommands(typeName PackagesDirectiveType, files FileBasedSpec) (string, string, string) {
-	manager, bootstrap, verify := "", "", ""
+const (
+	javascriptAlternativeManagerTemplate = `
+	if command -v %[1]s >/dev/null 2>&1; then
+	  echo '%[1]s must not be pre-installed' >&2
+	  exit 1
+	else
+	  set -e
+	  scope=$(mktemp -d)
+	  npm install --prefix "$scope" --no-save --package-lock=false %[1]s@%[2]s
+	  "$scope/node_modules/.bin/%[1]s" --version | grep -Fx %[2]q
+	  cd %[3]q
+	  "$scope/node_modules/.bin/%[1]s" %[4]s
+	  rm -rf "$scope"
+	fi
+	`
+	pythonAlternativeManagerTemplate = `
+	if command -v %[1]s >/dev/null 2>&1; then
+	  echo '%[1]s must not be pre-installed' >&2
+	  exit 1
+	else
+	  set -e
+	  scope=$(mktemp -d)
+	  python3 -m venv "$scope"
+	  "$scope/bin/python" -m pip install --no-cache-dir %[1]s==%[2]s
+	  "$scope/bin/%[1]s" --version | grep -F %[2]q
+	  cd %[3]q
+	  "$scope/bin/%[1]s" %[4]s
+	  rm -rf "$scope"
+	fi
+	`
+)
+
+func alternativeManagerCommands(typeName PackagesDirectiveType, files FileBasedSpec, workdir, installArgs string) string {
+	manager := alternativeManagerName(typeName)
 	switch typeName {
-	case PackagesDirectiveTypeJavaScriptYarn:
-		manager = "yarn"
-		bootstrap = fmt.Sprintf(`npm install --global --prefix "$scope" --no-save --package-lock=false yarn@%s`, files.Version)
-		verify = fmt.Sprintf(`"$scope/bin/yarn" --version | grep -Fx %q`, files.Version)
-	case PackagesDirectiveTypeJavaScriptPnpm:
-		manager = "pnpm"
-		bootstrap = fmt.Sprintf(`npm install --global --prefix "$scope" --no-save --package-lock=false pnpm@%s`, files.Version)
-		verify = fmt.Sprintf(`"$scope/bin/pnpm" --version | grep -Fx %q`, files.Version)
-	case PackagesDirectiveTypePythonUV:
-		manager = "uv"
-		bootstrap = fmt.Sprintf(`python3 -m venv "$scope" && "$scope/bin/python" -m pip install --no-cache-dir uv==%s`, files.Version)
-		verify = fmt.Sprintf(`"$scope/bin/uv" --version | grep -F %q`, files.Version)
-	case PackagesDirectiveTypePythonPoetry:
-		manager = "poetry"
-		bootstrap = fmt.Sprintf(`python3 -m venv "$scope" && "$scope/bin/python" -m pip install --no-cache-dir poetry==%s`, files.Version)
-		verify = fmt.Sprintf(`"$scope/bin/poetry" --version | grep -F %q`, files.Version)
+	case PackagesDirectiveTypeJavaScriptYarn, PackagesDirectiveTypeJavaScriptPnpm:
+		return fmt.Sprintf(javascriptAlternativeManagerTemplate, manager, files.Version, workdir, installArgs)
+	case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPoetry:
+		return fmt.Sprintf(pythonAlternativeManagerTemplate, manager, files.Version, workdir, installArgs)
 	default:
 		panic(fmt.Sprintf("unsupported alternative manager type %q", typeName))
 	}
+}
 
-	check := fmt.Sprintf("if command -v %s >/dev/null 2>&1", manager)
-	if typeName == PackagesDirectiveTypeJavaScriptYarn {
-		check = "if command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1"
+func alternativeManagerName(typeName PackagesDirectiveType) string {
+	switch typeName {
+	case PackagesDirectiveTypeJavaScriptYarn:
+		return "yarn"
+	case PackagesDirectiveTypeJavaScriptPnpm:
+		return "pnpm"
+	case PackagesDirectiveTypePythonUV:
+		return "uv"
+	case PackagesDirectiveTypePythonPoetry:
+		return "poetry"
+	default:
+		panic(fmt.Sprintf("unsupported alternative manager type %q", typeName))
 	}
-	cleanup := `rm -rf "$scope"`
-	if typeName == PackagesDirectiveTypeJavaScriptYarn || typeName == PackagesDirectiveTypeJavaScriptPnpm {
-		cleanup = fmt.Sprintf(`npm uninstall --global --prefix "$scope" %s && rm -rf "$scope"`, manager)
-	}
-	bootstrapCmd := fmt.Sprintf("%s; then echo %q >&2; exit 1; fi && scope=$(mktemp -d) && %s && %s", check, "alternative manager "+manager+" is already installed", bootstrap, verify)
-	return bootstrapCmd, fmt.Sprintf(`"$scope/bin/%s"`, manager), cleanup
 }
 
 func (d *PackagesDirective) validate() error {

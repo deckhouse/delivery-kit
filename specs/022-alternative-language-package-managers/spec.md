@@ -121,7 +121,7 @@ A user expects the same lock-file validation and package inventory when the alte
 - **SC-006**: Existing projects using `javascript-npm` or `python-pip` produce the same dependency installation outcome as before the feature is enabled and do not incur alternative-manager lifecycle steps.
 - **SC-007**: A user can enable an alternative manager without changing the builder image, provided the corresponding primary manager and network/package source access are available.
 - **SC-008**: Error output identifies whether bootstrap, dependency installation, version resolution, lock validation, cleanup, or a forbidden pre-installed alternative manager caused failure in all tested failure scenarios.
-- **SC-009**: Four dedicated e2e scenarios — Yarn, pnpm, uv, and Poetry — pass with coverage for missing-manager isolation, verifying successful dependency installation, SBOM generation, rejection of pre-installed selected managers, and removal of temporary manager scopes; the Poetry fixture uses a builder image with pip as one representative Python case.
+- **SC-009**: Four dedicated e2e scenarios — Yarn, pnpm, uv, and Poetry — pass with builder fixtures that omit pre-installed selected managers and verify successful dependency installation, SBOM generation, rejection of pre-installed selected managers in negative cases, and removal of temporary manager scopes; the Poetry fixture uses a builder image with pip as one representative Python case.
 
 ## Assumptions
 

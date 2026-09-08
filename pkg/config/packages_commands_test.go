@@ -457,15 +457,7 @@ var _ = Describe("GeneratePackagesCommands alternative managers", func() {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
 			Expect(cmds).To(HaveLen(1))
 			cmd := cmds[0]
-			var snippet string
-			switch directive.Type {
-			case PackagesDirectiveTypeJavaScriptYarn, PackagesDirectiveTypeJavaScriptPnpm:
-				snippet = fmt.Sprintf(`scope=$(mktemp -d) && npm install --global --prefix "$scope" --no-save --package-lock=false %s@%s && "$scope/bin/%s" --version | grep -Fx %q && cd "/app" && "$scope/bin/%s" %s && npm uninstall --global --prefix "$scope" %s && rm -rf "$scope"`, manager, version, manager, version, manager, install, manager)
-			case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPoetry:
-				snippet = fmt.Sprintf(`scope=$(mktemp -d) && python3 -m venv "$scope" && "$scope/bin/python" -m pip install --no-cache-dir %s==%s && "$scope/bin/%s" --version | grep -F %q && cd "/app" && "$scope/bin/%s" %s && rm -rf "$scope"`, manager, version, manager, version, manager, install)
-			}
-			Expect(cmd).To(ContainSubstring(snippet))
-			Expect(cmd).NotTo(ContainSubstring("export PATH"))
+			Expect(cmd).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
 		},
 		Entry("yarn", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}, "yarn", "1.22.22", "install --frozen-lockfile"),
 		Entry("pnpm", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}}, "pnpm", "9.15.4", "install --frozen-lockfile"),
@@ -473,9 +465,9 @@ var _ = Describe("GeneratePackagesCommands alternative managers", func() {
 		Entry("poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
 	)
 
-	It("checks both Yarn command names before bootstrapping", func() {
+	It("checks the selected manager before bootstrapping", func() {
 		cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}})[0]
-		Expect(cmd).To(ContainSubstring("command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1"))
+		Expect(cmd).To(ContainSubstring("if command -v yarn >/dev/null 2>&1; then"))
 	})
 
 	It("keeps primary manager commands unchanged", func() {
@@ -538,6 +530,38 @@ var _ = Describe("GeneratePackagesCommands alternative manager failures", func()
 	)
 })
 
+func expectedAlternativeManagerCommand(typeName PackagesDirectiveType, manager, version, workdir, installArgs string) string {
+	if typeName == PackagesDirectiveTypeJavaScriptYarn || typeName == PackagesDirectiveTypeJavaScriptPnpm {
+		return fmt.Sprintf(javascriptAlternativeManagerTemplate, manager, version, workdir, installArgs)
+	}
+	return fmt.Sprintf(pythonAlternativeManagerTemplate, manager, version, workdir, installArgs)
+}
+
+const (
+	alternativeManagerScriptTemplate = `#!/bin/sh
+if [ "$1" = "--version" ]; then printf '%%s\n' %q; exit 0; fi
+touch %q
+exit %d
+`
+	alternativeManagerNpmScriptTemplate = `#!/bin/sh
+if [ "$BOOTSTRAP_MODE" = "fail" ]; then exit 17; fi
+touch %q
+prefix=""
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--prefix" ]; then prefix="$arg"; fi
+  previous="$arg"
+done
+mkdir -p "$prefix/node_modules/.bin"
+cp "$MANAGER_TEMPLATE" "$prefix/node_modules/.bin/%s"
+chmod 755 "$prefix/node_modules/.bin/%s"
+`
+	alternativeManagerMktempScriptTemplate = `#!/bin/sh
+mkdir -p %q
+printf '%%s\n' %q
+`
+)
+
 func prepareAlternativeManagerCommand(entry struct {
 	directiveType PackagesDirectiveType
 	manager       string
@@ -556,12 +580,13 @@ func prepareAlternativeManagerCommand(entry struct {
 	npmPath := filepath.Join(binDir, "npm")
 	mktempPath := filepath.Join(binDir, "mktemp")
 
-	managerScript := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf '%%s\\n' %q; exit 0; fi\ntouch %q\nexit %d\n", managerVersion, dependencyMarker, dependencyExitCode)
+	managerScript := fmt.Sprintf(alternativeManagerScriptTemplate, managerVersion, dependencyMarker, dependencyExitCode)
 	Expect(os.WriteFile(managerTemplate, []byte(managerScript), 0o755)).To(Succeed())
 
-	npmScript := fmt.Sprintf("#!/bin/sh\ncase \" $* \" in *\" uninstall \"*) touch %q; exit 0;; esac\nif [ \"$BOOTSTRAP_MODE\" = \"fail\" ]; then exit 17; fi\ntouch %q\nprefix=\"\"\nprevious=\"\"\nfor arg in \"$@\"; do\n  if [ \"$previous\" = \"--prefix\" ]; then prefix=\"$arg\"; fi\n  previous=\"$arg\"\ndone\nmkdir -p \"$prefix/bin\"\ncp \"$MANAGER_TEMPLATE\" \"$prefix/bin/%s\"\nchmod 755 \"$prefix/bin/%s\"\n", cleanupMarker, bootstrapMarker, entry.manager, entry.manager)
+	npmScript := fmt.Sprintf(alternativeManagerNpmScriptTemplate, bootstrapMarker, entry.manager, entry.manager)
 	Expect(os.WriteFile(npmPath, []byte(npmScript), 0o755)).To(Succeed())
-	mktempScript := fmt.Sprintf("#!/bin/sh\nmkdir -p %q\nprintf '%%s\\n' %q\n", scopePath, scopePath)
+
+	mktempScript := fmt.Sprintf(alternativeManagerMktempScriptTemplate, scopePath, scopePath)
 	Expect(os.WriteFile(mktempPath, []byte(mktempScript), 0o755)).To(Succeed())
 
 	directive := &PackagesDirective{Type: entry.directiveType, FileBased: FileBasedSpec{Workdir: root, Spec: "package.json", Version: entry.version}}
@@ -578,8 +603,7 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 	DescribeTable("generates isolated locked-install commands",
 		func(directive *PackagesDirective, manager, version, install string) {
 			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
-			snippet := fmt.Sprintf(`scope=$(mktemp -d) && python3 -m venv "$scope" && "$scope/bin/python" -m pip install --no-cache-dir %s==%s && "$scope/bin/%s" --version | grep -F %q && cd "/app" && "$scope/bin/%s" %s && rm -rf "$scope"`, manager, version, manager, version, manager, install)
-			Expect(cmd).To(ContainSubstring(snippet))
+			Expect(cmd).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
 		},
 		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
 		Entry("Poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
@@ -602,12 +626,9 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 			{PackagesDirectiveTypePythonUV, "uv", "sync --frozen"},
 			{PackagesDirectiveTypePythonPoetry, "poetry", "sync --no-root"},
 		} {
-			cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "1.2.3"}}})[0]
-			installIndex := strings.Index(cmd, `"$scope/bin/`+entry.manager+`" `+entry.install)
-			cleanupIndex := strings.Index(cmd, `rm -rf "$scope"`)
-			Expect(installIndex).To(BeNumerically(">=", 0), string(entry.typeName))
-			Expect(cleanupIndex).To(BeNumerically(">", installIndex), string(entry.typeName))
-			Expect(strings.Count(cmd, `rm -rf "$scope"`)).To(Equal(1), string(entry.typeName))
+			directive := &PackagesDirective{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "1.2.3"}}
+			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
+			Expect(cmd).To(Equal(expectedAlternativeManagerCommand(entry.typeName, entry.manager, "1.2.3", "/app", entry.install)))
 		}
 	})
 
@@ -624,9 +645,6 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 		for _, entry := range entries {
 			cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "manifest", Version: "1.2.3"}}})[0]
 			check := "command -v " + entry.manager + " >/dev/null 2>&1"
-			if entry.typeName == PackagesDirectiveTypeJavaScriptYarn {
-				check = "command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1"
-			}
 			Expect(cmd).To(ContainSubstring(check))
 			Expect(strings.Index(cmd, check)).To(BeNumerically("<", strings.Index(cmd, "mktemp -d")))
 		}

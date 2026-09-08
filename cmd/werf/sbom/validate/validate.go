@@ -8,6 +8,7 @@ import (
 
 	"github.com/werf/werf/v2/cmd/werf/common"
 	"github.com/werf/werf/v2/pkg/sbom/checker"
+	"github.com/werf/werf/v2/pkg/sbom/ispras"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
@@ -45,7 +46,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 				return err
 			}
 
-			isprasFormat, err := checker.ParseIsprasFormat(isprasFormatFlag)
+			isprasFormat, err := ispras.ParseFormat(isprasFormatFlag)
 			if err != nil {
 				common.PrintHelp(cmd)
 				return err
@@ -74,7 +75,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	return cmd
 }
 
-func runValidate(ctx context.Context, paths []string, isprasFormat checker.IsprasFormat, checkVCS bool) error {
+func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format, checkVCS bool) error {
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                         &commonCmdData,
 		InitWerf:                    true,

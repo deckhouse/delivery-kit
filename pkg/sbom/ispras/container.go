@@ -1,4 +1,4 @@
-package convert
+package ispras
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
-var _ Assembler = (*ISPRASContainerAssembler)(nil)
+var _ Assembler = (*ContainerAssembler)(nil)
 
-type ISPRASContainerAssembler struct{}
+type ContainerAssembler struct{}
 
-func (a *ISPRASContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
+func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
 	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
 		ImportBOMs: imageBOMs(images),
 	})
@@ -51,7 +51,7 @@ func (a *ISPRASContainerAssembler) Assemble(_ context.Context, images []*ImageSB
 		result.Components = nil
 	}
 
-	result.Metadata = buildProductMetadata(meta, aggregateImageGOST(images))
+	result.Metadata = buildProductMetadata(meta)
 
 	return result, nil
 }

@@ -68,5 +68,7 @@ func (p *BOMPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) 
 		return nil, err
 	}
 
-	return cyclonedxutil.ResolveUnknownGoVersions(bom, version, info.ModulePath, info.LocalReplaceTargets, info.LocalReplacePaths), nil
+	cyclonedxutil.ResolveUnknownGoVersions(bom, version, info.ModulePath, info.LocalReplaceTargets, info.LocalReplacePaths)
+
+	return bom, nil
 }

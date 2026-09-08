@@ -1,4 +1,4 @@
-package convert
+package ispras
 
 import (
 	cdx "github.com/CycloneDX/cyclonedx-go"

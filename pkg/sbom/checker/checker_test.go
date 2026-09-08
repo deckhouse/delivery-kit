@@ -6,6 +6,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
+
+	"github.com/werf/werf/v2/pkg/sbom/ispras"
 )
 
 var _ = Describe("checker", func() {
@@ -50,13 +52,13 @@ var _ = Describe("checker", func() {
 
 	Describe("buildDockerArgs", func() {
 		DescribeTable("builds correct docker arguments",
-			func(path string, isprasFormat IsprasFormat, checkVCS bool, want []string) {
-				got, err := buildDockerArgs(path, isprasFormat, checkVCS)
+			func(path string, format ispras.Format, checkVCS bool, want []string) {
+				got, err := buildDockerArgs(path, format, checkVCS)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(got).To(Equal(want))
 			},
 			Entry("oss without check-vcs",
-				"/tmp/sbom.json", IsprasFormatOSS, false,
+				"/tmp/sbom.json", ispras.FormatOSS, false,
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
@@ -64,7 +66,7 @@ var _ = Describe("checker", func() {
 					"--format", "oss", "--errors", "0", "/sbom/input.json",
 				}),
 			Entry("oss with check-vcs",
-				"/tmp/sbom.json", IsprasFormatOSS, true,
+				"/tmp/sbom.json", ispras.FormatOSS, true,
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
@@ -72,7 +74,7 @@ var _ = Describe("checker", func() {
 					"--format", "oss", "--errors", "0", "--check-vcs", "/sbom/input.json",
 				}),
 			Entry("container format",
-				"/tmp/sbom.json", IsprasFormatContainer, false,
+				"/tmp/sbom.json", ispras.FormatContainer, false,
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
@@ -80,7 +82,7 @@ var _ = Describe("checker", func() {
 					"--format", "container", "--errors", "0", "/sbom/input.json",
 				}),
 			Entry("container with check-vcs",
-				"/tmp/sbom.json", IsprasFormatContainer, true,
+				"/tmp/sbom.json", ispras.FormatContainer, true,
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",

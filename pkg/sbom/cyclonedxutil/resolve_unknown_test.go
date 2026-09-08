@@ -13,7 +13,6 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 		mainModule       string
 		replaceTargets   []string
 		replacePaths     []string
-		checkIdentity    bool
 		expectedNames    []string
 		expectedVersions []string
 		expectedPURLs    []string
@@ -21,26 +20,22 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 
 	DescribeTable("version resolution",
 		func(tc testCase) {
-			result := ResolveUnknownGoVersions(tc.inputBOM, tc.version, tc.mainModule, tc.replaceTargets, tc.replacePaths)
-
-			if tc.checkIdentity {
-				Expect(result).To(BeIdenticalTo(tc.inputBOM))
-			}
+			ResolveUnknownGoVersions(tc.inputBOM, tc.version, tc.mainModule, tc.replaceTargets, tc.replacePaths)
 
 			if tc.inputBOM.Components != nil {
 				for i, expectedName := range tc.expectedNames {
-					Expect((*result.Components)[i].Name).To(Equal(expectedName))
+					Expect((*tc.inputBOM.Components)[i].Name).To(Equal(expectedName))
 				}
 				for i, expectedVersion := range tc.expectedVersions {
-					Expect((*result.Components)[i].Version).To(Equal(expectedVersion))
+					Expect((*tc.inputBOM.Components)[i].Version).To(Equal(expectedVersion))
 				}
 				for i, expectedPURL := range tc.expectedPURLs {
 					if expectedPURL != "" {
-						Expect((*result.Components)[i].PackageURL).To(Equal(expectedPURL))
+						Expect((*tc.inputBOM.Components)[i].PackageURL).To(Equal(expectedPURL))
 					}
 				}
 			} else {
-				Expect(result.Components).To(BeNil())
+				Expect(tc.inputBOM.Components).To(BeNil())
 			}
 		},
 		Entry("updates main module UNKNOWN version", testCase{
@@ -54,7 +49,6 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 			version:          "v1.2.3",
 			mainModule:       "example.com/module",
 			replaceTargets:   nil,
-			checkIdentity:    true,
 			expectedVersions: []string{"v1.2.3"},
 		}),
 		Entry("updates local replace target", testCase{
@@ -144,7 +138,6 @@ var _ = Describe("ResolveUnknownGoVersions", func() {
 			version:        "v1.0.0",
 			mainModule:     "example.com/module",
 			replaceTargets: nil,
-			checkIdentity:  true,
 		}),
 		Entry("skips updates on empty version", testCase{
 			inputBOM: &cdx.BOM{

@@ -302,8 +302,12 @@ github.com/deckhouse/delivery-kit-sdk v1.2.2-0.20260611091416-9ec2ae7d6491 h1:Aa
 github.com/deckhouse/delivery-kit-sdk v1.2.2-0.20260611091416-9ec2ae7d6491/go.mod h1:HgPk8RNOxcy1FZ37pB9RMQRdYHa13pGYAmKnLJh0I9A=
 github.com/deckhouse/delivery-kit-sdk v1.4.0 h1:KLyczgHBjEr4hUo+VoRx98XUn5JZqqYFLsPCG0iF8H8=
 github.com/deckhouse/delivery-kit-sdk v1.4.0/go.mod h1:ppXlSNBjtaUPhBwRIUshDs7NPbi1sfZwU4k8g8cpL8I=
+github.com/deckhouse/delivery-kit-sdk v1.4.1 h1:y9QvZUarFmu3ywbxbA2cdO5FGUkrtnGORrEjJgFLbmU=
+github.com/deckhouse/delivery-kit-sdk v1.4.1/go.mod h1:1tBrH6JgNMTtRjYc1R/RXBEH/I8Lmr5G8zyt+FErztY=
 github.com/deckhouse/elfedit v0.0.0-20260907205808-d969ba637ddd h1:+w8geIwnxbyZlR/CefwtvNHk4hXA4kkqyW0Ej0El/jA=
 github.com/deckhouse/elfedit v0.0.0-20260907205808-d969ba637ddd/go.mod h1:Qdsqyxx1eur+519iAS4slYEf5m4QMZDERZ5WMaeqQWg=
+github.com/deckhouse/elfedit v0.1.0 h1:EyJ0HpQu9XgYN1B2jNHL0JHXH1EcS5ms+xZ/pBMQoq0=
+github.com/deckhouse/elfedit v0.1.0/go.mod h1:Qdsqyxx1eur+519iAS4slYEf5m4QMZDERZ5WMaeqQWg=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 h1:NMZiJj8QnKe1LgsbDayM4UoHwbvwDRwnI3hwNaAHRnc=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0/go.mod h1:ZXNYxsqcloTdSy/rNShjYzMhyjf0LaoftYK0p+A3h40=
 github.com/dgraph-io/badger/v4 v4.8.0 h1:JYph1ChBijCw8SLeybvPINizbDKWZ5n/GYbz2yhN/bs=

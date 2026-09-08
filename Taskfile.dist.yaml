@@ -645,24 +645,6 @@ tasks:
     vars:
       dest: '{{.dest | default "./bin/pm"}}'
 
-  deps:install:c:
-    desc: "Install C dependencies"
-    cmds:
-      - |
-        set -eux
-
-        commit="$(go list -m -f '{{ printf "{{.Version}}" }}' github.com/deckhouse/delivery-kit-sdk | cut -d- -f3)"
-
-        git_dir="$(mktemp -d)"
-        cd "$git_dir"
-
-        git clone https://github.com/deckhouse/delivery-kit-sdk .
-        git checkout "$commit"
-        task --yes install:c
-
-        cd -
-        rm -rf "$git_dir"
-
   sign:
     desc: 'Sign last created version tag + origin/main and push signatures. Important vars: "refs".'
     cmds:

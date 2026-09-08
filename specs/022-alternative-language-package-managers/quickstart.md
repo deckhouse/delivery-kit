@@ -29,12 +29,14 @@ The complete wire contract is in [`contracts/configuration.md`](contracts/config
 
 ## Isolated command decomposition
 
-The generated command sequence must be one readable `if ... fi` block per alternative directive, with no persistent `PATH` mutation. An existing manager is reused without cleanup; only the absent-manager branch creates and removes an ephemeral scope:
+The generated command sequence must use one complete `if ... then ... else ... fi` block per alternative ecosystem. The examples below show one representative manager for each ecosystem: Yarn for JavaScript and uv for Python. pnpm and Poetry follow the same respective templates. The `then` branch rejects a pre-installed alternative manager; the `else` branch keeps scope creation, bootstrap, version verification, dependency installation, and cleanup together, without persistent `PATH` mutation:
 
 ```sh
-if command -v yarn >/dev/null 2>&1 || command -v yarnpkg >/dev/null 2>&1; then
-  yarn install --frozen-lockfile
+if command -v yarn >/dev/null 2>&1; then
+  echo 'alternative manager must not be pre-installed' >&2
+  exit 1
 else
+  set -e
   scope=$(mktemp -d)
   npm install --global --prefix "$scope" --no-save --package-lock=false yarn@1.22.22
   "$scope/bin/yarn" --version | grep -Fx '1.22.22'
@@ -44,8 +46,10 @@ else
 fi
 
 if command -v uv >/dev/null 2>&1; then
-  uv sync --frozen
+  echo 'alternative manager must not be pre-installed' >&2
+  exit 1
 else
+  set -e
   scope=$(mktemp -d)
   python3 -m venv "$scope"
   "$scope/bin/python" -m pip install --no-cache-dir uv==0.8.17
@@ -53,9 +57,10 @@ else
   "$scope/bin/uv" sync --frozen
   rm -rf "$scope"
 fi
+
 ```
 
-The implementation substitutes `pnpm` or `poetry` and the configured exact version as appropriate. Bootstrap, dependency, and cleanup failures remain diagnosable; a pre-existing manager is a successful reuse path and must not be removed.
+Every ecosystem uses the same complete conditional shape. Each lifecycle command occupies its own line under fail-fast shell execution: bootstrap or dependency failures prevent later steps, cleanup runs only after successful dependency installation, and cleanup failures remain visible. A pre-installed manager is rejected and never removed.
 
 ## Unit validation
 
@@ -66,7 +71,7 @@ task test:unit paths="./pkg/config/..."
 task test:unit paths="./pkg/build/stage/..."
 ```
 
-The tests should compare each complete generated wrapper snippet as one readable block, including existing-manager reuse, absent-manager bootstrap, exact-version verification, dependency execution, cleanup placement, version propagation, cache checksum changes, primary-manager compatibility, cleanup failure, and independent directives.
+The tests should compare each complete generated lifecycle snippet, including pre-installed-manager rejection, ephemeral bootstrap, exact-version verification, dependency execution, cleanup placement, version propagation, cache checksum changes, primary-manager compatibility, cleanup failure, and independent directives.
 
 ## E2E validation
 
@@ -82,9 +87,10 @@ task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"
 Expected outcomes for every scenario:
 
 1. the builder image lacks the selected alternative manager but provides npm or pip;
-2. the exact configured manager version is installed in a unique temporary npm prefix or Python virtual environment;
-3. the locked project dependencies install successfully through the temporary manager executable selected by absolute path;
-4. the resulting image does not retain the temporary prefix or virtual environment;
-5. `werf sbom get app` contains the fixture dependency from its manifest/lock file.
+2. a builder image containing the selected alternative manager is rejected;
+3. the exact configured manager version is installed in a unique temporary npm prefix or Python virtual environment;
+4. the locked project dependencies install successfully through the temporary manager executable selected by absolute path;
+5. the resulting image does not retain the temporary prefix or virtual environment;
+6. `werf sbom get app` contains the fixture dependency from its manifest/lock file.
 
 For a full feature validation after implementation, run the required project gates in order: `task format`, `task build`, `task deps:install:golangci-lint`, `task lint`, `task test:unit`, the four scoped e2e commands above, and `task test:integration`.

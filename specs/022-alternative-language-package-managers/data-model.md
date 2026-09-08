@@ -28,7 +28,7 @@ type PackageCommandWrapper struct {
 func (w PackageCommandWrapper) InstallCmd(...) string
 ```
 
-The wrapper adds `cd` and sorted environment assignments for every file-based command. For the four alternative types selected by the switch helper, it emits one readable `if ... fi` block: an existing-manager branch invokes the discovered executable without cleanup, while an absent-manager branch creates an ephemeral ecosystem-specific scope, invokes the isolated executable, and runs the associated cleanup command only after successful dependency installation. Primary and unrelated types use the same wrapper without an ephemeral manager scope.
+The wrapper adds `cd` and sorted environment assignments for every file-based command. For each of the four alternative types selected by the switch helper, it emits one complete `if ... then ... else ... fi` block: the `then` branch rejects a discovered pre-installed executable; the `else` branch creates an ephemeral ecosystem-specific scope, invokes the isolated executable, and runs the associated cleanup command only after successful dependency installation in the same ordered chain. Primary and unrelated types use the same wrapper without an ephemeral manager scope.
 
 ## Supported alternative-manager mapping
 
@@ -43,20 +43,20 @@ The wrapper adds `cd` and sorted environment assignments for every file-based co
 
 Each alternative directive has an independent logical lifecycle:
 
-`Configured` → `ManagerSelected` → `DependenciesInstalled`; when the manager was absent initially, the lifecycle continues through `ScopedBootstrapComplete` and `TemporaryScopeRemoved` inside the absent-manager branch.
+`Configured` → `ImageValidated` → `ScopedBootstrapComplete` → `DependenciesInstalled` → `TemporaryScopeRemoved`.
 
 Failure transitions stop at the failing state and return an error with the operation context:
 
 - bootstrap/version resolution failure: no dependency command runs;
 - dependency/lock failure: original install failure is returned and successful-install cleanup does not run;
 - cleanup failure: the build fails after dependency installation;
-- pre-existing manager: the existing executable is selected, dependency installation runs without bootstrap, and no cleanup is performed.
+- pre-installed manager: image validation fails before bootstrap or dependency installation, and no cleanup is performed.
 
 ## Invariants
 
 - Alternative directives require a non-empty exact `X.Y.Z` version.
 - Primary `javascript-npm` and `python-pip` directives do not use `Version` and generate their current commands.
-- A pre-existing alternative-manager executable is valid, is reused, and is never removed by the current directive.
+- A selected alternative-manager executable must not be present in the builder image; its presence fails image validation before bootstrap.
 - The switch helper identifies exactly the four supported alternative types; no registry boolean is required.
-- The command wrapper keeps the full alternative-manager lifecycle in one readable `if ... fi` block. It installs a missing manager only in a unique directive-local npm prefix or Python venv and removes only that ephemeral scope; it may not delete files belonging to another directive or pre-existing image state.
+- The command wrapper keeps the full alternative-manager lifecycle in one readable command sequence. It installs the manager only in a unique directive-local npm prefix or Python venv and removes only that ephemeral scope; it may not delete files belonging to another directive or image state.
 - Manifest, lock, installed dependency, and SBOM source paths remain unchanged.

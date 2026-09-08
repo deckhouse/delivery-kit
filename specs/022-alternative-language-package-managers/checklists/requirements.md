@@ -32,8 +32,8 @@
 ## Validation Notes
 
 - The specification explicitly limits the change to JavaScript/TypeScript and Python package directive types already represented by the project.
-- The lifecycle, required exact version, cleanup ownership, failure behavior, primary-manager prerequisites, and SBOM outcome are covered by user scenarios, requirements, edge cases, and success criteria.
-- E2E coverage is explicitly included for both JavaScript/TypeScript and Python: each of Yarn, pnpm, uv, and Poetry has a dedicated scenario, builder fixtures must no longer preinstall the selected alternative manager, and the Poetry fixture is identified as one concrete Python update target.
+- The lifecycle, required exact version, cleanup ownership, failure behavior, primary-manager prerequisites, rejection of pre-installed alternative managers, and SBOM outcome are covered by user scenarios, requirements, edge cases, and success criteria.
+- E2E coverage is explicitly included for both JavaScript/TypeScript and Python: each of Yarn, pnpm, uv, and Poetry has a dedicated scenario, builder fixtures must not preinstall the selected alternative manager, and pre-installed managers are rejected; the Poetry fixture is identified as one concrete Python update target.
 - The exact YAML field name is intentionally left to planning because the user requested a version in `werf.yaml` but did not prescribe its spelling; the field is required for non-primary package types, accepts an exact version only, and its semantics are fixed in FR-009 through FR-012 and the Assumptions section.
 
 ## Notes

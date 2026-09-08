@@ -16,7 +16,7 @@ require (
 	github.com/containerd/containerd v1.7.28
 	github.com/containers/buildah v1.43.0
 	github.com/deckarep/golang-set/v2 v2.6.0
-	github.com/deckhouse/delivery-kit-sdk v1.2.2-0.20260611091416-9ec2ae7d6491
+	github.com/deckhouse/delivery-kit-sdk v1.4.0
 	github.com/deislabs/oras v1.1.0
 	github.com/djherbis/buffer v1.2.0
 	github.com/djherbis/nio/v3 v3.0.1
@@ -108,6 +108,7 @@ require (
 	github.com/containerd/containerd/v2 v2.2.2 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/platforms v1.0.0-rc.2 // indirect
+	github.com/deckhouse/elfedit v0.0.0-20260907205808-d969ba637ddd // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352 // indirect
 	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7 // indirect

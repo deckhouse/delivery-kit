@@ -457,12 +457,15 @@ var _ = Describe("GeneratePackagesCommands alternative managers", func() {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
 			Expect(cmds).To(HaveLen(1))
 			cmd := cmds[0]
-			Expect(cmd).To(ContainSubstring(version))
-			Expect(cmd).To(ContainSubstring("mktemp -d"))
-			Expect(cmd).To(ContainSubstring(install))
-			Expect(cmd).To(ContainSubstring("\"$scope/bin/" + manager + "\""))
+			var snippet string
+			switch directive.Type {
+			case PackagesDirectiveTypeJavaScriptYarn, PackagesDirectiveTypeJavaScriptPnpm:
+				snippet = fmt.Sprintf(`scope=$(mktemp -d) && npm install --global --prefix "$scope" --no-save --package-lock=false %s@%s && "$scope/bin/%s" --version | grep -Fx %q && cd "/app" && "$scope/bin/%s" %s && npm uninstall --global --prefix "$scope" %s && rm -rf "$scope"`, manager, version, manager, version, manager, install, manager)
+			case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPoetry:
+				snippet = fmt.Sprintf(`scope=$(mktemp -d) && python3 -m venv "$scope" && "$scope/bin/python" -m pip install --no-cache-dir %s==%s && "$scope/bin/%s" --version | grep -F %q && cd "/app" && "$scope/bin/%s" %s && rm -rf "$scope"`, manager, version, manager, version, manager, install)
+			}
+			Expect(cmd).To(ContainSubstring(snippet))
 			Expect(cmd).NotTo(ContainSubstring("export PATH"))
-			Expect(strings.Index(cmd, install)).To(BeNumerically("<", strings.Index(cmd, "rm -rf \"$scope\"")))
 		},
 		Entry("yarn", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}, "yarn", "1.22.22", "install --frozen-lockfile"),
 		Entry("pnpm", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}}, "pnpm", "9.15.4", "install --frozen-lockfile"),
@@ -575,12 +578,8 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 	DescribeTable("generates isolated locked-install commands",
 		func(directive *PackagesDirective, manager, version, install string) {
 			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
-			Expect(cmd).To(ContainSubstring("command -v " + manager + " >/dev/null 2>&1"))
-			Expect(cmd).To(ContainSubstring("python3 -m venv \"$scope\""))
-			Expect(cmd).To(ContainSubstring("pip install --no-cache-dir " + manager + "==" + version))
-			Expect(cmd).To(ContainSubstring("\"$scope/bin/" + manager + "\" " + install))
-			Expect(cmd).To(ContainSubstring("rm -rf \"$scope\""))
-			Expect(strings.Index(cmd, install)).To(BeNumerically("<", strings.Index(cmd, "rm -rf \"$scope\"")))
+			snippet := fmt.Sprintf(`scope=$(mktemp -d) && python3 -m venv "$scope" && "$scope/bin/python" -m pip install --no-cache-dir %s==%s && "$scope/bin/%s" --version | grep -F %q && cd "/app" && "$scope/bin/%s" %s && rm -rf "$scope"`, manager, version, manager, version, manager, install)
+			Expect(cmd).To(ContainSubstring(snippet))
 		},
 		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
 		Entry("Poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),

@@ -1,3 +1,2 @@
 FROM python:3.12-slim
-RUN python -m pip install --no-cache-dir pip
 LABEL io.deckhouse.internal.builder=true

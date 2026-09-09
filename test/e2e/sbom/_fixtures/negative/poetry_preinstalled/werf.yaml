@@ -1,4 +1,4 @@
-project: werf-test-e2e-sbom-python-poetry-simple
+project: werf-test-e2e-sbom-python-poetry-preinstalled
 configVersion: 1
 build:
   sbom:

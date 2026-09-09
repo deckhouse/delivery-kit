@@ -1,4 +1,4 @@
-project: werf-test-e2e-sbom-pnpm-simple
+project: werf-test-e2e-sbom-pnpm-invalid-lock
 configVersion: 1
 build:
   sbom:

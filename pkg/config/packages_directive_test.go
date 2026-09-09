@@ -45,19 +45,6 @@ var _ = Describe("package ecosystem registration", func() {
 		Expect(registry[PackagesDirectiveTypePythonPoetry].CatalogerName).To(Equal("python-package-cataloger"))
 	})
 
-	It("accepts mixed JavaScript and Python alternative directives", func() {
-		for _, typeName := range []PackagesDirectiveType{
-			PackagesDirectiveTypeJavaScriptYarn,
-			PackagesDirectiveTypeJavaScriptPnpm,
-			PackagesDirectiveTypePythonUV,
-			PackagesDirectiveTypePythonPoetry,
-		} {
-			Expect(isAlternativeManager(typeName)).To(BeTrue(), string(typeName))
-		}
-		Expect(isAlternativeManager(PackagesDirectiveTypeJavaScriptNpm)).To(BeFalse())
-		Expect(isAlternativeManager(PackagesDirectiveTypePythonPip)).To(BeFalse())
-	})
-
 	It("marks only supported alternative managers", func() {
 		for _, typ := range []PackagesDirectiveType{
 			PackagesDirectiveTypeJavaScriptYarn,

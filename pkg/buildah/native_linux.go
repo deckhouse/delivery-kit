@@ -418,6 +418,11 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 		return "", err
 	}
 
+	nsOpts, netPolicy, err := generateNamespaceOptionsAndNetworkPolicy(opts.NetworkType)
+	if err != nil {
+		return "", fmt.Errorf("configure Dockerfile build network: %w", err)
+	}
+
 	commonBuildOpts := b.defaultCommonBuildOptions
 	buildOpts := define.BuildOptions{
 		Isolation:               define.Isolation(b.Isolation),
@@ -426,7 +431,8 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 		ReportWriter:            opts.LogWriter,
 		OutputFormat:            buildah.Dockerv2ImageManifest,
 		SystemContext:           sysCtx,
-		ConfigureNetwork:        define.NetworkEnabled,
+		NamespaceOptions:        nsOpts,
+		ConfigureNetwork:        netPolicy,
 		CommonBuildOpts:         &commonBuildOpts,
 		Target:                  opts.Target,
 		Platforms:               targetPlatforms,
@@ -456,19 +462,13 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 		buildOpts.NoCache = true
 	}
 
-	errLog := &bytes.Buffer{}
-	if opts.LogWriter != nil {
-		buildOpts.Out = opts.LogWriter
-		buildOpts.Err = io.MultiWriter(opts.LogWriter, errLog)
-	} else {
-		buildOpts.Err = errLog
-	}
-
+	var stderrBuf *lockedBuffer
+	buildOpts.Out, buildOpts.Err, stderrBuf = generateStdoutStderr(opts.LogWriter, nil, nil)
 	buildOpts.ContextDirectory = opts.ContextDir
 
 	imageId, _, err := imagebuildah.BuildDockerfiles(ctx, b.Store, buildOpts, dockerfile)
 	if err != nil {
-		return "", fmt.Errorf("unable to build Dockerfile %q:\n%s\n%w", dockerfile, errLog.String(), err)
+		return "", wrapStderrError(fmt.Sprintf("unable to build Dockerfile %q", dockerfile), stderrBuf, err)
 	}
 
 	return imageId, nil
@@ -499,7 +499,10 @@ func (b *NativeBuildah) RunCommand(ctx context.Context, container string, comman
 	}
 
 	contextDir := generateContextDir(opts.ContextDir, opts.RunMounts)
-	nsOpts, netPolicy := generateNamespaceOptionsAndNetworkPolicy(opts.NetworkType)
+	nsOpts, netPolicy, err := generateNamespaceOptionsAndNetworkPolicy(opts.NetworkType)
+	if err != nil {
+		return fmt.Errorf("configure run command network: %w", err)
+	}
 	globalMounts := generateGlobalMounts(opts.GlobalMounts)
 	runMounts := generateRunMounts(opts.RunMounts)
 	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter, opts.Stdout, opts.Stderr)
@@ -546,7 +549,7 @@ func (b *NativeBuildah) RunCommand(ctx context.Context, container string, comman
 	}
 
 	if err := builder.Run(command, runOpts); err != nil {
-		return fmt.Errorf("RunCommand failed:\n%s\n%w", stderrBuf.String(), err)
+		return wrapStderrError("RunCommand failed", stderrBuf, err)
 	}
 
 	return nil
@@ -1376,7 +1379,7 @@ func rlimitsToBuildahUlimits(rlimits map[int]*syscall.Rlimit) []string {
 	}
 }
 
-func generateNamespaceOptionsAndNetworkPolicy(network string) (define.NamespaceOptions, define.NetworkConfigurationPolicy) {
+func generateNamespaceOptionsAndNetworkPolicy(network string) (define.NamespaceOptions, define.NetworkConfigurationPolicy, error) {
 	var netPolicy define.NetworkConfigurationPolicy
 	nsOpts := define.NamespaceOptions{}
 
@@ -1398,10 +1401,10 @@ func generateNamespaceOptionsAndNetworkPolicy(network string) (define.NamespaceO
 			Name: string(specs.NetworkNamespace),
 		})
 	default:
-		panic(fmt.Sprintf("unexpected network type: %v", network))
+		return nil, netPolicy, fmt.Errorf("unsupported network mode %q for the native Buildah backend (supported: default, host, none)", network)
 	}
 
-	return nsOpts, netPolicy
+	return nsOpts, netPolicy, nil
 }
 
 func generateRunMounts(mounts []*instructions.Mount) []string {
@@ -1568,8 +1571,15 @@ func (b *lockedBuffer) String() string {
 	return b.buffer.String()
 }
 
-func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (stdout, stderr io.Writer, stderrBuf *lockedBuffer) {
-	stderrBuf = &lockedBuffer{}
+// Stderr is captured into the buffer only when nothing else receives it, so the
+// returned errors do not repeat output already streamed to the log. Explicit
+// stdout/stderr writers take precedence over the log writer; when nothing would
+// be shown, stdout is dropped instead of leaking to the process stdout as buildah
+// does for a nil writer.
+func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (io.Writer, io.Writer, *lockedBuffer) {
+	stderrBuf := &lockedBuffer{}
+
+	stdout := io.Writer(io.Discard)
 	switch {
 	case optionalStdout != nil:
 		stdout = optionalStdout
@@ -1579,14 +1589,21 @@ func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.W
 
 	switch {
 	case optionalStderr != nil:
-		stderr = io.MultiWriter(optionalStderr, stderrBuf)
+		return stdout, optionalStderr, stderrBuf
 	case optionalLogWriter != nil:
-		stderr = io.MultiWriter(optionalLogWriter, stderrBuf)
-	default:
-		stderr = stderrBuf
+		return stdout, optionalLogWriter, stderrBuf
 	}
 
-	return stdout, stderr, stderrBuf
+	return stdout, stderrBuf, stderrBuf
+}
+
+func wrapStderrError(msg string, stderrBuf *lockedBuffer, err error) error {
+	stderr := stderrBuf.String()
+	if stderr == "" {
+		return fmt.Errorf("%s: %w", msg, err)
+	}
+
+	return fmt.Errorf("%s:\n%s\n%w", msg, stderr, err)
 }
 
 func prependShellToCommand(prependShell bool, shell, command []string, builder *buildah.Builder) []string {

@@ -90,6 +90,10 @@ werf plan --repo registry.mydomain.com/web --env production
             Enable ELF files signing with bsign (default $WERF_BSIGN_ELF_FILES).
             When enabled, the private elf key must be specified with --elf-pgp-private-key-base64   
             or --elf-pgp-private-key-fingerprint option
+      --build-report-operations=false
+            Collect low-level operations statistics: add Operations and StageCache sections to the  
+            build report and print operations summary after the build (by default                   
+            $WERF_BUILD_REPORT_OPERATIONS or false). Also enabled by --log-debug
       --build-report-path=""
             Change build report path and format (by default $WERF_BUILD_REPORT_PATH or              
             ".werf-build-report.json" if not set). Extension must be either .json for JSON format   

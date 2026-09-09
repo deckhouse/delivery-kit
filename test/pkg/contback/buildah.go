@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	. "github.com/onsi/gomega"
 
@@ -92,6 +93,20 @@ func (r *NativeBuildahBackend) SaveImageToStream(ctx context.Context, image stri
 	Expect(os.RemoveAll(tmpDir)).To(Succeed())
 
 	return io.NopCloser(bytes.NewReader(b))
+}
+
+// RmiByRepoRef removes every local image tagged under repoRef from the containers storage.
+func (r *NativeBuildahBackend) RmiByRepoRef(ctx context.Context, repoRef string) {
+	listArgs := append(append([]string{}, r.CommonCliArgs...), "images", "--format", "{{.Name}}:{{.Tag}}")
+	output := utils.SucceedCommandOutputString(ctx, "/", "buildah", listArgs...)
+
+	for _, ref := range strings.Fields(output) {
+		if !strings.HasPrefix(ref, repoRef+":") {
+			continue
+		}
+		rmiArgs := append(append([]string{}, r.CommonCliArgs...), "rmi", "--force", ref)
+		utils.RunSucceedCommand(ctx, "/", "buildah", rmiArgs...)
+	}
 }
 
 func (r *NativeBuildahBackend) GetImageInspect(ctx context.Context, image string) DockerImageInspect {

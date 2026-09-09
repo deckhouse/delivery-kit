@@ -90,6 +90,7 @@ func GetShouldBeBuiltOptions(commonCmdData *CmdData, werfConfig *config.WerfConf
 		SkipAddManagedImagesRecords:  werfConfig.Meta.Cleanup.DisableCleanup,
 		SkipImageMetadataPublication: *commonCmdData.Dev || werfConfig.Meta.Cleanup.DisableGitHistoryBasedPolicy || werfConfig.Meta.Cleanup.DisableCleanup,
 		CustomTagFuncList:            customTagFuncList,
+		ReportOperations:             GetBuildReportOperations(commonCmdData),
 	}
 
 	if GetSaveBuildReport(commonCmdData) {
@@ -157,6 +158,7 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		VexSigningOptions:       vexSigningOptions,
 		ELFSigningOptions:       elfSigningOptions,
 		VerityAnnotationOptions: verityAnnotationOptions,
+		ReportOperations:        GetBuildReportOperations(commonCmdData),
 	}
 
 	if GetSaveBuildReport(commonCmdData) {

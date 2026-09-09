@@ -15,12 +15,13 @@ includes:
     flatten: true
     vars:
       golangciPaths: "./cmd/... ./pkg/... ./test/..."
-      golangciLintVersion: "v1.64.8"
+      golangciConfigPath: ".golangci.yml"
+      golangciLintVersion: "v2.11.4"
   deps:
     taskfile: https://raw.githubusercontent.com/werf/common-ci/refs/heads/main/Taskfile.deps.yml
     flatten: true
     vars:
-      golangciLintVersion: "v1.64.8"
+      golangciLintVersion: "v2.11.4"
 
 vars:
   version: "dev"
@@ -541,24 +542,6 @@ tasks:
       - 'echo "pm (linux/amd64) installed to {{.dest}}"'
     vars:
       dest: '{{.dest | default "./bin/pm"}}'
-
-  deps:install:c:
-    desc: "Install C dependencies"
-    cmds:
-      - |
-        set -eux
-
-        commit="$(go list -m -f '{{ printf "{{.Version}}" }}' github.com/deckhouse/delivery-kit-sdk | cut -d- -f3)"
-
-        git_dir="$(mktemp -d)"
-        cd "$git_dir"
-
-        git clone https://github.com/deckhouse/delivery-kit-sdk .
-        git checkout "$commit"
-        task --yes install:c
-
-        cd -
-        rm -rf "$git_dir"
 
   sign:
     desc: 'Sign last created version tag + origin/main and push signatures. Important vars: "refs".'

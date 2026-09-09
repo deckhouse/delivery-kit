@@ -63,8 +63,9 @@ type BuildOptions struct {
 	ELFSigningOptions       signing.ELFSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 
-	ReportPath   string
-	ReportFormat ReportFormat
+	ReportPath       string
+	ReportFormat     ReportFormat
+	ReportOperations bool
 
 	SkipImageMetadataPublication bool
 	SkipAddManagedImagesRecords  bool

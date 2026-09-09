@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/containers/storage/types"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
@@ -141,7 +142,7 @@ func (backend *BuildahBackend) getBuildahCommonOpts(ctx context.Context, suppres
 	if !suppressLog {
 		if logWriterOverride != nil {
 			opts.LogWriter = logWriterOverride
-		} else {
+		} else if logboek.Context(ctx).Default().IsAccepted() {
 			opts.LogWriter = logboek.Context(ctx).OutStream()
 		}
 	}
@@ -248,6 +249,29 @@ func (backend *BuildahBackend) unmountContainers(ctx context.Context, containers
 	}
 
 	return nil
+}
+
+// resolveContainerRootPath resolves containerPath inside the mounted container root,
+// following symlinks relative to rootMount instead of the host root: a naive
+// filepath.Join would resolve absolute symlinks like /bin -> /usr/bin against the host.
+func resolveContainerRootPath(rootMount, containerPath string) (string, error) {
+	resolvedPath, err := securejoin.SecureJoin(rootMount, containerPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve path %q in container root %q: %w", containerPath, rootMount, err)
+	}
+	return resolvedPath, nil
+}
+
+// resolveContainerRootPathNoFollow resolves the parent directories of containerPath the
+// same way, but keeps the final component unresolved, preserving lstat semantics for
+// paths that are themselves symlinks (import sources, removed paths).
+func resolveContainerRootPathNoFollow(rootMount, containerPath string) (string, error) {
+	containerPath = filepath.Clean(containerPath)
+	resolvedDir, err := resolveContainerRootPath(rootMount, filepath.Dir(containerPath))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolvedDir, filepath.Base(containerPath)), nil
 }
 
 func makeScript(commands []string, verbose bool) []byte {
@@ -364,8 +388,19 @@ func (backend *BuildahBackend) CalculateDependencyImportChecksum(ctx context.Con
 		}
 	}()
 
-	fromPath := filepath.Join(container.RootMount, dependencyImport.FromPath)
+	fromPath, err := resolveContainerRootPathNoFollow(container.RootMount, dependencyImport.FromPath)
+	if err != nil {
+		return "", err
+	}
 
+	return calculateDependencyImportChecksum(ctx, fromPath, dependencyImport)
+}
+
+// calculateDependencyImportChecksum hashes the files under fromPath (the already resolved
+// on-disk location of dependencyImport.FromPath), keying every entry by the configured
+// FromPath so the checksum does not depend on where the container root is mounted or on
+// symlink resolution of the parent directories.
+func calculateDependencyImportChecksum(ctx context.Context, fromPath string, dependencyImport DependencyImportSpec) (string, error) {
 	pathMatcher := path_matcher.NewPathMatcher(path_matcher.PathMatcherOptions{
 		BasePath:     fromPath,
 		IncludeGlobs: dependencyImport.IncludePaths,
@@ -439,7 +474,7 @@ func (backend *BuildahBackend) CalculateDependencyImportChecksum(ctx context.Con
 			}
 		}
 
-		if _, err := fmt.Fprintf(hash, "%x  %s\n", fileHash.Sum(nil), filepath.Join("/", util.GetRelativeToBaseFilepath(container.RootMount, path))); err != nil {
+		if _, err := fmt.Fprintf(hash, "%x  %s\n", fileHash.Sum(nil), filepath.Join("/", dependencyImport.FromPath, util.GetRelativeToBaseFilepath(fromPath, path))); err != nil {
 			return "", fmt.Errorf("error calculating file %q checksum: %w", path, err)
 		}
 	}
@@ -449,7 +484,10 @@ func (backend *BuildahBackend) CalculateDependencyImportChecksum(ctx context.Con
 
 func (backend *BuildahBackend) applyDataArchives(ctx context.Context, container *containerDesc, dataArchives []DataArchiveSpec) error {
 	for _, archive := range dataArchives {
-		destPath := filepath.Join(container.RootMount, archive.To)
+		destPath, err := resolveContainerRootPath(container.RootMount, archive.To)
+		if err != nil {
+			return err
+		}
 
 		var extractDestPath string
 		switch archive.Type {
@@ -500,21 +538,39 @@ func (backend *BuildahBackend) applyRemoveData(ctx context.Context, container *c
 		switch spec.Type {
 		case RemoveExactPath:
 			for _, path := range spec.Paths {
-				destPath := filepath.Join(container.RootMount, path)
+				destPath, err := resolveContainerRootPathNoFollow(container.RootMount, path)
+				if err != nil {
+					return err
+				}
 				if err := removeExactPath(ctx, destPath); err != nil {
 					return fmt.Errorf("unable to remove %q: %w", path, err)
 				}
 			}
 		case RemoveExactPathWithEmptyParentDirs:
+			keepParentDirs := []string{container.RootMount}
+			for _, keepPath := range spec.KeepParentDirs {
+				resolvedKeepPath, err := resolveContainerRootPath(container.RootMount, keepPath)
+				if err != nil {
+					return err
+				}
+				keepParentDirs = append(keepParentDirs, resolvedKeepPath)
+			}
+
 			for _, path := range spec.Paths {
-				destPath := filepath.Join(container.RootMount, path)
-				if err := removeExactPathWithEmptyParentDirs(ctx, destPath, spec.KeepParentDirs); err != nil {
+				destPath, err := resolveContainerRootPathNoFollow(container.RootMount, path)
+				if err != nil {
+					return err
+				}
+				if err := removeExactPathWithEmptyParentDirs(ctx, destPath, keepParentDirs); err != nil {
 					return fmt.Errorf("unable to remove %q: %w", path, err)
 				}
 			}
 		case RemoveInsidePath:
 			for _, path := range spec.Paths {
-				destPath := filepath.Join(container.RootMount, path)
+				destPath, err := resolveContainerRootPath(container.RootMount, path)
+				if err != nil {
+					return err
+				}
 				if err := removeInsidePath(ctx, destPath); err != nil {
 					return fmt.Errorf("unable to remove %q: %w", path, err)
 				}
@@ -570,8 +626,14 @@ func (backend *BuildahBackend) applyDependenciesImports(ctx context.Context, con
 				continue
 			}
 
-			absFrom := filepath.Join(dep.RootMount, imp.FromPath)
-			absTo := filepath.Join(container.RootMount, imp.ToPath)
+			absFrom, err := resolveContainerRootPathNoFollow(dep.RootMount, imp.FromPath)
+			if err != nil {
+				return err
+			}
+			absTo, err := resolveContainerRootPath(container.RootMount, imp.ToPath)
+			if err != nil {
+				return err
+			}
 			if absTo, err = normalizeDependencyImportDestination(absFrom, absTo); err != nil {
 				return fmt.Errorf("normalize destination path for dependency import from %q to %q: %w", imp.FromPath, imp.ToPath, err)
 			}
@@ -663,8 +725,77 @@ func normalizeDependencyImportDestination(absFrom, absTo string) (string, error)
 	}
 }
 
+// ensureImageLocally makes ref resolvable by buildah operations that only look up
+// the local containers storage (e.g. RUN --mount from=image resolution).
+func (backend *BuildahBackend) ensureImageLocally(ctx context.Context, ref string, opts CommonOpts) error {
+	checkLocal := func() (bool, error) {
+		inspect, err := backend.buildah.Inspect(ctx, ref)
+		if err != nil {
+			return false, fmt.Errorf("unable to inspect image %q: %w", ref, err)
+		}
+		if inspect == nil {
+			return false, nil
+		}
+		if opts.TargetPlatform != "" && !platformMatches(inspect, opts.TargetPlatform) {
+			return false, fmt.Errorf("local image %q has platform %s/%s, but target platform is %q; pull the correct image first", ref, inspect.OCIv1.OS, inspect.OCIv1.Architecture, opts.TargetPlatform)
+		}
+		return true, nil
+	}
+
+	if found, err := checkLocal(); err != nil || found {
+		return err
+	}
+
+	logboek.Context(ctx).Debug().LogF("Image %q not found locally, pulling\n", ref)
+
+	mu := backend.getPullMutex(ref)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// A concurrent caller holding the lock may have pulled the image already.
+	if found, err := checkLocal(); err != nil || found {
+		return err
+	}
+
+	imageID, err := backend.buildah.Pull(ctx, ref, buildah.PullOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform)))
+	if err != nil {
+		return fmt.Errorf("unable to pull image %q: %w", ref, err)
+	}
+	if opts.TargetPlatform != "" && imageID != "" {
+		backend.storePulledImageID(ref, opts.TargetPlatform, imageID)
+	}
+
+	return nil
+}
+
+func (backend *BuildahBackend) ensureRunMountImages(ctx context.Context, instrs []InstructionInterface, opts CommonOpts) error {
+	for _, instr := range instrs {
+		mounter, ok := instr.(MountsInterface)
+		if !ok {
+			continue
+		}
+
+		for _, mount := range mounter.GetMounts() {
+			if mount.From == "" {
+				continue
+			}
+
+			if err := backend.ensureImageLocally(ctx, mount.From, opts); err != nil {
+				return fmt.Errorf("unable to ensure local image for run mount %q: %w", mount.From, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (backend *BuildahBackend) BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageBuild)()
+	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
+
+	if err := backend.ensureRunMountImages(ctx, instructions, opts.CommonOpts); err != nil {
+		return "", err
+	}
+
 	var container *containerDesc
 	if c, err := backend.createContainers(ctx, []string{baseImage}, opts.CommonOpts); err != nil {
 		return "", err
@@ -714,7 +845,7 @@ func (backend *BuildahBackend) BuildDockerfileStage(ctx context.Context, baseIma
 }
 
 func (backend *BuildahBackend) BuildStapelStage(ctx context.Context, baseImage string, opts BuildStapelStageOptions) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageBuild)()
+	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
 	commonOpts := CommonOpts{TargetPlatform: opts.TargetPlatform}
 
 	var container *containerDesc
@@ -1005,7 +1136,7 @@ func (backend *BuildahBackend) TagImageByName(ctx context.Context, img LegacyIma
 }
 
 func (backend *BuildahBackend) BuildDockerfile(ctx context.Context, dockerfileContent []byte, opts BuildDockerfileOpts) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageBuild)()
+	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
 	buildArgs := make(map[string]string)
 	for _, argStr := range opts.BuildArgs {
 		argParts := strings.SplitN(argStr, "=", 2)
@@ -1219,7 +1350,11 @@ func getUID(userNameOrUID, fsRoot string) (*uint32, error) {
 	var uid *uint32
 	if userNameOrUID != "" {
 		if parsed, err := strconv.ParseUint(userNameOrUID, 10, 32); errors.Is(err, strconv.ErrSyntax) {
-			result, err := getUIDFromUserName(userNameOrUID, filepath.Join(fsRoot, "etc", "passwd"))
+			etcPasswdPath, err := resolveContainerRootPath(fsRoot, "etc/passwd")
+			if err != nil {
+				return nil, err
+			}
+			result, err := getUIDFromUserName(userNameOrUID, etcPasswdPath)
 			if err != nil {
 				return nil, fmt.Errorf("error getting UID from user name: %w", err)
 			}
@@ -1239,7 +1374,11 @@ func getGID(groupNameOrGID, fsRoot string) (*uint32, error) {
 	var gid *uint32
 	if groupNameOrGID != "" {
 		if parsed, err := strconv.ParseUint(groupNameOrGID, 10, 32); errors.Is(err, strconv.ErrSyntax) {
-			result, err := getGIDFromGroupName(groupNameOrGID, filepath.Join(fsRoot, "etc", "group"))
+			etcGroupPath, err := resolveContainerRootPath(fsRoot, "etc/group")
+			if err != nil {
+				return nil, err
+			}
+			result, err := getGIDFromGroupName(groupNameOrGID, etcGroupPath)
 			if err != nil {
 				return nil, fmt.Errorf("error getting GID from group name: %w", err)
 			}

@@ -10,6 +10,23 @@ import (
 	"github.com/werf/common-go/pkg/util"
 )
 
+var _ = Describe("package secret reference validation", func() {
+	It("rejects unavailable environment and file sources without exposing content", func() {
+		rawPackages := []*rawPackagesDirective{{
+			Type: "go-mod",
+			Env:  map[string]string{"GOPROXY": "/run/secrets/TOKEN"},
+		}}
+
+		envErr := validatePackageSecretReferences(rawPackages, []Secret{{Id: "TOKEN", ValueFromEnv: "MISSING_TOKEN"}})
+		Expect(envErr).To(MatchError(ContainSubstring("environment source")))
+		Expect(envErr.Error()).NotTo(ContainSubstring("secret-content"))
+
+		fileErr := validatePackageSecretReferences(rawPackages, []Secret{{Id: "TOKEN", ValueFromSrc: "/path/that/does/not/exist"}})
+		Expect(fileErr).To(MatchError(ContainSubstring("source is unavailable")))
+		Expect(fileErr.Error()).NotTo(ContainSubstring("secret-content"))
+	})
+})
+
 var _ = Describe("rawStapelImage", func() {
 	var localGitRepo *LocalGitRepoStub
 	var giterminismManager *GiterminismManagerStub
@@ -251,6 +268,19 @@ var _ = Describe("rawStapelImage", func() {
 			_, err = rawStapelImage.toStapelImageDirective(ctx, giterminismManager, meta, "image1")
 			Expect(errors.As(err, &errConf)).To(BeTrue())
 		},
+		Entry(
+			"with undeclared package secret reference",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"packages": []map[string]interface{}{{
+					"type":    "go-mod",
+					"workdir": "/app",
+					"env":     map[string]string{"GOPROXY": "/run/secrets/MISSING"},
+				}},
+			},
+		),
+
 		Entry(
 			"with missing dependency image",
 			map[string]interface{}{

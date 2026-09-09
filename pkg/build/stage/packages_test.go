@@ -168,7 +168,7 @@ var _ = Describe("Network enforcement logic", func() {
 var _ = Describe("GeneratePackagesCommands", func() {
 	DescribeTable("command generation",
 		func(packages []*config.PackagesDirective, expected []string) {
-			Expect(config.GeneratePackagesCommands(packages)).To(Equal(expected))
+			Expect(config.GeneratePackagesCommands(packages, config.PackagesCommandsOptions{})).To(Equal(expected))
 		},
 
 		Entry("go-mod /app", []*config.PackagesDirective{
@@ -189,7 +189,7 @@ var _ = Describe("GeneratePackagesCommands", func() {
 var _ = Describe("GeneratePackagesCommands invocations", func() {
 	DescribeTable("generates the same commands as config.GeneratePackagesCommands",
 		func(packages []*config.PackagesDirective, expected []string) {
-			Expect(config.GeneratePackagesCommands(packages)).To(Equal(expected))
+			Expect(config.GeneratePackagesCommands(packages, config.PackagesCommandsOptions{})).To(Equal(expected))
 		},
 
 		Entry("entry-point only: empty build packages", []*config.PackagesDirective{}, ([]string)(nil)),
@@ -205,7 +205,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, func() []string {
 			return config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})
+			}, config.PackagesCommandsOptions{})
 		}()),
 
 		Entry("os-pm with multiple packages", []*config.PackagesDirective{
@@ -213,7 +213,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, func() []string {
 			return config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})
+			}, config.PackagesCommandsOptions{})
 		}()),
 
 		Entry("mixed types: os-pm and go-mod skip unknown type", []*config.PackagesDirective{
@@ -225,7 +225,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
 				{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
 				{Type: config.PackagesDirectiveType("cargo")},
-			})
+			}, config.PackagesCommandsOptions{})
 		}()),
 
 		Entry("python-pip /app requirements.txt", []*config.PackagesDirective{
@@ -259,7 +259,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, func() []string {
 			return append([]string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})...)
+			}, config.PackagesCommandsOptions{})...)
 		}()),
 
 		Entry("rust-cargo /app produces cargo fetch", []*config.PackagesDirective{
@@ -286,7 +286,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, func() []string {
 			return append([]string{"cd \"/app\" && cargo fetch", "cd \"/tools\" && go mod download"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})...)
+			}, config.PackagesCommandsOptions{})...)
 		}()),
 
 		Entry("javascript-npm /app produces npm ci", []*config.PackagesDirective{
@@ -317,7 +317,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, func() []string {
 			return append([]string{"cd \"/app\" && npm ci", "cd \"/tools\" && go mod download"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})...)
+			}, config.PackagesCommandsOptions{})...)
 		}()),
 
 		Entry("lua-rock /app produces luarocks install --only-deps", []*config.PackagesDirective{
@@ -340,7 +340,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 		}, func() []string {
 			return append([]string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/native\" && cargo fetch"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
-			})...)
+			}, config.PackagesCommandsOptions{})...)
 		}()),
 	)
 })

@@ -3,7 +3,9 @@ package config
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
 	"github.com/werf/werf/v2/pkg/util/option"
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
@@ -211,6 +213,10 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 
 	imageBase.Secrets = secrets
 
+	if err := validatePackageSecretReferences(c.RawPackages, secrets); err != nil {
+		return nil, err
+	}
+
 	if c.RawImageSpec != nil {
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
 	}
@@ -235,7 +241,11 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 	}
 
 	if len(imageBase.Packages) > 0 && meta.Build.Sbom != nil && meta.Build.Sbom.Enable {
-		packagesCommands := GeneratePackagesCommands(imageBase.Packages)
+		declaredSecretIDs := make(map[string]struct{}, len(imageBase.Secrets))
+		for _, secret := range imageBase.Secrets {
+			declaredSecretIDs[secret.Id] = struct{}{}
+		}
+		packagesCommands := GeneratePackagesCommands(imageBase.Packages, PackagesCommandsOptions{DeclaredSecretIDs: declaredSecretIDs})
 		if len(packagesCommands) > 0 {
 			if imageBase.Shell == nil {
 				imageBase.Shell = &Shell{}
@@ -284,6 +294,42 @@ func (c *rawStapelImage) toBaseStapelImageBaseDirective(giterminismManager giter
 	imageBase.raw = c
 
 	return imageBase, nil
+}
+
+func validatePackageSecretReferences(rawPackages []*rawPackagesDirective, secrets []Secret) error {
+	declared := make(map[string]Secret, len(secrets))
+	for _, secret := range secrets {
+		declared[secret.Id] = secret
+	}
+
+	for _, rawPackage := range rawPackages {
+		for name, value := range rawPackage.Env {
+			secretID, isReference := parsePackageSecretReference(value)
+			if !isReference {
+				continue
+			}
+
+			secret, isDeclared := declared[secretID]
+			if !isDeclared {
+				return newDetailedConfigError(fmt.Sprintf("packages[%q].env[%q] references undeclared secret %q", rawPackage.Type, name, secretID), rawPackage, rawPackage.docForErrors())
+			}
+			if secret.ValueFromEnv != "" {
+				if _, ok := os.LookupEnv(secret.ValueFromEnv); !ok {
+					return newDetailedConfigError(fmt.Sprintf("packages[%q].env[%q] references secret %q whose environment source %q is not set", rawPackage.Type, name, secretID, secret.ValueFromEnv), rawPackage, rawPackage.docForErrors())
+				}
+			}
+			if secret.ValueFromSrc != "" {
+				path, err := util.ExpandPath(secret.ValueFromSrc)
+				if err != nil {
+					return fmt.Errorf("resolve source for package secret %q: %w", secretID, err)
+				}
+				if _, err := os.Stat(path); err != nil {
+					return newDetailedConfigError(fmt.Sprintf("packages[%q].env[%q] references secret %q whose source is unavailable: %s", rawPackage.Type, name, secretID, err), rawPackage, rawPackage.docForErrors())
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (r *rawStapelImage) getDoc() *doc {

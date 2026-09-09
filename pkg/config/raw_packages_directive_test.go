@@ -325,7 +325,7 @@ var _ = Describe("rawPackagesDirective", func() {
 						"type": "os-pm",
 						"spec": []string{"curl", "jq"},
 						"env": map[string]interface{}{
-							"DOCKER_CONFIG": "/run/secrets/docker",
+							"DOCKER_CONFIG": "/tmp/docker",
 						},
 					},
 				},
@@ -335,7 +335,7 @@ var _ = Describe("rawPackagesDirective", func() {
 					Type: PackagesDirectiveTypeOSPM,
 					Spec: PackagesSpec{Packages: []string{"curl", "jq"}},
 					Env: map[string]string{
-						"DOCKER_CONFIG": "/run/secrets/docker",
+						"DOCKER_CONFIG": "/tmp/docker",
 					},
 				},
 			},

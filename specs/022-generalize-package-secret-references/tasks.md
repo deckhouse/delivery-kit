@@ -15,7 +15,7 @@ description: "Actionable task list for generalizing package secret references"
 
 **Purpose**: Confirm the existing package-command implementation and test harness are the implementation surface; no new module, dependency, storage, or public interface is required.
 
-- [ ] T001 Record the existing package-command generation and secret-mount assumptions in the implementation work item, using `pkg/config/packages_commands.go`, `pkg/config/packages_directive.go`, `pkg/config/raw_stapel_image.go`, and `pkg/config/secrets.go`
+- [X] T001 Record the existing package-command generation and secret-mount assumptions in the implementation work item, using `pkg/config/packages_commands.go`, `pkg/config/packages_directive.go`, `pkg/config/raw_stapel_image.go`, and `pkg/config/secrets.go`
 
 ---
 
@@ -23,9 +23,9 @@ description: "Actionable task list for generalizing package secret references"
 
 **Purpose**: Add the internal data flow needed by every user story without exposing secret contents to command generation.
 
-- [ ] T002 [P] Define an internal package-command options value containing only declared secret IDs, and update `GeneratePackagesCommands` in `pkg/config/packages_commands.go` to accept and propagate those options
-- [ ] T003 [P] Update the `PackageEcosystem.InstallCmd` function type and all ecosystem entries in `pkg/config/packages_directive.go` to receive the shared package-command options without passing `Secret` values or resolved contents
-- [ ] T004 Pass the validated `imageBase.Secrets` IDs into package-command generation from `rawStapelImage.toStapelImageBaseDirective` in `pkg/config/raw_stapel_image.go`, after `GetValidatedSecrets` succeeds and before `Shell.Packages` is populated
+- [X] T002 [P] Define an internal package-command options value containing only declared secret IDs, and update `GeneratePackagesCommands` in `pkg/config/packages_commands.go` to accept and propagate those options
+- [X] T003 [P] Update the `PackageEcosystem.InstallCmd` function type and all ecosystem entries in `pkg/config/packages_directive.go` to receive the shared package-command options without passing `Secret` values or resolved contents
+- [X] T004 Pass the validated `imageBase.Secrets` IDs into package-command generation from `rawStapelImage.toStapelImageBaseDirective` in `pkg/config/raw_stapel_image.go`, after `GetValidatedSecrets` succeeds and before `Shell.Packages` is populated
 
 **Checkpoint**: All package directive types can receive declared-secret metadata, while secret contents remain outside generator inputs.
 
@@ -39,17 +39,17 @@ description: "Actionable task list for generalizing package secret references"
 
 ### Tests for User Story 1
 
-- [ ] T005 [P] [US1] Add Ginkgo/Gomega table coverage in `pkg/config/packages_commands_test.go` for exact declared references from environment-, file-, and literal-backed secrets, including repeated references and empty values
-- [ ] T006 [P] [US1] Add command-shape and literal-preservation coverage in `pkg/config/packages_commands_test.go` for ordinary values, `${VARIABLE}` text, non-reference paths, sorted environment names, shell-special characters, and explicit-reference precedence over an inherited same-name value
-- [ ] T007 [P] [US1] Add cross-ecosystem coverage in `pkg/config/packages_commands_test.go` proving the shared resolver is used by `os-pm` and at least one non-`os-pm` directive such as `go-mod` or `python-pip`
+- [X] T005 [P] [US1] Add Ginkgo/Gomega table coverage in `pkg/config/packages_commands_test.go` for exact declared references from environment-, file-, and literal-backed secrets, including repeated references and empty values
+- [X] T006 [P] [US1] Add command-shape and literal-preservation coverage in `pkg/config/packages_commands_test.go` for ordinary values, `${VARIABLE}` text, non-reference paths, sorted environment names, shell-special characters, and explicit-reference precedence over an inherited same-name value
+- [X] T007 [P] [US1] Add cross-ecosystem coverage in `pkg/config/packages_commands_test.go` proving the shared resolver is used by `os-pm` and at least one non-`os-pm` directive such as `go-mod` or `python-pip`
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Implement exact `/run/secrets/<secret-id>` parsing and declared-ID validation in the shared environment resolver in `pkg/config/packages_commands.go`, leaving all non-exact values literal
-- [ ] T009 [US1] Implement single-line inline environment serialization for validated secret references in `pkg/config/packages_commands.go`, reading the mounted file only in the package-stage shell and preserving existing quoting and key sorting
-- [ ] T010 [US1] Replace direct `formatEnvVars` calls with the shared resolver across every package ecosystem in `pkg/config/packages_directive.go`, including `os-pm` and all non-`os-pm` install commands
-- [ ] T011 [US1] Preserve explicit-reference precedence and ordinary environment behavior when composing package commands in `pkg/config/packages_commands.go`, without adding variable-name-specific expansion branches
-- [ ] T012 [US1] Run the focused User Story 1 verification with `task test:unit paths="./pkg/config/..."` and confirm the generated command remains single-line and passes the resolved value only to the package-manager process
+- [X] T008 [US1] Implement exact `/run/secrets/<secret-id>` parsing and declared-ID validation in the shared environment resolver in `pkg/config/packages_commands.go`, leaving all non-exact values literal
+- [X] T009 [US1] Implement single-line inline environment serialization for validated secret references in `pkg/config/packages_commands.go`, reading the mounted file only in the package-stage shell and preserving existing quoting and key sorting
+- [X] T010 [US1] Replace direct `formatEnvVars` calls with the shared resolver across every package ecosystem in `pkg/config/packages_directive.go`, including `os-pm` and all non-`os-pm` install commands
+- [X] T011 [US1] Preserve explicit-reference precedence and ordinary environment behavior when composing package commands in `pkg/config/packages_commands.go`, without adding variable-name-specific expansion branches
+- [X] T012 [US1] Run the focused User Story 1 verification with `task test:unit paths="./pkg/config/..."` and confirm the generated command remains single-line and passes the resolved value only to the package-manager process
 
 **Checkpoint**: User Story 1 is independently functional for declared references, ordinary values, `os-pm`, and a non-`os-pm` ecosystem.
 
@@ -63,18 +63,18 @@ description: "Actionable task list for generalizing package secret references"
 
 ### Tests for User Story 2
 
-- [ ] T013 [P] [US2] Add parsing-failure coverage in `pkg/config/packages_commands_test.go` or the nearest existing raw image/config test file for undeclared references and environment-, file-, and literal-source resolution failures before package-manager execution
-- [ ] T014 [P] [US2] Add no-leak assertions in `pkg/config/packages_commands_test.go` that resolved secret content is absent from generated command text and returned errors, including shell-special and repeated values
-- [ ] T015 [P] [US2] Add compatibility coverage in `pkg/config/packages_commands_test.go` for `PACKAGES_VERSION` provenance-file generation and default behavior plus generalized `REGISTRY` handling
-- [ ] T016 [P] [US2] Add package-stage coverage in the appropriate existing `pkg/build/stage/` test file, or add a focused fixture under `test/e2e/` only if unit tests cannot prove process-only delivery and non-persistence in the resulting image
+- [X] T013 [P] [US2] Add parsing-failure coverage in `pkg/config/packages_commands_test.go` or the nearest existing raw image/config test file for undeclared references and environment-, file-, and literal-source resolution failures before package-manager execution
+- [X] T014 [P] [US2] Add no-leak assertions in `pkg/config/packages_commands_test.go` that resolved secret content is absent from generated command text and returned errors, including shell-special and repeated values
+- [X] T015 [P] [US2] Add compatibility coverage in `pkg/config/packages_commands_test.go` for `PACKAGES_VERSION` provenance-file generation and default behavior plus generalized `REGISTRY` handling
+- [X] T016 [P] [US2] Add package-stage coverage in the appropriate existing `pkg/build/stage/` test file, or add a focused fixture under `test/e2e/` only if unit tests cannot prove process-only delivery and non-persistence in the resulting image
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Validate that every exact package environment reference names a declared secret and that its configured environment/file/literal source is resolvable during configuration conversion, using the existing validation path in `pkg/config/secrets.go` and `pkg/config/raw_stapel_image.go`
-- [ ] T018 [US2] Return actionable configuration errors for undeclared or unresolvable references from `pkg/config/raw_stapel_image.go` without including secret contents, and ensure package commands are not generated after validation failure
-- [ ] T019 [US2] Keep resolved values out of generated command strings, arguments, logs, cache identity, SBOM data, metadata, and persistent image environment by limiting command generation to reference syntax and mounted-file reads in `pkg/config/packages_commands.go`
-- [ ] T020 [US2] Preserve `PACKAGES_VERSION` provenance writing and its default fallback, route `REGISTRY` through the generic reference primitive, and ensure explicit package environment entries take precedence in `pkg/config/packages_commands.go`
-- [ ] T021 [US2] Run focused package-stage and configuration verification with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/build/stage/..."`, adding the labeled e2e command from `quickstart.md` only if T016 adds an e2e fixture
+- [X] T017 [US2] Validate that every exact package environment reference names a declared secret and that its configured environment/file/literal source is resolvable during configuration conversion, using the existing validation path in `pkg/config/secrets.go` and `pkg/config/raw_stapel_image.go`
+- [X] T018 [US2] Return actionable configuration errors for undeclared or unresolvable references from `pkg/config/raw_stapel_image.go` without including secret contents, and ensure package commands are not generated after validation failure
+- [X] T019 [US2] Keep resolved values out of generated command strings, arguments, logs, cache identity, SBOM data, metadata, and persistent image environment by limiting command generation to reference syntax and mounted-file reads in `pkg/config/packages_commands.go`
+- [X] T020 [US2] Preserve `PACKAGES_VERSION` provenance writing and its default fallback, route `REGISTRY` through the generic reference primitive, and ensure explicit package environment entries take precedence in `pkg/config/packages_commands.go`
+- [X] T021 [US2] Run focused package-stage and configuration verification with `task test:unit paths="./pkg/config/..."` and `task test:unit paths="./pkg/build/stage/..."`, adding the labeled e2e command from `quickstart.md` only if T016 adds an e2e fixture
 
 **Checkpoint**: User Story 2 is independently secure and compatible: invalid references fail before execution, valid values are ephemeral, and existing provenance/registry behavior remains intact.
 
@@ -84,10 +84,10 @@ description: "Actionable task list for generalizing package secret references"
 
 **Purpose**: Run repository-required quality gates and confirm the change remains within the feature scope.
 
-- [ ] T022 [P] Review `pkg/config/packages_commands.go`, `pkg/config/packages_directive.go`, `pkg/config/raw_stapel_image.go`, and `pkg/config/secrets.go` for accidental secret-content propagation, variable-name-specific expansion, Git credential behavior, or new public API
-- [ ] T023 Format changed Go files with `task format` and inspect the authored diff for unintended changes
-- [ ] T024 Build the repository with `task build`
-- [ ] T025 Install the lint prerequisite with `task deps:install:golangci-lint` and run repository lint with `task lint`
+- [X] T022 [P] Review `pkg/config/packages_commands.go`, `pkg/config/packages_directive.go`, `pkg/config/raw_stapel_image.go`, and `pkg/config/secrets.go` for accidental secret-content propagation, variable-name-specific expansion, Git credential behavior, or new public API
+- [X] T023 Format changed Go files with `task format` and inspect the authored diff for unintended changes
+- [X] T024 Build the repository with `task build`
+- [X] T025 Install the lint prerequisite with `task deps:install:golangci-lint` and run repository lint with `task lint`
 - [ ] T026 Run the full unit suite with `task test:unit`
 - [ ] T027 Run the scoped package e2e suite with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="packages"` when the implementation adds the package fixture, then run `task test:integration`
 

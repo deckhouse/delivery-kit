@@ -1,79 +1,29 @@
 package config
 
 import (
-	"bytes"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"github.com/werf/werf/v2/pkg/stapel"
 )
-
-var _ = Describe("formatSecretVar", func() {
-	readSecret := func(ctx SpecContext, dir, name, presetValue string) (string, string, error) {
-		snippet := strings.ReplaceAll(formatSecretVar(name), "/run/secrets/", dir+"/")
-		cmd := exec.CommandContext(ctx, "bash", "-ec", snippet+`; printf '%s' "$`+name+`"`)
-		cmd.Env = []string{"PATH="}
-		if presetValue != "" {
-			cmd.Env = append(cmd.Env, name+"="+presetValue)
-		}
-		stderr := &bytes.Buffer{}
-		cmd.Stderr = stderr
-		stdout, err := cmd.Output()
-		return string(stdout), stderr.String(), err
-	}
-
-	It("reads the secret with no binary reachable on PATH", func(ctx SpecContext) {
-		dir := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(dir, "PACKAGES_VERSION"), []byte("1.2.3\n"), 0o600)).To(Succeed())
-
-		stdout, stderr, err := readSecret(ctx, dir, "PACKAGES_VERSION", "")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(Equal("1.2.3"))
-	})
-
-	It("leaves the value empty and stays quiet when the secret is absent", func(ctx SpecContext) {
-		stdout, stderr, err := readSecret(ctx, GinkgoT().TempDir(), "REGISTRY", "")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(BeEmpty())
-		Expect(stderr).To(BeEmpty())
-	})
-
-	It("keeps a value already present in the environment", func(ctx SpecContext) {
-		dir := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(dir, "REGISTRY"), []byte("from-secret\n"), 0o600)).To(Succeed())
-
-		stdout, stderr, err := readSecret(ctx, dir, "REGISTRY", "from-env")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(Equal("from-env"))
-	})
-
-	It("references nothing under the stapel mount root", func() {
-		Expect(formatSecretVar("PACKAGES_VERSION")).NotTo(ContainSubstring(stapel.CONTAINER_MOUNT_ROOT))
-	})
-})
 
 var _ = Describe("GeneratePackagesCommands os-pm", func() {
 	It("produces a single command that creates dir and installs packages", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
-		})
+		}, PackagesCommandsOptions{})
 		Expect(cmds).To(HaveLen(1))
 		cmd := cmds[0]
 		Expect(cmd).To(ContainSubstring("mkdir -p /var/lib/pm"))
-		Expect(cmd).To(ContainSubstring(`PACKAGES_VERSION="${PACKAGES_VERSION:-$(`))
-		Expect(cmd).To(ContainSubstring(`REGISTRY="${REGISTRY:-$(`))
+		Expect(cmd).To(ContainSubstring(`PACKAGES_VERSION="${PACKAGES_VERSION-$(`))
+		Expect(cmd).NotTo(ContainSubstring(`REGISTRY="${REGISTRY-$(`))
 		Expect(cmd).To(ContainSubstring("pm install curl jq"))
 	})
 
 	It("includes package names in pm install command", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl==8.12.1", "jq"}}},
-		})
+		}, PackagesCommandsOptions{})
 		Expect(cmds).To(HaveLen(1))
 		Expect(cmds[0]).To(ContainSubstring("pm install curl==8.12.1 jq"))
 	})
@@ -82,7 +32,7 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
 			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"jq"}}},
-		})
+		}, PackagesCommandsOptions{})
 		Expect(cmds).To(HaveLen(2))
 		Expect(cmds[0]).To(ContainSubstring("pm install curl"))
 		Expect(cmds[1]).To(ContainSubstring("pm install jq"))
@@ -95,7 +45,7 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 
 	DescribeTable("prepends env vars as inline prefix before pm install",
 		func(entry envVarEntry) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			cmd := cmds[0]
 			for _, check := range entry.checks {
@@ -161,7 +111,7 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 
 	DescribeTable("is backward compatible when env is nil or empty",
 		func(directive *PackagesDirective) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			Expect(cmds[0]).To(ContainSubstring("pm install curl jq"))
 		},
@@ -179,7 +129,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 
 	DescribeTable("produces unchanged command when env is nil or empty",
 		func(entry backwardCompatEntry) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			Expect(cmds[0]).To(Equal(entry.substring))
 		},
@@ -268,7 +218,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 	DescribeTable("passes env vars as inline prefix for non-os-pm package types",
 		func(entry nonOsPmEntry) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			Expect(cmds[0]).To(ContainSubstring(entry.substring))
 			Expect(cmds[0]).To(ContainSubstring(entry.envPrefix))
@@ -302,7 +252,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 	DescribeTable("prepends language-specific env vars as inline prefix",
 		func(entry langEnvVarEntry) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			Expect(cmds[0]).To(ContainSubstring(entry.substring))
 			Expect(cmds[0]).To(ContainSubstring(entry.envVarName + `="` + entry.envValue + `"`))
@@ -382,7 +332,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm multiple env vars", func() 
 
 	DescribeTable("prepends multiple env vars sorted alphabetically",
 		func(entry multiEnvVarEntry) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			cmd := cmds[0]
 			Expect(cmd).To(ContainSubstring(entry.substring))
@@ -428,7 +378,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 
 	DescribeTable("prepends HTTP_PROXY and HTTPS_PROXY as inline prefix",
 		func(entry proxyEnvVarEntry) {
-			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive})
+			cmds := GeneratePackagesCommands([]*PackagesDirective{entry.directive}, PackagesCommandsOptions{})
 			Expect(cmds).To(HaveLen(1))
 			cmd := cmds[0]
 			Expect(cmd).To(ContainSubstring(entry.substring))
@@ -463,14 +413,64 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 	)
 })
 
+var _ = Describe("GeneratePackagesCommands secret references", func() {
+	It("resolves declared references for os-pm and non-os-pm commands without embedding values", func() {
+		options := PackagesCommandsOptions{DeclaredSecretIDs: map[string]struct{}{"TOKEN": {}}}
+		packages := []*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: map[string]string{"TOKEN": "/run/secrets/TOKEN"}},
+			{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app"}, Env: map[string]string{"GOPROXY": "/run/secrets/TOKEN"}},
+		}
+
+		commands := GeneratePackagesCommands(packages, options)
+		Expect(commands).To(HaveLen(2))
+		for _, command := range commands {
+			Expect(command).To(ContainSubstring(`$(</run/secrets/TOKEN)`))
+			Expect(command).NotTo(ContainSubstring("secret-content"))
+		}
+	})
+
+	It("lets explicit secret references override compatibility fallbacks", func() {
+		options := PackagesCommandsOptions{DeclaredSecretIDs: map[string]struct{}{"TOKEN": {}}}
+		command := GeneratePackagesCommands([]*PackagesDirective{{
+			Type: PackagesDirectiveTypeOSPM,
+			Spec: PackagesSpec{Packages: []string{"curl"}},
+			Env: map[string]string{
+				"PACKAGES_VERSION": "/run/secrets/TOKEN",
+				"REGISTRY":         "/run/secrets/TOKEN",
+			},
+		}}, options)[0]
+
+		Expect(command).To(ContainSubstring(`PACKAGES_VERSION="$(</run/secrets/TOKEN)"`))
+		Expect(command).To(ContainSubstring(`REGISTRY="$(</run/secrets/TOKEN)"`))
+		Expect(command).NotTo(ContainSubstring(`PACKAGES_VERSION="${PACKAGES_VERSION-`))
+		Expect(command).NotTo(ContainSubstring(`REGISTRY="${REGISTRY-`))
+	})
+
+	It("keeps undeclared paths and variable-like values literal", func() {
+		options := PackagesCommandsOptions{DeclaredSecretIDs: map[string]struct{}{"TOKEN": {}}}
+		command := GeneratePackagesCommands([]*PackagesDirective{{
+			Type:      PackagesDirectiveTypeGoMod,
+			FileBased: FileBasedSpec{Workdir: "/app"},
+			Env: map[string]string{
+				"LITERAL":  "/run/secrets/OTHER",
+				"VARIABLE": "${TOKEN}",
+			},
+		}}, options)[0]
+
+		Expect(command).To(ContainSubstring(`LITERAL="/run/secrets/OTHER"`))
+		Expect(command).To(ContainSubstring(`VARIABLE="${TOKEN}"`))
+		Expect(command).NotTo(ContainSubstring(`$(</run/secrets/OTHER)`))
+	})
+})
+
 var _ = Describe("GeneratePackagesCommands no os-pm", func() {
 	It("produces no commands when packages list is nil", func() {
-		cmds := GeneratePackagesCommands(nil)
+		cmds := GeneratePackagesCommands(nil, PackagesCommandsOptions{})
 		Expect(cmds).To(BeEmpty())
 	})
 
 	It("produces no commands when packages list is empty", func() {
-		cmds := GeneratePackagesCommands([]*PackagesDirective{})
+		cmds := GeneratePackagesCommands([]*PackagesDirective{}, PackagesCommandsOptions{})
 		Expect(cmds).To(BeEmpty())
 	})
 })

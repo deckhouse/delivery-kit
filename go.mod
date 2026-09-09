@@ -1,6 +1,6 @@
 module github.com/werf/werf/v2
 
-go 1.24.10
+go 1.25.0
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.10.0
@@ -19,7 +19,7 @@ require (
 	github.com/containers/image/v5 v5.30.0
 	github.com/containers/storage v1.53.0
 	github.com/deckarep/golang-set/v2 v2.6.0
-	github.com/deckhouse/delivery-kit-sdk v1.2.2-0.20260611091416-9ec2ae7d6491
+	github.com/deckhouse/delivery-kit-sdk v1.4.1
 	github.com/deislabs/oras v1.1.0
 	github.com/djherbis/buffer v1.2.0
 	github.com/djherbis/nio/v3 v3.0.1
@@ -106,6 +106,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.15.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/chainguard-dev/git-urls v1.0.2 // indirect
+	github.com/deckhouse/elfedit v0.1.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-resty/resty/v2 v2.17.1 // indirect

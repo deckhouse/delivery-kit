@@ -57,8 +57,11 @@ Resolve conflicts:
 Stage resolved tracked files only, then commit:
 
 ```bash
-git add -u && git commit --no-edit
+git add -u && git commit --no-edit --cleanup=strip
 ```
+
+`--cleanup=strip` keeps the `# Conflicts:` list git writes into `MERGE_MSG` out of the commit body;
+without it the block ships in the merge commit and then in the squashed release history.
 
 ### 2. Force the release version (no changelog)
 
@@ -92,7 +95,19 @@ task build            # MUST succeed
 task test:unit        # MUST pass
 ```
 
-If build or tests fail, stop and resolve (or surface for a maintainer) before the PR.
+On macOS those three see no `//go:build linux` file, and a merge routinely lands upstream calls
+against a fork-changed signature in one. Both commands below MUST also pass, on any host:
+
+```bash
+task build:dev:linux:amd64:go                          # typechecks linux non-test files
+GOOS=linux GOARCH=amd64 task test:unit                 # typechecks linux test files
+```
+
+The second one ends in `exec format error` off Linux — that means compilation passed, and it is the
+only local signal that a linux-only test still compiles. A wrong-arity call there survives `task
+build`, `task lint` and `task test:unit` all green.
+
+If any of these fail, stop and resolve (or surface for a maintainer) before the PR.
 
 ### 4. Verify, push the branch, open the PR
 
@@ -118,7 +133,8 @@ To recover before pushing: `git merge --abort`, or discard the branch with
 - Branch/commit/PR names use the fixed values above; follow the `git-branch-name`,
   `git-commit-message`, and `pull-request-name` skills for any other naming.
 - ALWAYS work on the `chore/release/...` branch and finish with a PR; NEVER push to the fork's `main`.
-- ALWAYS run `task doc:gen`, `task build`, `task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
+- ALWAYS run `task doc:gen`, `task build`, `task test:unit`, `task build:dev:linux:amd64:go` and `GOOS=linux GOARCH=amd64 task test:unit` before the PR; NEVER open it with a broken build or remaining conflict markers.
+- ALWAYS commit the merge with `--cleanup=strip`; NEVER leave the `# Conflicts:` block in the commit body.
 - CHANGELOG: NEVER copy, author, prepend, or reorder any entry; take ours (`--ours`) on conflict and leave it byte-identical to `$FORK/main`. The changelog is release-please's job.
 - ALWAYS add an empty `Release-As: v<upstream semver>-dk.1` commit (Step 2) so release-please pins the merged upstream base; NEVER invent a base werf has not released, and NEVER author a changelog entry for it — release-please generates the changelog on push to `main`.
 - NEVER `git add .`; stage only resolved tracked files.

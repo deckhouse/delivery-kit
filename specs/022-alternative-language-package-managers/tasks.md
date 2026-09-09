@@ -29,7 +29,7 @@
 - [X] T008 Wire version defaults, unknown-field handling, and validation errors through raw directive conversion in `pkg/config/raw_packages_directive.go`
 - [X] T009 Add Ginkgo/Gomega coverage for parsing, required/forbidden versions, malformed values, alternative-manager classification, primary-type compatibility, and complete generated snippets in `pkg/config/raw_packages_directive_test.go` and `pkg/config/packages_commands_test.go`
 
-**Checkpoint**: Shared configuration and command generation are ready for both user stories; UUID-based scope generation remains open in T047.
+**Checkpoint**: Shared configuration and command generation are ready for both user stories; the lifecycle now includes UUID-based scope generation, while workdir-before-bootstrap alignment remains open in T049.
 
 ---
 
@@ -97,7 +97,7 @@
 - [X] T033 [US3] Verify JavaScript and Python managed-input catalogers retain their existing manifest, lock, workdir, and SBOM paths in `pkg/config/packages_directive.go` and `pkg/build/stage/packages.go`
 - [X] T034 [US3] Add and run invalid-lock and pre-installed-manager e2e coverage using `test/e2e/sbom/alternative_manager_failures_test.go` and `test/e2e/sbom/_fixtures/negative/`
 
-**Checkpoint**: All four managers preserve deterministic lifecycle and SBOM behavior; final repository validation remains open.
+**Checkpoint**: All four managers preserve deterministic lifecycle and SBOM behavior; workdir-before-bootstrap alignment and final repository validation remain open.
 
 ---
 
@@ -119,22 +119,23 @@
 
 ## Phase 7: Updated Plan Alignment
 
-**Purpose**: Complete requirements added after the previous task-list revision: library-backed SemVer validation, Go-generated UUID scope identifiers, available embedded utility paths, per-command environment propagation, and removal of redundant shell fail-fast setup. Post-bootstrap manager-version output verification is excluded.
+**Purpose**: Complete requirements added after the previous task-list revision: library-backed SemVer validation, Go-generated UUID scope identifiers, workdir-before-bootstrap ordering, available embedded utility paths, per-command environment propagation, and removal of redundant shell fail-fast setup. Post-bootstrap manager-version output verification is excluded.
 
 - [X] T046 Replace the regex-based manager-version validation with `github.com/Masterminds/semver/v3` parsing in `pkg/config/packages_directive.go`, and update the version-validation table in `pkg/config/packages_directive_test.go` to cover prerelease/build metadata while preserving required/forbidden version rules
 - [X] T047 Replace the PID/suffix scope generation and post-bootstrap version-output check in `pkg/config/packages_directive.go` with a Go-generated UUID using `github.com/google/uuid`, pass that identifier into the lifecycle template, create the scope with `stapel.MkdirBinPath()`, retain `stapel.RmBinPath()` cleanup, and remove any unavailable `mktemp`/`grep` accessors or commands
 - [X] T048 Refactor alternative-manager command templates in `pkg/config/packages_directive.go` so environment assignments prefix only external commands that need them, the enclosing fail-fast script supplies error propagation without an inner `set -e`, and tests compare the complete updated snippets in `pkg/config/packages_commands_test.go`
+- [X] T049 Move the alternative-manager lifecycle `cd` before npm/pip bootstrap so bootstrap and dependency installation execute from the directive `workdir`, and update complete command-snippet and workdir-order tests in `pkg/config/packages_directive.go` and `pkg/config/packages_commands_test.go`
 
 ---
 
 ## Dependencies and execution order
 
 - Setup (Phase 1) precedes Foundational (Phase 2).
-- T004–T009 and T046/T048 are complete; T047 remains the shared lifecycle correction required before both user stories conform to the updated UUID-scope contract.
-- T047 must complete before the final e2e verification because it affects both US1 and US2.
+- T004–T009 and T046–T048 are complete; T049 remains the shared lifecycle correction required before both user stories conform to the updated workdir-before-bootstrap contract.
+- T049 must complete before the final e2e verification because it affects both US1 and US2.
 - US1 and US2 depend on the shared foundation and can otherwise proceed in parallel.
 - US3 depends on both manager lifecycles and validates their cross-cutting behavior.
-- Documentation tasks T035–T036 can proceed in parallel with implementation. Verification tasks T037–T045 run after T047 and the final code/fixture changes.
+- Documentation tasks T035–T036 can proceed in parallel with implementation. Verification tasks T037–T045 run after T049 and the final code/fixture changes.
 
 ### Parallel opportunities
 
@@ -142,6 +143,7 @@
 - T025–T028 can be split between uv and Poetry owners.
 - T029–T031 and T035–T036 are independent workstreams.
 - T041–T044 are independent manager-specific e2e runs; T039 must precede the lint gate in the verification sequence.
+- T049 changes shared lifecycle ordering and should be completed before the manager-specific e2e runs.
 
 ### Suggested dependency graph
 
@@ -150,9 +152,9 @@ T001-T003
    |
 T004-T009
    |
-T046/T048 (complete plan alignment)
+T046-T048 (complete plan alignment)
    |
-T047 (UUID scope alignment)
+T049 (workdir ordering)
    |                         \
    +--> T010-T019              +--> T020-T028
             \             /
@@ -165,9 +167,9 @@ T047 (UUID scope alignment)
 
 ## Implementation strategy
 
-1. Complete T047, the remaining shared UUID-scope alignment.
+1. Complete T049, the remaining shared workdir-ordering alignment; T046–T048 are complete.
 2. Use US1 as the MVP increment and validate Yarn/pnpm independently.
 3. Add US2 for uv/Poetry and validate independently.
 4. Finish US3 cross-cutting checks, documentation, and all repository gates.
 
-**Format validation**: All 48 task entries use `- [ ]`/`- [X]`, a sequential `T###` ID, `[P]` only for parallel work, `[US#]` in story phases, and a concrete project-relative file path.
+**Format validation**: All 49 task entries use `- [ ]`/`- [X]`, a sequential `T###` ID, `[P]` only for parallel work, `[US#]` in story phases, and a concrete project-relative file path.

@@ -475,6 +475,19 @@ var _ = Describe("GeneratePackagesCommands alternative managers", func() {
 		Expect(cmd).To(ContainSubstring("if command -v yarn >/dev/null 2>&1; then"))
 	})
 
+	DescribeTable("changes to the workdir before alternative-manager bootstrap", func(typeName PackagesDirectiveType, bootstrap string) {
+		cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "manifest", Version: "1.2.3"}}})[0]
+		workdirIndex := strings.Index(cmd, `cd "/app"`)
+		bootstrapIndex := strings.Index(cmd, bootstrap)
+		Expect(workdirIndex).To(BeNumerically(">=", 0))
+		Expect(bootstrapIndex).To(BeNumerically(">", workdirIndex))
+	},
+		Entry("Yarn", PackagesDirectiveTypeJavaScriptYarn, "npm install --prefix"),
+		Entry("pnpm", PackagesDirectiveTypeJavaScriptPnpm, "npm install --prefix"),
+		Entry("uv", PackagesDirectiveTypePythonUV, "python3 -m venv"),
+		Entry("Poetry", PackagesDirectiveTypePythonPoetry, "python3 -m venv"),
+	)
+
 	It("keeps primary manager commands unchanged", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeJavaScriptNpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},

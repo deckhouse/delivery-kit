@@ -190,10 +190,10 @@ if command -v %[1]s >/dev/null 2>&1; then
   echo '%[1]s must not be pre-installed' >&2
   exit 1
 else
+  cd %[3]q
   scope=%[6]q
   %[7]s -p "$scope"
   %[5]s npm install --prefix "$scope" --no-save --package-lock=false %[1]s@%[2]s
-  cd %[3]q
   %[5]s "$scope/node_modules/.bin/%[1]s" %[4]s
   %[8]s -rf "$scope"
 fi
@@ -203,11 +203,11 @@ if command -v %[1]s >/dev/null 2>&1; then
   echo '%[1]s must not be pre-installed' >&2
   exit 1
 else
+  cd %[3]q
   scope=%[6]q
   %[7]s -p "$scope"
   %[5]s python3 -m venv "$scope"
   %[5]s "$scope/bin/python" -m pip install --no-cache-dir %[1]s==%[2]s
-  cd %[3]q
   %[5]s "$scope/bin/%[1]s" %[4]s
   %[8]s -rf "$scope"
 fi

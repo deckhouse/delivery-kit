@@ -1,21 +1,59 @@
 package config
 
 import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/stapel"
 )
 
 var _ = Describe("formatSecretVar", func() {
-	It("generates a PACKAGES_VERSION template with correct structure", func() {
-		tmpl := formatSecretVar("PACKAGES_VERSION")
-		Expect(tmpl).To(MatchRegexp(`^PACKAGES_VERSION="\$\{PACKAGES_VERSION:-\$\(\S*head /run/secrets/PACKAGES_VERSION 2>/dev/null \|\| true\)}"$`))
+	readSecret := func(ctx SpecContext, dir, name, presetValue string) (string, string, error) {
+		snippet := strings.ReplaceAll(formatSecretVar(name), "/run/secrets/", dir+"/")
+		cmd := exec.CommandContext(ctx, "bash", "-ec", snippet+`; printf '%s' "$`+name+`"`)
+		cmd.Env = []string{"PATH="}
+		if presetValue != "" {
+			cmd.Env = append(cmd.Env, name+"="+presetValue)
+		}
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		stdout, err := cmd.Output()
+		return string(stdout), stderr.String(), err
+	}
+
+	It("reads the secret with no binary reachable on PATH", func(ctx SpecContext) {
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(dir, "PACKAGES_VERSION"), []byte("1.2.3\n"), 0o600)).To(Succeed())
+
+		stdout, stderr, err := readSecret(ctx, dir, "PACKAGES_VERSION", "")
+		Expect(err).NotTo(HaveOccurred(), stderr)
+		Expect(stdout).To(Equal("1.2.3"))
 	})
 
-	It("generates a REGISTRY template with correct structure", func() {
-		tmpl := formatSecretVar("REGISTRY")
-		Expect(tmpl).To(MatchRegexp(`^REGISTRY="\$\{REGISTRY:-\$\(\S*head /run/secrets/REGISTRY 2>/dev/null \|\| true\)}"$`))
+	It("leaves the value empty and stays quiet when the secret is absent", func(ctx SpecContext) {
+		stdout, stderr, err := readSecret(ctx, GinkgoT().TempDir(), "REGISTRY", "")
+		Expect(err).NotTo(HaveOccurred(), stderr)
+		Expect(stdout).To(BeEmpty())
+		Expect(stderr).To(BeEmpty())
+	})
+
+	It("keeps a value already present in the environment", func(ctx SpecContext) {
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(dir, "REGISTRY"), []byte("from-secret\n"), 0o600)).To(Succeed())
+
+		stdout, stderr, err := readSecret(ctx, dir, "REGISTRY", "from-env")
+		Expect(err).NotTo(HaveOccurred(), stderr)
+		Expect(stdout).To(Equal("from-env"))
+	})
+
+	It("references nothing under the stapel mount root", func() {
+		Expect(formatSecretVar("PACKAGES_VERSION")).NotTo(ContainSubstring(stapel.CONTAINER_MOUNT_ROOT))
 	})
 })
 
@@ -38,16 +76,6 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		})
 		Expect(cmds).To(HaveLen(1))
 		Expect(cmds[0]).To(ContainSubstring("pm install curl==8.12.1 jq"))
-	})
-
-	It("reads secrets with the scratch-safe stapel head binary, not the removed cat", func() {
-		cmds := GeneratePackagesCommands([]*PackagesDirective{
-			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
-		})
-		Expect(cmds).To(HaveLen(1))
-		Expect(cmds[0]).To(ContainSubstring("/.werf/stapel/embedded/bin/head /run/secrets/PACKAGES_VERSION"))
-		Expect(cmds[0]).NotTo(ContainSubstring("/.werf/stapel/embedded/bin/cat"))
-		Expect(cmds[0]).NotTo(ContainSubstring("$(< /run/secrets/"))
 	})
 
 	It("each os-pm directive becomes one command", func() {

@@ -216,7 +216,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-scratch-secrets-builder")
 			// The app image is built from scratch, so PACKAGES_VERSION and REGISTRY
 			// reach the packages stage only as build secrets mounted under
-			// /run/secrets, resolved by the snapshot command via stapel coreutils.
+			// /run/secrets, which the stage reads with Bash builtins alone.
 			buildEnv := append(builderEnv,
 				"PACKAGES_VERSION=v1.3.6",
 				"REGISTRY=registry.deckhouse.io/container-factory",

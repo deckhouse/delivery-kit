@@ -466,6 +466,11 @@ func (phase *BuildPhase) scanOptionsForImage(img *image.Image) scanner.ScanOptio
 	catalogers := managedinput.ToCatalogers(stapelConfig.ImageBaseConfig().Packages)
 	for i := range scanOpts.Commands {
 		scanOpts.Commands[i].Catalogers = catalogers
+		// File-based stapel packages are cataloged by scanning the declared spec/lock files
+		// extracted from the image (a directory source), not the whole image filesystem.
+		if len(catalogers) > 0 {
+			scanOpts.Commands[i].SourceType = scanner.SourceTypeDir
+		}
 	}
 
 	return scanOpts

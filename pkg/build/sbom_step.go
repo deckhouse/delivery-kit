@@ -69,6 +69,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	parentDigest := stageDesc.Info.GetDigest()
 
 	scanOpts.Commands[0].SourcePath = stageDesc.Info.Name
+	catalogers := scanOpts.Commands[0].Catalogers
 
 	if err := step.prepareGostComponents(ctx, &mergeOpts); err != nil {
 		return err
@@ -94,16 +95,18 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if !syftScanRequired(isStapel, scanOpts.Commands[0].Catalogers) {
+		switch {
+		case !syftScanRequired(isStapel, catalogers):
 			targetBOM = cyclonedxutil.NewBOM()
-			targetBOM.Metadata = &cdx.Metadata{
-				Component: &cdx.Component{
-					Type:    cdx.ComponentTypeContainer,
-					Name:    stageDesc.Info.Repository,
-					Version: stageDesc.Info.Tag,
-				},
+			targetBOM.Metadata = containerMetadata(stageDesc)
+		case isStapel:
+			var err error
+			targetBOM, err = step.scanFileBasedPackages(ctx, stageDesc.Info.Name, scanOpts, catalogers, targetPlatform)
+			if err != nil {
+				return err
 			}
-		} else {
+			targetBOM.Metadata = containerMetadata(stageDesc)
+		default:
 			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
 			if err != nil {
 				return fmt.Errorf("generate SBOM: %w", err)
@@ -113,8 +116,6 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if err != nil {
 				return fmt.Errorf("parse scanned BOM: %w", err)
 			}
-
-			managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
 		}
 
 		resultBOM := targetBOM
@@ -186,7 +187,71 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-const sbomArtifactFormatVersion = "3"
+// containerMetadata builds the top-level container component of an image BOM. The
+// targeted directory scan reports the temporary scan directory as its source, so the
+// image identity is restored here explicitly (same as the skip-scan branch).
+func containerMetadata(stageDesc *image.StageDesc) *cdx.Metadata {
+	return &cdx.Metadata{
+		Component: &cdx.Component{
+			Type:    cdx.ComponentTypeContainer,
+			Name:    stageDesc.Info.Repository,
+			Version: stageDesc.Info.Tag,
+		},
+	}
+}
+
+// scanFileBasedPackages catalogs the file-based packages of a stapel image by scanning,
+// per directive, only the spec/lock files extracted from the built image (a directory
+// source), then unions the per-directive BOMs. This avoids walking the whole image
+// filesystem and needs no docker.sock in the scanner container.
+func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageRef string, scanOpts scanner.ScanOptions, catalogers []scanner.Cataloger, targetPlatform string) (*cdx.BOM, error) {
+	scannedBOMs := make([]*cdx.BOM, 0, len(catalogers))
+	for _, cataloger := range catalogers {
+		dir, cleanup, err := managedinput.MaterializeCatalogerInputs(ctx, step.containerBackend, imageRef, cataloger, targetPlatform)
+		if err != nil {
+			return nil, err
+		}
+
+		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir)
+		cleanup(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		scannedBOMs = append(scannedBOMs, bom)
+	}
+
+	merged, err := cyclonedxutil.MergeBOMs(scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
+	if err != nil {
+		return nil, fmt.Errorf("union per-directive BOMs: %w", err)
+	}
+
+	return merged, nil
+}
+
+func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir string) (*cdx.BOM, error) {
+	cmd := scanOpts.Commands[0]
+	cmd.Catalogers = []scanner.Cataloger{cataloger}
+	cmd.SourceType = scanner.SourceTypeDir
+	cmd.SourcePath = dir
+
+	perDirectiveOpts := scanOpts
+	perDirectiveOpts.Commands = []scanner.ScanCommand{cmd}
+
+	bomJSON, err := step.containerBackend.GenerateSBOM(ctx, perDirectiveOpts)
+	if err != nil {
+		return nil, fmt.Errorf("generate SBOM for cataloger %q: %w", cataloger.Name, err)
+	}
+
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse scanned BOM for cataloger %q: %w", cataloger.Name, err)
+	}
+
+	return bom, nil
+}
+
+const sbomArtifactFormatVersion = "4"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

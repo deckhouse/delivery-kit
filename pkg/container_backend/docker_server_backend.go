@@ -705,16 +705,29 @@ func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts s
 	return bomJSON, err
 }
 
+const sbomScanDirContainerMountPath = "/scan"
+
 func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billNames []string, scanOpts scanner.ScanOptions) []string {
 	args := []string{
 		"--rm",
 		"--name", fmt.Sprintf("%s%s", image.SBOMScannerContainerNamePrefix, uuid.New().String()),
 		"--pull", scanOpts.PullPolicy.String(),
 		"--entrypoint", "", // clear default image entrypoint
-		"--volume", "/var/run/docker.sock:/var/run/docker.sock", // TODO: return error on non Unix systems
 	}
 
-	// TODO (zaytsev): the code support only single command at this moment
+	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands
+
+	switch scanCmd.SourceType {
+	case scanner.SourceTypeDir:
+		// Scan only the spec/lock files materialized on the host; the scanner reads them
+		// directly from a bind mount, so no docker.sock access to the image is needed.
+		args = append(args, "--volume", fmt.Sprintf("%s:%s:ro", scanCmd.SourcePath, sbomScanDirContainerMountPath))
+		scanCmd.SourcePath = sbomScanDirContainerMountPath
+	default:
+		scanCmd.SourceType = scanner.SourceTypeDocker
+		args = append(args, "--volume", "/var/run/docker.sock:/var/run/docker.sock") // TODO: return error on non Unix systems
+	}
+
 	billHostPath := filepath.Join(workingTreeDir, billsDir, billNames[0])
 	billContainerPath := filepath.Join("/tmp", billsDir, billNames[0])
 	args = append(args, "--volume", fmt.Sprintf("%s:%s", billHostPath, billContainerPath))
@@ -726,8 +739,6 @@ func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billN
 
 	args = append(args, scanOpts.Image)
 
-	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands
-	scanCmd.SourceType = scanner.SourceTypeDocker
 	scanCmd.OutputPath = billContainerPath
 
 	args = append(args, strings.Split(scanCmd.String(), " ")...)

@@ -59,17 +59,17 @@ specs/022-alternative-language-package-managers/
 
 ```text
 pkg/config/
-├── packages_directive.go       # version field, alternative-manager metadata, validation
-├── raw_packages_directive.go   # YAML version parsing and validation wiring
-├── packages_commands.go        # bootstrap/install/cleanup command generation
-└── *_test.go                   # config and command coverage
-
-pkg/build/stage/testdata/
-└── packages_commands/
-    ├── javascript-yarn.golden
-    ├── javascript-pnpm.golden
-    ├── python-uv.golden
-    └── python-poetry.golden
+├── packages_directive.go                  # version field, alternative-manager metadata, validation
+├── raw_packages_directive.go              # YAML version parsing and validation wiring
+├── packages_commands.go                   # bootstrap/install/cleanup command generation
+├── packages_commands_test.go              # primary-manager and backward-compatibility coverage
+├── packages_alternative_managers_test.go # focused alternative-manager command coverage
+└── testdata/
+    └── packages_commands/
+        ├── javascript-yarn.golden
+        ├── javascript-pnpm.golden
+        ├── python-uv.golden
+        └── python-poetry.golden
 
 pkg/stapel/
 └── stapel.go                   # existing embedded lifecycle utility paths only; no grep/mktemp accessors
@@ -123,9 +123,10 @@ Research is recorded in [research.md](research.md). Key resolved decisions:
 4. Introduce the internal command-wrapper type/factory that centralizes `cd` and environment-prefix generation and returns the `InstallCmd` function shape used by `PackageEcosystem`.
 5. Configure the wrapper for alternative managers so each ecosystem emits one complete `if ... then ... else ... fi` block: the `then` branch rejects a pre-installed executable, while the `else` branch changes into the directive workdir before bootstrap and keeps Go-generated UUID scope creation, version bootstrap, frozen dependency installation, and embedded-toolchain cleanup on separate readable lines under the enclosing fail-fast shell execution. Apply the env prefix as an additional positional template argument immediately before the external commands that need it; leave `cd` and `rm` unprefixed, use `stapel.MkdirBinPath()` and `stapel.RmBinPath()` for scope lifecycle, and do not emit unavailable `mktemp` or `grep` commands. Keep the lifecycle readable and ensure a pre-installed manager cannot be silently reused; do not emit a redundant inner `set -e` or a post-bootstrap version-output check.
 6. Refactor duplicated `InstallCmd` closures in `pkg/config/packages_directive.go` to use the wrapper while preserving primary and unrelated ecosystem behavior. Remove the general `prefixCommand(lifecycle, env)` call only at the selected `InstallCmd` return site, avoid persistent `PATH` changes, and ensure errors remain operation-specific and command content affects package-stage caching.
-7. Add focused Ginkgo/Gomega tests for the switch helper, complete generated wrapper snippets, workdir selection before bootstrap, env propagation to a stub external manager, UUID scope propagation, embedded `mkdir`/`rm` paths, absence of `mktemp`/`grep` and a redundant inner `set -e`, parsing, required/invalid/unsupported-type/valid-SemVer validation cases in a `DescribeTable`, pre-installed-manager rejection, failure ordering, scope cleanup, primary types, and multiple directives; compare each full snippet against an independent expected value rather than generating the expectation with the function under test. Post-bootstrap version-output verification is out of scope.
-8. Add independent golden expectations under `pkg/build/stage/testdata/packages_commands/` for the full generated Yarn, pnpm, uv, and Poetry command snippets. The tests must read and compare these files directly, must not derive expectations via `GeneratePackagesCommands`, and must not provide an automatic golden-update mode. Keep separate behavioral tests for validation, failure handling, env propagation, scope lifecycle, and cleanup because golden files verify generated structure rather than executing the shell.
-9. Update the four existing SBOM e2e fixtures/tests with valid SemVer versions, pre-installed-manager rejection coverage where representable, temporary-scope cleanup assertions, and existing dependency SBOM assertions.
+7. Keep `pkg/config/packages_commands_test.go` focused on primary-manager and backward-compatibility coverage: remove all `substring: "unused"` entries, remove the alternative-manager conditional assertion path, and retain meaningful literal expectations for the existing package types.
+8. Create `pkg/config/packages_alternative_managers_test.go` with focused Ginkgo/Gomega tables for Yarn, pnpm, uv, and Poetry. Cover the complete generated lifecycle, workdir selection before bootstrap, env propagation to a stub external manager, UUID scope propagation, embedded `mkdir`/`rm` paths, absence of `mktemp`/`grep` and a redundant inner `set -e`, pre-installed-manager rejection, failure ordering, scope cleanup, and multiple directives. Compare each generated command against an independent expected value rather than generating the expectation with the function under test. Post-bootstrap version-output verification is out of scope.
+9. Add independent golden expectations under `pkg/config/testdata/packages_commands/` for the full generated Yarn, pnpm, uv, and Poetry command snippets. The new alternative-manager test file must read and compare these files directly, must not derive expectations via `GeneratePackagesCommands`, and must not provide an automatic golden-update mode. Keep separate behavioral tests for validation, failure handling, env propagation, scope lifecycle, and cleanup because golden files verify generated structure rather than executing the shell.
+10. Update the four existing SBOM e2e fixtures/tests with valid SemVer versions, pre-installed-manager rejection coverage where representable, temporary-scope cleanup assertions, and existing dependency SBOM assertions.
 10. Update both EN and RU package-directive reference documentation with the required `version` field, Python `python3`/`venv` prerequisites, and migration guidance for images with pre-installed managers. Do not document supported version ranges in this feature; they are tracked in Kaiten card 69824840. Preserve the intentional `AGENTS.md` remote-taskfile-note removal and do not modify generated release files.
 
 ## Constitution Check (Post-Design)
@@ -133,7 +134,7 @@ Research is recorded in [research.md](research.md). Key resolved decisions:
 - **Simplicity — PASS:** one small internal command wrapper removes duplicated shell composition without introducing a service or interface hierarchy; isolation and the pre-installed-manager rejection remain implementation details of the generated command function.
 - **Idiomatic Go — PASS:** typed field and internal helpers follow current config/command patterns; errors include operation context.
 - **Minimal surface — PASS:** only the per-directive `version` configuration field is user-visible; the switch and wrapper remain internal.
-- **Testing — PASS:** unit and e2e coverage directly maps to every manager and failure lifecycle; generated command tests use independent golden expectations and do not compare the function under test with itself.
+- **Testing — PASS:** unit and e2e coverage directly maps to every manager and failure lifecycle; backward-compatibility tests contain no dead `unused` expectations, alternative-manager tests are isolated in their own file, and generated command tests use independent golden expectations without comparing the function under test with itself.
 - **Dependencies and boundaries — PASS:** no new dependency is added; the already-present SemVer library is reused, and no cross-layer inversion is introduced.
 - **Documentation and scope — PASS:** EN/RU package-directive documentation covers the approved prerequisites and migration guidance; version-range compatibility remains explicitly deferred to Kaiten card 69824840, post-bootstrap version-output verification is separately out of scope, and the intentional `AGENTS.md` removal is recorded rather than treated as an accidental drive-by change.
 - **Quality gates — PASS:** implementation validation follows the repository-required `task` commands and scoped e2e commands in `quickstart.md`.

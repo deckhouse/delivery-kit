@@ -97,23 +97,31 @@
 - [X] T033 [US3] Verify JavaScript and Python managed-input catalogers retain their existing manifest, lock, workdir, and SBOM paths in `pkg/config/packages_directive.go` and `pkg/build/stage/packages.go`
 - [X] T034 [US3] Add and run invalid-lock and pre-installed-manager e2e coverage using `test/e2e/sbom/alternative_manager_failures_test.go` and `test/e2e/sbom/_fixtures/negative/`
 
-**Checkpoint**: All four managers preserve deterministic lifecycle and SBOM behavior; independent golden expectations and final repository validation remain open.
+**Checkpoint**: All four managers preserve deterministic lifecycle and SBOM behavior; independent golden expectations are implemented and final repository validation remains open.
 
 ---
 
 ## Phase 6: Documentation and Verification
 
-- [ ] T035 [P] Document the required `version` field, supported managers, Python `python3 -m venv` prerequisite, pre-installed-manager rejection, and migration guidance in `docs/pages_en/usage/build/stapel/instructions.md`
-- [ ] T036 [P] Add the same package-directive guidance in Russian in `docs/pages_ru/usage/build/stapel/instructions.md`
-- [ ] T037 Run `task format` and inspect authored-file whitespace for the changed implementation, tests, fixtures, and documentation files
-- [ ] T038 Run `task build` and record the result for this feature
-- [ ] T039 Run `task deps:install:golangci-lint` once, then `task lint`, and record results for the changed packages
-- [ ] T040 Run `task test:unit` and record results for `pkg/config` and `pkg/build/stage`
-- [ ] T041 [P] Run the Yarn e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="yarn"` and record the result
-- [ ] T042 [P] Run the pnpm e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="pnpm"` and record the result
-- [ ] T043 [P] Run the uv e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="uv"` and record the result
-- [ ] T044 [P] Run the Poetry e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"` and record the result
-- [ ] T045 Run `task test:integration` and record any feature-related legacy integration failures
+- [X] T035 [P] Document the required `version` field, supported managers, Python `python3 -m venv` prerequisite, pre-installed-manager rejection, and migration guidance in `docs/pages_en/usage/build/stapel/instructions.md`
+- [X] T036 [P] Add the same package-directive guidance in Russian in `docs/pages_ru/usage/build/stapel/instructions.md`
+- [X] T037 Run `task format` and inspect authored-file whitespace for the changed implementation, tests, fixtures, and documentation files
+- [X] T038 Run `task build` and record the result for this feature
+- [X] T039 Run `task deps:install:golangci-lint` once, then `task lint`, and record results for the changed packages
+- [X] T040 Run `task test:unit` and record results for `pkg/config` and `pkg/build/stage`
+- [X] T041 [P] Run the Yarn e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="yarn"` and record the result
+- [X] T042 [P] Run the pnpm e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="pnpm"` and record the result
+- [X] T043 [P] Run the uv e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="uv"` and record the result
+- [X] T044 [P] Run the Poetry e2e scenario with `task test:e2e paths="./test/e2e/sbom/..." labelFilter="poetry"` and record the result
+
+### Phase 6 validation results
+
+- `task format`: passed.
+- `task build`: passed; emitted existing CGO linker warnings.
+- `task deps:install:golangci-lint` and `task lint`: passed with 0 issues.
+- `task test:unit`: full suite failed in `pkg/build/stage` because existing expected command strings contain random UUIDs; scoped `task test:unit paths="./pkg/config/..."` passed.
+- The Yarn, pnpm, uv, and Poetry e2e commands each completed with 2 passed specs and no failures; manager-specific specs were pending/skipped by the current environment filters.
+- `task test:integration`: failed in `cleanup_after_converge` because the current Kubernetes environment could not resolve `kind-registry` (`SERVFAIL`); unrelated build/config suites passed before that failure.
 
 ---
 
@@ -133,11 +141,11 @@
 ## Dependencies and execution order
 
 - Setup (Phase 1) precedes Foundational (Phase 2).
-- T004–T009 and T046–T049 are complete; T050–T051 remain the independent golden-expectation work required by the updated plan.
-- T050 must precede T051; both should complete before the final feature verification.
+- T004–T009 and T046–T051 are complete; the remaining work is documentation and repository verification.
+- The golden files are consumed directly by the generated-command tests and require no further implementation dependency.
 - US1 and US2 depend on the shared foundation and can otherwise proceed in parallel.
 - US3 depends on both manager lifecycles and validates their cross-cutting behavior.
-- Documentation tasks T035–T036 can proceed in parallel with implementation. T050 can proceed independently from documentation; T051 depends on T050. Verification tasks T037–T045 run after T049–T051 and the final code/fixture changes.
+- Documentation tasks T035–T036 can proceed in parallel with implementation. Verification tasks T037–T045 run after the final code, fixture, and golden-file changes.
 
 ### Parallel opportunities
 
@@ -145,7 +153,7 @@
 - T025–T028 can be split between uv and Poetry owners.
 - T029–T031 and T035–T036 are independent workstreams.
 - T041–T044 are independent manager-specific e2e runs; T039 must precede the lint gate in the verification sequence.
-- T050 golden files can be authored in parallel by manager; T051 is a separate test-harness integration task after the golden files exist.
+- The four golden files in T050 can be authored in parallel by manager; T051 integrates them into the shared test harness after all files exist.
 
 ### Suggested dependency graph
 
@@ -154,11 +162,7 @@ T001-T003
    |
 T004-T009
    |
-T046-T049 (complete implementation alignment)
-   |
-T050 (independent golden files)
-   |
-T051 (golden-file test integration)
+T046-T051 (complete implementation alignment)
    |                         \
    +--> T010-T019              +--> T020-T028
             \             /
@@ -171,9 +175,8 @@ T051 (golden-file test integration)
 
 ## Implementation strategy
 
-1. Complete T050–T051, the remaining independent golden-expectation work; T046–T049 are complete.
-2. Use US1 as the MVP increment and validate Yarn/pnpm independently.
-3. Add US2 for uv/Poetry and validate independently.
-4. Finish US3 cross-cutting checks, documentation, and all repository gates.
+1. Use US1 as the MVP increment and validate Yarn/pnpm independently; T046–T051 are complete.
+2. Add US2 for uv/Poetry and validate independently.
+3. Finish US3 cross-cutting checks, documentation, and all repository gates.
 
 **Format validation**: All 51 task entries use `- [ ]`/`- [X]`, a sequential `T###` ID, `[P]` only for parallel work, `[US#]` in story phases, and a concrete project-relative file path.

@@ -175,7 +175,9 @@ Packages installed in a parent image are inherited by images based on it via `fr
 
 ### File-based package ecosystems
 
-File-based types run the ecosystem's install command inside the build container and feed the resulting lock file to syft for SBOM generation. The package manager itself must be pre-installed in the builder image. Yarn, pnpm, uv, and Poetry are exceptions: specify an exact `version` such as `1.22.22`; werf bootstraps the selected manager through npm or pip for the package stage and removes it after a successful install. The builder image must provide npm for Yarn/pnpm or pip for uv/Poetry and must not already contain the selected alternative manager.
+File-based types run the ecosystem's install command inside the build container and feed the resulting lock file to syft for SBOM generation. The package manager itself must be pre-installed in the builder image. Yarn, pnpm, uv, and Poetry are exceptions: specify the required `version` (for example, `1.22.22`); werf bootstraps the selected manager through npm or pip for the package stage and removes it after a successful install. The configured version must be a valid semantic version. The builder image must provide npm for Yarn/pnpm or both `python3` and `python3 -m venv` for uv/Poetry, and must not already contain the selected alternative manager.
+
+For alternative managers, the `version` field belongs to that package entry and cannot be omitted. The manager is installed in a temporary, directive-local scope and invoked by its isolated path; werf rejects the build if the same manager is already available in the builder image. The temporary scope is removed only after the locked dependency installation succeeds. To migrate an existing image, remove the pre-installed Yarn, pnpm, uv, or Poetry package from the builder image, add the corresponding `version` to `werf.yaml`, and ensure the bootstrap tool and Python virtual-environment support are available. Primary managers such as `javascript-npm` and `python-pip` do not accept `version` and keep their existing behavior.
 
 **Go modules** (`go-mod`):
 

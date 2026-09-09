@@ -455,7 +455,7 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 	}
 
 	var stderrBuf *bytes.Buffer
-	buildOpts.Out, buildOpts.Err, stderrBuf = generateStdoutStderr(opts.LogWriter, nil, nil)
+	buildOpts.Out, buildOpts.Err, stderrBuf = generateStdoutStderr(opts.LogWriter)
 	buildOpts.ContextDirectory = opts.ContextDir
 
 	imageId, _, err := imagebuildah.BuildDockerfiles(ctx, b.Store, buildOpts, dockerfile)
@@ -494,7 +494,7 @@ func (b *NativeBuildah) RunCommand(ctx context.Context, container string, comman
 	nsOpts, netPolicy := generateNamespaceOptionsAndNetworkPolicy(opts.NetworkType)
 	globalMounts := generateGlobalMounts(opts.GlobalMounts)
 	runMounts := generateRunMounts(opts.RunMounts)
-	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter, opts.Stdout, opts.Stderr)
+	stdout, stderr, stderrBuf := generateStdoutStderr(opts.LogWriter)
 	command = prependShellToCommand(opts.PrependShell, opts.Shell, command, builder)
 
 	sysCtx, err := b.getSystemContext(opts.TargetPlatform)
@@ -1423,26 +1423,13 @@ func generateContextDir(rawContextDir string, runMounts []*instructions.Mount) s
 // returned errors do not repeat output already streamed to the log. The caller
 // passes nil when nothing would be shown, so stdout is dropped instead of leaking
 // to the process stdout as buildah does for a nil writer.
-func generateStdoutStderr(optionalLogWriter, optionalStdout, optionalStderr io.Writer) (io.Writer, io.Writer, *bytes.Buffer) {
+func generateStdoutStderr(optionalLogWriter io.Writer) (io.Writer, io.Writer, *bytes.Buffer) {
 	stderrBuf := &bytes.Buffer{}
-
-	stdout := optionalStdout
-	if stdout == nil {
-		stdout = optionalLogWriter
-	}
-	if stdout == nil {
-		stdout = io.Discard
+	if optionalLogWriter != nil {
+		return optionalLogWriter, optionalLogWriter, stderrBuf
 	}
 
-	stderr := optionalStderr
-	if stderr == nil {
-		stderr = optionalLogWriter
-	}
-	if stderr == nil {
-		stderr = stderrBuf
-	}
-
-	return stdout, stderr, stderrBuf
+	return io.Discard, stderrBuf, stderrBuf
 }
 
 func wrapStderrError(msg string, stderrBuf *bytes.Buffer, err error) error {

@@ -690,7 +690,7 @@ location = "dropin-mirror.example.com"
 	Describe("stderr handling", func() {
 		It("should stream stderr to the log writer without keeping a copy for the error", func() {
 			logWriter := &bytes.Buffer{}
-			stdout, stderr, stderrBuf := generateStdoutStderr(logWriter)
+			stdout, stderr, stderrBuf := generateStdoutStderr(logWriter, nil, nil)
 			fmt.Fprint(stdout, "out\n")
 			fmt.Fprint(stderr, "MARKER-STDERR-LINE\n")
 
@@ -702,7 +702,7 @@ location = "dropin-mirror.example.com"
 		})
 
 		It("should keep stderr for the error and drop stdout when there is no log writer", func() {
-			stdout, stderr, stderrBuf := generateStdoutStderr(nil)
+			stdout, stderr, stderrBuf := generateStdoutStderr(nil, nil, nil)
 			Expect(stdout).To(Equal(io.Discard))
 			fmt.Fprint(stderr, "MARKER-STDERR-LINE\n")
 

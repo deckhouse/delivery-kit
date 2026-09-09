@@ -120,10 +120,6 @@ func MkdirBinPath() string {
 	return embeddedBinPath("mkdir")
 }
 
-func CatBinPath() string {
-	return embeddedBinPath("cat")
-}
-
 func BashBinPath() string {
 	return embeddedBinPath("bash")
 }

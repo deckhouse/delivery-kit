@@ -22,7 +22,7 @@ var _ = Describe("SBOM javascript-pnpm packages", Label("e2e", "sbom", "pnpm", "
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(buildOut).NotTo(ContainSubstring("alternative manager pnpm is already installed"))
-			managerAbsentOut := werfProject.RunCommand(ctx, []string{"run", "app", "--", "sh", "-c", "command -v pnpm >/dev/null 2>&1 && exit 1; exit 0"}, werf.CommonOptions{Envs: builderEnv})
+			managerAbsentOut := werfProject.RunCommand(ctx, []string{"run", "app", "--", "sh", "-c", "command -v pnpm >/dev/null 2>&1 && exit 1; for scope in /tmp/werf-packages-*; do test -e \"$scope\" && exit 1; done; exit 0"}, werf.CommonOptions{Envs: builderEnv})
 			Expect(managerAbsentOut).NotTo(ContainSubstring("alternative manager"))
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{

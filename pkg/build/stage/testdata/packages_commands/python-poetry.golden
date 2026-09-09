@@ -6,8 +6,8 @@ else
   cd "/app"
   scope="/tmp/werf-packages-UUID"
   /.werf/stapel/embedded/bin/mkdir -p "$scope"
-   python3 -m venv "$scope"
-   "$scope/bin/python" -m pip install --no-cache-dir poetry==2.1.3
-   "$scope/bin/poetry" sync --no-root
-  /.werf/stapel/embedded/bin/rm -rf "$scope"
+   python3 -m venv "$scope" || { echo 'poetry bootstrap failed' >&2; exit 1; }
+   "$scope/bin/python" -m pip install --no-cache-dir poetry==2.1.3 || { echo 'poetry bootstrap failed' >&2; exit 1; }
+   "$scope/bin/poetry" sync --no-root || { echo 'poetry dependency installation failed' >&2; exit 1; }
+  /.werf/stapel/embedded/bin/rm -rf "$scope" || { echo 'poetry cleanup failed' >&2; exit 1; }
 fi

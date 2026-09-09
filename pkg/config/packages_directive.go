@@ -193,9 +193,9 @@ else
   cd %[3]q
   scope=%[6]q
   %[7]s -p "$scope"
-  %[5]s npm install --prefix "$scope" --no-save --package-lock=false %[1]s@%[2]s
-  %[5]s "$scope/node_modules/.bin/%[1]s" %[4]s
-  %[8]s -rf "$scope"
+  %[5]s npm install --prefix "$scope" --no-save --package-lock=false %[1]s@%[2]s || { echo '%[1]s bootstrap failed' >&2; exit 1; }
+  %[5]s "$scope/node_modules/.bin/%[1]s" %[4]s || { echo '%[1]s dependency installation failed' >&2; exit 1; }
+  %[8]s -rf "$scope" || { echo '%[1]s cleanup failed' >&2; exit 1; }
 fi
 `
 	pythonAlternativeManagerTemplate = `
@@ -206,10 +206,10 @@ else
   cd %[3]q
   scope=%[6]q
   %[7]s -p "$scope"
-  %[5]s python3 -m venv "$scope"
-  %[5]s "$scope/bin/python" -m pip install --no-cache-dir %[1]s==%[2]s
-  %[5]s "$scope/bin/%[1]s" %[4]s
-  %[8]s -rf "$scope"
+  %[5]s python3 -m venv "$scope" || { echo '%[1]s bootstrap failed' >&2; exit 1; }
+  %[5]s "$scope/bin/python" -m pip install --no-cache-dir %[1]s==%[2]s || { echo '%[1]s bootstrap failed' >&2; exit 1; }
+  %[5]s "$scope/bin/%[1]s" %[4]s || { echo '%[1]s dependency installation failed' >&2; exit 1; }
+  %[8]s -rf "$scope" || { echo '%[1]s cleanup failed' >&2; exit 1; }
 fi
 `
 )
@@ -269,7 +269,7 @@ func (d *PackagesDirective) validate() error {
 		if d.FileBased.Version == "" {
 			return fmt.Errorf("the `version` is required for type %q", d.Type)
 		}
-		if _, err := semver.NewVersion(d.FileBased.Version); err != nil {
+		if _, err := semver.StrictNewVersion(d.FileBased.Version); err != nil {
 			return fmt.Errorf("the `version` must be a valid semantic version for type %q: %w", d.Type, err)
 		}
 	} else if d.FileBased.Version != "" {

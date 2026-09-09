@@ -22,7 +22,7 @@ var _ = Describe("SBOM javascript-yarn packages", Label("e2e", "sbom", "yarn", "
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(buildOut).NotTo(ContainSubstring("alternative manager yarn is already installed"))
-			managerAbsentOut := werfProject.RunCommand(ctx, []string{"run", "app", "--", "sh", "-c", "command -v yarn >/dev/null 2>&1 && exit 1; command -v yarnpkg >/dev/null 2>&1 && exit 1; exit 0"}, werf.CommonOptions{Envs: builderEnv})
+			managerAbsentOut := werfProject.RunCommand(ctx, []string{"run", "app", "--", "sh", "-c", "command -v yarn >/dev/null 2>&1 && exit 1; command -v yarnpkg >/dev/null 2>&1 && exit 1; for scope in /tmp/werf-packages-*; do test -e \"$scope\" && exit 1; done; exit 0"}, werf.CommonOptions{Envs: builderEnv})
 			Expect(managerAbsentOut).NotTo(ContainSubstring("alternative manager"))
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{

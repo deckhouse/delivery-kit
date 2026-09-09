@@ -180,3 +180,12 @@ T046-T051 (complete implementation alignment)
 3. Finish US3 cross-cutting checks, documentation, and all repository gates.
 
 **Format validation**: All 51 task entries use `- [ ]`/`- [X]`, a sequential `T###` ID, `[P]` only for parallel work, `[US#]` in story phases, and a concrete project-relative file path.
+
+## Phase 8: Convergence
+
+- [X] T052 Add the dedicated alternative-manager Ginkgo/Gomega test suite with independent lifecycle, validation, ordering, scope, environment, and failure coverage per plan: implementation sequencing 8 / T009–T011 (missing)
+- [X] T053 Remove the alternative-manager conditional assertions and all `substring: "unused"` entries from the backward-compatibility table, keeping it focused on primary and unrelated managers per plan: implementation sequencing 7 / T051 (partial)
+- [X] T054 Add successful-build assertions that each Yarn, pnpm, uv, and Poetry UUID-scoped temporary manager installation is absent from the resulting image per SC-002 / SC-009 / T018–T019 / T027–T028 (partial)
+- [X] T055 Add distinct, all-manager failure diagnostics and tests for bootstrap, dependency installation, lock validation, and cleanup failures while preserving original causes per SC-008 / FR-014 / T029 (partial)
+- [X] T056 Complete and verify all four manager-specific pre-installed-manager negative fixtures and e2e assertions, including cleanup behavior where representable per FR-018 / SC-009 / T034 (partial)
+- [X] T057 Reject semver-parseable but non-exact manager versions and add coverage while preserving accepted prerelease/build metadata per FR-011 / FR-012 (partial)

@@ -1,0 +1,12 @@
+
+if command -v yarn >/dev/null 2>&1; then
+  echo 'yarn must not be pre-installed' >&2
+  exit 1
+else
+  cd "/app"
+  scope="/tmp/werf-packages-UUID"
+  /.werf/stapel/embedded/bin/mkdir -p "$scope"
+   npm install --prefix "$scope" --no-save --package-lock=false yarn@1.22.22
+   "$scope/node_modules/.bin/yarn" install --frozen-lockfile
+  /.werf/stapel/embedded/bin/rm -rf "$scope"
+fi

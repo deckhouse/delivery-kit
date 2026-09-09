@@ -1,0 +1,12 @@
+
+if command -v pnpm >/dev/null 2>&1; then
+  echo 'pnpm must not be pre-installed' >&2
+  exit 1
+else
+  cd "/app"
+  scope="/tmp/werf-packages-UUID"
+  /.werf/stapel/embedded/bin/mkdir -p "$scope"
+   npm install --prefix "$scope" --no-save --package-lock=false pnpm@9.15.4
+   "$scope/node_modules/.bin/pnpm" install --frozen-lockfile
+  /.werf/stapel/embedded/bin/rm -rf "$scope"
+fi

@@ -1,0 +1,13 @@
+
+if command -v uv >/dev/null 2>&1; then
+  echo 'uv must not be pre-installed' >&2
+  exit 1
+else
+  cd "/app"
+  scope="/tmp/werf-packages-UUID"
+  /.werf/stapel/embedded/bin/mkdir -p "$scope"
+   python3 -m venv "$scope"
+   "$scope/bin/python" -m pip install --no-cache-dir uv==0.8.17
+   "$scope/bin/uv" sync --frozen
+  /.werf/stapel/embedded/bin/rm -rf "$scope"
+fi

@@ -457,17 +457,16 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 })
 
 var _ = Describe("GeneratePackagesCommands alternative managers", func() {
-	DescribeTable("isolates each manager and cleans up only after installation",
-		func(directive *PackagesDirective, manager, version, install string) {
+	DescribeTable("matches the independent golden command expectation",
+		func(directive *PackagesDirective, goldenFile string) {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
 			Expect(cmds).To(HaveLen(1))
-			cmd := cmds[0]
-			Expect(normalizeAlternativeManagerScope(cmd)).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
+			Expect(strings.TrimSpace(normalizeAlternativeManagerScope(cmds[0]))).To(Equal(strings.TrimSpace(readPackagesCommandGolden(goldenFile))))
 		},
-		Entry("yarn", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}, "yarn", "1.22.22", "install --frozen-lockfile"),
-		Entry("pnpm", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}}, "pnpm", "9.15.4", "install --frozen-lockfile"),
-		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
-		Entry("poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
+		Entry("yarn", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}, "javascript-yarn.golden"),
+		Entry("pnpm", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}}, "javascript-pnpm.golden"),
+		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "python-uv.golden"),
+		Entry("poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "python-poetry.golden"),
 	)
 
 	It("checks the selected manager before bootstrapping", func() {
@@ -547,12 +546,10 @@ var _ = Describe("GeneratePackagesCommands alternative manager failures", func()
 	)
 })
 
-func expectedAlternativeManagerCommand(typeName PackagesDirectiveType, manager, version, workdir, installArgs string) string {
-	args := []any{manager, version, workdir, installArgs, "", "/tmp/werf-packages-UUID", "/.werf/stapel/embedded/bin/mkdir", "/.werf/stapel/embedded/bin/rm"}
-	if typeName == PackagesDirectiveTypeJavaScriptYarn || typeName == PackagesDirectiveTypeJavaScriptPnpm {
-		return fmt.Sprintf(javascriptAlternativeManagerTemplate, args...)
-	}
-	return fmt.Sprintf(pythonAlternativeManagerTemplate, args...)
+func readPackagesCommandGolden(name string) string {
+	contents, err := os.ReadFile(filepath.Join("..", "build", "stage", "testdata", "packages_commands", name))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return string(contents)
 }
 
 func normalizeAlternativeManagerScope(command string) string {
@@ -625,15 +622,6 @@ func prepareAlternativeManagerCommand(entry struct {
 }
 
 var _ = Describe("GeneratePackagesCommands Python alternative managers", func() {
-	DescribeTable("generates isolated locked-install commands",
-		func(directive *PackagesDirective, manager, version, install string) {
-			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
-			Expect(normalizeAlternativeManagerScope(cmd)).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
-		},
-		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
-		Entry("Poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
-	)
-
 	It("keeps python-pip free of alternative-manager lifecycle commands", func() {
 		cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}}})[0]
 		Expect(cmd).To(Equal(`cd "/app" && pip install --no-cache-dir -r "requirements.txt"`))
@@ -653,7 +641,8 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 		} {
 			directive := &PackagesDirective{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "1.2.3"}}
 			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
-			Expect(normalizeAlternativeManagerScope(cmd)).To(Equal(expectedAlternativeManagerCommand(entry.typeName, entry.manager, "1.2.3", "/app", entry.install)))
+			Expect(cmd).To(ContainSubstring(entry.manager + "==1.2.3"))
+			Expect(cmd).To(ContainSubstring(entry.install))
 		}
 	})
 

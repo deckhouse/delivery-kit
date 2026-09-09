@@ -411,10 +411,11 @@ type ShouldBeBuiltOptions struct {
 	CustomTagFuncList            []imagePkg.CustomTagFunc
 	ReportPath                   string
 	ReportFormat                 ReportFormat
+	ReportOperations             bool
 }
 
 func (c *Conveyor) ShouldBeBuilt(ctx context.Context, opts ShouldBeBuiltOptions) ([]*ImagesReport, error) {
-	ctx, opsCollector, buildStartedAt := c.newOperationsCollector(ctx)
+	ctx, opsCollector, buildStartedAt := c.newOperationsCollector(ctx, opts.ReportOperations)
 
 	if err := c.determineStages(ctx); err != nil {
 		return nil, err
@@ -431,6 +432,7 @@ func (c *Conveyor) ShouldBeBuilt(ctx context.Context, opts ShouldBeBuiltOptions)
 				CustomTagFuncList:            opts.CustomTagFuncList,
 				ReportPath:                   opts.ReportPath,
 				ReportFormat:                 opts.ReportFormat,
+				ReportOperations:             opts.ReportOperations,
 			},
 		}),
 	}
@@ -650,7 +652,7 @@ Please use Docker backend instead by unsetting WERF_BUILDAH_MODE environment var
 		}
 	}
 
-	ctx, opsCollector, buildStartedAt := c.newOperationsCollector(ctx)
+	ctx, opsCollector, buildStartedAt := c.newOperationsCollector(ctx, opts.ReportOperations)
 
 	if err := c.determineStages(ctx); err != nil {
 		return nil, err
@@ -724,8 +726,8 @@ func disableUnlessDebugConveyorPhases(logProcess types.LogProcessInterface) type
 	return logProcess
 }
 
-func (c *Conveyor) newOperationsCollector(ctx context.Context) (context.Context, *opstats.Collector, time.Time) {
-	if !logboek.Context(ctx).IsAcceptedLevel(level.Debug) {
+func (c *Conveyor) newOperationsCollector(ctx context.Context, forceEnabled bool) (context.Context, *opstats.Collector, time.Time) {
+	if !forceEnabled && !logboek.Context(ctx).IsAcceptedLevel(level.Debug) {
 		return ctx, nil, time.Time{}
 	}
 

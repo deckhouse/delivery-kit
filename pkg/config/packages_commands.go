@@ -27,9 +27,13 @@ func formatEnvVars(env map[string]string) string {
 }
 
 func formatSecretVar(name string) string {
+	// Bash reads the secret on its own: $(<file) is a redirection, and the [ -r ] guard keeps a
+	// missing secret quiet. Suppressing the error with 2>/dev/null instead would turn $(<file)
+	// into a bare redirection that yields nothing, and any external reader ties the stage to a
+	// binary of the stapel image or the base.
 	return fmt.Sprintf(
-		`%[1]s="${%[1]s:-$(%[2]s /run/secrets/%[1]s 2>/dev/null || true)}"`,
-		name, stapel.CatBinPath(),
+		`%[1]s="${%[1]s:-$([ -r /run/secrets/%[1]s ] && printf '%%s' "$(</run/secrets/%[1]s)" || true)}"`,
+		name,
 	)
 }
 

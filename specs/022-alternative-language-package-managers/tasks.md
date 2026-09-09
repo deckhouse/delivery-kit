@@ -6,7 +6,7 @@
 
 **Tests**: Required by the feature plan and constitution. Use co-located Ginkgo/Gomega tests and four dedicated SBOM e2e scenarios.
 
-**Current status**: The implementation and existing unit/e2e coverage are present in the current branch. Remaining unchecked tasks are work identified by the updated plan or validation work not evidenced as completed in the repository.
+**Current status**: The implementation and existing unit/e2e coverage are present in the current branch. Remaining unchecked tasks are work identified by the updated plan or validation work not evidenced as completed in the repository. Post-bootstrap manager-version output verification is explicitly out of scope.
 
 ## Phase 1: Setup
 
@@ -29,7 +29,7 @@
 - [X] T008 Wire version defaults, unknown-field handling, and validation errors through raw directive conversion in `pkg/config/raw_packages_directive.go`
 - [X] T009 Add Ginkgo/Gomega coverage for parsing, required/forbidden versions, malformed values, alternative-manager classification, primary-type compatibility, and complete generated snippets in `pkg/config/raw_packages_directive_test.go` and `pkg/config/packages_commands_test.go`
 
-**Checkpoint**: Shared configuration and command generation are ready for both user stories; library-backed SemVer parsing remains open in T046.
+**Checkpoint**: Shared configuration and command generation are ready for both user stories; UUID-based scope generation remains open in T047.
 
 ---
 
@@ -37,12 +37,12 @@
 
 **Goal**: Bootstrap Yarn or pnpm with npm in an isolated temporary prefix, install locked dependencies through the absolute isolated executable, reject pre-installed managers, and remove the prefix after success.
 
-**Independent test**: Build the Yarn and pnpm fixtures with npm but without the selected alternative manager; verify successful locked installation, SBOM visibility, exact version propagation, prefix removal, and rejection of pre-installed managers before bootstrap.
+**Independent test**: Build the Yarn and pnpm fixtures with npm but without the selected alternative manager; verify successful locked installation, SBOM visibility, configured bootstrap version propagation, UUID-scoped prefix removal, and rejection of pre-installed managers before bootstrap.
 
 ### Tests
 
-- [X] T010 [P] [US1] Compare complete Yarn and pnpm lifecycle snippets, including rejection, temporary-prefix creation, npm bootstrap, version verification, frozen install, and cleanup in `pkg/config/packages_commands_test.go`
-- [X] T011 [P] [US1] Test JavaScript bootstrap, version, dependency, and cleanup ordering and failure behavior in `pkg/config/packages_commands_test.go`
+- [X] T010 [P] [US1] Compare complete Yarn and pnpm lifecycle snippets, including rejection, temporary-prefix creation, npm bootstrap with the configured version, frozen install, and cleanup in `pkg/config/packages_commands_test.go`
+- [X] T011 [P] [US1] Test JavaScript bootstrap, dependency, and cleanup ordering and failure behavior without requiring post-bootstrap manager-version output verification in `pkg/config/packages_commands_test.go`
 - [X] T012 [P] [US1] Test unchanged `javascript-npm` command generation in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_javascript_test.go`
 
 ### Implementation and acceptance fixtures
@@ -55,7 +55,7 @@
 - [X] T018 [P] [US1] Verify Yarn dependency installation, SBOM output, temporary-manager absence, and pre-installed rejection in `test/e2e/sbom/yarn_test.go` and `test/e2e/sbom/alternative_manager_failures_test.go`
 - [X] T019 [P] [US1] Verify pnpm dependency installation, SBOM output, temporary-manager absence, and pre-installed rejection in `test/e2e/sbom/pnpm_test.go` and `test/e2e/sbom/alternative_manager_failures_test.go`
 
-**Checkpoint**: Yarn and pnpm are independently functional; T046 still blocks final conformance for prerelease/build SemVer values.
+**Checkpoint**: Yarn and pnpm are independently functional; final repository verification remains open.
 
 ---
 
@@ -63,11 +63,11 @@
 
 **Goal**: Bootstrap uv or Poetry with pip in an isolated virtual environment, install locked dependencies through the isolated executable, reject pre-installed managers, and remove the virtual environment after success.
 
-**Independent test**: Build the uv and Poetry fixtures with pip and Python venv support but without the selected alternative manager; verify locked installation, SBOM visibility, exact version propagation, venv removal, and pre-installed rejection.
+**Independent test**: Build the uv and Poetry fixtures with pip and Python venv support but without the selected alternative manager; verify locked installation, SBOM visibility, configured bootstrap version propagation, UUID-scoped venv removal, and pre-installed rejection.
 
 ### Tests
 
-- [X] T020 [P] [US2] Compare complete uv and Poetry lifecycle snippets, including rejection, venv creation, pip bootstrap, version verification, locked install, and cleanup in `pkg/config/packages_commands_test.go`
+- [X] T020 [P] [US2] Compare complete uv and Poetry lifecycle snippets, including rejection, venv creation, pip bootstrap with the configured version, locked install, and cleanup in `pkg/config/packages_commands_test.go`
 - [X] T021 [P] [US2] Test unchanged `python-pip` command generation in `pkg/config/packages_commands_test.go` and `pkg/config/packages_directive_python_test.go`
 - [X] T022 [P] [US2] Test independent versions, workdirs, and cleanup scopes for multiple Python directives in `pkg/config/packages_commands_test.go`
 
@@ -80,7 +80,7 @@
 - [X] T027 [P] [US2] Verify uv dependency installation, SBOM output, temporary-manager absence, and pre-installed rejection in `test/e2e/sbom/uv_test.go` and `test/e2e/sbom/alternative_manager_failures_test.go`
 - [X] T028 [P] [US2] Verify Poetry dependency installation, SBOM output, temporary-manager absence, and pre-installed rejection in `test/e2e/sbom/poetry_test.go` and `test/e2e/sbom/alternative_manager_failures_test.go`
 
-**Checkpoint**: uv and Poetry are independently functional; T046 remains the shared validation follow-up.
+**Checkpoint**: uv and Poetry are independently functional; final repository verification remains open.
 
 ---
 
@@ -90,14 +90,14 @@
 
 **Independent test**: Exercise successful, invalid-lock, bootstrap-failure, cleanup-failure, and pre-installed-manager cases for all four managers; verify original errors, cleanup ordering, cache invalidation, and SBOM dependency entries.
 
-- [X] T029 [P] [US3] Cover pre-installed rejection, missing prerequisites, invalid locks, bootstrap/version failures, dependency failures, cleanup failures, and operation-specific diagnostics in `pkg/config/packages_commands_test.go`
+- [X] T029 [P] [US3] Cover pre-installed rejection, missing prerequisites, bootstrap failures, invalid locks, dependency failures, cleanup failures, and operation-specific diagnostics without adding post-bootstrap version-output verification in `pkg/config/packages_commands_test.go`
 - [X] T030 [P] [US3] Verify manager versions and lifecycle commands affect package checksum while managed-input SBOM paths remain unchanged in `pkg/build/stage/packages_test.go`
 - [X] T031 [P] [US3] Verify mixed JavaScript/Python directives and unchanged unsupported ecosystems in `pkg/config/packages_directive_test.go`
 - [X] T032 [US3] Verify the lifecycle remains in the existing package stage without a new stage, shared global state, or independent lock scan in `pkg/build/stage/packages.go`
 - [X] T033 [US3] Verify JavaScript and Python managed-input catalogers retain their existing manifest, lock, workdir, and SBOM paths in `pkg/config/packages_directive.go` and `pkg/build/stage/packages.go`
-- [X] T034 [X] [US3] Add and run invalid-lock and pre-installed-manager e2e coverage using `test/e2e/sbom/alternative_manager_failures_test.go` and `test/e2e/sbom/_fixtures/negative/`
+- [X] T034 [US3] Add and run invalid-lock and pre-installed-manager e2e coverage using `test/e2e/sbom/alternative_manager_failures_test.go` and `test/e2e/sbom/_fixtures/negative/`
 
-**Checkpoint**: All four managers preserve deterministic lifecycle and SBOM behavior once T005 and final validation are complete.
+**Checkpoint**: All four managers preserve deterministic lifecycle and SBOM behavior; final repository validation remains open.
 
 ---
 
@@ -119,29 +119,28 @@
 
 ## Phase 7: Updated Plan Alignment
 
-**Purpose**: Complete requirements added after the previous task-list revision: library-backed SemVer validation, embedded Stapel utility paths, per-command environment propagation, and removal of redundant shell fail-fast setup.
+**Purpose**: Complete requirements added after the previous task-list revision: library-backed SemVer validation, Go-generated UUID scope identifiers, available embedded utility paths, per-command environment propagation, and removal of redundant shell fail-fast setup. Post-bootstrap manager-version output verification is excluded.
 
-- [ ] T046 Replace the regex-based manager-version validation with `github.com/Masterminds/semver/v3` parsing in `pkg/config/packages_directive.go`, and update the version-validation table in `pkg/config/packages_directive_test.go` to cover prerelease/build metadata while preserving required/forbidden version rules
-- [ ] T047 Add the narrowest embedded-toolchain accessors for `mktemp` and `grep` alongside the existing `RmBinPath` in `pkg/stapel/stapel.go`, then render those paths in the alternative-manager templates in `pkg/config/packages_directive.go`
-- [ ] T048 Refactor alternative-manager command templates in `pkg/config/packages_directive.go` so environment assignments prefix only external commands that need them, the enclosing fail-fast script supplies error propagation without an inner `set -e`, and tests compare the complete updated snippets in `pkg/config/packages_commands_test.go`
+- [X] T046 Replace the regex-based manager-version validation with `github.com/Masterminds/semver/v3` parsing in `pkg/config/packages_directive.go`, and update the version-validation table in `pkg/config/packages_directive_test.go` to cover prerelease/build metadata while preserving required/forbidden version rules
+- [X] T047 Replace the PID/suffix scope generation and post-bootstrap version-output check in `pkg/config/packages_directive.go` with a Go-generated UUID using `github.com/google/uuid`, pass that identifier into the lifecycle template, create the scope with `stapel.MkdirBinPath()`, retain `stapel.RmBinPath()` cleanup, and remove any unavailable `mktemp`/`grep` accessors or commands
+- [X] T048 Refactor alternative-manager command templates in `pkg/config/packages_directive.go` so environment assignments prefix only external commands that need them, the enclosing fail-fast script supplies error propagation without an inner `set -e`, and tests compare the complete updated snippets in `pkg/config/packages_commands_test.go`
 
 ---
 
 ## Dependencies and execution order
 
 - Setup (Phase 1) precedes Foundational (Phase 2).
-- T004–T009 are complete and enable both user stories; T046 must be completed before final feature conformance because the updated plan requires `semver/v3` validation.
-- T047–T048 are shared lifecycle corrections and must complete before the final e2e verification; they affect both US1 and US2.
+- T004–T009 and T046/T048 are complete; T047 remains the shared lifecycle correction required before both user stories conform to the updated UUID-scope contract.
+- T047 must complete before the final e2e verification because it affects both US1 and US2.
 - US1 and US2 depend on the shared foundation and can otherwise proceed in parallel.
 - US3 depends on both manager lifecycles and validates their cross-cutting behavior.
-- Documentation can proceed in parallel with implementation; verification tasks T037–T045 run after the final code and fixture changes, including T046–T048.
+- Documentation tasks T035–T036 can proceed in parallel with implementation. Verification tasks T037–T045 run after T047 and the final code/fixture changes.
 
 ### Parallel opportunities
 
 - T002–T003, T006–T007, and T016–T019 can be split across independent files.
 - T025–T028 can be split between uv and Poetry owners.
 - T029–T031 and T035–T036 are independent workstreams.
-- T046–T048 can be split between SemVer validation, Stapel accessors, and command-template/tests work, but T048 depends on the utility paths from T047.
 - T041–T044 are independent manager-specific e2e runs; T039 must precede the lint gate in the verification sequence.
 
 ### Suggested dependency graph
@@ -149,23 +148,26 @@
 ```text
 T001-T003
    |
-T004-T009 -- T005 (remaining validation alignment)
-   |                 \
-   +--> T010-T019      +--> T020-T028
+T004-T009
+   |
+T046/T048 (complete plan alignment)
+   |
+T047 (UUID scope alignment)
+   |                         \
+   +--> T010-T019              +--> T020-T028
             \             /
              +--> T029-T034
                       |
-             T035-T045 (docs and verification)
-                              |
-                         T046-T048 (updated plan alignment)
+             T035-T036 (documentation)
+                      |
+             T037-T045 (verification)
 ```
 
 ## Implementation strategy
 
-1. Complete T046 and the remaining foundational validation alignment.
-2. Complete T047–T048 to align lifecycle command generation with the updated plan.
-3. Use US1 as the MVP increment and validate Yarn/pnpm independently.
-4. Add US2 for uv/Poetry and validate independently.
-5. Finish US3 cross-cutting checks, documentation, and all repository gates.
+1. Complete T047, the remaining shared UUID-scope alignment.
+2. Use US1 as the MVP increment and validate Yarn/pnpm independently.
+3. Add US2 for uv/Poetry and validate independently.
+4. Finish US3 cross-cutting checks, documentation, and all repository gates.
 
 **Format validation**: All 48 task entries use `- [ ]`/`- [X]`, a sequential `T###` ID, `[P]` only for parallel work, `[US#]` in story phases, and a concrete project-relative file path.

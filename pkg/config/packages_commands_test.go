@@ -5,10 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/stapel"
 )
 
 var _ = Describe("formatSecretVar", func() {
@@ -160,8 +163,8 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 			cmd := cmds[0]
 			if isAlternativeManager(entry.directive.Type) {
 				Expect(cmd).To(ContainSubstring(entry.directive.FileBased.Version))
-				Expect(cmd).To(ContainSubstring("mktemp -d"))
-				Expect(cmd).To(ContainSubstring("rm -rf \"$scope\""))
+				Expect(cmd).To(MatchRegexp(`scope="/tmp/werf-packages-[0-9a-f-]+"`))
+				Expect(cmd).To(ContainSubstring("/.werf/stapel/embedded/bin/rm -rf \"$scope\""))
 				if entry.directive.Type == PackagesDirectiveTypePythonUV || entry.directive.Type == PackagesDirectiveTypePythonPoetry {
 					Expect(cmd).To(ContainSubstring("sync"))
 				} else {
@@ -393,7 +396,9 @@ var _ = Describe("GeneratePackagesCommands non-os-pm multiple env vars", func() 
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.4.20"}, Env: map[string]string{"BBB": "two", "AAA": "one"}},
 			substring: `sync --frozen`,
 			checks: []func(cmd string){
-				func(cmd string) { Expect(cmd).To(HavePrefix(`AAA="one" BBB="two"`)) },
+				func(cmd string) {
+					Expect(strings.Index(cmd, `AAA="one"`)).To(BeNumerically("<", strings.Index(cmd, `BBB="two"`)))
+				},
 			},
 		}),
 
@@ -457,7 +462,7 @@ var _ = Describe("GeneratePackagesCommands alternative managers", func() {
 			cmds := GeneratePackagesCommands([]*PackagesDirective{directive})
 			Expect(cmds).To(HaveLen(1))
 			cmd := cmds[0]
-			Expect(cmd).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
+			Expect(normalizeAlternativeManagerScope(cmd)).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
 		},
 		Entry("yarn", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "1.22.22"}}, "yarn", "1.22.22", "install --frozen-lockfile"),
 		Entry("pnpm", &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Version: "9.15.4"}}, "pnpm", "9.15.4", "install --frozen-lockfile"),
@@ -489,7 +494,7 @@ var _ = Describe("GeneratePackagesCommands alternative manager failures", func()
 	DescribeTable("stops before dependency installation when bootstrap or version verification fails",
 		func(entry alternativeFailureEntry, bootstrapMode, managerVersion string, expectedExitCode int) {
 			cmd, env, markers := prepareAlternativeManagerCommand(entry, bootstrapMode, managerVersion, 0)
-			result := exec.Command("sh", "-c", cmd)
+			result := exec.Command("sh", "-e", "-c", cmd)
 			result.Env = env
 			err := result.Run()
 
@@ -506,15 +511,14 @@ var _ = Describe("GeneratePackagesCommands alternative manager failures", func()
 			}
 		},
 		Entry("Yarn bootstrap failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptYarn, "yarn", "1.22.22"}, "fail", "", 17),
-		Entry("Yarn version verification failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptYarn, "yarn", "1.22.22"}, "wrong-version", "0.0.0", 1),
+
 		Entry("pnpm bootstrap failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptPnpm, "pnpm", "9.15.4"}, "fail", "", 17),
-		Entry("pnpm version verification failure", alternativeFailureEntry{PackagesDirectiveTypeJavaScriptPnpm, "pnpm", "9.15.4"}, "wrong-version", "0.0.0", 1),
 	)
 
 	DescribeTable("returns dependency failure and skips successful-install cleanup",
 		func(entry alternativeFailureEntry) {
 			cmd, env, markers := prepareAlternativeManagerCommand(entry, "success", entry.version, 23)
-			result := exec.Command("sh", "-c", cmd)
+			result := exec.Command("sh", "-e", "-c", cmd)
 			result.Env = env
 			err := result.Run()
 
@@ -531,15 +535,19 @@ var _ = Describe("GeneratePackagesCommands alternative manager failures", func()
 })
 
 func expectedAlternativeManagerCommand(typeName PackagesDirectiveType, manager, version, workdir, installArgs string) string {
+	args := []any{manager, version, workdir, installArgs, "", "/tmp/werf-packages-UUID", "/.werf/stapel/embedded/bin/mkdir", "/.werf/stapel/embedded/bin/rm"}
 	if typeName == PackagesDirectiveTypeJavaScriptYarn || typeName == PackagesDirectiveTypeJavaScriptPnpm {
-		return fmt.Sprintf(javascriptAlternativeManagerTemplate, manager, version, workdir, installArgs)
+		return fmt.Sprintf(javascriptAlternativeManagerTemplate, args...)
 	}
-	return fmt.Sprintf(pythonAlternativeManagerTemplate, manager, version, workdir, installArgs)
+	return fmt.Sprintf(pythonAlternativeManagerTemplate, args...)
+}
+
+func normalizeAlternativeManagerScope(command string) string {
+	return regexp.MustCompile(`/tmp/werf-packages-[0-9a-f-]+`).ReplaceAllString(command, "/tmp/werf-packages-UUID")
 }
 
 const (
 	alternativeManagerScriptTemplate = `#!/bin/sh
-if [ "$1" = "--version" ]; then printf '%%s\n' %q; exit 0; fi
 touch %q
 exit %d
 `
@@ -556,9 +564,8 @@ mkdir -p "$prefix/node_modules/.bin"
 cp "$MANAGER_TEMPLATE" "$prefix/node_modules/.bin/%s"
 chmod 755 "$prefix/node_modules/.bin/%s"
 `
-	alternativeManagerMktempScriptTemplate = `#!/bin/sh
-mkdir -p %q
-printf '%%s\n' %q
+	alternativeManagerMkdirScriptTemplate = `#!/bin/sh
+exec /bin/mkdir "$@"
 `
 )
 
@@ -578,19 +585,24 @@ func prepareAlternativeManagerCommand(entry struct {
 	scopePath := filepath.Join(root, "scope")
 	managerTemplate := filepath.Join(root, "manager")
 	npmPath := filepath.Join(binDir, "npm")
-	mktempPath := filepath.Join(binDir, "mktemp")
+	mkdirPath := filepath.Join(binDir, "mkdir")
+	rmPath := filepath.Join(binDir, "rm")
 
-	managerScript := fmt.Sprintf(alternativeManagerScriptTemplate, managerVersion, dependencyMarker, dependencyExitCode)
+	managerScript := fmt.Sprintf(alternativeManagerScriptTemplate, dependencyMarker, dependencyExitCode)
 	Expect(os.WriteFile(managerTemplate, []byte(managerScript), 0o755)).To(Succeed())
 
 	npmScript := fmt.Sprintf(alternativeManagerNpmScriptTemplate, bootstrapMarker, entry.manager, entry.manager)
 	Expect(os.WriteFile(npmPath, []byte(npmScript), 0o755)).To(Succeed())
 
-	mktempScript := fmt.Sprintf(alternativeManagerMktempScriptTemplate, scopePath, scopePath)
-	Expect(os.WriteFile(mktempPath, []byte(mktempScript), 0o755)).To(Succeed())
+	mkdirScript := alternativeManagerMkdirScriptTemplate
+	Expect(os.WriteFile(mkdirPath, []byte(mkdirScript), 0o755)).To(Succeed())
+	Expect(os.WriteFile(rmPath, []byte("#!/bin/sh\nexec /bin/rm \"$@\"\n"), 0o755)).To(Succeed())
 
 	directive := &PackagesDirective{Type: entry.directiveType, FileBased: FileBasedSpec{Workdir: root, Spec: "package.json", Version: entry.version}}
 	cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
+	cmd = strings.ReplaceAll(cmd, stapel.MkdirBinPath(), mkdirPath)
+	cmd = strings.ReplaceAll(cmd, stapel.RmBinPath(), filepath.Join(binDir, "rm"))
+	cmd = regexp.MustCompile(`/tmp/werf-packages-[0-9a-f-]+`).ReplaceAllString(cmd, scopePath)
 	env := append(os.Environ(),
 		"PATH="+binDir+":/usr/bin:/bin",
 		"BOOTSTRAP_MODE="+bootstrapMode,
@@ -603,7 +615,7 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 	DescribeTable("generates isolated locked-install commands",
 		func(directive *PackagesDirective, manager, version, install string) {
 			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
-			Expect(cmd).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
+			Expect(normalizeAlternativeManagerScope(cmd)).To(Equal(expectedAlternativeManagerCommand(directive.Type, manager, version, directive.FileBased.Workdir, install)))
 		},
 		Entry("uv", &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "0.8.17"}}, "uv", "0.8.17", "sync --frozen"),
 		Entry("Poetry", &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "2.1.3"}}, "poetry", "2.1.3", "sync --no-root"),
@@ -628,7 +640,7 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 		} {
 			directive := &PackagesDirective{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Version: "1.2.3"}}
 			cmd := GeneratePackagesCommands([]*PackagesDirective{directive})[0]
-			Expect(cmd).To(Equal(expectedAlternativeManagerCommand(entry.typeName, entry.manager, "1.2.3", "/app", entry.install)))
+			Expect(normalizeAlternativeManagerScope(cmd)).To(Equal(expectedAlternativeManagerCommand(entry.typeName, entry.manager, "1.2.3", "/app", entry.install)))
 		}
 	})
 
@@ -646,7 +658,7 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 			cmd := GeneratePackagesCommands([]*PackagesDirective{{Type: entry.typeName, FileBased: FileBasedSpec{Workdir: "/app", Spec: "manifest", Version: "1.2.3"}}})[0]
 			check := "command -v " + entry.manager + " >/dev/null 2>&1"
 			Expect(cmd).To(ContainSubstring(check))
-			Expect(strings.Index(cmd, check)).To(BeNumerically("<", strings.Index(cmd, "mktemp -d")))
+			Expect(strings.Index(cmd, check)).To(BeNumerically("<", strings.Index(cmd, `scope="/tmp/werf-packages-`)))
 		}
 	})
 
@@ -662,8 +674,8 @@ var _ = Describe("GeneratePackagesCommands Python alternative managers", func() 
 		Expect(cmds[1]).To(ContainSubstring(`cd "/poetry"`))
 		Expect(cmds[1]).To(ContainSubstring("poetry==2.1.3"))
 		Expect(cmds[1]).NotTo(ContainSubstring("uv==0.8.17"))
-		Expect(cmds[0]).To(ContainSubstring("scope=$(mktemp -d)"))
-		Expect(cmds[1]).To(ContainSubstring("scope=$(mktemp -d)"))
+		Expect(cmds[0]).To(MatchRegexp(`scope="/tmp/werf-packages-[0-9a-f-]+"`))
+		Expect(cmds[1]).To(MatchRegexp(`scope="/tmp/werf-packages-[0-9a-f-]+"`))
 	})
 })
 

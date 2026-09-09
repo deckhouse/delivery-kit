@@ -3,9 +3,12 @@ package config
 import (
 	"fmt"
 	"maps"
-	"regexp"
+
+	"github.com/Masterminds/semver/v3"
+	"github.com/google/uuid"
 
 	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
+	"github.com/werf/werf/v2/pkg/stapel"
 )
 
 type PackagesDirectiveType string
@@ -159,8 +162,6 @@ type PackagesDirective struct {
 	Env       map[string]string
 }
 
-var exactManagerVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
-
 type packageCommandWrapper struct {
 	typeName      PackagesDirectiveType
 	installFormat string
@@ -171,15 +172,7 @@ func newPackageCommandWrapper(typeName PackagesDirectiveType, installFormat stri
 }
 
 func (w packageCommandWrapper) InstallCmd(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-	lifecycle := alternativeManagerCommands(w.typeName, files, workdir, w.installFormat)
-	return prefixCommand(lifecycle, env)
-}
-
-func prefixCommand(cmd string, env map[string]string) string {
-	if prefix := formatEnvVars(env); prefix != "" {
-		return fmt.Sprintf("%s %s", prefix, cmd)
-	}
-	return cmd
+	return alternativeManagerCommands(w.typeName, files, workdir, w.installFormat, formatEnvVars(env))
 }
 
 func isAlternativeManager(typeName PackagesDirectiveType) bool {
@@ -193,43 +186,43 @@ func isAlternativeManager(typeName PackagesDirectiveType) bool {
 
 const (
 	javascriptAlternativeManagerTemplate = `
-	if command -v %[1]s >/dev/null 2>&1; then
-	  echo '%[1]s must not be pre-installed' >&2
-	  exit 1
-	else
-	  set -e
-	  scope=$(mktemp -d)
-	  npm install --prefix "$scope" --no-save --package-lock=false %[1]s@%[2]s
-	  "$scope/node_modules/.bin/%[1]s" --version | grep -Fx %[2]q
-	  cd %[3]q
-	  "$scope/node_modules/.bin/%[1]s" %[4]s
-	  rm -rf "$scope"
-	fi
-	`
+if command -v %[1]s >/dev/null 2>&1; then
+  echo '%[1]s must not be pre-installed' >&2
+  exit 1
+else
+  scope=%[6]q
+  %[7]s -p "$scope"
+  %[5]s npm install --prefix "$scope" --no-save --package-lock=false %[1]s@%[2]s
+  cd %[3]q
+  %[5]s "$scope/node_modules/.bin/%[1]s" %[4]s
+  %[8]s -rf "$scope"
+fi
+`
 	pythonAlternativeManagerTemplate = `
-	if command -v %[1]s >/dev/null 2>&1; then
-	  echo '%[1]s must not be pre-installed' >&2
-	  exit 1
-	else
-	  set -e
-	  scope=$(mktemp -d)
-	  python3 -m venv "$scope"
-	  "$scope/bin/python" -m pip install --no-cache-dir %[1]s==%[2]s
-	  "$scope/bin/%[1]s" --version | grep -F %[2]q
-	  cd %[3]q
-	  "$scope/bin/%[1]s" %[4]s
-	  rm -rf "$scope"
-	fi
-	`
+if command -v %[1]s >/dev/null 2>&1; then
+  echo '%[1]s must not be pre-installed' >&2
+  exit 1
+else
+  scope=%[6]q
+  %[7]s -p "$scope"
+  %[5]s python3 -m venv "$scope"
+  %[5]s "$scope/bin/python" -m pip install --no-cache-dir %[1]s==%[2]s
+  cd %[3]q
+  %[5]s "$scope/bin/%[1]s" %[4]s
+  %[8]s -rf "$scope"
+fi
+`
 )
 
-func alternativeManagerCommands(typeName PackagesDirectiveType, files FileBasedSpec, workdir, installArgs string) string {
+func alternativeManagerCommands(typeName PackagesDirectiveType, files FileBasedSpec, workdir, installArgs, envPrefix string) string {
 	manager := alternativeManagerName(typeName)
+	scope := "/tmp/werf-packages-" + uuid.NewString()
+	args := []any{manager, files.Version, workdir, installArgs, envPrefix, scope, stapel.MkdirBinPath(), stapel.RmBinPath()}
 	switch typeName {
 	case PackagesDirectiveTypeJavaScriptYarn, PackagesDirectiveTypeJavaScriptPnpm:
-		return fmt.Sprintf(javascriptAlternativeManagerTemplate, manager, files.Version, workdir, installArgs)
+		return fmt.Sprintf(javascriptAlternativeManagerTemplate, args...)
 	case PackagesDirectiveTypePythonUV, PackagesDirectiveTypePythonPoetry:
-		return fmt.Sprintf(pythonAlternativeManagerTemplate, manager, files.Version, workdir, installArgs)
+		return fmt.Sprintf(pythonAlternativeManagerTemplate, args...)
 	default:
 		panic(fmt.Sprintf("unsupported alternative manager type %q", typeName))
 	}
@@ -276,8 +269,8 @@ func (d *PackagesDirective) validate() error {
 		if d.FileBased.Version == "" {
 			return fmt.Errorf("the `version` is required for type %q", d.Type)
 		}
-		if !exactManagerVersionPattern.MatchString(d.FileBased.Version) {
-			return fmt.Errorf("the `version` must be an exact X.Y.Z version for type %q", d.Type)
+		if _, err := semver.NewVersion(d.FileBased.Version); err != nil {
+			return fmt.Errorf("the `version` must be a valid semantic version for type %q: %w", d.Type, err)
 		}
 	} else if d.FileBased.Version != "" {
 		return fmt.Errorf("the `version` is not supported for type %q", d.Type)

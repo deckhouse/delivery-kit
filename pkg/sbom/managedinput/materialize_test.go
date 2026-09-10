@@ -34,10 +34,9 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		ctrl.Finish()
 	})
 
-	It("materializes spec and lock adjacent, relative to the workdir, world-readable", func() {
+	It("materializes spec and lock under their full in-image path, adjacent, world-readable", func() {
 		cataloger := scanner.Cataloger{
 			Name:        "go-module-file-cataloger",
-			Workdir:     "/app/api",
 			SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"},
 		}
 		mockBackend.EXPECT().
@@ -51,8 +50,10 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
-		specPath := filepath.Join(dir, "go.mod")
-		lockPath := filepath.Join(dir, "go.sum")
+		// The full in-image path is preserved so a dir:/scan scan records /app/api/go.mod,
+		// not a workdir-relative /go.mod.
+		specPath := filepath.Join(dir, "app", "api", "go.mod")
+		lockPath := filepath.Join(dir, "app", "api", "go.sum")
 
 		specContent, err := os.ReadFile(specPath)
 		Expect(err).To(Succeed())
@@ -77,7 +78,6 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 	It("materializes only the spec when the directive declares no lock", func() {
 		cataloger := scanner.Cataloger{
 			Name:        "python-package-cataloger",
-			Workdir:     "/app",
 			SourcePaths: []string{"/app/requirements.txt"},
 		}
 		mockBackend.EXPECT().
@@ -88,15 +88,32 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
-		content, err := os.ReadFile(filepath.Join(dir, "requirements.txt"))
+		content, err := os.ReadFile(filepath.Join(dir, "app", "requirements.txt"))
 		Expect(err).To(Succeed())
 		Expect(string(content)).To(Equal("flask==3.0.0\n"))
+	})
+
+	It("keeps a materialized file inside the scan dir even if the source path contains ..", func() {
+		cataloger := scanner.Cataloger{
+			Name:        "go-module-file-cataloger",
+			SourcePaths: []string{"/app/../../../etc/go.mod"},
+		}
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/../../../etc/go.mod", container_backend.ReadFileFromImageOpts{}).
+			Return([]byte("module example.com/app\n"), nil)
+
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		Expect(err).To(Succeed())
+		DeferCleanup(func() { cleanup(ctx) })
+
+		content, err := os.ReadFile(filepath.Join(dir, "etc", "go.mod"))
+		Expect(err).To(Succeed())
+		Expect(string(content)).To(Equal("module example.com/app\n"))
 	})
 
 	It("forwards the target platform to the image read", func() {
 		cataloger := scanner.Cataloger{
 			Name:        "go-module-file-cataloger",
-			Workdir:     "/app",
 			SourcePaths: []string{"/app/go.mod"},
 		}
 		mockBackend.EXPECT().
@@ -112,7 +129,6 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 	It("fails naming the cataloger and path when a declared file is absent from the image", func() {
 		cataloger := scanner.Cataloger{
 			Name:        "go-module-file-cataloger",
-			Workdir:     "/app",
 			SourcePaths: []string{"/app/go.mod"},
 		}
 		mockBackend.EXPECT().

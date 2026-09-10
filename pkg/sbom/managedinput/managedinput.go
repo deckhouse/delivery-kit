@@ -14,7 +14,6 @@ type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
 	sourcePaths   func(directive *config.PackagesDirective) []string
-	workdir       func(directive *config.PackagesDirective) string
 }
 
 var resolvers = buildResolvers()
@@ -47,9 +46,6 @@ func buildResolvers() []inputResolver {
 				}
 				return paths
 			},
-			workdir: func(d *config.PackagesDirective) string {
-				return d.FileBased.Workdir
-			},
 		})
 	}
 	return built
@@ -69,7 +65,6 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		catalogers = append(catalogers, scanner.Cataloger{
 			Name:        res.catalogerName,
 			SourcePaths: res.sourcePaths(directive),
-			Workdir:     res.workdir(directive),
 		})
 	}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/sigstore/sigstore/pkg/signature"
@@ -98,14 +99,22 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		switch {
 		case !syftScanRequired(isStapel, catalogers):
 			targetBOM = cyclonedxutil.NewBOM()
-			targetBOM.Metadata = containerMetadata(stageDesc)
+			targetBOM.Metadata = &cdx.Metadata{
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Component: containerComponent(stageDesc),
+			}
 		case isStapel:
 			var err error
 			targetBOM, err = step.scanFileBasedPackages(ctx, stageDesc.Info.Name, scanOpts, catalogers, targetPlatform)
 			if err != nil {
 				return err
 			}
-			targetBOM.Metadata = containerMetadata(stageDesc)
+			// Keep syft's own metadata (tools, timestamp) from the scan and restore only the
+			// image component, which a directory source otherwise reports as the scan directory.
+			if targetBOM.Metadata == nil {
+				targetBOM.Metadata = &cdx.Metadata{}
+			}
+			targetBOM.Metadata.Component = containerComponent(stageDesc)
 		default:
 			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
 			if err != nil {
@@ -187,16 +196,14 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-// containerMetadata builds the top-level container component of an image BOM. The
-// targeted directory scan reports the temporary scan directory as its source, so the
-// image identity is restored here explicitly (same as the skip-scan branch).
-func containerMetadata(stageDesc *image.StageDesc) *cdx.Metadata {
-	return &cdx.Metadata{
-		Component: &cdx.Component{
-			Type:    cdx.ComponentTypeContainer,
-			Name:    stageDesc.Info.Repository,
-			Version: stageDesc.Info.Tag,
-		},
+// containerComponent builds the top-level container component of an image BOM. The
+// targeted directory scan reports the temporary scan directory as its source component,
+// so the image identity is restored from this instead.
+func containerComponent(stageDesc *image.StageDesc) *cdx.Component {
+	return &cdx.Component{
+		Type:    cdx.ComponentTypeContainer,
+		Name:    stageDesc.Info.Repository,
+		Version: stageDesc.Info.Tag,
 	}
 }
 
@@ -209,7 +216,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageRef string
 	for _, cataloger := range catalogers {
 		dir, cleanup, err := managedinput.MaterializeCatalogerInputs(ctx, step.containerBackend, imageRef, cataloger, targetPlatform)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("materialize inputs for cataloger %q: %w", cataloger.Name, err)
 		}
 
 		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir)
@@ -221,6 +228,15 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageRef string
 		scannedBOMs = append(scannedBOMs, bom)
 	}
 
+	// Guarded against an empty catalogers slice, even though the isStapel switch arm only
+	// runs when syftScanRequired already established len(catalogers) > 0.
+	if len(scannedBOMs) == 0 {
+		return cyclonedxutil.NewBOM(), nil
+	}
+
+	// MergeBOMs unions components and dedups by normalized PURL; on a cross-directive PURL
+	// collision it is the first directive's component that is dropped (mergeOrder appends
+	// the target last, dedup is first-occurrence-wins). Harmless for component identity.
 	merged, err := cyclonedxutil.MergeBOMs(scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
 	if err != nil {
 		return nil, fmt.Errorf("union per-directive BOMs: %w", err)
@@ -247,6 +263,11 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 	if err != nil {
 		return nil, fmt.Errorf("parse scanned BOM for cataloger %q: %w", cataloger.Name, err)
 	}
+
+	// A directory source makes syft emit a PURL-less type=file component for each scanned
+	// manifest file; drop them so only real packages remain. This is what makes omitting the
+	// post-scan source-path filter safe (see SYFT_FILE_METADATA_SELECTION in the docker backend).
+	cyclonedxutil.DropSyftSourceFileComponents(bom)
 
 	return bom, nil
 }

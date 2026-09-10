@@ -125,6 +125,79 @@ var _ = Describe("SbomStep", func() {
 		)
 	})
 
+	Describe("scanFileBasedPackages", func() {
+		makeBOMJSON := func(timestamp string, comps ...cdx.Component) []byte {
+			bom := cyclonedxutil.NewBOM()
+			bom.Metadata = &cdx.Metadata{
+				Timestamp: timestamp,
+				Component: &cdx.Component{Type: cdx.ComponentTypeFile, Name: "/scan"},
+			}
+			list := append([]cdx.Component{}, comps...)
+			bom.Components = &list
+			data, err := cyclonedxutil.ToJSON(bom)
+			Expect(err).To(Succeed())
+			return data
+		}
+
+		It("scans one dir source per cataloger, unions components, drops source files, keeps syft metadata", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			ctrl := gomock.NewController(GinkgoT())
+			mockBackend := mock.NewMockContainerBackend(ctrl)
+
+			imageRef := "app:latest"
+			catalogers := []scanner.Cataloger{
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod", "/app/go.sum"}},
+				{Name: "python-package-cataloger", SourcePaths: []string{"/svc/requirements.txt"}},
+			}
+
+			mockBackend.EXPECT().
+				ReadFileFromImage(gomock.Any(), imageRef, gomock.Any(), gomock.Any()).
+				Return([]byte("manifest\n"), nil).
+				AnyTimes()
+
+			goBOM := makeBOMJSON("2026-01-01T00:00:00Z",
+				cdx.Component{BOMRef: "lo", Type: cdx.ComponentTypeLibrary, Name: "github.com/samber/lo", Version: "v1.47.0", PackageURL: "pkg:golang/github.com/samber/lo@v1.47.0"},
+				// a PURL-less type=file entry a dir scan emits for the manifest itself
+				cdx.Component{BOMRef: "gomod-file", Type: cdx.ComponentTypeFile, Name: "go.mod"},
+			)
+			pipBOM := makeBOMJSON("2026-02-02T00:00:00Z",
+				cdx.Component{BOMRef: "flask", Type: cdx.ComponentTypeLibrary, Name: "flask", Version: "3.0.0", PackageURL: "pkg:pypi/flask@3.0.0"},
+			)
+
+			mockBackend.EXPECT().
+				GenerateSBOM(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, opts scanner.ScanOptions) ([]byte, error) {
+					Expect(opts.Commands).To(HaveLen(1))
+					Expect(opts.Commands[0].SourceType).To(Equal(scanner.SourceTypeDir), "each per-directive scan must use a directory source")
+					Expect(opts.Commands[0].Catalogers).To(HaveLen(1), "each scan must run exactly one cataloger")
+					switch opts.Commands[0].Catalogers[0].Name {
+					case "go-module-file-cataloger":
+						return goBOM, nil
+					case "python-package-cataloger":
+						return pipBOM, nil
+					default:
+						return nil, errors.New("unexpected cataloger: " + opts.Commands[0].Catalogers[0].Name)
+					}
+				}).
+				Times(2)
+
+			step := &sbomStep{containerBackend: mockBackend}
+			bom, err := step.scanFileBasedPackages(ctx, imageRef, scanner.DefaultSyftScanOptions(), catalogers, "")
+			Expect(err).To(Succeed())
+			Expect(bom).ToNot(BeNil())
+
+			names := []string{}
+			for _, c := range *bom.Components {
+				names = append(names, c.Name)
+			}
+			Expect(names).To(ConsistOf("github.com/samber/lo", "flask"), "components from both directives are unioned and the source file is dropped")
+			Expect(names).ToNot(ContainElement("go.mod"))
+
+			Expect(bom.Metadata).ToNot(BeNil())
+			Expect(bom.Metadata.Timestamp).To(Equal("2026-01-01T00:00:00Z"), "syft metadata (timestamp) from the first directive is preserved, not discarded")
+		})
+	})
+
 	Describe("isTrustedBuilderImage()", func() {
 		DescribeTable("should detect trusted builder images",
 			func(labels map[string]string, expected bool) {

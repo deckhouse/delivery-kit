@@ -734,6 +734,12 @@ func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billN
 
 	args = append(args,
 		"-e", "SYFT_GOLANG_MAIN_MODULE_VERSION_FROM_CONTENTS=false",
+		// SYFT_FILE_METADATA_SELECTION=none is load-bearing for a directory source: without it
+		// syft emits an extra PURL-less type=file component per scanned manifest, which dedup
+		// (it keeps PURL-less components) would not remove. Do not drop this env var (contrary
+		// to the task note claiming it is unknown to syft v1.45.1 — it is honored); the
+		// directory-scan path additionally strips such components defensively in
+		// cyclonedxutil.DropSyftSourceFileComponents.
 		"-e", "SYFT_FILE_METADATA_SELECTION=none",
 	)
 

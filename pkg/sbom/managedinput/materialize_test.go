@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -73,6 +74,37 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		dirInfo, err := os.Stat(dir)
 		Expect(err).To(Succeed())
 		Expect(dirInfo.Mode().Perm()&0o005).To(Equal(os.FileMode(0o005)), "scan dir must be world-readable and traversable")
+	})
+
+	It("makes intermediate MkdirAll directories world-traversable under a restrictive umask", func() {
+		// MkdirAll is umask-subject, so under umask 077 the app/ and app/api/ chain would be
+		// 0700; the post-write walk must relax the whole tree. Without setting the umask the
+		// assertion would pass for the wrong reason, since a default 022 umask already yields 0755.
+		previousUmask := syscall.Umask(0o077)
+		defer syscall.Umask(previousUmask)
+
+		cataloger := scanner.Cataloger{
+			Name:        "go-module-file-cataloger",
+			SourcePaths: []string{"/app/api/go.mod"},
+		}
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/api/go.mod", container_backend.ReadFileFromImageOpts{}).
+			Return([]byte("module example.com/app\n"), nil)
+
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		Expect(err).To(Succeed())
+		DeferCleanup(func() { cleanup(ctx) })
+
+		for _, d := range []string{dir, filepath.Join(dir, "app"), filepath.Join(dir, "app", "api")} {
+			info, err := os.Stat(d)
+			Expect(err).To(Succeed())
+			Expect(info.Mode().Perm()&0o005).To(Equal(os.FileMode(0o005)),
+				"intermediate dir %q must be world-readable and traversable — MkdirAll is umask-subject", d)
+		}
+
+		fileInfo, err := os.Stat(filepath.Join(dir, "app", "api", "go.mod"))
+		Expect(err).To(Succeed())
+		Expect(fileInfo.Mode().Perm()&0o004).To(Equal(os.FileMode(0o004)), "file must stay world-readable under a restrictive umask")
 	})
 
 	It("materializes only the spec when the directive declares no lock", func() {

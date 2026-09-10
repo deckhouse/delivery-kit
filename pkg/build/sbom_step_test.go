@@ -198,6 +198,46 @@ var _ = Describe("SbomStep", func() {
 		})
 	})
 
+	Describe("restoreImageMetadata", func() {
+		stageDesc := &werfImage.StageDesc{Info: &werfImage.Info{Repository: "example.com/app", Tag: "v1"}}
+
+		expectContainerComponent := func(bom *cdx.BOM) {
+			Expect(bom.Metadata).ToNot(BeNil())
+			Expect(bom.Metadata.Component).ToNot(BeNil())
+			Expect(bom.Metadata.Component.Type).To(Equal(cdx.ComponentTypeContainer))
+			Expect(bom.Metadata.Component.Name).To(Equal("example.com/app"))
+			Expect(bom.Metadata.Component.Version).To(Equal("v1"))
+		}
+
+		It("allocates metadata and stamps a timestamp when the BOM has none", func() {
+			bom := &cdx.BOM{}
+
+			restoreImageMetadata(bom, stageDesc)
+
+			expectContainerComponent(bom)
+			Expect(bom.Metadata.Timestamp).ToNot(BeEmpty(), "a per-image SBOM must carry a timestamp for downstream validators")
+		})
+
+		It("keeps syft's tools and timestamp and replaces only the scan-directory component", func() {
+			bom := &cdx.BOM{
+				Metadata: &cdx.Metadata{
+					Timestamp: "2020-01-02T03:04:05Z",
+					Tools:     &cdx.ToolsChoice{Components: &[]cdx.Component{{Type: cdx.ComponentTypeApplication, Name: "syft", Version: "1.45.1"}}},
+					Component: &cdx.Component{Type: cdx.ComponentTypeFile, Name: "/scan"},
+				},
+			}
+
+			restoreImageMetadata(bom, stageDesc)
+
+			expectContainerComponent(bom)
+			Expect(bom.Metadata.Timestamp).To(Equal("2020-01-02T03:04:05Z"), "syft's own timestamp must survive")
+			Expect(bom.Metadata.Tools).ToNot(BeNil())
+			Expect(bom.Metadata.Tools.Components).ToNot(BeNil())
+			Expect(*bom.Metadata.Tools.Components).To(HaveLen(1))
+			Expect((*bom.Metadata.Tools.Components)[0].Name).To(Equal("syft"), "syft tools provenance must survive")
+		})
+	})
+
 	Describe("isTrustedBuilderImage()", func() {
 		DescribeTable("should detect trusted builder images",
 			func(labels map[string]string, expected bool) {

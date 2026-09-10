@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/container_backend"
@@ -14,11 +12,11 @@ import (
 )
 
 // MaterializeCatalogerInputs extracts a cataloger's declared spec/lock files from the
-// built image and writes them into a fresh temporary directory, preserving their layout
-// relative to the directive workdir so that syft's directory-source catalogers can link
-// a spec to its lock (e.g. go.mod next to go.sum). The returned directory and its files
-// are world-readable so the unprivileged scanner container can read them. The caller must
-// invoke the returned cleanup once the scan is done.
+// built image and writes them into a fresh temporary directory under their full in-image
+// path, so a directory-source scan records the same locations the files had in the image
+// (e.g. /app/api/go.mod) and keeps a spec next to its lock. The returned directory and
+// its files are world-readable so the unprivileged scanner container can read them. The
+// caller must invoke the returned cleanup once the scan is done.
 func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.ContainerBackend, imageRef string, cataloger scanner.Cataloger, targetPlatform string) (string, func(context.Context), error) {
 	dir, err := os.MkdirTemp("", "sbom-dirscan-*")
 	if err != nil {
@@ -43,7 +41,9 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 			return "", nil, fmt.Errorf("read %s from image %q for cataloger %q: %w", sourcePath, imageRef, cataloger.Name, err)
 		}
 
-		destPath := filepath.Join(dir, relativeToWorkdir(sourcePath, cataloger.Workdir))
+		// Rebase the in-image path onto the scan dir. Anchoring at "/" and cleaning first
+		// collapses any ".." and leading slash, so the result can never escape dir.
+		destPath := filepath.Join(dir, filepath.Clean("/"+sourcePath))
 		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 			cleanup(ctx)
 			return "", nil, fmt.Errorf("create scan subdir for %s: %w", destPath, err)
@@ -59,15 +59,4 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 	}
 
 	return dir, cleanup, nil
-}
-
-// relativeToWorkdir maps an in-image absolute path to its path relative to the directive
-// workdir, so a materialized file keeps the position the cataloger expects. Paths outside
-// the workdir fall back to their base name.
-func relativeToWorkdir(sourcePath, workdir string) string {
-	workdir = strings.TrimSuffix(workdir, "/")
-	if workdir != "" && strings.HasPrefix(sourcePath, workdir+"/") {
-		return strings.TrimPrefix(sourcePath, workdir+"/")
-	}
-	return path.Base(sourcePath)
 }

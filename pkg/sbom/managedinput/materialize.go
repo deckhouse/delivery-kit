@@ -3,6 +3,7 @@ package managedinput
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -29,11 +30,6 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 		}
 	}
 
-	if err := os.Chmod(dir, 0o755); err != nil {
-		cleanup(ctx)
-		return "", nil, fmt.Errorf("chmod scan dir %q: %w", dir, err)
-	}
-
 	for _, sourcePath := range cataloger.SourcePaths {
 		data, err := backend.ReadFileFromImage(ctx, imageRef, sourcePath, container_backend.ReadFileFromImageOpts{TargetPlatform: targetPlatform})
 		if err != nil {
@@ -52,11 +48,28 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 			cleanup(ctx)
 			return "", nil, fmt.Errorf("write %s: %w", destPath, err)
 		}
-		if err := os.Chmod(destPath, 0o644); err != nil {
-			cleanup(ctx)
-			return "", nil, fmt.Errorf("chmod %s: %w", destPath, err)
-		}
+	}
+
+	// MkdirTemp, MkdirAll and WriteFile are all umask-subject, so under a restrictive umask
+	// the scan root and its nested directories would not be traversable by the scanner
+	// container's user. Force the whole tree world-readable (dirs also executable).
+	if err := makeTreeWorldReadable(dir); err != nil {
+		cleanup(ctx)
+		return "", nil, fmt.Errorf("make scan dir %q world-readable: %w", dir, err)
 	}
 
 	return dir, cleanup, nil
+}
+
+func makeTreeWorldReadable(root string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		mode := fs.FileMode(0o644)
+		if d.IsDir() {
+			mode = 0o755
+		}
+		return os.Chmod(path, mode)
+	})
 }

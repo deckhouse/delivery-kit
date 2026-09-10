@@ -99,22 +99,14 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		switch {
 		case !syftScanRequired(isStapel, catalogers):
 			targetBOM = cyclonedxutil.NewBOM()
-			targetBOM.Metadata = &cdx.Metadata{
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				Component: containerComponent(stageDesc),
-			}
+			restoreImageMetadata(targetBOM, stageDesc)
 		case isStapel:
 			var err error
 			targetBOM, err = step.scanFileBasedPackages(ctx, stageDesc.Info.Name, scanOpts, catalogers, targetPlatform)
 			if err != nil {
 				return err
 			}
-			// Keep syft's own metadata (tools, timestamp) from the scan and restore only the
-			// image component, which a directory source otherwise reports as the scan directory.
-			if targetBOM.Metadata == nil {
-				targetBOM.Metadata = &cdx.Metadata{}
-			}
-			targetBOM.Metadata.Component = containerComponent(stageDesc)
+			restoreImageMetadata(targetBOM, stageDesc)
 		default:
 			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
 			if err != nil {
@@ -196,9 +188,22 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-// containerComponent builds the top-level container component of an image BOM. The
-// targeted directory scan reports the temporary scan directory as its source component,
-// so the image identity is restored from this instead.
+// restoreImageMetadata sets the BOM's top-level component to the scanned image while
+// keeping any syft-provided metadata (tools, timestamp). A directory source reports the
+// temporary scan directory as its component, so it must be replaced. When no timestamp is
+// present — the skip-scan path builds a fresh BOM — one is stamped, since a per-image SBOM
+// without a timestamp is rejected by downstream validators.
+func restoreImageMetadata(bom *cdx.BOM, stageDesc *image.StageDesc) {
+	if bom.Metadata == nil {
+		bom.Metadata = &cdx.Metadata{}
+	}
+	bom.Metadata.Component = containerComponent(stageDesc)
+	if bom.Metadata.Timestamp == "" {
+		bom.Metadata.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	}
+}
+
+// containerComponent builds the top-level container component of an image BOM.
 func containerComponent(stageDesc *image.StageDesc) *cdx.Component {
 	return &cdx.Component{
 		Type:    cdx.ComponentTypeContainer,

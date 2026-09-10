@@ -46,11 +46,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "go.mod",
 		DefaultLockFile: "go.sum",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && go mod download", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "go mod download", env)
 		},
 		CatalogerName: "go-module-file-cataloger",
 	},
@@ -59,11 +55,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "uv.lock",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && uv sync --frozen", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "uv sync --frozen", env)
 		},
 		CatalogerName: "python-package-cataloger",
 	},
@@ -72,11 +64,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "requirements.txt",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && pip install --no-cache-dir -r %q", workdir, files.Spec)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, fmt.Sprintf("pip install --no-cache-dir -r %q", files.Spec), env)
 		},
 		CatalogerName: "python-package-cataloger",
 	},
@@ -85,11 +73,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "poetry.lock",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && poetry sync --no-root", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "poetry sync --no-root", env)
 		},
 		CatalogerName: "python-package-cataloger",
 	},
@@ -98,11 +82,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "Cargo.toml",
 		DefaultLockFile: "Cargo.lock",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && cargo fetch", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "cargo fetch", env)
 		},
 		CatalogerName: "rust-cargo-lock-cataloger",
 	},
@@ -111,11 +91,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "package-lock.json",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && npm ci", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "npm ci", env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
 	},
@@ -124,11 +100,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "yarn.lock",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && yarn install --frozen-lockfile", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "yarn install --frozen-lockfile", env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
 	},
@@ -137,11 +109,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "pnpm-lock.yaml",
 		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && pnpm install --frozen-lockfile", workdir)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, "pnpm install --frozen-lockfile", env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
 	},
@@ -150,11 +118,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && luarocks install --only-deps %q", workdir, files.Spec)
-			if prefix := formatEnvVars(env); prefix != "" {
-				cmd = fmt.Sprintf("%s %s", prefix, cmd)
-			}
-			return cmd
+			return formatWorkdirCommand(workdir, fmt.Sprintf("luarocks install --only-deps %q", files.Spec), env)
 		},
 		CatalogerName: "lua-rock-cataloger",
 	},

@@ -27,6 +27,13 @@ func formatEnvVars(env map[string]string) string {
 	return strings.Join(parts, " ")
 }
 
+func formatWorkdirCommand(workdir, command string, env map[string]string) string {
+	if prefix := formatEnvVars(env); prefix != "" {
+		command = fmt.Sprintf("%s %s", prefix, command)
+	}
+	return fmt.Sprintf("cd %q && %s", workdir, command)
+}
+
 func formatSecretVar(name string) string {
 	// Bash reads the secret on its own: $(<file) is a redirection, and the [ -r ] guard keeps a
 	// missing secret quiet. Suppressing the error with 2>/dev/null instead would turn $(<file)

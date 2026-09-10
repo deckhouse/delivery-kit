@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -18,10 +19,18 @@ import (
 // into a shared, mutex-protected order slice. It lets a test observe the
 // actual build ORDER produced by Conveyor.doImages/doImagesInParallel without
 // needing a real container backend.
+//
+// waitFor and signal express build-order expectations as synchronization
+// rather than as racing sleep budgets: an image listed in waitFor blocks
+// until its channel is closed, and an image listed in signal closes its
+// channel right after it has been recorded. Ordering asserted this way holds
+// regardless of how loaded the machine running the test is.
 type recordingPhase struct {
-	mu     *sync.Mutex
-	order  *[]string
-	delays map[string]time.Duration
+	mu      *sync.Mutex
+	order   *[]string
+	delays  map[string]time.Duration
+	waitFor map[string]chan struct{}
+	signal  map[string]chan struct{}
 }
 
 func (p *recordingPhase) Name() string                       { return "recording" }
@@ -36,12 +45,25 @@ func (p *recordingPhase) OnImageStage(context.Context, *image.Image, stage.Inter
 }
 
 func (p *recordingPhase) AfterImageStages(ctx context.Context, img *image.Image) error {
+	if ch, ok := p.waitFor[img.Name]; ok {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return fmt.Errorf("image %q gave up waiting for its gate: %w", img.Name, ctx.Err())
+		}
+	}
+
 	if d := p.delays[img.Name]; d > 0 {
 		time.Sleep(d)
 	}
 	p.mu.Lock()
 	*p.order = append(*p.order, img.Name)
 	p.mu.Unlock()
+
+	if ch, ok := p.signal[img.Name]; ok {
+		close(ch)
+	}
+
 	return nil
 }
 
@@ -60,6 +82,13 @@ func (p *recordingPhase) Report() *ImagesReport { return nil }
 // directly, over a hand-built graph with an independent slow image and a
 // fast a -> b -> c chain. It asserts b/c build right after their real
 // dependency finishes instead of waiting for the unrelated slow image.
+//
+// "slow" is held on a gate released only once "c" has been recorded, so the
+// chain always finishes first on a correct scheduler no matter how loaded the
+// machine is. Should a wave/level barrier ever be reintroduced, "c" can no
+// longer be reached while "slow" is still pending, the gate is never
+// released, and the test fails on the context deadline instead of silently
+// depending on which sleep happened to win.
 func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *testing.T) {
 	require.NoError(t, werf.Init(t.TempDir(), "")) // tmp_manager (used by parallel.NewWorker) requires werf init
 
@@ -93,17 +122,15 @@ func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *te
 		stageDigestMutex: map[string]*sync.Mutex{},
 	}
 
+	chainDone := make(chan struct{})
+
 	var mu sync.Mutex
 	var order []string
 	phase := &recordingPhase{
-		mu:    &mu,
-		order: &order,
-		delays: map[string]time.Duration{
-			"slow": 150 * time.Millisecond,
-			"a":    10 * time.Millisecond,
-			"b":    10 * time.Millisecond,
-			"c":    10 * time.Millisecond,
-		},
+		mu:      &mu,
+		order:   &order,
+		waitFor: map[string]chan struct{}{"slow": chainDone},
+		signal:  map[string]chan struct{}{"c": chainDone},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -126,10 +153,9 @@ func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *te
 	require.Less(t, indexOf("a"), indexOf("b"), "b must build after a")
 	require.Less(t, indexOf("b"), indexOf("c"), "c must build after b")
 
-	// The core regression check: b/c must not be gated behind the unrelated,
-	// slower "slow" image just because a graph-scheduling bug reintroduced a
-	// wave/level barrier. With a 150ms artificial delay on "slow" and only
-	// 10ms on a/b/c, both b and c finish well before "slow" does.
+	// The core regression check: b/c must not be gated behind the unrelated
+	// "slow" image just because a graph-scheduling bug reintroduced a
+	// wave/level barrier.
 	require.Less(t, indexOf("c"), indexOf("slow"),
 		"dependent chain a->b->c must not wait for unrelated image \"slow\"; observed order=%v", order)
 }

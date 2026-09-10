@@ -268,7 +268,7 @@ packages:
 
 Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:

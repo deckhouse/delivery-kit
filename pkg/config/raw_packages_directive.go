@@ -1,8 +1,11 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"regexp"
+
+	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
 type rawPackagesDirective struct {
@@ -48,7 +51,10 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 	return &doc{Content: []byte{}}
 }
 
-var posixEnvNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var (
+	posixEnvNameRe   = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	shellConstructRe = regexp.MustCompile("\\$[({a-zA-Z_]|`")
+)
 
 func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error) {
 	d := &PackagesDirective{
@@ -93,9 +99,13 @@ func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error
 
 	d.Env = r.Env
 
-	for key := range d.Env {
+	for key, value := range d.Env {
 		if !posixEnvNameRe.MatchString(key) {
 			return nil, fmt.Errorf("invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*", key, index)
+		}
+
+		if shellConstructRe.MatchString(value) {
+			global_warnings.GlobalWarningLn(context.Background(), fmt.Sprintf("packages[%d].env[%q] looks like a shell construct, which is no longer evaluated: the value is passed to the package manager as is.", index, key))
 		}
 	}
 

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"cmp"
 	"fmt"
 	"maps"
 
@@ -48,7 +47,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "go.mod",
 		DefaultLockFile: "go.sum",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s mod download", workdir, cmp.Or(files.Manager, "go"))
+			cmd := fmt.Sprintf("cd %q && %s mod download", workdir, managerBin(files, "go"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -61,7 +60,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "uv.lock",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s sync --frozen", workdir, cmp.Or(files.Manager, "uv"))
+			cmd := fmt.Sprintf("cd %q && %s sync --frozen", workdir, managerBin(files, "uv"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -74,7 +73,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "requirements.txt",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s install --no-cache-dir -r %q", workdir, cmp.Or(files.Manager, "pip"), files.Spec)
+			cmd := fmt.Sprintf("cd %q && %s install --no-cache-dir -r %q", workdir, managerBin(files, "pip"), files.Spec)
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -87,7 +86,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "poetry.lock",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s sync --no-root", workdir, cmp.Or(files.Manager, "poetry"))
+			cmd := fmt.Sprintf("cd %q && %s sync --no-root", workdir, managerBin(files, "poetry"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -100,7 +99,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "Cargo.toml",
 		DefaultLockFile: "Cargo.lock",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s fetch", workdir, cmp.Or(files.Manager, "cargo"))
+			cmd := fmt.Sprintf("cd %q && %s fetch", workdir, managerBin(files, "cargo"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -113,7 +112,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "package-lock.json",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s ci", workdir, cmp.Or(files.Manager, "npm"))
+			cmd := fmt.Sprintf("cd %q && %s ci", workdir, managerBin(files, "npm"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -126,7 +125,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "yarn.lock",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s install --frozen-lockfile", workdir, cmp.Or(files.Manager, "yarn"))
+			cmd := fmt.Sprintf("cd %q && %s install --frozen-lockfile", workdir, managerBin(files, "yarn"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -139,7 +138,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "pnpm-lock.yaml",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s install --frozen-lockfile", workdir, cmp.Or(files.Manager, "pnpm"))
+			cmd := fmt.Sprintf("cd %q && %s install --frozen-lockfile", workdir, managerBin(files, "pnpm"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -152,7 +151,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && %s install --only-deps %q", workdir, cmp.Or(files.Manager, "luarocks"), files.Spec)
+			cmd := fmt.Sprintf("cd %q && %s install --only-deps %q", workdir, managerBin(files, "luarocks"), files.Spec)
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}

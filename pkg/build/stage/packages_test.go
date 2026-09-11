@@ -303,11 +303,11 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 
 		Entry("javascript-yarn with manager runs the given executable", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptYarn, FileBased: config.FileBasedSpec{Workdir: "/app", Manager: "/opt/tools/node_modules/.bin/yarn"}},
-		}, []string{"cd \"/app\" && /opt/tools/node_modules/.bin/yarn install --frozen-lockfile"}),
+		}, []string{"cd \"/app\" && \"/opt/tools/node_modules/.bin/yarn\" install --frozen-lockfile"}),
 
 		Entry("python-poetry with manager runs the given executable", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypePythonPoetry, FileBased: config.FileBasedSpec{Workdir: "/app", Manager: "/opt/tools/bin/poetry"}},
-		}, []string{"cd \"/app\" && /opt/tools/bin/poetry sync --no-root"}),
+		}, []string{"cd \"/app\" && \"/opt/tools/bin/poetry\" sync --no-root"}),
 
 		Entry("javascript-pnpm /app produces pnpm install --frozen-lockfile", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptPnpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},

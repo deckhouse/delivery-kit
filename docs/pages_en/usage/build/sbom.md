@@ -44,11 +44,13 @@ Currently, this option uses the following _defaults_:
 | **Scanner**                       | syft                                                                                   |
 | **Scanner Image**                 | anchore/syft:v1.45.1                                                           |
 | **Image Pull Policy**             | `PullIfMissing`                                                                        |
-| **Data Source Connection Method** | daemon + socket via volume (for Docker) |
-| **Path in Source Image**          | OS root                                                                                |
+| **Data Source Connection Method** | Dockerfile images: daemon + socket via volume (for Docker). Stapel images with file-based `packages`: directory scan of the declared spec/lock files extracted from the built image, no socket. |
+| **Path in Source Image**          | OS root (Dockerfile images); the declared `packages` spec/lock files (stapel file-based packages)                                      |
 | **Scan Settings**                 | [link](https://github.com/anchore/syft/wiki/Configuration#list-of-configurable-values) |
 | **Output Standard**               | `CycloneDX@1.6`                                                                        |
 | **Output Format**                 | `JSON`                                                                                 |
+
+For stapel images with file-based `packages`, each declared spec file (for example `go.mod` or `requirements.txt`) is read from the built image and scanned directly as a directory source, without mounting the Docker socket. A declared lock file (for example `go.sum`) is included when present but is optional — a module with no dependencies has none, and its absence is tolerated. If a required spec file is not present as a regular file in the built image — for example removed by a later stage, or present only as a symlink — the build fails with an error naming the directive and the missing path.
 
 ## Base image requirements
 

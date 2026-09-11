@@ -108,4 +108,35 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
+
+	DescribeTable("the source language of the packages directive lands on its components",
+		func(ctx SpecContext, testOpts sbomTestOptions, ecosystem, fixture, componentName, componentVersion, expectedLang string) {
+			setupSbomBuildEnv(testOpts.setupEnvOptions)
+
+			repoDirname := "repo_sbom_gost_source_langs_" + ecosystem
+			SuiteData.InitTestRepo(ctx, repoDirname, fixture)
+			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-gost-source-langs-builder-"+ecosystem)
+
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+
+			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{
+					ExtraArgs: []string{"app"},
+					Envs:      builderEnv,
+				},
+			})
+
+			bom := sbomtest.MustParseSBOMOutput(sbomOut)
+			sbomtest.AssertSourceLangsOnComponent(bom, componentName, componentVersion, []string{expectedLang})
+		},
+		Entry("python-pip using Vanilla Docker",
+			sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}},
+			"pip", "inject/pip_simple", "requests", "2.32.3", "Python"),
+		Entry("javascript-npm using Vanilla Docker",
+			sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}},
+			"npm", "inject/npm_simple", "lodash", "4.17.21", "JavaScript"),
+	)
 })

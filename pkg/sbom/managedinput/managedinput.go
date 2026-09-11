@@ -13,6 +13,7 @@ import (
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
+	sourceLang    string
 	enrichment    *config.EnrichmentSource
 }
 
@@ -39,6 +40,7 @@ func buildResolvers() []inputResolver {
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
+			sourceLang:    eco.SourceLang,
 			enrichment:    eco.Enrichment,
 		})
 	}
@@ -60,6 +62,7 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		cataloger := scanner.Cataloger{
 			Name:        res.catalogerName,
 			SourcePaths: []string{path.Join(workdir, directive.FileBased.Spec)},
+			SourceLang:  res.sourceLang,
 		}
 
 		// The lock is optional: a spec with no dependencies (e.g. a go module without a

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
@@ -242,8 +243,9 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 	}
 
 	// MergeBOMs unions components and dedups by normalized PURL; on a cross-directive PURL
-	// collision it is the first directive's component that is dropped (mergeOrder appends
-	// the target last, dedup is first-occurrence-wins). Harmless for component identity.
+	// collision the components are folded into the first directive's one (mergeOrder appends
+	// the target last, dedup is first-occurrence-wins), their properties — GOST:source_langs
+	// included — unioned. Harmless for component identity.
 	merged, err := cyclonedxutil.MergeBOMs(scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
 	if err != nil {
 		return nil, fmt.Errorf("union per-directive BOMs: %w", err)
@@ -276,10 +278,14 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 	// post-scan source-path filter safe (see SYFT_FILE_METADATA_SELECTION in the docker backend).
 	cyclonedxutil.DropSyftSourceFileComponents(bom)
 
+	for i := range lo.FromPtr(bom.Components) {
+		gost.SetComponentSourceLangs(&(*bom.Components)[i], []string{cataloger.SourceLang})
+	}
+
 	return bom, nil
 }
 
-const sbomArtifactFormatVersion = "6"
+const sbomArtifactFormatVersion = "7"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

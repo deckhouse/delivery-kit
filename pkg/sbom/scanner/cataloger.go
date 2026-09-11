@@ -7,11 +7,16 @@ package scanner
 // which simply did not catalog a file that was not there. Enrichment, when set, names the
 // installed-package files the cataloger reads next to the lock to enrich lock-derived
 // components with metadata the lock lacks (licenses); it is best-effort like the lock.
-// All are materialized under their full in-image path for a targeted directory scan.
+// SourceLang is the source language of the packages the cataloger finds, stamped on every
+// component as GOST:source_langs; it is empty for ecosystems that install prebuilt
+// binaries of an arbitrary language (os-pm), which carry their languages from the pm
+// catalog instead. All are materialized under their full in-image path for a targeted
+// directory scan.
 type Cataloger struct {
 	Name                string
 	SourcePaths         []string
 	OptionalSourcePaths []string
+	SourceLang          string
 	Enrichment          *Enrichment
 }
 

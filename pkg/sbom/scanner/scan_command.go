@@ -92,6 +92,7 @@ func (c ScanCommand) Checksum() string {
 	for _, cat := range c.Catalogers {
 		args = append(args, "cataloger", cat.Name)
 		args = append(args, cat.SourcePaths...)
+		args = append(args, cat.OptionalSourcePaths...)
 	}
 
 	return util.Sha256Hash(args...)

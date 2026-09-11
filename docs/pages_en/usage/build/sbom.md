@@ -50,7 +50,7 @@ Currently, this option uses the following _defaults_:
 | **Output Standard**               | `CycloneDX@1.6`                                                                        |
 | **Output Format**                 | `JSON`                                                                                 |
 
-For stapel images with file-based `packages`, each declared spec/lock file (for example `go.mod`/`go.sum` or `requirements.txt`) is read from the built image and scanned directly as a directory source, without mounting the Docker socket. If a file declared in `packages` is not present as a regular file in the built image — for example removed by a later stage, or present only as a symlink — the build fails with an error naming the directive and the missing path.
+For stapel images with file-based `packages`, each declared spec file (for example `go.mod` or `requirements.txt`) is read from the built image and scanned directly as a directory source, without mounting the Docker socket. A declared lock file (for example `go.sum`) is included when present but is optional — a module with no dependencies has none, and its absence is tolerated. If a required spec file is not present as a regular file in the built image — for example removed by a later stage, or present only as a symlink — the build fails with an error naming the directive and the missing path.
 
 ## Base image requirements
 

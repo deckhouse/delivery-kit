@@ -59,8 +59,20 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}},
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/cli/go.mod", "/app/cli/go.sum"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod"}, OptionalSourcePaths: []string{"/app/api/go.sum"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/cli/go.mod"}, OptionalSourcePaths: []string{"/app/cli/go.sum"}},
+			},
+		),
+
+		Entry("pip entries with no lock declare only a required spec",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypePythonPip,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "python-package-cataloger", SourcePaths: []string{"/app/requirements.txt"}},
 			},
 		),
 
@@ -96,7 +108,7 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod", "/app/go.sum"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, OptionalSourcePaths: []string{"/app/go.sum"}},
 			},
 		),
 

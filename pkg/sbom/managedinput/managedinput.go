@@ -13,7 +13,6 @@ import (
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
-	sourcePaths   func(directive *config.PackagesDirective) []string
 }
 
 var resolvers = buildResolvers()
@@ -39,13 +38,6 @@ func buildResolvers() []inputResolver {
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
-			sourcePaths: func(d *config.PackagesDirective) []string {
-				paths := []string{path.Join(d.FileBased.Workdir, d.FileBased.Spec)}
-				if d.FileBased.Lock != "" {
-					paths = append(paths, path.Join(d.FileBased.Workdir, d.FileBased.Lock))
-				}
-				return paths
-			},
 		})
 	}
 	return built
@@ -62,10 +54,17 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 			continue
 		}
 
-		catalogers = append(catalogers, scanner.Cataloger{
+		cataloger := scanner.Cataloger{
 			Name:        res.catalogerName,
-			SourcePaths: res.sourcePaths(directive),
-		})
+			SourcePaths: []string{path.Join(directive.FileBased.Workdir, directive.FileBased.Spec)},
+		}
+		// The lock is optional: a spec with no dependencies (e.g. a go module without a
+		// go.sum) has none, and the build must not fail over its absence.
+		if directive.FileBased.Lock != "" {
+			cataloger.OptionalSourcePaths = []string{path.Join(directive.FileBased.Workdir, directive.FileBased.Lock)}
+		}
+
+		catalogers = append(catalogers, cataloger)
 	}
 
 	return catalogers

@@ -44,8 +44,8 @@ build:
 | **Сканер**                                | syft                                                                                     |
 | **Образ сканера**                         | anchore/syft:v1.45.1                                                             |
 | **Политика получения образа**             | `PullIfMissing`                                                                          |
-| **Способ подключения к источнику данных** | Образы Dockerfile: daemon + socket via volume (для Docker). Stapel-образы с file-based `packages`: сканирование каталога с извлечёнными из собранного образа spec/lock-файлами, без socket. |
-| **Путь в образе источнике**               | корень OS (образы Dockerfile); объявленные spec/lock-файлы `packages` (stapel file-based packages)                                       |
+| **Способ подключения к источнику данных** | Сканирование каталога с извлечёнными из собранного образа spec/lock-файлами, без Docker-сокета            |
+| **Путь в образе источнике**               | Объявленные spec/lock-файлы `packages`                                                   |
 | **Настройки сканирования**                | [ссылка](https://github.com/anchore/syft/wiki/Configuration#list-of-configurable-values) |
 | **Исходящий стандарт**                    | `CycloneDX@1.6`                                                                          |
 | **Исходящий формат**                      | `JSON`                                                                                   |

@@ -37,8 +37,9 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 
 	It("materializes spec and lock under their full in-image path, adjacent, world-readable", func() {
 		cataloger := scanner.Cataloger{
-			Name:        "go-module-file-cataloger",
-			SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"},
+			Name:                "go-module-file-cataloger",
+			SourcePaths:         []string{"/app/api/go.mod"},
+			OptionalSourcePaths: []string{"/app/api/go.sum"},
 		}
 		mockBackend.EXPECT().
 			ReadFileFromImage(ctx, imageRef, "/app/api/go.mod", container_backend.ReadFileFromImageOpts{}).
@@ -158,7 +159,34 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(dir).ToNot(BeEmpty())
 	})
 
-	It("fails naming the cataloger and path when a declared file is absent from the image", func() {
+	It("skips an optional lock file that is absent from the image without failing", func() {
+		// A go module with no dependencies has no go.sum; the old full-image scan simply did
+		// not catalog it, and the build must not fail over its absence.
+		cataloger := scanner.Cataloger{
+			Name:                "go-module-file-cataloger",
+			SourcePaths:         []string{"/app/go.mod"},
+			OptionalSourcePaths: []string{"/app/go.sum"},
+		}
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+			Return([]byte("module example.com/app\n"), nil)
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/go.sum", container_backend.ReadFileFromImageOpts{}).
+			Return(nil, errors.New("Could not find the file /app/go.sum in container werf.read_file.x"))
+
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		Expect(err).To(Succeed())
+		DeferCleanup(func() { cleanup(ctx) })
+
+		content, err := os.ReadFile(filepath.Join(dir, "app", "go.mod"))
+		Expect(err).To(Succeed())
+		Expect(string(content)).To(Equal("module example.com/app\n"))
+
+		_, err = os.Stat(filepath.Join(dir, "app", "go.sum"))
+		Expect(os.IsNotExist(err)).To(BeTrue(), "the absent optional lock must not be materialized")
+	})
+
+	It("fails naming the cataloger and path when a required spec is absent from the image", func() {
 		cataloger := scanner.Cataloger{
 			Name:        "go-module-file-cataloger",
 			SourcePaths: []string{"/app/go.mod"},

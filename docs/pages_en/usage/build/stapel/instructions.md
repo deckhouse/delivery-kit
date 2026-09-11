@@ -303,7 +303,7 @@ The `os-pm` type does not need `stageDependencies`: its package list lives in `w
 
 ### Package managers absent from the builder image
 
-When the builder image has no Yarn, pnpm, uv or Poetry, install the manager with an earlier `packages` entry and point the next entry at it with `manager`. The packages stage is the only stage with network access, so both steps happen there:
+When the builder image has no Yarn, pnpm, uv or Poetry, install the manager with an earlier `packages` entry and point the next entry at it with `manager`. The packages stage is the only stage with network access, so every step happens there — including installing npm itself with `os-pm`, when the builder image ships no Node.js either:
 
 ```yaml
 git:
@@ -322,12 +322,17 @@ git:
         - package.json
         - package-lock.json
 packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
   - type: javascript-npm
     workdir: /opt/tools
   - type: javascript-yarn
     workdir: /app
     manager: /opt/tools/node_modules/.bin/yarn
 ```
+
+The entries run in the order they are declared: `pm` installs Node.js with npm, npm installs Yarn, Yarn installs the application dependencies. The npm entry needs no `manager` — `pm` puts npm onto `PATH`.
 
 Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` pointing anywhere else — a bare executable name, a path from the builder image — is rejected: it would be resolved by the image instead of the configuration.
 

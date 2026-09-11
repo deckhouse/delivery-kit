@@ -577,6 +577,41 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.Properties).To(HaveLen(1))
 	})
 
+	It("unions GOST:source_langs of same-purl components into a single property", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "curl-a", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
+					Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "C"}},
+				},
+				{
+					BOMRef: "curl-b", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
+					Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Assembly,C"}},
+				},
+			},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+		Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Assembly,C"}}))
+	})
+
+	It("normalizes a lone GOST:source_langs value of an imported component", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0",
+					Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Python, Go,Go"}},
+				},
+			},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Go,Python"}}))
+	})
+
 	It("merges vulnerabilities sharing an id and source", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

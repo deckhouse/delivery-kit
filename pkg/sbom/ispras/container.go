@@ -60,7 +60,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		}
 
 		imgComponents := append(slices.Clone(lo.FromPtr(container.Components)), lo.FromPtr(imgBOM.Components)...)
-		setMissingGOSTOnComponent(&container, aggregateGOST(imgComponents))
+		applyGOSTToContainer(&container, aggregateGOST(imgComponents))
 		if len(imgComponents) > 0 {
 			container.Components = &imgComponents
 		}
@@ -78,7 +78,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		return nil, fmt.Errorf("merge image BOMs: %w", err)
 	}
 
-	result.Metadata = buildProductMetadata(meta)
+	result.Metadata = buildProductMetadata(meta, aggregateSourceLangs(images))
 
 	return result, nil
 }

@@ -680,26 +680,36 @@ func dedupExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalRefer
 }
 
 // dedupProperties keeps the first property of every name-value pair. GOST
-// properties collapse to a single entry per name carrying the strongest value,
-// because the ISPRAS SBOM schema allows a component to carry each of them at
-// most once and a weaker duplicate must not hide a stronger one.
+// properties collapse to a single entry per name, because the ISPRAS SBOM schema
+// allows a component to carry each of them at most once and its exporters read only
+// the first: attack_surface and security_function keep the strongest value so a
+// weaker duplicate does not hide a stronger one, source_langs keeps the union.
 func dedupProperties(properties *[]cdx.Property) *[]cdx.Property {
 	if properties == nil {
 		return nil
 	}
 
 	seen := make(map[string]struct{}, len(*properties))
-	gostPos := make(map[string]int, 2)
+	gostPos := make(map[string]int, 3)
 	result := make([]cdx.Property, 0, len(*properties))
 
 	for _, prop := range *properties {
-		if prop.Name == gost.PropertyAttackSurface || prop.Name == gost.PropertySecurityFunction {
+		switch prop.Name {
+		case gost.PropertyAttackSurface, gost.PropertySecurityFunction:
 			if pos, exists := gostPos[prop.Name]; exists {
 				result[pos].Value = gost.Max(gost.GostValue(result[pos].Value), gost.GostValue(prop.Value)).String()
 				continue
 			}
 			gostPos[prop.Name] = len(result)
 			result = append(result, prop)
+			continue
+		case gost.PropertySourceLangs:
+			if pos, exists := gostPos[prop.Name]; exists {
+				result[pos].Value = gost.MergeSourceLangsValues(result[pos].Value, prop.Value)
+				continue
+			}
+			gostPos[prop.Name] = len(result)
+			result = append(result, cdx.Property{Name: prop.Name, Value: gost.NormalizeSourceLangsValue(prop.Value)})
 			continue
 		}
 

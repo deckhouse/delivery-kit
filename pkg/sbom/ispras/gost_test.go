@@ -1,9 +1,12 @@
 package ispras
 
 import (
+	"context"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
@@ -45,5 +48,126 @@ var _ = Describe("aggregateGOST", func() {
 				),
 			},
 			GOSTValues{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes}),
+	)
+})
+
+var _ = Describe("Gost source languages aggregation", func() {
+	It("aggregates the languages of the image components", func() {
+		img := imageSBOM("backend", componentWithLangs("a", "Go"), componentWithLangs("b", "Python"), componentWithLangs("c", ""))
+
+		Expect(aggregateSourceLangs([]*ImageSBOM{img})).To(Equal([]string{"Go", "Python"}))
+	})
+
+	It("sets the union of the image languages on the container component", func() {
+		bom, err := (&ContainerAssembler{}).Assemble(
+			context.Background(),
+			[]*ImageSBOM{imageSBOM("backend", componentWithLangs("a", "Go"), componentWithLangs("b", "Python"))},
+			ProductMeta{AppName: "product", AppVersion: "1.0"},
+		)
+		Expect(err).To(Succeed())
+
+		containers := *bom.Components
+		Expect(containers).To(HaveLen(1))
+		Expect(gost.GetComponentSourceLangs(&containers[0])).To(Equal([]string{"Go", "Python"}))
+	})
+
+	It("unions the image languages with the ones already set on the container component", func() {
+		img := imageSBOM("backend", componentWithLangs("a", "Go"))
+		img.BOM.Properties = &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Rust"}}
+
+		bom, err := (&ContainerAssembler{}).Assemble(
+			context.Background(),
+			[]*ImageSBOM{img},
+			ProductMeta{AppName: "product", AppVersion: "1.0"},
+		)
+		Expect(err).To(Succeed())
+
+		containers := *bom.Components
+		Expect(gost.GetComponentSourceLangs(&containers[0])).To(Equal([]string{"Go", "Rust"}))
+	})
+
+	It("keeps a single GOST:source_langs property when the image carries it on both the root component and the document", func() {
+		img := imageSBOM("backend", componentWithLangs("a", "Go"))
+		img.BOM.Metadata = &cdx.Metadata{Component: &cdx.Component{
+			Type:       cdx.ComponentTypeContainer,
+			BOMRef:     "root",
+			Name:       "backend",
+			Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Lua"}},
+		}}
+		img.BOM.Properties = &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Rust"}}
+
+		bom, err := (&ContainerAssembler{}).Assemble(
+			context.Background(),
+			[]*ImageSBOM{img},
+			ProductMeta{AppName: "product", AppVersion: "1.0"},
+		)
+		Expect(err).To(Succeed())
+
+		containers := *bom.Components
+		Expect(containers).To(HaveLen(1))
+		langProps := lo.Filter(lo.FromPtr(containers[0].Properties), func(p cdx.Property, _ int) bool {
+			return p.Name == gost.PropertySourceLangs
+		})
+		Expect(langProps).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Go,Lua,Rust"}}))
+		Expect(gost.GetComponentSourceLangs(bom.Metadata.Component)).To(Equal([]string{"Go", "Lua", "Rust"}))
+	})
+
+	DescribeTable("includes the languages of components nested under the image root component in the product union",
+		func(assembler Assembler) {
+			img := imageSBOM("backend", componentWithLangs("a", "Go"))
+			img.BOM.Metadata = &cdx.Metadata{Component: &cdx.Component{
+				Type:       cdx.ComponentTypeContainer,
+				BOMRef:     "root",
+				Name:       "backend",
+				Components: &[]cdx.Component{componentWithLangs("nested", "Lua")},
+			}}
+
+			bom, err := assembler.Assemble(
+				context.Background(),
+				[]*ImageSBOM{img},
+				ProductMeta{AppName: "product", AppVersion: "1.0"},
+			)
+			Expect(err).To(Succeed())
+
+			Expect(gost.GetComponentSourceLangs(bom.Metadata.Component)).To(Equal([]string{"Go", "Lua"}))
+		},
+		Entry("container format", &ContainerAssembler{}),
+		Entry("oss format", &OSSAssembler{}),
+	)
+
+	DescribeTable("includes the BOM-level languages of an image in the product union",
+		func(assembler Assembler) {
+			img := imageSBOM("backend", componentWithLangs("a", "Go"))
+			img.BOM.Properties = &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Rust"}}
+
+			bom, err := assembler.Assemble(
+				context.Background(),
+				[]*ImageSBOM{img},
+				ProductMeta{AppName: "product", AppVersion: "1.0"},
+			)
+			Expect(err).To(Succeed())
+
+			Expect(gost.GetComponentSourceLangs(bom.Metadata.Component)).To(Equal([]string{"Go", "Rust"}))
+		},
+		Entry("container format", &ContainerAssembler{}),
+		Entry("oss format", &OSSAssembler{}),
+	)
+
+	DescribeTable("sets the union of all image languages on the product component",
+		func(assembler Assembler) {
+			bom, err := assembler.Assemble(
+				context.Background(),
+				[]*ImageSBOM{
+					imageSBOM("backend", componentWithLangs("a", "Go")),
+					imageSBOM("frontend", componentWithLangs("b", "JavaScript"), componentWithLangs("c", "Go")),
+				},
+				ProductMeta{AppName: "product", AppVersion: "1.0"},
+			)
+			Expect(err).To(Succeed())
+
+			Expect(gost.GetComponentSourceLangs(bom.Metadata.Component)).To(Equal([]string{"Go", "JavaScript"}))
+		},
+		Entry("container format", &ContainerAssembler{}),
+		Entry("oss format", &OSSAssembler{}),
 	)
 })

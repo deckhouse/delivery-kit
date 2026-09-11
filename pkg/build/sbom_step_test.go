@@ -146,8 +146,8 @@ var _ = Describe("SbomStep", func() {
 
 			imageRef := "app:latest"
 			catalogers := []scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod", "/app/go.sum"}},
-				{Name: "python-package-cataloger", SourcePaths: []string{"/svc/requirements.txt"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go"},
+				{Name: "python-package-cataloger", SourcePaths: []string{"/svc/requirements.txt"}, SourceLang: "Python"},
 			}
 
 			mockBackend.EXPECT().
@@ -192,6 +192,16 @@ var _ = Describe("SbomStep", func() {
 			}
 			Expect(names).To(ConsistOf("github.com/samber/lo", "flask"), "components from both directives are unioned and the source file is dropped")
 			Expect(names).ToNot(ContainElement("go.mod"))
+
+			langsByName := map[string][]string{}
+			for i := range *bom.Components {
+				comp := &(*bom.Components)[i]
+				langsByName[comp.Name] = gost.GetComponentSourceLangs(comp)
+			}
+			Expect(langsByName).To(Equal(map[string][]string{
+				"github.com/samber/lo": {"Go"},
+				"flask":                {"Python"},
+			}), "each component carries the source language of the directive that cataloged it")
 
 			Expect(bom.Metadata).ToNot(BeNil())
 			Expect(bom.Metadata.Timestamp).To(Equal("2026-01-01T00:00:00Z"), "syft metadata (timestamp) from the first directive is preserved, not discarded")

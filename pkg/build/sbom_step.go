@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
@@ -274,10 +275,14 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 	// post-scan source-path filter safe (see SYFT_FILE_METADATA_SELECTION in the docker backend).
 	cyclonedxutil.DropSyftSourceFileComponents(bom)
 
+	for i := range lo.FromPtr(bom.Components) {
+		gost.SetComponentSourceLangs(&(*bom.Components)[i], []string{cataloger.SourceLang})
+	}
+
 	return bom, nil
 }
 
-const sbomArtifactFormatVersion = "4"
+const sbomArtifactFormatVersion = "5"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

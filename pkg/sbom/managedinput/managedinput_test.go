@@ -59,8 +59,8 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}},
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/cli/go.mod", "/app/cli/go.sum"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}, SourceLang: "Go"},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/cli/go.mod", "/app/cli/go.sum"}, SourceLang: "Go"},
 			},
 		),
 
@@ -96,7 +96,19 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod", "/app/go.sum"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go"},
+			},
+		),
+
+		Entry("the cataloger carries the source language of its ecosystem",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypePythonPip,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "python-package-cataloger", SourcePaths: []string{"/app/requirements.txt"}, SourceLang: "Python"},
 			},
 		),
 

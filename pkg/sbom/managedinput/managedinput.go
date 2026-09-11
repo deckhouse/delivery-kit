@@ -13,6 +13,7 @@ import (
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
+	sourceLang    string
 	sourcePaths   func(directive *config.PackagesDirective) []string
 }
 
@@ -39,6 +40,7 @@ func buildResolvers() []inputResolver {
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
+			sourceLang:    eco.SourceLang,
 			sourcePaths: func(d *config.PackagesDirective) []string {
 				paths := []string{path.Join(d.FileBased.Workdir, d.FileBased.Spec)}
 				if d.FileBased.Lock != "" {
@@ -65,6 +67,7 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		catalogers = append(catalogers, scanner.Cataloger{
 			Name:        res.catalogerName,
 			SourcePaths: res.sourcePaths(directive),
+			SourceLang:  res.sourceLang,
 		})
 	}
 

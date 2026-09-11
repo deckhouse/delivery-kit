@@ -6,4 +6,5 @@ package scanner
 type Cataloger struct {
 	Name        string
 	SourcePaths []string
+	SourceLang  string
 }

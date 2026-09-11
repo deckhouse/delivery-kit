@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alessio/shellescape"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
@@ -278,7 +279,9 @@ func makeScript(commands []string, verbose bool) []byte {
 	for _, c := range commands {
 		// TODO: print commands by default when build secrets are supported.
 		if verbose {
-			scriptCommands = append(scriptCommands, fmt.Sprintf(`printf "$ %%s\n" %q`, c))
+			// Quoted for the shell, not with %q: inside double quotes bash would still expand $(…)
+			// and backticks in the command being printed.
+			scriptCommands = append(scriptCommands, fmt.Sprintf(`printf '$ %%s\n' %s`, shellescape.Quote(c)))
 		}
 		scriptCommands = append(scriptCommands, c)
 	}

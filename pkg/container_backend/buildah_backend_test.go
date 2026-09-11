@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 
@@ -299,6 +300,23 @@ var _ = Describe("BuildahBackend.MutateAndPushImageNative", func() {
 		Expect(stub.mutateConfigCalls).To(Equal(0))
 		Expect(stub.commitMutationCalls).To(Equal(0))
 		Expect(stub.rmCalls).To(BeEmpty())
+	})
+})
+
+var _ = Describe("makeScript", func() {
+	It("echoes a command without letting bash evaluate it", func(ctx SpecContext) {
+		command := `SOME_VAR='$(echo pwned >&2)' true`
+		scriptPath := filepath.Join(GinkgoT().TempDir(), "script.sh")
+		Expect(os.WriteFile(scriptPath, makeScript([]string{command}, true), 0o555)).To(Succeed())
+
+		cmd := exec.CommandContext(ctx, "bash", scriptPath)
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		stdout, err := cmd.Output()
+
+		Expect(err).ToNot(HaveOccurred(), stderr.String())
+		Expect(stderr.String()).To(BeEmpty())
+		Expect(string(stdout)).To(ContainSubstring("$ " + command + "\n"))
 	})
 })
 

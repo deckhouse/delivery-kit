@@ -1,8 +1,12 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"regexp"
+	"strings"
+
+	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
 
 type rawPackagesDirective struct {
@@ -50,8 +54,9 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 }
 
 var (
-	posixEnvNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-	managerRe      = regexp.MustCompile(`^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$`)
+	posixEnvNameRe   = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	managerRe        = regexp.MustCompile(`^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$`)
+	shellConstructRe = regexp.MustCompile("\\$[({a-zA-Z_]|`")
 )
 
 func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error) {
@@ -100,9 +105,17 @@ func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error
 
 	d.Env = r.Env
 
-	for key := range d.Env {
+	for key, value := range d.Env {
 		if !posixEnvNameRe.MatchString(key) {
 			return nil, fmt.Errorf("invalid environment variable name %q in packages[%d].env: must match POSIX naming pattern [a-zA-Z_][a-zA-Z0-9_]*", key, index)
+		}
+
+		if shellConstructRe.MatchString(value) {
+			warning := fmt.Sprintf("packages[%d].env[%q] looks like a shell construct, which is no longer evaluated: the value is passed to the package manager as is.", index, key)
+			if r.rawStapelImage != nil && len(r.rawStapelImage.Images) > 0 {
+				warning = fmt.Sprintf("image %q: %s", strings.Join(r.rawStapelImage.Images, ", "), warning)
+			}
+			global_warnings.GlobalWarningLn(context.Background(), warning)
 		}
 	}
 

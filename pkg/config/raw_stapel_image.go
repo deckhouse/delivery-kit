@@ -211,6 +211,10 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 
 	imageBase.Secrets = secrets
 
+	if err := validatePackageEnvValues(c.RawPackages, secrets); err != nil {
+		return nil, err
+	}
+
 	if c.RawImageSpec != nil {
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
 	}

@@ -446,4 +446,45 @@ var _ = Describe("rawPackagesDirective", func() {
 			map[string]string{"PM_LOCK_FILE": "/custom/index.json"},
 		),
 	)
+
+	DescribeTable("warns about a value that used to be evaluated by the shell",
+		func(value string, warned bool) {
+			Expect(shellConstructRe.MatchString(value)).To(Equal(warned))
+		},
+		Entry("command substitution", "$(id -u)", true),
+		Entry("backquoted command", "`id -u`", true),
+		Entry("braced variable expansion", "${CI_JOB_TOKEN}", true),
+		Entry("bare variable expansion", "$CI_JOB_TOKEN", true),
+		Entry("variable expansion inside a larger value", "$HOME/bin:/usr/bin", true),
+		Entry("positional parameter", "$1", false),
+		Entry("literal dollar sign", "100$", false),
+		Entry("url", "http://proxy.example.com:8080", false),
+		Entry("path", "/run/secrets/docker-config", false),
+		Entry("empty value", "", false),
+	)
+
+	DescribeTable("validates packages env secret references against the secrets section",
+		func(ctx SpecContext, value, expectedErr string) {
+			yamlMap := map[string]interface{}{
+				"image":   "image1",
+				"from":    "alpine:latest",
+				"secrets": []map[string]interface{}{{"env": "TOKEN"}},
+				"packages": []map[string]interface{}{{
+					"type":    "go-mod",
+					"workdir": "/app",
+					"env":     map[string]interface{}{"GOPROXY": value},
+				}},
+			}
+
+			_, err := directivesFromYaml(ctx, yamlMap)
+			if expectedErr == "" {
+				Expect(err).To(Succeed())
+				return
+			}
+			Expect(err).To(MatchError(ContainSubstring(expectedErr)))
+		},
+		Entry("declared secret", "%secret:TOKEN%", ""),
+		Entry("undeclared secret", "%secret:MISSING%", `packages[0].env["GOPROXY"] references secret "MISSING", which is not declared`),
+		Entry("malformed secret id", "%secret:my token%", `invalid secret id "my token"`),
+	)
 })

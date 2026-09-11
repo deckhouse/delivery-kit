@@ -9,12 +9,14 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/config"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
 
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
+	sourceLang    string
 	filterMode    scanner.CatalogerFilterMode
 	sourcePaths   func(directive *config.PackagesDirective) []string
 	workdir       func(directive *config.PackagesDirective) string
@@ -44,6 +46,7 @@ func buildResolvers() []inputResolver {
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
+			sourceLang:    eco.SourceLang,
 			filterMode:    filterMode,
 			sourcePaths: func(d *config.PackagesDirective) []string {
 				paths := []string{path.Join(d.FileBased.Workdir, d.FileBased.Spec)}
@@ -79,6 +82,7 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 			Name:        res.catalogerName,
 			FilterMode:  res.filterMode,
 			SourcePaths: res.sourcePaths(directive),
+			SourceLang:  res.sourceLang,
 			Workdir:     res.workdir(directive),
 		})
 	}
@@ -96,6 +100,7 @@ func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
 		filterMode scanner.CatalogerFilterMode
 		paths      map[string]struct{}
 		workdir    string
+		sourceLang string
 	}
 
 	filters := make([]catalogerFilter, 0, len(catalogers))
@@ -109,29 +114,36 @@ func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
 			filterMode: cat.FilterMode,
 			paths:      paths,
 			workdir:    cat.Workdir,
+			sourceLang: cat.SourceLang,
 		})
 	}
 
-	filtered := lo.Filter(*bom.Components, func(comp cdx.Component, _ int) bool {
+	matches := func(comp *cdx.Component, f catalogerFilter) bool {
+		if !componentFoundByCataloger(*comp, f.name) {
+			return false
+		}
+		switch f.filterMode {
+		case scanner.CatalogerFilterCatalogerOnly:
+			return true
+		case scanner.CatalogerFilterWorkdirPrefix:
+			return componentMatchesWorkdirPrefix(*comp, f.workdir)
+		default:
+			return componentMatchesAllowedPaths(*comp, f.paths)
+		}
+	}
+
+	filtered := make([]cdx.Component, 0, len(*bom.Components))
+	for i := range *bom.Components {
+		comp := &(*bom.Components)[i]
 		for _, f := range filters {
-			if !componentFoundByCataloger(comp, f.name) {
+			if !matches(comp, f) {
 				continue
 			}
-			switch f.filterMode {
-			case scanner.CatalogerFilterCatalogerOnly:
-				return true
-			case scanner.CatalogerFilterWorkdirPrefix:
-				if componentMatchesWorkdirPrefix(comp, f.workdir) {
-					return true
-				}
-			default:
-				if componentMatchesAllowedPaths(comp, f.paths) {
-					return true
-				}
-			}
+			gost.SetComponentSourceLangs(comp, []string{f.sourceLang})
+			filtered = append(filtered, *comp)
+			break
 		}
-		return false
-	})
+	}
 
 	*bom.Components = filtered
 }

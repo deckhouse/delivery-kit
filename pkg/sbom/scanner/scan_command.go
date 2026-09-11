@@ -90,7 +90,7 @@ func (c ScanCommand) Checksum() string {
 	}
 
 	for _, cat := range c.Catalogers {
-		args = append(args, "cataloger", cat.Name)
+		args = append(args, "cataloger", cat.Name, cat.SourceLang)
 		args = append(args, cat.SourcePaths...)
 	}
 

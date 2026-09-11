@@ -284,6 +284,23 @@ packages:
       - libssl-dev
 ```
 
+For file-based types, declare the spec and lock files in `git.stageDependencies.packages` — otherwise changes to their contents will not rebuild the packages stage, leaving installed dependencies stale while the SBOM reports the updated files:
+
+```yaml
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+packages:
+  - type: go-mod
+    workdir: /app
+```
+
+The `os-pm` type does not need `stageDependencies`: its package list lives in `werf.yaml` itself, so any change to it rebuilds the stage automatically.
+
 ### Package managers absent from the builder image
 
 When the builder image has no Yarn, pnpm, uv or Poetry, install the manager with an earlier `packages` entry and point the next entry at it with `manager`. The packages stage is the only stage with network access, so both steps happen there:
@@ -292,6 +309,8 @@ When the builder image has no Yarn, pnpm, uv or Poetry, install the manager with
 git:
   - add: /
     to: /app
+    excludePaths:
+      - tools
     stageDependencies:
       packages:
         - package.json
@@ -310,9 +329,9 @@ packages:
     manager: /opt/tools/node_modules/.bin/yarn
 ```
 
-Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency, so it appears in the image SBOM.
+Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image.
 
-For Python the same recipe needs no `manager`: `pip` installs uv or Poetry onto `PATH`, and the following entry finds them there.
+For Python the same recipe needs no `manager`: `pip` installs uv or Poetry onto `PATH`, and the following entry finds them there. Poetry additionally needs `POETRY_VIRTUALENVS_CREATE=false` in the builder image — otherwise it installs the dependencies into a virtualenv of its own instead of the image.
 
 ```yaml
 packages:
@@ -322,25 +341,6 @@ packages:
   - type: python-poetry
     workdir: /app
 ```
-
-`manager` also runs a package manager shipped in the project repository, such as the Yarn release committed under `.yarn/releases`.
-
-For file-based types, declare the spec and lock files in `git.stageDependencies.packages` — otherwise changes to their contents will not rebuild the packages stage, leaving installed dependencies stale while the SBOM reports the updated files:
-
-```yaml
-git:
-  - add: /
-    to: /app
-    stageDependencies:
-      packages:
-        - go.mod
-        - go.sum
-packages:
-  - type: go-mod
-    workdir: /app
-```
-
-The `os-pm` type does not need `stageDependencies`: its package list lives in `werf.yaml` itself, so any change to it rebuilds the stage automatically.
 
 ## Syntax
 

@@ -297,6 +297,23 @@ packages:
       - libssl-dev
 ```
 
+Для файловых типов укажите spec- и lock-файлы в `git.stageDependencies.packages` — иначе изменение их содержимого не приведет к пересборке стадии packages: установленные зависимости устареют, а SBOM при этом будет отражать обновленные файлы:
+
+```yaml
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+packages:
+  - type: go-mod
+    workdir: /app
+```
+
+Типу `os-pm` директива `stageDependencies` не требуется: список пакетов находится в самом `werf.yaml`, поэтому любое его изменение автоматически пересобирает стадию.
+
 ### Менеджеры пакетов, которых нет в сборочном образе
 
 Если в сборочном образе нет Yarn, pnpm, uv или Poetry, установите менеджер предыдущей записью `packages`, а в следующей укажите путь к нему в поле `manager`. Сеть доступна только на стадии packages, поэтому оба шага выполняются на ней:
@@ -305,6 +322,8 @@ packages:
 git:
   - add: /
     to: /app
+    excludePaths:
+      - tools
     stageDependencies:
       packages:
         - package.json
@@ -323,9 +342,9 @@ packages:
     manager: /opt/tools/node_modules/.bin/yarn
 ```
 
-Здесь `/tools/package.json` объявляет сам Yarn зависимостью, а `/tools/package-lock.json` фиксирует его версию и хеш целостности. Менеджер устанавливается как обычная зависимость, поэтому он попадает в SBOM образа.
+Здесь `/tools/package.json` объявляет сам Yarn зависимостью, а `/tools/package-lock.json` фиксирует его версию и хеш целостности. Менеджер устанавливается как обычная зависимость: он попадает в SBOM образа и остается в собранном образе.
 
-Для Python поле `manager` не нужно: `pip` устанавливает uv или Poetry в `PATH`, и следующая запись находит их там.
+Для Python поле `manager` не нужно: `pip` устанавливает uv или Poetry в `PATH`, и следующая запись находит их там. Poetry дополнительно требует `POETRY_VIRTUALENVS_CREATE=false` в сборочном образе — иначе он установит зависимости в собственный virtualenv, а не в образ.
 
 ```yaml
 packages:
@@ -335,25 +354,6 @@ packages:
   - type: python-poetry
     workdir: /app
 ```
-
-Поле `manager` также позволяет запустить менеджер пакетов, поставляемый вместе с репозиторием проекта, например Yarn-релиз, закоммиченный в `.yarn/releases`.
-
-Для файловых типов укажите spec- и lock-файлы в `git.stageDependencies.packages` — иначе изменение их содержимого не приведет к пересборке стадии packages: установленные зависимости устареют, а SBOM при этом будет отражать обновленные файлы:
-
-```yaml
-git:
-  - add: /
-    to: /app
-    stageDependencies:
-      packages:
-        - go.mod
-        - go.sum
-packages:
-  - type: go-mod
-    workdir: /app
-```
-
-Типу `os-pm` директива `stageDependencies` не требуется: список пакетов находится в самом `werf.yaml`, поэтому любое его изменение автоматически пересобирает стадию.
 
 ## Синтаксис
 

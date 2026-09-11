@@ -12,6 +12,16 @@ import (
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
+// The default stays unquoted so that an entry without `manager` keeps the command it had
+// before the field existed, and with it the packages stage digest.
+func managerBin(files FileBasedSpec, defaultBin string) string {
+	if files.Manager == "" {
+		return defaultBin
+	}
+
+	return fmt.Sprintf("%q", files.Manager)
+}
+
 func formatEnvVars(env map[string]string) string {
 	if len(env) == 0 {
 		return ""

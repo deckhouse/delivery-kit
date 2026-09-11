@@ -3,6 +3,10 @@ package config
 import (
 	"fmt"
 	"maps"
+	"path"
+	"strings"
+
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
@@ -30,6 +34,7 @@ type FileBasedSpec struct {
 	Workdir string
 	Spec    string
 	Lock    string
+	Manager string
 }
 
 type PackageEcosystem struct {
@@ -45,8 +50,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeGoMod,
 		DefaultSpecFile: "go.mod",
 		DefaultLockFile: "go.sum",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && go mod download", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s mod download", workdir, managerBin(files, "go"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -58,8 +63,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonUV,
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "uv.lock",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && uv sync --frozen", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s sync --frozen", workdir, managerBin(files, "uv"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -72,7 +77,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "requirements.txt",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && pip install --no-cache-dir -r %q", workdir, files.Spec)
+			cmd := fmt.Sprintf("cd %q && %s install --no-cache-dir -r %q", workdir, managerBin(files, "pip"), files.Spec)
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -84,8 +89,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonPoetry,
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "poetry.lock",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && poetry sync --no-root", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s sync --no-root", workdir, managerBin(files, "poetry"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -97,8 +102,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeRustCargo,
 		DefaultSpecFile: "Cargo.toml",
 		DefaultLockFile: "Cargo.lock",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && cargo fetch", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s fetch", workdir, managerBin(files, "cargo"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -110,8 +115,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptNpm,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "package-lock.json",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && npm ci", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s ci", workdir, managerBin(files, "npm"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -123,8 +128,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptYarn,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "yarn.lock",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && yarn install --frozen-lockfile", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s install --frozen-lockfile", workdir, managerBin(files, "yarn"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -136,8 +141,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptPnpm,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "pnpm-lock.yaml",
-		InstallCmd: func(workdir string, _ FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && pnpm install --frozen-lockfile", workdir)
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			cmd := fmt.Sprintf("cd %q && %s install --frozen-lockfile", workdir, managerBin(files, "pnpm"))
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -150,7 +155,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			cmd := fmt.Sprintf("cd %q && luarocks install --only-deps %q", workdir, files.Spec)
+			cmd := fmt.Sprintf("cd %q && %s install --only-deps %q", workdir, managerBin(files, "luarocks"), files.Spec)
 			if prefix := formatEnvVars(env); prefix != "" {
 				cmd = fmt.Sprintf("%s %s", prefix, cmd)
 			}
@@ -179,6 +184,46 @@ type PackagesDirective struct {
 	FileBased FileBasedSpec
 	Spec      PackagesSpec
 	Env       map[string]string
+}
+
+// A manager installed by a preceding entry is verified by that entry's lock file, so the
+// executable is only as trustworthy as the tree it lives in: anything outside those trees,
+// a bare name included, is resolved by the image and not by the configuration.
+func validatePackagesManagers(packages []*PackagesDirective) error {
+	var precedingWorkdirs []string
+
+	for _, d := range packages {
+		if d.FileBased.Manager == "" {
+			precedingWorkdirs = appendWorkdir(precedingWorkdirs, d)
+			continue
+		}
+
+		manager := d.FileBased.Manager
+		if !path.IsAbs(manager) {
+			manager = path.Join(d.FileBased.Workdir, manager)
+		}
+
+		if !lo.SomeBy(precedingWorkdirs, func(workdir string) bool {
+			return strings.HasPrefix(manager, workdir+"/")
+		}) {
+			if len(precedingWorkdirs) == 0 {
+				return fmt.Errorf("invalid manager %q for type %q: no preceding packages entry installs it", d.FileBased.Manager, d.Type)
+			}
+			return fmt.Errorf("invalid manager %q for type %q: expected a path inside the workdir of a preceding packages entry (%s)", d.FileBased.Manager, d.Type, strings.Join(precedingWorkdirs, ", "))
+		}
+
+		precedingWorkdirs = appendWorkdir(precedingWorkdirs, d)
+	}
+
+	return nil
+}
+
+func appendWorkdir(workdirs []string, d *PackagesDirective) []string {
+	if d.Type == PackagesDirectiveTypeOSPM {
+		return workdirs
+	}
+
+	return append(workdirs, path.Clean(d.FileBased.Workdir))
 }
 
 func (d *PackagesDirective) validate() error {

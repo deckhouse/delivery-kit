@@ -10,6 +10,7 @@ type rawPackagesDirective struct {
 	Spec    interface{}       `yaml:"spec,omitempty"`
 	Workdir string            `yaml:"workdir,omitempty"`
 	Lock    string            `yaml:"lock,omitempty"`
+	Manager string            `yaml:"manager,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty"`
 
 	rawStapelImage *rawStapelImage `yaml:"-"`
@@ -48,7 +49,10 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 	return &doc{Content: []byte{}}
 }
 
-var posixEnvNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var (
+	posixEnvNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	managerRe      = regexp.MustCompile(`^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$`)
+)
 
 func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error) {
 	d := &PackagesDirective{
@@ -58,6 +62,9 @@ func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error
 	if d.Type == PackagesDirectiveTypeOSPM {
 		if r.Workdir != "" {
 			return nil, fmt.Errorf("workdir is not supported for type %q", d.Type)
+		}
+		if r.Manager != "" {
+			return nil, fmt.Errorf("manager is not supported for type %q", d.Type)
 		}
 		if r.Spec == nil {
 			return nil, fmt.Errorf("the `spec` is required for type %q", d.Type)
@@ -129,6 +136,13 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 			return fmt.Errorf("lock is not supported for type %q", d.Type)
 		}
 		d.FileBased.Lock = r.Lock
+	}
+
+	if r.Manager != "" {
+		if !managerRe.MatchString(r.Manager) {
+			return fmt.Errorf("invalid manager %q for type %q: expected a package manager executable name or path built of letters, digits and _ . / - @ +", r.Manager, d.Type)
+		}
+		d.FileBased.Manager = r.Manager
 	}
 
 	return nil

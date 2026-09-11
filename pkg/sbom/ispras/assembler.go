@@ -6,6 +6,8 @@ import (
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
 
 type Assembler interface {
@@ -23,7 +25,7 @@ func NewAssembler(format Format) (Assembler, error) {
 	}
 }
 
-func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
+func buildProductMetadata(meta ProductMeta, sourceLangs []string) *cdx.Metadata {
 	metaComponent := &cdx.Component{
 		Type:    cdx.ComponentTypeApplication,
 		Name:    meta.AppName,
@@ -32,6 +34,8 @@ func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
 			Name: meta.Manufacturer,
 		},
 	}
+
+	gost.SetComponentSourceLangs(metaComponent, sourceLangs)
 
 	return &cdx.Metadata{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),

@@ -21,7 +21,7 @@ func (a *OSSAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta Pro
 		return nil, fmt.Errorf("merge image BOMs: %w", err)
 	}
 
-	result.Metadata = buildProductMetadata(meta)
+	result.Metadata = buildProductMetadata(meta, aggregateSourceLangs(images))
 
 	return result, nil
 }

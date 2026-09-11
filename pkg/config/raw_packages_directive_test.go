@@ -462,4 +462,29 @@ var _ = Describe("rawPackagesDirective", func() {
 		Entry("path", "/run/secrets/docker-config", false),
 		Entry("empty value", "", false),
 	)
+
+	DescribeTable("validates packages env secret references against the secrets section",
+		func(ctx SpecContext, value, expectedErr string) {
+			yamlMap := map[string]interface{}{
+				"image":   "image1",
+				"from":    "alpine:latest",
+				"secrets": []map[string]interface{}{{"env": "TOKEN"}},
+				"packages": []map[string]interface{}{{
+					"type":    "go-mod",
+					"workdir": "/app",
+					"env":     map[string]interface{}{"GOPROXY": value},
+				}},
+			}
+
+			_, err := directivesFromYaml(ctx, yamlMap)
+			if expectedErr == "" {
+				Expect(err).To(Succeed())
+				return
+			}
+			Expect(err).To(MatchError(ContainSubstring(expectedErr)))
+		},
+		Entry("declared secret", "%secret:TOKEN%", ""),
+		Entry("undeclared secret", "%secret:MISSING%", `packages[0].env["GOPROXY"] references secret "MISSING", which is not declared`),
+		Entry("malformed secret id", "%secret:my token%", `invalid secret id "my token"`),
+	)
 })

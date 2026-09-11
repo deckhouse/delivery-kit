@@ -33,10 +33,22 @@ func (manager *GiterminismManagerStub) Dev() bool {
 	return false
 }
 
+func (manager *GiterminismManagerStub) Inspector() giterminism_manager.Inspector {
+	return &GiterminismInspectorStub{}
+}
+
 func (manager *GiterminismManagerStub) HeadCommit(ctx context.Context) string {
 	commit, err := manager.localGitRepo.HeadCommitHash(ctx)
 	Expect(err).To(Succeed())
 	return commit
+}
+
+type GiterminismInspectorStub struct {
+	giterminism_manager.Inspector
+}
+
+func (inspector *GiterminismInspectorStub) InspectConfigSecretEnvAccepted(secret string) error {
+	return nil
 }
 
 type LocalGitRepoStub struct {

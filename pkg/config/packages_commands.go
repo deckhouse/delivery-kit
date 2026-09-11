@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/alessio/shellescape"
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
@@ -22,7 +21,7 @@ func formatEnvVars(env map[string]string) string {
 	sort.Strings(keys)
 
 	parts := lo.Map(keys, func(k string, _ int) string {
-		return fmt.Sprintf("%s=%s", k, shellescape.Quote(env[k]))
+		return fmt.Sprintf("%s=%s", k, formatPackageEnvValue(env[k]))
 	})
 	return strings.Join(parts, " ")
 }

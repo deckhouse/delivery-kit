@@ -268,7 +268,7 @@ packages:
 
 Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:
@@ -282,6 +282,32 @@ packages:
   - type: os-pm
     spec:
       - libssl-dev
+```
+
+### Secrets in packages
+
+A `packages[].env` value can reference a secret declared in the `secrets` section:
+
+- `%secret:<id>%` — the contents of the secret, without trailing newlines;
+- `%secret_path:<id>%` — the path the secret is mounted at, `/run/secrets/<id>`.
+
+A reference is resolved while the package manager runs, so the secret is never part of the build instructions, the stage digest or the resulting image. Referencing a secret that is not declared fails the build during configuration parsing. Any other `%...%` sequence stays literal.
+
+```yaml
+secrets:
+  - id: GOPROXY
+    env: GOPROXY
+  - id: CI_JOB_TOKEN
+    env: CI_JOB_TOKEN
+packages:
+  - type: go-mod
+    workdir: /app
+    env:
+      GOPROXY: "%secret:GOPROXY%"
+      GOPRIVATE: git.example.com/*
+      GIT_CONFIG_KEY_0: 'url.https://gitlab-ci-token:%secret:CI_JOB_TOKEN%@git.example.com/.insteadOf'
+      GIT_CONFIG_VALUE_0: 'https://git.example.com/'
+      GIT_CONFIG_COUNT: "1"
 ```
 
 For file-based types, declare the spec and lock files in `git.stageDependencies.packages` — otherwise changes to their contents will not rebuild the packages stage, leaving installed dependencies stale while the SBOM reports the updated files:

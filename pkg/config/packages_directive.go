@@ -3,6 +3,10 @@ package config
 import (
 	"fmt"
 	"maps"
+	"path"
+	"strings"
+
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 )
@@ -180,6 +184,46 @@ type PackagesDirective struct {
 	FileBased FileBasedSpec
 	Spec      PackagesSpec
 	Env       map[string]string
+}
+
+// A manager installed by a preceding entry is verified by that entry's lock file, so the
+// executable is only as trustworthy as the tree it lives in: anything outside those trees,
+// a bare name included, is resolved by the image and not by the configuration.
+func validatePackagesManagers(packages []*PackagesDirective) error {
+	var precedingWorkdirs []string
+
+	for _, d := range packages {
+		if d.FileBased.Manager == "" {
+			precedingWorkdirs = appendWorkdir(precedingWorkdirs, d)
+			continue
+		}
+
+		manager := d.FileBased.Manager
+		if !path.IsAbs(manager) {
+			manager = path.Join(d.FileBased.Workdir, manager)
+		}
+
+		if !lo.SomeBy(precedingWorkdirs, func(workdir string) bool {
+			return strings.HasPrefix(manager, workdir+"/")
+		}) {
+			if len(precedingWorkdirs) == 0 {
+				return fmt.Errorf("invalid manager %q for type %q: no preceding packages entry installs it", d.FileBased.Manager, d.Type)
+			}
+			return fmt.Errorf("invalid manager %q for type %q: expected a path inside the workdir of a preceding packages entry (%s)", d.FileBased.Manager, d.Type, strings.Join(precedingWorkdirs, ", "))
+		}
+
+		precedingWorkdirs = appendWorkdir(precedingWorkdirs, d)
+	}
+
+	return nil
+}
+
+func appendWorkdir(workdirs []string, d *PackagesDirective) []string {
+	if d.Type == PackagesDirectiveTypeOSPM {
+		return workdirs
+	}
+
+	return append(workdirs, path.Clean(d.FileBased.Workdir))
 }
 
 func (d *PackagesDirective) validate() error {

@@ -172,10 +172,19 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"image": "image1",
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
+					{"type": "javascript-npm", "workdir": "/opt/tools"},
 					{"type": "javascript-yarn", "workdir": "/app", "manager": "/opt/tools/node_modules/.bin/yarn"},
 				},
 			},
 			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: FileBasedSpec{
+						Workdir: "/opt/tools",
+						Spec:    "package.json",
+						Lock:    "package-lock.json",
+					},
+				},
 				{
 					Type: PackagesDirectiveTypeJavaScriptYarn,
 					FileBased: FileBasedSpec{
@@ -192,10 +201,19 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"image": "image1",
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
+					{"type": "javascript-npm", "workdir": "/opt/tools"},
 					{"type": "javascript-pnpm", "workdir": "/app", "manager": "/opt/tools/node_modules/.pnpm/pnpm@9.12.0/node_modules/pnpm/bin/pnpm.cjs"},
 				},
 			},
 			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: FileBasedSpec{
+						Workdir: "/opt/tools",
+						Spec:    "package.json",
+						Lock:    "package-lock.json",
+					},
+				},
 				{
 					Type: PackagesDirectiveTypeJavaScriptPnpm,
 					FileBased: FileBasedSpec{
@@ -203,6 +221,35 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 						Spec:    "package.json",
 						Lock:    "pnpm-lock.yaml",
 						Manager: "/opt/tools/node_modules/.pnpm/pnpm@9.12.0/node_modules/pnpm/bin/pnpm.cjs",
+					},
+				},
+			},
+		),
+		Entry("javascript-yarn with a manager relative to its own workdir",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-npm", "workdir": "/app/tools"},
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "tools/node_modules/.bin/yarn"},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: FileBasedSpec{
+						Workdir: "/app/tools",
+						Spec:    "package.json",
+						Lock:    "package-lock.json",
+					},
+				},
+				{
+					Type: PackagesDirectiveTypeJavaScriptYarn,
+					FileBased: FileBasedSpec{
+						Workdir: "/app",
+						Spec:    "package.json",
+						Lock:    "yarn.lock",
+						Manager: "tools/node_modules/.bin/yarn",
 					},
 				},
 			},
@@ -251,6 +298,39 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
 					{"type": "javascript-yarn", "workdir": "/app", "manager": "yarn; echo pwned"},
+				},
+			},
+		),
+
+		Entry("javascript-yarn with a manager not installed by any preceding entry",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-npm", "workdir": "/opt/tools"},
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "/usr/local/bin/yarn"},
+				},
+			},
+		),
+
+		Entry("javascript-yarn with a bare manager name",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-npm", "workdir": "/opt/tools"},
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "yarn"},
+				},
+			},
+		),
+
+		Entry("javascript-yarn with a manager installed by a following entry",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "/opt/tools/node_modules/.bin/yarn"},
+					{"type": "javascript-npm", "workdir": "/opt/tools"},
 				},
 			},
 		),

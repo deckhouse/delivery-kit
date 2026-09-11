@@ -133,6 +133,12 @@ build:
       securityFunction: no
 ```
 
+### Source languages (`GOST:source_langs`)
+
+The `GOST:source_langs` property is filled in automatically and needs no configuration: every component cataloged through a `packages` directive gets the source language of that directive's ecosystem (`go-mod` — `Go`, `python-pip`/`python-poetry`/`python-uv` — `Python`, `rust-cargo` — `Rust`, `javascript-npm`/`javascript-yarn`/`javascript-pnpm` — `JavaScript`, `lua-rock` — `Lua`).
+
+Packages installed by `os-pm` are prebuilt binaries of an arbitrary language, so they carry no source language. When SBOMs are merged with `werf sbom merge`, the languages of all images are collected on the product component, and in the `container` format the languages of an image's components are additionally collected on that image's container component.
+
 ## VCS external references enrichment
 
 When SBOM is enabled, werf enriches components with VCS external references at build time via an external purl resolution service. The service URL is set with the `WERF_EXTERNAL_REFS_SERVER_URL` environment variable (there is no CLI flag):

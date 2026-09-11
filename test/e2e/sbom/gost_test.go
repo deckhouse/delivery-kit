@@ -87,4 +87,29 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertyAttackSurface, gost.GostValueNo)
 		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueNo)
 	})
+
+	DescribeTable("the source language of the packages directive lands on its components",
+		func(ctx SpecContext, ecosystem, fixture, componentName, componentVersion, expectedLang string) {
+			setupSbomBuildEnv()
+
+			repoDirname := "repo_sbom_gost_source_langs_" + ecosystem
+			SuiteData.InitTestRepo(ctx, repoDirname, fixture)
+			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+			werfProject.Build(ctx, nil)
+
+			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+			})
+
+			bom := sbomtest.MustParseSBOMOutput(sbomOut)
+			sbomtest.AssertSourceLangsOnComponent(bom, componentName, componentVersion, []string{expectedLang})
+		},
+		Entry("go-mod", "gomod", "inject/gomod_license", "github.com/pkg/errors", "v0.9.1", "Go"),
+		Entry("python-pip", "pip", "inject/pip_simple", "requests", "2.32.3", "Python"),
+		Entry("rust-cargo", "cargo", "inject/cargo_simple", "anyhow", "1.0.86", "Rust"),
+		Entry("javascript-npm", "npm", "inject/npm_simple", "lodash", "4.17.21", "JavaScript"),
+		Entry("lua-rock", "lua", "inject/lua_simple", "werf-sbom-lua-app", "0.1-1", "Lua"),
+	)
 })

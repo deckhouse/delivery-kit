@@ -37,6 +37,7 @@ var _ = Describe("formatEnvVars shell safety", func() {
 		Entry("whitespace and semicolon", "a; echo pwned"),
 		Entry("empty value", ""),
 		Entry("ordinary value", "http://proxy.example.com:8080"),
+		Entry("newline and tab", "first\n\tsecond"),
 	)
 })
 

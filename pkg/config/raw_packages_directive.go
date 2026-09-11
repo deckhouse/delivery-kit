@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/werf/werf/v2/pkg/werf/global_warnings"
 )
@@ -110,7 +111,11 @@ func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error
 		}
 
 		if shellConstructRe.MatchString(value) {
-			global_warnings.GlobalWarningLn(context.Background(), fmt.Sprintf("packages[%d].env[%q] looks like a shell construct, which is no longer evaluated: the value is passed to the package manager as is.", index, key))
+			warning := fmt.Sprintf("packages[%d].env[%q] looks like a shell construct, which is no longer evaluated: the value is passed to the package manager as is.", index, key)
+			if r.rawStapelImage != nil && len(r.rawStapelImage.Images) > 0 {
+				warning = fmt.Sprintf("image %q: %s", strings.Join(r.rawStapelImage.Images, ", "), warning)
+			}
+			global_warnings.GlobalWarningLn(context.Background(), warning)
 		}
 	}
 

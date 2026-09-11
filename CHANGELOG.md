@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.4.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.1...v3.4.0-dk.2) (2026-09-11)
+
+
+### Features
+
+* **sbom:** use a package manager absent from the builder image ([#318](https://github.com/deckhouse/delivery-kit/issues/318)) ([cf7810d](https://github.com/deckhouse/delivery-kit/commit/cf7810d4876f3409e27113160d00b9ffa1eff98e))
+
+
+### Bug Fixes
+
+* **sbom:** stop executing shell constructs from packages env values ([#315](https://github.com/deckhouse/delivery-kit/issues/315)) ([b7dfff0](https://github.com/deckhouse/delivery-kit/commit/b7dfff064e490dfe36952dce7ac8091b0203a6d7))
+
 ## [3.4.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.3.1-dk.2...v3.4.0-dk.1) (2026-09-09)
 
 

@@ -1,7 +1,10 @@
 package ispras
 
 import (
+	"sort"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
@@ -20,7 +23,22 @@ func aggregateGOST(components []cdx.Component) GOSTValues {
 		result.AttackSurface = maxGOSTValue(result.AttackSurface, cfg.AttackSurface)
 		result.SecurityFunction = maxGOSTValue(result.SecurityFunction, cfg.SecurityFunction)
 	}
+	result.SourceLangs = gost.CollectSourceLangs(components)
 	return result
+}
+
+// aggregateSourceLangs unions the source languages of the images. The result is sorted:
+// images are assembled in a non-deterministic order, and the product SBOM has to stay
+// comparable across runs.
+func aggregateSourceLangs(images []*ImageSBOM) []string {
+	var langs []string
+	for _, img := range images {
+		langs = append(langs, img.GOST.SourceLangs...)
+	}
+	langs = lo.Uniq(langs)
+	sort.Strings(langs)
+
+	return langs
 }
 
 func maxGOSTValue(a, b gost.GostValue) gost.GostValue {
@@ -47,4 +65,6 @@ func setMissingGOSTOnComponent(comp *cdx.Component, values GOSTValues) {
 		AttackSurface:    attack,
 		SecurityFunction: security,
 	})
+
+	gost.SetComponentSourceLangs(comp, append(gost.GetComponentSourceLangs(comp), values.SourceLangs...))
 }

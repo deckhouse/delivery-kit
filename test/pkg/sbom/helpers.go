@@ -255,6 +255,16 @@ func AssertGostPropertyOnComponents(bom *cdx.BOM, propertyName string, expected 
 		"BOM has no components to assert GOST property on")
 }
 
+// AssertSourceLangsOnComponent asserts the GOST:source_langs property of a single
+// component, identified by name and version.
+func AssertSourceLangsOnComponent(bom *cdx.BOM, name, version string, expected []string) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found in BOM", name, version)
+	ExpectWithOffset(1, gost.GetComponentSourceLangs(comp)).To(Equal(expected),
+		"component %s@%s GOST source languages", name, version)
+}
+
 func AssertSpecVersion(bom *cdx.BOM, expected cdx.SpecVersion) {
 	ExpectWithOffset(1, bom.SpecVersion).To(Equal(expected),
 		"expected spec version %q, got %q", expected, bom.SpecVersion)

@@ -44,8 +44,8 @@ Currently, this option uses the following _defaults_:
 | **Scanner**                       | syft                                                                                   |
 | **Scanner Image**                 | anchore/syft:v1.45.1                                                           |
 | **Image Pull Policy**             | `PullIfMissing`                                                                        |
-| **Data Source Connection Method** | Dockerfile images: daemon + socket via volume (for Docker). Stapel images with file-based `packages`: directory scan of the declared spec/lock files extracted from the built image, no socket. |
-| **Path in Source Image**          | OS root (Dockerfile images); the declared `packages` spec/lock files (stapel file-based packages)                                      |
+| **Data Source Connection Method** | Directory scan of the spec/lock files extracted from the built image, without the Docker socket           |
+| **Path in Source Image**          | The declared `packages` spec/lock files                                                |
 | **Scan Settings**                 | [link](https://github.com/anchore/syft/wiki/Configuration#list-of-configurable-values) |
 | **Output Standard**               | `CycloneDX@1.6`                                                                        |
 | **Output Format**                 | `JSON`                                                                                 |

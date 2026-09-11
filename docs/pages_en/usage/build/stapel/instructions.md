@@ -268,7 +268,7 @@ packages:
 
 Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), and `lock` (optional, overrides default lock filename). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — an executable name or a path, without shell metacharacters). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:
@@ -283,6 +283,47 @@ packages:
     spec:
       - libssl-dev
 ```
+
+### Package managers absent from the builder image
+
+When the builder image has no Yarn, pnpm, uv or Poetry, install the manager with an earlier `packages` entry and point the next entry at it with `manager`. The packages stage is the only stage with network access, so both steps happen there:
+
+```yaml
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - package.json
+        - yarn.lock
+  - add: /tools
+    to: /opt/tools
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
+packages:
+  - type: javascript-npm
+    workdir: /opt/tools
+  - type: javascript-yarn
+    workdir: /app
+    manager: /opt/tools/node_modules/.bin/yarn
+```
+
+Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency, so it appears in the image SBOM.
+
+For Python the same recipe needs no `manager`: `pip` installs uv or Poetry onto `PATH`, and the following entry finds them there.
+
+```yaml
+packages:
+  - type: python-pip
+    workdir: /app
+    spec: tools-requirements.txt
+  - type: python-poetry
+    workdir: /app
+```
+
+`manager` also runs a package manager shipped in the project repository, such as the Yarn release committed under `.yarn/releases`.
 
 For file-based types, declare the spec and lock files in `git.stageDependencies.packages` — otherwise changes to their contents will not rebuild the packages stage, leaving installed dependencies stale while the SBOM reports the updated files:
 

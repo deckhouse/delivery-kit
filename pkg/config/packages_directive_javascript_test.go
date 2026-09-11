@@ -167,6 +167,26 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				},
 			},
 		),
+		Entry("javascript-yarn with manager keeps the executable path",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "/opt/tools/node_modules/.bin/yarn"},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeJavaScriptYarn,
+					FileBased: FileBasedSpec{
+						Workdir: "/app",
+						Spec:    "package.json",
+						Lock:    "yarn.lock",
+						Manager: "/opt/tools/node_modules/.bin/yarn",
+					},
+				},
+			},
+		),
 	)
 
 	DescribeTable("convert to directive fails when required fields are missing",
@@ -201,6 +221,26 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"from":  "node:20-alpine",
 				"packages": []map[string]interface{}{
 					{"type": "javascript-pnpm"},
+				},
+			},
+		),
+
+		Entry("javascript-yarn with a manager containing shell metacharacters",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "yarn; echo pwned"},
+				},
+			},
+		),
+
+		Entry("os-pm with manager",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "os-pm", "spec": []string{"curl"}, "manager": "/opt/pm"},
 				},
 			},
 		),

@@ -187,6 +187,26 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				},
 			},
 		),
+		Entry("javascript-pnpm with a manager path containing @",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-pnpm", "workdir": "/app", "manager": "/opt/tools/node_modules/.pnpm/pnpm@9.12.0/node_modules/pnpm/bin/pnpm.cjs"},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeJavaScriptPnpm,
+					FileBased: FileBasedSpec{
+						Workdir: "/app",
+						Spec:    "package.json",
+						Lock:    "pnpm-lock.yaml",
+						Manager: "/opt/tools/node_modules/.pnpm/pnpm@9.12.0/node_modules/pnpm/bin/pnpm.cjs",
+					},
+				},
+			},
+		),
 	)
 
 	DescribeTable("convert to directive fails when required fields are missing",

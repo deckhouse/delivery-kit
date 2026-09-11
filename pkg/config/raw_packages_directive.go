@@ -51,7 +51,7 @@ func (r *rawPackagesDirective) docForErrors() *doc {
 
 var (
 	posixEnvNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-	managerRe      = regexp.MustCompile(`^[a-zA-Z0-9_./][a-zA-Z0-9_./-]*$`)
+	managerRe      = regexp.MustCompile(`^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$`)
 )
 
 func (r *rawPackagesDirective) toDirective(index int) (*PackagesDirective, error) {
@@ -140,7 +140,7 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 
 	if r.Manager != "" {
 		if !managerRe.MatchString(r.Manager) {
-			return fmt.Errorf("invalid manager %q for type %q: expected a package manager executable name or path", r.Manager, d.Type)
+			return fmt.Errorf("invalid manager %q for type %q: expected a package manager executable name or path built of letters, digits and _ . / - @ +", r.Manager, d.Type)
 		}
 		d.FileBased.Manager = r.Manager
 	}

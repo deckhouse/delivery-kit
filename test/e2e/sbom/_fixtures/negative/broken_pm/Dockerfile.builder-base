@@ -1,3 +1,2 @@
-FROM registry.werf.io/base/ubuntu:22.04
+FROM registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1
 LABEL io.deckhouse.internal.builder=true
-ENV PACKAGES_VERSION=e2e-test-v1.0.0

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/alessio/shellescape"
-	"github.com/samber/lo"
 )
 
 const (
@@ -19,10 +18,6 @@ const (
 var (
 	packageEnvReferenceRe = regexp.MustCompile(`%(secret_path|secret):([^%]*)%`)
 	packageSecretIDRe     = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
-
-	// Both were resolved from identically named secrets implicitly, so a config that declares
-	// one without referencing it used to work and now silently loses the value.
-	pmFormerlyImplicitSecretIDs = []string{"PACKAGES_VERSION", "REGISTRY"}
 )
 
 type packageEnvPart struct {
@@ -80,40 +75,6 @@ func formatPackageEnvValue(value string) string {
 	}
 
 	return strings.Join(formatted, "")
-}
-
-func unreferencedPMSecretIDs(rawPackages []*rawPackagesDirective, secrets []Secret) []string {
-	osPmDeclared := lo.ContainsBy(rawPackages, func(rawPackage *rawPackagesDirective) bool {
-		return rawPackage.Type == string(PackagesDirectiveTypeOSPM)
-	})
-	if !osPmDeclared {
-		return nil
-	}
-
-	referenced := make(map[string]struct{})
-	for _, rawPackage := range rawPackages {
-		for _, value := range rawPackage.Env {
-			parts, err := splitPackageEnvValue(value)
-			if err != nil {
-				continue
-			}
-
-			for _, part := range parts {
-				if part.namespace != "" {
-					referenced[part.secretID] = struct{}{}
-				}
-			}
-		}
-	}
-
-	declared := lo.Map(secrets, func(secret Secret, _ int) string { return secret.Id })
-
-	return lo.Filter(pmFormerlyImplicitSecretIDs, func(id string, _ int) bool {
-		if _, ok := referenced[id]; ok {
-			return false
-		}
-		return lo.Contains(declared, id)
-	})
 }
 
 func validatePackageEnvValues(rawPackages []*rawPackagesDirective, secrets []Secret) error {

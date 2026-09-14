@@ -47,36 +47,6 @@ var _ = Describe("formatPackageEnvValue", func() {
 	)
 })
 
-var _ = Describe("unreferencedPMSecretIDs", func() {
-	osPm := func(env map[string]string) []*rawPackagesDirective {
-		return []*rawPackagesDirective{{Type: "os-pm", Env: env}}
-	}
-	bothSecrets := []Secret{{Id: "PACKAGES_VERSION"}, {Id: "REGISTRY"}}
-
-	DescribeTable("reports the secrets that used to be picked up implicitly",
-		func(rawPackages []*rawPackagesDirective, secrets []Secret, expected []string) {
-			ids := unreferencedPMSecretIDs(rawPackages, secrets)
-			if len(expected) == 0 {
-				Expect(ids).To(BeEmpty())
-				return
-			}
-			Expect(ids).To(Equal(expected))
-		},
-
-		Entry("neither is referenced", osPm(nil), bothSecrets, []string{"PACKAGES_VERSION", "REGISTRY"}),
-		Entry("one is referenced", osPm(map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}), bothSecrets, []string{"REGISTRY"}),
-		Entry("both are referenced", osPm(map[string]string{
-			"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%",
-			"REGISTRY":         "%secret:REGISTRY%",
-		}), bothSecrets, nil),
-		Entry("referenced under another variable name", osPm(map[string]string{"PM_REGISTRY": "%secret:REGISTRY%"}), []Secret{{Id: "REGISTRY"}}, nil),
-		Entry("secret is not declared", osPm(nil), nil, nil),
-		Entry("unrelated secret", osPm(nil), []Secret{{Id: "TOKEN"}}, nil),
-		Entry("no os-pm directive", []*rawPackagesDirective{{Type: "go-mod"}}, bothSecrets, nil),
-		Entry("no packages at all", nil, bothSecrets, nil),
-	)
-})
-
 var _ = Describe("validatePackageEnvValues", func() {
 	rawPackages := func(value string) []*rawPackagesDirective {
 		return []*rawPackagesDirective{{Type: "go-mod", Env: map[string]string{"GOPROXY": value}}}

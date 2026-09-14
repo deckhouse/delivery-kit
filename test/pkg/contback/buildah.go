@@ -96,16 +96,19 @@ func (r *NativeBuildahBackend) SaveImageToStream(ctx context.Context, image stri
 }
 
 // RmiByRepoRef removes every local image tagged under repoRef from the containers storage.
+// An image that disappears between listing and removal is not an error: a sibling spec
+// sharing the storage may have removed it first.
 func (r *NativeBuildahBackend) RmiByRepoRef(ctx context.Context, repoRef string) {
-	listArgs := append(append([]string{}, r.CommonCliArgs...), "images", "--format", "{{.Name}}:{{.Tag}}")
+	listArgs := append(append([]string{}, r.CommonCliArgs...), "images", "--filter", "reference="+repoRef+":*", "--format", "{{.Name}}:{{.Tag}}")
 	output := utils.SucceedCommandOutputString(ctx, "/", "buildah", listArgs...)
 
 	for _, ref := range strings.Fields(output) {
-		if !strings.HasPrefix(ref, repoRef+":") {
+		rmiArgs := append(append([]string{}, r.CommonCliArgs...), "rmi", "--force", ref)
+		rmiOut, err := utils.RunCommand(ctx, "/", "buildah", rmiArgs...)
+		if err != nil && strings.Contains(string(rmiOut), "image not known") {
 			continue
 		}
-		rmiArgs := append(append([]string{}, r.CommonCliArgs...), "rmi", "--force", ref)
-		utils.RunSucceedCommand(ctx, "/", "buildah", rmiArgs...)
+		Expect(err).NotTo(HaveOccurred(), string(rmiOut))
 	}
 }
 

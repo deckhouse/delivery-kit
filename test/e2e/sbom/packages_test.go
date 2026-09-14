@@ -149,7 +149,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 
-	DescribeTable("build fails when pm binary is missing in the image despite os-pm packages declared",
+	DescribeTable("build fails when the pm installed-packages index in the image is corrupted",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
@@ -166,10 +166,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 					Envs:       builderEnv,
 				},
 			})
-			Expect(out).To(SatisfyAny(
-				ContainSubstring("Code: 127"),
-				ContainSubstring("container run failed"),
-			), "expected pm binary missing or build failure; got:\n%s", out)
+			Expect(out).To(ContainSubstring("invalid character"),
+				"expected pm to reject the corrupted index; got:\n%s", out)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

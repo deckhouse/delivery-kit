@@ -47,6 +47,7 @@ import (
 	"go.podman.io/storage/pkg/unshare"
 
 	"github.com/werf/common-go/pkg/util"
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/buildah/thirdparty"
 	"github.com/werf/werf/v2/pkg/container_backend/filter"
 	"github.com/werf/werf/v2/pkg/container_backend/info"
@@ -467,11 +468,25 @@ func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile stri
 	buildOpts.ContextDirectory = opts.ContextDir
 
 	imageId, _, err := imagebuildah.BuildDockerfiles(ctx, b.Store, buildOpts, dockerfile)
+	if err != nil && !buildOpts.NoCache && isStorageRaceError(err) {
+		// imagebuildah walks every local image looking for a cache hit and
+		// fails when one of their layers is removed underneath it by another
+		// process sharing the storage. The build itself is fine; redo it
+		// without consulting the local cache.
+		logboek.Context(ctx).Warn().LogF("Local image cache lookup hit a layer that no longer exists, rebuilding without cache: %s\n", err)
+		buildOpts.NoCache = true
+		buildOpts.Out, buildOpts.Err, stderrBuf = generateStdoutStderr(opts.LogWriter, nil, nil)
+		imageId, _, err = imagebuildah.BuildDockerfiles(ctx, b.Store, buildOpts, dockerfile)
+	}
 	if err != nil {
 		return "", wrapStderrError(fmt.Sprintf("unable to build Dockerfile %q", dockerfile), stderrBuf, err)
 	}
 
 	return imageId, nil
+}
+
+func isStorageRaceError(err error) bool {
+	return errors.Is(err, storage.ErrLayerUnknown)
 }
 
 func (b *NativeBuildah) Mount(ctx context.Context, container string, opts MountOpts) (string, error) {

@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"go.podman.io/storage"
 
 	"github.com/werf/common-go/pkg/util"
 )
@@ -37,6 +38,19 @@ var _ = Describe("buildah", func() {
 			},
 			[]string{"foo=bar", "key=value"},
 		),
+	)
+
+	DescribeTable("isStorageRaceError",
+		func(err error, expected bool) {
+			Expect(isStorageRaceError(err)).To(Equal(expected))
+		},
+		Entry("nil", nil, false),
+		Entry("unrelated error", errors.New("boom"), false),
+		Entry("layer unknown", storage.ErrLayerUnknown, true),
+		Entry("image unknown is a genuine lookup failure, not a race", storage.ErrImageUnknown, false),
+		Entry("wrapped layer unknown, as imagebuildah returns it",
+			fmt.Errorf("checking if cached image exists from a previous build: %w", fmt.Errorf("getting top layer info: %w", storage.ErrLayerUnknown)),
+			true),
 	)
 
 	Describe("generateStdoutStderr", func() {

@@ -50,7 +50,7 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 	for _, sourcePath := range cataloger.OptionalSourcePaths {
 		data, err := backend.ReadFileFromImage(ctx, imageRef, sourcePath, opts)
 		if err != nil {
-			logboek.Context(ctx).Debug().LogF("skip optional %s for cataloger %q: not present in image %q: %s\n", sourcePath, cataloger.Name, imageRef, err)
+			logboek.Context(ctx).Warn().LogF("WARNING: lock file %s not found in image %q for cataloger %q; scanning the spec only. This is expected for a project without dependencies; otherwise transitive dependencies will be missing from the SBOM\n", sourcePath, imageRef, cataloger.Name)
 			continue
 		}
 		if err := writeMaterializedFile(dir, sourcePath, data); err != nil {

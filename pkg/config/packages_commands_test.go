@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
@@ -216,6 +218,74 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Entry("env is nil", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}}),
 		Entry("env is empty map", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: map[string]string{}}),
 	)
+})
+
+var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
+	type runResult struct {
+		versionFile string
+		installEnv  string
+	}
+
+	run := func(ctx SpecContext, env map[string]string, baseImageEnv, secret string) (runResult, error) {
+		dir := GinkgoT().TempDir()
+		secretsDir := filepath.Join(dir, "secrets")
+		Expect(os.MkdirAll(secretsDir, 0o700)).To(Succeed())
+		if secret != "" {
+			Expect(os.WriteFile(filepath.Join(secretsDir, "PACKAGES_VERSION"), []byte(secret+"\n"), 0o600)).To(Succeed())
+		}
+
+		installEnvFile := filepath.Join(dir, "install-env")
+		pmStub := filepath.Join(dir, "pm")
+		Expect(os.WriteFile(pmStub, []byte("#!/bin/bash\nprintf '%s' \"$PACKAGES_VERSION\" > "+installEnvFile+"\n"), 0o700)).To(Succeed())
+
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: env},
+		})
+		Expect(cmds).To(HaveLen(1))
+
+		script := cmds[0]
+		script = strings.ReplaceAll(script, stapel.MkdirBinPath(), "mkdir")
+		script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
+		script = strings.ReplaceAll(script, metadata.ContainerFactoryVersionPath, filepath.Join(dir, "container-factory-version"))
+		script = strings.ReplaceAll(script, path.Dir(metadata.ContainerFactoryVersionPath), dir)
+
+		cmd := exec.CommandContext(ctx, "bash", "-ec", script)
+		cmd.Env = []string{"PATH=" + dir + ":" + os.Getenv("PATH")}
+		if baseImageEnv != "" {
+			cmd.Env = append(cmd.Env, "PACKAGES_VERSION="+baseImageEnv)
+		}
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		if err := cmd.Run(); err != nil {
+			return runResult{}, fmt.Errorf("%w: %s", err, stderr)
+		}
+
+		versionFile, err := os.ReadFile(filepath.Join(dir, "container-factory-version"))
+		Expect(err).NotTo(HaveOccurred())
+		installEnv, err := os.ReadFile(installEnvFile)
+		Expect(err).NotTo(HaveOccurred())
+
+		return runResult{versionFile: strings.TrimSuffix(string(versionFile), "\n"), installEnv: string(installEnv)}, nil
+	}
+
+	DescribeTable("records the same version it installs with",
+		func(ctx SpecContext, env map[string]string, baseImageEnv, secret, expected string) {
+			result, err := run(ctx, env, baseImageEnv, secret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.versionFile).To(Equal(expected))
+			Expect(result.installEnv).To(Equal(expected))
+		},
+
+		Entry("base image env only", nil, "1.0.0", "", "1.0.0"),
+		Entry("packages env only", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "", "", "2.0.0"),
+		Entry("packages env wins over base image env", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "1.0.0", "", "2.0.0"),
+		Entry("packages env reads a secret", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", "3.0.0", "3.0.0"),
+	)
+
+	It("fails the stage when no source provides the version", func(ctx SpecContext) {
+		_, err := run(ctx, nil, "", "")
+		Expect(err).To(MatchError(ContainSubstring("required by werf for pm SBOM provenance")))
+	})
 })
 
 var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func() {

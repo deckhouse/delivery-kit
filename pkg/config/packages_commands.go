@@ -58,15 +58,20 @@ func formatMkdirCommand() string {
 	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
-func formatVersionFileCommand() string {
+func formatVersionFileCommand(env map[string]string) string {
+	assignment := formatSecretVar("PACKAGES_VERSION")
+	if value, ok := env["PACKAGES_VERSION"]; ok {
+		assignment = fmt.Sprintf("PACKAGES_VERSION=%s", formatPackageEnvValue(value))
+	}
+
 	return fmt.Sprintf(
 		`%s && : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		formatSecretVar("PACKAGES_VERSION"), metadata.ContainerFactoryVersionPath,
+		assignment, metadata.ContainerFactoryVersionPath,
 	)
 }
 
 func formatInstallCommand(pkgs []string, env map[string]string) string {
-	commandPrefix := []string{formatMkdirCommand(), formatVersionFileCommand()}
+	commandPrefix := []string{formatMkdirCommand(), formatVersionFileCommand(env)}
 	envPrefix := strings.TrimSpace(strings.Join([]string{
 		formatEnvVars(env),
 		formatSecretVar("PACKAGES_VERSION"),

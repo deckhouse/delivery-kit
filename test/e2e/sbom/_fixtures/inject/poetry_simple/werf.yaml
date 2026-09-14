@@ -10,10 +10,28 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
+    excludePaths:
+      - tools
     stageDependencies:
       packages:
         - pyproject.toml
         - poetry.lock
+  - add: /tools
+    to: /opt/tools
+    stageDependencies:
+      packages:
+        - requirements.txt
 packages:
+  - type: os-pm
+    spec:
+      - python==3.12.12
+  - type: python-pip
+    workdir: /opt/tools
+    env:
+      PIP_TARGET: /opt/tools
   - type: python-poetry
     workdir: /app
+    manager: /opt/tools/bin/poetry
+    env:
+      PYTHONPATH: /opt/tools
+      POETRY_VIRTUALENVS_CREATE: "false"

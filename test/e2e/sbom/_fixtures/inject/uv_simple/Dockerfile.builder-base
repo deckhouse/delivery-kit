@@ -1,3 +1,5 @@
-FROM python:3.12-slim
-RUN pip install --no-cache-dir uv==0.4.20
+FROM registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1
 LABEL io.deckhouse.internal.builder=true
+ENV PACKAGES_VERSION=v3.0.2
+USER 0
+RUN ln -s pip3 /usr/bin/pip

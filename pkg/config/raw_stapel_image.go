@@ -215,6 +215,13 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 		return nil, err
 	}
 
+	for _, secretID := range unreferencedPMSecretIDs(c.RawPackages, secrets) {
+		global_warnings.GlobalWarningLn(ctx, fmt.Sprintf(
+			"image %q: secret %q is no longer passed to the pm package manager implicitly: reference it as packages[].env[%q]: %q to keep the value.",
+			name, secretID, secretID, fmt.Sprintf("%%secret:%s%%", secretID),
+		))
+	}
+
 	if c.RawImageSpec != nil {
 		imageBase.ImageSpec = c.RawImageSpec.toDirective()
 	}

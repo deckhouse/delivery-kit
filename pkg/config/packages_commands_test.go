@@ -244,14 +244,14 @@ var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
 		Entry("packages env reads a secret", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", "3.0.0", "3.0.0"),
 	)
 
-	It("fails the stage when no source provides the version", func(ctx SpecContext) {
+	It("fails the stage when no source provides the version and prints the explicit reference to add", func(ctx SpecContext) {
 		_, err := run(ctx, nil, "", "")
-		Expect(err).To(MatchError(ContainSubstring("required by werf for pm SBOM provenance")))
+		Expect(err).To(MatchError(ContainSubstring(`PACKAGES_VERSION: werf records it in the SBOM; the base image sets no such ENV, so pass it via packages[].env, e.g. PACKAGES_VERSION: "%secret:PACKAGES_VERSION%"`)))
 	})
 
 	It("ignores a secret the directive env does not reference", func(ctx SpecContext) {
 		_, err := run(ctx, nil, "", "3.0.0")
-		Expect(err).To(MatchError(ContainSubstring("required by werf for pm SBOM provenance")))
+		Expect(err).To(MatchError(ContainSubstring("pass it via packages[].env")))
 	})
 
 	It("fails the stage when the referenced secret file is missing", func(ctx SpecContext) {

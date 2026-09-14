@@ -12,6 +12,9 @@ import (
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
+// Expanded by bash inside "${VAR:?...}", so $ and " are escaped for that context.
+const packagesVersionMissingMessage = `werf records it in the SBOM; the base image sets no such ENV, so pass it via packages[].env, e.g. PACKAGES_VERSION: \"%secret:PACKAGES_VERSION%\"`
+
 // The default stays unquoted so that an entry without `manager` keeps the command it had
 // before the field existed, and with it the packages stage digest.
 func managerBin(files FileBasedSpec, defaultBin string) string {
@@ -49,8 +52,8 @@ func formatMkdirCommand() string {
 
 func formatVersionFileCommand(env map[string]string) string {
 	guard := fmt.Sprintf(
-		`: "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		metadata.ContainerFactoryVersionPath,
+		`: "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
+		packagesVersionMissingMessage, metadata.ContainerFactoryVersionPath,
 	)
 
 	value, ok := env["PACKAGES_VERSION"]

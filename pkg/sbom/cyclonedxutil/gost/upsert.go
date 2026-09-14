@@ -7,7 +7,8 @@ import (
 	"github.com/samber/lo"
 )
 
-// Upsert inserts or updates mandatory GOST properties in the BOM and all its components (metadata and direct ones).
+// Upsert inserts or updates mandatory GOST properties in the BOM metadata component
+// and every component, nested ones included.
 func Upsert(bom *cdx.BOM, config Config) error {
 	if bom == nil {
 		return fmt.Errorf("BOM is required")
@@ -17,13 +18,16 @@ func Upsert(bom *cdx.BOM, config Config) error {
 		SetComponent(bom.Metadata.Component, config)
 	}
 
-	// NOTE: We only modify top-level components per the requirement.
-	// We iterate by index to ensure SetComponent receives a pointer to the original element, not a copy.
-	for i := range lo.FromPtr(bom.Components) {
-		SetComponent(&(*bom.Components)[i], config)
-	}
+	setComponents(lo.FromPtr(bom.Components), config)
 
 	return nil
+}
+
+func setComponents(components []cdx.Component, config Config) {
+	for i := range components {
+		SetComponent(&components[i], config)
+		setComponents(lo.FromPtr(components[i].Components), config)
+	}
 }
 
 // SetComponent inserts or updates mandatory GOST properties in a single component.

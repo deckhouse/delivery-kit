@@ -2,6 +2,7 @@ package ispras
 
 import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
@@ -19,6 +20,10 @@ func aggregateGOST(components []cdx.Component) GOSTValues {
 		cfg := gost.GetComponent(&components[i])
 		result.AttackSurface = maxGOSTValue(result.AttackSurface, cfg.AttackSurface)
 		result.SecurityFunction = maxGOSTValue(result.SecurityFunction, cfg.SecurityFunction)
+
+		nested := aggregateGOST(lo.FromPtr(components[i].Components))
+		result.AttackSurface = maxGOSTValue(result.AttackSurface, nested.AttackSurface)
+		result.SecurityFunction = maxGOSTValue(result.SecurityFunction, nested.SecurityFunction)
 	}
 	return result
 }

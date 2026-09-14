@@ -7,8 +7,8 @@ import (
 	"github.com/samber/lo"
 )
 
-// Validate checks if the BOM and all its components (metadata and direct ones)
-// contain the mandatory GOST properties with valid values.
+// Validate checks that the BOM metadata component and every component, nested
+// ones included, carry the mandatory GOST properties with valid values.
 func Validate(bom *cdx.BOM) error {
 	if bom == nil {
 		return fmt.Errorf("BOM is required")
@@ -24,9 +24,16 @@ func Validate(bom *cdx.BOM) error {
 		}
 	}
 
-	for _, comp := range lo.FromPtr(bom.Components) {
-		if err := ValidateComponent(&comp); err != nil {
-			return fmt.Errorf("component %q: %w", comp.Name, err)
+	return validateComponents(lo.FromPtr(bom.Components))
+}
+
+func validateComponents(components []cdx.Component) error {
+	for i := range components {
+		if err := ValidateComponent(&components[i]); err != nil {
+			return fmt.Errorf("component %q: %w", components[i].Name, err)
+		}
+		if err := validateComponents(lo.FromPtr(components[i].Components)); err != nil {
+			return err
 		}
 	}
 

@@ -81,6 +81,39 @@ var _ = Describe("Gost SBOM setter", func() {
 				},
 			},
 			Succeed()),
+		Entry("should set GOST properties on nested components",
+			&cdx.BOM{
+				Components: &[]cdx.Component{{
+					Name: "parent",
+					Components: &[]cdx.Component{{
+						Name:       "child",
+						Components: &[]cdx.Component{{Name: "grandchild"}},
+					}},
+				}},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueNo},
+			[]cdx.Component{{
+				Name: "parent",
+				Properties: &[]cdx.Property{
+					{Name: PropertyAttackSurface, Value: "yes"},
+					{Name: PropertySecurityFunction, Value: "no"},
+				},
+				Components: &[]cdx.Component{{
+					Name: "child",
+					Properties: &[]cdx.Property{
+						{Name: PropertyAttackSurface, Value: "yes"},
+						{Name: PropertySecurityFunction, Value: "no"},
+					},
+					Components: &[]cdx.Component{{
+						Name: "grandchild",
+						Properties: &[]cdx.Property{
+							{Name: PropertyAttackSurface, Value: "yes"},
+							{Name: PropertySecurityFunction, Value: "no"},
+						},
+					}},
+				}},
+			}},
+			Succeed()),
 		Entry("should inject 'indirect' value",
 			&cdx.BOM{
 				Components: &[]cdx.Component{{Name: "test"}},

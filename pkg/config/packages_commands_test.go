@@ -18,7 +18,9 @@ import (
 
 var _ = Describe("formatEnvVars shell safety", func() {
 	readEnvVar := func(ctx SpecContext, name, value string) (string, string, error) {
-		cmd := exec.CommandContext(ctx, "bash", "-ec", formatEnvVars(map[string]string{name: value})+`; printf '%s' "$`+name+`"`)
+		assignments, prefix := formatEnvVars(map[string]string{name: value}, nil)
+		script := strings.Join(append(assignments, fmt.Sprintf(`%s sh -c 'printf %%s "$%s"'`, prefix, name)), "; ")
+		cmd := exec.CommandContext(ctx, "bash", "-ec", script)
 		stderr := &bytes.Buffer{}
 		cmd.Stderr = stderr
 		stdout, err := cmd.Output()
@@ -88,6 +90,23 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Expect(cmds).To(HaveLen(1))
 		Expect(cmds[0]).NotTo(ContainSubstring(packageSecretsDir))
 	})
+
+	DescribeTable("produces exactly this command, byte for byte",
+		func(env map[string]string, expected string) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: env},
+			})
+			Expect(cmds).To(HaveLen(1))
+			Expect(cmds[0]).To(Equal(fmt.Sprintf(expected, stapel.MkdirBinPath(), packagesVersionMissingMessage)))
+		},
+
+		Entry("without env", nil,
+			`%s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; pm install curl jq`),
+		Entry("with a secret path, which is a literal and stays inline", map[string]string{"PACKAGES_VERSION": "1.0.0", "DOCKER_CONFIG": "%secret_path:dockercfg%"},
+			`%s -p /var/lib/pm; PACKAGES_VERSION=1.0.0; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; DOCKER_CONFIG=/run/secrets/dockercfg PACKAGES_VERSION="$PACKAGES_VERSION" pm install curl jq`),
+		Entry("with a literal and a secret-backed variable", map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"},
+			`%s -p /var/lib/pm; PACKAGES_VERSION=1.0.0; REGISTRY="$(</run/secrets/REGISTRY)"; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; PACKAGES_VERSION="$PACKAGES_VERSION" REGISTRY="$REGISTRY" pm install curl jq`),
+	)
 
 	It("each os-pm directive becomes one command", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
@@ -184,21 +203,22 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 
 var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
 	type runResult struct {
-		versionFile string
-		installEnv  string
+		versionFile     string
+		installVersion  string
+		installRegistry string
 	}
 
-	run := func(ctx SpecContext, env map[string]string, baseImageEnv, secret string) (runResult, error) {
+	run := func(ctx SpecContext, env map[string]string, baseImageEnv string, secrets map[string]string) (runResult, error) {
 		dir := GinkgoT().TempDir()
 		secretsDir := filepath.Join(dir, "secrets")
 		Expect(os.MkdirAll(secretsDir, 0o700)).To(Succeed())
-		if secret != "" {
-			Expect(os.WriteFile(filepath.Join(secretsDir, "PACKAGES_VERSION"), []byte(secret+"\n"), 0o600)).To(Succeed())
+		for id, value := range secrets {
+			Expect(os.WriteFile(filepath.Join(secretsDir, id), []byte(value+"\n"), 0o600)).To(Succeed())
 		}
 
 		installEnvFile := filepath.Join(dir, "install-env")
 		pmStub := filepath.Join(dir, "pm")
-		Expect(os.WriteFile(pmStub, []byte("#!/bin/bash\nprintf '%s' \"$PACKAGES_VERSION\" > "+installEnvFile+"\n"), 0o700)).To(Succeed())
+		Expect(os.WriteFile(pmStub, []byte("#!/bin/bash\nprintf '%s\\n%s' \"$PACKAGES_VERSION\" \"$REGISTRY\" > "+installEnvFile+"\n"), 0o700)).To(Succeed())
 
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: env},
@@ -219,7 +239,7 @@ var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
 		stderr := &bytes.Buffer{}
 		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
-			return runResult{}, fmt.Errorf("%w: %s", err, stderr)
+			return runResult{}, fmt.Errorf("run packages stage script: %w: %s", err, stderr)
 		}
 
 		versionFile, err := os.ReadFile(filepath.Join(dir, "container-factory-version"))
@@ -227,36 +247,58 @@ var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
 		installEnv, err := os.ReadFile(installEnvFile)
 		Expect(err).NotTo(HaveOccurred())
 
-		return runResult{versionFile: strings.TrimSuffix(string(versionFile), "\n"), installEnv: string(installEnv)}, nil
+		installed := strings.SplitN(string(installEnv), "\n", 2)
+		return runResult{
+			versionFile:     strings.TrimSuffix(string(versionFile), "\n"),
+			installVersion:  installed[0],
+			installRegistry: installed[1],
+		}, nil
 	}
 
 	DescribeTable("records the same version it installs with",
-		func(ctx SpecContext, env map[string]string, baseImageEnv, secret, expected string) {
-			result, err := run(ctx, env, baseImageEnv, secret)
+		func(ctx SpecContext, env map[string]string, baseImageEnv string, secrets map[string]string, expected string) {
+			result, err := run(ctx, env, baseImageEnv, secrets)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.versionFile).To(Equal(expected))
-			Expect(result.installEnv).To(Equal(expected))
+			Expect(result.installVersion).To(Equal(expected))
 		},
 
-		Entry("base image env only", nil, "1.0.0", "", "1.0.0"),
-		Entry("packages env only", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "", "", "2.0.0"),
-		Entry("packages env wins over base image env", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "1.0.0", "", "2.0.0"),
-		Entry("packages env reads a secret", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", "3.0.0", "3.0.0"),
+		Entry("base image env only", nil, "1.0.0", nil, "1.0.0"),
+		Entry("packages env only", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "", nil, "2.0.0"),
+		Entry("packages env wins over base image env", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "1.0.0", nil, "2.0.0"),
+		Entry("packages env reads a secret", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", map[string]string{"PACKAGES_VERSION": "3.0.0"}, "3.0.0"),
 	)
 
-	It("fails the stage when no source provides the version and prints the explicit reference to add", func(ctx SpecContext) {
-		_, err := run(ctx, nil, "", "")
-		Expect(err).To(MatchError(ContainSubstring(`PACKAGES_VERSION: werf records it in the SBOM; the base image sets no such ENV, so pass it via packages[].env, e.g. PACKAGES_VERSION: "%secret:PACKAGES_VERSION%"`)))
+	It("passes a referenced secret to the package manager for any variable", func(ctx SpecContext) {
+		result, err := run(ctx,
+			map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"},
+			"", map[string]string{"REGISTRY": "registry.example.com/catalog"},
+		)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.installRegistry).To(Equal("registry.example.com/catalog"))
 	})
 
-	It("ignores a secret the directive env does not reference", func(ctx SpecContext) {
-		_, err := run(ctx, nil, "", "3.0.0")
-		Expect(err).To(MatchError(ContainSubstring("pass it via packages[].env")))
-	})
+	DescribeTable("fails the stage instead of installing with a version it cannot record",
+		func(ctx SpecContext, env map[string]string, baseImageEnv string, secrets map[string]string, expectedError string) {
+			_, err := run(ctx, env, baseImageEnv, secrets)
+			Expect(err).To(MatchError(ContainSubstring(expectedError)))
+		},
 
-	It("fails the stage when the referenced secret file is missing", func(ctx SpecContext) {
-		_, err := run(ctx, map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", "")
-		Expect(err).To(MatchError(ContainSubstring("PACKAGES_VERSION: No such file or directory")))
+		Entry("no source provides the version", nil, "", nil,
+			`PACKAGES_VERSION: werf records it in the SBOM; set it in packages[].env, e.g. PACKAGES_VERSION: "%secret:PACKAGES_VERSION%"`),
+		Entry("a declared secret the env does not reference", nil, "", map[string]string{"PACKAGES_VERSION": "3.0.0"},
+			"set it in packages[].env"),
+		Entry("the referenced secret file is missing", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", nil,
+			"PACKAGES_VERSION: No such file or directory"),
+		Entry("the value is set but empty", map[string]string{"PACKAGES_VERSION": ""}, "", nil,
+			"set it in packages[].env"),
+		Entry("the referenced secret is empty", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", map[string]string{"PACKAGES_VERSION": ""},
+			"set it in packages[].env"),
+	)
+
+	It("fails the stage when a secret another variable references cannot be read", func(ctx SpecContext) {
+		_, err := run(ctx, map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"}, "", nil)
+		Expect(err).To(MatchError(ContainSubstring("REGISTRY: No such file or directory")))
 	})
 })
 

@@ -12,8 +12,10 @@ import (
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
-// Expanded by bash inside "${VAR:?...}", so $ and " are escaped for that context.
-const packagesVersionMissingMessage = `werf records it in the SBOM; the base image sets no such ENV, so pass it via packages[].env, e.g. PACKAGES_VERSION: \"%secret:PACKAGES_VERSION%\"`
+const packagesVersionEnvName = "PACKAGES_VERSION"
+
+// Expanded by bash inside "${VAR:?...}", so the quotes of the example are escaped for that context.
+const packagesVersionMissingMessage = `werf records it in the SBOM; set it in packages[].env, e.g. PACKAGES_VERSION: \"%secret:PACKAGES_VERSION%\"`
 
 // The default stays unquoted so that an entry without `manager` keeps the command it had
 // before the field existed, and with it the packages stage digest.
@@ -25,50 +27,60 @@ func managerBin(files FileBasedSpec, defaultBin string) string {
 	return fmt.Sprintf("%q", files.Manager)
 }
 
-func formatEnvVars(env map[string]string) string {
+// A value read from a secret gets a statement of its own instead of staying in the command
+// prefix: bash does not apply `set -e` to a failed command substitution in a prefix, so an
+// unreadable secret would otherwise let the package manager run with the variable empty.
+func formatEnvVars(env map[string]string, standalone []string) ([]string, string) {
 	if len(env) == 0 {
-		return ""
+		return nil, ""
 	}
 
 	keys := lo.Keys(env)
 	sort.Strings(keys)
 
-	parts := lo.Map(keys, func(k string, _ int) string {
-		return fmt.Sprintf("%s=%s", k, formatPackageEnvValue(env[k]))
-	})
-	return strings.Join(parts, " ")
+	var assignments, parts []string
+	for _, key := range keys {
+		assignment := fmt.Sprintf("%s=%s", key, formatPackageEnvValue(env[key]))
+
+		if !lo.Contains(standalone, key) && !packageEnvValueReadsSecret(env[key]) {
+			parts = append(parts, assignment)
+			continue
+		}
+
+		assignments = append(assignments, assignment)
+		parts = append(parts, fmt.Sprintf(`%s="$%s"`, key, key))
+	}
+
+	return assignments, strings.Join(parts, " ")
 }
 
 func formatWorkdirCommand(workdir, command string, env map[string]string) string {
-	if prefix := formatEnvVars(env); prefix != "" {
+	assignments, prefix := formatEnvVars(env, nil)
+	if prefix != "" {
 		command = fmt.Sprintf("%s %s", prefix, command)
 	}
-	return fmt.Sprintf("cd %q && %s", workdir, command)
+
+	return strings.Join(append(assignments, fmt.Sprintf("cd %q && %s", workdir, command)), "; ")
 }
 
 func formatMkdirCommand() string {
 	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
-func formatVersionFileCommand(env map[string]string) string {
-	guard := fmt.Sprintf(
-		`: "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		packagesVersionMissingMessage, metadata.ContainerFactoryVersionPath,
+func formatVersionFileCommand() string {
+	return fmt.Sprintf(
+		`: "${%[1]s:?%[2]s}" && printf '%%s\n' "$%[1]s" > %[3]s`,
+		packagesVersionEnvName, packagesVersionMissingMessage, metadata.ContainerFactoryVersionPath,
 	)
-
-	value, ok := env["PACKAGES_VERSION"]
-	if !ok {
-		return guard
-	}
-
-	return fmt.Sprintf("PACKAGES_VERSION=%s; %s", formatPackageEnvValue(value), guard)
 }
 
 func formatInstallCommand(pkgs []string, env map[string]string) string {
-	commandPrefix := []string{formatMkdirCommand(), formatVersionFileCommand(env)}
-	installCommand := strings.TrimSpace(fmt.Sprintf("%s pm install %s", formatEnvVars(env), strings.Join(pkgs, " ")))
+	assignments, prefix := formatEnvVars(env, []string{packagesVersionEnvName})
 
-	return strings.Join(append(commandPrefix, installCommand), "; ")
+	commands := append([]string{formatMkdirCommand()}, assignments...)
+	commands = append(commands, formatVersionFileCommand())
+
+	return strings.Join(append(commands, strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " ")))), "; ")
 }
 
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {

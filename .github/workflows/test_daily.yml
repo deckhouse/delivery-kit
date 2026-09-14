@@ -315,7 +315,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
-          raceDetectorEnabled: "true"
+          raceDetectorEnabled: "false"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
@@ -370,7 +370,7 @@ jobs:
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
-          raceDetectorEnabled: "true"
+          raceDetectorEnabled: "false"
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config

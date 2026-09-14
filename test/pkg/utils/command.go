@@ -37,7 +37,12 @@ type RunCommandOptions struct {
 	ShouldSucceed bool
 	NoStderr      bool
 
+	// CancelOnOutput cancels the command once this substring appears in its output.
+	// The wait is bounded by CancelOnOutputTimeout, counted from the moment
+	// CancelOnOutputAfter appears (or from start when it is empty); the wait for
+	// CancelOnOutputAfter itself is bounded only by ctx.
 	CancelOnOutput        string
+	CancelOnOutputAfter   string
 	CancelOnOutputTimeout time.Duration
 }
 
@@ -55,7 +60,7 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 		cmd.Stdin = bytes.NewReader([]byte(options.ToStdin))
 	}
 
-	res := newCommandOutput(options.CancelOnOutput)
+	res := newCommandOutput(options.CancelOnOutput, options.CancelOnOutputAfter)
 	cmd.Stdout = res
 	if !options.NoStderr {
 		cmd.Stderr = res
@@ -64,8 +69,16 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 	Expect(cmd.Start()).To(Succeed())
 
 	if options.CancelOnOutput != "" {
-		res.waitForOutput(options.CancelOnOutputTimeout)
-		Expect(cmd.Cancel()).To(Succeed())
+		if options.CancelOnOutputAfter != "" {
+			select {
+			case <-res.cancelWindowOpened:
+			case <-ctx.Done():
+			}
+		}
+		if ctx.Err() == nil {
+			res.waitForOutput(options.CancelOnOutputTimeout)
+			Expect(cmd.Cancel()).To(Succeed())
+		}
 	}
 
 	err := cmd.Wait()
@@ -80,19 +93,24 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 }
 
 type commandOutput struct {
-	mux            sync.Mutex
-	buffer         bytes.Buffer
-	cancelOnOutput string
-	outputDetected chan struct{}
-	outputOnce     sync.Once
+	mux                sync.Mutex
+	buffer             bytes.Buffer
+	cancelOnOutput     string
+	cancelAfter        string
+	outputDetected     chan struct{}
+	outputOnce         sync.Once
+	cancelWindowOpened chan struct{}
+	cancelWindowOnce   sync.Once
 }
 
 var _ io.Writer = (*commandOutput)(nil)
 
-func newCommandOutput(cancelOnOutput string) *commandOutput {
+func newCommandOutput(cancelOnOutput, cancelAfter string) *commandOutput {
 	return &commandOutput{
-		cancelOnOutput: cancelOnOutput,
-		outputDetected: make(chan struct{}),
+		cancelOnOutput:     cancelOnOutput,
+		cancelAfter:        cancelAfter,
+		outputDetected:     make(chan struct{}),
+		cancelWindowOpened: make(chan struct{}),
 	}
 }
 
@@ -102,6 +120,11 @@ func (output *commandOutput) Write(p []byte) (int, error) {
 
 	n, err := output.buffer.Write(p)
 	_, _ = GinkgoWriter.Write(p[:n])
+	if output.cancelAfter != "" && bytes.Contains(output.buffer.Bytes(), []byte(output.cancelAfter)) {
+		output.cancelWindowOnce.Do(func() {
+			close(output.cancelWindowOpened)
+		})
+	}
 	if output.cancelOnOutput != "" && bytes.Contains(output.buffer.Bytes(), []byte(output.cancelOnOutput)) {
 		output.outputOnce.Do(func() {
 			close(output.outputDetected)

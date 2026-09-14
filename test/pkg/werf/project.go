@@ -55,6 +55,7 @@ func (p *Project) BuildWithErr(ctx context.Context, opts *BuildOptions) (combine
 			ShouldSucceed:         false,
 			ExtraEnv:              opts.Envs,
 			CancelOnOutput:        opts.CancelOnOutput,
+			CancelOnOutputAfter:   opts.CancelOnOutputAfter,
 			CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
 		})
 
@@ -193,6 +194,7 @@ func (p *Project) RunCommand(
 			ShouldSucceed:         !opts.ShouldFail,
 			ExtraEnv:              opts.Envs,
 			CancelOnOutput:        opts.CancelOnOutput,
+			CancelOnOutputAfter:   opts.CancelOnOutputAfter,
 			CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
 		})
 	return string(outb)
@@ -290,6 +292,7 @@ func (p *Project) SbomValidateWithErr(ctx context.Context, opts *SbomValidateOpt
 			ShouldSucceed:         false,
 			ExtraEnv:              opts.Envs,
 			CancelOnOutput:        opts.CancelOnOutput,
+			CancelOnOutputAfter:   opts.CancelOnOutputAfter,
 			CancelOnOutputTimeout: opts.CancelOnOutputTimeout,
 		})
 

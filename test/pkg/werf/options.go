@@ -8,6 +8,7 @@ type CommonOptions struct {
 	Envs       []string
 
 	CancelOnOutput        string
+	CancelOnOutputAfter   string
 	CancelOnOutputTimeout time.Duration
 }
 

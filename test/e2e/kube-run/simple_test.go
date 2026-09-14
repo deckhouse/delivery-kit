@@ -94,6 +94,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 					ShouldFail:            true,
 					ExtraArgs:             []string{}, // be able to work without "-it" options
 					CancelOnOutput:        "Looping ...",
+					CancelOnOutputAfter:   "Executing into pod",
 					CancelOnOutputTimeout: time.Minute,
 				},
 			},
@@ -102,7 +103,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 				Expect(out).To(ContainSubstring("Signal handled"))   // from script
 				Expect(out).To(ContainSubstring("Script completed")) // from script
 			},
-			SpecTimeout(time.Minute*3),
+			SpecTimeout(time.Minute*10),
 		),
 	)
 
@@ -198,6 +199,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 					ShouldFail:            true,
 					ExtraArgs:             []string{}, // be able to work without "-it" options
 					CancelOnOutput:        "Looping ...",
+					CancelOnOutputAfter:   "Executing into pod",
 					CancelOnOutputTimeout: time.Minute,
 				},
 			},
@@ -206,7 +208,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 				Expect(out).To(ContainSubstring("Signal handled"))   // from script
 				Expect(out).To(ContainSubstring("Script completed")) // from script
 			},
-			SpecTimeout(time.Minute*3),
+			SpecTimeout(time.Minute*10),
 		),
 	)
 })

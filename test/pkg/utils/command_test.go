@@ -46,4 +46,22 @@ var _ = Describe("RunCommandWithOptions", func() {
 
 		Eventually(done, 5*time.Second).Should(BeClosed())
 	})
+
+	It("starts the cancel timeout only after CancelOnOutputAfter appears", func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		start := time.Now()
+		output, err := RunCommandWithOptions(ctx, "", "sh", []string{"-c", "sleep 2; echo ready; exec sleep 30"}, RunCommandOptions{
+			CancelOnOutput:        "late",
+			CancelOnOutputAfter:   "ready",
+			CancelOnOutputTimeout: time.Second,
+		})
+
+		Expect(err).To(HaveOccurred())
+		Expect(string(output)).To(ContainSubstring("ready"))
+		Expect(string(output)).NotTo(ContainSubstring("late"))
+		Expect(time.Since(start)).To(BeNumerically(">=", 3*time.Second))
+		Expect(time.Since(start)).To(BeNumerically("<", 8*time.Second))
+	})
 })

@@ -9,7 +9,7 @@ build:
     standard: cyclonedx@1.6
 ---
 image: app
-from: registry.werf.io/werf/scratch:latest
+from: scratch
 git:
   - add: /
     to: /app

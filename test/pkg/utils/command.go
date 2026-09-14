@@ -71,8 +71,6 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 	err := cmd.Wait()
 	output := res.Bytes()
 
-	_, _ = GinkgoWriter.Write(output)
-
 	if options.ShouldSucceed {
 		errorDesc := fmt.Sprintf("%[2]s %[3]s (dir: %[1]s)", dir, command, strings.Join(args, " "))
 		Expect(err).ShouldNot(HaveOccurred(), errorDesc)
@@ -103,6 +101,7 @@ func (output *commandOutput) Write(p []byte) (int, error) {
 	defer output.mux.Unlock()
 
 	n, err := output.buffer.Write(p)
+	_, _ = GinkgoWriter.Write(p[:n])
 	if output.cancelOnOutput != "" && bytes.Contains(output.buffer.Bytes(), []byte(output.cancelOnOutput)) {
 		output.outputOnce.Do(func() {
 			close(output.outputDetected)

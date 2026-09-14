@@ -191,7 +191,7 @@ var _ = Describe("SBOM stageDependencies cache invalidation", Label("e2e", "sbom
 			}))
 			sbomtest.AssertHasComponent(bom0, "jq", "1.8.1")
 
-			By("state1: go-mod — SBOM contains golang PURL, no os-pm pkg")
+			By("state1: go-mod — SBOM contains golang PURL, os-pm jq is gone")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "type_change/state1")
 			utils.RunSucceedCommand(ctx, testRepoPath, "git", "tag", "v1.0.0")
 

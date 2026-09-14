@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 	"github.com/werf/werf/v2/test/mock"
@@ -159,9 +161,14 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(dir).ToNot(BeEmpty())
 	})
 
-	It("skips an optional lock file that is absent from the image without failing", func() {
+	It("skips an optional lock file that is absent from the image and warns about it", func() {
 		// A go module with no dependencies has no go.sum; the old full-image scan simply did
-		// not catalog it, and the build must not fail over its absence.
+		// not catalog it, and the build must not fail over its absence. But a lock that should
+		// exist may also be gone (removed by a later stage, or a symlink), which silently drops
+		// transitive dependencies — so the skip must be visible to the user.
+		var output strings.Builder
+		ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))
+
 		cataloger := scanner.Cataloger{
 			Name:                "go-module-file-cataloger",
 			SourcePaths:         []string{"/app/go.mod"},
@@ -184,6 +191,10 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 
 		_, err = os.Stat(filepath.Join(dir, "app", "go.sum"))
 		Expect(os.IsNotExist(err)).To(BeTrue(), "the absent optional lock must not be materialized")
+
+		Expect(output.String()).To(ContainSubstring("WARNING: lock file /app/go.sum not found in image"),
+			"skipping a declared lock must be surfaced as a warning, not hidden at debug level")
+		Expect(output.String()).To(ContainSubstring("go-module-file-cataloger"))
 	})
 
 	It("fails naming the cataloger and path when a required spec is absent from the image", func() {

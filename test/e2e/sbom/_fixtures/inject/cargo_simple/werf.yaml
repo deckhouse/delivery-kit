@@ -18,5 +18,10 @@ shell:
   install:
     - cd /app && cargo build --release
 packages:
+  - type: os-pm
+    spec:
+      - rust==1.96.0
+      - cargo==1.96.0
+      - curl==8.12.1
   - type: rust-cargo
     workdir: /app

@@ -19,6 +19,7 @@ type SuiteData struct {
 	*TmpDirData
 	*WerfInitData
 	*ContainerRegistryPerImplementationData
+	*ContainersStorageData
 }
 
 func (data *SuiteData) SetupStubs(setupData *StubsData) bool {
@@ -58,6 +59,11 @@ func (data *SuiteData) SetupWerfInit(setupData *WerfInitData) bool {
 
 func (data *SuiteData) SetupContainerRegistryPerImplementation(setupData *ContainerRegistryPerImplementationData) bool {
 	data.ContainerRegistryPerImplementationData = setupData
+	return true
+}
+
+func (data *SuiteData) SetupContainersStorage(setupData *ContainersStorageData) bool {
+	data.ContainersStorageData = setupData
 	return true
 }
 

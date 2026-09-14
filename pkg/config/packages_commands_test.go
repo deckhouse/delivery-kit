@@ -62,50 +62,6 @@ var _ = Describe("formatWorkdirCommand", func() {
 	})
 })
 
-var _ = Describe("formatSecretVar", func() {
-	readSecret := func(ctx SpecContext, dir, name, presetValue string) (string, string, error) {
-		snippet := strings.ReplaceAll(formatSecretVar(name), "/run/secrets/", dir+"/")
-		cmd := exec.CommandContext(ctx, "bash", "-ec", snippet+`; printf '%s' "$`+name+`"`)
-		cmd.Env = []string{"PATH="}
-		if presetValue != "" {
-			cmd.Env = append(cmd.Env, name+"="+presetValue)
-		}
-		stderr := &bytes.Buffer{}
-		cmd.Stderr = stderr
-		stdout, err := cmd.Output()
-		return string(stdout), stderr.String(), err
-	}
-
-	It("reads the secret with no binary reachable on PATH", func(ctx SpecContext) {
-		dir := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(dir, "PACKAGES_VERSION"), []byte("1.2.3\n"), 0o600)).To(Succeed())
-
-		stdout, stderr, err := readSecret(ctx, dir, "PACKAGES_VERSION", "")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(Equal("1.2.3"))
-	})
-
-	It("leaves the value empty and stays quiet when the secret is absent", func(ctx SpecContext) {
-		stdout, stderr, err := readSecret(ctx, GinkgoT().TempDir(), "REGISTRY", "")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(BeEmpty())
-		Expect(stderr).To(BeEmpty())
-	})
-
-	It("keeps a value already present in the environment", func(ctx SpecContext) {
-		dir := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(dir, "REGISTRY"), []byte("from-secret\n"), 0o600)).To(Succeed())
-
-		stdout, stderr, err := readSecret(ctx, dir, "REGISTRY", "from-env")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(Equal("from-env"))
-	})
-
-	It("references nothing under the stapel mount root", func() {
-		Expect(formatSecretVar("PACKAGES_VERSION")).NotTo(ContainSubstring(stapel.CONTAINER_MOUNT_ROOT))
-	})
-})
-
 var _ = Describe("GeneratePackagesCommands os-pm", func() {
 	It("produces a single command that creates dir and installs packages", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
@@ -114,8 +70,6 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Expect(cmds).To(HaveLen(1))
 		cmd := cmds[0]
 		Expect(cmd).To(ContainSubstring("mkdir -p /var/lib/pm"))
-		Expect(cmd).To(ContainSubstring(`PACKAGES_VERSION="${PACKAGES_VERSION:-$(`))
-		Expect(cmd).To(ContainSubstring(`REGISTRY="${REGISTRY:-$(`))
 		Expect(cmd).To(ContainSubstring("pm install curl jq"))
 	})
 
@@ -125,6 +79,14 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		})
 		Expect(cmds).To(HaveLen(1))
 		Expect(cmds[0]).To(ContainSubstring("pm install curl==8.12.1 jq"))
+	})
+
+	It("reads no secret the config does not reference", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+		})
+		Expect(cmds).To(HaveLen(1))
+		Expect(cmds[0]).NotTo(ContainSubstring(packageSecretsDir))
 	})
 
 	It("each os-pm directive becomes one command", func() {
@@ -284,6 +246,11 @@ var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
 
 	It("fails the stage when no source provides the version", func(ctx SpecContext) {
 		_, err := run(ctx, nil, "", "")
+		Expect(err).To(MatchError(ContainSubstring("required by werf for pm SBOM provenance")))
+	})
+
+	It("ignores a secret the directive env does not reference", func(ctx SpecContext) {
+		_, err := run(ctx, nil, "", "3.0.0")
 		Expect(err).To(MatchError(ContainSubstring("required by werf for pm SBOM provenance")))
 	})
 })

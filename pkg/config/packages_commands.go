@@ -43,41 +43,27 @@ func formatWorkdirCommand(workdir, command string, env map[string]string) string
 	return fmt.Sprintf("cd %q && %s", workdir, command)
 }
 
-func formatSecretVar(name string) string {
-	// Bash reads the secret on its own: $(<file) is a redirection, and the [ -r ] guard keeps a
-	// missing secret quiet. Suppressing the error with 2>/dev/null instead would turn $(<file)
-	// into a bare redirection that yields nothing, and any external reader ties the stage to a
-	// binary of the stapel image or the base.
-	return fmt.Sprintf(
-		`%[1]s="${%[1]s:-$([ -r /run/secrets/%[1]s ] && printf '%%s' "$(</run/secrets/%[1]s)" || true)}"`,
-		name,
-	)
-}
-
 func formatMkdirCommand() string {
 	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
 func formatVersionFileCommand(env map[string]string) string {
-	assignment := formatSecretVar("PACKAGES_VERSION")
-	if value, ok := env["PACKAGES_VERSION"]; ok {
-		assignment = fmt.Sprintf("PACKAGES_VERSION=%s", formatPackageEnvValue(value))
+	guard := fmt.Sprintf(
+		`: "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
+		metadata.ContainerFactoryVersionPath,
+	)
+
+	value, ok := env["PACKAGES_VERSION"]
+	if !ok {
+		return guard
 	}
 
-	return fmt.Sprintf(
-		`%s && : "${PACKAGES_VERSION:?required by werf for pm SBOM provenance}" && printf '%%s\n' "$PACKAGES_VERSION" > %s`,
-		assignment, metadata.ContainerFactoryVersionPath,
-	)
+	return fmt.Sprintf("PACKAGES_VERSION=%s && %s", formatPackageEnvValue(value), guard)
 }
 
 func formatInstallCommand(pkgs []string, env map[string]string) string {
 	commandPrefix := []string{formatMkdirCommand(), formatVersionFileCommand(env)}
-	envPrefix := strings.TrimSpace(strings.Join([]string{
-		formatEnvVars(env),
-		formatSecretVar("PACKAGES_VERSION"),
-		formatSecretVar("REGISTRY"),
-	}, " "))
-	installCommand := fmt.Sprintf("%s pm install %s", envPrefix, strings.Join(pkgs, " "))
+	installCommand := strings.TrimSpace(fmt.Sprintf("%s pm install %s", formatEnvVars(env), strings.Join(pkgs, " ")))
 
 	return strings.Join(append(commandPrefix, installCommand), "; ")
 }

@@ -23,6 +23,9 @@ git:
         - package.json
         - package-lock.json
 packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
   - type: javascript-npm
     workdir: /opt/tools
   - type: javascript-yarn

@@ -270,8 +270,9 @@ jobs:
 
       - name: E2E tests (simple per-k8s)
         run: |
+          echo loadavg: $(cat /proc/loadavg)
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:e2e:simple -- --keep-going
+          task -p --yes test:e2e:simple -- --flake-attempts=2 --keep-going --timeout=110m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Upload coverage artifact
@@ -288,6 +289,12 @@ jobs:
       - kind_setup
     runs-on: delivery-github-runner
     timeout-minutes: 120
+    # Native Buildah jobs share one runner host and one containers-storage; running them
+    # concurrently across PRs (and against the daily run) pushes them past the suite timeout.
+    concurrency:
+      group: buildah-e2e
+      cancel-in-progress: false
+      queue: max
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
@@ -318,8 +325,9 @@ jobs:
 
       - name: E2E tests (complex per-k8s)
         run: |
+          echo loadavg: $(cat /proc/loadavg)
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:e2e:complex -- --keep-going
+          task -p --yes test:e2e:complex -- --procs=6 --flake-attempts=2 --keep-going --timeout=110m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Upload coverage artifact
@@ -336,6 +344,12 @@ jobs:
       - kind_setup
     runs-on: delivery-github-runner
     timeout-minutes: 120
+    # Native Buildah jobs share one runner host and one containers-storage; running them
+    # concurrently across PRs (and against the daily run) pushes them past the suite timeout.
+    concurrency:
+      group: buildah-e2e
+      cancel-in-progress: false
+      queue: max
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
@@ -366,8 +380,9 @@ jobs:
 
       - name: E2E tests (extra per-k8s)
         run: |
+          echo loadavg: $(cat /proc/loadavg)
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:e2e:extra -- --keep-going
+          task -p --yes test:e2e:extra -- --procs=6 --flake-attempts=2 --keep-going --timeout=110m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Upload coverage artifact

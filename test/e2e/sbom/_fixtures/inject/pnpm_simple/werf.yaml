@@ -10,10 +10,24 @@ from: {{ env "BUILDER_BASE_IMAGE" }}
 git:
   - add: /
     to: /app
+    excludePaths:
+      - tools
     stageDependencies:
       packages:
         - package.json
         - pnpm-lock.yaml
+  - add: /tools
+    to: /opt/tools
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
 packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
+  - type: javascript-npm
+    workdir: /opt/tools
   - type: javascript-pnpm
     workdir: /app
+    manager: /opt/tools/node_modules/.bin/pnpm

@@ -22,6 +22,9 @@ func Validate(bom *cdx.BOM) error {
 		if err := ValidateComponent(bom.Metadata.Component); err != nil {
 			return fmt.Errorf("metadata component %q: %w", bom.Metadata.Component.Name, err)
 		}
+		if err := validateComponents(lo.FromPtr(bom.Metadata.Component.Components)); err != nil {
+			return err
+		}
 	}
 
 	return validateComponents(lo.FromPtr(bom.Components))

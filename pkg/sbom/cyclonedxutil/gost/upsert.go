@@ -16,6 +16,7 @@ func Upsert(bom *cdx.BOM, config Config) error {
 
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
 		SetComponent(bom.Metadata.Component, config)
+		setComponents(lo.FromPtr(bom.Metadata.Component.Components), config)
 	}
 
 	setComponents(lo.FromPtr(bom.Components), config)

@@ -18,6 +18,9 @@ var _ = Describe("Gost SBOM setter", func() {
 			if bom.Components != nil {
 				Expect(lo.FromPtr(bom.Components)).To(Equal(expectedComponents))
 			}
+			if bom.Metadata != nil && bom.Metadata.Component != nil {
+				Expect(lo.FromPtr(bom.Metadata.Component.Components)).To(Equal(expectedComponents))
+			}
 		},
 		Entry("should fail if BOM is nil",
 			nil, Config{}, nil, MatchError("BOM is required")),
@@ -112,6 +115,24 @@ var _ = Describe("Gost SBOM setter", func() {
 						},
 					}},
 				}},
+			}},
+			Succeed()),
+		Entry("should set GOST properties on components nested under the metadata component",
+			&cdx.BOM{
+				Metadata: &cdx.Metadata{
+					Component: &cdx.Component{
+						Name:       "root",
+						Components: &[]cdx.Component{{Name: "root-child"}},
+					},
+				},
+			},
+			Config{AttackSurface: GostValueNo, SecurityFunction: GostValueYes},
+			[]cdx.Component{{
+				Name: "root-child",
+				Properties: &[]cdx.Property{
+					{Name: PropertyAttackSurface, Value: "no"},
+					{Name: PropertySecurityFunction, Value: "yes"},
+				},
 			}},
 			Succeed()),
 		Entry("should inject 'indirect' value",

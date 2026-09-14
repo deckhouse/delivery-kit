@@ -58,7 +58,7 @@ func formatVersionFileCommand(env map[string]string) string {
 		return guard
 	}
 
-	return fmt.Sprintf("PACKAGES_VERSION=%s && %s", formatPackageEnvValue(value), guard)
+	return fmt.Sprintf("PACKAGES_VERSION=%s; %s", formatPackageEnvValue(value), guard)
 }
 
 func formatInstallCommand(pkgs []string, env map[string]string) string {

@@ -253,6 +253,11 @@ var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
 		_, err := run(ctx, nil, "", "3.0.0")
 		Expect(err).To(MatchError(ContainSubstring("required by werf for pm SBOM provenance")))
 	})
+
+	It("fails the stage when the referenced secret file is missing", func(ctx SpecContext) {
+		_, err := run(ctx, map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", "")
+		Expect(err).To(MatchError(ContainSubstring("PACKAGES_VERSION: No such file or directory")))
+	})
 })
 
 var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func() {

@@ -406,6 +406,24 @@ func AssertDependsOn(bom *cdx.BOM, ref, dependsOnRef string) {
 		"ref %q not found in dependency graph; refs: %v", refBase, dependencyRefs(bom))
 }
 
+// AssertDependencyGraphResolves checks that every dependency subject and target
+// refers to a component present in the BOM (nested components included).
+func AssertDependencyGraphResolves(bom *cdx.BOM) {
+	refs := map[string]struct{}{}
+	walkComponents(bom.Components, func(c *cdx.Component) {
+		refs[c.BOMRef] = struct{}{}
+	})
+
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		ExpectWithOffset(1, refs).To(HaveKey(dep.Ref),
+			"dependency subject %q has no component", dep.Ref)
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			ExpectWithOffset(1, refs).To(HaveKey(target),
+				"dependency target %q of %q has no component", target, dep.Ref)
+		}
+	}
+}
+
 func findProperty(props *[]cdx.Property, name string) (string, bool) {
 	for _, p := range lo.FromPtr(props) {
 		if p.Name == name {

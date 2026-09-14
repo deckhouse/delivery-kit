@@ -8,6 +8,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/test/pkg/report"
@@ -104,6 +105,12 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			// and does NOT carry GOST — hence AssertGostPropertyOnComponents (not AssertGostProperty).
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
+
+			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")
+			sbomtest.AssertDependsOn(merged,
+				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
+				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6")
+			sbomtest.AssertDependencyGraphResolves(merged)
 		},
 		Entry("container format using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}, "container"),
 		Entry("container format using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}, "container"),

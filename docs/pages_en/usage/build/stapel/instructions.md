@@ -184,7 +184,7 @@ packages:
       - curl==8.12.1
 ```
 
-A declared secret reaches `pm` only through such a reference: werf never picks up a secret because its id matches a variable name.
+A declared secret reaches `pm` only through such a reference: werf never picks up a secret because its id matches a variable name. A build that used to rely on a secret named `PACKAGES_VERSION` or `REGISTRY` being wired into `pm` on its own has to add the matching `env` entry — without it the packages stage fails on the missing version, and `pm` falls back to its own default registry.
 
 Packages installed in a parent image are inherited by images based on it via `fromImage` and remain present in the child image SBOM.
 
@@ -306,7 +306,7 @@ A `packages[].env` value can reference a secret declared in the `secrets` sectio
 - `%secret:<id>%` — the contents of the secret, without trailing newlines;
 - `%secret_path:<id>%` — the path the secret is mounted at, `/run/secrets/<id>`.
 
-A reference is resolved while the package manager runs, so the secret is never part of the build instructions, the stage digest or the resulting image. Referencing a secret that is not declared fails the build during configuration parsing. Any other `%...%` sequence stays literal.
+A reference is resolved while the package manager runs, so the secret is never part of the build instructions or the stage digest. Whether it ends up in the resulting image is up to the package manager: `PACKAGES_VERSION` is written into the image and the SBOM by design, so do not put a value there that must not be readable from the image. Referencing a secret that is not declared fails the build during configuration parsing. Any other `%...%` sequence stays literal.
 
 ```yaml
 secrets:

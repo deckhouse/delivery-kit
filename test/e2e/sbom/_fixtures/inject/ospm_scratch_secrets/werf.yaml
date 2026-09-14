@@ -27,5 +27,8 @@ import:
     before: install
 packages:
   - type: os-pm
+    env:
+      PACKAGES_VERSION: "%secret:PACKAGES_VERSION%"
+      REGISTRY: "%secret:REGISTRY%"
     spec:
       - curl==8.12.1

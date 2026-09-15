@@ -95,6 +95,8 @@ NEVER assume a change compiles. While iterating, scope the slow steps (`task lin
 
 A failure in a package the diff does not touch is usually a host-environment flake, not your change: re-run that suite alone before investigating it.
 
+ALWAYS re-run a CI workflow in full (`gh run rerun <run-id>`), NEVER only the failed jobs (`--rerun-failed`). The e2e and integration jobs depend on `kind_setup` for the kind cluster and the test registry, and `kind_cleanup` tears both down once the run ends. A failed-jobs-only re-run does not re-execute `kind_setup`, so every spec dies on `dial tcp 127.0.0.1:<port>: connect: connection refused` before a single build starts — which looks nothing like the failure being investigated.
+
 A green `task test:unit` does NOT prove a command runs. No unit test constructs the storage manager, so a command that dereferences a flag group it never registered dies with a SIGSEGV before doing any work while the whole unit suite stays green. After adding or changing a command, execute it once — via `task test:integration`, or the binary in `./bin/` — before calling it done.
 
 `git diff --check` cannot be a whole-repo gate. The CLI reference generator emits column-aligned help text, so the generated pages under `docs/_includes/reference/cli` and `docs/pages_en/reference/cli` carry trailing whitespace on every branch. Scope the check to authored files.

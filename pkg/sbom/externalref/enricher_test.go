@@ -341,7 +341,40 @@ var _ = Describe("Enricher", func() {
 
 			err := enricher.Enrich(ctx, bom)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(`    - component: commons-io (pkg:maven/commons-io/commons-io@2.11.0): enrich: unknown external reference kind "unknown"` + "\n"))
+			Expect(err.Error()).To(ContainSubstring(`    - component: commons-io (pkg:maven/commons-io/commons-io@2.11.0): enrich: external reference kind "unknown" is not allowed, expected "vcs" or "source-distribution"` + "\n"))
+		})
+
+		It("rejects a kind the SBOM validation does not accept", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "website"}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`external reference kind "website" is not allowed`))
+		})
+
+		It("accepts a source-distribution kind", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{URL: "https://example.com/pkg.tgz", Kind: "source-distribution"}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Type).To(Equal(cdx.ERTypeSourceDistribution))
 		})
 
 		It("uses public Resolve field for custom mock", func() {
@@ -351,7 +384,7 @@ var _ = Describe("Enricher", func() {
 					called = true
 					return &ResolveResult{
 						URL:  "https://example.com/" + purl,
-						Kind: "website",
+						Kind: "vcs",
 					}, nil
 				},
 			}
@@ -369,7 +402,7 @@ var _ = Describe("Enricher", func() {
 
 		It("Resolve field can be injected via NewEnricher", func() {
 			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
-				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "website"}, nil
+				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "vcs"}, nil
 			})
 			Expect(enricher.Resolve).NotTo(BeNil())
 		})

@@ -193,6 +193,58 @@ var _ = Describe("DedupBOM", func() {
 		Expect(*(*bom.Dependencies)[0].Provides).To(Equal([]string{"libc-a"}))
 	})
 
+	It("redirects every duplicate of a three-way collision to the first survivor", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "libc-a", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+				{BOMRef: "libc-c", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=ccc"},
+				{BOMRef: "curl", Name: "curl", PackageURL: "pkg:deb/debian/curl@8.12.1"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl", Dependencies: &[]string{"libc-b", "libc-c"}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect(*bom.Components).To(HaveLen(2))
+		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"libc-a"}))
+	})
+
+	It("redirects vulnerability affects refs of removed duplicates", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "libc-a", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{ID: "CVE-2024-0001", Affects: &[]cdx.Affects{{Ref: "libc-b"}}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect((*(*bom.Vulnerabilities)[0].Affects)[0].Ref).To(Equal("libc-a"))
+	})
+
+	It("leaves refs untouched when the surviving duplicate has no bom-ref", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "libc-b", Dependencies: &[]string{"ld-linux"}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+		Expect((*bom.Dependencies)[0].Ref).To(Equal("libc-b"))
+	})
+
 	It("drops self-references created by redirection", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

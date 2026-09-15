@@ -68,44 +68,41 @@ func DedupBOM(bom *cdx.BOM) {
 
 	var replacedRefs map[string]string
 	bom.Components, replacedRefs = dedupComponentsByPURL(bom.Components)
+	rewriteAllRefs(bom, replacedRefs)
 	bom.Components = dedupPtrSlice(bom.Components)
 	bom.ExternalReferences = dedupPtrSlice(bom.ExternalReferences)
 	bom.Services = dedupPtrSlice(bom.Services)
 	bom.Dependencies = dedupPtrSlice(bom.Dependencies)
-	bom.Dependencies = redirectDependencyRefs(bom.Dependencies, replacedRefs)
+	if len(replacedRefs) > 0 {
+		bom.Dependencies = mergeDependenciesBySubject(bom.Dependencies)
+	}
 	bom.Compositions = dedupPtrSlice(bom.Compositions)
 	bom.Vulnerabilities = dedupPtrSlice(bom.Vulnerabilities)
 	bom.Annotations = dedupPtrSlice(bom.Annotations)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
 }
 
-// redirectDependencyRefs points every reference to a deduplicated component at
-// the component that survived deduplication, both as a dependency subject and
-// as a target. Entries that collapse onto the same subject are merged, and
-// references that become self-referential are dropped.
-func redirectDependencyRefs(deps *[]cdx.Dependency, replacements map[string]string) *[]cdx.Dependency {
-	if deps == nil || len(replacements) == 0 {
-		return deps
+// mergeDependenciesBySubject unions the edges of entries that share a ref,
+// which happens when duplicated components are collapsed onto one survivor,
+// and drops edges that became self-referential in the process.
+func mergeDependenciesBySubject(deps *[]cdx.Dependency) *[]cdx.Dependency {
+	if deps == nil {
+		return nil
 	}
 
 	result := make([]cdx.Dependency, 0, len(*deps))
 	indexByRef := make(map[string]int, len(*deps))
 
 	for _, dep := range *deps {
-		ref := dep.Ref
-		if survivor, replaced := replacements[ref]; replaced {
-			ref = survivor
-		}
-
-		idx, merging := indexByRef[ref]
+		idx, merging := indexByRef[dep.Ref]
 		if !merging {
 			idx = len(result)
-			indexByRef[ref] = idx
-			result = append(result, cdx.Dependency{Ref: ref})
+			indexByRef[dep.Ref] = idx
+			result = append(result, cdx.Dependency{Ref: dep.Ref})
 		}
 
-		result[idx].Dependencies = mergeDependencyRefs(ref, result[idx].Dependencies, dep.Dependencies, replacements)
-		result[idx].Provides = mergeDependencyRefs(ref, result[idx].Provides, dep.Provides, replacements)
+		result[idx].Dependencies = unionRefs(dep.Ref, result[idx].Dependencies, dep.Dependencies)
+		result[idx].Provides = unionRefs(dep.Ref, result[idx].Provides, dep.Provides)
 	}
 
 	if len(result) == 0 {
@@ -114,7 +111,7 @@ func redirectDependencyRefs(deps *[]cdx.Dependency, replacements map[string]stri
 	return &result
 }
 
-func mergeDependencyRefs(subject string, dst, src *[]string, replacements map[string]string) *[]string {
+func unionRefs(subject string, dst, src *[]string) *[]string {
 	if dst == nil && src == nil {
 		return nil
 	}
@@ -122,23 +119,17 @@ func mergeDependencyRefs(subject string, dst, src *[]string, replacements map[st
 	seen := make(map[string]struct{})
 	result := make([]string, 0, len(lo.FromPtr(dst))+len(lo.FromPtr(src)))
 
-	for _, refs := range []*[]string{dst, src} {
-		for _, ref := range lo.FromPtr(refs) {
-			if survivor, replaced := replacements[ref]; replaced {
-				ref = survivor
-			}
-
-			if ref == subject {
-				continue
-			}
-
-			if _, exists := seen[ref]; exists {
-				continue
-			}
-
-			seen[ref] = struct{}{}
-			result = append(result, ref)
+	for _, ref := range append(lo.FromPtr(dst), lo.FromPtr(src)...) {
+		if ref == subject {
+			continue
 		}
+
+		if _, exists := seen[ref]; exists {
+			continue
+		}
+
+		seen[ref] = struct{}{}
+		result = append(result, ref)
 	}
 
 	if len(result) == 0 {

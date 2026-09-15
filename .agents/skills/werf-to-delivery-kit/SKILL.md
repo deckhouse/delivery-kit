@@ -5,7 +5,7 @@ description: Миграция сборочных конфигов модуля �
 
 # werf-to-delivery-kit
 
-Процедура миграции сборочных инструкций модуля (Deckhouse module) с werf на delivery-kit v3. Skill self-contained: правила синтаксиса, справочник директивы `packages`, порядок стадий и стоп-условия — внутри. Синтаксис соответствует delivery-kit **v3.4.0+** (`manager`, `%secret%` в `packages[].env`, `vex`); версию берать из `DELIVERY_KIT_VERSION` в CI модуля и при сомнениях сверяться с `docs/pages_en/usage/build/stapel/instructions.md` этого репозитория.
+Процедура миграции сборочных инструкций модуля (Deckhouse module) с werf на delivery-kit v3. Skill self-contained: правила синтаксиса, справочник директивы `packages`, порядок стадий и стоп-условия — внутри. Синтаксис соответствует delivery-kit **v3.4.0+** (`manager`, `%secret%` в `packages[].env`, `vex`); при сомнениях сверяться с `docs/pages_en/usage/build/stapel/instructions.md` этого репозитория. Скилл не зависит от CI-системы модуля: входные данные (файл базовых образов, версия delivery-kit) запрашиваются у пользователя, а настройка CI остаётся за ним (см. §0).
 
 ## Ключевая идея delivery-kit v3
 
@@ -31,9 +31,14 @@ description: Миграция сборочных конфигов модуля �
 ## 0. Инвентаризация
 
 1. Найти все сборочные файлы: корневой `werf.yaml`, инклюды (обычно `.werf/**/*.yaml`), все `images/*/werf.inc.yaml`.
-2. Найти файл базовых образов: `base_images.yml` или `base_images.yaml` в корне репозитория, либо `build/base_deckhouse_images.yml`. Локальная копия лежит в корне для дебага; в CI файл приезжает автоматически по переменной `BASE_IMAGES_VERSION` (например `v3.0.2`) — версию файла НЕ хардкодить в сборочные инструкции, только читать сам файл через `.Files.Get`.
-3. Найти CI-конфиг (`.gitlab-ci.yml` / workflow) и зафиксировать две переменные: `DELIVERY_KIT_VERSION` (версия бинаря, должна быть ≥ v3.4.0, формат `vX.Y.Z-dk.N`) и `BASE_IMAGES_VERSION` (должна быть ≥ v3.0.0 — только с этой линии в файле есть `builder/distroless`, `base/distroless`, `pm` и pm-пакеты). Если они старее — поднять в рамках миграции и обновить локальную копию `base_images.yml` до той же версии (см. комментарий `# version=` в первой строке файла). Без этого миграция не соберётся в CI, хотя локальный рендер пройдёт.
-4. Составить список всех образов и для каждого зафиксировать: базовый образ, импорты, shell-инструкции с сетью, git clone, а также все include-шаблоны (`image-build.build`, `fuzz image`, `vex mitigation` и т.п.) — их тела тоже вызывают бинари, которые нужно учесть в `os-pm`.
+2. Определить, **какой файл базовых образов читает конфиг** — найти `.Files.Get "<путь>"` в `werf.yaml`/инклюдах (типично `base_images.yml` в корне, `build/base-images/deckhouse_images.yml`, `build/base_deckhouse_images.yml` — в каждом модуле своё). Этот путь не менять: сюда будет положен актуальный каталог. Версию каталога в сборочные инструкции НЕ хардкодить — только читать сам файл.
+3. **Получить актуальный каталог — у пользователя, не из CI.** Способ доставки файла (скачивание в `before_script`, шаг GitHub Action, коммит в репо) у каждого модуля свой, локально копии может не быть или она устарела. Порядок:
+   - если задана env `BASE_IMAGES_FILE` — взять файл по этому пути;
+   - иначе если файл по пути из п. 2 существует и его `# version=` (первая строка) ≥ v3.0.0 — использовать его;
+   - иначе **спросить пользователя**: путь к локальному `base_images.yml` версии ≥ v3.0.0 либо номер версии для скачивания (каталог публикуется командой container-base как generic package `deckhouse/container-base/base-images` в fox.flant.com, файл `base_images/<version>/base_images.yml`; нужен доступ пользователя). Без каталога ≥ v3.0.0 миграцию не начинать — в более старых нет `builder/distroless`, `base/distroless`, `pm` и pm-пакетов.
+   - полученный файл положить по пути из п. 2 (если файл в `.gitignore`/`allowUncommittedFiles` — не коммитить; если он tracked — коммитить обновлённую версию) и запомнить его `# version=` для отчёта.
+4. Версия delivery-kit: нужен бинарь ≥ v3.4.0 (`vX.Y.Z-dk.N`). Если пользователь не указал путь к бинарю для верификации (§5) — спросить (либо собрать из тега этого репозитория: `CGO_ENABLED=0 go build -tags "dfrunsecurity dfrunnetwork dfrunmount dfssh containers_image_openpgp" -o /tmp/dk-werf ./cmd/werf`). CI-конфиг модуля **не править**: где и как задаются версии werf/delivery-kit и каталога (переменные `.gitlab-ci.yml`, внешний GitHub Action, шаблоны) — у каждого модуля своё. В финальном отчёте выдать пользователю две величины, которые он должен обеспечить в CI: версию каталога, по которой шла миграция, и минимальную версию delivery-kit. Попутно проверить `werf-giterminism.yaml`: файл каталога должен быть либо tracked, либо в `allowUncommittedFiles`.
+5. Составить список всех образов и для каждого зафиксировать: базовый образ, импорты, shell-инструкции с сетью, git clone, а также все include-шаблоны (`image-build.build`, `fuzz image`, `vex mitigation` и т.п.) — их тела тоже вызывают бинари, которые нужно учесть в `os-pm`.
 
 ## 1. Правило базовых образов (жёсткое)
 
@@ -58,7 +63,7 @@ from: {{ $baseImages.REGISTRY_PATH }}@{{ $v }}
 final: false
 ```
 
-Далее внутренние образы ссылаются на них по имени: `from: builder/distroless` (без тега). Версию файла в CI (`BASE_IMAGES_VERSION`) и локальную копию `base_images.yml` поднимать синхронно — иначе локальный рендер и CI собирают разные digest'ы.
+Далее внутренние образы ссылаются на них по имени: `from: builder/distroless` (без тега). Каталог, по которому шла миграция, и каталог, который подкладывает CI, должны быть одной версии — иначе локальный рендер и CI собирают разные digest'ы (версию сообщить пользователю, §0 п. 4).
 
 ## 2. Корневой werf.yaml
 
@@ -323,7 +328,7 @@ git:
    - после удаления/переноса shell-инструкций проверить каждый `stageDependencies.<стадия>`: если у образа больше нет `shell.<стадия>` — удалить stageDependencies (и не добавлять shell-заглушки ради них);
    - убрать ставшие ненужными `secrets:` (например SOURCE_REPO для clone).
 4. На каждом шаге сверяться с §1: чего-то нет в базовых образах → остановиться и доложить (список недостающего, для какого образа).
-5. CI: выставить `DELIVERY_KIT_VERSION` (≥ v3.4.0, `vX.Y.Z-dk.N`) и `BASE_IMAGES_VERSION` (≥ v3.0.0) — см. §0; обновить локальную копию `base_images.yml` до той же версии (в репозиторий она обычно не коммитится). Если нужная версия файла недоступна — сказать пользователю, какую версию прописано и что локальный рендер шёл по другой.
+5. В финальном отчёте выдать пользователю требования к CI (сам CI не править, §0 п. 4): версия каталога базовых образов, по которой шла миграция (`# version=`), и минимальная версия delivery-kit (≥ v3.4.0). Если каталог tracked в репо — обновлённую копию закоммитить вместе с миграцией.
 
 Типовые образы модульной инфраструктуры Deckhouse, которые **не переписывать**, а зафиксировать в отчёте (сеть в shell не выражается директивами), если они есть в модуле: fuzz-образы (`.werf/defines/fuzz.tmpl`: `curl` aws-cli/mc, S3, `go install`) — они `final: false` и собираются только отдельными job'ами; svace-ветка `image-build.tmpl` (`ssh`/`rsync` на analyze-сервер при `SVACE_ENABLED=true`). Решение по ним — за пользователем.
 
@@ -332,7 +337,10 @@ git:
 ```bash
 # рендер и граф без сборки — ловят ошибки схемы (fromImage+from, workdir у os-pm, второй os-pm,
 # manager вне workdir, необъявленный %secret%, sbom без standard, vex-файл не в git и т.п.).
-# Шаблоны обычно требуют env из werf-giterminism.yaml — как минимум SOURCE_REPO и непустой CI_JOB_TOKEN.
+# Шаблоны обычно требуют env из werf-giterminism.yaml (allowEnvVariables) — подставить заглушки для всех,
+# что используются в `env "..."`; типично SOURCE_REPO и непустой CI_JOB_TOKEN. `werf` здесь — бинарь
+# delivery-kit ≥ v3.4.0 (§0 п. 4). `--dev` берёт незакоммиченные изменения; если репозиторий имеет
+# несколько worktree, `--dev` конфликтует между ними — тогда закоммитить и запускать без флага.
 SOURCE_REPO=https://example.invalid CI_JOB_TOKEN=x werf config render --dev >/dev/null
 SOURCE_REPO=https://example.invalid CI_JOB_TOKEN=x werf config graph --dev >/dev/null
 
@@ -350,11 +358,11 @@ grep -rn -A3 "stageDependencies:" images/*/werf.inc.yaml .werf/
 grep -ln 'image-build.build' images/*/werf.inc.yaml; grep -ln '\bsvace\b' images/*/werf.inc.yaml
 # не создаём каталоги, которые в base/distroless являются симлинками
 grep -rnE "/relocate/(bin|sbin|lib|lib64)\b|to: /(bin|sbin|lib|lib64)/" images/*/werf.inc.yaml
-# CI-переменные подняты
-grep -nE "DELIVERY_KIT_VERSION|BASE_IMAGES_VERSION" .gitlab-ci.yml; head -1 base_images.yml
+# версия каталога, по которой шла миграция (для отчёта; путь — из .Files.Get в конфиге)
+head -1 <путь-к-каталогу>
 ```
 
-Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Типовые падения на первом прогоне: `command not found` (бинарь не в `spec:` os-pm), `~/.x: No such file or directory` (нет `$HOME`, §1), `symbol lookup error` у пакета из pm (баг сборки пакета в container-base — проверить более новый `BASE_IMAGES_VERSION`, не обходить в конфиге). Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).
+Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Типовые падения на первом прогоне: `command not found` (бинарь не в `spec:` os-pm), `~/.x: No such file or directory` (нет `$HOME`, §1), `symbol lookup error` у пакета из pm (баг сборки пакета в container-base — проверить более новую версию каталога, не обходить в конфиге). Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).
 
 ## Стоп-условия (повторно, критично)
 

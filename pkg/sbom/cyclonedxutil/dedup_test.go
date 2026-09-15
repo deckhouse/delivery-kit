@@ -135,6 +135,65 @@ var _ = Describe("DedupBOM", func() {
 		Expect(*bom.Formulation).To(HaveLen(1))
 	})
 
+	It("redirects dependency refs of removed duplicates to the surviving component", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "libc-a", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+				{BOMRef: "curl", Name: "curl", PackageURL: "pkg:deb/debian/curl@8.12.1"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl", Dependencies: &[]string{"libc-b"}},
+				{Ref: "libc-b", Dependencies: &[]string{"ld-linux"}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect(*bom.Components).To(HaveLen(2))
+		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"libc-a"}))
+		Expect((*bom.Dependencies)[1].Ref).To(Equal("libc-a"))
+		Expect(*(*bom.Dependencies)[1].Dependencies).To(Equal([]string{"ld-linux"}))
+	})
+
+	It("merges dependency entries that collapse onto the same surviving ref", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "libc-a", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "libc-a", Dependencies: &[]string{"ld-linux"}, Provides: &[]string{"libc.so.6"}},
+				{Ref: "libc-b", Dependencies: &[]string{"ld-linux", "libgcc"}, Provides: &[]string{"libc.so.6"}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect(*bom.Dependencies).To(HaveLen(1))
+		Expect((*bom.Dependencies)[0].Ref).To(Equal("libc-a"))
+		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"ld-linux", "libgcc"}))
+		Expect(*(*bom.Dependencies)[0].Provides).To(Equal([]string{"libc.so.6"}))
+	})
+
+	It("drops self-references created by redirection", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "libc-a", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "libc-a", Dependencies: &[]string{"libc-b"}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect(*bom.Dependencies).To(HaveLen(1))
+		Expect((*bom.Dependencies)[0].Ref).To(Equal("libc-a"))
+		Expect((*bom.Dependencies)[0].Dependencies).To(BeNil())
+	})
+
 	It("handles nil BOM", func() {
 		Expect(func() { DedupBOM(nil) }).ToNot(Panic())
 	})

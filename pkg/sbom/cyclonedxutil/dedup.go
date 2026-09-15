@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 )
 
 // dedupJSONSlice removes duplicate items from a slice by comparing their JSON
@@ -65,28 +66,78 @@ func DedupBOM(bom *cdx.BOM) {
 		return
 	}
 
-	var removedRefs map[string]struct{}
-	bom.Components, removedRefs = dedupComponentsByPURL(bom.Components)
+	var replacedRefs map[string]string
+	bom.Components, replacedRefs = dedupComponentsByPURL(bom.Components)
 	bom.Components = dedupPtrSlice(bom.Components)
 	bom.ExternalReferences = dedupPtrSlice(bom.ExternalReferences)
 	bom.Services = dedupPtrSlice(bom.Services)
 	bom.Dependencies = dedupPtrSlice(bom.Dependencies)
-	bom.Dependencies = dropDependenciesByRefs(bom.Dependencies, removedRefs)
+	bom.Dependencies = redirectDependencyRefs(bom.Dependencies, replacedRefs)
 	bom.Compositions = dedupPtrSlice(bom.Compositions)
 	bom.Vulnerabilities = dedupPtrSlice(bom.Vulnerabilities)
 	bom.Annotations = dedupPtrSlice(bom.Annotations)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
 }
 
-func dropDependenciesByRefs(deps *[]cdx.Dependency, refs map[string]struct{}) *[]cdx.Dependency {
-	if deps == nil || len(refs) == 0 {
+// redirectDependencyRefs points every reference to a deduplicated component at
+// the component that survived deduplication, both as a dependency subject and
+// as a target. Entries that collapse onto the same subject are merged, and
+// references that become self-referential are dropped.
+func redirectDependencyRefs(deps *[]cdx.Dependency, replacements map[string]string) *[]cdx.Dependency {
+	if deps == nil || len(replacements) == 0 {
 		return deps
 	}
 
 	result := make([]cdx.Dependency, 0, len(*deps))
+	indexByRef := make(map[string]int, len(*deps))
+
 	for _, dep := range *deps {
-		if _, removed := refs[dep.Ref]; !removed {
-			result = append(result, dep)
+		ref := dep.Ref
+		if survivor, replaced := replacements[ref]; replaced {
+			ref = survivor
+		}
+
+		idx, merging := indexByRef[ref]
+		if !merging {
+			idx = len(result)
+			indexByRef[ref] = idx
+			result = append(result, cdx.Dependency{Ref: ref})
+		}
+
+		result[idx].Dependencies = mergeDependencyRefs(ref, result[idx].Dependencies, dep.Dependencies, replacements)
+		result[idx].Provides = mergeDependencyRefs(ref, result[idx].Provides, dep.Provides, replacements)
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return &result
+}
+
+func mergeDependencyRefs(subject string, dst, src *[]string, replacements map[string]string) *[]string {
+	if dst == nil && src == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(lo.FromPtr(dst))+len(lo.FromPtr(src)))
+
+	for _, refs := range []*[]string{dst, src} {
+		for _, ref := range lo.FromPtr(refs) {
+			if survivor, replaced := replacements[ref]; replaced {
+				ref = survivor
+			}
+
+			if ref == subject {
+				continue
+			}
+
+			if _, exists := seen[ref]; exists {
+				continue
+			}
+
+			seen[ref] = struct{}{}
+			result = append(result, ref)
 		}
 	}
 
@@ -100,14 +151,15 @@ func dropDependenciesByRefs(deps *[]cdx.Dependency, refs map[string]struct{}) *[
 // (purl without the package-id query parameter) and deduplicates
 // externalReferences inside each kept component. First occurrence wins.
 // Components without a purl are always kept.
-// Returns the deduplicated slice and a set of BOMRefs that were removed.
-func dedupComponentsByPURL(components *[]cdx.Component) (*[]cdx.Component, map[string]struct{}) {
+// Returns the deduplicated slice and a mapping from every removed BOMRef to the
+// BOMRef that replaced it.
+func dedupComponentsByPURL(components *[]cdx.Component) (*[]cdx.Component, map[string]string) {
 	if components == nil {
 		return nil, nil
 	}
 
-	seen := make(map[string]struct{})
-	removedRefs := make(map[string]struct{})
+	seen := make(map[string]string)
+	replacedRefs := make(map[string]string)
 	result := make([]cdx.Component, 0, len(*components))
 
 	for _, comp := range *components {
@@ -119,22 +171,22 @@ func dedupComponentsByPURL(components *[]cdx.Component) (*[]cdx.Component, map[s
 		}
 
 		key := normalizePURL(comp.PackageURL)
-		if _, exists := seen[key]; exists {
-			if comp.BOMRef != "" {
-				removedRefs[comp.BOMRef] = struct{}{}
+		if survivor, exists := seen[key]; exists {
+			if comp.BOMRef != "" && survivor != "" && comp.BOMRef != survivor {
+				replacedRefs[comp.BOMRef] = survivor
 			}
 			continue
 		}
 
-		seen[key] = struct{}{}
+		seen[key] = comp.BOMRef
 		result = append(result, comp)
 	}
 
 	if len(result) == 0 {
-		return nil, removedRefs
+		return nil, replacedRefs
 	}
 
-	return &result, removedRefs
+	return &result, replacedRefs
 }
 
 // normalizePURL strips the package-id query parameter from a purl for

@@ -31,14 +31,17 @@ description: Миграция сборочных конфигов модуля �
 ## 0. Инвентаризация
 
 1. Найти все сборочные файлы: корневой `werf.yaml`, инклюды (обычно `.werf/**/*.yaml`), все `images/*/werf.inc.yaml`.
-2. Найти файл базовых образов: `base_images.yml` или `base_images.yaml` в корне репозитория, либо `build/base_deckhouse_images.yml`. Локальная копия лежит в корне для дебага; в CI файл приезжает автоматически по переменной `BASE_IMAGES_VERSION` (например `v1.3.22`) — версию файла НЕ хардкодить в сборочные инструкции, только читать сам файл через `.Files.Get`.
-3. Составить список всех образов и для каждого зафиксировать: базовый образ, импорты, shell-инструкции с сетью, git clone.
+2. Найти файл базовых образов: `base_images.yml` или `base_images.yaml` в корне репозитория, либо `build/base_deckhouse_images.yml`. Локальная копия лежит в корне для дебага; в CI файл приезжает автоматически по переменной `BASE_IMAGES_VERSION` (например `v3.0.2`) — версию файла НЕ хардкодить в сборочные инструкции, только читать сам файл через `.Files.Get`.
+3. Найти CI-конфиг (`.gitlab-ci.yml` / workflow) и зафиксировать две переменные: `DELIVERY_KIT_VERSION` (версия бинаря, должна быть ≥ v3.4.0, формат `vX.Y.Z-dk.N`) и `BASE_IMAGES_VERSION` (должна быть ≥ v3.0.0 — только с этой линии в файле есть `builder/distroless`, `base/distroless`, `pm` и pm-пакеты). Если они старее — поднять в рамках миграции и обновить локальную копию `base_images.yml` до той же версии (см. комментарий `# version=` в первой строке файла). Без этого миграция не соберётся в CI, хотя локальный рендер пройдёт.
+4. Составить список всех образов и для каждого зафиксировать: базовый образ, импорты, shell-инструкции с сетью, git clone, а также все include-шаблоны (`image-build.build`, `fuzz image`, `vex mitigation` и т.п.) — их тела тоже вызывают бинари, которые нужно учесть в `os-pm`.
 
 ## 1. Правило базовых образов (жёсткое)
 
 - **Все** базовые образы и все бинари/библиотеки берутся ТОЛЬКО из файла базовых образов (`base_images.yml`). Он содержит и builder-образы, и рантайм-базы, и pm-пакеты (coreutils, bash, sed, tini и т.д. — `# from: base/scratch`). Базовые образы применяются исключительно как `from:`; бинари из них в образы попадают только через `packages: os-pm` (см. §3), а не через `import:`.
 - Единственное исключение из файла — встроенный `from: scratch` (пустой образ werf) для bundle/release-образов, состоящих только из `import`/`git`. `base/scratch` из файла для этого не использовать.
-- **Единый builder — `builder/distroless`.** Вся сборка любого модуля делается на distroless-образах: сборочные (src-artifact, build, runtime-artifact, вспомогательные вроде images-digests) — `from: builder/distroless`, финальные — `from: base/distroless`. В `builder/distroless` есть `pm`, и весь тулчейн (`golang`, `node`, `make`, `git`, `sed`, `gnu-gcc`, `svace` и т.д.) декларируется через `os-pm` — так он попадает в SBOM. Специализированные builder'ы (`builder/golang-*`, `builder/node-alpine`, `builder/alpine`, `builder/src`, `builder/native` и т.п.) при миграции заменять на `builder/distroless`, даже если они есть в файле базовых образов. Следствие: в `spec:` нужно перечислять **всё**, что вызывает shell — в `builder/distroless` из коробки только busybox и `pm`.
+- **Единый builder — `builder/distroless`.** Вся сборка любого модуля делается на distroless-образах: сборочные (src-artifact, build, runtime-artifact, вспомогательные вроде images-digests) — `from: builder/distroless`, финальные — `from: base/distroless`. В `builder/distroless` есть `pm`, и весь тулчейн (`golang`, `node`, `make`, `git`, `sed`, `gnu-gcc`, `svace` и т.д.) декларируется через `os-pm` — так он попадает в SBOM. Специализированные builder'ы (`builder/golang-*`, `builder/node-alpine`, `builder/alpine`, `builder/src`, `builder/native` и т.п.) при миграции заменять на `builder/distroless`, даже если они есть в файле базовых образов. Следствие: в `spec:` нужно перечислять **всё**, что вызывает shell — в `builder/distroless` из коробки только busybox и `pm`. **На busybox не полагаться**: его апплеты (`sed`, `cp`, `find`, `tar`…) не считать доступными — набор и симлинки не гарантированы, а поведение отличается от GNU (`sed -i` и т.п.). Любая команда в `shell:` — в т.ч. `sed`, `cp`, `find`, `ldd`, `make`, `git` — требует свой пакет в `spec:` (`sed`, `coreutils`, `findutils`, `ldd`, `make`, `git`).
+- **`svace` обязателен** в `spec:` каждого образа, где сборка идёт через `include "image-build.build"` (шаблон при `SVACE_ENABLED=true` вызывает `svace build`). То, что при обычной сборке ветка не рендерится — не повод убирать пакет: `spec` должен покрывать все ветки шаблонов. Аналогично проверять тела других include'ов на вызываемые бинари.
+- **Не трогать `/bin`, `/sbin`, `/lib`, `/lib64` в `/relocate`.** В `base/distroless` это симлинки на `/usr/bin` и `/usr/lib`; если в `-runtime-artifact` создать реальный каталог `/relocate/bin` (например, ради `ln -sf /usr/bin/bash /relocate/bin/bash`), импорт в `/` перезапишет симлинк каталогом и сломает образ. Бинари класть только в `/relocate/usr/bin` — `/bin/sh`, `/bin/bash` будут работать через симлинк базы (старые `import ... to: /bin/bash` переписывать в `/usr/bin/bash`).
 - **Ловушка `builder/distroless`:** в образе нет каталога `$HOME` (`/root`). Перед записью `~/.npmrc`, `~/.yarnrc`, `~/.gitconfig`, `~/.ssh/config` — `mkdir -p ~/.ssh` (создаёт и `$HOME`).
 - Никаких прямых ссылок на внешние registry, docker.io, `ubuntu:...` и т.п.
 - **Стоп-условие:** если для сборки нужен OS-пакет/бинарь/библиотека, которых нет в файле базовых образов — прекратить переписывание этого образа, зафиксировать список недостающих пакетов и сообщить пользователю, что нужно идти в команду container-base с запросом на добавление. Не искать обходных путей (curl, git clone бинарей, сборка из сторонних источников). Исключение — менеджеры языковых экосистем (yarn, pnpm, uv, poetry): их ставит предыдущая `packages`-запись, см. `manager:` в §3.
@@ -112,7 +115,7 @@ import:
 #    add: /usr/bin/cp
 ```
 
-Частные случаи: `awk` — это пакет `gawk` + `ln -sf gawk /relocate/usr/bin/awk`; `getent`/`libnss_*` (раньше импортировали из `builder/golang-debian`) — пакет `gnu-glibc`, NSS-модули `ldd` не видит, копировать `libnss_*.so*` явно.
+Частные случаи: `awk` — это пакет `gawk` + `ln -sf gawk /relocate/usr/bin/awk`; `getent`/`libnss_*` (раньше импортировали из `builder/golang-debian`) — пакет `gnu-glibc`, NSS-модули `ldd` не видит, копировать `libnss_*.so*` явно. Старые импорты вида `to: /bin/bash`, `to: /bin/sh` переписывать на `/usr/bin/...` и не создавать `/relocate/bin` (см. §1 про симлинки в `base/distroless`).
 
 ### git clone → директива git
 
@@ -236,7 +239,7 @@ packages:
 - **Одна** запись `os-pm` на образ (`the packages section allows only one os-pm directive`) — все OS-пакеты собирать в один список. Файловых записей (например, несколько `go-mod` для разных репозиториев в одном образе) может быть сколько угодно.
 - Отдельные `git:`-записи для доставки pm-файлов и `stageDependencies.packages` не нужны — spec лежит в самом конфиге, его изменение само инвалидирует стадию.
 - Имена пакетов сверять с `base_images.yml` (могут отличаться от apt/apk: например `libssl-dev` → `openssl-devel`, `awk` → `gawk`, `getent`/`libnss_*` → `gnu-glibc`); если пакета нет в каталоге — стоп-условие §1.
-- В `builder/distroless` нет ничего, кроме busybox и `pm`: все инструменты, которые вызывает shell (`golang`, `make`, `git`, `sed`, `svace`, `ldd`…), перечислять в `spec:`. Типичный симптом пропуска — `command not found` на стадии install.
+- В `builder/distroless` нет ничего, кроме busybox и `pm`, и на busybox не полагаемся (§1): все инструменты, которые вызывает shell и тела include'ов (`golang`, `make`, `git`, `sed`, `coreutils`, `svace`, `ldd`…), перечислять в `spec:`. Типичный симптом пропуска — `command not found` на стадии install (иногда только в CI-ветке с `SVACE_ENABLED=true`).
 
 Бинарь `pm` и env `PACKAGES_VERSION`/`REGISTRY` есть в `builder/distroless`; в `base/distroless` и `scratch` их нет — для них см. паттерн `-runtime-artifact` выше.
 
@@ -320,6 +323,7 @@ git:
    - после удаления/переноса shell-инструкций проверить каждый `stageDependencies.<стадия>`: если у образа больше нет `shell.<стадия>` — удалить stageDependencies (и не добавлять shell-заглушки ради них);
    - убрать ставшие ненужными `secrets:` (например SOURCE_REPO для clone).
 4. На каждом шаге сверяться с §1: чего-то нет в базовых образах → остановиться и доложить (список недостающего, для какого образа).
+5. CI: выставить `DELIVERY_KIT_VERSION` (≥ v3.4.0, `vX.Y.Z-dk.N`) и `BASE_IMAGES_VERSION` (≥ v3.0.0) — см. §0; обновить локальную копию `base_images.yml` до той же версии (в репозиторий она обычно не коммитится). Если нужная версия файла недоступна — сказать пользователю, какую версию прописано и что локальный рендер шёл по другой.
 
 Типовые образы модульной инфраструктуры Deckhouse, которые **не переписывать**, а зафиксировать в отчёте (сеть в shell не выражается директивами), если они есть в модуле: fuzz-образы (`.werf/defines/fuzz.tmpl`: `curl` aws-cli/mc, S3, `go install`) — они `final: false` и собираются только отдельными job'ами; svace-ветка `image-build.tmpl` (`ssh`/`rsync` на analyze-сервер при `SVACE_ENABLED=true`). Решение по ним — за пользователем.
 
@@ -342,6 +346,12 @@ grep -rnE "from: builder/" werf.yaml .werf/ images/*/werf.inc.yaml | grep -v "bu
 grep -rhn "^\s*- from:" .werf/ images/*/werf.inc.yaml | sed 's/.*from: //' | sort -u
 # каждый stageDependencies.install/beforeSetup/setup должен иметь парные shell-инструкции в том же образе
 grep -rn -A3 "stageDependencies:" images/*/werf.inc.yaml .werf/
+# каждый образ с include "image-build.build" должен иметь svace в spec os-pm (сравнить два списка пофайлово)
+grep -ln 'image-build.build' images/*/werf.inc.yaml; grep -ln '\bsvace\b' images/*/werf.inc.yaml
+# не создаём каталоги, которые в base/distroless являются симлинками
+grep -rnE "/relocate/(bin|sbin|lib|lib64)\b|to: /(bin|sbin|lib|lib64)/" images/*/werf.inc.yaml
+# CI-переменные подняты
+grep -nE "DELIVERY_KIT_VERSION|BASE_IMAGES_VERSION" .gitlab-ci.yml; head -1 base_images.yml
 ```
 
 Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Типовые падения на первом прогоне: `command not found` (бинарь не в `spec:` os-pm), `~/.x: No such file or directory` (нет `$HOME`, §1), `symbol lookup error` у пакета из pm (баг сборки пакета в container-base — проверить более новый `BASE_IMAGES_VERSION`, не обходить в конфиге). Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).

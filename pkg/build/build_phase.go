@@ -1840,7 +1840,40 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 }
 
 func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, error) {
+	importImages, err := phase.resolveImportImages(ctx, img)
+	if err != nil {
+		return nil, err
+	}
+
 	var importImageSboms []*cdx.BOM
+
+	for _, importImage := range importImages {
+		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importImage.lookupName, importImage.info)
+		if err != nil {
+			if errors.Is(err, ErrSbomNotRequired) {
+				continue
+			}
+			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
+		}
+		importImageSboms = append(importImageSboms, importImageSbom)
+	}
+
+	return importImageSboms, nil
+}
+
+type resolvedImportImage struct {
+	imageName  string
+	lookupName string
+	info       *imagePkg.Info
+}
+
+// resolveImportImages resolves every import source of the image to its image info,
+// keeping a single entry per resolved repository and digest: an image imported by
+// several import directives has one SBOM, and pulling and merging it more than once
+// would only duplicate the components it contributes.
+func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Image) ([]resolvedImportImage, error) {
+	var result []resolvedImportImage
+	seenImages := make(map[string]struct{})
 
 	for _, importInfo := range img.GetImportImagesInfo() {
 		if !importInfo.ExternalImage {
@@ -1875,22 +1908,27 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			continue
 		}
 
+		if digest := importImageInfo.GetDigest(); digest != "" {
+			key := importImageInfo.Repository + "@" + digest
+			if _, seen := seenImages[key]; seen {
+				continue
+			}
+			seenImages[key] = struct{}{}
+		}
+
 		var importLookupName string
 		if !importInfo.ExternalImage {
 			importLookupName = importInfo.ImageName
 		}
 
-		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importLookupName, importImageInfo)
-		if err != nil {
-			if errors.Is(err, ErrSbomNotRequired) {
-				continue
-			}
-			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
-		}
-		importImageSboms = append(importImageSboms, importImageSbom)
+		result = append(result, resolvedImportImage{
+			imageName:  importInfo.ImageName,
+			lookupName: importLookupName,
+			info:       importImageInfo,
+		})
 	}
 
-	return importImageSboms, nil
+	return result, nil
 }
 
 func (phase *BuildPhase) Clone() Phase {

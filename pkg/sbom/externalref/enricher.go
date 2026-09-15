@@ -13,24 +13,15 @@ import (
 	"github.com/werf/logboek"
 )
 
+// validateRefKind restricts enrichment to the reference types the ISPRAS SBOM
+// schema accepts: a component must carry a vcs or a source-distribution link.
+// Any other type would pass the build and fail validation afterwards.
 func validateRefKind(kind string) error {
 	switch cdx.ExternalReferenceType(kind) {
-	case cdx.ERTypeVCS, cdx.ERTypeWebsite, cdx.ERTypeIssueTracker, cdx.ERTypeAdvisories,
-		cdx.ERTypeBOM, cdx.ERTypeChat, cdx.ERTypeDocumentation, cdx.ERTypeDistribution,
-		cdx.ERTypeLicense, cdx.ERTypeOther, cdx.ERTypeReleaseNotes, cdx.ERTypeSecurityContact,
-		cdx.ERTypeSocial, cdx.ERTypeSupport, cdx.ERTypeEvidence, cdx.ERTypeFormulation,
-		cdx.ERTypeConfiguration, cdx.ERTypeBuildMeta, cdx.ERTypeBuildSystem,
-		cdx.ERTypeAttestation, cdx.ERTypeThreatModel, cdx.ERTypeRiskAssessment,
-		cdx.ERTypeMaturityReport, cdx.ERTypeComponentAnalysisReport, cdx.ERTypeDynamicAnalysisReport,
-		cdx.ERTypeStaticAnalysisReport, cdx.ERTypePentestReport, cdx.ERTypeCertificationReport,
-		cdx.ERTypeQualityMetrics, cdx.ERTypePOAM, cdx.ERTypeRuntimeAnalysisReport,
-		cdx.ERTypeExploitabilityStatement, cdx.ERTypeAdversaryModel, cdx.ERTypeModelCard,
-		cdx.ERTypeDistributionIntake, cdx.ERTypeDigitalSignature, cdx.ERTypeElectronicSignature,
-		cdx.ERTypeCodifiedInfrastructure, cdx.ERTypeLog, cdx.ERTypeMailingList,
-		cdx.ERTypeRFC9116, cdx.ERTypeSourceDistribution, cdx.ERTypeVulnerabilityAssertion:
+	case cdx.ERTypeVCS, cdx.ERTypeSourceDistribution:
 		return nil
 	default:
-		return fmt.Errorf("enrich: unknown external reference kind %q", kind)
+		return fmt.Errorf("enrich: external reference kind %q is not allowed, expected %q or %q", kind, cdx.ERTypeVCS, cdx.ERTypeSourceDistribution)
 	}
 }
 

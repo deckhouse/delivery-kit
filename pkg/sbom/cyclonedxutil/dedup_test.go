@@ -176,6 +176,23 @@ var _ = Describe("DedupBOM", func() {
 		Expect(*(*bom.Dependencies)[0].Provides).To(Equal([]string{"libc.so.6"}))
 	})
 
+	It("redirects provides refs of removed duplicates", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "libc-a", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+				{BOMRef: "curl", Name: "curl", PackageURL: "pkg:deb/debian/curl@8.12.1"},
+			},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "curl", Provides: &[]string{"libc-b"}},
+			},
+		}
+
+		DedupBOM(bom)
+
+		Expect(*(*bom.Dependencies)[0].Provides).To(Equal([]string{"libc-a"}))
+	})
+
 	It("drops self-references created by redirection", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

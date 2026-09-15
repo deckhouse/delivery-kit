@@ -1,11 +1,11 @@
 ---
 name: werf-to-delivery-kit
-description: Миграция сборочных конфигов модуля с werf на delivery-kit v3 (dk3). Переписывает werf.yaml и все images/*/werf.inc.yaml на новый синтаксис — from вместо fromImage, включение SBOM (cyclonedx@1.6), замена сетевых shell-инструкций (git clone, pm install, go mod download и т.п.) на директивы git и packages. Использовать когда пользователь говорит "мигрируй на delivery-kit", "перепиши сборку на dk3", "werf-to-delivery-kit".
+description: Миграция сборочных конфигов модуля с werf на delivery-kit v3 (dk3, от v3.4.0). Переписывает werf.yaml и все images/*/werf.inc.yaml на новый синтаксис — from вместо fromImage, включение SBOM (cyclonedx@1.6), замена сетевых shell-инструкций (git clone, pm install, go mod download, npm install -g, cosign attest и т.п.) на директивы git, packages (в т.ч. manager и %secret% в env) и vex; перевод builder-образов на builder/distroless + os-pm. Использовать когда пользователь говорит "мигрируй на delivery-kit", "перепиши сборку на dk3", "werf-to-delivery-kit".
 ---
 
 # werf-to-delivery-kit
 
-Процедура миграции сборочных инструкций модуля (Deckhouse module) с werf на delivery-kit v3. Skill self-contained: правила синтаксиса, справочник директивы `packages`, порядок стадий и стоп-условия — внутри.
+Процедура миграции сборочных инструкций модуля (Deckhouse module) с werf на delivery-kit v3. Skill self-contained: правила синтаксиса, справочник директивы `packages`, порядок стадий и стоп-условия — внутри. Синтаксис соответствует delivery-kit **v3.4.0+** (`manager`, `%secret%` в `packages[].env`, `vex`); версию берать из `DELIVERY_KIT_VERSION` в CI модуля и при сомнениях сверяться с `docs/pages_en/usage/build/stapel/instructions.md` этого репозитория.
 
 ## Ключевая идея delivery-kit v3
 
@@ -23,7 +23,10 @@ description: Миграция сборочных конфигов модуля �
 | `cargo fetch/build` (скачивание crates) | `packages:` type `rust-cargo` |
 | `luarocks install` | `packages:` type `lua-rock` |
 | `curl/wget <url>` для скачивания артефактов | запрещено; артефакт должен приходить через pm (см. стоп-условие) |
-| `import:` бинарей/библиотек из базовых образов (coreutils, bash, jq, tini…) | `packages:` type `os-pm` |
+| `import:` бинарей/библиотек из базовых образов (coreutils, bash, jq, tini…) | `packages:` type `os-pm` (в финальный distroless — через `-runtime-artifact`, см. §3) |
+| `npm install -g yarn` / `pip install uv` — менеджер, которого нет в базовом образе | предыдущая `packages`-запись ставит менеджер, следующая ссылается на него через `manager:` (см. §3) |
+| `export GOPROXY=$(cat /run/secrets/…)`, `~/.netrc` с токеном в shell | `packages[].env` с `%secret:ID%` (см. §3) |
+| образы `*-vex-artifact` (`cosign attest` + `curl` в Vault в shell) | директива `vex:` на финальном образе (см. §3) |
 
 ## 0. Инвентаризация
 
@@ -34,8 +37,11 @@ description: Миграция сборочных конфигов модуля �
 ## 1. Правило базовых образов (жёсткое)
 
 - **Все** базовые образы и все бинари/библиотеки берутся ТОЛЬКО из файла базовых образов (`base_images.yml`). Он содержит и builder-образы, и рантайм-базы, и pm-пакеты (coreutils, bash, sed, tini и т.д. — `# from: base/scratch`). Базовые образы применяются исключительно как `from:`; бинари из них в образы попадают только через `packages: os-pm` (см. §3), а не через `import:`.
+- Единственное исключение из файла — встроенный `from: scratch` (пустой образ werf) для bundle/release-образов, состоящих только из `import`/`git`. `base/scratch` из файла для этого не использовать.
+- **Builder-образы.** Сборочные образы (src-artifact, build, runtime-artifact) делать на `builder/distroless` и доставлять тулчейн через `os-pm`: `golang`, `make`, `git`, `sed`, `svace` и т.д. Специализированные builder'ы (`builder/golang-alt`, `builder/src`, `builder/alpine`, `builder/node-alpine`) не использовать — их состав не декларирован в конфиге и не попадает в SBOM образа как пакеты. Следствие: в `spec:` нужно перечислять **всё**, что вызывает shell (`make`, `git`, `sed` и т.п.) — в `builder/distroless` есть только busybox и `pm`.
+- **Ловушка `builder/distroless`:** в образе нет каталога `$HOME` (`/root`). Перед записью `~/.npmrc`, `~/.yarnrc`, `~/.gitconfig`, `~/.ssh/config` — `mkdir -p ~/.ssh` (создаёт и `$HOME`).
 - Никаких прямых ссылок на внешние registry, docker.io, `ubuntu:...` и т.п.
-- **Стоп-условие:** если для сборки нужен пакет/бинарь/библиотека, которых нет в файле базовых образов — прекратить переписывание этого образа, зафиксировать список недостающих пакетов и сообщить пользователю, что нужно идти в команду container-base с запросом на добавление. Не искать обходных путей (curl, git clone бинарей, сборка из сторонних источников).
+- **Стоп-условие:** если для сборки нужен OS-пакет/бинарь/библиотека, которых нет в файле базовых образов — прекратить переписывание этого образа, зафиксировать список недостающих пакетов и сообщить пользователю, что нужно идти в команду container-base с запросом на добавление. Не искать обходных путей (curl, git clone бинарей, сборка из сторонних источников). Исключение — менеджеры языковых экосистем (yarn, pnpm, uv, poetry): их ставит предыдущая `packages`-запись, см. `manager:` в §3.
 
 Типовой паттерн подключения (значения из файла — digest'ы):
 
@@ -49,7 +55,7 @@ from: {{ $baseImages.REGISTRY_PATH }}@{{ $v }}
 final: false
 ```
 
-Далее внутренние образы ссылаются на них по имени: `from: builder/golang` (без тега).
+Далее внутренние образы ссылаются на них по имени: `from: builder/distroless` (без тега). Версию файла в CI (`BASE_IMAGES_VERSION`) и локальную копию `base_images.yml` поднимать синхронно — иначе локальный рендер и CI собирают разные digest'ы.
 
 ## 2. Корневой werf.yaml
 
@@ -77,19 +83,36 @@ build:
 
 В `import:` и `dependencies:` поле `image:` заменено на `from:` (`image:` — deprecated-алиас).
 
-**Строгое правило: import разрешён только между собираемыми образами проекта** (src-artifact, build, runtime-artifact и т.п.). Импортировать бинари/библиотеки из базовых образов (ключи base_images.yml: coreutils, bash, sed, grep, jq, tini, ssh-static, util-linux и т.д.) **запрещено** — такие импорты заменяются установкой пакетов через `packages: os-pm` (имена пакетов совпадают с ключами base_images.yml). Базовые образы используются ТОЛЬКО в `from:`. os-pm работает и на минимальных базах (distroless/scratch) — нужен лишь бинарь `pm` в образе (в крайнем случае приносится import'ом из собираемого carrier-образа) и секреты/env `PACKAGES_VERSION`, `REGISTRY`.
+**Строгое правило: import разрешён только между собираемыми образами проекта** (src-artifact, build, runtime-artifact и т.п.). Импортировать бинари/библиотеки из базовых образов (ключи base_images.yml: coreutils, bash, sed, grep, jq, tini, ssh-static, util-linux, `builder/golang-debian` и т.д.) **запрещено** — такие импорты заменяются установкой пакетов через `packages: os-pm` (имена пакетов совпадают с ключами base_images.yml). Базовые образы используются ТОЛЬКО в `from:`.
+
+Бинарь `pm` есть в `builder/distroless`, но НЕТ в `base/distroless`. Поэтому бинари для финального образа на `base/distroless` ставятся в промежуточный `-runtime-artifact` на `builder/distroless` и релоцируются вместе с библиотеками (через `ldd`) в `/relocate`, который импортируется в `/` финального образа:
 
 ```yaml
+image: {{ $.ImageName }}-runtime-artifact
+final: false
+from: builder/distroless
+packages:
+  - type: os-pm
+    spec: [ldd, bash, coreutils, tini, ssh-static]
+shell:
+  install:
+    - |
+      {{- include "load copy functions" . | indent 6 }}   # do_copy / do_copy_with_dependencies из .werf/defines/copy.tmpl
+    - do_copy_with_dependencies /relocate /usr/bin/bash /usr/bin/sh /usr/bin/cp /usr/bin/tini /usr/bin/ssh
+---
+image: {{ $.ImageName }}
+from: base/distroless
 import:
-  - from: {{ $.ImageName }}-build   # собираемый образ — ок
-    add: /build/dist/app
-    to: /usr/local/bin/app
+  - from: {{ $.ImageName }}-runtime-artifact   # собираемый образ — ок
+    add: /relocate
+    to: /
     before: install
 # БЫЛО (запрещено теперь):
 #  - image: coreutils
 #    add: /usr/bin/cp
-# СТАЛО: пакет coreutils в inline spec директивы packages: os-pm этого образа
 ```
+
+Частные случаи: `awk` — это пакет `gawk` + `ln -sf gawk /relocate/usr/bin/awk`; `getent`/`libnss_*` (раньше импортировали из `builder/golang-debian`) — пакет `gnu-glibc`, NSS-модули `ldd` не видит, копировать `libnss_*.so*` явно.
 
 ### git clone → директива git
 
@@ -153,7 +176,49 @@ git:
 | `javascript-pnpm` | `package.json` | `pnpm-lock.yaml` | pnpm install (frozen) |
 | `lua-rock` | rockspec | — | luarocks |
 
-Общие поля: `workdir` (путь внутри контекста, где лежат spec/lock; для `os-pm` указывать **нельзя** — ошибка валидации), `spec` (для файловых типов — путь к манифесту; для `os-pm` — **только inline-список** имён пакетов, путь к файлу — ошибка валидации `use inline package list instead of file path`), `lock` (путь к lock-файлу; для `os-pm` не поддерживается), `env` (map переменных, передаются префиксом к команде; секреты в значения не класть).
+Общие поля: `workdir` (путь внутри контекста, где лежат spec/lock; для `os-pm` указывать **нельзя** — ошибка валидации), `spec` (для файловых типов — путь к манифесту; для `os-pm` — **только inline-список** имён пакетов, путь к файлу — ошибка валидации `use inline package list instead of file path`), `lock` (путь к lock-файлу; для `os-pm` не поддерживается), `manager` (только файловые типы — путь к исполняемому файлу менеджера внутри `workdir` предыдущей `packages`-записи, см. ниже), `env` (map переменных для команды установки; shell-конструкции `$(...)`/`$VAR` не вычисляются — вместо них ссылки на секреты, см. ниже).
+
+**Секреты в `packages[].env`.** Значение может ссылаться на секрет из `secrets:` образа: `%secret:<id>%` (содержимое) или `%secret_path:<id>%` (`/run/secrets/<id>`). Секрет резолвится в момент запуска менеджера и не попадает ни в digest стадии, ни в слои. Это единственный правильный способ передать `GOPROXY` и токен для приватных go-модулей; `export GOPROXY=$(cat /run/secrets/…)` и `~/.netrc` в shell больше не нужны (и оставляли токен в слоях артефакта):
+
+```yaml
+secrets:
+- id: GOPROXY
+  value: {{ .GOPROXY }}
+- id: CI_JOB_TOKEN
+  value: "{{ env "CI_JOB_TOKEN" }}"
+packages:
+  - type: go-mod
+    workdir: /src
+    env:
+      GOPROXY: "%secret:GOPROXY%"
+      GOPRIVATE: fox.flant.com/*
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: url.https://gitlab-ci-token:%secret:CI_JOB_TOKEN%@fox.flant.com/.insteadOf
+      GIT_CONFIG_VALUE_0: https://fox.flant.com/
+```
+
+**`manager` — менеджер, которого нет в base_images (yarn, pnpm, uv, poetry).** Предыдущая `packages`-запись ставит его из запиненного lock-файла (хранится в каталоге образа: `images/<img>/tools/yarn/{package.json,package-lock.json}`), следующая ссылается на него. Путь вне `workdir` предыдущей записи (в т.ч. голое имя) отклоняется. В shell менеджер вызывать по тому же полному пути (в `PATH` его нет):
+
+```yaml
+git:
+  - add: {{ $.ImagePath }}/tools/yarn
+    to: /tools/yarn
+    stageDependencies:
+      packages: ["package.json", "package-lock.json"]
+packages:
+  - type: os-pm
+    spec: [node, git]
+  - type: javascript-npm
+    workdir: /tools/yarn
+  - type: javascript-yarn
+    workdir: /ui
+    manager: /tools/yarn/node_modules/.bin/yarn
+shell:
+  install:
+    - cd /ui && NODE_ENV=production /tools/yarn/node_modules/.bin/yarn build
+```
+
+Конфиги менеджеров (`~/.npmrc`/`~/.yarnrc` с реестром-прокси, `~/.gitconfig` с `insteadOf`, `~/.ssh/config`) готовятся в `shell.beforeInstall` — она идёт **до** стадии packages (см. порядок стадий), секреты там уже смонтированы; не забыть `mkdir -p ~` (§1). Замена URL реестров в `yarn.lock` через `sed` делается в `install` образа-источника (src-artifact), до импорта.
 
 **os-pm** (замена `pm install ...` / apt / apk) — пакеты объявляются **прямо в werf-конфиге**, отдельных файлов (`pm.yaml`/`pm.lock`) НЕТ, формат больше не поддерживается delivery-kit:
 
@@ -168,35 +233,60 @@ packages:
 **Правила os-pm:**
 
 - `spec` — непустой список строк `имя` или `имя==версия`; `workdir` и `lock` запрещены.
+- **Одна** запись `os-pm` на образ (`the packages section allows only one os-pm directive`) — все OS-пакеты собирать в один список. Файловых записей (например, несколько `go-mod` для разных репозиториев в одном образе) может быть сколько угодно.
 - Отдельные `git:`-записи для доставки pm-файлов и `stageDependencies.packages` не нужны — spec лежит в самом конфиге, его изменение само инвалидирует стадию.
-- Имена пакетов сверять с `base_images.yml` (могут отличаться от apt/apk: например `libssl-dev` → `openssl-devel`); если пакета нет в каталоге — стоп-условие §1.
+- Имена пакетов сверять с `base_images.yml` (могут отличаться от apt/apk: например `libssl-dev` → `openssl-devel`, `awk` → `gawk`, `getent`/`libnss_*` → `gnu-glibc`); если пакета нет в каталоге — стоп-условие §1.
+- В `builder/distroless` нет ничего, кроме busybox и `pm`: все инструменты, которые вызывает shell (`golang`, `make`, `git`, `sed`, `svace`, `ldd`…), перечислять в `spec:`. Типичный симптом пропуска — `command not found` на стадии install.
 
-Бинарь `pm` должен присутствовать в базовом образе (builder-образы из файла базовых образов его содержат); на scratch/distroless его можно принести `import:` из собираемого carrier-образа + секреты/env `PACKAGES_VERSION`, `REGISTRY`. Если недоступен — стоп-условие §1.
+Бинарь `pm` и env `PACKAGES_VERSION`/`REGISTRY` есть в `builder/distroless`; в `base/distroless` и `scratch` их нет — для них см. паттерн `-runtime-artifact` выше.
 
-**go-mod** для сборки Go из склонированного репозитория:
+**go-mod** для сборки Go из склонированного репозитория. `workdir` — каталог с `go.mod` собираемого модуля; в монорепо с `go.work` (kustomize) это подкаталог (`/src/kustomize/kustomize`), а не корень:
 
 ```yaml
 image: {{ $.ImageName }}-build
 final: false
-from: builder/golang
+from: builder/distroless
 git:
   - url: {{ env "SOURCE_REPO" }}/org/repo.git
     tag: v1.2.3
     add: /
     to: /src/app
+secrets:
+- id: GOPROXY
+  value: {{ .GOPROXY }}
 packages:
+  - type: os-pm
+    spec: [golang, make, git]
   - type: go-mod
     workdir: /src/app
+    env:
+      GOPROXY: "%secret:GOPROXY%"
 shell:
   install:
     - cd /src/app && CGO_ENABLED=0 go build -o /out/app .   # сеть не нужна: модули уже скачаны
 ```
 
+### VEX → директива vex
+
+В модулях Deckhouse есть образы `<img>-vex-artifact` (шаблон `vex mitigation` из `.werf/defines/vex.tmpl` + база `base/vex`), которые в shell делают `cosign attest` в registry и `curl` в Vault. Они `final: true`, собираются всегда и без сети ломают сборку. Замена — нативная директива на финальном образе (путь от корня git, файл должен быть tracked и валидным OpenVEX JSON); delivery-kit публикует его как OCI-referrer (DSSE/in-toto, predicate `https://openvex.dev/ns/v0.2.0`):
+
+```yaml
+image: {{ $.ImageName }}
+from: base/distroless
+vex: images/{{ $.ImageName }}/known_vulnerabilities.vex
+---
+image: bundle
+from: scratch
+vex: known_vulnerabilities.vex
+```
+
+После этого удалить `include "vex mitigation"`, сам `vex.tmpl` и образ `base/vex`. Совместимость с внешним сканером (ожидает ли он cosign-аттестацию с подписью Vault) — уточнить у пользователя, это не решается в сборочном конфиге.
+
 ### Порядок стадий (важно для понимания)
 
 `from → beforeInstall → dependenciesBeforeInstall → gitArchive → packages → install → dependenciesAfterInstall → beforeSetup → setup → ...`
 
-Стадия `packages` идёт **после** gitArchive (spec/lock и исходники уже в контейнере) и **до** `install` — поэтому в `shell.install` зависимости уже установлены. Стадия `packages` — единственная пользовательская стадия с доступом в сеть.
+Стадия `packages` идёт **после** gitArchive (spec/lock и исходники уже в контейнере) и **до** `install` — поэтому в `shell.install` зависимости уже установлены. Стадия `packages` — единственная пользовательская стадия с доступом в сеть. Следствия: `beforeInstall` выполняется **до** packages и годится для подготовки конфигов менеджеров (без сети); `import … before: install` попадает в контейнер до packages, поэтому `workdir` файловых типов может указывать на импортированный каталог; инструменты, установленные через `os-pm`, в `beforeInstall` ещё недоступны.
 
 ### Инвалидация кэша
 
@@ -220,32 +310,42 @@ git:
 2. Переписать корневой `werf.yaml`: добавить `build.sbom`, проверить `configVersion: 1`.
 3. Пройти по каждому `werf.inc.yaml` и инклюдам:
    - `fromImage:` → `from:`; в `import:`/`dependencies:` `image:` → `from:`;
-   - импорты из базовых образов (ключей base_images.yml) → `packages: os-pm`; оставить только импорты между собираемыми образами;
+   - builder-образы (`builder/golang-alt`, `builder/src`, `builder/alpine`, `builder/node-alpine`) → `builder/distroless` + тулчейн в `os-pm`; `base/scratch` для bundle/release → `scratch`;
+   - импорты из базовых образов (ключей base_images.yml) → `packages: os-pm` (для финальных образов на `base/distroless` — через `-runtime-artifact` + `/relocate`); оставить только импорты между собираемыми образами;
    - каждый `git clone` → `git:` c `url` + `tag`/`branch`;
-   - каждую установку пакетов → `packages:` (OS-пакеты — inline `spec:` список у `os-pm`, версии через `==` если были зафиксированы; языковые экосистемы — файловые манифесты go.mod/package.json и т.п.);
-   - удалить из shell всё сетевое (`curl`, `wget`, `go mod download`, `git`, `pm install`); чистые локальные команды (cp, sed, build при скачанных зависимостях) остаются в shell;
+   - каждую установку пакетов → `packages:` (OS-пакеты — один inline `spec:` список у `os-pm`, версии через `==` если были зафиксированы; языковые экосистемы — файловые манифесты go.mod/package.json и т.п.; отсутствующий менеджер — через `manager:`);
+   - `GOPROXY`, `CI_JOB_TOKEN`/`~/.netrc`, `GOPRIVATE` из shell → `packages[].env` с `%secret:ID%`;
+   - `include "vex mitigation"` → `vex:` на финальном образе; удалить `vex.tmpl`, `base/vex`, `packages-proxies.tmpl` (`apk`/`apt` proxy-хелперы больше не нужны);
+   - удалить из shell всё сетевое (`curl`, `wget`, `go mod download`, `git`, `pm install`, `npm install -g`); чистые локальные команды (cp, sed, build при скачанных зависимостях) остаются в shell — но каждый вызываемый ими бинарь должен быть в `spec:` os-pm;
    - после удаления/переноса shell-инструкций проверить каждый `stageDependencies.<стадия>`: если у образа больше нет `shell.<стадия>` — удалить stageDependencies (и не добавлять shell-заглушки ради них);
    - убрать ставшие ненужными `secrets:` (например SOURCE_REPO для clone).
 4. На каждом шаге сверяться с §1: чего-то нет в базовых образах → остановиться и доложить (список недостающего, для какого образа).
 
+Типовые образы, которые **не переписывать**, а зафиксировать в отчёте (сеть в shell не выражается директивами): fuzz-образы (`.werf/defines/fuzz.tmpl`: `curl` aws-cli/mc, S3, `go install`) — они `final: false` и собираются только отдельными job'ами; svace-ветка `image-build.tmpl` (`ssh`/`rsync` на analyze-сервер при `SVACE_ENABLED=true`). Решение по ним — за пользователем.
+
 ## 5. Верификация
 
 ```bash
-# рендер конфига без сборки — ловит ошибки схемы (fromImage+from, workdir у os-pm, sbom без standard и т.п.)
-werf config render
+# рендер и граф без сборки — ловят ошибки схемы (fromImage+from, workdir у os-pm, второй os-pm,
+# manager вне workdir, необъявленный %secret%, sbom без standard, vex-файл не в git и т.п.).
+# Шаблоны обычно требуют env из werf-giterminism.yaml — как минимум SOURCE_REPO и непустой CI_JOB_TOKEN.
+SOURCE_REPO=https://example.invalid CI_JOB_TOKEN=x werf config render --dev >/dev/null
+SOURCE_REPO=https://example.invalid CI_JOB_TOKEN=x werf config graph --dev >/dev/null
 
 # не осталось запрещённых паттернов
 grep -rn "fromImage" werf.yaml .werf/ images/*/werf.inc.yaml
-grep -rnE "git clone|curl |wget |go mod download|pm install|apt(-get)? install|apk add" images/*/werf.inc.yaml .werf/
+grep -rnE "git clone|curl |wget |go mod download|pm install|npm install|apt(-get)? install|apk add|\.netrc|cat /run/secrets/GOPROXY" images/*/werf.inc.yaml .werf/
+grep -rnE "vex mitigation|base/vex|base/scratch|builder/(golang-alt|src|alpine|node-alpine)" werf.yaml .werf/ images/*/werf.inc.yaml
 # импорты только из собираемых образов: сверить список источников с ключами base_images.yml — пересечений быть не должно
-grep -rn "^\s*- from:" .werf/ images/*/werf.inc.yaml
+grep -rhn "^\s*- from:" .werf/ images/*/werf.inc.yaml | sed 's/.*from: //' | sort -u
 # каждый stageDependencies.install/beforeSetup/setup должен иметь парные shell-инструкции в том же образе
 grep -rn -A3 "stageDependencies:" images/*/werf.inc.yaml .werf/
 ```
 
-Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).
+Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Типовые падения на первом прогоне: `command not found` (бинарь не в `spec:` os-pm), `~/.x: No such file or directory` (нет `$HOME`, §1), `symbol lookup error` у пакета из pm (баг сборки пакета в container-base — проверить более новый `BASE_IMAGES_VERSION`, не обходить в конфиге). Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).
 
 ## Стоп-условия (повторно, критично)
 
-- Нет нужного пакета/образа в файле базовых образов → **прекратить** переписывание, сообщить пользователю: запросить пакет у команды container-base.
-- Не удаётся заменить сетевую shell-команду ни одной директивой (`git:`/`packages:`) → не оставлять её в shell "как есть", а зафиксировать проблему и спросить пользователя.
+- Нет нужного OS-пакета/образа в файле базовых образов → **прекратить** переписывание, сообщить пользователю: запросить пакет у команды container-base. Для менеджеров языковых экосистем (yarn, pnpm, uv, poetry) сначала применить `manager:` (§3).
+- Не удаётся заменить сетевую shell-команду ни одной директивой (`git:`/`packages:`/`vex:`) → не оставлять её в shell "как есть" и не изобретать обходы, а зафиксировать проблему и спросить пользователя (типовые случаи — fuzz и svace, см. §4).
+- Пакет из pm не работает (`symbol lookup error`, нет манифеста в registry) → это дефект container-base, не конфига: сообщить пользователю, не тащить бинарь/библиотеку из другого базового образа через `import`.

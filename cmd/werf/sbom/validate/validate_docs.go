@@ -9,13 +9,14 @@ func GetDocs() structs.DocsStruct {
 
 The command runs sbom-checker inside a Docker container and reports validation results. Supports both OSS and container SBOM types.
 
-The flags --path and --ispras-format are required. Repeat --path to validate several files in one run. Pass --check-vcs to additionally validate VCS URLs.`
+The flags --path and --ispras-format are required. Repeat --path to validate several files in one run. Pass --check-vcs or --check-vcs-leaf-only to additionally validate VCS URLs, and --check-source-distribution to check that source distribution URLs exist and point to an archive.`
 
 	docs.LongMD = "Validate CycloneDX JSON SBOM files against ISPRAS schemas using sbom-checker.\n\n" +
 		"The command runs sbom-checker inside a Docker container and reports validation results. " +
 		"Supports both OSS and container SBOM types.\n\n" +
 		"The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several " +
-		"files in one run. Pass `--check-vcs` to additionally validate VCS URLs."
+		"files in one run. Pass `--check-vcs` or `--check-vcs-leaf-only` to additionally validate VCS URLs, " +
+		"and `--check-source-distribution` to check that source distribution URLs exist and point to an archive."
 
 	return docs
 }

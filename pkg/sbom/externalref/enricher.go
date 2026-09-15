@@ -136,6 +136,11 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		if comp.ExternalReferences == nil {
 			comp.ExternalReferences = &[]cdx.ExternalReference{}
 		}
+		// A component carrying two links of the same type fails ISPRAS validation,
+		// and downstream images re-enrich an already enriched BOM.
+		if hasRefType(*comp.ExternalReferences, outcome.ref.Type) {
+			continue
+		}
 		*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
 		seen[refKey(outcome.ref)] = outcome.ref
 	}
@@ -228,4 +233,10 @@ func componentNeedsResolve(comp *cdx.Component) bool {
 
 func refKey(ref cdx.ExternalReference) string {
 	return ref.URL + "|" + string(ref.Type)
+}
+
+func hasRefType(refs []cdx.ExternalReference, refType cdx.ExternalReferenceType) bool {
+	return lo.ContainsBy(refs, func(ref cdx.ExternalReference) bool {
+		return ref.Type == refType
+	})
 }

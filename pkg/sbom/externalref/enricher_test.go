@@ -274,6 +274,40 @@ var _ = Describe("Enricher", func() {
 			Expect(refs[1].URL).To(Equal("https://github.com/lodash/lodash"))
 		})
 
+		It("keeps a single reference of a type the component already has", func() {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{
+						Name:               "lodash",
+						Version:            "4.17.21",
+						PackageURL:         "pkg:npm/lodash@4.17.21",
+						Type:               cdx.ComponentTypeLibrary,
+						ExternalReferences: &[]cdx.ExternalReference{{URL: "git://example.com/lodash.git", Type: cdx.ERTypeVCS}},
+					},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].URL).To(Equal("git://example.com/lodash.git"))
+		})
+
+		It("does not duplicate references when an enriched BOM is enriched again", func() {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+			Expect(*(*bom.Components)[0].ExternalReferences).To(HaveLen(1))
+			Expect(*bom.ExternalReferences).To(HaveLen(1))
+		})
+
 		It("error string contains component details format: '- <name> (<purl>): <error>'", func() {
 			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return nil, fmt.Errorf("resolve failed")

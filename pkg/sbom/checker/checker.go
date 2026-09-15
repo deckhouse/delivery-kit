@@ -20,7 +20,9 @@ const (
 )
 
 type RunOptions struct {
-	CheckVCS bool
+	CheckVCS                bool
+	CheckVCSLeafOnly        bool
+	CheckSourceDistribution bool
 }
 
 func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOptions) error {
@@ -29,8 +31,8 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 	}
 
 	header := fmt.Sprintf("Validating %d SBOM file(s) as %q", len(paths), format)
-	if opts.CheckVCS {
-		header += " with VCS check"
+	if checks := enabledChecks(opts); len(checks) > 0 {
+		header += fmt.Sprintf(" with %s check", strings.Join(checks, ", "))
 	}
 
 	return logboek.Context(ctx).Default().LogProcess(header).DoError(func() error {
@@ -40,7 +42,7 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 		total := len(paths)
 
 		for i, p := range paths {
-			args, err := buildDockerArgs(p, format, opts.CheckVCS)
+			args, err := buildDockerArgs(p, format, opts)
 			if err != nil {
 				return fmt.Errorf("build docker args for %q: %w", p, err)
 			}
@@ -78,7 +80,7 @@ func checkFilesExisting(paths []string) error {
 	return nil
 }
 
-func buildDockerArgs(path string, format ispras.Format, checkVCS bool) ([]string, error) {
+func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute path for %q: %w", path, err)
@@ -92,11 +94,33 @@ func buildDockerArgs(path string, format ispras.Format, checkVCS bool) ([]string
 		"--errors", "0",
 	}
 
-	if checkVCS {
+	if opts.CheckVCS {
 		args = append(args, "--check-vcs")
 	}
 
+	if opts.CheckVCSLeafOnly {
+		args = append(args, "--check-vcs-leaf-only")
+	}
+
+	if opts.CheckSourceDistribution {
+		args = append(args, "--check-source-distribution")
+	}
+
 	return append(args, containerPath), nil
+}
+
+func enabledChecks(opts RunOptions) []string {
+	var checks []string
+	if opts.CheckVCS {
+		checks = append(checks, "VCS")
+	}
+	if opts.CheckVCSLeafOnly {
+		checks = append(checks, "leaf-only VCS")
+	}
+	if opts.CheckSourceDistribution {
+		checks = append(checks, "source distribution")
+	}
+	return checks
 }
 
 func parseResult(ctx context.Context, out, fileName string, index, total int) error {

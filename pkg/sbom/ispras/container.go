@@ -14,17 +14,14 @@ var _ Assembler = (*ContainerAssembler)(nil)
 
 type ContainerAssembler struct{}
 
+// Assemble wraps the components of every image into a container component
+// before merging, so that identical packages coming from different images stay
+// in their own container instead of collapsing into a single entry, and the BOM
+// refs namespaced per image keep matching the merged dependency graph. The
+// dependency edges of the image's root component are carried over to the
+// container that replaces it.
 func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
-	dependencies := imageDependencies(images)
-
-	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
-		ImportBOMs: imageBOMs(images),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("merge image BOMs: %w", err)
-	}
-
-	var containers []cdx.Component
+	wrapped := make([]*cdx.BOM, 0, len(images))
 	for _, img := range images {
 		container := cdx.Component{BOMRef: img.Name, Type: cdx.ComponentTypeContainer, Name: img.Name}
 
@@ -45,17 +42,20 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 			container.Components = &imgComponents
 		}
 
-		containers = append(containers, container)
+		imgBOM := *img.BOM
+		imgBOM.Components = &[]cdx.Component{container}
+		if img.BOM.Metadata != nil && img.BOM.Metadata.Component != nil && img.BOM.Metadata.Component.BOMRef != "" {
+			imgBOM.Dependencies = rootDependenciesAs(img.BOM.Dependencies, img.BOM.Metadata.Component.BOMRef, img.Name)
+		}
+		wrapped = append(wrapped, &imgBOM)
 	}
-	if len(containers) > 0 {
-		result.Components = &containers
-	} else {
-		result.Components = nil
-	}
-	if len(dependencies) > 0 {
-		result.Dependencies = &dependencies
-	} else {
-		result.Dependencies = nil
+
+	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
+		ImportBOMs:      wrapped,
+		PreserveBOMRefs: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("merge image BOMs: %w", err)
 	}
 
 	result.Metadata = buildProductMetadata(meta)
@@ -63,23 +63,18 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 	return result, nil
 }
 
-// imageDependencies copies the per-image dependency graphs before MergeBOMs
-// rewrites their refs in place; the container tree keeps the original
-// namespaced component refs, so the graph must keep them too.
-func imageDependencies(images []*ImageSBOM) []cdx.Dependency {
-	var dependencies []cdx.Dependency
-	for _, img := range images {
-		for _, dep := range lo.FromPtr(img.BOM.Dependencies) {
-			copied := cdx.Dependency{Ref: dep.Ref}
-			if dep.Dependencies != nil {
-				copied.Dependencies = lo.ToPtr(append([]string(nil), *dep.Dependencies...))
-			}
-			if dep.Provides != nil {
-				copied.Provides = lo.ToPtr(append([]string(nil), *dep.Provides...))
-			}
-			dependencies = append(dependencies, copied)
-		}
+func rootDependenciesAs(deps *[]cdx.Dependency, rootRef, newRef string) *[]cdx.Dependency {
+	if deps == nil {
+		return nil
 	}
 
-	return dependencies
+	result := make([]cdx.Dependency, len(*deps))
+	for i, dep := range *deps {
+		if dep.Ref == rootRef {
+			dep.Ref = newRef
+		}
+		result[i] = dep
+	}
+
+	return &result
 }

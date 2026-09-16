@@ -35,7 +35,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 				"9083b214452032d0184414e6aa3992bac04c0ab2940b4621140eb1e733d3ce34")
 
 			sbomtest.AssertHasExternalReference(bom, "curl", "8.12.1", cdx.ERTypeVCS,
-				"https://github.com/curl/curl")
+				"https://github.com/curl/curl.git")
 			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:arch", "linux/amd64")
 			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:type", "runtime")
 			sbomtest.AssertHasProperty(bom, "curl", "8.12.1", "werf:pm:repo", "curl/curl")

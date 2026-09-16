@@ -16,6 +16,10 @@ type MergeOpts struct {
 	BaseBOM    *cdx.BOM
 	ImportBOMs []*cdx.BOM
 	Gost       gost.Config
+	// PreserveBOMRefs keeps the BOM refs of the merged BOMs instead of deriving
+	// new ones. Set it when the caller has already made the refs unique across
+	// the merged BOMs and keeps documents that refer to them.
+	PreserveBOMRefs bool
 }
 
 func (o MergeOpts) IsEmpty() bool {
@@ -42,6 +46,27 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 	return boms
 }
 
+// cloneBOM deep copies a BOM so that merging never rewrites the refs of the
+// BOMs it merges: base and import BOMs are reused across the images of a single
+// build, and a BOM mutated by one merge cannot be merged correctly again.
+func cloneBOM(bom *cdx.BOM) (*cdx.BOM, error) {
+	if bom == nil {
+		return nil, nil
+	}
+
+	data, err := json.Marshal(bom)
+	if err != nil {
+		return nil, fmt.Errorf("marshal BOM: %w", err)
+	}
+
+	var clone cdx.BOM
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return nil, fmt.Errorf("unmarshal BOM: %w", err)
+	}
+
+	return &clone, nil
+}
+
 func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	if err := validateBOMSpecVersions(target, opts); err != nil {
 		return nil, err
@@ -49,11 +74,18 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 	result := NewBOM()
 
-	if target != nil && target.Metadata != nil {
-		result.Metadata = target.Metadata
+	boms := opts.mergeOrder(target)
+	for i := range boms {
+		clone, err := cloneBOM(boms[i])
+		if err != nil {
+			return nil, fmt.Errorf("clone BOM for merge: %w", err)
+		}
+		boms[i] = clone
 	}
 
-	boms := opts.mergeOrder(target)
+	if merged := boms[len(boms)-1]; merged != nil && merged.Metadata != nil {
+		result.Metadata = merged.Metadata
+	}
 
 	result.Components = mergeComponents(boms)
 	result.Services = mergeServices(boms)
@@ -66,9 +98,11 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	result.Formulation = mergeFormulation(boms)
 	result.Declarations = mergeDeclarations(boms)
 
-	ensureUniqueBOMRefs(result)
+	Canonicalize(result)
 
-	DedupBOM(result)
+	if !opts.PreserveBOMRefs {
+		ensureUniqueBOMRefs(result)
+	}
 
 	return result, nil
 }

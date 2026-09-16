@@ -1,9 +1,12 @@
 package cyclonedxutil
 
 import (
+	"encoding/json"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
@@ -731,5 +734,54 @@ var _ = Describe("StableBOMChecksum", func() {
 		}
 
 		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
+	})
+})
+
+var _ = Describe("MergeBOMs input isolation", func() {
+	It("leaves the merged BOMs untouched", func() {
+		importBOM := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			Components:   &[]cdx.Component{{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"lib"}}},
+		}
+		before, err := json.Marshal(importBOM)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{importBOM}})
+		Expect(err).NotTo(HaveOccurred())
+
+		after, err := json.Marshal(importBOM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(after)).To(Equal(string(before)))
+	})
+
+	It("keeps the dependency graph intact when the same BOM is merged twice", func() {
+		shared := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "os", Type: cdx.ComponentTypeOS, Name: "alpine", Version: "3.20"},
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"lib"}}},
+		}
+
+		_, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{shared}})
+		Expect(err).NotTo(HaveOccurred())
+
+		reused, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{shared}})
+		Expect(err).NotTo(HaveOccurred())
+
+		refs := lo.Map(*reused.Components, func(comp cdx.Component, _ int) string { return comp.BOMRef })
+		Expect(*reused.Dependencies).To(HaveLen(1))
+		Expect(refs).To(ContainElement((*reused.Dependencies)[0].Ref))
+		Expect(refs).To(ContainElement((*(*reused.Dependencies)[0].Dependencies)[0]))
+	})
+
+	It("fails when an input BOM cannot be cloned", func() {
+		_, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{{
+			SpecVersion: cdx.SpecVersion1_6,
+			Metadata:    &cdx.Metadata{Tools: &cdx.ToolsChoice{}},
+		}}})
+		Expect(err).To(MatchError(ContainSubstring("clone BOM for merge")))
 	})
 })

@@ -408,24 +408,35 @@ func dedupStringSlice(values *[]string) *[]string {
 	return &result
 }
 
+// ExternalReferenceCommentResolved marks an external reference whose url was
+// looked up from the package purl rather than reported by the package source
+// itself. When a component ends up with several vcs links, the ones without
+// this mark are preferred: the package manager knows where its package came
+// from, a resolver only guesses.
+const ExternalReferenceCommentResolved = "resolved from purl"
+
 // dedupExternalReferences keeps the first reference of every type-url-comment
-// triple and, additionally, only the first vcs reference: the ISPRAS SBOM
-// checker reports a component carrying several distinct vcs urls as a defect.
+// triple and only one vcs reference: the ISPRAS SBOM checker reports a
+// component carrying several distinct vcs urls as a defect. Among vcs
+// references the first one not resolved from the purl wins.
 func dedupExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalReference {
 	if refs == nil {
 		return nil
 	}
 
 	seen := make(map[string]struct{}, len(*refs))
-	var vcsSeen bool
 	result := make([]cdx.ExternalReference, 0, len(*refs))
 
+	vcs, found := lo.Find(*refs, func(ref cdx.ExternalReference) bool {
+		return ref.Type == cdx.ERTypeVCS && ref.Comment != ExternalReferenceCommentResolved
+	})
+	if !found {
+		vcs, _ = lo.Find(*refs, func(ref cdx.ExternalReference) bool { return ref.Type == cdx.ERTypeVCS })
+	}
+
 	for _, ref := range *refs {
-		if ref.Type == cdx.ERTypeVCS {
-			if vcsSeen {
-				continue
-			}
-			vcsSeen = true
+		if ref.Type == cdx.ERTypeVCS && (ref.URL != vcs.URL || ref.Comment != vcs.Comment) {
+			continue
 		}
 
 		key := string(ref.Type) + "|" + ref.URL + "|" + ref.Comment

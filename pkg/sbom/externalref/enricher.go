@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
 // validateRefKind restricts enrichment to the reference types the ISPRAS SBOM
@@ -170,8 +171,9 @@ func (e *Enricher) resolvePurls(ctx context.Context, purls []string) map[string]
 			}
 
 			outcome.ref = cdx.ExternalReference{
-				URL:  res.URL,
-				Type: cdx.ExternalReferenceType(res.Kind),
+				URL:     res.URL,
+				Type:    cdx.ExternalReferenceType(res.Kind),
+				Comment: cyclonedxutil.ExternalReferenceCommentResolved,
 			}
 			return nil
 		})

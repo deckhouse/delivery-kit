@@ -388,6 +388,33 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Components)[1].Components).To(HaveLen(1))
 	})
 
+	It("prefers the vcs reference reported by the package source over a resolved one", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "ref", Type: cdx.ComponentTypeLibrary, Name: "make", Version: "4.4", PackageURL: "pkg:generic/make@4.4",
+					ExternalReferences: &[]cdx.ExternalReference{
+						{URL: "https://git.savannah.gnu.org/make.git", Type: cdx.ERTypeVCS, Comment: ExternalReferenceCommentResolved},
+						{URL: "git://git.savannah.gnu.org/make.git", Type: cdx.ERTypeVCS},
+					},
+				},
+				{
+					BOMRef: "ref2", Type: cdx.ComponentTypeLibrary, Name: "bash", Version: "5.3", PackageURL: "pkg:generic/bash@5.3",
+					ExternalReferences: &[]cdx.ExternalReference{
+						{URL: "https://a.example/bash.git", Type: cdx.ERTypeVCS, Comment: ExternalReferenceCommentResolved},
+						{URL: "https://b.example/bash.git", Type: cdx.ERTypeVCS, Comment: ExternalReferenceCommentResolved},
+					},
+				},
+			},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "git://git.savannah.gnu.org/make.git", Type: cdx.ERTypeVCS}}))
+		Expect(*(*bom.Components)[1].ExternalReferences).To(HaveLen(1))
+		Expect((*(*bom.Components)[1].ExternalReferences)[0].URL).To(Equal("https://a.example/bash.git"))
+	})
+
 	It("deduplicates external references and keeps a single vcs reference", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

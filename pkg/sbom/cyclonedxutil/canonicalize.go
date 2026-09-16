@@ -3,7 +3,9 @@ package cyclonedxutil
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -57,10 +59,10 @@ func canonicalizeComponents(components *[]cdx.Component, refMap map[string]strin
 	index := make(map[string]int, len(*components))
 	result := make([]cdx.Component, 0, len(*components))
 
-	for _, comp := range *components {
+	for i, comp := range *components {
 		comp.Components = canonicalizeComponents(comp.Components, refMap)
 
-		key := componentKey(comp)
+		key := componentKey(comp, i)
 		if pos, exists := index[key]; exists {
 			survivor := &result[pos]
 			switch {
@@ -92,10 +94,7 @@ func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[s
 	survivor.ExternalReferences = appendPtrSlice(survivor.ExternalReferences, dup.ExternalReferences)
 	survivor.Properties = appendPtrSlice(survivor.Properties, dup.Properties)
 	survivor.Hashes = dedupPtrSlice(appendPtrSlice(survivor.Hashes, dup.Hashes))
-	if dup.Licenses != nil {
-		licenses := dedupJSONSlice(append(lo.FromPtr(survivor.Licenses), *dup.Licenses...))
-		survivor.Licenses = lo.ToPtr(cdx.Licenses(licenses))
-	}
+	survivor.Licenses = mergeLicenses(survivor.Licenses, dup.Licenses)
 	if survivor.CPE == "" {
 		survivor.CPE = dup.CPE
 	}
@@ -120,14 +119,45 @@ func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[s
 	canonicalizeComponent(survivor)
 }
 
+// mergeLicenses unions two license lists. CycloneDX forbids mixing SPDX
+// expressions with individual licenses in one list, so when either side is an
+// expression only the expressions survive.
+func mergeLicenses(dest, src *cdx.Licenses) *cdx.Licenses {
+	if src == nil {
+		return dest
+	}
+
+	merged := dedupJSONSlice(append(lo.FromPtr(dest), *src...))
+	expressions := lo.Filter(merged, func(l cdx.LicenseChoice, _ int) bool { return l.Expression != "" })
+	if len(expressions) > 0 {
+		merged = expressions
+	}
+
+	return lo.ToPtr(cdx.Licenses(merged))
+}
+
 func canonicalizeComponent(comp *cdx.Component) {
 	comp.ExternalReferences = dedupExternalReferences(comp.ExternalReferences)
 	comp.Properties = dedupProperties(comp.Properties)
 }
 
-func componentKey(comp cdx.Component) string {
+// componentKey identifies a component by its purl or, without one, by its
+// coordinates. A file is the exception: two files with the same name and
+// version are the same only if their content is, so files are identified by
+// their hashes and a file without hashes is never merged.
+func componentKey(comp cdx.Component, index int) string {
 	if comp.PackageURL != "" {
 		return "purl:" + normalizePURL(comp.PackageURL)
+	}
+
+	if comp.Type == cdx.ComponentTypeFile {
+		hashes := lo.FromPtr(comp.Hashes)
+		if len(hashes) == 0 {
+			return fmt.Sprintf("file-unique:%d", index)
+		}
+		parts := lo.Map(hashes, func(h cdx.Hash, _ int) string { return string(h.Algorithm) + ":" + h.Value })
+		sort.Strings(parts)
+		return "file:" + comp.Name + "|" + strings.Join(parts, ",")
 	}
 
 	return strings.Join([]string{"coords", string(comp.Type), comp.Group, comp.Name, comp.Version}, "|")

@@ -1,6 +1,8 @@
 package cyclonedxutil
 
 import (
+	"encoding/json"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -140,12 +142,12 @@ var _ = Describe("Canonicalize", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
-					BOMRef: "a", Type: cdx.ComponentTypeFile, Name: "bin", Version: "1",
+					BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1",
 					Hashes:   &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: "aaa"}},
 					Licenses: &cdx.Licenses{{License: &cdx.License{ID: "MIT"}}},
 				},
 				{
-					BOMRef: "b", Type: cdx.ComponentTypeFile, Name: "bin", Version: "1",
+					BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1",
 					Hashes:   &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: "aaa"}, {Algorithm: cdx.HashAlgoMD5, Value: "bbb"}},
 					Licenses: &cdx.Licenses{{License: &cdx.License{ID: "Apache-2.0"}}},
 					CPE:      "cpe:2.3:a:vendor:bin:1:*:*:*:*:*:*:*",
@@ -177,6 +179,85 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.Components).To(HaveLen(2))
 		Expect((*bom.Components)[0].BOMRef).To(Equal("libc-b"))
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"libc-b"}))
+	})
+
+	It("merges files by content, never by name alone", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "f1", Type: cdx.ComponentTypeFile, Name: "bin", Hashes: &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: "aaa"}}},
+				{BOMRef: "f2", Type: cdx.ComponentTypeFile, Name: "bin", Hashes: &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: "bbb"}}},
+				{BOMRef: "f3", Type: cdx.ComponentTypeFile, Name: "bin", Hashes: &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: "aaa"}}},
+				{BOMRef: "f4", Type: cdx.ComponentTypeFile, Name: "bin"},
+				{BOMRef: "f5", Type: cdx.ComponentTypeFile, Name: "bin"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "f3", Dependencies: &[]string{"f2"}}},
+		}
+
+		Canonicalize(bom)
+
+		refs := lo.Map(*bom.Components, func(c cdx.Component, _ int) string { return c.BOMRef })
+		Expect(refs).To(Equal([]string{"f1", "f2", "f4", "f5"}))
+		Expect((*bom.Dependencies)[0].Ref).To(Equal("f1"))
+	})
+
+	It("keeps only license expressions when a merged duplicate carries one", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1", PackageURL: "pkg:golang/lib@1",
+					Licenses: &cdx.Licenses{{License: &cdx.License{ID: "MIT"}}},
+				},
+				{
+					BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1", PackageURL: "pkg:golang/lib@1",
+					Licenses: &cdx.Licenses{{Expression: "MIT OR Apache-2.0"}},
+				},
+			},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*(*bom.Components)[0].Licenses).To(Equal(cdx.Licenses{{Expression: "MIT OR Apache-2.0"}}))
+	})
+
+	It("is idempotent", func() {
+		bom := &cdx.BOM{
+			Metadata: &cdx.Metadata{Component: &cdx.Component{BOMRef: "root", Type: cdx.ComponentTypeContainer, Name: "img"}},
+			Components: &[]cdx.Component{
+				{BOMRef: "os-a", Type: cdx.ComponentTypeOS, Name: "alpine", Version: "3.20", Properties: &[]cdx.Property{{Name: gost.PropertyAttackSurface, Value: "no"}}},
+				{BOMRef: "os-b", Type: cdx.ComponentTypeOS, Name: "alpine", Version: "3.20", Properties: &[]cdx.Property{{Name: gost.PropertyAttackSurface, Value: "yes"}}},
+				{
+					BOMRef: "lib-a", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1", PackageURL: "pkg:golang/lib@1?package-id=a",
+					ExternalReferences: &[]cdx.ExternalReference{{URL: "https://a", Type: cdx.ERTypeVCS}},
+					Components:         &[]cdx.Component{{BOMRef: "n1", Type: cdx.ComponentTypeLibrary, Name: "n", Version: "1"}, {BOMRef: "n2", Type: cdx.ComponentTypeLibrary, Name: "n", Version: "1"}},
+				},
+				{
+					BOMRef: "lib-b", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1", PackageURL: "pkg:golang/lib@1?package-id=b",
+					ExternalReferences: &[]cdx.ExternalReference{{URL: "https://b", Type: cdx.ERTypeVCS}, {URL: "https://a", Type: cdx.ERTypeVCS}},
+				},
+				{BOMRef: "f", Type: cdx.ComponentTypeFile, Name: "bin"},
+			},
+			Services: &[]cdx.Service{{BOMRef: "s1", Name: "svc"}, {BOMRef: "s2", Name: "svc"}},
+			Dependencies: &[]cdx.Dependency{
+				{Ref: "root", Dependencies: &[]string{"os-b", "lib-b", "ghost"}},
+				{Ref: "os-a", Dependencies: &[]string{"lib-a", "lib-b", "n2"}},
+				{Ref: "os-b", Dependencies: &[]string{"os-a", "s2"}},
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib-b"}}},
+				{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib-a"}}, CWEs: &[]int{79}},
+			},
+			Compositions: &[]cdx.Composition{{Aggregate: cdx.CompositionAggregateComplete, Dependencies: &[]cdx.BOMReference{"lib-b", "os-b"}}},
+		}
+
+		Canonicalize(bom)
+		once, err := json.Marshal(bom)
+		Expect(err).NotTo(HaveOccurred())
+
+		Canonicalize(bom)
+		twice, err := json.Marshal(bom)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(string(twice)).To(Equal(string(once)))
 	})
 
 	It("rewrites every ref of a merged duplicate to the surviving component", func() {

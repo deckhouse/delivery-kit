@@ -18,15 +18,12 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-deep-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 
@@ -35,7 +32,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			// curl is installed with its transitive dependencies (brotli, libc, libpsl, openssl, zstd).
 			sbomtest.AssertHasLicense(bom, "curl", "8.12.1", "curl")
 			sbomtest.AssertHasHash(bom, "curl", "8.12.1", cdx.HashAlgoSHA256,
-				"e268b38b239a1217a8f0be27425eca1f14debb4de391b8bf8eb1a03ba0882340")
+				"9083b214452032d0184414e6aa3992bac04c0ab2940b4621140eb1e733d3ce34")
 
 			sbomtest.AssertHasExternalReference(bom, "curl", "8.12.1", cdx.ERTypeVCS,
 				"https://github.com/curl/curl")
@@ -47,7 +44,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			sbomtest.AssertHasComponent(bom, "openssl", "3.6.2")
 			sbomtest.AssertHasLicense(bom, "openssl", "3.6.2", "Apache-2.0")
 			sbomtest.AssertHasHash(bom, "openssl", "3.6.2", cdx.HashAlgoSHA256,
-				"77f5cedc32ab27157427bee46076a1d3756f9f99785cc0be740e0b276295d688")
+				"bcbc0f2730300e60402bc7f7362e2057eb3f89a4ffb9ae75c90375f4b30a71d3")
 
 			// CPE enrichment: curl has a curated vendor override (haxx) that must win
 			// as the primary CPE regardless of URL/repo/name-derived candidates. The
@@ -65,8 +62,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			// dependency graph: curl depends on openssl. bom-ref uses lowercase qualifier key
 			// containerfactoryversion (werf's cyclonedx serializer lowercases keys in bom-ref).
 			sbomtest.AssertDependsOn(bom,
-				"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
-				"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6",
+				"pkg:generic/curl@8.12.1?containerfactoryversion=v3.0.2",
+				"pkg:generic/openssl@3.6.2?containerfactoryversion=v3.0.2",
 			)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
@@ -83,15 +80,12 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "packages_merge/base_with_child")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-base-merge-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 
@@ -103,7 +97,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 
 			sbomtest.AssertHasLicense(bom, "jq", "1.8.1", "MIT")
 			sbomtest.AssertHasHash(bom, "jq", "1.8.1", cdx.HashAlgoSHA256,
-				"c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899")
+				"99f0d20ba2e7084999a592d6db575ff3b734c960f9b9f61fee88f0e2e4430164")
 
 			// CPE enrichment must survive base+child merge for both the child's own
 			// curl (deterministic curated haxx vendor) and the inherited jq.
@@ -125,15 +119,12 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "packages_merge/parent_propagation")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-parent-propagation-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 
@@ -157,13 +148,10 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "negative/broken_pm")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-broken-pm-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			out := werfProject.Build(ctx, &werf.BuildOptions{
 				CommonOptions: werf.CommonOptions{
 					ShouldFail: true,
-					Envs:       builderEnv,
 				},
 			})
 			Expect(out).To(ContainSubstring("invalid character"),
@@ -183,13 +171,10 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "negative/no_pm_binary")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-no-pm-binary-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			out := werfProject.Build(ctx, &werf.BuildOptions{
 				CommonOptions: werf.CommonOptions{
 					ShouldFail: true,
-					Envs:       builderEnv,
 				},
 			})
 			Expect(out).To(SatisfyAny(
@@ -211,14 +196,13 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_scratch_secrets")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-scratch-secrets-builder")
 			// The app image is built from scratch, so PACKAGES_VERSION and REGISTRY
 			// reach the packages stage only through the %secret:ID% references in
 			// packages[].env, which the stage resolves with Bash builtins alone.
-			buildEnv := append(builderEnv,
-				"PACKAGES_VERSION=v1.3.6",
+			buildEnv := []string{
+				"PACKAGES_VERSION=v3.0.2",
 				"REGISTRY=registry.deckhouse.io/container-factory",
-			)
+			}
 
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: buildEnv}})
@@ -236,8 +220,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 			// the containerfactoryversion purl qualifier proves the secret value made
 			// it into /var/lib/pm/container-factory-version inside the scratch image.
 			sbomtest.AssertDependsOn(bom,
-				"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
-				"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6",
+				"pkg:generic/curl@8.12.1?containerfactoryversion=v3.0.2",
+				"pkg:generic/openssl@3.6.2?containerfactoryversion=v3.0.2",
 			)
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),

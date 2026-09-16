@@ -26,13 +26,11 @@ var _ = Describe("SBOM regression", Label("e2e", "sbom", "regression", "simple")
 			SuiteData.InitTestRepo(ctx, repoDirname, "regressions/manifest_annotation")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-manifest-annotation-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("manifest_annotation.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 			)
 
 			// Both images must share the same digest (same from + same packages),

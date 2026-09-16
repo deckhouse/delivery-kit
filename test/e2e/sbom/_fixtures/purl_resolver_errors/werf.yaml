@@ -6,7 +6,7 @@ build:
     standard: cyclonedx@1.6
 ---
 image: image-fail-all
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
 git:
   - add: /
     to: /
@@ -16,7 +16,7 @@ packages:
       - curl==8.12.1
 ---
 image: image-fail-partial
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
 git:
   - add: /
     to: /
@@ -27,7 +27,7 @@ packages:
       - openssl==3.6.2
 ---
 image: image-ok
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
 git:
   - add: /
     to: /

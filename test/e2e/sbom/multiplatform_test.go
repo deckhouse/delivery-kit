@@ -117,7 +117,7 @@ var _ = Describe("SBOM multi-platform", Label("e2e", "sbom", "multiplatform", "s
 			SuiteData.Stubs.SetEnv("WERF_ENABLE_REPORT_BY_PLATFORM", "1")
 
 			buildEnv := []string{
-				"PACKAGES_VERSION=v1.3.6",
+				"PACKAGES_VERSION=v3.0.2",
 				"REGISTRY=registry.deckhouse.io/container-factory",
 			}
 

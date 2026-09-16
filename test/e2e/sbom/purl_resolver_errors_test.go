@@ -37,13 +37,9 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 			SuiteData.InitTestRepo(ctx, repoDirname, "purl_resolver_errors")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "purl-errors-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			out, err := werfProject.BuildWithErr(ctx, &werf.BuildOptions{
-				CommonOptions: werf.CommonOptions{
-					Envs: builderEnv,
-				},
+				CommonOptions: werf.CommonOptions{},
 			})
 
 			Expect(err).To(HaveOccurred(), "build should fail with aggregated PURL error")

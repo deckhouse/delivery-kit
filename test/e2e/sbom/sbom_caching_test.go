@@ -20,33 +20,31 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 			SuiteData.InitTestRepo(ctx, repoDirname, fixtureRelPath)
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-caching-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			buildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 			Expect(buildOut).To(ContainSubstring("Building stage"))
 			Expect(buildOut).NotTo(ContainSubstring("Use previously built image"))
 
 			By("rebuild without build.sbom.enable - existing cache is reused")
-			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
 
 			By("build.sbom.enable=false - backward compatible, existing cache reused")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "sbom_caching/state1")
 
-			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
 
 			By("build.sbom.enable=true - stage cache is invalidated, stages rebuilt with SBOM")
 			SuiteData.UpdateTestRepo(ctx, repoDirname, "sbom_caching/state2")
 
-			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 			Expect(buildOut).To(ContainSubstring("Building stage"))
 
 			By("rebuild with build.sbom.enable=true - cache is reused")
-			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
 		},

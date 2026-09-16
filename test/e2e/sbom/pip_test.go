@@ -17,15 +17,12 @@ var _ = Describe("SBOM python-pip packages", Label("e2e", "sbom", "pip", "simple
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/pip_simple")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-python-pip-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 

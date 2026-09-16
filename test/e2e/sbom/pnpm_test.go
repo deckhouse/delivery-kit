@@ -17,15 +17,12 @@ var _ = Describe("SBOM javascript-pnpm packages", Label("e2e", "sbom", "pnpm", "
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/pnpm_simple")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-pnpm-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 

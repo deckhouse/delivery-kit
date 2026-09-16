@@ -13,24 +13,15 @@ import (
 	"github.com/werf/logboek"
 )
 
+// validateRefKind restricts enrichment to the reference types the ISPRAS SBOM
+// schema accepts: a component must carry a vcs or a source-distribution link.
+// Any other type would pass the build and fail validation afterwards.
 func validateRefKind(kind string) error {
 	switch cdx.ExternalReferenceType(kind) {
-	case cdx.ERTypeVCS, cdx.ERTypeWebsite, cdx.ERTypeIssueTracker, cdx.ERTypeAdvisories,
-		cdx.ERTypeBOM, cdx.ERTypeChat, cdx.ERTypeDocumentation, cdx.ERTypeDistribution,
-		cdx.ERTypeLicense, cdx.ERTypeOther, cdx.ERTypeReleaseNotes, cdx.ERTypeSecurityContact,
-		cdx.ERTypeSocial, cdx.ERTypeSupport, cdx.ERTypeEvidence, cdx.ERTypeFormulation,
-		cdx.ERTypeConfiguration, cdx.ERTypeBuildMeta, cdx.ERTypeBuildSystem,
-		cdx.ERTypeAttestation, cdx.ERTypeThreatModel, cdx.ERTypeRiskAssessment,
-		cdx.ERTypeMaturityReport, cdx.ERTypeComponentAnalysisReport, cdx.ERTypeDynamicAnalysisReport,
-		cdx.ERTypeStaticAnalysisReport, cdx.ERTypePentestReport, cdx.ERTypeCertificationReport,
-		cdx.ERTypeQualityMetrics, cdx.ERTypePOAM, cdx.ERTypeRuntimeAnalysisReport,
-		cdx.ERTypeExploitabilityStatement, cdx.ERTypeAdversaryModel, cdx.ERTypeModelCard,
-		cdx.ERTypeDistributionIntake, cdx.ERTypeDigitalSignature, cdx.ERTypeElectronicSignature,
-		cdx.ERTypeCodifiedInfrastructure, cdx.ERTypeLog, cdx.ERTypeMailingList,
-		cdx.ERTypeRFC9116, cdx.ERTypeSourceDistribution, cdx.ERTypeVulnerabilityAssertion:
+	case cdx.ERTypeVCS, cdx.ERTypeSourceDistribution:
 		return nil
 	default:
-		return fmt.Errorf("enrich: unknown external reference kind %q", kind)
+		return fmt.Errorf("enrich: external reference kind %q is not allowed, expected %q or %q", kind, cdx.ERTypeVCS, cdx.ERTypeSourceDistribution)
 	}
 }
 
@@ -94,15 +85,9 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	}
 
 	components := *bom.Components
-	seen := make(map[string]cdx.ExternalReference)
 	var purls []string
 	for i := range components {
 		comp := &components[i]
-		if comp.ExternalReferences != nil {
-			for _, ref := range *comp.ExternalReferences {
-				seen[refKey(ref)] = ref
-			}
-		}
 		if componentNeedsResolve(comp) {
 			purls = append(purls, comp.PackageURL)
 		}
@@ -111,6 +96,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	outcomes := e.resolvePurls(ctx, lo.Uniq(purls))
 
 	var failed []*componentError
+	var added int
 	reported := make(map[string]struct{})
 	for i := range components {
 		comp := &components[i]
@@ -133,22 +119,24 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 			continue
 		}
 
+		// A component carrying two links of the same type fails ISPRAS validation,
+		// and downstream images re-enrich an already enriched BOM.
+		if hasRefType(lo.FromPtr(comp.ExternalReferences), outcome.ref.Type) {
+			continue
+		}
+
 		if comp.ExternalReferences == nil {
 			comp.ExternalReferences = &[]cdx.ExternalReference{}
 		}
 		*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
-		seen[refKey(outcome.ref)] = outcome.ref
+		added++
 	}
 
 	if len(failed) > 0 {
 		return newComponentError(failed)
 	}
 
-	if len(seen) > 0 {
-		bomRefs := lo.Values(seen)
-		bom.ExternalReferences = &bomRefs
-		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
-	}
+	logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", added)
 
 	return nil
 }
@@ -226,6 +214,8 @@ func componentNeedsResolve(comp *cdx.Component) bool {
 	return comp.PackageURL != "" && comp.Version != "(devel)"
 }
 
-func refKey(ref cdx.ExternalReference) string {
-	return ref.URL + "|" + string(ref.Type)
+func hasRefType(refs []cdx.ExternalReference, refType cdx.ExternalReferenceType) bool {
+	return lo.ContainsBy(refs, func(ref cdx.ExternalReference) bool {
+		return ref.Type == refType
+	})
 }

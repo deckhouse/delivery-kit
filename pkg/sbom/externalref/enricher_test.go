@@ -137,7 +137,7 @@ var _ = Describe("Enricher", func() {
 			}),
 		)
 
-		It("sets ExternalReferences on component and BOM level", func() {
+		It("sets ExternalReferences on the component and leaves the BOM level alone", func() {
 			bom := &cdx.BOM{
 				Components: &[]cdx.Component{
 					{Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
@@ -152,22 +152,21 @@ var _ = Describe("Enricher", func() {
 			Expect(refs[0].URL).To(Equal("https://github.com/lodash/lodash"))
 			Expect(refs[0].Type).To(Equal(cdx.ERTypeVCS))
 
-			Expect(bom.ExternalReferences).NotTo(BeNil())
-			Expect(*bom.ExternalReferences).To(HaveLen(1))
-			Expect((*bom.ExternalReferences)[0].URL).To(Equal("https://github.com/lodash/lodash"))
+			Expect(bom.ExternalReferences).To(BeNil())
 		})
 
-		It("deduplicates BOM-level external references", func() {
+		It("does not add a reference the component already has", func() {
 			bom := &cdx.BOM{
 				Components: &[]cdx.Component{
-					{Name: "lodash-a", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
-					{Name: "lodash-b", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
-					{Name: "express", Version: "4.18.2", PackageURL: "pkg:npm/express@4.18.2", Type: cdx.ComponentTypeLibrary},
+					{
+						Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary,
+						ExternalReferences: &[]cdx.ExternalReference{{URL: "https://github.com/lodash/lodash", Type: cdx.ERTypeVCS}},
+					},
 				},
 			}
 
 			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
-			Expect(*bom.ExternalReferences).To(HaveLen(2))
+			Expect(*(*bom.Components)[0].ExternalReferences).To(HaveLen(1))
 		})
 
 		It("resolves a duplicated package URL once and enriches every duplicate", func() {
@@ -274,6 +273,40 @@ var _ = Describe("Enricher", func() {
 			Expect(refs[1].URL).To(Equal("https://github.com/lodash/lodash"))
 		})
 
+		It("keeps a single reference of a type the component already has", func() {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{
+						Name:               "lodash",
+						Version:            "4.17.21",
+						PackageURL:         "pkg:npm/lodash@4.17.21",
+						Type:               cdx.ComponentTypeLibrary,
+						ExternalReferences: &[]cdx.ExternalReference{{URL: "git://example.com/lodash.git", Type: cdx.ERTypeVCS}},
+					},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].URL).To(Equal("git://example.com/lodash.git"))
+		})
+
+		It("does not duplicate references when an enriched BOM is enriched again", func() {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+			Expect(*(*bom.Components)[0].ExternalReferences).To(HaveLen(1))
+			Expect(bom.ExternalReferences).To(BeNil())
+		})
+
 		It("error string contains component details format: '- <name> (<purl>): <error>'", func() {
 			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return nil, fmt.Errorf("resolve failed")
@@ -307,7 +340,40 @@ var _ = Describe("Enricher", func() {
 
 			err := enricher.Enrich(ctx, bom)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(`    - component: commons-io (pkg:maven/commons-io/commons-io@2.11.0): enrich: unknown external reference kind "unknown"` + "\n"))
+			Expect(err.Error()).To(ContainSubstring(`    - component: commons-io (pkg:maven/commons-io/commons-io@2.11.0): enrich: external reference kind "unknown" is not allowed, expected "vcs" or "source-distribution"` + "\n"))
+		})
+
+		It("rejects a kind the SBOM validation does not accept", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "website"}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			err := enricher.Enrich(ctx, bom)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`external reference kind "website" is not allowed`))
+		})
+
+		It("accepts a source-distribution kind", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{URL: "https://example.com/pkg.tgz", Kind: "source-distribution"}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Type).To(Equal(cdx.ERTypeSourceDistribution))
 		})
 
 		It("uses public Resolve field for custom mock", func() {
@@ -317,7 +383,7 @@ var _ = Describe("Enricher", func() {
 					called = true
 					return &ResolveResult{
 						URL:  "https://example.com/" + purl,
-						Kind: "website",
+						Kind: "vcs",
 					}, nil
 				},
 			}
@@ -335,7 +401,7 @@ var _ = Describe("Enricher", func() {
 
 		It("Resolve field can be injected via NewEnricher", func() {
 			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
-				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "website"}, nil
+				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "vcs"}, nil
 			})
 			Expect(enricher.Resolve).NotTo(BeNil())
 		})
@@ -354,7 +420,7 @@ var _ = Describe("Enricher", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(bom))
-			Expect(result.ExternalReferences).NotTo(BeNil())
+			Expect((*result.Components)[0].ExternalReferences).NotTo(BeNil())
 		})
 
 		It("returns original BOM on error", func() {

@@ -188,7 +188,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-const sbomArtifactFormatVersion = "4"
+const sbomArtifactFormatVersion = "5"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

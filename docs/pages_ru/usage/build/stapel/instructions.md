@@ -218,7 +218,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `pip install --no-cache-dir -r requirements.txt`. Spec по умолчанию: `requirements.txt`. Lock-файл не поддерживается (pip не имеет семантики lock; поле `lock` отклоняется с ошибкой).
+Выполняет `pip3 install --no-cache-dir -r requirements.txt`. Spec по умолчанию: `requirements.txt`. Lock-файл не поддерживается (pip не имеет семантики lock; поле `lock` отклоняется с ошибкой).
 
 **Python — poetry** (`python-poetry`):
 

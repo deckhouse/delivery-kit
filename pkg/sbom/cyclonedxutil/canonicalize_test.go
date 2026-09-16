@@ -162,6 +162,23 @@ var _ = Describe("Canonicalize", func() {
 		Expect(comp.CPE).To(Equal("cpe:2.3:a:vendor:bin:1:*:*:*:*:*:*:*"))
 	})
 
+	It("gives a survivor without a bom-ref the ref of its duplicate so the graph stays attached", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
+				{BOMRef: "libc-b", Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=bbb"},
+				{BOMRef: "curl", Name: "curl", PackageURL: "pkg:deb/debian/curl@8.12.1"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "curl", Dependencies: &[]string{"libc-b"}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Components).To(HaveLen(2))
+		Expect((*bom.Components)[0].BOMRef).To(Equal("libc-b"))
+		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"libc-b"}))
+	})
+
 	It("rewrites every ref of a merged duplicate to the surviving component", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

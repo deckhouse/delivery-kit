@@ -63,7 +63,10 @@ func canonicalizeComponents(components *[]cdx.Component, refMap map[string]strin
 		key := componentKey(comp)
 		if pos, exists := index[key]; exists {
 			survivor := &result[pos]
-			if comp.BOMRef != "" && comp.BOMRef != survivor.BOMRef {
+			switch {
+			case survivor.BOMRef == "":
+				survivor.BOMRef = comp.BOMRef
+			case comp.BOMRef != "" && comp.BOMRef != survivor.BOMRef:
 				refMap[comp.BOMRef] = survivor.BOMRef
 			}
 			mergeComponentInto(survivor, comp, refMap)
@@ -146,7 +149,10 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 		key := strings.Join([]string{svc.Group, svc.Name, svc.Version}, "|")
 		if pos, exists := index[key]; exists {
 			survivor := &result[pos]
-			if svc.BOMRef != "" && svc.BOMRef != survivor.BOMRef {
+			switch {
+			case survivor.BOMRef == "":
+				survivor.BOMRef = svc.BOMRef
+			case svc.BOMRef != "" && svc.BOMRef != survivor.BOMRef:
 				refMap[svc.BOMRef] = survivor.BOMRef
 			}
 			survivor.ExternalReferences = dedupExternalReferences(appendPtrSlice(survivor.ExternalReferences, svc.ExternalReferences))

@@ -2,6 +2,7 @@ package ispras
 
 import (
 	"context"
+	"encoding/json"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -99,6 +100,42 @@ var _ = Describe("ContainerAssembler", func() {
 		for _, container := range containers {
 			Expect(*container.Components).To(HaveLen(2))
 		}
+	})
+
+	It("keeps images apart when their metadata purls are equal", func() {
+		bomA, bomB := imageBOM("a"), imageBOM("b")
+		bomA.Metadata.Component.PackageURL = "pkg:oci/shared@sha256:aaa"
+		bomB.Metadata.Component.PackageURL = "pkg:oci/shared@sha256:aaa"
+
+		images := []*ImageSBOM{NewImageSBOM("a", bomA), NewImageSBOM("b", bomB)}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), images, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
+		Expect(err).NotTo(HaveOccurred())
+
+		containers := *result.Components
+		Expect(containers).To(HaveLen(2))
+		Expect(lo.Map(containers, func(c cdx.Component, _ int) string { return c.BOMRef })).To(ConsistOf("a", "b"))
+		for _, container := range containers {
+			Expect(*container.Components).To(HaveLen(2))
+		}
+	})
+
+	It("redirects every reference to the image root, not only dependency subjects", func() {
+		bom := imageBOM("a")
+		bom.Vulnerabilities = &[]cdx.Vulnerability{{ID: "CVE-2", Affects: &[]cdx.Affects{{Ref: "a/root"}}}}
+		bom.Dependencies = &[]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"a/root"}}}
+		before, err := json.Marshal(bom)
+		Expect(err).NotTo(HaveOccurred())
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*(*result.Vulnerabilities)[0].Affects).To(Equal([]cdx.Affects{{Ref: "a"}}))
+		Expect(*result.Dependencies).To(Equal([]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"a"}}}))
+
+		after, err := json.Marshal(bom)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(after)).To(Equal(string(before)))
 	})
 
 	It("keeps the graphs of images sharing a package apart", func() {

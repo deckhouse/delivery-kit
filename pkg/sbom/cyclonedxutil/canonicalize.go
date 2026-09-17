@@ -38,6 +38,19 @@ func Canonicalize(bom *cdx.BOM) {
 
 	RewriteRefs(bom, refMap)
 
+	CanonicalizeDocument(bom)
+}
+
+// CanonicalizeDocument does everything Canonicalize does except comparing
+// components and services for identity. Use it when the caller has already
+// established which entities are the same — merging several SBOMs that must
+// keep their components apart, for instance — and only the document-level
+// sections still need collapsing and ref checking.
+func CanonicalizeDocument(bom *cdx.BOM) {
+	if bom == nil {
+		return
+	}
+
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
 		canonicalizeComponent(bom.Metadata.Component)
 	}

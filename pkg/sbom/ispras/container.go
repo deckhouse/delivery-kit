@@ -18,41 +18,48 @@ type ContainerAssembler struct{}
 // before merging, so that identical packages coming from different images stay
 // in their own container instead of collapsing into a single entry, and the BOM
 // refs namespaced per image keep matching the merged dependency graph. The
-// dependency edges of the image's root component are carried over to the
-// container that replaces it.
+// container replaces the image's root component, taking over every reference to
+// it.
 func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
 	wrapped := make([]*cdx.BOM, 0, len(images))
 	for _, img := range images {
+		imgBOM, err := cyclonedxutil.CloneBOM(img.BOM)
+		if err != nil {
+			return nil, fmt.Errorf("clone BOM of image %q: %w", img.Name, err)
+		}
+
 		container := cdx.Component{BOMRef: img.Name, Type: cdx.ComponentTypeContainer, Name: img.Name}
 
-		if img.BOM.Metadata != nil && img.BOM.Metadata.Component != nil {
-			container = *img.BOM.Metadata.Component
+		if imgBOM.Metadata != nil && imgBOM.Metadata.Component != nil {
+			root := imgBOM.Metadata.Component
+			container = *root
 			container.BOMRef = img.Name
 			container.Type = cdx.ComponentTypeContainer
 			container.Name = img.Name
+
+			if root.BOMRef != "" {
+				cyclonedxutil.RewriteRefs(imgBOM, map[string]string{root.BOMRef: img.Name})
+			}
 		}
 
-		container.ExternalReferences = img.BOM.ExternalReferences
-		container.Properties = img.BOM.Properties
+		container.ExternalReferences = imgBOM.ExternalReferences
+		container.Properties = imgBOM.Properties
 
 		setMissingGOSTOnComponent(&container, img.GOST)
 
-		imgComponents := lo.FromPtr(img.BOM.Components)
+		imgComponents := lo.FromPtr(imgBOM.Components)
 		if len(imgComponents) > 0 {
 			container.Components = &imgComponents
 		}
 
-		imgBOM := *img.BOM
 		imgBOM.Components = &[]cdx.Component{container}
-		if img.BOM.Metadata != nil && img.BOM.Metadata.Component != nil && img.BOM.Metadata.Component.BOMRef != "" {
-			imgBOM.Dependencies = rootDependenciesAs(img.BOM.Dependencies, img.BOM.Metadata.Component.BOMRef, img.Name)
-		}
-		wrapped = append(wrapped, &imgBOM)
+		wrapped = append(wrapped, imgBOM)
 	}
 
 	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
-		ImportBOMs:      wrapped,
-		PreserveBOMRefs: true,
+		ImportBOMs:        wrapped,
+		PreserveBOMRefs:   true,
+		IsolateComponents: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("merge image BOMs: %w", err)
@@ -61,20 +68,4 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 	result.Metadata = buildProductMetadata(meta)
 
 	return result, nil
-}
-
-func rootDependenciesAs(deps *[]cdx.Dependency, rootRef, newRef string) *[]cdx.Dependency {
-	if deps == nil {
-		return nil
-	}
-
-	result := make([]cdx.Dependency, len(*deps))
-	for i, dep := range *deps {
-		if dep.Ref == rootRef {
-			dep.Ref = newRef
-		}
-		result[i] = dep
-	}
-
-	return &result
 }

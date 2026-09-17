@@ -20,6 +20,13 @@ type MergeOpts struct {
 	// new ones. Set it when the caller has already made the refs unique across
 	// the merged BOMs and keeps documents that refer to them.
 	PreserveBOMRefs bool
+	// IsolateComponents keeps the components of every merged BOM apart instead
+	// of collapsing equal ones into a single entry. Each BOM is canonicalized on
+	// its own beforehand, so duplicates within one BOM still merge. Set it when
+	// the components of a BOM describe the contents of one thing among several
+	// — a container per image — and a package of one must not become a package
+	// of another.
+	IsolateComponents bool
 }
 
 func (o MergeOpts) IsEmpty() bool {
@@ -46,10 +53,10 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 	return boms
 }
 
-// cloneBOM deep copies a BOM so that merging never rewrites the refs of the
+// CloneBOM deep copies a BOM so that merging never rewrites the refs of the
 // BOMs it merges: base and import BOMs are reused across the images of a single
 // build, and a BOM mutated by one merge cannot be merged correctly again.
-func cloneBOM(bom *cdx.BOM) (*cdx.BOM, error) {
+func CloneBOM(bom *cdx.BOM) (*cdx.BOM, error) {
 	if bom == nil {
 		return nil, nil
 	}
@@ -76,11 +83,15 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 	boms := opts.mergeOrder(target)
 	for i := range boms {
-		clone, err := cloneBOM(boms[i])
+		clone, err := CloneBOM(boms[i])
 		if err != nil {
 			return nil, fmt.Errorf("clone BOM for merge: %w", err)
 		}
 		boms[i] = clone
+
+		if opts.IsolateComponents {
+			Canonicalize(boms[i])
+		}
 	}
 
 	if merged := boms[len(boms)-1]; merged != nil && merged.Metadata != nil {
@@ -98,7 +109,11 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	result.Formulation = mergeFormulation(boms)
 	result.Declarations = mergeDeclarations(boms)
 
-	Canonicalize(result)
+	if opts.IsolateComponents {
+		CanonicalizeDocument(result)
+	} else {
+		Canonicalize(result)
+	}
 
 	if !opts.PreserveBOMRefs {
 		ensureUniqueBOMRefs(result)

@@ -1861,6 +1861,12 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	return importImageSboms, nil
 }
 
+type importSBOMKey struct {
+	repository string
+	digest     string
+	lookupName string
+}
+
 type resolvedImportImage struct {
 	imageName  string
 	lookupName string
@@ -1868,12 +1874,14 @@ type resolvedImportImage struct {
 }
 
 // resolveImportImages resolves every import source of the image to its image info,
-// keeping a single entry per resolved repository and digest: an image imported by
+// keeping a single entry per SBOM artifact it would read: an image imported by
 // several import directives has one SBOM, and pulling and merging it more than once
-// would only duplicate the components it contributes.
+// would only duplicate the components it contributes. The lookup name is part of
+// that identity because two internal images can share a digest while their SBOM
+// artifacts are told apart by the werf image name they are annotated with.
 func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Image) ([]resolvedImportImage, error) {
 	var result []resolvedImportImage
-	seenImages := make(map[string]struct{})
+	seenImages := make(map[importSBOMKey]struct{})
 
 	for _, importInfo := range img.GetImportImagesInfo() {
 		if !importInfo.ExternalImage {
@@ -1908,17 +1916,21 @@ func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Ima
 			continue
 		}
 
+		var importLookupName string
+		if !importInfo.ExternalImage {
+			importLookupName = importInfo.ImageName
+		}
+
 		if digest := importImageInfo.GetDigest(); digest != "" {
-			key := importImageInfo.Repository + "@" + digest
+			key := importSBOMKey{
+				repository: importImageInfo.Repository,
+				digest:     digest,
+				lookupName: importLookupName,
+			}
 			if _, seen := seenImages[key]; seen {
 				continue
 			}
 			seenImages[key] = struct{}{}
-		}
-
-		var importLookupName string
-		if !importInfo.ExternalImage {
-			importLookupName = importInfo.ImageName
 		}
 
 		result = append(result, resolvedImportImage{

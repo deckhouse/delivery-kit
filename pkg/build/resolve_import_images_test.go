@@ -36,6 +36,27 @@ var _ = Describe("resolveImportImages", func() {
 		return img
 	}
 
+	imageWithInternalImports := func(names ...string) *image.Image {
+		imports := make([]*config.Import, 0, len(names))
+		for _, name := range names {
+			imports = append(imports, &config.Import{
+				Export: &config.Export{},
+				From:   name,
+				Before: string(stage.Install),
+			})
+		}
+
+		img := &image.Image{TargetPlatform: "linux/amd64"}
+		img.SetStages([]stage.Interface{
+			stage.GenerateDependenciesBeforeInstallStage(
+				&config.StapelImageBase{Import: imports},
+				&stage.BaseStageOptions{ImageName: "app", TargetPlatform: "linux/amd64"},
+			),
+		})
+
+		return img
+	}
+
 	phaseWithBackendImages := func(infos map[string]*imagePkg.Info) *BuildPhase {
 		backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
 		backend.EXPECT().
@@ -44,7 +65,13 @@ var _ = Describe("resolveImportImages", func() {
 				return infos[ref], nil
 			}).AnyTimes()
 
-		return &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{ContainerBackend: backend}}}
+		tree := &image.ImagesTree{}
+		for name := range infos {
+			img := &image.Image{Name: name, TargetPlatform: "linux/amd64"}
+			tree.AppendImageForTests(img)
+		}
+
+		return &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{ContainerBackend: backend, imagesTree: tree}}}
 	}
 
 	infoFor := func(ref, repo, digest string) *imagePkg.Info {
@@ -98,5 +125,19 @@ var _ = Describe("resolveImportImages", func() {
 		Expect(resolved).To(HaveLen(2))
 		Expect(resolved[0].imageName).To(Equal("example.org/builder:latest"))
 		Expect(resolved[1].imageName).To(Equal("example.org/assets:latest"))
+	})
+
+	It("should keep every internal image sharing a digest, their SBOM artifacts differ by name", func(ctx SpecContext) {
+		phase := phaseWithBackendImages(map[string]*imagePkg.Info{
+			"backend":  infoFor("backend", "example.org/app", "sha256:aaa"),
+			"frontend": infoFor("frontend", "example.org/app", "sha256:aaa"),
+		})
+
+		resolved, err := phase.resolveImportImages(ctx, imageWithInternalImports("backend", "frontend"))
+
+		Expect(err).To(Succeed())
+		Expect(resolved).To(HaveLen(2))
+		Expect(resolved[0].lookupName).To(Equal("backend"))
+		Expect(resolved[1].lookupName).To(Equal("frontend"))
 	})
 })

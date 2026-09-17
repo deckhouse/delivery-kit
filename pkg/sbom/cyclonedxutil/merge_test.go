@@ -740,9 +740,13 @@ var _ = Describe("StableBOMChecksum", func() {
 var _ = Describe("MergeBOMs input isolation", func() {
 	It("leaves the merged BOMs untouched", func() {
 		importBOM := &cdx.BOM{
-			SpecVersion:  cdx.SpecVersion1_6,
-			Components:   &[]cdx.Component{{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"}},
-			Dependencies: &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"lib"}}},
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
+				{BOMRef: "lib-dup", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
+			},
+			Dependencies:    &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"lib-dup"}}},
+			Vulnerabilities: &[]cdx.Vulnerability{{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib-dup"}}}},
 		}
 		before, err := json.Marshal(importBOM)
 		Expect(err).NotTo(HaveOccurred())

@@ -362,7 +362,11 @@ var _ = Describe("Enricher", func() {
 
 		It("accepts a source-distribution kind", func() {
 			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
-				return &ResolveResult{URL: "https://example.com/pkg.tgz", Kind: "source-distribution"}, nil
+				return &ResolveResult{
+					URL:    "https://example.com/pkg.tgz",
+					Kind:   "source-distribution",
+					Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+				}, nil
 			})
 
 			bom := &cdx.BOM{
@@ -376,6 +380,158 @@ var _ = Describe("Enricher", func() {
 			Expect(refs).To(HaveLen(1))
 			Expect(refs[0].Type).To(Equal(cdx.ERTypeSourceDistribution))
 		})
+
+		It("carries the source distribution hashes into the reference", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{
+					URL:  "https://example.com/pkg.tgz",
+					Kind: "source-distribution",
+					Hashes: []Hash{
+						{Algorithm: "STREEBOG-256", Content: streebog256Content},
+						{Algorithm: "STREEBOG-512", Content: streebog512Content},
+					},
+				}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Hashes).NotTo(BeNil())
+			Expect(*refs[0].Hashes).To(Equal([]cdx.Hash{
+				{Algorithm: cdx.HashAlgorithm("STREEBOG-256"), Value: streebog256Content},
+				{Algorithm: cdx.HashAlgorithm("STREEBOG-512"), Value: streebog512Content},
+			}))
+			Expect(*bom.ExternalReferences).To(HaveLen(1))
+			Expect(*(*bom.ExternalReferences)[0].Hashes).To(HaveLen(2))
+		})
+
+		It("replaces a source distribution an earlier enrichment left without a digest", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{
+					URL:    "https://example.com/pkg.tgz",
+					Kind:   "source-distribution",
+					Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+				}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{
+						Name:       "pkg-a",
+						Version:    "1.0",
+						PackageURL: "pkg:npm/pkg-a@1.0",
+						Type:       cdx.ComponentTypeLibrary,
+						ExternalReferences: &[]cdx.ExternalReference{
+							{URL: "https://example.com/old.tgz", Type: cdx.ERTypeSourceDistribution},
+						},
+					},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].URL).To(Equal("https://example.com/pkg.tgz"))
+			Expect(*refs[0].Hashes).To(HaveLen(1))
+			Expect(*bom.ExternalReferences).To(HaveLen(1))
+			Expect((*bom.ExternalReferences)[0].URL).To(Equal("https://example.com/pkg.tgz"))
+		})
+
+		It("keeps a source distribution that already carries a digest", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{
+					URL:    "https://example.com/pkg.tgz",
+					Kind:   "source-distribution",
+					Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+				}, nil
+			})
+
+			existing := cdx.ExternalReference{
+				URL:    "https://example.com/old.tgz",
+				Type:   cdx.ERTypeSourceDistribution,
+				Hashes: &[]cdx.Hash{{Algorithm: cdx.HashAlgorithm("STREEBOG-512"), Value: streebog512Content}},
+			}
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{
+						Name:               "pkg-a",
+						Version:            "1.0",
+						PackageURL:         "pkg:npm/pkg-a@1.0",
+						Type:               cdx.ComponentTypeLibrary,
+						ExternalReferences: &[]cdx.ExternalReference{existing},
+					},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(Equal([]cdx.ExternalReference{existing}))
+			Expect(*bom.ExternalReferences).To(Equal([]cdx.ExternalReference{existing}))
+		})
+
+		It("keeps a vcs reference free of hashes", func() {
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{
+					URL:    "https://github.com/pkg-a/pkg-a",
+					Kind:   "vcs",
+					Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+				}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Hashes).To(BeNil())
+		})
+
+		DescribeTable("rejects a source distribution the SBOM validation would fail on",
+			func(hashes []Hash, expectedErr string) {
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					return &ResolveResult{URL: "https://example.com/pkg.tgz", Kind: "source-distribution", Hashes: hashes}, nil
+				})
+
+				bom := &cdx.BOM{
+					Components: &[]cdx.Component{
+						{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+					},
+				}
+
+				err := enricher.Enrich(ctx, bom)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedErr))
+				Expect((*bom.Components)[0].ExternalReferences).To(BeNil())
+			},
+			Entry("no hashes at all", nil,
+				`enrich: source distribution has no hashes, expected "STREEBOG-256" or "STREEBOG-512"`),
+			Entry("empty hash list", []Hash{},
+				`enrich: source distribution has no hashes, expected "STREEBOG-256" or "STREEBOG-512"`),
+			Entry("foreign algorithm", []Hash{{Algorithm: "SHA-256", Content: streebog256Content}},
+				`enrich: source distribution hash algorithm "SHA-256" is not allowed, expected "STREEBOG-256" or "STREEBOG-512"`),
+			Entry("lower-case algorithm name", []Hash{{Algorithm: "Streebog-256", Content: streebog256Content}},
+				`enrich: source distribution hash algorithm "Streebog-256" is not allowed`),
+			Entry("content of the wrong length", []Hash{{Algorithm: "STREEBOG-512", Content: streebog256Content}},
+				`enrich: source distribution hash "STREEBOG-512" has invalid content "`+streebog256Content+`", expected 128 hexadecimal characters`),
+			Entry("empty content", []Hash{{Algorithm: "STREEBOG-256", Content: ""}},
+				`enrich: source distribution hash "STREEBOG-256" has invalid content "", expected 64 hexadecimal characters`),
+			Entry("content that is not hexadecimal", []Hash{{Algorithm: "STREEBOG-256", Content: strings.Repeat("z", 64)}},
+				`expected 64 hexadecimal characters`),
+			Entry("one foreign algorithm next to a valid one", []Hash{
+				{Algorithm: "STREEBOG-256", Content: streebog256Content},
+				{Algorithm: "MD5", Content: strings.Repeat("a", 32)},
+			}, `enrich: source distribution hash algorithm "MD5" is not allowed`),
+		)
 
 		It("uses public Resolve field for custom mock", func() {
 			called := false

@@ -15,6 +15,15 @@ type ResolveResult struct {
 	Provider      string   `json:"provider"`
 	Resolution    string   `json:"resolution"`
 	Sources       []Source `json:"sources"`
+	Hashes        []Hash   `json:"hashes"`
+}
+
+// Hash is a digest of the artifact the resolved URL points to. The resolver
+// computes it for source distributions, whose archive the ISPRAS SBOM schema
+// requires to be identified by a GOST R 34.11-2012 (Streebog) digest.
+type Hash struct {
+	Algorithm string `json:"alg"`
+	Content   string `json:"content"`
 }
 
 type Source struct {

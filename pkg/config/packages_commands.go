@@ -30,6 +30,9 @@ func managerBin(files FileBasedSpec, defaultBin string) string {
 // A value read from a secret gets a statement of its own instead of staying in the command
 // prefix: bash does not apply `set -e` to a failed command substitution in a prefix, so an
 // unreadable secret would otherwise let the package manager run with the variable empty.
+// Every directive runs in the same stage script, so such a statement would overwrite a
+// variable the base image exports for every later directive; the caller keeps it local
+// by running the whole directive in a subshell.
 func formatEnvVars(env map[string]string, standalone []string) ([]string, string) {
 	if len(env) == 0 {
 		return nil, ""
@@ -54,13 +57,21 @@ func formatEnvVars(env map[string]string, standalone []string) ([]string, string
 	return assignments, strings.Join(parts, " ")
 }
 
+func joinDirective(assignments, commands []string) string {
+	if len(assignments) == 0 {
+		return strings.Join(commands, "; ")
+	}
+
+	return fmt.Sprintf("(%s)", strings.Join(append(assignments, commands...), "; "))
+}
+
 func formatWorkdirCommand(workdir, command string, env map[string]string) string {
 	assignments, prefix := formatEnvVars(env, nil)
 	if prefix != "" {
 		command = fmt.Sprintf("%s %s", prefix, command)
 	}
 
-	return strings.Join(append(assignments, fmt.Sprintf("cd %q && %s", workdir, command)), "; ")
+	return joinDirective(assignments, []string{fmt.Sprintf("cd %q && %s", workdir, command)})
 }
 
 func formatMkdirCommand() string {
@@ -77,10 +88,13 @@ func formatVersionFileCommand() string {
 func formatInstallCommand(pkgs []string, env map[string]string) string {
 	assignments, prefix := formatEnvVars(env, []string{packagesVersionEnvName})
 
-	commands := append([]string{formatMkdirCommand()}, assignments...)
-	commands = append(commands, formatVersionFileCommand())
+	commands := []string{
+		formatMkdirCommand(),
+		formatVersionFileCommand(),
+		strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " "))),
+	}
 
-	return strings.Join(append(commands, strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " ")))), "; ")
+	return joinDirective(assignments, commands)
 }
 
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {

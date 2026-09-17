@@ -62,6 +62,51 @@ var _ = Describe("formatWorkdirCommand", func() {
 		Expect(err).NotTo(HaveOccurred(), stderr.String())
 		Expect(string(stdout)).To(Equal("some-value\n"))
 	})
+
+	Describe("two directives in one stage script", func() {
+		runStage := func(ctx SpecContext, firstEnv, secrets map[string]string) (string, error) {
+			dir := GinkgoT().TempDir()
+			secretsDir := filepath.Join(dir, "secrets")
+			Expect(os.MkdirAll(secretsDir, 0o700)).To(Succeed())
+			for id, value := range secrets {
+				Expect(os.WriteFile(filepath.Join(secretsDir, id), []byte(value), 0o600)).To(Succeed())
+			}
+
+			script := strings.Join([]string{
+				formatWorkdirCommand(dir, "printenv GOPROXY", firstEnv),
+				formatWorkdirCommand(dir, "printenv GOPROXY", nil),
+			}, "\n")
+			script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
+
+			cmd := exec.CommandContext(ctx, "bash", "-ec", script)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GOPROXY=base-proxy"}
+			stderr := &bytes.Buffer{}
+			cmd.Stderr = stderr
+			stdout, err := cmd.Output()
+			if err != nil {
+				return string(stdout), fmt.Errorf("run packages stage script: %w: %s", err, stderr)
+			}
+
+			return string(stdout), nil
+		}
+
+		DescribeTable("keeps an override of a variable the base image exports local to its own directive",
+			func(ctx SpecContext, firstEnv, secrets map[string]string) {
+				stdout, err := runStage(ctx, firstEnv, secrets)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(stdout).To(Equal("private-proxy\nbase-proxy\n"))
+			},
+
+			Entry("literal value", map[string]string{"GOPROXY": "private-proxy"}, nil),
+			Entry("secret-backed value", map[string]string{"GOPROXY": "%secret:proxy%"}, map[string]string{"proxy": "private-proxy"}),
+		)
+
+		It("fails the stage before the next directive when the referenced secret cannot be read", func(ctx SpecContext) {
+			stdout, err := runStage(ctx, map[string]string{"GOPROXY": "%secret:proxy%"}, nil)
+			Expect(err).To(MatchError(ContainSubstring("proxy: No such file or directory")))
+			Expect(stdout).To(BeEmpty())
+		})
+	})
 })
 
 var _ = Describe("GeneratePackagesCommands os-pm", func() {
@@ -103,9 +148,9 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Entry("without env", nil,
 			`%s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; pm install curl jq`),
 		Entry("with a secret path, which is a literal and stays inline", map[string]string{"PACKAGES_VERSION": "1.0.0", "DOCKER_CONFIG": "%secret_path:dockercfg%"},
-			`%s -p /var/lib/pm; PACKAGES_VERSION=1.0.0; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; DOCKER_CONFIG=/run/secrets/dockercfg PACKAGES_VERSION="$PACKAGES_VERSION" pm install curl jq`),
+			`(PACKAGES_VERSION=1.0.0; %s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; DOCKER_CONFIG=/run/secrets/dockercfg PACKAGES_VERSION="$PACKAGES_VERSION" pm install curl jq)`),
 		Entry("with a literal and a secret-backed variable", map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"},
-			`%s -p /var/lib/pm; PACKAGES_VERSION=1.0.0; REGISTRY="$(</run/secrets/REGISTRY)"; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; PACKAGES_VERSION="$PACKAGES_VERSION" REGISTRY="$REGISTRY" pm install curl jq`),
+			`(PACKAGES_VERSION=1.0.0; REGISTRY="$(</run/secrets/REGISTRY)"; %s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; PACKAGES_VERSION="$PACKAGES_VERSION" REGISTRY="$REGISTRY" pm install curl jq)`),
 	)
 
 	It("each os-pm directive becomes one command", func() {

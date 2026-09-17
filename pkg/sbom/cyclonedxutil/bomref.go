@@ -80,12 +80,25 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 	RewriteRefs(bom, refMap)
 }
 
+// remapRef follows the mapping to its end: merging nested duplicates can map a
+// ref onto another ref that is itself merged away later, and only the last one
+// in such a chain still exists. A cycle leaves the ref as it is.
 func remapRef(ref string, refMap map[string]string) string {
-	if newRef, ok := refMap[ref]; ok {
-		return newRef
-	}
+	seen := map[string]struct{}{ref: {}}
 
-	return ref
+	for {
+		newRef, ok := refMap[ref]
+		if !ok {
+			return ref
+		}
+
+		if _, looped := seen[newRef]; looped {
+			return ref
+		}
+
+		seen[newRef] = struct{}{}
+		ref = newRef
+	}
 }
 
 func remapStringSlice(ss *[]string, refMap map[string]string) {

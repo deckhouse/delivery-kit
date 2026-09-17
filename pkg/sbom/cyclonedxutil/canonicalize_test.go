@@ -388,6 +388,33 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Components)[1].Components).To(HaveLen(1))
 	})
 
+	It("redirects a ref through a chain of merges onto the component that survives", func() {
+		kid := func(ref string) cdx.Component {
+			return cdx.Component{BOMRef: ref, Type: cdx.ComponentTypeLibrary, Name: "kid", Version: "1"}
+		}
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "p1", Type: cdx.ComponentTypeLibrary, Name: "parent", Version: "1",
+					Components: &[]cdx.Component{kid("child-a")},
+				},
+				{
+					BOMRef: "p2", Type: cdx.ComponentTypeLibrary, Name: "parent", Version: "1",
+					Components: &[]cdx.Component{kid("child-b"), kid("child-c")},
+				},
+			},
+			Dependencies:    &[]cdx.Dependency{{Ref: "p1", Dependencies: &[]string{"child-c"}}},
+			Vulnerabilities: &[]cdx.Vulnerability{{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "child-c"}}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*(*bom.Components)[0].Components).To(HaveLen(1))
+		Expect((*(*bom.Components)[0].Components)[0].BOMRef).To(Equal("child-a"))
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "p1", Dependencies: &[]string{"child-a"}}}))
+		Expect(*(*bom.Vulnerabilities)[0].Affects).To(Equal([]cdx.Affects{{Ref: "child-a"}}))
+	})
+
 	It("prefers the vcs reference reported by the package source over a resolved one", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

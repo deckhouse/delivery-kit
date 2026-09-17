@@ -25,7 +25,24 @@ type RunOptions struct {
 	CheckSourceDistribution bool
 }
 
+// Validate rejects option combinations the checker image does not honor.
+// Its --check-vcs-leaf-only skips a non-leaf component before any of its
+// external references is read, so combined with --check-source-distribution
+// the archives of every non-leaf component go unchecked while the run reports
+// success.
+func (opts RunOptions) Validate() error {
+	if opts.CheckVCSLeafOnly && opts.CheckSourceDistribution {
+		return fmt.Errorf("--check-vcs-leaf-only cannot be combined with --check-source-distribution: the checker would skip source distributions of non-leaf components; use --check-vcs instead")
+	}
+
+	return nil
+}
+
 func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOptions) error {
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+
 	if err := checkFilesExisting(paths); err != nil {
 		return err
 	}
@@ -109,13 +126,16 @@ func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]stri
 	return append(args, containerPath), nil
 }
 
+// enabledChecks names what the checker image really runs: --check-source-distribution
+// turns on the VCS URL check of every component as well, and --check-vcs-leaf-only
+// narrows a VCS check to leaf components.
 func enabledChecks(opts RunOptions) []string {
 	var checks []string
-	if opts.CheckVCS {
-		checks = append(checks, "VCS")
-	}
-	if opts.CheckVCSLeafOnly {
+	switch {
+	case opts.CheckVCSLeafOnly:
 		checks = append(checks, "leaf-only VCS")
+	case opts.CheckVCS || opts.CheckSourceDistribution:
+		checks = append(checks, "VCS")
 	}
 	if opts.CheckSourceDistribution {
 		checks = append(checks, "source distribution")

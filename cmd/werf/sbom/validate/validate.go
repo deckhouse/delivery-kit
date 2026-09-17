@@ -43,7 +43,11 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 			common.LogVersion()
 
-			if err := validateFlags(pathFlags, isprasFormatFlag); err != nil {
+			if err := validateFlags(pathFlags, isprasFormatFlag, checker.RunOptions{
+				CheckVCS:                checkVCSFlag,
+				CheckVCSLeafOnly:        checkVCSLeafOnlyFlag,
+				CheckSourceDistribution: checkSourceDistributionFlag,
+			}); err != nil {
 				common.PrintHelp(cmd)
 				return err
 			}
@@ -78,7 +82,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVar(&isprasFormatFlag, "ispras-format", "", "ISPRAS SBOM format: oss or container")
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
 	cmd.Flags().BoolVar(&checkVCSLeafOnlyFlag, "check-vcs-leaf-only", false, "Enable VCS URL validation for leaf components only")
-	cmd.Flags().BoolVar(&checkSourceDistributionFlag, "check-source-distribution", false, "Enable source distribution URL validation: the URL must exist and point to an archive")
+	cmd.Flags().BoolVar(&checkSourceDistributionFlag, "check-source-distribution", false, "Enable source distribution URL validation: the URL must exist and point to an archive. Also validates VCS URLs of every component, as --check-vcs does; cannot be combined with --check-vcs-leaf-only")
 
 	return cmd
 }
@@ -96,7 +100,7 @@ func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format
 	return checker.Run(ctx, paths, isprasFormat, opts)
 }
 
-func validateFlags(path []string, isprasFormat string) error {
+func validateFlags(path []string, isprasFormat string, opts checker.RunOptions) error {
 	if len(path) == 0 {
 		return fmt.Errorf("required flag --path not set")
 	}
@@ -105,5 +109,5 @@ func validateFlags(path []string, isprasFormat string) error {
 		return fmt.Errorf("required flag --ispras-format not set")
 	}
 
-	return nil
+	return opts.Validate()
 }

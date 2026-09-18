@@ -29,6 +29,13 @@ type RmOpts struct {
 	Force bool
 }
 
+type ReadDirFromImageOpts struct {
+	CommonOpts
+	// FileNames, when set, keeps only regular files whose base name is listed;
+	// everything else in the directory tree is skipped.
+	FileNames []string
+}
+
 type RmiOpts struct {
 	CommonOpts
 	Force bool
@@ -98,6 +105,12 @@ type ContainerBackend interface {
 	// regular file at path, the returned error wraps fs.ErrNotExist so callers can
 	// distinguish genuine absence from a failed read.
 	ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error)
+
+	// ReadDirFromImage copies the directory tree at path inside imageRef into destDir
+	// on the host, preserving the layout relative to path, without executing anything
+	// from the image. Only regular files are written. When there is no directory at
+	// path, the returned error wraps fs.ErrNotExist.
+	ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts ReadDirFromImageOpts) error
 
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)

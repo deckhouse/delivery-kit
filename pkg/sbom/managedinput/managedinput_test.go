@@ -76,6 +76,28 @@ var _ = Describe("ToCatalogers", func() {
 			},
 		),
 
+		Entry("javascript entries declare node_modules as the license enrichment dir",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptYarn,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "yarn.lock"},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptNpm,
+					FileBased: config.FileBasedSpec{Workdir: "/svc", Spec: "package.json", Lock: "package-lock.json"},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeJavaScriptPnpm,
+					FileBased: config.FileBasedSpec{Workdir: "/web", Spec: "package.json", Lock: "pnpm-lock.yaml"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/app/package.json"}, OptionalSourcePaths: []string{"/app/yarn.lock"}, EnrichmentDirs: []string{"/app/node_modules"}},
+				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/svc/package.json"}, OptionalSourcePaths: []string{"/svc/package-lock.json"}, EnrichmentDirs: []string{"/svc/node_modules"}},
+				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/web/package.json"}, OptionalSourcePaths: []string{"/web/pnpm-lock.yaml"}, EnrichmentDirs: []string{"/web/node_modules"}},
+			},
+		),
+
 		Entry("os-pm entries are skipped by buildResolvers per FR-012",
 			[]*config.PackagesDirective{
 				{

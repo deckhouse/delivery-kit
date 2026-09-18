@@ -13,6 +13,7 @@ import (
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
+	enrichmentDir string
 }
 
 var resolvers = buildResolvers()
@@ -38,6 +39,7 @@ func buildResolvers() []inputResolver {
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
+			enrichmentDir: eco.EnrichmentDir,
 		})
 	}
 	return built
@@ -62,6 +64,9 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		// go.sum) has none, and the build must not fail over its absence.
 		if directive.FileBased.Lock != "" {
 			cataloger.OptionalSourcePaths = []string{path.Join(directive.FileBased.Workdir, directive.FileBased.Lock)}
+		}
+		if res.enrichmentDir != "" {
+			cataloger.EnrichmentDirs = []string{path.Join(directive.FileBased.Workdir, res.enrichmentDir)}
 		}
 
 		catalogers = append(catalogers, cataloger)

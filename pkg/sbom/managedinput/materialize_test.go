@@ -267,6 +267,81 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(err.Error()).To(ContainSubstring("/app/go.sum"))
 	})
 
+	Describe("enrichment dirs", func() {
+		jsCataloger := scanner.Cataloger{
+			Name:                "javascript-lock-cataloger",
+			SourcePaths:         []string{"/app/package.json"},
+			OptionalSourcePaths: []string{"/app/yarn.lock"},
+			EnrichmentDirs:      []string{"/app/node_modules"},
+		}
+
+		expectSpecAndLock := func() {
+			mockBackend.EXPECT().
+				ReadFileFromImage(gomock.Any(), imageRef, "/app/package.json", container_backend.ReadFileFromImageOpts{}).
+				Return([]byte(`{"name":"app"}`), nil)
+			mockBackend.EXPECT().
+				ReadFileFromImage(gomock.Any(), imageRef, "/app/yarn.lock", container_backend.ReadFileFromImageOpts{}).
+				Return([]byte("is-number@^7.0.0:\n  version \"7.0.0\"\n"), nil)
+		}
+
+		It("materializes installed package manifests next to the lock so the cataloger can enrich licenses", func() {
+			expectSpecAndLock()
+			mockBackend.EXPECT().
+				ReadDirFromImage(gomock.Any(), imageRef, "/app/node_modules", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, _, destDir string, opts container_backend.ReadDirFromImageOpts) error {
+					Expect(opts.FileNames).To(Equal([]string{"package.json"}), "only manifests are copied, not installed code")
+					pkgDir := filepath.Join(destDir, "is-number")
+					Expect(os.MkdirAll(pkgDir, 0o755)).To(Succeed())
+					return os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"is-number","version":"7.0.0","license":"MIT"}`), 0o644)
+				})
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "")
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			// The manifest lands at its in-image path, adjacent to the lock, exactly where
+			// syft's javascript-lock-cataloger looks for it.
+			manifest, err := os.ReadFile(filepath.Join(dir, "app", "node_modules", "is-number", "package.json"))
+			Expect(err).To(Succeed())
+			Expect(string(manifest)).To(ContainSubstring(`"license":"MIT"`))
+
+			info, err := os.Stat(filepath.Join(dir, "app", "node_modules", "is-number", "package.json"))
+			Expect(err).To(Succeed())
+			Expect(info.Mode().Perm()&0o004).To(Equal(os.FileMode(0o004)), "enrichment manifests must be readable by the scanner")
+		})
+
+		It("skips a missing enrichment dir with a warning instead of failing", func() {
+			var output strings.Builder
+			ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))
+
+			expectSpecAndLock()
+			mockBackend.EXPECT().
+				ReadDirFromImage(gomock.Any(), imageRef, "/app/node_modules", gomock.Any(), gomock.Any()).
+				Return(fmt.Errorf("copy /app/node_modules from image %q: %w", imageRef, fs.ErrNotExist))
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "")
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			_, err = os.Stat(filepath.Join(dir, "app", "yarn.lock"))
+			Expect(err).To(Succeed(), "spec and lock are still materialized")
+			Expect(output.String()).To(ContainSubstring("WARNING: /app/node_modules not found in image"))
+			Expect(output.String()).To(ContainSubstring("licenses may be missing"))
+		})
+
+		It("fails when reading an enrichment dir errors for a reason other than absence", func() {
+			expectSpecAndLock()
+			mockBackend.EXPECT().
+				ReadDirFromImage(gomock.Any(), imageRef, "/app/node_modules", gomock.Any(), gomock.Any()).
+				Return(fmt.Errorf("read /app/node_modules tar stream from image %q: %w", imageRef, io.ErrUnexpectedEOF))
+
+			_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "")
+			Expect(err).To(HaveOccurred())
+			Expect(errors.Is(err, io.ErrUnexpectedEOF)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("/app/node_modules"))
+		})
+	})
+
 	It("fails naming the cataloger and path when a required spec is absent from the image", func() {
 		cataloger := scanner.Cataloger{
 			Name:        "go-module-file-cataloger",

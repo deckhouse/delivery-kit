@@ -93,6 +93,7 @@ func (c ScanCommand) Checksum() string {
 		args = append(args, "cataloger", cat.Name)
 		args = append(args, cat.SourcePaths...)
 		args = append(args, cat.OptionalSourcePaths...)
+		args = append(args, cat.EnrichmentDirs...)
 	}
 
 	return util.Sha256Hash(args...)

@@ -43,6 +43,10 @@ type PackageEcosystem struct {
 	DefaultLockFile string
 	InstallCmd      func(workdir string, files FileBasedSpec, pkgs []string, env map[string]string) string
 	CatalogerName   string
+	// EnrichmentDir is the workdir-relative directory the syft cataloger reads next to the
+	// lock file to enrich lock-derived components with metadata the lock lacks, e.g.
+	// node_modules for JavaScript licenses. Empty when the cataloger has no such source.
+	EnrichmentDir string
 }
 
 var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
@@ -99,6 +103,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s ci", managerBin(files, "npm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		EnrichmentDir: "node_modules",
 	},
 	PackagesDirectiveTypeJavaScriptYarn: {
 		Type:            PackagesDirectiveTypeJavaScriptYarn,
@@ -108,6 +113,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "yarn")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		EnrichmentDir: "node_modules",
 	},
 	PackagesDirectiveTypeJavaScriptPnpm: {
 		Type:            PackagesDirectiveTypeJavaScriptPnpm,
@@ -117,6 +123,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		EnrichmentDir: "node_modules",
 	},
 	PackagesDirectiveTypeLuaRock: {
 		Type:            PackagesDirectiveTypeLuaRock,

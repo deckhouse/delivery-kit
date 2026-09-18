@@ -314,6 +314,20 @@ func (mr *MockContainerBackendMockRecorder) Push(ctx, ref, opts any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Push", reflect.TypeOf((*MockContainerBackend)(nil).Push), ctx, ref, opts)
 }
 
+// ReadDirFromImage mocks base method.
+func (m *MockContainerBackend) ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts container_backend.ReadDirFromImageOpts) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadDirFromImage", ctx, imageRef, path, destDir, opts)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReadDirFromImage indicates an expected call of ReadDirFromImage.
+func (mr *MockContainerBackendMockRecorder) ReadDirFromImage(ctx, imageRef, path, destDir, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadDirFromImage", reflect.TypeOf((*MockContainerBackend)(nil).ReadDirFromImage), ctx, imageRef, path, destDir, opts)
+}
+
 // ReadFileFromImage mocks base method.
 func (m *MockContainerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts container_backend.ReadFileFromImageOpts) ([]byte, error) {
 	m.ctrl.T.Helper()

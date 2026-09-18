@@ -13,6 +13,10 @@ import (
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
 
+// enrichmentManifestName is the per-package manifest the cataloger reads inside an
+// enrichment dir. Currently only JavaScript (node_modules/<pkg>/package.json) has one.
+const enrichmentManifestName = "package.json"
+
 // MaterializeCatalogerInputs extracts a cataloger's declared spec/lock files from the
 // built image and writes them under their full in-image path into a scan directory, so a
 // directory-source scan records the same locations the files had in the image (e.g.
@@ -76,6 +80,27 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 		if err := writeMaterializedFile(scanDir, sourcePath, data); err != nil {
 			cleanup(ctx)
 			return "", nil, err
+		}
+	}
+
+	// The cataloger enriches lock-derived components from installed package manifests
+	// found next to the lock (e.g. node_modules/<pkg>/package.json carries the license the
+	// lock lacks). Materialize those manifests at their in-image path so the directory scan
+	// yields the same metadata as a full-image scan did. Only the manifests are copied, not
+	// the installed code; the cataloger itself picks which ones to read.
+	for _, dirPath := range cataloger.EnrichmentDirs {
+		destDir := filepath.Join(scanDir, filepath.Clean("/"+dirPath))
+		err := backend.ReadDirFromImage(ctx, imageRef, dirPath, destDir, container_backend.ReadDirFromImageOpts{
+			CommonOpts: container_backend.CommonOpts{TargetPlatform: targetPlatform},
+			FileNames:  []string{enrichmentManifestName},
+		})
+		if errors.Is(err, fs.ErrNotExist) {
+			logboek.Context(ctx).Warn().LogF("WARNING: %s not found in image %q for cataloger %q; component metadata such as licenses may be missing from the SBOM\n", dirPath, imageRef, cataloger.Name)
+			continue
+		}
+		if err != nil {
+			cleanup(ctx)
+			return "", nil, fmt.Errorf("read %s from image %q for cataloger %q: %w", dirPath, imageRef, cataloger.Name, err)
 		}
 	}
 

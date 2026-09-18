@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -205,16 +206,78 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 }
 
 func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
+	var data []byte
+	found := false
+
+	err := backend.copyFromImage(ctx, imageRef, path, opts.TargetPlatform, func(tr *tar.Reader, hdr *tar.Header) error {
+		if found || hdr.Typeflag != tar.TypeReg {
+			return nil
+		}
+		var err error
+		if data, err = io.ReadAll(tr); err != nil {
+			return fmt.Errorf("read %s content from image %q: %w", path, imageRef, err)
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("no regular file at %s in image %q: %w", path, imageRef, fs.ErrNotExist)
+	}
+
+	return data, nil
+}
+
+func (backend *DockerServerBackend) ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts ReadDirFromImageOpts) error {
+	return backend.copyFromImage(ctx, imageRef, path, opts.TargetPlatform, func(tr *tar.Reader, hdr *tar.Header) error {
+		return extractDirTarEntry(tr, hdr, path, destDir, opts.FileNames)
+	})
+}
+
+// extractDirTarEntry writes one entry of a `docker cp <dir>` tar stream under destDir,
+// keeping the layout relative to the copied directory. Non-regular entries and files not
+// listed in fileNames (when set) are skipped.
+func extractDirTarEntry(tr io.Reader, hdr *tar.Header, srcDir, destDir string, fileNames []string) error {
+	if hdr.Typeflag != tar.TypeReg {
+		return nil
+	}
+	if len(fileNames) > 0 && !slices.Contains(fileNames, filepath.Base(hdr.Name)) {
+		return nil
+	}
+
+	// docker cp of a directory yields entries prefixed with the directory's base name.
+	rel := strings.TrimPrefix(hdr.Name, filepath.Base(srcDir)+"/")
+	// Clean under an anchored root so a crafted tar entry cannot escape destDir.
+	destPath := filepath.Join(destDir, filepath.Clean("/"+rel))
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(destPath), err)
+	}
+	file, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", destPath, err)
+	}
+	if _, err := io.Copy(file, tr); err != nil {
+		file.Close()
+		return fmt.Errorf("write %s: %w", destPath, err)
+	}
+	return file.Close()
+}
+
+// copyFromImage streams `docker cp` of path from a throwaway container created from
+// imageRef and hands every tar entry to visit. A missing path is reported as fs.ErrNotExist.
+func (backend *DockerServerBackend) copyFromImage(ctx context.Context, imageRef, path, targetPlatform string, visit func(tr *tar.Reader, hdr *tar.Header) error) error {
 	containerName := fmt.Sprintf("werf.read_file.%s", uuid.New().String())
 
 	args := []string{"--name", containerName, "--entrypoint", ""}
-	if opts.TargetPlatform != "" {
-		args = append(args, "--platform", opts.TargetPlatform)
+	if targetPlatform != "" {
+		args = append(args, "--platform", targetPlatform)
 	}
 	args = append(args, imageRef, "werf-read-file-from-image-placeholder")
 
 	if err := docker.CliCreate(ctx, args...); err != nil {
-		return nil, fmt.Errorf("create container from image %q: %w", imageRef, err)
+		return fmt.Errorf("create container from image %q: %w", imageRef, err)
 	}
 	defer func() {
 		if err := docker.CliRm(ctx, "--force", containerName); err != nil {
@@ -224,10 +287,10 @@ func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, image
 
 	reader, err := docker.ContainerCopyFrom(ctx, containerName, path)
 	if client.IsErrNotFound(err) {
-		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, fs.ErrNotExist)
+		return fmt.Errorf("copy %s from image %q: %w", path, imageRef, fs.ErrNotExist)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
+		return fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
 	}
 	defer reader.Close()
 
@@ -235,22 +298,15 @@ func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, image
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read %s tar stream from image %q: %w", path, imageRef, err)
+			return fmt.Errorf("read %s tar stream from image %q: %w", path, imageRef, err)
 		}
-		if hdr.Typeflag != tar.TypeReg {
-			continue
+		if err := visit(tr, hdr); err != nil {
+			return err
 		}
-		data, err := io.ReadAll(tr)
-		if err != nil {
-			return nil, fmt.Errorf("read %s content from image %q: %w", path, imageRef, err)
-		}
-		return data, nil
 	}
-
-	return nil, fmt.Errorf("no regular file at %s in image %q: %w", path, imageRef, fs.ErrNotExist)
 }
 
 // GetImageInspect only available for DockerServerBackend

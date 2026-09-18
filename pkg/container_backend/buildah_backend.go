@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -918,6 +920,54 @@ func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, 
 	}
 
 	return data, nil
+}
+
+func (backend *BuildahBackend) ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts ReadDirFromImageOpts) error {
+	containers, err := backend.createContainers(ctx, []string{imageRef}, opts.CommonOpts)
+	if err != nil {
+		return err
+	}
+	container := containers[0]
+	defer func() {
+		if err := backend.removeContainers(ctx, []*containerDesc{container}, opts.CommonOpts); err != nil {
+			logboek.Context(ctx).Error().LogF("ERROR: unable to remove temporal container %q: %s\n", container.Name, err)
+		}
+	}()
+
+	if err := backend.mountContainers(ctx, []*containerDesc{container}, opts.CommonOpts); err != nil {
+		return fmt.Errorf("mount container %q: %w", container.Name, err)
+	}
+	defer func() {
+		if err := backend.unmountContainers(ctx, []*containerDesc{container}, opts.CommonOpts); err != nil {
+			logboek.Context(ctx).Error().LogF("ERROR: unable to unmount container %q: %s\n", container.Name, err)
+		}
+	}()
+
+	srcRoot := filepath.Join(container.RootMount, path)
+	return filepath.WalkDir(srcRoot, func(srcPath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("read %s from image %q: %w", path, imageRef, err)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		if len(opts.FileNames) > 0 && !slices.Contains(opts.FileNames, d.Name()) {
+			return nil
+		}
+		rel, err := filepath.Rel(srcRoot, srcPath)
+		if err != nil {
+			return fmt.Errorf("relativize %s: %w", srcPath, err)
+		}
+		destPath := filepath.Join(destDir, rel)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+			return fmt.Errorf("create %s: %w", filepath.Dir(destPath), err)
+		}
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("read %s from image %q: %w", srcPath, imageRef, err)
+		}
+		return os.WriteFile(destPath, data, 0o644)
+	})
 }
 
 func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) error {

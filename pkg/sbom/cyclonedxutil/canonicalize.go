@@ -33,6 +33,9 @@ func Canonicalize(bom *cdx.BOM) {
 
 	refMap := map[string]string{}
 
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		bom.Metadata.Component.Components = canonicalizeComponents(bom.Metadata.Component.Components, refMap)
+	}
 	bom.Components = canonicalizeComponents(bom.Components, refMap)
 	bom.Services = canonicalizeServices(bom.Services, refMap)
 
@@ -356,10 +359,6 @@ func canonicalizeAnnotations(annotations *[]cdx.Annotation) *[]cdx.Annotation {
 func collectKnownRefs(bom *cdx.BOM) map[string]struct{} {
 	refs := make(map[string]struct{})
 
-	if bom.Metadata != nil && bom.Metadata.Component != nil && bom.Metadata.Component.BOMRef != "" {
-		refs[bom.Metadata.Component.BOMRef] = struct{}{}
-	}
-
 	var collectComponents func(components *[]cdx.Component)
 	collectComponents = func(components *[]cdx.Component) {
 		if components == nil {
@@ -371,6 +370,9 @@ func collectKnownRefs(bom *cdx.BOM) map[string]struct{} {
 			}
 			collectComponents((*components)[i].Components)
 		}
+	}
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		collectComponents(&[]cdx.Component{*bom.Metadata.Component})
 	}
 	collectComponents(bom.Components)
 

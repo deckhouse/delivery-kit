@@ -368,6 +368,25 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"nested-a"}))
 	})
 
+	It("canonicalizes the components nested under the metadata component", func() {
+		bom := &cdx.BOM{
+			Metadata: &cdx.Metadata{Component: &cdx.Component{
+				BOMRef: "root", Type: cdx.ComponentTypeContainer, Name: "img",
+				Components: &[]cdx.Component{
+					{BOMRef: "nested-a", Type: cdx.ComponentTypeLibrary, Name: "lib", PackageURL: "pkg:golang/lib@1"},
+					{BOMRef: "nested-b", Type: cdx.ComponentTypeLibrary, Name: "lib", PackageURL: "pkg:golang/lib@1"},
+				},
+			}},
+			Components:   &[]cdx.Component{{BOMRef: "top", Type: cdx.ComponentTypeLibrary, Name: "top", PackageURL: "pkg:golang/top@1"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "top", Dependencies: &[]string{"nested-b"}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Metadata.Component.Components).To(HaveLen(1))
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "top", Dependencies: &[]string{"nested-a"}}}))
+	})
+
 	It("keeps components with the same purl in different containers apart", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

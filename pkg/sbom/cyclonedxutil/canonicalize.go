@@ -216,8 +216,6 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 
 	for _, svc := range *services {
 		svc.Services = canonicalizeServices(svc.Services, refMap)
-		svc.ExternalReferences = dedupExternalReferences(svc.ExternalReferences)
-		svc.Properties = dedupProperties(svc.Properties)
 
 		key := strings.Join([]string{svc.Group, svc.Name, svc.Version}, "|")
 		if pos, exists := index[key]; exists {
@@ -228,11 +226,11 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 			case svc.BOMRef != "" && svc.BOMRef != survivor.BOMRef:
 				refMap[svc.BOMRef] = survivor.BOMRef
 			}
-			survivor.ExternalReferences = dedupExternalReferences(appendPtrSlice(survivor.ExternalReferences, svc.ExternalReferences))
-			survivor.Properties = dedupProperties(appendPtrSlice(survivor.Properties, svc.Properties))
+			mergeServiceInto(survivor, svc, refMap)
 			continue
 		}
 
+		canonicalizeService(&svc)
 		index[key] = len(result)
 		result = append(result, svc)
 	}
@@ -242,6 +240,50 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 	}
 
 	return &result
+}
+
+// mergeServiceInto folds a duplicate into the service that survives it, the
+// same way mergeComponentInto does for components.
+func mergeServiceInto(survivor *cdx.Service, dup cdx.Service, refMap map[string]string) {
+	survivor.ExternalReferences = appendPtrSlice(survivor.ExternalReferences, dup.ExternalReferences)
+	survivor.Properties = appendPtrSlice(survivor.Properties, dup.Properties)
+	survivor.Endpoints = dedupStringSlice(appendPtrSlice(survivor.Endpoints, dup.Endpoints))
+	survivor.Tags = dedupStringSlice(appendPtrSlice(survivor.Tags, dup.Tags))
+	survivor.Data = dedupPtrSlice(appendPtrSlice(survivor.Data, dup.Data))
+	survivor.Licenses = mergeLicenses(survivor.Licenses, dup.Licenses)
+	if survivor.Provider == nil {
+		survivor.Provider = dup.Provider
+	}
+	if survivor.Description == "" {
+		survivor.Description = dup.Description
+	}
+	if survivor.TrustZone == "" {
+		survivor.TrustZone = dup.TrustZone
+	}
+	if survivor.Authenticated == nil {
+		survivor.Authenticated = dup.Authenticated
+	}
+	if survivor.CrossesTrustBoundary == nil {
+		survivor.CrossesTrustBoundary = dup.CrossesTrustBoundary
+	}
+	if survivor.ReleaseNotes == nil {
+		survivor.ReleaseNotes = dup.ReleaseNotes
+	}
+	if survivor.Signature == nil {
+		survivor.Signature = dup.Signature
+	}
+
+	if dup.Services != nil {
+		merged := append(lo.FromPtr(survivor.Services), *dup.Services...)
+		survivor.Services = canonicalizeServices(&merged, refMap)
+	}
+
+	canonicalizeService(survivor)
+}
+
+func canonicalizeService(svc *cdx.Service) {
+	svc.ExternalReferences = dedupExternalReferences(svc.ExternalReferences)
+	svc.Properties = dedupProperties(svc.Properties)
 }
 
 // canonicalizeDependencies merges dependency entries sharing a ref, since a

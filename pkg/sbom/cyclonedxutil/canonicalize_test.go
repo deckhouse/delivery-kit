@@ -574,4 +574,48 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Services)[0].ExternalReferences).To(HaveLen(1))
 		Expect((*bom.Dependencies)[0].Dependencies).To(BeNil())
 	})
+
+	It("folds a duplicate service into the survivor, nested services included", func() {
+		bom := &cdx.BOM{
+			Services: &[]cdx.Service{
+				{BOMRef: "svc-1", Name: "api", Version: "1.0", Endpoints: &[]string{"https://a.example"}, Tags: &[]string{"a"}},
+				{
+					BOMRef: "svc-2", Name: "api", Version: "1.0", Description: "the api", TrustZone: "dmz",
+					Authenticated: lo.ToPtr(true), Endpoints: &[]string{"https://b.example"}, Tags: &[]string{"a", "b"},
+					Provider: &cdx.OrganizationalEntity{Name: "acme"},
+					Licenses: &cdx.Licenses{{License: &cdx.License{ID: "MIT"}}},
+					Services: &[]cdx.Service{{BOMRef: "inner", Name: "sub", Version: "1"}},
+				},
+			},
+			Components:   &[]cdx.Component{{BOMRef: "c", Type: cdx.ComponentTypeLibrary, Name: "c", PackageURL: "pkg:golang/c@1"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner", "svc-2"}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Services).To(Equal([]cdx.Service{{
+			BOMRef: "svc-1", Name: "api", Version: "1.0", Description: "the api", TrustZone: "dmz",
+			Authenticated: lo.ToPtr(true), Endpoints: &[]string{"https://a.example", "https://b.example"}, Tags: &[]string{"a", "b"},
+			Provider: &cdx.OrganizationalEntity{Name: "acme"},
+			Licenses: &cdx.Licenses{{License: &cdx.License{ID: "MIT"}}},
+			Services: &[]cdx.Service{{BOMRef: "inner", Name: "sub", Version: "1"}},
+		}}))
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner", "svc-1"}}}))
+	})
+
+	It("redirects a ref to the nested service of a merged duplicate onto the surviving nested service", func() {
+		bom := &cdx.BOM{
+			Services: &[]cdx.Service{
+				{BOMRef: "svc-1", Name: "api", Services: &[]cdx.Service{{BOMRef: "inner-1", Name: "sub"}}},
+				{BOMRef: "svc-2", Name: "api", Services: &[]cdx.Service{{BOMRef: "inner-2", Name: "sub"}}},
+			},
+			Components:   &[]cdx.Component{{BOMRef: "c", Type: cdx.ComponentTypeLibrary, Name: "c", PackageURL: "pkg:golang/c@1"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner-2"}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*(*bom.Services)[0].Services).To(Equal([]cdx.Service{{BOMRef: "inner-1", Name: "sub"}}))
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner-1"}}}))
+	})
 })

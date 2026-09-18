@@ -41,6 +41,19 @@ func (c Config) Merge(other Config) Config {
 	return res
 }
 
+// ForDescendants derives the values carried by everything below the image root.
+// An attack surface declared accessible applies to the image as a whole: an
+// attacker reaches the packages it contains only through the image, so they are
+// exposed indirectly. Every other value, and the security function in all cases,
+// applies unchanged down the whole tree.
+func (c Config) ForDescendants() Config {
+	res := c
+	if res.AttackSurface == GostValueYes {
+		res.AttackSurface = GostValueIndirect
+	}
+	return res
+}
+
 func IsValidGostValue(v string) bool {
 	return v == GostValueYes.String() || v == GostValueNo.String() || v == GostValueIndirect.String()
 }

@@ -18,8 +18,9 @@ type ContainerAssembler struct{}
 // before merging, so that identical packages coming from different images stay
 // in their own container instead of collapsing into a single entry, and the BOM
 // refs namespaced per image keep matching the merged dependency graph. The
-// container replaces the image's root component, taking over every reference to
-// it.
+// image's own root component is kept inside its container: the ISPRAS checker
+// binds a container's GOST values to the maximum over its content, so an image
+// declared accessible needs a component carrying that value below the container.
 func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
 	wrapped := make([]*cdx.BOM, 0, len(images))
 	for _, img := range images {
@@ -29,25 +30,18 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		}
 
 		container := cdx.Component{BOMRef: img.Name, Type: cdx.ComponentTypeContainer, Name: img.Name}
-
-		if imgBOM.Metadata != nil && imgBOM.Metadata.Component != nil {
-			root := imgBOM.Metadata.Component
-			container = *root
-			container.BOMRef = img.Name
-			container.Type = cdx.ComponentTypeContainer
-			container.Name = img.Name
-
-			if root.BOMRef != "" {
-				cyclonedxutil.RewriteRefs(imgBOM, map[string]string{root.BOMRef: img.Name})
-			}
-		}
-
 		container.ExternalReferences = imgBOM.ExternalReferences
 		container.Properties = imgBOM.Properties
 
+		imgComponents := lo.FromPtr(imgBOM.Components)
+		if imgBOM.Metadata != nil && imgBOM.Metadata.Component != nil {
+			root := *imgBOM.Metadata.Component
+			container.Version = root.Version
+			imgComponents = append([]cdx.Component{root}, imgComponents...)
+		}
+
 		setMissingGOSTOnComponent(&container, img.GOST)
 
-		imgComponents := lo.FromPtr(imgBOM.Components)
 		if len(imgComponents) > 0 {
 			container.Components = &imgComponents
 		}

@@ -33,7 +33,7 @@ var _ = Describe("Gost SBOM setter", func() {
 				{
 					Name: "test",
 					Properties: &[]cdx.Property{
-						{Name: PropertyAttackSurface, Value: "yes"},
+						{Name: PropertyAttackSurface, Value: "indirect"},
 						{Name: PropertySecurityFunction, Value: "no"},
 					},
 				},
@@ -56,7 +56,7 @@ var _ = Describe("Gost SBOM setter", func() {
 				{
 					Name: "test",
 					Properties: &[]cdx.Property{
-						{Name: PropertyAttackSurface, Value: "yes"},
+						{Name: PropertyAttackSurface, Value: "indirect"},
 						{Name: PropertySecurityFunction, Value: "yes"},
 					},
 				},
@@ -98,19 +98,19 @@ var _ = Describe("Gost SBOM setter", func() {
 			[]cdx.Component{{
 				Name: "parent",
 				Properties: &[]cdx.Property{
-					{Name: PropertyAttackSurface, Value: "yes"},
+					{Name: PropertyAttackSurface, Value: "indirect"},
 					{Name: PropertySecurityFunction, Value: "no"},
 				},
 				Components: &[]cdx.Component{{
 					Name: "child",
 					Properties: &[]cdx.Property{
-						{Name: PropertyAttackSurface, Value: "yes"},
+						{Name: PropertyAttackSurface, Value: "indirect"},
 						{Name: PropertySecurityFunction, Value: "no"},
 					},
 					Components: &[]cdx.Component{{
 						Name: "grandchild",
 						Properties: &[]cdx.Property{
-							{Name: PropertyAttackSurface, Value: "yes"},
+							{Name: PropertyAttackSurface, Value: "indirect"},
 							{Name: PropertySecurityFunction, Value: "no"},
 						},
 					}},
@@ -150,5 +150,31 @@ var _ = Describe("Gost SBOM setter", func() {
 				},
 			},
 			Succeed()),
+	)
+
+	DescribeTable("attack surface split between the image root and its content",
+		func(config, expectedRoot, expectedComponent Config) {
+			bom := &cdx.BOM{
+				Metadata:   &cdx.Metadata{Component: &cdx.Component{Name: "image"}},
+				Components: &[]cdx.Component{{Name: "pkg"}},
+			}
+
+			Expect(Upsert(bom, config)).To(Succeed())
+
+			Expect(GetComponent(bom.Metadata.Component)).To(Equal(expectedRoot))
+			Expect(GetComponent(&(*bom.Components)[0])).To(Equal(expectedComponent))
+		},
+		Entry("yes reaches the packages only through the image",
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			Config{AttackSurface: GostValueIndirect, SecurityFunction: GostValueYes}),
+		Entry("indirect applies to the whole tree unchanged",
+			Config{AttackSurface: GostValueIndirect, SecurityFunction: GostValueNo},
+			Config{AttackSurface: GostValueIndirect, SecurityFunction: GostValueNo},
+			Config{AttackSurface: GostValueIndirect, SecurityFunction: GostValueNo}),
+		Entry("no applies to the whole tree unchanged",
+			Config{AttackSurface: GostValueNo, SecurityFunction: GostValueNo},
+			Config{AttackSurface: GostValueNo, SecurityFunction: GostValueNo},
+			Config{AttackSurface: GostValueNo, SecurityFunction: GostValueNo}),
 	)
 })

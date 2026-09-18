@@ -8,18 +8,22 @@ import (
 )
 
 // Upsert inserts or updates mandatory GOST properties in the BOM metadata component
-// and every component, nested ones included.
+// and every component, nested ones included. The metadata component is the image
+// itself and gets the configured values; everything below it gets the values
+// derived for descendants (see Config.ForDescendants).
 func Upsert(bom *cdx.BOM, config Config) error {
 	if bom == nil {
 		return fmt.Errorf("BOM is required")
 	}
 
+	descendants := config.ForDescendants()
+
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
 		SetComponent(bom.Metadata.Component, config)
-		setComponents(lo.FromPtr(bom.Metadata.Component.Components), config)
+		setComponents(lo.FromPtr(bom.Metadata.Component.Components), descendants)
 	}
 
-	setComponents(lo.FromPtr(bom.Components), config)
+	setComponents(lo.FromPtr(bom.Components), descendants)
 
 	return nil
 }

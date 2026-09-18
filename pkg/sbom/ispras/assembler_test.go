@@ -136,6 +136,17 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(dependsOn(result, "b/lib")).To(ContainElement("svc"))
 	})
 
+	It("keeps the GOST properties of the container out of the document properties", func() {
+		bom := imageBOM("a")
+		bom.Properties = &[]cdx.Property{{Name: "custom", Value: "x"}}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Properties).To(Equal([]cdx.Property{{Name: "custom", Value: "x"}}))
+		Expect(*(*result.Components)[0].Properties).To(HaveLen(3))
+	})
+
 	It("gives the container the external references of the image root only", func() {
 		bomA, bomB := imageBOM("a"), imageBOM("b")
 		bomA.Metadata.Component.ExternalReferences = &[]cdx.ExternalReference{{URL: "https://git.example.com/image-a", Type: cdx.ERTypeVCS}}

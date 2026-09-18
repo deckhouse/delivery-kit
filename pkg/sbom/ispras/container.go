@@ -3,6 +3,7 @@ package ispras
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
@@ -42,7 +43,9 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 			}
 		}
 
-		container.Properties = imgBOM.Properties
+		if imgBOM.Properties != nil {
+			container.Properties = lo.ToPtr(slices.Clone(*imgBOM.Properties))
+		}
 
 		setMissingGOSTOnComponent(&container, img.GOST)
 

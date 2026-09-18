@@ -231,26 +231,63 @@ func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, image
 }
 
 func (backend *DockerServerBackend) ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts ReadDirFromImageOpts) error {
-	return backend.copyFromImage(ctx, imageRef, path, opts.TargetPlatform, func(tr *tar.Reader, hdr *tar.Header) error {
-		return extractDirTarEntry(tr, hdr, path, destDir, opts.FileNames)
-	})
+	extractor := newDirTarExtractor(path, destDir, opts.FileNames)
+	if err := backend.copyFromImage(ctx, imageRef, path, opts.TargetPlatform, extractor.extract); err != nil {
+		return err
+	}
+	return extractor.resolveSymlinks()
 }
 
-// extractDirTarEntry writes one entry of a `docker cp <dir>` tar stream under destDir,
-// keeping the layout relative to the copied directory. Non-regular entries and files not
-// listed in fileNames (when set) are skipped.
-func extractDirTarEntry(tr io.Reader, hdr *tar.Header, srcDir, destDir string, fileNames []string) error {
-	if hdr.Typeflag != tar.TypeReg {
-		return nil
+// dirTarExtractor writes a `docker cp <dir>` tar stream under destDir, keeping the layout
+// relative to the copied directory. Only regular files are written, filtered by base name
+// when fileNames is set. Symlinks to directories inside the tree (pnpm lays out
+// node_modules/<pkg> -> .pnpm/<pkg>@<ver>/node_modules/<pkg>) are resolved after the
+// stream ends by copying the already extracted target files under the link path, so the
+// result reads like the image filesystem does through the link.
+type dirTarExtractor struct {
+	prefix    string
+	destDir   string
+	fileNames []string
+	symlinks  map[string]string
+}
+
+func newDirTarExtractor(srcDir, destDir string, fileNames []string) *dirTarExtractor {
+	return &dirTarExtractor{
+		// docker cp of a directory yields entries prefixed with the directory's base name.
+		prefix:    filepath.Base(srcDir) + "/",
+		destDir:   destDir,
+		fileNames: fileNames,
+		symlinks:  map[string]string{},
 	}
-	if len(fileNames) > 0 && !slices.Contains(fileNames, filepath.Base(hdr.Name)) {
+}
+
+// rebase maps a tar entry name onto destDir. Cleaning under an anchored root means a
+// crafted entry cannot escape destDir.
+func (e *dirTarExtractor) rebase(name string) string {
+	rel := strings.TrimPrefix(name, e.prefix)
+	return filepath.Join(e.destDir, filepath.Clean("/"+rel))
+}
+
+func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
+	switch hdr.Typeflag {
+	case tar.TypeSymlink:
+		rel := strings.TrimPrefix(hdr.Name, e.prefix)
+		target := filepath.Join(filepath.Dir(rel), hdr.Linkname)
+		if filepath.IsAbs(hdr.Linkname) {
+			target = hdr.Linkname
+		}
+		e.symlinks[e.rebase(hdr.Name)] = filepath.Join(e.destDir, filepath.Clean("/"+target))
+		return nil
+	case tar.TypeReg:
+	default:
 		return nil
 	}
 
-	// docker cp of a directory yields entries prefixed with the directory's base name.
-	rel := strings.TrimPrefix(hdr.Name, filepath.Base(srcDir)+"/")
-	// Clean under an anchored root so a crafted tar entry cannot escape destDir.
-	destPath := filepath.Join(destDir, filepath.Clean("/"+rel))
+	if len(e.fileNames) > 0 && !slices.Contains(e.fileNames, filepath.Base(hdr.Name)) {
+		return nil
+	}
+
+	destPath := e.rebase(hdr.Name)
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(destPath), err)
 	}
@@ -263,6 +300,40 @@ func extractDirTarEntry(tr io.Reader, hdr *tar.Header, srcDir, destDir string, f
 		return fmt.Errorf("write %s: %w", destPath, err)
 	}
 	return file.Close()
+}
+
+// resolveSymlinks materializes each recorded symlink whose target is an extracted
+// directory by copying the target's files under the link path. Links to files, to
+// nothing, or to paths outside destDir are left out.
+func (e *dirTarExtractor) resolveSymlinks() error {
+	for linkPath, target := range e.symlinks {
+		info, err := os.Stat(target)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		err = filepath.WalkDir(target, func(srcPath string, d fs.DirEntry, err error) error {
+			if err != nil || !d.Type().IsRegular() {
+				return err
+			}
+			rel, err := filepath.Rel(target, srcPath)
+			if err != nil {
+				return err
+			}
+			destPath := filepath.Join(linkPath, rel)
+			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+				return err
+			}
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(destPath, data, 0o644)
+		})
+		if err != nil {
+			return fmt.Errorf("resolve symlink %s -> %s: %w", linkPath, target, err)
+		}
+	}
+	return nil
 }
 
 // copyFromImage streams `docker cp` of path from a throwaway container created from

@@ -66,10 +66,14 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			)
 
 			mapping := map[string]string{}
+			imageBOMs := map[string]*cdx.BOM{}
 			for name, rec := range buildReport.Images {
 				Expect(rec.DockerImageDigest).NotTo(BeEmpty(),
 					"image %q has no digest in build report", name)
 				mapping[name] = rec.DockerImageDigest
+				imageBOMs[name] = sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+					CommonOptions: werf.CommonOptions{ExtraArgs: []string{name}, Envs: builderEnv},
+				}))
 			}
 			Expect(mapping).To(HaveLen(2), "expected exactly 2 images in build report")
 
@@ -111,6 +115,11 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
 				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6")
 			sbomtest.AssertDependencyGraphResolves(merged)
+			for name, imageBOM := range imageBOMs {
+				sbomtest.AssertKeepsDependencyEdges(merged, imageBOM, func(ref string) string {
+					return lo.Ternary(isprasFormat == "container", name+"/"+ref, ref)
+				})
+			}
 		},
 		Entry("container format using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}, "container"),
 		Entry("container format using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}, "container"),

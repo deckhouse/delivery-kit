@@ -424,6 +424,42 @@ func AssertDependencyGraphResolves(bom *cdx.BOM) {
 	}
 }
 
+// AssertKeepsDependencyEdges checks that every dependency edge between two
+// components of image is present in merged, with refs of the image mapped by
+// mapRef. Canonicalization drops every dangling edge, so a resolving graph
+// alone does not prove that no edge was lost.
+func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) string) {
+	componentRefs := map[string]struct{}{}
+	walkComponents(image.Components, func(c *cdx.Component) {
+		componentRefs[c.BOMRef] = struct{}{}
+	})
+
+	mergedEdges := map[string]struct{}{}
+	for _, dep := range lo.FromPtr(merged.Dependencies) {
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			mergedEdges[normalizePURL(dep.Ref)+" -> "+normalizePURL(target)] = struct{}{}
+		}
+	}
+
+	var missing []string
+	for _, dep := range lo.FromPtr(image.Dependencies) {
+		if _, ok := componentRefs[dep.Ref]; !ok {
+			continue
+		}
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			if _, ok := componentRefs[target]; !ok {
+				continue
+			}
+			edge := normalizePURL(mapRef(dep.Ref)) + " -> " + normalizePURL(mapRef(target))
+			if _, ok := mergedEdges[edge]; !ok {
+				missing = append(missing, edge)
+			}
+		}
+	}
+
+	ExpectWithOffset(1, missing).To(BeEmpty(), "dependency edges of the image lost by the merge")
+}
+
 func findProperty(props *[]cdx.Property, name string) (string, bool) {
 	for _, p := range lo.FromPtr(props) {
 		if p.Name == name {

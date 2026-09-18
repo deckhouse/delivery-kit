@@ -43,7 +43,7 @@ var _ = Describe("sbom validate", Label("e2e", "sbom", "validate", "simple"), fu
 		Entry("multiple valid container files", []string{"valid_container", "valid_container_multiple"}, "container", []string(nil), ""),
 		Entry("multiple valid files mixed", []string{"valid_oss", "valid_container"}, "oss", []string(nil), ""),
 		Entry("with --check-vcs flag", []string{"valid_oss"}, "oss", []string{"--check-vcs"}, ""),
-		Entry("warnings only pass by default", []string{"oss_multiple_vcs_urls"}, "oss", []string(nil), "WARNING"),
+		Entry("warnings only pass by default", []string{"oss_multiple_vcs_urls"}, "oss", []string(nil), "OK (1 warning(s))"),
 	)
 
 	DescribeTable("should fail validation",

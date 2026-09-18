@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/werf/logboek"
@@ -140,9 +141,7 @@ func (r fileResult) report(ctx context.Context, fileName string, index, total in
 		return nil
 	}
 
-	details := append(append([]string{}, r.errs...), r.warnings...)
-
-	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
+	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(slices.Concat(r.errs, r.warnings), "\n"))
 }
 
 func extractPrefixedLines(text, prefix string) []string {

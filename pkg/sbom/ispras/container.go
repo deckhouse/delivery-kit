@@ -42,7 +42,6 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 			}
 		}
 
-		container.ExternalReferences = imgBOM.ExternalReferences
 		container.Properties = imgBOM.Properties
 
 		setMissingGOSTOnComponent(&container, img.GOST)

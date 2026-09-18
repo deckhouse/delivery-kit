@@ -177,7 +177,7 @@ func mergeLicenses(dest, src *cdx.Licenses) *cdx.Licenses {
 }
 
 func canonicalizeComponent(comp *cdx.Component) {
-	comp.ExternalReferences = dedupExternalReferences(comp.ExternalReferences)
+	comp.ExternalReferences = dedupComponentExternalReferences(comp.ExternalReferences)
 	comp.Properties = dedupProperties(comp.Properties)
 }
 
@@ -455,17 +455,16 @@ func dedupStringSlice(values *[]string) *[]string {
 // from, a resolver only guesses.
 const ExternalReferenceCommentResolved = "resolved from purl"
 
-// dedupExternalReferences keeps the first reference of every type-url-comment
-// triple and only one vcs reference: the ISPRAS SBOM checker reports a
-// component carrying several distinct vcs urls as a defect. Among vcs
-// references the first one not resolved from the purl wins.
-func dedupExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalReference {
+// dedupComponentExternalReferences keeps the first reference of every
+// type-url-comment triple and only one vcs reference: the ISPRAS SBOM checker
+// reports a component carrying several distinct vcs urls as a defect. Among
+// vcs references the first one not resolved from the purl wins. The document
+// and a service may list the sources of many components, so the single-vcs
+// rule applies to components only.
+func dedupComponentExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalReference {
 	if refs == nil {
 		return nil
 	}
-
-	seen := make(map[string]struct{}, len(*refs))
-	result := make([]cdx.ExternalReference, 0, len(*refs))
 
 	vcs, found := lo.Find(*refs, func(ref cdx.ExternalReference) bool {
 		return ref.Type == cdx.ERTypeVCS && ref.Comment != ExternalReferenceCommentResolved
@@ -474,11 +473,24 @@ func dedupExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalRefer
 		vcs, _ = lo.Find(*refs, func(ref cdx.ExternalReference) bool { return ref.Type == cdx.ERTypeVCS })
 	}
 
-	for _, ref := range *refs {
-		if ref.Type == cdx.ERTypeVCS && (ref.URL != vcs.URL || ref.Comment != vcs.Comment) {
-			continue
-		}
+	kept := lo.Filter(*refs, func(ref cdx.ExternalReference, _ int) bool {
+		return ref.Type != cdx.ERTypeVCS || (ref.URL == vcs.URL && ref.Comment == vcs.Comment)
+	})
 
+	return dedupExternalReferences(&kept)
+}
+
+// dedupExternalReferences keeps the first reference of every type-url-comment
+// triple.
+func dedupExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalReference {
+	if refs == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(*refs))
+	result := make([]cdx.ExternalReference, 0, len(*refs))
+
+	for _, ref := range *refs {
 		key := string(ref.Type) + "|" + ref.URL + "|" + ref.Comment
 		if _, exists := seen[key]; exists {
 			continue

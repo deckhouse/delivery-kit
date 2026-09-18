@@ -116,6 +116,26 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(*result.Components).To(HaveLen(2))
 	})
 
+	It("gives the container the external references of the image root only", func() {
+		bomA, bomB := imageBOM("a"), imageBOM("b")
+		bomA.Metadata.Component.ExternalReferences = &[]cdx.ExternalReference{{URL: "https://git.example.com/image-a", Type: cdx.ERTypeVCS}}
+		bomA.ExternalReferences = &[]cdx.ExternalReference{
+			{URL: "https://github.com/madler/zlib", Type: cdx.ERTypeVCS},
+			{URL: "https://github.com/openssl/openssl", Type: cdx.ERTypeVCS},
+		}
+		bomB.ExternalReferences = &[]cdx.ExternalReference{{URL: "https://github.com/openssl/openssl", Type: cdx.ERTypeVCS}}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bomA), NewImageSBOM("b", bomB)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*(*result.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "https://git.example.com/image-a", Type: cdx.ERTypeVCS}}))
+		Expect((*result.Components)[1].ExternalReferences).To(BeNil())
+		Expect(*result.ExternalReferences).To(Equal([]cdx.ExternalReference{
+			{URL: "https://github.com/madler/zlib", Type: cdx.ERTypeVCS},
+			{URL: "https://github.com/openssl/openssl", Type: cdx.ERTypeVCS},
+		}))
+	})
+
 	It("keeps images apart when their metadata purls are equal", func() {
 		bomA, bomB := imageBOM("a"), imageBOM("b")
 		bomA.Metadata.Component.PackageURL = "pkg:oci/shared@sha256:aaa"

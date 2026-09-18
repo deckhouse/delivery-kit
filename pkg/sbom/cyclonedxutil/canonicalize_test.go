@@ -2,6 +2,7 @@ package cyclonedxutil
 
 import (
 	"encoding/json"
+	"slices"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -469,6 +470,23 @@ var _ = Describe("Canonicalize", func() {
 		Expect(refs[0].URL).To(Equal("https://github.com/madler/zlib"))
 		Expect(refs[1].Type).To(Equal(cdx.ERTypeDistribution))
 		Expect(*bom.ExternalReferences).To(HaveLen(1))
+	})
+
+	It("keeps every vcs reference of the document and of a service", func() {
+		vcs := []cdx.ExternalReference{
+			{URL: "https://github.com/madler/zlib", Type: cdx.ERTypeVCS},
+			{URL: "https://github.com/openssl/openssl", Type: cdx.ERTypeVCS},
+			{URL: "https://github.com/openssl/openssl", Type: cdx.ERTypeVCS},
+		}
+		bom := &cdx.BOM{
+			ExternalReferences: lo.ToPtr(slices.Clone(vcs)),
+			Services:           &[]cdx.Service{{BOMRef: "svc", Name: "api", ExternalReferences: lo.ToPtr(slices.Clone(vcs))}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.ExternalReferences).To(Equal(vcs[:2]))
+		Expect(*(*bom.Services)[0].ExternalReferences).To(Equal(vcs[:2]))
 	})
 
 	It("deduplicates properties and keeps the strongest value per GOST property", func() {

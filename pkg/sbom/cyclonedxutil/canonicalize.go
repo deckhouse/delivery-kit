@@ -36,7 +36,7 @@ func Canonicalize(bom *cdx.BOM) {
 	bom.Components = canonicalizeComponents(bom.Components, refMap)
 	bom.Services = canonicalizeServices(bom.Services, refMap)
 
-	RewriteRefs(bom, refMap)
+	RewriteRefs(bom, flattenRefMap(refMap))
 
 	CanonicalizeDocument(bom)
 }
@@ -62,6 +62,33 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 	bom.Compositions = canonicalizeCompositions(bom.Compositions)
 	bom.Annotations = canonicalizeAnnotations(bom.Annotations)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
+}
+
+// flattenRefMap points every mapping at the entity that finally survives.
+// Merging duplicates can map a ref onto another ref that a later merge removes
+// in its turn, and only the last one of such a chain still exists. Unlike a
+// rename, the intermediate refs are gone, so following the chain is safe; a
+// cycle keeps the ref it starts from.
+func flattenRefMap(refMap map[string]string) map[string]string {
+	flat := make(map[string]string, len(refMap))
+
+	for ref, target := range refMap {
+		seen := map[string]struct{}{ref: {}, target: {}}
+		for {
+			next, ok := refMap[target]
+			if !ok {
+				break
+			}
+			if _, looped := seen[next]; looped {
+				break
+			}
+			seen[next] = struct{}{}
+			target = next
+		}
+		flat[ref] = target
+	}
+
+	return flat
 }
 
 func canonicalizeComponents(components *[]cdx.Component, refMap map[string]string) *[]cdx.Component {

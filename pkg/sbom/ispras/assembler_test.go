@@ -102,6 +102,20 @@ var _ = Describe("ContainerAssembler", func() {
 		}
 	})
 
+	It("keeps one declaration of a service two images share", func() {
+		bomA, bomB := imageBOM("a"), imageBOM("b")
+		bomA.Services = &[]cdx.Service{{BOMRef: "svc", Name: "api"}}
+		bomB.Services = &[]cdx.Service{{BOMRef: "svc", Name: "api"}}
+
+		images := []*ImageSBOM{NewImageSBOM("a", bomA), NewImageSBOM("b", bomB)}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), images, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Services).To(Equal([]cdx.Service{{BOMRef: "svc", Name: "api"}}))
+		Expect(*result.Components).To(HaveLen(2))
+	})
+
 	It("keeps images apart when their metadata purls are equal", func() {
 		bomA, bomB := imageBOM("a"), imageBOM("b")
 		bomA.Metadata.Component.PackageURL = "pkg:oci/shared@sha256:aaa"
@@ -217,6 +231,22 @@ var _ = Describe("NamespaceBOMRefs", func() {
 			{Ref: "img/root", Dependencies: &[]string{"img/os"}},
 			{Ref: "img/os", Dependencies: &[]string{"img/lib"}, Provides: &[]string{"img/lib"}},
 		}))
+		Expect((*(*bom.Vulnerabilities)[0].Affects)[0].Ref).To(Equal("img/lib"))
+	})
+
+	It("renames every ref at once when one new ref equals another old one", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1"},
+				{BOMRef: "img/lib", Type: cdx.ComponentTypeLibrary, Name: "other", Version: "2"},
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib"}}}},
+		}
+
+		NamespaceBOMRefs(bom, "img")
+
+		Expect(lo.Map(*bom.Components, func(c cdx.Component, _ int) string { return c.BOMRef })).
+			To(Equal([]string{"img/lib", "img/img/lib"}))
 		Expect((*(*bom.Vulnerabilities)[0].Affects)[0].Ref).To(Equal("img/lib"))
 	})
 })

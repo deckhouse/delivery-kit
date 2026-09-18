@@ -80,25 +80,17 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 	RewriteRefs(bom, refMap)
 }
 
-// remapRef follows the mapping to its end: merging nested duplicates can map a
-// ref onto another ref that is itself merged away later, and only the last one
-// in such a chain still exists. A cycle leaves the ref as it is.
+// remapRef replaces a ref exactly once. The mapping describes a simultaneous
+// rename, so a value that is itself a key belongs to a different entity and
+// must not be followed: renaming "lib" to "img/lib" alongside "img/lib" to
+// "img/img/lib" would otherwise move everything pointing at the first entity
+// onto the second.
 func remapRef(ref string, refMap map[string]string) string {
-	seen := map[string]struct{}{ref: {}}
-
-	for {
-		newRef, ok := refMap[ref]
-		if !ok {
-			return ref
-		}
-
-		if _, looped := seen[newRef]; looped {
-			return ref
-		}
-
-		seen[newRef] = struct{}{}
-		ref = newRef
+	if newRef, ok := refMap[ref]; ok {
+		return newRef
 	}
+
+	return ref
 }
 
 func remapStringSlice(ss *[]string, refMap map[string]string) {

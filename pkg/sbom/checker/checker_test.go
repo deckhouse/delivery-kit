@@ -52,13 +52,13 @@ var _ = Describe("checker", func() {
 
 	Describe("buildDockerArgs", func() {
 		DescribeTable("builds correct docker arguments",
-			func(path string, format ispras.Format, checkVCS bool, want []string) {
-				got, err := buildDockerArgs(path, format, checkVCS)
+			func(path string, format ispras.Format, opts RunOptions, want []string) {
+				got, err := buildDockerArgs(path, format, opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(got).To(Equal(want))
 			},
-			Entry("oss without check-vcs",
-				"/tmp/sbom.json", ispras.FormatOSS, false,
+			Entry("oss without checks",
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{},
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
@@ -66,15 +66,40 @@ var _ = Describe("checker", func() {
 					"--format", "oss", "--errors", "0", "/sbom/input.json",
 				}),
 			Entry("oss with check-vcs",
-				"/tmp/sbom.json", ispras.FormatOSS, true,
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{CheckVCS: true},
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
 					Image,
 					"--format", "oss", "--errors", "0", "--check-vcs", "/sbom/input.json",
 				}),
+			Entry("oss with check-vcs-leaf-only",
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{CheckVCSLeafOnly: true},
+				[]string{
+					"--rm",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "oss", "--errors", "0", "--check-vcs-leaf-only", "/sbom/input.json",
+				}),
+			Entry("oss with check-source-distribution",
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{CheckSourceDistribution: true},
+				[]string{
+					"--rm",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "oss", "--errors", "0", "--check-source-distribution", "/sbom/input.json",
+				}),
+			Entry("oss with check-vcs and check-source-distribution",
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{CheckVCS: true, CheckSourceDistribution: true},
+				[]string{
+					"--rm",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "oss", "--errors", "0",
+					"--check-vcs", "--check-source-distribution", "/sbom/input.json",
+				}),
 			Entry("container format",
-				"/tmp/sbom.json", ispras.FormatContainer, false,
+				"/tmp/sbom.json", ispras.FormatContainer, RunOptions{},
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
@@ -82,13 +107,55 @@ var _ = Describe("checker", func() {
 					"--format", "container", "--errors", "0", "/sbom/input.json",
 				}),
 			Entry("container with check-vcs",
-				"/tmp/sbom.json", ispras.FormatContainer, true,
+				"/tmp/sbom.json", ispras.FormatContainer, RunOptions{CheckVCS: true},
 				[]string{
 					"--rm",
 					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
 					Image,
 					"--format", "container", "--errors", "0", "--check-vcs", "/sbom/input.json",
 				}),
+		)
+	})
+
+	Describe("RunOptions.Validate", func() {
+		DescribeTable("accepts combinations the checker honors",
+			func(opts RunOptions) {
+				Expect(opts.Validate()).To(Succeed())
+			},
+			Entry("nothing enabled", RunOptions{}),
+			Entry("vcs", RunOptions{CheckVCS: true}),
+			Entry("leaf-only vcs", RunOptions{CheckVCSLeafOnly: true}),
+			Entry("vcs and leaf-only vcs", RunOptions{CheckVCS: true, CheckVCSLeafOnly: true}),
+			Entry("source distribution", RunOptions{CheckSourceDistribution: true}),
+			Entry("vcs and source distribution", RunOptions{CheckVCS: true, CheckSourceDistribution: true}),
+		)
+
+		DescribeTable("rejects leaf-only vcs combined with source distribution",
+			func(opts RunOptions) {
+				Expect(opts.Validate()).To(MatchError(ContainSubstring("--check-vcs-leaf-only cannot be combined with --check-source-distribution")))
+			},
+			Entry("leaf-only vcs and source distribution", RunOptions{CheckVCSLeafOnly: true, CheckSourceDistribution: true}),
+			Entry("every check", RunOptions{CheckVCS: true, CheckVCSLeafOnly: true, CheckSourceDistribution: true}),
+		)
+	})
+
+	Describe("enabledChecks", func() {
+		DescribeTable("lists the checks the checker really runs",
+			func(opts RunOptions, want []string) {
+				Expect(enabledChecks(opts)).To(Equal(want))
+			},
+			Entry("nothing enabled", RunOptions{}, []string(nil)),
+			Entry("vcs only", RunOptions{CheckVCS: true}, []string{"VCS"}),
+			Entry("leaf-only vcs", RunOptions{CheckVCSLeafOnly: true}, []string{"leaf-only VCS"}),
+			Entry("vcs and leaf-only vcs narrows to leaves",
+				RunOptions{CheckVCS: true, CheckVCSLeafOnly: true},
+				[]string{"leaf-only VCS"}),
+			Entry("source distribution alone implies vcs",
+				RunOptions{CheckSourceDistribution: true},
+				[]string{"VCS", "source distribution"}),
+			Entry("vcs and source distribution",
+				RunOptions{CheckVCS: true, CheckSourceDistribution: true},
+				[]string{"VCS", "source distribution"}),
 		)
 	})
 

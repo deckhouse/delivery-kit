@@ -11,7 +11,9 @@ import (
 
 // NamespaceBOMRefs prefixes every BOM ref declared by bom — the metadata
 // component and the components recursively — with prefix and rewrites every
-// reference to them accordingly, mutating bom in place.
+// reference to them accordingly, mutating bom in place. Service refs are left
+// alone: services are shared between images rather than kept apart, so
+// references to them keep their refs too.
 func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 	refMap := map[string]string{}
 
@@ -20,18 +22,35 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 	}
 	namespaceComponentBOMRefs(lo.FromPtr(bom.Components), prefix, refMap)
 
-	for _, dep := range lo.FromPtr(bom.Dependencies) {
-		if _, known := refMap[dep.Ref]; !known && dep.Ref != "" {
-			refMap[dep.Ref] = namespacedRef(dep.Ref, prefix)
+	serviceRefs := map[string]struct{}{}
+	collectServiceBOMRefs(lo.FromPtr(bom.Services), serviceRefs)
+
+	namespaceUnknown := func(ref string) {
+		if _, known := refMap[ref]; known || ref == "" {
+			return
 		}
+		if _, service := serviceRefs[ref]; service {
+			return
+		}
+		refMap[ref] = namespacedRef(ref, prefix)
+	}
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		namespaceUnknown(dep.Ref)
 		for _, d := range lo.FromPtr(dep.Dependencies) {
-			if _, known := refMap[d]; !known && d != "" {
-				refMap[d] = namespacedRef(d, prefix)
-			}
+			namespaceUnknown(d)
 		}
 	}
 
 	cyclonedxutil.RewriteRefs(bom, refMap)
+}
+
+func collectServiceBOMRefs(services []cdx.Service, refs map[string]struct{}) {
+	for _, svc := range services {
+		if svc.BOMRef != "" {
+			refs[svc.BOMRef] = struct{}{}
+		}
+		collectServiceBOMRefs(lo.FromPtr(svc.Services), refs)
+	}
 }
 
 func namespaceComponentBOMRefs(components []cdx.Component, prefix string, refMap map[string]string) {

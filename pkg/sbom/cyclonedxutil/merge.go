@@ -25,7 +25,9 @@ type MergeOpts struct {
 	// its own beforehand, so duplicates within one BOM still merge. Set it when
 	// the components of a BOM describe the contents of one thing among several
 	// — a container per image — and a package of one must not become a package
-	// of another.
+	// of another. Services are merged across the BOMs either way: their refs are
+	// not namespaced, so keeping them apart would leave the result with several
+	// services sharing one ref.
 	IsolateComponents bool
 }
 
@@ -110,6 +112,9 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	result.Declarations = mergeDeclarations(boms)
 
 	if opts.IsolateComponents {
+		refMap := map[string]string{}
+		result.Services = canonicalizeServices(result.Services, refMap)
+		RewriteRefs(result, flattenRefMap(refMap))
 		CanonicalizeDocument(result)
 	} else {
 		Canonicalize(result)

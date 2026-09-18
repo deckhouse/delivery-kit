@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/werf/logboek"
@@ -20,7 +21,8 @@ const (
 )
 
 type RunOptions struct {
-	CheckVCS bool
+	CheckVCS       bool
+	FailOnWarnings bool
 }
 
 func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOptions) error {
@@ -37,6 +39,7 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 		logboek.Context(ctx).Debug().LogF("Using checker image: %s\n", Image)
 
 		var failures []string
+		var errCount, warningCount int
 		total := len(paths)
 
 		for i, p := range paths {
@@ -52,13 +55,17 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
 			}
 
-			if err := parseResult(ctx, out, fileName, i+1, total); err != nil {
+			res := parseResult(out)
+			errCount += len(res.errs)
+			warningCount += len(res.warnings)
+
+			if err := res.report(ctx, fileName, i+1, total, opts.FailOnWarnings); err != nil {
 				failures = append(failures, err.Error())
 			}
 		}
 
 		passed := total - len(failures)
-		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed\n", passed, len(failures))
+		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed; %d error(s), %d warning(s)\n", passed, len(failures), errCount, warningCount)
 
 		if len(failures) > 0 {
 			return fmt.Errorf("%s", strings.Join(failures, "\n"))
@@ -99,28 +106,42 @@ func buildDockerArgs(path string, format ispras.Format, checkVCS bool) ([]string
 	return append(args, containerPath), nil
 }
 
-func parseResult(ctx context.Context, out, fileName string, index, total int) error {
-	errs := extractPrefixedLines(out, errorPrefix)
-	warnings := extractPrefixedLines(out, warningPrefix)
+type fileResult struct {
+	errs     []string
+	warnings []string
+}
 
-	if len(errs) == 0 && len(warnings) == 0 {
+func parseResult(out string) fileResult {
+	return fileResult{
+		errs:     extractPrefixedLines(out, errorPrefix),
+		warnings: extractPrefixedLines(out, warningPrefix),
+	}
+}
+
+func (r fileResult) report(ctx context.Context, fileName string, index, total int, failOnWarnings bool) error {
+	failed := len(r.errs) > 0 || (failOnWarnings && len(r.warnings) > 0)
+
+	switch {
+	case failed:
+		logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
+	case len(r.warnings) > 0:
+		logboek.Context(ctx).Default().LogF("(%d/%d) %s... OK (%d warning(s))\n", index, total, fileName, len(r.warnings))
+	default:
 		logboek.Context(ctx).Default().LogF("(%d/%d) %s... OK\n", index, total, fileName)
+	}
+
+	for _, e := range r.errs {
+		logboek.Context(ctx).Default().LogF("  %s\n", e)
+	}
+	for _, w := range r.warnings {
+		logboek.Context(ctx).Warn().LogF("  %s\n", w)
+	}
+
+	if !failed {
 		return nil
 	}
 
-	logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
-	for _, e := range errs {
-		logboek.Context(ctx).Default().LogF("  %s\n", e)
-	}
-	for _, w := range warnings {
-		logboek.Context(ctx).Default().LogF("  %s\n", w)
-	}
-
-	var details []string
-	details = append(details, errs...)
-	details = append(details, warnings...)
-
-	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
+	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(slices.Concat(r.errs, r.warnings), "\n"))
 }
 
 func extractPrefixedLines(text, prefix string) []string {

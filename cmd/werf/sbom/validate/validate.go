@@ -20,6 +20,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	var pathFlags []string
 	var isprasFormatFlag string
 	var checkVCSFlag bool
+	var failOnWarningsFlag bool
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:                   "validate",
@@ -53,7 +54,10 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			}
 
 			return common.LogRunningTime(func() error {
-				return runValidate(ctx, pathFlags, isprasFormat, checkVCSFlag)
+				return runValidate(ctx, pathFlags, isprasFormat, checker.RunOptions{
+					CheckVCS:       checkVCSFlag,
+					FailOnWarnings: failOnWarningsFlag,
+				})
 			})
 		},
 	})
@@ -71,11 +75,12 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringArrayVar(&pathFlags, "path", nil, "Path to CycloneDX JSON SBOM file (repeatable)")
 	cmd.Flags().StringVar(&isprasFormatFlag, "ispras-format", "", "ISPRAS SBOM format: oss or container")
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
+	cmd.Flags().BoolVar(&failOnWarningsFlag, "fail-on-warnings", false, "Treat checker warnings as failures (by default only errors fail validation)")
 
 	return cmd
 }
 
-func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format, checkVCS bool) error {
+func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format, opts checker.RunOptions) error {
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                         &commonCmdData,
 		InitWerf:                    true,
@@ -85,7 +90,7 @@ func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format
 		return fmt.Errorf("component init error: %w", err)
 	}
 
-	return checker.Run(ctx, paths, isprasFormat, checker.RunOptions{CheckVCS: checkVCS})
+	return checker.Run(ctx, paths, isprasFormat, opts)
 }
 
 func validateFlags(path []string, isprasFormat string, checkVcs bool) error {

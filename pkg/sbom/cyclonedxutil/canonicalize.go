@@ -219,9 +219,9 @@ func canonicalizeComponent(comp *cdx.Component) {
 }
 
 // componentKey identifies a component by its purl or, without one, by its
-// coordinates. A file is the exception: two files with the same name and
-// version are the same only if their content is, so files are identified by
-// their hashes and a file without hashes is never merged.
+// coordinates. A file is the exception: two files with the same name are the
+// same only if their content is, so files are identified by their name and
+// hashes and a file without hashes is never merged.
 func componentKey(comp cdx.Component, index int) string {
 	if comp.PackageURL != "" {
 		return "purl:" + normalizePURL(comp.PackageURL)

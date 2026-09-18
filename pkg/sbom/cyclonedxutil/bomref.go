@@ -8,6 +8,8 @@ import (
 	packageurl "github.com/package-url/packageurl-go"
 )
 
+const packageIDQualifier = "package-id"
+
 func packageID(serial string, index int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", serial, index)))
 	return fmt.Sprintf("%x", h[:8])
@@ -21,10 +23,18 @@ func deriveBomRef(purl, serial string, index int) string {
 		return id
 	}
 
-	parsed.Qualifiers = append(parsed.Qualifiers, packageurl.Qualifier{
-		Key:   "package-id",
+	qualifiers := make(packageurl.Qualifiers, 0, len(parsed.Qualifiers)+1)
+	for _, qualifier := range parsed.Qualifiers {
+		if qualifier.Key == packageIDQualifier {
+			continue
+		}
+		qualifiers = append(qualifiers, qualifier)
+	}
+	qualifiers = append(qualifiers, packageurl.Qualifier{
+		Key:   packageIDQualifier,
 		Value: id,
 	})
+	parsed.Qualifiers = qualifiers
 
 	return parsed.ToString()
 }
@@ -67,9 +77,14 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 		}
 	}
 
-	rewriteAllRefs(bom, refMap)
+	RewriteRefs(bom, refMap)
 }
 
+// remapRef replaces a ref exactly once. The mapping describes a simultaneous
+// rename, so a value that is itself a key belongs to a different entity and
+// must not be followed: renaming "lib" to "img/lib" alongside "img/lib" to
+// "img/img/lib" would otherwise move everything pointing at the first entity
+// onto the second.
 func remapRef(ref string, refMap map[string]string) string {
 	if newRef, ok := refMap[ref]; ok {
 		return newRef
@@ -98,7 +113,10 @@ func remapBOMReferenceSlice(refs *[]cdx.BOMReference, refMap map[string]string) 
 	}
 }
 
-func rewriteAllRefs(bom *cdx.BOM, refMap map[string]string) {
+// RewriteRefs replaces every BOM ref that occurs as a key of refMap — in
+// dependencies, vulnerabilities, compositions, annotations and declarations —
+// with the mapped value. Component refs themselves are left untouched.
+func RewriteRefs(bom *cdx.BOM, refMap map[string]string) {
 	if len(refMap) == 0 {
 		return
 	}

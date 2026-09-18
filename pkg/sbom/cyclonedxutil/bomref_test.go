@@ -62,6 +62,13 @@ var _ = Describe("deriveBomRef", func() {
 				Expect(ref).To(ContainSubstring("package-id="))
 			},
 		),
+		Entry("replaces a package-id qualifier the PURL already carries",
+			"pkg:deb/debian/curl@7.74.0?package-id=aaa", "urn:uuid:test-serial", 0,
+			func(ref string) {
+				Expect(strings.Count(ref, "package-id=")).To(Equal(1))
+				Expect(ref).ToNot(ContainSubstring("package-id=aaa"))
+			},
+		),
 		Entry("returns raw ID for empty PURL",
 			"", "urn:uuid:test-serial", 0,
 			func(ref string) {

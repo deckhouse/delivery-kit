@@ -149,21 +149,32 @@ func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[s
 	survivor.Properties = appendPtrSlice(survivor.Properties, dup.Properties)
 	survivor.Hashes = dedupPtrSlice(appendPtrSlice(survivor.Hashes, dup.Hashes))
 	survivor.Licenses = mergeLicenses(survivor.Licenses, dup.Licenses)
-	if survivor.CPE == "" {
-		survivor.CPE = dup.CPE
-	}
-	if survivor.Description == "" {
-		survivor.Description = dup.Description
-	}
+	survivor.Authors = dedupPtrSlice(appendPtrSlice(survivor.Authors, dup.Authors))
+	survivor.OmniborID = dedupStringSlice(appendPtrSlice(survivor.OmniborID, dup.OmniborID))
+	survivor.SWHID = dedupStringSlice(appendPtrSlice(survivor.SWHID, dup.SWHID))
+	survivor.Tags = dedupStringSlice(appendPtrSlice(survivor.Tags, dup.Tags))
+	survivor.Data = dedupPtrSlice(appendPtrSlice(survivor.Data, dup.Data))
+
+	takeString(&survivor.MIMEType, dup.MIMEType)
+	takeString(&survivor.Group, dup.Group)
+	takeString(&survivor.Author, dup.Author)
+	takeString(&survivor.Publisher, dup.Publisher)
+	takeString(&survivor.Description, dup.Description)
+	takeString(&survivor.Copyright, dup.Copyright)
+	takeString(&survivor.CPE, dup.CPE)
 	if survivor.Scope == "" {
 		survivor.Scope = dup.Scope
 	}
-	if survivor.Supplier == nil {
-		survivor.Supplier = dup.Supplier
-	}
-	if survivor.Evidence == nil {
-		survivor.Evidence = dup.Evidence
-	}
+	takePtr(&survivor.Supplier, dup.Supplier)
+	takePtr(&survivor.Manufacturer, dup.Manufacturer)
+	takePtr(&survivor.SWID, dup.SWID)
+	takePtr(&survivor.Modified, dup.Modified)
+	takePtr(&survivor.Pedigree, dup.Pedigree)
+	takePtr(&survivor.Evidence, dup.Evidence)
+	takePtr(&survivor.ReleaseNotes, dup.ReleaseNotes)
+	takePtr(&survivor.ModelCard, dup.ModelCard)
+	takePtr(&survivor.CryptoProperties, dup.CryptoProperties)
+	takePtr(&survivor.Signature, dup.Signature)
 
 	if dup.Components != nil {
 		merged := append(lo.FromPtr(survivor.Components), *dup.Components...)
@@ -171,6 +182,18 @@ func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[s
 	}
 
 	canonicalizeComponent(survivor)
+}
+
+func takeString(dest *string, src string) {
+	if *dest == "" {
+		*dest = src
+	}
+}
+
+func takePtr[T any](dest **T, src *T) {
+	if *dest == nil {
+		*dest = src
+	}
 }
 
 // mergeLicenses unions two license lists. CycloneDX forbids mixing SPDX
@@ -262,27 +285,13 @@ func mergeServiceInto(survivor *cdx.Service, dup cdx.Service, refMap map[string]
 	survivor.Tags = dedupStringSlice(appendPtrSlice(survivor.Tags, dup.Tags))
 	survivor.Data = dedupPtrSlice(appendPtrSlice(survivor.Data, dup.Data))
 	survivor.Licenses = mergeLicenses(survivor.Licenses, dup.Licenses)
-	if survivor.Provider == nil {
-		survivor.Provider = dup.Provider
-	}
-	if survivor.Description == "" {
-		survivor.Description = dup.Description
-	}
-	if survivor.TrustZone == "" {
-		survivor.TrustZone = dup.TrustZone
-	}
-	if survivor.Authenticated == nil {
-		survivor.Authenticated = dup.Authenticated
-	}
-	if survivor.CrossesTrustBoundary == nil {
-		survivor.CrossesTrustBoundary = dup.CrossesTrustBoundary
-	}
-	if survivor.ReleaseNotes == nil {
-		survivor.ReleaseNotes = dup.ReleaseNotes
-	}
-	if survivor.Signature == nil {
-		survivor.Signature = dup.Signature
-	}
+	takeString(&survivor.Description, dup.Description)
+	takeString(&survivor.TrustZone, dup.TrustZone)
+	takePtr(&survivor.Provider, dup.Provider)
+	takePtr(&survivor.Authenticated, dup.Authenticated)
+	takePtr(&survivor.CrossesTrustBoundary, dup.CrossesTrustBoundary)
+	takePtr(&survivor.ReleaseNotes, dup.ReleaseNotes)
+	takePtr(&survivor.Signature, dup.Signature)
 
 	if dup.Services != nil {
 		merged := append(lo.FromPtr(survivor.Services), *dup.Services...)

@@ -165,6 +165,32 @@ var _ = Describe("Canonicalize", func() {
 		Expect(comp.CPE).To(Equal("cpe:2.3:a:vendor:bin:1:*:*:*:*:*:*:*"))
 	})
 
+	It("takes every field the survivor lacks from the merged duplicate", func() {
+		dup := cdx.Component{
+			BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1", PackageURL: "pkg:generic/bin@1",
+			MIMEType: "application/octet-stream", Group: "grp", Author: "someone", Publisher: "pub", Copyright: "(c)",
+			Description: "desc", Scope: cdx.ScopeRequired, CPE: "cpe:2.3:a:v:bin:1:*:*:*:*:*:*:*",
+			Supplier: &cdx.OrganizationalEntity{Name: "supplier"}, Manufacturer: &cdx.OrganizationalEntity{Name: "maker"},
+			Authors:   &[]cdx.OrganizationalContact{{Name: "author"}},
+			OmniborID: &[]string{"gitoid:blob:sha1:1"}, SWHID: &[]string{"swh:1:cnt:1"}, Tags: &[]string{"t"},
+			SWID: &cdx.SWID{TagID: "tag", Name: "bin"}, Modified: lo.ToPtr(true),
+			Pedigree: &cdx.Pedigree{Notes: "notes"}, Evidence: &cdx.Evidence{Copyright: &[]cdx.Copyright{{Text: "(c)"}}},
+			ReleaseNotes: &cdx.ReleaseNotes{Type: "major"}, ModelCard: &cdx.MLModelCard{BOMRef: "card"},
+			Data: &[]cdx.ComponentData{{Name: "data"}}, CryptoProperties: &cdx.CryptoProperties{AssetType: cdx.CryptoAssetTypeAlgorithm},
+			Signature: &cdx.JSFSignature{Signers: &[]cdx.JSFSigner{{Value: "sig"}}},
+		}
+		bom := &cdx.BOM{Components: &[]cdx.Component{
+			{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1", PackageURL: "pkg:generic/bin@1"},
+			dup,
+		}}
+
+		Canonicalize(bom)
+
+		want := dup
+		want.BOMRef = "a"
+		Expect(*bom.Components).To(Equal([]cdx.Component{want}))
+	})
+
 	It("gives a survivor without a bom-ref the ref of its duplicate so the graph stays attached", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

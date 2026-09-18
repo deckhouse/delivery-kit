@@ -83,7 +83,7 @@ var _ = Describe("ContainerAssembler", func() {
 				Expect(refs).To(HaveKey(ref))
 			}
 		}
-		Expect((*result.Dependencies)[0]).To(Equal(cdx.Dependency{Ref: "a", Dependencies: &[]string{"a/os"}}))
+		Expect((*result.Dependencies)[0]).To(Equal(cdx.Dependency{Ref: "a/root", Dependencies: &[]string{"a/os"}}))
 	})
 
 	It("keeps the same package in every container it belongs to", func() {
@@ -98,8 +98,29 @@ var _ = Describe("ContainerAssembler", func() {
 		containers := *result.Components
 		Expect(containers).To(HaveLen(2))
 		for _, container := range containers {
-			Expect(*container.Components).To(HaveLen(2))
+			Expect(*container.Components).To(HaveLen(3))
 		}
+	})
+
+	It("keeps the image root component inside its container", func() {
+		bom := imageBOM("a")
+		gost.SetComponent(bom.Metadata.Component, gost.Config{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes})
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
+		Expect(err).NotTo(HaveOccurred())
+
+		container := (*result.Components)[0]
+		Expect(container.BOMRef).To(Equal("a"))
+		Expect(container.Name).To(Equal("a"))
+
+		root := (*container.Components)[0]
+		Expect(root.BOMRef).To(Equal("a/root"))
+		Expect(root.Name).To(Equal("registry.example.com/a"))
+		Expect(root.Version).NotTo(BeEmpty(), "the ISPRAS schema requires a version on a nested component")
+		Expect(gost.GetComponent(&root)).To(Equal(gost.Config{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes}))
+
+		Expect(gost.GetComponent(&container)).To(Equal(gost.Config{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes}),
+			"the container equals the maximum over its content, which the root now carries")
 	})
 
 	It("keeps images apart when their metadata purls are equal", func() {
@@ -116,11 +137,11 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(containers).To(HaveLen(2))
 		Expect(lo.Map(containers, func(c cdx.Component, _ int) string { return c.BOMRef })).To(ConsistOf("a", "b"))
 		for _, container := range containers {
-			Expect(*container.Components).To(HaveLen(2))
+			Expect(*container.Components).To(HaveLen(3))
 		}
 	})
 
-	It("redirects every reference to the image root, not only dependency subjects", func() {
+	It("keeps every reference to the image root resolvable and the caller's BOM untouched", func() {
 		bom := imageBOM("a")
 		bom.Vulnerabilities = &[]cdx.Vulnerability{{ID: "CVE-2", Affects: &[]cdx.Affects{{Ref: "a/root"}}}}
 		bom.Dependencies = &[]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"a/root"}}}
@@ -130,8 +151,9 @@ var _ = Describe("ContainerAssembler", func() {
 		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(*(*result.Vulnerabilities)[0].Affects).To(Equal([]cdx.Affects{{Ref: "a"}}))
-		Expect(*result.Dependencies).To(Equal([]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"a"}}}))
+		Expect(*(*result.Vulnerabilities)[0].Affects).To(Equal([]cdx.Affects{{Ref: "a/root"}}))
+		Expect(*result.Dependencies).To(Equal([]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"a/root"}}}))
+		Expect(collectRefs(*result.Components)).To(HaveKey("a/root"))
 
 		after, err := json.Marshal(bom)
 		Expect(err).NotTo(HaveOccurred())

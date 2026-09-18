@@ -32,7 +32,7 @@ func managerBin(files FileBasedSpec, defaultBin string) string {
 // unreadable secret would otherwise let the package manager run with the variable empty.
 // Every directive runs in the same stage script, so such a statement would overwrite a
 // variable the base image exports for every later directive; the caller keeps it local
-// by running the whole directive in a subshell.
+// by running the assignments together with the package manager in a subshell.
 func formatEnvVars(env map[string]string, standalone []string) ([]string, string) {
 	if len(env) == 0 {
 		return nil, ""
@@ -65,13 +65,15 @@ func joinDirective(assignments, commands []string) string {
 	return fmt.Sprintf("(%s)", strings.Join(append(assignments, commands...), "; "))
 }
 
+// `cd` stays in the parent shell: a later directive may use a relative workdir that
+// counts on it, as it did when every command ran there.
 func formatWorkdirCommand(workdir, command string, env map[string]string) string {
 	assignments, prefix := formatEnvVars(env, nil)
 	if prefix != "" {
 		command = fmt.Sprintf("%s %s", prefix, command)
 	}
 
-	return joinDirective(assignments, []string{fmt.Sprintf("cd %q && %s", workdir, command)})
+	return fmt.Sprintf("cd %q && %s", workdir, joinDirective(assignments, []string{command}))
 }
 
 func formatMkdirCommand() string {

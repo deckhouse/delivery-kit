@@ -51,6 +51,11 @@ var _ = Describe("formatWorkdirCommand", func() {
 			To(Equal(`cd "/app" && GOPROXY=direct go mod download`))
 	})
 
+	It("keeps cd in the parent shell and isolates only a secret-backed value", func() {
+		Expect(formatWorkdirCommand("/app", "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"})).
+			To(Equal(`cd "/app" && (GOPROXY="$(</run/secrets/proxy)"; GOPROXY="$GOPROXY" go mod download)`))
+	})
+
 	It("exposes the env var to the package manager process", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
 		command := formatWorkdirCommand(dir, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"})
@@ -72,13 +77,19 @@ var _ = Describe("formatWorkdirCommand", func() {
 				Expect(os.WriteFile(filepath.Join(secretsDir, id), []byte(value), 0o600)).To(Succeed())
 			}
 
+			appDir := filepath.Join(dir, "app")
+			Expect(os.MkdirAll(filepath.Join(appDir, "tools"), 0o700)).To(Succeed())
+
+			// The second workdir is relative: it resolves against the `cd` of the first directive,
+			// which the shared stage shell keeps between directives.
 			script := strings.Join([]string{
-				formatWorkdirCommand(dir, "printenv GOPROXY", firstEnv),
-				formatWorkdirCommand(dir, "printenv GOPROXY", nil),
+				formatWorkdirCommand(appDir, "printenv GOPROXY", firstEnv),
+				formatWorkdirCommand("tools", "printenv GOPROXY", nil),
 			}, "\n")
 			script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
 
 			cmd := exec.CommandContext(ctx, "bash", "-ec", script)
+			cmd.Dir = dir
 			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GOPROXY=base-proxy"}
 			stderr := &bytes.Buffer{}
 			cmd.Stderr = stderr

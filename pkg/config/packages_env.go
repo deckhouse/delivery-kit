@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alessio/shellescape"
+	"github.com/samber/lo"
 )
 
 const (
@@ -48,6 +49,17 @@ func splitPackageEnvValue(value string) ([]packageEnvPart, error) {
 	}
 
 	return parts, nil
+}
+
+func packageEnvValueReadsSecret(value string) bool {
+	parts, err := splitPackageEnvValue(value)
+	if err != nil {
+		return false
+	}
+
+	return lo.ContainsBy(parts, func(part packageEnvPart) bool {
+		return part.namespace == packageEnvNamespaceSecret
+	})
 }
 
 func formatPackageEnvValue(value string) string {

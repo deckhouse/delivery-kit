@@ -11,6 +11,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/logging"
 )
@@ -411,37 +412,92 @@ var _ = Describe("Enricher", func() {
 			Expect(*(*bom.ExternalReferences)[0].Hashes).To(HaveLen(2))
 		})
 
-		It("replaces a source distribution an earlier enrichment left without a digest", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
-				return &ResolveResult{
-					URL:    "https://example.com/pkg.tgz",
-					Kind:   "source-distribution",
-					Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
-				}, nil
-			})
+		DescribeTable("replaces a source distribution an earlier enrichment left without a digest",
+			func(inheritedHashes *[]cdx.Hash) {
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					return &ResolveResult{
+						URL:    "https://example.com/pkg.tgz",
+						Kind:   "source-distribution",
+						Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+					}, nil
+				})
 
-			bom := &cdx.BOM{
-				Components: &[]cdx.Component{
-					{
-						Name:       "pkg-a",
-						Version:    "1.0",
-						PackageURL: "pkg:npm/pkg-a@1.0",
-						Type:       cdx.ComponentTypeLibrary,
-						ExternalReferences: &[]cdx.ExternalReference{
-							{URL: "https://example.com/old.tgz", Type: cdx.ERTypeSourceDistribution},
+				bom := &cdx.BOM{
+					Components: &[]cdx.Component{
+						{
+							Name:       "pkg-a",
+							Version:    "1.0",
+							PackageURL: "pkg:npm/pkg-a@1.0",
+							Type:       cdx.ComponentTypeLibrary,
+							ExternalReferences: &[]cdx.ExternalReference{
+								{URL: "https://example.com/old.tgz", Type: cdx.ERTypeSourceDistribution, Hashes: inheritedHashes},
+							},
 						},
 					},
-				},
-			}
+				}
 
-			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
-			refs := *(*bom.Components)[0].ExternalReferences
-			Expect(refs).To(HaveLen(1))
-			Expect(refs[0].URL).To(Equal("https://example.com/pkg.tgz"))
-			Expect(*refs[0].Hashes).To(HaveLen(1))
-			Expect(*bom.ExternalReferences).To(HaveLen(1))
-			Expect((*bom.ExternalReferences)[0].URL).To(Equal("https://example.com/pkg.tgz"))
-		})
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				refs := *(*bom.Components)[0].ExternalReferences
+				Expect(refs).To(HaveLen(1))
+				Expect(refs[0].URL).To(Equal("https://example.com/pkg.tgz"))
+				Expect(*refs[0].Hashes).To(HaveLen(1))
+				Expect(*bom.ExternalReferences).To(HaveLen(1))
+				Expect((*bom.ExternalReferences)[0].URL).To(Equal("https://example.com/pkg.tgz"))
+			},
+			Entry("hashes absent", nil),
+			Entry("hashes empty", &[]cdx.Hash{}),
+		)
+
+		DescribeTable("keeps a shared source distribution in the BOM list when another component's copy is replaced",
+			func(digestFirst bool) {
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					return &ResolveResult{
+						URL:    "https://example.com/new.tgz",
+						Kind:   "source-distribution",
+						Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+					}, nil
+				})
+
+				withDigest := cdx.ExternalReference{
+					URL:    "https://example.com/old.tgz",
+					Type:   cdx.ERTypeSourceDistribution,
+					Hashes: &[]cdx.Hash{{Algorithm: cdx.HashAlgorithm("STREEBOG-512"), Value: streebog512Content}},
+				}
+				digested := cdx.Component{
+					Name:               "pkg-a",
+					Version:            "1.0",
+					PackageURL:         "pkg:npm/pkg-a@1.0",
+					Type:               cdx.ComponentTypeLibrary,
+					ExternalReferences: &[]cdx.ExternalReference{withDigest},
+				}
+				undigested := cdx.Component{
+					Name:       "pkg-b",
+					Version:    "1.0",
+					PackageURL: "pkg:npm/pkg-b@1.0",
+					Type:       cdx.ComponentTypeLibrary,
+					ExternalReferences: &[]cdx.ExternalReference{
+						{URL: "https://example.com/old.tgz", Type: cdx.ERTypeSourceDistribution},
+					},
+				}
+				components := []cdx.Component{digested, undigested}
+				if !digestFirst {
+					components = []cdx.Component{undigested, digested}
+				}
+				bom := &cdx.BOM{Components: &components}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+				urls := lo.Map(*bom.Components, func(comp cdx.Component, _ int) string {
+					return (*comp.ExternalReferences)[0].URL
+				})
+				Expect(urls).To(ConsistOf("https://example.com/old.tgz", "https://example.com/new.tgz"))
+				Expect(*bom.ExternalReferences).To(HaveLen(2))
+				Expect(*bom.ExternalReferences).To(ContainElement(withDigest))
+				Expect(*bom.ExternalReferences).To(ContainElement(HaveField("URL", "https://example.com/new.tgz")))
+			},
+			Entry("digested component first", true),
+			Entry("undigested component first", false),
+		)
 
 		It("keeps a source distribution that already carries a digest", func() {
 			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {

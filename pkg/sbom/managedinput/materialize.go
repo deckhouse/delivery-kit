@@ -2,6 +2,7 @@ package managedinput
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,24 +14,39 @@ import (
 )
 
 // MaterializeCatalogerInputs extracts a cataloger's declared spec/lock files from the
-// built image and writes them into a fresh temporary directory under their full in-image
-// path, so a directory-source scan records the same locations the files had in the image
-// (e.g. /app/api/go.mod) and keeps a spec next to its lock. Required inputs (SourcePaths)
-// must be present — the build fails otherwise; optional inputs (OptionalSourcePaths, e.g. a
-// go.sum a depless module never produces) are skipped when absent, matching the previous
-// full-image scan. The returned directory and its files are world-readable so the
-// unprivileged scanner container can read them. The caller must invoke the returned cleanup
-// once the scan is done.
+// built image and writes them under their full in-image path into a scan directory, so a
+// directory-source scan records the same locations the files had in the image (e.g.
+// /app/api/go.mod) and keeps a spec next to its lock. Required inputs (SourcePaths) must
+// be present — the build fails otherwise; optional inputs (OptionalSourcePaths, e.g. a
+// go.sum a depless module never produces) are skipped only when genuinely absent from the
+// image, any other read failure aborts.
+//
+// The returned scan directory is world-readable so the scanner container's user can read
+// it, but it sits inside a 0700 parent owned by the invoking user: on a shared host other
+// users cannot enumerate or read the extracted manifests. Bind-mount only the returned
+// directory. The caller must invoke the returned cleanup once the scan is done.
 func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.ContainerBackend, imageRef string, cataloger scanner.Cataloger, targetPlatform string) (string, func(context.Context), error) {
-	dir, err := os.MkdirTemp("", "sbom-dirscan-*")
+	parentDir, err := os.MkdirTemp("", "sbom-dirscan-*")
 	if err != nil {
-		return "", nil, fmt.Errorf("create scan dir: %w", err)
+		return "", nil, fmt.Errorf("create scan parent dir: %w", err)
 	}
 
 	cleanup := func(ctx context.Context) {
-		if err := os.RemoveAll(dir); err != nil {
-			logboek.Context(ctx).Warn().LogF("WARNING: unable to remove scan dir %q: %s\n", dir, err)
+		if err := os.RemoveAll(parentDir); err != nil {
+			logboek.Context(ctx).Warn().LogF("WARNING: unable to remove scan dir %q: %s\n", parentDir, err)
 		}
+	}
+
+	// MkdirTemp is umask-subject; pin the parent to owner-only regardless of umask.
+	if err := os.Chmod(parentDir, 0o700); err != nil {
+		cleanup(ctx)
+		return "", nil, fmt.Errorf("restrict scan parent dir %q: %w", parentDir, err)
+	}
+
+	scanDir := filepath.Join(parentDir, "scan")
+	if err := os.Mkdir(scanDir, 0o755); err != nil {
+		cleanup(ctx)
+		return "", nil, fmt.Errorf("create scan dir %q: %w", scanDir, err)
 	}
 
 	opts := container_backend.ReadFileFromImageOpts{TargetPlatform: targetPlatform}
@@ -41,7 +57,7 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 			cleanup(ctx)
 			return "", nil, fmt.Errorf("read %s from image %q for cataloger %q: %w", sourcePath, imageRef, cataloger.Name, err)
 		}
-		if err := writeMaterializedFile(dir, sourcePath, data); err != nil {
+		if err := writeMaterializedFile(scanDir, sourcePath, data); err != nil {
 			cleanup(ctx)
 			return "", nil, err
 		}
@@ -49,25 +65,30 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 
 	for _, sourcePath := range cataloger.OptionalSourcePaths {
 		data, err := backend.ReadFileFromImage(ctx, imageRef, sourcePath, opts)
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			logboek.Context(ctx).Warn().LogF("WARNING: lock file %s not found in image %q for cataloger %q; scanning the spec only. This is expected for a project without dependencies; otherwise transitive dependencies will be missing from the SBOM\n", sourcePath, imageRef, cataloger.Name)
 			continue
 		}
-		if err := writeMaterializedFile(dir, sourcePath, data); err != nil {
+		if err != nil {
+			cleanup(ctx)
+			return "", nil, fmt.Errorf("read %s from image %q for cataloger %q: %w", sourcePath, imageRef, cataloger.Name, err)
+		}
+		if err := writeMaterializedFile(scanDir, sourcePath, data); err != nil {
 			cleanup(ctx)
 			return "", nil, err
 		}
 	}
 
-	// MkdirTemp, MkdirAll and WriteFile are all umask-subject, so under a restrictive umask
-	// the scan root and its nested directories would not be traversable by the scanner
-	// container's user. Force the whole tree world-readable (dirs also executable).
-	if err := makeTreeWorldReadable(dir); err != nil {
+	// Mkdir, MkdirAll and WriteFile are all umask-subject, so under a restrictive umask
+	// the scan dir and its nested directories would not be traversable by the scanner
+	// container's user. Force the scan subtree world-readable (dirs also executable);
+	// the 0700 parent above keeps it private to the invoking user on the host.
+	if err := makeTreeWorldReadable(scanDir); err != nil {
 		cleanup(ctx)
-		return "", nil, fmt.Errorf("make scan dir %q world-readable: %w", dir, err)
+		return "", nil, fmt.Errorf("make scan dir %q world-readable: %w", scanDir, err)
 	}
 
-	return dir, cleanup, nil
+	return scanDir, cleanup, nil
 }
 
 func writeMaterializedFile(dir, sourcePath string, data []byte) error {

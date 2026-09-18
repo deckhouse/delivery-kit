@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -222,6 +223,9 @@ func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, image
 	}()
 
 	reader, err := docker.ContainerCopyFrom(ctx, containerName, path)
+	if client.IsErrNotFound(err) {
+		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, fs.ErrNotExist)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
 	}
@@ -246,7 +250,7 @@ func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, image
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("no regular file at %s in image %q", path, imageRef)
+	return nil, fmt.Errorf("no regular file at %s in image %q: %w", path, imageRef, fs.ErrNotExist)
 }
 
 // GetImageInspect only available for DockerServerBackend

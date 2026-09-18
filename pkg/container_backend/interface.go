@@ -94,7 +94,9 @@ type ContainerBackend interface {
 
 	// ReadFileFromImage returns the content of a regular file at path inside
 	// imageRef without executing anything from the image, so it works for
-	// scratch/distroless images that have no shell or coreutils.
+	// scratch/distroless images that have no shell or coreutils. When there is no
+	// regular file at path, the returned error wraps fs.ErrNotExist so callers can
+	// distinguish genuine absence from a failed read.
 	ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error)
 
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)

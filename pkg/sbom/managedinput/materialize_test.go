@@ -3,6 +3,9 @@ package managedinput
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +80,51 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		dirInfo, err := os.Stat(dir)
 		Expect(err).To(Succeed())
 		Expect(dirInfo.Mode().Perm()&0o005).To(Equal(os.FileMode(0o005)), "scan dir must be world-readable and traversable")
+
+		// The scan dir is nested in a parent that stays private to the invoking user, so on a
+		// shared host other users cannot enumerate or read the extracted manifests.
+		parentInfo, err := os.Stat(filepath.Dir(dir))
+		Expect(err).To(Succeed())
+		Expect(parentInfo.Mode().Perm()).To(Equal(os.FileMode(0o700)), "scan parent dir must be owner-only")
+	})
+
+	It("keeps the parent dir owner-only even under a permissive umask", func() {
+		previousUmask := syscall.Umask(0o000)
+		defer syscall.Umask(previousUmask)
+
+		cataloger := scanner.Cataloger{
+			Name:        "go-module-file-cataloger",
+			SourcePaths: []string{"/app/go.mod"},
+		}
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+			Return([]byte("module example.com/app\n"), nil)
+
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		Expect(err).To(Succeed())
+		DeferCleanup(func() { cleanup(ctx) })
+
+		parentInfo, err := os.Stat(filepath.Dir(dir))
+		Expect(err).To(Succeed())
+		Expect(parentInfo.Mode().Perm()).To(Equal(os.FileMode(0o700)), "scan parent dir must be owner-only regardless of umask")
+	})
+
+	It("removes the private parent dir on cleanup", func() {
+		cataloger := scanner.Cataloger{
+			Name:        "go-module-file-cataloger",
+			SourcePaths: []string{"/app/go.mod"},
+		}
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+			Return([]byte("module example.com/app\n"), nil)
+
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		Expect(err).To(Succeed())
+
+		cleanup(ctx)
+
+		_, err = os.Stat(filepath.Dir(dir))
+		Expect(os.IsNotExist(err)).To(BeTrue(), "cleanup must remove the parent, not just the scan dir")
 	})
 
 	It("makes intermediate MkdirAll directories world-traversable under a restrictive umask", func() {
@@ -179,7 +227,7 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Return([]byte("module example.com/app\n"), nil)
 		mockBackend.EXPECT().
 			ReadFileFromImage(ctx, imageRef, "/app/go.sum", container_backend.ReadFileFromImageOpts{}).
-			Return(nil, errors.New("Could not find the file /app/go.sum in container werf.read_file.x"))
+			Return(nil, fmt.Errorf("copy /app/go.sum from image %q: %w", imageRef, fs.ErrNotExist))
 
 		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
 		Expect(err).To(Succeed())
@@ -195,6 +243,28 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(output.String()).To(ContainSubstring("WARNING: lock file /app/go.sum not found in image"),
 			"skipping a declared lock must be surfaced as a warning, not hidden at debug level")
 		Expect(output.String()).To(ContainSubstring("go-module-file-cataloger"))
+	})
+
+	It("fails when reading an optional lock file errors for a reason other than absence", func() {
+		// Only genuine absence may take the skip path. A transport or content-read failure
+		// on a lock that exists must abort, or an incomplete SBOM would be published and cached.
+		cataloger := scanner.Cataloger{
+			Name:                "go-module-file-cataloger",
+			SourcePaths:         []string{"/app/go.mod"},
+			OptionalSourcePaths: []string{"/app/go.sum"},
+		}
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+			Return([]byte("module example.com/app\n"), nil)
+		mockBackend.EXPECT().
+			ReadFileFromImage(ctx, imageRef, "/app/go.sum", container_backend.ReadFileFromImageOpts{}).
+			Return(nil, fmt.Errorf("read /app/go.sum tar stream from image %q: %w", imageRef, io.ErrUnexpectedEOF))
+
+		_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		Expect(err).To(HaveOccurred())
+		Expect(errors.Is(err, io.ErrUnexpectedEOF)).To(BeTrue(), "the underlying read error must be preserved")
+		Expect(err.Error()).To(ContainSubstring("go-module-file-cataloger"))
+		Expect(err.Error()).To(ContainSubstring("/app/go.sum"))
 	})
 
 	It("fails naming the cataloger and path when a required spec is absent from the image", func() {

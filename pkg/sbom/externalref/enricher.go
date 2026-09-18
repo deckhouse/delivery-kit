@@ -126,15 +126,9 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	}
 
 	components := *bom.Components
-	seen := make(map[string]cdx.ExternalReference)
 	var purls []string
 	for i := range components {
 		comp := &components[i]
-		if comp.ExternalReferences != nil {
-			for _, ref := range *comp.ExternalReferences {
-				seen[refKey(ref)] = ref
-			}
-		}
 		if componentNeedsResolve(comp) {
 			purls = append(purls, comp.PackageURL)
 		}
@@ -174,19 +168,29 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		// rather than kept: the base image it came from cannot be fixed from here,
 		// and keeping it would carry the unvalidatable link into this SBOM too.
 		if existing, idx, ok := findRefType(*comp.ExternalReferences, outcome.ref.Type); ok {
-			if existing.Hashes != nil || outcome.ref.Hashes == nil {
+			if hasHashes(existing) || outcome.ref.Hashes == nil {
 				continue
 			}
-			delete(seen, refKey(existing))
 			(*comp.ExternalReferences)[idx] = outcome.ref
 		} else {
 			*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
 		}
-		seen[refKey(outcome.ref)] = outcome.ref
 	}
 
 	if len(failed) > 0 {
 		return newComponentError(failed)
+	}
+
+	// The BOM-wide list is derived from the final component references: a link
+	// replaced on one component may still be carried, with a digest, by another.
+	seen := make(map[string]cdx.ExternalReference)
+	for _, comp := range components {
+		if comp.ExternalReferences == nil {
+			continue
+		}
+		for _, ref := range *comp.ExternalReferences {
+			seen[refKey(ref)] = ref
+		}
 	}
 
 	if len(seen) > 0 {
@@ -304,6 +308,10 @@ func refHashes(kind string, hashes []Hash) *[]cdx.Hash {
 	})
 
 	return &cdxHashes
+}
+
+func hasHashes(ref cdx.ExternalReference) bool {
+	return ref.Hashes != nil && len(*ref.Hashes) > 0
 }
 
 func findRefType(refs []cdx.ExternalReference, refType cdx.ExternalReferenceType) (cdx.ExternalReference, int, bool) {

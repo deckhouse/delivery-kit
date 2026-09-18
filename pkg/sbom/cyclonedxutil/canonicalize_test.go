@@ -368,6 +368,22 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"nested-a"}))
 	})
 
+	It("leaves a ref alone when a merged duplicate shared it with a component that survives", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "r", Type: cdx.ComponentTypeLibrary, Name: "a", PackageURL: "pkg:golang/p1@1"},
+				{BOMRef: "r2", Type: cdx.ComponentTypeLibrary, Name: "b", PackageURL: "pkg:golang/p1@1"},
+				{BOMRef: "r2", Type: cdx.ComponentTypeLibrary, Name: "c", PackageURL: "pkg:golang/p2@1"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "r", Dependencies: &[]string{"r2"}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(lo.Map(*bom.Components, func(c cdx.Component, _ int) string { return c.Name })).To(Equal([]string{"a", "c"}))
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "r", Dependencies: &[]string{"r2"}}}))
+	})
+
 	It("canonicalizes the components nested under the metadata component", func() {
 		bom := &cdx.BOM{
 			Metadata: &cdx.Metadata{Component: &cdx.Component{

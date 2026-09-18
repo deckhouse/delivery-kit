@@ -39,9 +39,20 @@ func Canonicalize(bom *cdx.BOM) {
 	bom.Components = canonicalizeComponents(bom.Components, refMap)
 	bom.Services = canonicalizeServices(bom.Services, refMap)
 
-	RewriteRefs(bom, flattenRefMap(refMap))
+	RewriteRefs(bom, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(bom))))
 
 	CanonicalizeDocument(bom)
+}
+
+// dropSurvivingRefs removes from refMap the refs that an entity of the BOM
+// still declares. A BOM may reuse one ref for several entities; when a
+// duplicate that carried such a ref merges away, the ref still means the
+// entity that kept it, so references to it must stay where they are.
+func dropSurvivingRefs(refMap map[string]string, knownRefs map[string]struct{}) map[string]string {
+	return lo.OmitBy(refMap, func(ref, _ string) bool {
+		_, known := knownRefs[ref]
+		return known
+	})
 }
 
 // CanonicalizeDocument does everything Canonicalize does except comparing
@@ -71,7 +82,7 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 // Merging duplicates can map a ref onto another ref that a later merge removes
 // in its turn, and only the last one of such a chain still exists. Unlike a
 // rename, the intermediate refs are gone, so following the chain is safe; a
-// cycle keeps the ref it starts from.
+// cycle stops at the last ref not seen before.
 func flattenRefMap(refMap map[string]string) map[string]string {
 	flat := make(map[string]string, len(refMap))
 

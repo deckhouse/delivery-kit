@@ -737,6 +737,29 @@ var _ = Describe("StableBOMChecksum", func() {
 	})
 })
 
+var _ = Describe("MergeBOMs with isolated components", func() {
+	It("keeps an edge to a service whose ref a merged duplicate of another service shared", func() {
+		bomA := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			Components:   &[]cdx.Component{{BOMRef: "a/os", Type: cdx.ComponentTypeOS, Name: "alpine"}},
+			Services:     &[]cdx.Service{{BOMRef: "s", Name: "api"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"s"}}},
+		}
+		bomB := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			Components:   &[]cdx.Component{{BOMRef: "b/os", Type: cdx.ComponentTypeOS, Name: "debian"}},
+			Services:     &[]cdx.Service{{BOMRef: "s2", Name: "api"}, {BOMRef: "s2", Name: "db"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "b/os", Dependencies: &[]string{"s2"}}},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{bomA, bomB}, PreserveBOMRefs: true, IsolateComponents: true})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(lo.Map(*result.Services, func(s cdx.Service, _ int) string { return s.BOMRef + ":" + s.Name })).To(Equal([]string{"s:api", "s2:db"}))
+		Expect(*result.Dependencies).To(ContainElement(cdx.Dependency{Ref: "b/os", Dependencies: &[]string{"s2"}}))
+	})
+})
+
 var _ = Describe("MergeBOMs input isolation", func() {
 	It("leaves the merged BOMs untouched", func() {
 		importBOM := &cdx.BOM{

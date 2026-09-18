@@ -103,7 +103,10 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name
 			// and does NOT carry GOST — hence AssertGostPropertyOnComponents (not AssertGostProperty).
-			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
+			// The default attack surface `yes` belongs to the image itself; its packages are reachable
+			// only through it and carry `indirect`.
+			sbomtest.AssertGostPropertyOnComponent(merged, "jq", "1.8.1", gost.PropertyAttackSurface, gost.GostValueIndirect)
+			sbomtest.AssertGostPropertyOnComponent(merged, "yq", "4.48.1", gost.PropertyAttackSurface, gost.GostValueIndirect)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
 
 			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")

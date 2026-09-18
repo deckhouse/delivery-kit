@@ -111,10 +111,12 @@ When building a multi-platform image, werf generates a separate SBOM artifact fo
 
 ## GOST security properties (`sbom.gost`)
 
-To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into all direct components of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.
+To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into the whole component tree of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.
 
 1. `attackSurface`: The attack surface property (`yes` | `no` | `indirect`).
 2. `securityFunction`: The security function property (`yes` | `no` | `indirect`).
+
+The unit of accounting is the image. `attackSurface: yes` states that the image itself exposes an interface to an attacker, so the image component carries `yes` while the packages it contains — reachable only through the image — carry `indirect`. `no` and `indirect`, and `securityFunction` in all cases, apply unchanged to the image and every package below it.
 
 You can define these globally in `build.sbom.gost` or per-image in `image.sbom.gost`. Image-level configuration overrides global configuration.
 

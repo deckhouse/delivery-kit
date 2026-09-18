@@ -207,6 +207,23 @@ func AssertNoComponent(bom *cdx.BOM, name string) {
 	})
 }
 
+// AssertGostPropertyOnComponent asserts the GOST property on a single component.
+// Use it where the value differs across the tree: the image root carries the
+// configured attack surface while the packages below it carry the value derived
+// for descendants — see gost.Config.ForDescendants.
+func AssertGostPropertyOnComponent(bom *cdx.BOM, name, version, propertyName string, expected gost.GostValue) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found", name, version)
+
+	val, found := findProperty(comp.Properties, propertyName)
+	ExpectWithOffset(1, found).To(BeTrue(),
+		"component %s@%s missing GOST property %q", name, version, propertyName)
+	ExpectWithOffset(1, val).To(Equal(expected.String()),
+		"component %s@%s GOST property %q: expected %q, got %q",
+		name, version, propertyName, expected.String(), val)
+}
+
 // AssertGostPropertyOnMetadata asserts the GOST property on `bom.Metadata.Component`
 // only. Use it together with AssertGostPropertyOnComponents when a test needs to
 // verify that both surfaces carry the same value (single-image builds, where werf

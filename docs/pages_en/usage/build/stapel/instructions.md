@@ -268,7 +268,7 @@ packages:
 
 Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — either a bare executable name looked up on the image `PATH` like the default, or a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:
@@ -360,7 +360,7 @@ packages:
 
 The entries run in the order they are declared: `pm` installs Node.js with npm, npm installs Yarn, Yarn installs the application dependencies. The npm entry needs no `manager` — `pm` puts npm onto `PATH`.
 
-Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` pointing anywhere else — a bare executable name, a path from the builder image — is rejected: it would be resolved by the image instead of the configuration.
+Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` path pointing anywhere else — into the builder image, for instance — is rejected: it would be resolved by the image instead of the configuration. A bare executable name (`manager: pip`) is accepted: it is looked up on the image `PATH` exactly like the ecosystem default, which covers images whose executable is named differently from the default.
 
 For Python the same recipe needs no `manager`: `pip` installs uv or Poetry onto `PATH`, and the following entry finds them there. Poetry additionally needs `POETRY_VIRTUALENVS_CREATE=false` in the builder image — otherwise it installs the dependencies into a virtualenv of its own instead of the image.
 

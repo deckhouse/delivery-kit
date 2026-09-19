@@ -69,7 +69,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "requirements.txt",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "pip"), files.Spec), env)
+			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "pip3"), files.Spec), env)
 		},
 		CatalogerName: "python-package-cataloger",
 	},
@@ -150,19 +150,20 @@ type PackagesDirective struct {
 	Env       map[string]string
 }
 
-// A manager installed by a preceding entry is verified by that entry's lock file, so the
-// executable is only as trustworthy as the tree it lives in: anything outside those trees,
-// a bare name included, is resolved by the image and not by the configuration.
+// A bare name is looked up on the image PATH exactly like the ecosystem default, so it is
+// accepted as is. A manager given as a path is verified by the lock file of the preceding
+// entry that installed it, so the executable is only as trustworthy as the tree it lives in:
+// a path outside those trees is resolved by the image and not by the configuration.
 func validatePackagesManagers(packages []*PackagesDirective) error {
 	var precedingWorkdirs []string
 
 	for _, d := range packages {
-		if d.FileBased.Manager == "" {
+		manager := d.FileBased.Manager
+		if !strings.Contains(manager, "/") {
 			precedingWorkdirs = appendWorkdir(precedingWorkdirs, d)
 			continue
 		}
 
-		manager := d.FileBased.Manager
 		if !path.IsAbs(manager) {
 			manager = path.Join(d.FileBased.Workdir, manager)
 		}

@@ -30,20 +30,17 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
 			// Override the external refs server URL with our custom mock that returns failures
-			// for specific packages (curl, openssl) and success for others (jq).
+			// for the curl and openssl the fixture installs and success for everything else,
+			// including the curl/openssl already present in the base image SBOM.
 			SuiteData.Stubs.SetEnv("WERF_EXTERNAL_REFS_SERVER_URL", mockServer.URL)
 
 			repoDirname := "repo_purl_resolver_errors"
 			SuiteData.InitTestRepo(ctx, repoDirname, "purl_resolver_errors")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "purl-errors-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			out, err := werfProject.BuildWithErr(ctx, &werf.BuildOptions{
-				CommonOptions: werf.CommonOptions{
-					Envs: builderEnv,
-				},
+				CommonOptions: werf.CommonOptions{},
 			})
 
 			Expect(err).To(HaveOccurred(), "build should fail with aggregated PURL error")
@@ -69,7 +66,8 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 })
 
 func mockResponse(w http.ResponseWriter, purl string) {
-	if strings.Contains(purl, "curl") || strings.Contains(purl, "openssl") {
+	installedByFixture := strings.Contains(purl, "containerfactoryversion=")
+	if installedByFixture && (strings.Contains(purl, "curl") || strings.Contains(purl, "openssl")) {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(`{"error":"package not found"}`))
 		return

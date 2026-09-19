@@ -22,13 +22,11 @@ var _ = Describe("SBOM final repo propagation", Label("e2e", "sbom", "final-repo
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-final-repo-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("sbom_final_repo.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 			)
 
 			appRecord, found := buildReport.Images["app"]
@@ -43,7 +41,6 @@ var _ = Describe("SBOM final repo propagation", Label("e2e", "sbom", "final-repo
 						"--repo", finalRepo,
 						"--digest", appRecord.DockerImageDigest,
 					},
-					Envs: builderEnv,
 				},
 			})
 

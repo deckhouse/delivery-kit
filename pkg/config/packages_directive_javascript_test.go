@@ -254,6 +254,26 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				},
 			},
 		),
+		Entry("javascript-yarn with a bare manager name resolved by the image PATH",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "node:20-alpine",
+				"packages": []map[string]interface{}{
+					{"type": "javascript-yarn", "workdir": "/app", "manager": "yarnpkg"},
+				},
+			},
+			[]*PackagesDirective{
+				{
+					Type: PackagesDirectiveTypeJavaScriptYarn,
+					FileBased: FileBasedSpec{
+						Workdir: "/app",
+						Spec:    "package.json",
+						Lock:    "yarn.lock",
+						Manager: "yarnpkg",
+					},
+				},
+			},
+		),
 	)
 
 	DescribeTable("convert to directive fails when required fields are missing",
@@ -309,17 +329,6 @@ var _ = Describe("rawPackagesDirective javascript", func() {
 				"packages": []map[string]interface{}{
 					{"type": "javascript-npm", "workdir": "/opt/tools"},
 					{"type": "javascript-yarn", "workdir": "/app", "manager": "/usr/local/bin/yarn"},
-				},
-			},
-		),
-
-		Entry("javascript-yarn with a bare manager name",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "node:20-alpine",
-				"packages": []map[string]interface{}{
-					{"type": "javascript-npm", "workdir": "/opt/tools"},
-					{"type": "javascript-yarn", "workdir": "/app", "manager": "yarn"},
 				},
 			},
 		),

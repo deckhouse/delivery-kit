@@ -8,27 +8,62 @@ import (
 )
 
 // Upsert inserts or updates mandatory GOST properties in the BOM metadata component
-// and every component, nested ones included.
+// and every component, nested ones included. An attack surface of `yes` describes
+// the components an attacker reaches directly, so it lands on the roots of the
+// dependency tree; everything pulled in by another component gets `indirect`.
+// Every other value, and the security function in all cases, applies unchanged.
 func Upsert(bom *cdx.BOM, config Config) error {
 	if bom == nil {
 		return fmt.Errorf("BOM is required")
 	}
 
-	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		SetComponent(bom.Metadata.Component, config)
-		setComponents(lo.FromPtr(bom.Metadata.Component.Components), config)
+	dependent := config
+	if config.AttackSurface == GostValueYes {
+		dependent.AttackSurface = GostValueIndirect
 	}
 
-	setComponents(lo.FromPtr(bom.Components), config)
+	targets := dependencyTargets(bom)
+
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		SetComponent(bom.Metadata.Component, config)
+		setComponents(lo.FromPtr(bom.Metadata.Component.Components), config, dependent, targets)
+	}
+
+	setComponents(lo.FromPtr(bom.Components), config, dependent, targets)
 
 	return nil
 }
 
-func setComponents(components []cdx.Component, config Config) {
+func setComponents(components []cdx.Component, root, dependent Config, targets map[string]struct{}) {
 	for i := range components {
-		SetComponent(&components[i], config)
-		setComponents(lo.FromPtr(components[i].Components), config)
+		comp := &components[i]
+
+		cfg := root
+		if _, ok := targets[comp.BOMRef]; ok {
+			cfg = dependent
+		}
+
+		SetComponent(comp, cfg)
+		setComponents(lo.FromPtr(comp.Components), root, dependent, targets)
 	}
+}
+
+// dependencyTargets collects every bom-ref another component depends on. A
+// component missing from the set is a root of the dependency tree: nothing else
+// in the image pulls it in. An empty `dependencies` section therefore makes
+// every component a root, which is what the catalogers that report no tree at
+// all produce.
+func dependencyTargets(bom *cdx.BOM) map[string]struct{} {
+	targets := make(map[string]struct{})
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		for _, ref := range lo.FromPtr(dep.Dependencies) {
+			if ref != dep.Ref {
+				targets[ref] = struct{}{}
+			}
+		}
+	}
+
+	return targets
 }
 
 // SetComponent inserts or updates mandatory GOST properties in a single component.

@@ -53,9 +53,23 @@ func setComponents(components []cdx.Component, root, dependent Config, targets m
 // in the image pulls it in. An empty `dependencies` section therefore makes
 // every component a root, which is what the catalogers that report no tree at
 // all produce.
+//
+// Edges sourced at the image itself are skipped: a cataloger that lists every
+// package under the image root describes what the image contains, not what one
+// package pulls in, and honoring those edges would leave the tree without a
+// single root.
 func dependencyTargets(bom *cdx.BOM) map[string]struct{} {
+	var rootRef string
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		rootRef = bom.Metadata.Component.BOMRef
+	}
+
 	targets := make(map[string]struct{})
 	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		if rootRef != "" && dep.Ref == rootRef {
+			continue
+		}
+
 		for _, ref := range lo.FromPtr(dep.Dependencies) {
 			if ref != dep.Ref {
 				targets[ref] = struct{}{}

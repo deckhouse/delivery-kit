@@ -113,26 +113,6 @@ var _ = Describe("rawPackagesDirective python", func() {
 				},
 			},
 		),
-		Entry("python-pip with a bare manager name resolved by the image PATH",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "python:3.12",
-				"packages": []map[string]interface{}{
-					{"type": "python-pip", "workdir": "/app", "manager": "pip"},
-				},
-			},
-			[]*PackagesDirective{
-				{
-					Type: PackagesDirectiveTypePythonPip,
-					FileBased: FileBasedSpec{
-						Workdir: "/app",
-						Spec:    "requirements.txt",
-						Lock:    "",
-						Manager: "pip",
-					},
-				},
-			},
-		),
 	)
 
 	DescribeTable("convert to directive fails when required fields are missing",

@@ -103,7 +103,10 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name
 			// and does NOT carry GOST — hence AssertGostPropertyOnComponents (not AssertGostProperty).
-			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
+			// The default attack surface `yes` lands on the roots of the dependency tree; openssl is
+			// pulled in by curl and is demoted to `indirect`.
+			sbomtest.AssertGostPropertyOnComponent(merged, "curl", "8.12.1", gost.PropertyAttackSurface, gost.GostValueYes)
+			sbomtest.AssertGostPropertyOnComponent(merged, "openssl", "3.6.2", gost.PropertyAttackSurface, gost.GostValueIndirect)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
 
 			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")

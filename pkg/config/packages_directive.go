@@ -69,7 +69,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "requirements.txt",
 		DefaultLockFile: "",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "pip3"), files.Spec), env)
+			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "python3 -m pip"), files.Spec), env)
 		},
 		CatalogerName: "python-package-cataloger",
 	},

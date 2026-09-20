@@ -233,7 +233,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 				Type:      config.PackagesDirectiveTypePythonPip,
 				FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"},
 			},
-		}, []string{"cd \"/app\" && pip3 install --no-cache-dir -r \"requirements.txt\""}),
+		}, []string{"cd \"/app\" && python3 -m pip install --no-cache-dir -r \"requirements.txt\""}),
 
 		Entry("python-poetry /svc", []*config.PackagesDirective{
 			{

@@ -220,7 +220,7 @@ packages:
     workdir: /app
 ```
 
-Runs `pip3 install --no-cache-dir -r requirements.txt`. Default spec: `requirements.txt`. No lock file (pip has no lock semantics; the `lock` field is rejected).
+Runs `python3 -m pip install --no-cache-dir -r requirements.txt`. Default spec: `requirements.txt`. No lock file (pip has no lock semantics; the `lock` field is rejected).
 
 **Python — poetry** (`python-poetry`):
 

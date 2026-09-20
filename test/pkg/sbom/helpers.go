@@ -212,6 +212,9 @@ func AssertNoComponent(bom *cdx.BOM, name string) {
 // lands on the roots of the dependency tree only, while everything another
 // component depends on is demoted to `indirect` — see gost.Upsert.
 func AssertGostPropertyOnComponent(bom *cdx.BOM, name, version, propertyName string, expected gost.GostValue) {
+	ExpectWithOffset(1, propertyName).To(BeElementOf(gost.PropertyAttackSurface, gost.PropertySecurityFunction),
+		"unknown GOST property name %q", propertyName)
+
 	comp := FindComponent(bom, name, version)
 	ExpectWithOffset(1, comp).NotTo(BeNil(),
 		"component %s@%s not found", name, version)

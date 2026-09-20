@@ -143,4 +143,53 @@ var _ = Describe("dirTarExtractor", func() {
 		_, err = os.Stat(filepath.Join(filepath.Dir(filepath.Dir(destDir)), "escape", "package.json"))
 		Expect(os.IsNotExist(err)).To(BeTrue())
 	})
+
+	It("copies license files of a go module cache entry by case-insensitive pattern", func() {
+		destDir := GinkgoT().TempDir()
+		ex := newDirTarExtractor("/go/pkg/mod/github.com/samber/lo@v1.47.0", destDir, []string{"license*", "copying*", "notice*"})
+		tr := buildTar([]entry{
+			{name: "lo@v1.47.0/LICENSE", typeflag: tar.TypeReg, content: "MIT"},
+			{name: "lo@v1.47.0/License.md", typeflag: tar.TypeReg, content: "MIT"},
+			{name: "lo@v1.47.0/COPYING", typeflag: tar.TypeReg, content: "GPL"},
+			{name: "lo@v1.47.0/NOTICE.txt", typeflag: tar.TypeReg, content: "n"},
+			{name: "lo@v1.47.0/map.go", typeflag: tar.TypeReg, content: "package lo"},
+			{name: "lo@v1.47.0/README.md", typeflag: tar.TypeReg, content: "readme"},
+		})
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			Expect(err).To(Succeed())
+			Expect(ex.extract(tr, hdr)).To(Succeed())
+		}
+		Expect(ex.resolveSymlinks()).To(Succeed())
+
+		for _, p := range []string{"LICENSE", "License.md", "COPYING", "NOTICE.txt"} {
+			_, err := os.Stat(filepath.Join(destDir, p))
+			Expect(err).To(Succeed(), "%s must be copied", p)
+		}
+		for _, p := range []string{"map.go", "README.md"} {
+			_, err := os.Stat(filepath.Join(destDir, p))
+			Expect(os.IsNotExist(err)).To(BeTrue(), "%s (module source) must not be copied", p)
+		}
+	})
+})
+
+var _ = Describe("matchesAnyFileNamePattern", func() {
+	DescribeTable("shell patterns, case-insensitive",
+		func(name string, patterns []string, expected bool) {
+			Expect(matchesAnyFileNamePattern(name, patterns)).To(Equal(expected))
+		},
+		Entry("no patterns matches everything", "anything.go", nil, true),
+		Entry("exact name", "package.json", []string{"package.json"}, true),
+		Entry("exact name is case-insensitive", "PACKAGE.JSON", []string{"package.json"}, true),
+		Entry("prefix glob", "LICENSE.md", []string{"license*"}, true),
+		Entry("prefix glob, other case", "license.txt", []string{"LICENSE*"}, true),
+		Entry("any of several", "COPYING", []string{"license*", "copying*"}, true),
+		Entry("no match", "index.js", []string{"package.json", "license*"}, false),
+		Entry("pattern anchors at start", "MIT-LICENSE", []string{"license*"}, false),
+		Entry("character class covers the British spelling", "LICEN"+"CE.txt", []string{"licen[cs]e*"}, true),
+		Entry("character class covers the American spelling", "license.md", []string{"licen[cs]e*"}, true),
+	)
 })

@@ -150,9 +150,12 @@ var _ = Describe("SbomStep", func() {
 				{Name: "python-package-cataloger", SourcePaths: []string{"/svc/requirements.txt"}},
 			}
 
+			mockReader := mock.NewMockImageReader(ctrl)
+			mockReader.EXPECT().ReadFile(gomock.Any(), gomock.Any()).Return([]byte("manifest\n"), nil).AnyTimes()
+			mockReader.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
 			mockBackend.EXPECT().
-				ReadFileFromImage(gomock.Any(), imageRef, gomock.Any(), gomock.Any()).
-				Return([]byte("manifest\n"), nil).
+				OpenImageReader(gomock.Any(), imageRef, gomock.Any()).
+				Return(mockReader, nil).
 				AnyTimes()
 
 			goBOM := makeBOMJSON("2026-01-01T00:00:00Z",
@@ -182,7 +185,7 @@ var _ = Describe("SbomStep", func() {
 				Times(2)
 
 			step := &sbomStep{containerBackend: mockBackend}
-			bom, err := step.scanFileBasedPackages(ctx, imageRef, scanner.DefaultSyftScanOptions(), catalogers, "")
+			bom, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: imageRef}, scanner.DefaultSyftScanOptions(), catalogers, "")
 			Expect(err).To(Succeed())
 			Expect(bom).ToNot(BeNil())
 

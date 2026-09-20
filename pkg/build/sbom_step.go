@@ -102,7 +102,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			restoreImageMetadata(targetBOM, stageDesc)
 		case isStapel:
 			var err error
-			targetBOM, err = step.scanFileBasedPackages(ctx, stageDesc.Info.Name, scanOpts, catalogers, targetPlatform)
+			targetBOM, err = step.scanFileBasedPackages(ctx, stageDesc.Info, scanOpts, catalogers, targetPlatform)
 			if err != nil {
 				return err
 			}
@@ -218,10 +218,10 @@ func containerComponent(stageDesc *image.StageDesc) *cdx.Component {
 // per directive, only the spec/lock files extracted from the built image (a directory
 // source), then unions the per-directive BOMs. This avoids walking the whole image
 // filesystem and needs no docker.sock in the scanner container.
-func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageRef string, scanOpts scanner.ScanOptions, catalogers []scanner.Cataloger, targetPlatform string) (*cdx.BOM, error) {
+func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *image.Info, scanOpts scanner.ScanOptions, catalogers []scanner.Cataloger, targetPlatform string) (*cdx.BOM, error) {
 	scannedBOMs := make([]*cdx.BOM, 0, len(catalogers))
 	for _, cataloger := range catalogers {
-		dir, cleanup, err := managedinput.MaterializeCatalogerInputs(ctx, step.containerBackend, imageRef, cataloger, targetPlatform)
+		dir, cleanup, err := managedinput.MaterializeCatalogerInputs(ctx, step.containerBackend, imageInfo.Name, cataloger, targetPlatform, imageInfo.Env)
 		if err != nil {
 			return nil, fmt.Errorf("materialize inputs for cataloger %q: %w", cataloger.Name, err)
 		}

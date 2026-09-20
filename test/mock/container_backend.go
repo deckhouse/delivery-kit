@@ -22,6 +22,73 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockImageReader is a mock of ImageReader interface.
+type MockImageReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockImageReaderMockRecorder
+	isgomock struct{}
+}
+
+// MockImageReaderMockRecorder is the mock recorder for MockImageReader.
+type MockImageReaderMockRecorder struct {
+	mock *MockImageReader
+}
+
+// NewMockImageReader creates a new mock instance.
+func NewMockImageReader(ctrl *gomock.Controller) *MockImageReader {
+	mock := &MockImageReader{ctrl: ctrl}
+	mock.recorder = &MockImageReaderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockImageReader) EXPECT() *MockImageReaderMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockImageReader) Close(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockImageReaderMockRecorder) Close(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockImageReader)(nil).Close), ctx)
+}
+
+// ReadDir mocks base method.
+func (m *MockImageReader) ReadDir(ctx context.Context, path, destDir string, opts container_backend.ReadDirOpts) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadDir", ctx, path, destDir, opts)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReadDir indicates an expected call of ReadDir.
+func (mr *MockImageReaderMockRecorder) ReadDir(ctx, path, destDir, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadDir", reflect.TypeOf((*MockImageReader)(nil).ReadDir), ctx, path, destDir, opts)
+}
+
+// ReadFile mocks base method.
+func (m *MockImageReader) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFile", ctx, path)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFile indicates an expected call of ReadFile.
+func (mr *MockImageReaderMockRecorder) ReadFile(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockImageReader)(nil).ReadFile), ctx, path)
+}
+
 // MockContainerBackend is a mock of ContainerBackend interface.
 type MockContainerBackend struct {
 	ctrl     *gomock.Controller
@@ -228,6 +295,21 @@ func (mr *MockContainerBackendMockRecorder) LoadImageFromStream(ctx, input any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadImageFromStream", reflect.TypeOf((*MockContainerBackend)(nil).LoadImageFromStream), ctx, input)
 }
 
+// OpenImageReader mocks base method.
+func (m *MockContainerBackend) OpenImageReader(ctx context.Context, imageRef string, opts container_backend.ReadFileFromImageOpts) (container_backend.ImageReader, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenImageReader", ctx, imageRef, opts)
+	ret0, _ := ret[0].(container_backend.ImageReader)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OpenImageReader indicates an expected call of OpenImageReader.
+func (mr *MockContainerBackendMockRecorder) OpenImageReader(ctx, imageRef, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenImageReader", reflect.TypeOf((*MockContainerBackend)(nil).OpenImageReader), ctx, imageRef, opts)
+}
+
 // PostManifest mocks base method.
 func (m *MockContainerBackend) PostManifest(ctx context.Context, ref string, opts container_backend.PostManifestOpts) error {
 	m.ctrl.T.Helper()
@@ -312,20 +394,6 @@ func (m *MockContainerBackend) Push(ctx context.Context, ref string, opts contai
 func (mr *MockContainerBackendMockRecorder) Push(ctx, ref, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Push", reflect.TypeOf((*MockContainerBackend)(nil).Push), ctx, ref, opts)
-}
-
-// ReadDirFromImage mocks base method.
-func (m *MockContainerBackend) ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts container_backend.ReadDirFromImageOpts) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReadDirFromImage", ctx, imageRef, path, destDir, opts)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReadDirFromImage indicates an expected call of ReadDirFromImage.
-func (mr *MockContainerBackendMockRecorder) ReadDirFromImage(ctx, imageRef, path, destDir, opts any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadDirFromImage", reflect.TypeOf((*MockContainerBackend)(nil).ReadDirFromImage), ctx, imageRef, path, destDir, opts)
 }
 
 // ReadFileFromImage mocks base method.

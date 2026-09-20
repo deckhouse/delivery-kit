@@ -1,16 +1,13 @@
 package container_backend
 
 import (
-	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -203,181 +200,6 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 		return nil, fmt.Errorf("unable to inspect docker image: %w", err)
 	}
 	return docker.NewInfoFromInspect(ref, inspect), nil
-}
-
-func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
-	var data []byte
-	found := false
-
-	err := backend.copyFromImage(ctx, imageRef, path, opts.TargetPlatform, func(tr *tar.Reader, hdr *tar.Header) error {
-		if found || hdr.Typeflag != tar.TypeReg {
-			return nil
-		}
-		var err error
-		if data, err = io.ReadAll(tr); err != nil {
-			return fmt.Errorf("read %s content from image %q: %w", path, imageRef, err)
-		}
-		found = true
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, fmt.Errorf("no regular file at %s in image %q: %w", path, imageRef, fs.ErrNotExist)
-	}
-
-	return data, nil
-}
-
-func (backend *DockerServerBackend) ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts ReadDirFromImageOpts) error {
-	extractor := newDirTarExtractor(path, destDir, opts.FileNames)
-	if err := backend.copyFromImage(ctx, imageRef, path, opts.TargetPlatform, extractor.extract); err != nil {
-		return err
-	}
-	return extractor.resolveSymlinks()
-}
-
-// dirTarExtractor writes a `docker cp <dir>` tar stream under destDir, keeping the layout
-// relative to the copied directory. Only regular files are written, filtered by base name
-// when fileNames is set. Symlinks to directories inside the tree (pnpm lays out
-// node_modules/<pkg> -> .pnpm/<pkg>@<ver>/node_modules/<pkg>) are resolved after the
-// stream ends by copying the already extracted target files under the link path, so the
-// result reads like the image filesystem does through the link.
-type dirTarExtractor struct {
-	prefix    string
-	destDir   string
-	fileNames []string
-	symlinks  map[string]string
-}
-
-func newDirTarExtractor(srcDir, destDir string, fileNames []string) *dirTarExtractor {
-	return &dirTarExtractor{
-		// docker cp of a directory yields entries prefixed with the directory's base name.
-		prefix:    filepath.Base(srcDir) + "/",
-		destDir:   destDir,
-		fileNames: fileNames,
-		symlinks:  map[string]string{},
-	}
-}
-
-// rebase maps a tar entry name onto destDir. Cleaning under an anchored root means a
-// crafted entry cannot escape destDir.
-func (e *dirTarExtractor) rebase(name string) string {
-	rel := strings.TrimPrefix(name, e.prefix)
-	return filepath.Join(e.destDir, filepath.Clean("/"+rel))
-}
-
-func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
-	switch hdr.Typeflag {
-	case tar.TypeSymlink:
-		rel := strings.TrimPrefix(hdr.Name, e.prefix)
-		target := filepath.Join(filepath.Dir(rel), hdr.Linkname)
-		if filepath.IsAbs(hdr.Linkname) {
-			target = hdr.Linkname
-		}
-		e.symlinks[e.rebase(hdr.Name)] = filepath.Join(e.destDir, filepath.Clean("/"+target))
-		return nil
-	case tar.TypeReg:
-	default:
-		return nil
-	}
-
-	if len(e.fileNames) > 0 && !slices.Contains(e.fileNames, filepath.Base(hdr.Name)) {
-		return nil
-	}
-
-	destPath := e.rebase(hdr.Name)
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(destPath), err)
-	}
-	file, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("create %s: %w", destPath, err)
-	}
-	if _, err := io.Copy(file, tr); err != nil {
-		file.Close()
-		return fmt.Errorf("write %s: %w", destPath, err)
-	}
-	return file.Close()
-}
-
-// resolveSymlinks materializes each recorded symlink whose target is an extracted
-// directory by copying the target's files under the link path. Links to files, to
-// nothing, or to paths outside destDir are left out.
-func (e *dirTarExtractor) resolveSymlinks() error {
-	for linkPath, target := range e.symlinks {
-		info, err := os.Stat(target)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		err = filepath.WalkDir(target, func(srcPath string, d fs.DirEntry, err error) error {
-			if err != nil || !d.Type().IsRegular() {
-				return err
-			}
-			rel, err := filepath.Rel(target, srcPath)
-			if err != nil {
-				return err
-			}
-			destPath := filepath.Join(linkPath, rel)
-			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-				return err
-			}
-			data, err := os.ReadFile(srcPath)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(destPath, data, 0o644)
-		})
-		if err != nil {
-			return fmt.Errorf("resolve symlink %s -> %s: %w", linkPath, target, err)
-		}
-	}
-	return nil
-}
-
-// copyFromImage streams `docker cp` of path from a throwaway container created from
-// imageRef and hands every tar entry to visit. A missing path is reported as fs.ErrNotExist.
-func (backend *DockerServerBackend) copyFromImage(ctx context.Context, imageRef, path, targetPlatform string, visit func(tr *tar.Reader, hdr *tar.Header) error) error {
-	containerName := fmt.Sprintf("werf.read_file.%s", uuid.New().String())
-
-	args := []string{"--name", containerName, "--entrypoint", ""}
-	if targetPlatform != "" {
-		args = append(args, "--platform", targetPlatform)
-	}
-	args = append(args, imageRef, "werf-read-file-from-image-placeholder")
-
-	if err := docker.CliCreate(ctx, args...); err != nil {
-		return fmt.Errorf("create container from image %q: %w", imageRef, err)
-	}
-	defer func() {
-		if err := docker.CliRm(ctx, "--force", containerName); err != nil {
-			logboek.Context(ctx).Warn().LogF("WARNING: unable to remove container %q: %s\n", containerName, err)
-		}
-	}()
-
-	reader, err := docker.ContainerCopyFrom(ctx, containerName, path)
-	if client.IsErrNotFound(err) {
-		return fmt.Errorf("copy %s from image %q: %w", path, imageRef, fs.ErrNotExist)
-	}
-	if err != nil {
-		return fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
-	}
-	defer reader.Close()
-
-	tr := tar.NewReader(reader)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read %s tar stream from image %q: %w", path, imageRef, err)
-		}
-		if err := visit(tr, hdr); err != nil {
-			return err
-		}
-	}
 }
 
 // GetImageInspect only available for DockerServerBackend

@@ -25,6 +25,7 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 	var (
 		ctrl        *gomock.Controller
 		mockBackend *mock.MockContainerBackend
+		mockReader  *mock.MockImageReader
 		ctx         context.Context
 		imageRef    string
 	)
@@ -32,8 +33,17 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockBackend = mock.NewMockContainerBackend(ctrl)
+		mockReader = mock.NewMockImageReader(ctrl)
 		ctx = context.Background()
 		imageRef = "test-image:latest"
+
+		// One reader per directive: the image container is opened once and closed once,
+		// however many paths are read through it.
+		mockBackend.EXPECT().
+			OpenImageReader(gomock.Any(), imageRef, gomock.Any()).
+			Return(mockReader, nil).
+			Times(1)
+		mockReader.EXPECT().Close(gomock.Any()).Return(nil).Times(1)
 	})
 
 	AfterEach(func() {
@@ -46,14 +56,14 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			SourcePaths:         []string{"/app/api/go.mod"},
 			OptionalSourcePaths: []string{"/app/api/go.sum"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/api/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/api/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/api/go.sum", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/api/go.sum").
 			Return([]byte("example.com/dep v1.0.0 h1:deadbeef\n"), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
@@ -96,11 +106,11 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:        "go-module-file-cataloger",
 			SourcePaths: []string{"/app/go.mod"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
@@ -114,11 +124,11 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:        "go-module-file-cataloger",
 			SourcePaths: []string{"/app/go.mod"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 
 		cleanup(ctx)
@@ -138,11 +148,11 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:        "go-module-file-cataloger",
 			SourcePaths: []string{"/app/api/go.mod"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/api/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/api/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
@@ -163,11 +173,11 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:        "python-package-cataloger",
 			SourcePaths: []string{"/app/requirements.txt"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/requirements.txt", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/requirements.txt").
 			Return([]byte("flask==3.0.0\n"), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
@@ -181,11 +191,11 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:        "go-module-file-cataloger",
 			SourcePaths: []string{"/app/../../../etc/go.mod"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/../../../etc/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/../../../etc/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
@@ -194,16 +204,18 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 		Expect(string(content)).To(Equal("module example.com/app\n"))
 	})
 
-	It("forwards the target platform to the image read", func() {
+	It("reads every path through a single image reader", func() {
+		// Pinned by the BeforeEach Times(1) expectations on OpenImageReader and Close: a
+		// directive with several inputs must not open one container per file.
 		cataloger := scanner.Cataloger{
-			Name:        "go-module-file-cataloger",
-			SourcePaths: []string{"/app/go.mod"},
+			Name:                "go-module-file-cataloger",
+			SourcePaths:         []string{"/app/go.mod"},
+			OptionalSourcePaths: []string{"/app/go.sum"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{TargetPlatform: "linux/arm64"}).
-			Return([]byte("module example.com/app\n"), nil)
+		mockReader.EXPECT().ReadFile(ctx, "/app/go.mod").Return([]byte("module example.com/app\n"), nil)
+		mockReader.EXPECT().ReadFile(ctx, "/app/go.sum").Return([]byte(""), nil)
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "linux/arm64")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 		Expect(dir).ToNot(BeEmpty())
@@ -222,14 +234,14 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			SourcePaths:         []string{"/app/go.mod"},
 			OptionalSourcePaths: []string{"/app/go.sum"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.sum", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.sum").
 			Return(nil, fmt.Errorf("copy /app/go.sum from image %q: %w", imageRef, fs.ErrNotExist))
 
-		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(Succeed())
 		DeferCleanup(func() { cleanup(ctx) })
 
@@ -253,14 +265,14 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			SourcePaths:         []string{"/app/go.mod"},
 			OptionalSourcePaths: []string{"/app/go.sum"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.mod").
 			Return([]byte("module example.com/app\n"), nil)
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.sum", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.sum").
 			Return(nil, fmt.Errorf("read /app/go.sum tar stream from image %q: %w", imageRef, io.ErrUnexpectedEOF))
 
-		_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(HaveOccurred())
 		Expect(errors.Is(err, io.ErrUnexpectedEOF)).To(BeTrue(), "the underlying read error must be preserved")
 		Expect(err.Error()).To(ContainSubstring("go-module-file-cataloger"))
@@ -272,30 +284,30 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:                "javascript-lock-cataloger",
 			SourcePaths:         []string{"/app/package.json"},
 			OptionalSourcePaths: []string{"/app/yarn.lock"},
-			EnrichmentDirs:      []string{"/app/node_modules"},
+			Enrichment:          nodeModulesEnrichment("/app/node_modules"),
 		}
 
 		expectSpecAndLock := func() {
-			mockBackend.EXPECT().
-				ReadFileFromImage(gomock.Any(), imageRef, "/app/package.json", container_backend.ReadFileFromImageOpts{}).
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/package.json").
 				Return([]byte(`{"name":"app"}`), nil)
-			mockBackend.EXPECT().
-				ReadFileFromImage(gomock.Any(), imageRef, "/app/yarn.lock", container_backend.ReadFileFromImageOpts{}).
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/yarn.lock").
 				Return([]byte("is-number@^7.0.0:\n  version \"7.0.0\"\n"), nil)
 		}
 
 		It("materializes installed package manifests next to the lock so the cataloger can enrich licenses", func() {
 			expectSpecAndLock()
-			mockBackend.EXPECT().
-				ReadDirFromImage(gomock.Any(), imageRef, "/app/node_modules", gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _, _, destDir string, opts container_backend.ReadDirFromImageOpts) error {
-					Expect(opts.FileNames).To(Equal([]string{"package.json"}), "only manifests are copied, not installed code")
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/app/node_modules", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, destDir string, opts container_backend.ReadDirOpts) error {
+					Expect(opts.FileNamePatterns).To(Equal([]string{"package.json"}), "only manifests are copied, not installed code")
 					pkgDir := filepath.Join(destDir, "is-number")
 					Expect(os.MkdirAll(pkgDir, 0o755)).To(Succeed())
 					return os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"is-number","version":"7.0.0","license":"MIT"}`), 0o644)
 				})
 
-			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "")
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "", nil)
 			Expect(err).To(Succeed())
 			DeferCleanup(func() { cleanup(ctx) })
 
@@ -315,11 +327,11 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))
 
 			expectSpecAndLock()
-			mockBackend.EXPECT().
-				ReadDirFromImage(gomock.Any(), imageRef, "/app/node_modules", gomock.Any(), gomock.Any()).
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/app/node_modules", gomock.Any(), gomock.Any()).
 				Return(fmt.Errorf("copy /app/node_modules from image %q: %w", imageRef, fs.ErrNotExist))
 
-			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "")
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "", nil)
 			Expect(err).To(Succeed())
 			DeferCleanup(func() { cleanup(ctx) })
 
@@ -331,14 +343,92 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 
 		It("fails when reading an enrichment dir errors for a reason other than absence", func() {
 			expectSpecAndLock()
-			mockBackend.EXPECT().
-				ReadDirFromImage(gomock.Any(), imageRef, "/app/node_modules", gomock.Any(), gomock.Any()).
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/app/node_modules", gomock.Any(), gomock.Any()).
 				Return(fmt.Errorf("read /app/node_modules tar stream from image %q: %w", imageRef, io.ErrUnexpectedEOF))
 
-			_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "")
+			_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, jsCataloger, "", nil)
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, io.ErrUnexpectedEOF)).To(BeTrue())
 			Expect(err.Error()).To(ContainSubstring("/app/node_modules"))
+		})
+	})
+
+	Describe("go module cache enrichment", func() {
+		goSum := "github.com/samber/lo v1.47.0 h1:abc=\ngithub.com/samber/lo v1.47.0/go.mod h1:def=\ngithub.com/Azure/go-autorest v14.2.0+incompatible h1:ghi=\n"
+		goCataloger := scanner.Cataloger{
+			Name:                "go-module-file-cataloger",
+			SourcePaths:         []string{"/app/go.mod"},
+			OptionalSourcePaths: []string{"/app/go.sum"},
+			Enrichment:          goModCacheEnrichment("/app/go.sum"),
+		}
+
+		expectSpecAndLock := func() {
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("module example.com/app\n"), nil)
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.sum").Return([]byte(goSum), nil)
+		}
+
+		It("copies license files of exactly the modules listed in go.sum from the module cache", func() {
+			expectSpecAndLock()
+			// One ReadDir per distinct module, at <cache>/<escaped path>@<version>, not the
+			// whole cache; the h1 and /go.mod lines of a module collapse into one.
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/go/pkg/mod/github.com/samber/lo@v1.47.0", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, destDir string, opts container_backend.ReadDirOpts) error {
+					Expect(opts.FileNamePatterns).To(ContainElement("licen[cs]e*"))
+					Expect(os.MkdirAll(destDir, 0o755)).To(Succeed())
+					return os.WriteFile(filepath.Join(destDir, "LICENSE"), []byte("MIT License"), 0o644)
+				})
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/go/pkg/mod/github.com/!azure/go-autorest@v14.2.0+incompatible", gomock.Any(), gomock.Any()).
+				Return(nil)
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, goCataloger, "", []string{"GOPATH=/go"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			// The license lands at its in-image path: this is where syft's go-module-file
+			// cataloger looks for it when scanning /scan as the filesystem root.
+			license, err := os.ReadFile(filepath.Join(dir, "go", "pkg", "mod", "github.com", "samber", "lo@v1.47.0", "LICENSE"))
+			Expect(err).To(Succeed())
+			Expect(string(license)).To(Equal("MIT License"))
+		})
+
+		It("resolves the module cache from the image environment, falling back to $HOME/go", func() {
+			expectSpecAndLock()
+			mockReader.EXPECT().ReadDir(gomock.Any(), "/home/build/go/pkg/mod/github.com/samber/lo@v1.47.0", gomock.Any(), gomock.Any()).Return(nil)
+			mockReader.EXPECT().ReadDir(gomock.Any(), "/home/build/go/pkg/mod/github.com/!azure/go-autorest@v14.2.0+incompatible", gomock.Any(), gomock.Any()).Return(nil)
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, goCataloger, "", []string{"HOME=/home/build"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+		})
+
+		It("skips a module missing from the cache with a warning and keeps going", func() {
+			var output strings.Builder
+			ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))
+
+			expectSpecAndLock()
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/go/pkg/mod/github.com/samber/lo@v1.47.0", gomock.Any(), gomock.Any()).
+				Return(fmt.Errorf("copy: %w", fs.ErrNotExist))
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/go/pkg/mod/github.com/!azure/go-autorest@v14.2.0+incompatible", gomock.Any(), gomock.Any()).
+				Return(nil)
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, goCataloger, "", []string{"GOPATH=/go"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+			Expect(output.String()).To(ContainSubstring("WARNING: /go/pkg/mod/github.com/samber/lo@v1.47.0 not found in image"))
+		})
+
+		It("does not touch the module cache when go.sum is absent", func() {
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("module example.com/app\n"), nil)
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.sum").Return(nil, fmt.Errorf("copy: %w", fs.ErrNotExist))
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, goCataloger, "", []string{"GOPATH=/go"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
 		})
 	})
 
@@ -347,13 +437,33 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Name:        "go-module-file-cataloger",
 			SourcePaths: []string{"/app/go.mod"},
 		}
-		mockBackend.EXPECT().
-			ReadFileFromImage(ctx, imageRef, "/app/go.mod", container_backend.ReadFileFromImageOpts{}).
+		mockReader.EXPECT().
+			ReadFile(ctx, "/app/go.mod").
 			Return(nil, errors.New("no regular file at /app/go.mod"))
 
-		_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "")
+		_, _, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("go-module-file-cataloger"))
 		Expect(err.Error()).To(ContainSubstring("/app/go.mod"))
+	})
+})
+
+var _ = Describe("MaterializeCatalogerInputs target platform", func() {
+	It("opens the image reader for the target platform", func() {
+		ctrl := gomock.NewController(GinkgoT())
+		mockBackend := mock.NewMockContainerBackend(ctrl)
+		mockReader := mock.NewMockImageReader(ctrl)
+		ctx := context.Background()
+
+		mockBackend.EXPECT().
+			OpenImageReader(gomock.Any(), "test-image:latest", container_backend.ReadFileFromImageOpts{TargetPlatform: "linux/arm64"}).
+			Return(mockReader, nil)
+		mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("module example.com/app\n"), nil)
+		mockReader.EXPECT().Close(gomock.Any()).Return(nil)
+
+		cataloger := scanner.Cataloger{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}}
+		_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, "test-image:latest", cataloger, "linux/arm64", nil)
+		Expect(err).To(Succeed())
+		DeferCleanup(func() { cleanup(ctx) })
 	})
 })

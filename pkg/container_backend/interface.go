@@ -29,11 +29,26 @@ type RmOpts struct {
 	Force bool
 }
 
-type ReadDirFromImageOpts struct {
-	CommonOpts
-	// FileNames, when set, keeps only regular files whose base name is listed;
-	// everything else in the directory tree is skipped.
-	FileNames []string
+type ReadDirOpts struct {
+	// FileNamePatterns, when set, keeps only regular files whose base name matches one
+	// of the shell patterns (filepath.Match semantics, case-insensitive); everything else
+	// in the directory tree is skipped.
+	FileNamePatterns []string
+}
+
+// ImageReader reads files out of one image through a single throwaway container, so a
+// caller that needs many paths pays for container creation once. Close releases the
+// container; the reader must not be used afterwards.
+type ImageReader interface {
+	// ReadFile returns the content of the regular file at path. When there is no
+	// regular file at path, the returned error wraps fs.ErrNotExist.
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+	// ReadDir copies the directory tree at path into destDir on the host, preserving
+	// the layout relative to path. Only regular files are written; a symlink to a
+	// directory inside the tree is materialized as a copy of its target. When there is
+	// no directory at path, the returned error wraps fs.ErrNotExist.
+	ReadDir(ctx context.Context, path, destDir string, opts ReadDirOpts) error
+	Close(ctx context.Context) error
 }
 
 type RmiOpts struct {
@@ -103,14 +118,13 @@ type ContainerBackend interface {
 	// imageRef without executing anything from the image, so it works for
 	// scratch/distroless images that have no shell or coreutils. When there is no
 	// regular file at path, the returned error wraps fs.ErrNotExist so callers can
-	// distinguish genuine absence from a failed read.
+	// distinguish genuine absence from a failed read. For many reads from one image
+	// prefer OpenImageReader.
 	ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error)
 
-	// ReadDirFromImage copies the directory tree at path inside imageRef into destDir
-	// on the host, preserving the layout relative to path, without executing anything
-	// from the image. Only regular files are written. When there is no directory at
-	// path, the returned error wraps fs.ErrNotExist.
-	ReadDirFromImage(ctx context.Context, imageRef, path, destDir string, opts ReadDirFromImageOpts) error
+	// OpenImageReader creates the container that backs an ImageReader for imageRef,
+	// without executing anything from the image.
+	OpenImageReader(ctx context.Context, imageRef string, opts ReadFileFromImageOpts) (ImageReader, error)
 
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)

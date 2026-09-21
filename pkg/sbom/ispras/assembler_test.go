@@ -179,6 +179,24 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(dependsOn(result, "b/os")).To(ContainElement(refByName["db"]))
 	})
 
+	It("keeps the properties of the image root on the container, its GOST values ahead of the aggregate", func() {
+		bom := imageBOM("a")
+		bom.Metadata.Component.Properties = &[]cdx.Property{
+			{Name: "root-only", Value: "r"},
+			{Name: gost.PropertyAttackSurface, Value: "no"},
+			{Name: gost.PropertySecurityFunction, Value: "no"},
+		}
+		(*bom.Components)[1].Properties = &[]cdx.Property{{Name: gost.PropertyAttackSurface, Value: "yes"}, {Name: gost.PropertySecurityFunction, Value: "yes"}}
+		bom.Properties = &[]cdx.Property{{Name: "doc", Value: "d"}}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		container := (*result.Components)[0]
+		Expect(*container.Properties).To(ContainElements(cdx.Property{Name: "root-only", Value: "r"}, cdx.Property{Name: "doc", Value: "d"}))
+		Expect(gost.GetComponent(&container)).To(Equal(gost.Config{AttackSurface: gost.GostValueNo, SecurityFunction: gost.GostValueNo}))
+	})
+
 	It("moves the document properties of every image onto its container", func() {
 		bomA, bomB := imageBOM("a"), imageBOM("b")
 		bomA.Properties = &[]cdx.Property{{Name: "custom", Value: "x"}}

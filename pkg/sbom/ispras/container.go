@@ -44,7 +44,9 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 			}
 		}
 
-		container.Properties = imgBOM.Properties
+		if props := append(lo.FromPtr(container.Properties), lo.FromPtr(imgBOM.Properties)...); len(props) > 0 {
+			container.Properties = &props
+		}
 		imgBOM.Properties = nil
 
 		setMissingGOSTOnComponent(&container, img.GOST)

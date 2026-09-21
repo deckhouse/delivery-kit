@@ -169,7 +169,22 @@ packages:
 - `spec` — an inline list of packages to install; a version is pinned with `==` (`curl==8.12.1`) or `@` (`curl@8.12.1`), without a version the default one is installed. This is the only format: a file with a package list instead of the inline list is not supported.
 - `workdir` is not supported for `os-pm`.
 
-The base image must provide the `pm` binary in `$PATH` — otherwise the build fails because `pm` cannot be found. The `PACKAGES_VERSION` and `REGISTRY` environment variables are set in the builder base images themselves — there is no need to set them manually.
+The base image must provide the `pm` binary in `$PATH` — otherwise the build fails because `pm` cannot be found. The builder base images also set the `PACKAGES_VERSION` and `REGISTRY` environment variables themselves, so there is normally no need to set them manually. `PACKAGES_VERSION` is mandatory: werf stores it in the image and reports it in the SBOM as the `containerfactoryversion` qualifier, and the packages stage fails when no source provides it.
+
+On a base image that sets neither variable — a `scratch` image with `pm` imported into it, for example — pass them through `env`, referencing a build secret when the value must not end up in the build instructions (see [Secrets in packages](#secrets-in-packages)):
+
+```yaml
+secrets:
+  - env: PACKAGES_VERSION
+packages:
+  - type: os-pm
+    env:
+      PACKAGES_VERSION: "%secret:PACKAGES_VERSION%"
+    spec:
+      - curl==8.12.1
+```
+
+A declared secret reaches `pm` only through such a reference: werf never picks up a secret because its id matches a variable name. A build that used to rely on a secret named `PACKAGES_VERSION` or `REGISTRY` being wired into `pm` on its own has to add the matching `env` entry — without it the packages stage fails on the missing version, and `pm` falls back to its own default registry.
 
 Packages installed in a parent image are inherited by images based on it via `fromImage` and remain present in the child image SBOM.
 
@@ -291,7 +306,7 @@ A `packages[].env` value can reference a secret declared in the `secrets` sectio
 - `%secret:<id>%` — the contents of the secret, without trailing newlines;
 - `%secret_path:<id>%` — the path the secret is mounted at, `/run/secrets/<id>`.
 
-A reference is resolved while the package manager runs, so the secret is never part of the build instructions, the stage digest or the resulting image. Referencing a secret that is not declared fails the build during configuration parsing. Any other `%...%` sequence stays literal.
+A reference is resolved while the package manager runs, so the secret is never part of the build instructions or the stage digest. Whether it ends up in the resulting image is up to the package manager: `PACKAGES_VERSION` is written into the image and the SBOM by design, so do not put a value there that must not be readable from the image. Referencing a secret that is not declared fails the build during configuration parsing. Any other `%...%` sequence stays literal.
 
 ```yaml
 secrets:

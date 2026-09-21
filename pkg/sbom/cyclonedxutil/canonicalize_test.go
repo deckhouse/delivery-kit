@@ -651,6 +651,7 @@ var _ = Describe("Canonicalize", func() {
 			Compositions: &[]cdx.Composition{
 				{Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"c1", "gone"}, Dependencies: &[]cdx.BOMReference{"gone"}, Vulnerabilities: &[]cdx.BOMReference{"v1", "gone"}},
 				{Aggregate: cdx.CompositionAggregateIncomplete, Assemblies: &[]cdx.BOMReference{"gone"}},
+				{Aggregate: cdx.CompositionAggregateUnknown},
 			},
 			Annotations: &[]cdx.Annotation{
 				{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"c1", "gone"}, Text: "x"},
@@ -664,6 +665,7 @@ var _ = Describe("Canonicalize", func() {
 
 		Expect(*bom.Compositions).To(Equal([]cdx.Composition{
 			{Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"c1"}, Vulnerabilities: &[]cdx.BOMReference{"v1"}},
+			{Aggregate: cdx.CompositionAggregateUnknown},
 		}))
 		Expect(*bom.Annotations).To(Equal([]cdx.Annotation{
 			{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"c1"}, Text: "x"},

@@ -423,8 +423,9 @@ func mergeVulnerabilityInto(survivor *cdx.Vulnerability, dup cdx.Vulnerability) 
 }
 
 // canonicalizeCompositions keeps the refs of entities the BOM declares and
-// drops a composition left without any. A BOM-Link stays: it addresses an
-// entity of another document, which cannot be checked here.
+// drops a composition whose refs are all gone; one that never had any
+// describes the document as a whole and stays. A BOM-Link stays: it addresses
+// an entity of another document, which cannot be checked here.
 func canonicalizeCompositions(compositions *[]cdx.Composition, knownRefs map[string]struct{}) *[]cdx.Composition {
 	if compositions == nil {
 		return nil
@@ -432,10 +433,11 @@ func canonicalizeCompositions(compositions *[]cdx.Composition, knownRefs map[str
 
 	result := make([]cdx.Composition, 0, len(*compositions))
 	for _, composition := range *compositions {
+		hadRefs := composition.Assemblies != nil || composition.Dependencies != nil || composition.Vulnerabilities != nil
 		composition.Assemblies = filterKnownBOMReferences(composition.Assemblies, knownRefs)
 		composition.Dependencies = filterKnownBOMReferences(composition.Dependencies, knownRefs)
 		composition.Vulnerabilities = filterKnownBOMReferences(composition.Vulnerabilities, knownRefs)
-		if composition.Assemblies == nil && composition.Dependencies == nil && composition.Vulnerabilities == nil {
+		if hadRefs && composition.Assemblies == nil && composition.Dependencies == nil && composition.Vulnerabilities == nil {
 			continue
 		}
 		result = append(result, composition)

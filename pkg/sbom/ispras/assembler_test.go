@@ -395,6 +395,22 @@ var _ = Describe("NamespaceBOMRefs", func() {
 		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"img/syft", "img/formula"}))
 	})
 
+	It("namespaces the refs of compositions and annotations and leaves BOM-Links alone", func() {
+		bom := &cdx.BOM{
+			Components:   &[]cdx.Component{{BOMRef: "os", Type: cdx.ComponentTypeOS, Name: "alpine"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}}},
+			Compositions: &[]cdx.Composition{{BOMRef: "comp", Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"os"}}},
+			Annotations:  &[]cdx.Annotation{{BOMRef: "note", Subjects: &[]cdx.BOMReference{"os", "urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}, Text: "x"}},
+		}
+
+		NamespaceBOMRefs(bom, "img")
+
+		Expect((*bom.Compositions)[0].BOMRef).To(Equal("img/comp"))
+		Expect((*bom.Annotations)[0].BOMRef).To(Equal("img/note"))
+		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}))
+		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"img/os", "urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}))
+	})
+
 	It("renames every ref at once when one new ref equals another old one", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

@@ -643,6 +643,17 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"v1"}))
 	})
 
+	It("keeps a dependency on an entity of another document", func() {
+		bom := &cdx.BOM{
+			Components:   &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "c1", Dependencies: &[]string{"urn:cdx:11111111-1111-1111-1111-111111111111/1#lib", "gone"}}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "c1", Dependencies: &[]string{"urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}}}))
+	})
+
 	It("drops the composition and annotation refs that point at nothing", func() {
 		bom := &cdx.BOM{
 			SerialNumber:    "urn:uuid:22222222-2222-2222-2222-222222222222",

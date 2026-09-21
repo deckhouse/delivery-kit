@@ -475,12 +475,18 @@ func filterKnownBOMReferences(refs *[]cdx.BOMReference, knownRefs map[string]str
 	result := make([]cdx.BOMReference, 0, len(*refs))
 	for _, ref := range *refs {
 		_, known := knownRefs[string(ref)]
-		if known || strings.HasPrefix(string(ref), "urn:cdx:") {
+		if known || isBOMLink(string(ref)) {
 			result = append(result, ref)
 		}
 	}
 
 	return dedupPtrSlice(&result)
+}
+
+// isBOMLink reports whether ref addresses an entity of another document, which
+// this one cannot check.
+func isBOMLink(ref string) bool {
+	return strings.HasPrefix(ref, "urn:cdx:")
 }
 
 func collectKnownRefs(bom *cdx.BOM) map[string]struct{} {
@@ -549,7 +555,7 @@ func filterKnownRefs(refs *[]string, knownRefs map[string]struct{}, dependentRef
 		if ref == dependentRef {
 			continue
 		}
-		if _, known := knownRefs[ref]; known {
+		if _, known := knownRefs[ref]; known || isBOMLink(ref) {
 			result = append(result, ref)
 		}
 	}

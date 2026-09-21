@@ -130,10 +130,38 @@ var _ = Describe("ContainerAssembler", func() {
 		result, err := (&ContainerAssembler{}).Assemble(context.Background(), images, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(*result.Services).To(Equal([]cdx.Service{{BOMRef: "svc", Name: "api"}}))
+		Expect(*result.Services).To(HaveLen(1))
+		survivor := (*result.Services)[0]
+		Expect(survivor.Name).To(Equal("api"))
 		Expect(*result.Components).To(HaveLen(2))
-		Expect(dependsOn(result, "a/os")).To(ContainElement("svc"))
-		Expect(dependsOn(result, "b/lib")).To(ContainElement("svc"))
+		Expect(dependsOn(result, "a/os")).To(ContainElement(survivor.BOMRef))
+		Expect(dependsOn(result, "b/lib")).To(ContainElement(survivor.BOMRef))
+	})
+
+	It("keeps two services of different identity apart when the images reuse one ref for them", func() {
+		bomA, bomB := rawImageBOM("a"), rawImageBOM("b")
+		bomA.Services = &[]cdx.Service{{BOMRef: "svc", Name: "api"}}
+		bomB.Services = &[]cdx.Service{{BOMRef: "svc", Name: "db"}}
+		*bomA.Dependencies = append(*bomA.Dependencies, cdx.Dependency{Ref: "os", Dependencies: &[]string{"svc"}})
+		*bomB.Dependencies = append(*bomB.Dependencies, cdx.Dependency{Ref: "os", Dependencies: &[]string{"svc"}})
+		NamespaceBOMRefs(bomA, "a")
+		NamespaceBOMRefs(bomB, "b")
+
+		images := []*ImageSBOM{NewImageSBOM("a", bomA), NewImageSBOM("b", bomB)}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), images, ProductMeta{AppName: "app", AppVersion: "1", Manufacturer: "m"})
+		Expect(err).NotTo(HaveOccurred())
+
+		services := *result.Services
+		Expect(services).To(HaveLen(2))
+		Expect(services[0].BOMRef).NotTo(Equal(services[1].BOMRef))
+
+		refByName := map[string]string{}
+		for _, svc := range services {
+			refByName[svc.Name] = svc.BOMRef
+		}
+		Expect(dependsOn(result, "a/os")).To(ContainElement(refByName["api"]))
+		Expect(dependsOn(result, "b/os")).To(ContainElement(refByName["db"]))
 	})
 
 	It("keeps the GOST properties of the container out of the document properties", func() {
@@ -285,7 +313,7 @@ var _ = Describe("NamespaceBOMRefs", func() {
 		Expect((*(*bom.Vulnerabilities)[0].Affects)[0].Ref).To(Equal("img/lib"))
 	})
 
-	It("leaves references to services alone, since service refs are not namespaced", func() {
+	It("namespaces service declarations and the references to them, nested services included", func() {
 		bom := &cdx.BOM{
 			Components:   &[]cdx.Component{{BOMRef: "os", Type: cdx.ComponentTypeOS, Name: "alpine"}},
 			Services:     &[]cdx.Service{{BOMRef: "svc", Name: "api", Services: &[]cdx.Service{{BOMRef: "inner", Name: "sub"}}}},
@@ -294,9 +322,11 @@ var _ = Describe("NamespaceBOMRefs", func() {
 
 		NamespaceBOMRefs(bom, "img")
 
+		Expect((*bom.Services)[0].BOMRef).To(Equal("img/svc"))
+		Expect((*(*bom.Services)[0].Services)[0].BOMRef).To(Equal("img/inner"))
 		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{
-			{Ref: "img/os", Dependencies: &[]string{"svc", "inner"}},
-			{Ref: "svc", Dependencies: &[]string{"img/os"}},
+			{Ref: "img/os", Dependencies: &[]string{"img/svc", "img/inner"}},
+			{Ref: "img/svc", Dependencies: &[]string{"img/os"}},
 		}))
 	})
 

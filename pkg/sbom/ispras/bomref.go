@@ -10,10 +10,11 @@ import (
 )
 
 // NamespaceBOMRefs prefixes every BOM ref declared by bom — the metadata
-// component and the components recursively — with prefix and rewrites every
-// reference to them accordingly, mutating bom in place. Service refs are left
-// alone: services are shared between images rather than kept apart, so
-// references to them keep their refs too.
+// component, the components and the services, all recursively — with prefix
+// and rewrites every reference to them accordingly, mutating bom in place. Two
+// images may reuse one ref for different entities, so refs stay distinct only
+// while they carry the name of their image; services of equal identity are
+// collapsed again when the image documents are merged.
 func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 	refMap := map[string]string{}
 
@@ -21,15 +22,10 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 		namespaceComponentBOMRef(bom.Metadata.Component, prefix, refMap)
 	}
 	namespaceComponentBOMRefs(lo.FromPtr(bom.Components), prefix, refMap)
-
-	serviceRefs := map[string]struct{}{}
-	collectServiceBOMRefs(lo.FromPtr(bom.Services), serviceRefs)
+	namespaceServiceBOMRefs(lo.FromPtr(bom.Services), prefix, refMap)
 
 	namespaceUnknown := func(ref string) {
 		if _, known := refMap[ref]; known || ref == "" {
-			return
-		}
-		if _, service := serviceRefs[ref]; service {
 			return
 		}
 		refMap[ref] = namespacedRef(ref, prefix)
@@ -44,12 +40,15 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 	cyclonedxutil.RewriteRefs(bom, refMap)
 }
 
-func collectServiceBOMRefs(services []cdx.Service, refs map[string]struct{}) {
-	for _, svc := range services {
+func namespaceServiceBOMRefs(services []cdx.Service, prefix string, refMap map[string]string) {
+	for i := range services {
+		svc := &services[i]
 		if svc.BOMRef != "" {
-			refs[svc.BOMRef] = struct{}{}
+			namespaced := namespacedRef(svc.BOMRef, prefix)
+			refMap[svc.BOMRef] = namespaced
+			svc.BOMRef = namespaced
 		}
-		collectServiceBOMRefs(lo.FromPtr(svc.Services), refs)
+		namespaceServiceBOMRefs(lo.FromPtr(svc.Services), prefix, refMap)
 	}
 }
 

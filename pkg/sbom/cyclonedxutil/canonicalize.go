@@ -79,6 +79,9 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 	}
 	knownRefs := collectKnownRefs(bom)
 	bom.Dependencies = canonicalizeDependencies(bom.Dependencies, knownRefs)
+	if bom.SerialNumber != "" {
+		knownRefs[bom.SerialNumber] = struct{}{}
+	}
 	bom.Compositions = canonicalizeCompositions(bom.Compositions, knownRefs)
 	bom.Annotations = canonicalizeAnnotations(bom.Annotations, knownRefs)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
@@ -442,8 +445,9 @@ func canonicalizeCompositions(compositions *[]cdx.Composition, knownRefs map[str
 }
 
 // canonicalizeAnnotations keeps the subjects the BOM declares and drops an
-// annotation left without any. A BOM-Link stays: it addresses an entity of
-// another document, which cannot be checked here.
+// annotation left without any. The serial number of the BOM is a subject too:
+// an annotation may be about the document itself. A BOM-Link stays: it
+// addresses an entity of another document, which cannot be checked here.
 func canonicalizeAnnotations(annotations *[]cdx.Annotation, knownRefs map[string]struct{}) *[]cdx.Annotation {
 	if annotations == nil {
 		return nil

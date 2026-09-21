@@ -645,6 +645,7 @@ var _ = Describe("Canonicalize", func() {
 
 	It("drops the composition and annotation refs that point at nothing", func() {
 		bom := &cdx.BOM{
+			SerialNumber:    "urn:uuid:22222222-2222-2222-2222-222222222222",
 			Components:      &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
 			Vulnerabilities: &[]cdx.Vulnerability{{BOMRef: "v1", ID: "CVE-1"}},
 			Compositions: &[]cdx.Composition{
@@ -655,6 +656,7 @@ var _ = Describe("Canonicalize", func() {
 				{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"c1", "gone"}, Text: "x"},
 				{BOMRef: "a2", Subjects: &[]cdx.BOMReference{"gone"}, Text: "y"},
 				{BOMRef: "a3", Subjects: &[]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/1#other"}, Text: "z"},
+				{BOMRef: "a4", Subjects: &[]cdx.BOMReference{"urn:uuid:22222222-2222-2222-2222-222222222222"}, Text: "about the bom"},
 			},
 		}
 
@@ -666,6 +668,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.Annotations).To(Equal([]cdx.Annotation{
 			{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"c1"}, Text: "x"},
 			{BOMRef: "a3", Subjects: &[]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/1#other"}, Text: "z"},
+			{BOMRef: "a4", Subjects: &[]cdx.BOMReference{"urn:uuid:22222222-2222-2222-2222-222222222222"}, Text: "about the bom"},
 		}))
 	})
 

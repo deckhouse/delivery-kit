@@ -643,6 +643,32 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"v1"}))
 	})
 
+	It("drops the composition and annotation refs that point at nothing", func() {
+		bom := &cdx.BOM{
+			Components:      &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
+			Vulnerabilities: &[]cdx.Vulnerability{{BOMRef: "v1", ID: "CVE-1"}},
+			Compositions: &[]cdx.Composition{
+				{Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"c1", "gone"}, Dependencies: &[]cdx.BOMReference{"gone"}, Vulnerabilities: &[]cdx.BOMReference{"v1", "gone"}},
+				{Aggregate: cdx.CompositionAggregateIncomplete, Assemblies: &[]cdx.BOMReference{"gone"}},
+			},
+			Annotations: &[]cdx.Annotation{
+				{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"c1", "gone"}, Text: "x"},
+				{BOMRef: "a2", Subjects: &[]cdx.BOMReference{"gone"}, Text: "y"},
+				{BOMRef: "a3", Subjects: &[]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/1#other"}, Text: "z"},
+			},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Compositions).To(Equal([]cdx.Composition{
+			{Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"c1"}, Vulnerabilities: &[]cdx.BOMReference{"v1"}},
+		}))
+		Expect(*bom.Annotations).To(Equal([]cdx.Annotation{
+			{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"c1"}, Text: "x"},
+			{BOMRef: "a3", Subjects: &[]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/1#other"}, Text: "z"},
+		}))
+	})
+
 	It("merges duplicate services", func() {
 		bom := &cdx.BOM{
 			Services: &[]cdx.Service{

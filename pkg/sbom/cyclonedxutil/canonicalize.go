@@ -77,9 +77,10 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 		vuln.Affects = dedupPtrSlice(vuln.Affects)
 		vuln.Properties = dedupProperties(vuln.Properties)
 	}
-	bom.Dependencies = canonicalizeDependencies(bom.Dependencies, collectKnownRefs(bom))
-	bom.Compositions = canonicalizeCompositions(bom.Compositions)
-	bom.Annotations = canonicalizeAnnotations(bom.Annotations)
+	knownRefs := collectKnownRefs(bom)
+	bom.Dependencies = canonicalizeDependencies(bom.Dependencies, knownRefs)
+	bom.Compositions = canonicalizeCompositions(bom.Compositions, knownRefs)
+	bom.Annotations = canonicalizeAnnotations(bom.Annotations, knownRefs)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
 }
 
@@ -418,29 +419,59 @@ func mergeVulnerabilityInto(survivor *cdx.Vulnerability, dup cdx.Vulnerability) 
 	survivor.Properties = dedupProperties(appendPtrSlice(survivor.Properties, dup.Properties))
 }
 
-func canonicalizeCompositions(compositions *[]cdx.Composition) *[]cdx.Composition {
+// canonicalizeCompositions keeps the refs of entities the BOM declares and
+// drops a composition left without any. A BOM-Link stays: it addresses an
+// entity of another document, which cannot be checked here.
+func canonicalizeCompositions(compositions *[]cdx.Composition, knownRefs map[string]struct{}) *[]cdx.Composition {
 	if compositions == nil {
 		return nil
 	}
 
-	result := *compositions
-	for i := range result {
-		result[i].Assemblies = dedupPtrSlice(result[i].Assemblies)
-		result[i].Dependencies = dedupPtrSlice(result[i].Dependencies)
-		result[i].Vulnerabilities = dedupPtrSlice(result[i].Vulnerabilities)
+	result := make([]cdx.Composition, 0, len(*compositions))
+	for _, composition := range *compositions {
+		composition.Assemblies = filterKnownBOMReferences(composition.Assemblies, knownRefs)
+		composition.Dependencies = filterKnownBOMReferences(composition.Dependencies, knownRefs)
+		composition.Vulnerabilities = filterKnownBOMReferences(composition.Vulnerabilities, knownRefs)
+		if composition.Assemblies == nil && composition.Dependencies == nil && composition.Vulnerabilities == nil {
+			continue
+		}
+		result = append(result, composition)
 	}
 
 	return dedupPtrSlice(&result)
 }
 
-func canonicalizeAnnotations(annotations *[]cdx.Annotation) *[]cdx.Annotation {
+// canonicalizeAnnotations keeps the subjects the BOM declares and drops an
+// annotation left without any. A BOM-Link stays: it addresses an entity of
+// another document, which cannot be checked here.
+func canonicalizeAnnotations(annotations *[]cdx.Annotation, knownRefs map[string]struct{}) *[]cdx.Annotation {
 	if annotations == nil {
 		return nil
 	}
 
-	result := *annotations
-	for i := range result {
-		result[i].Subjects = dedupPtrSlice(result[i].Subjects)
+	result := make([]cdx.Annotation, 0, len(*annotations))
+	for _, annotation := range *annotations {
+		annotation.Subjects = filterKnownBOMReferences(annotation.Subjects, knownRefs)
+		if annotation.Subjects == nil {
+			continue
+		}
+		result = append(result, annotation)
+	}
+
+	return dedupPtrSlice(&result)
+}
+
+func filterKnownBOMReferences(refs *[]cdx.BOMReference, knownRefs map[string]struct{}) *[]cdx.BOMReference {
+	if refs == nil {
+		return nil
+	}
+
+	result := make([]cdx.BOMReference, 0, len(*refs))
+	for _, ref := range *refs {
+		_, known := knownRefs[string(ref)]
+		if known || strings.HasPrefix(string(ref), "urn:cdx:") {
+			result = append(result, ref)
+		}
 	}
 
 	return dedupPtrSlice(&result)

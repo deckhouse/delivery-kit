@@ -180,7 +180,7 @@ var _ = Describe("Canonicalize", func() {
 			Signature: &cdx.JSFSignature{Signers: &[]cdx.JSFSigner{{Value: "sig"}}},
 		}
 		bom := &cdx.BOM{Components: &[]cdx.Component{
-			{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1", PackageURL: "pkg:generic/bin@1"},
+			{BOMRef: "a", Type: cdx.ComponentTypeLibrary, PackageURL: "pkg:generic/bin@1"},
 			dup,
 		}}
 

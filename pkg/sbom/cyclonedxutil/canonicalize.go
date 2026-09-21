@@ -156,6 +156,8 @@ func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[s
 	survivor.Data = dedupPtrSlice(appendPtrSlice(survivor.Data, dup.Data))
 
 	takeString(&survivor.MIMEType, dup.MIMEType)
+	takeString(&survivor.Name, dup.Name)
+	takeString(&survivor.Version, dup.Version)
 	takeString(&survivor.Group, dup.Group)
 	takeString(&survivor.Author, dup.Author)
 	takeString(&survivor.Publisher, dup.Publisher)

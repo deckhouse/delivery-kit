@@ -411,7 +411,9 @@ func AssertDependsOn(bom *cdx.BOM, ref, dependsOnRef string) {
 func AssertDependencyGraphResolves(bom *cdx.BOM) {
 	refs := map[string]struct{}{}
 	walkComponents(bom.Components, func(c *cdx.Component) {
-		refs[c.BOMRef] = struct{}{}
+		if c.BOMRef != "" {
+			refs[c.BOMRef] = struct{}{}
+		}
 	})
 
 	for _, dep := range lo.FromPtr(bom.Dependencies) {
@@ -425,14 +427,20 @@ func AssertDependencyGraphResolves(bom *cdx.BOM) {
 }
 
 // AssertKeepsDependencyEdges checks that every dependency edge between two
-// components of image is present in merged, with refs of the image mapped by
-// mapRef. Canonicalization drops every dangling edge, so a resolving graph
-// alone does not prove that no edge was lost. A component without a PURL gets
-// a ref derived from the merge itself, which mapRef cannot predict, so an image
-// ref the merged document does not declare is resolved by component identity
-// instead.
+// components of image, its metadata component included, is present in merged,
+// with refs of the image mapped by mapRef. Canonicalization drops every
+// dangling edge, so a resolving graph alone does not prove that no edge was
+// lost. A component without a PURL gets a ref derived from the merge itself,
+// which mapRef cannot predict, so an image ref the merged document does not
+// declare is resolved by component identity instead. mapRef returning "" marks
+// a component the merge is expected to drop, the edges of which are skipped.
 func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) string) {
 	imageComponents := map[string]*cdx.Component{}
+	if image.Metadata != nil && image.Metadata.Component != nil {
+		walkComponents(&[]cdx.Component{*image.Metadata.Component}, func(c *cdx.Component) {
+			imageComponents[c.BOMRef] = c
+		})
+	}
 	walkComponents(image.Components, func(c *cdx.Component) {
 		imageComponents[c.BOMRef] = c
 	})
@@ -454,6 +462,9 @@ func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) 
 
 	candidates := func(ref string) []string {
 		mapped := normalizePURL(mapRef(ref))
+		if mapped == "" {
+			return nil
+		}
 		if _, declared := mergedRefs[mapped]; declared {
 			return []string{mapped}
 		}
@@ -474,6 +485,9 @@ func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) 
 				continue
 			}
 			subjects, targets := candidates(dep.Ref), candidates(target)
+			if subjects == nil || targets == nil {
+				continue
+			}
 			found := false
 			for _, subject := range subjects {
 				for _, t := range targets {

@@ -116,7 +116,11 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6")
 			sbomtest.AssertDependencyGraphResolves(merged)
 			for name, imageBOM := range imageBOMs {
+				rootRef := imageBOM.Metadata.Component.BOMRef
 				sbomtest.AssertKeepsDependencyEdges(merged, imageBOM, func(ref string) string {
+					if ref == rootRef {
+						return lo.Ternary(isprasFormat == "container", name, "")
+					}
 					return lo.Ternary(isprasFormat == "container", name+"/"+ref, ref)
 				})
 			}

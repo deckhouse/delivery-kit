@@ -179,15 +179,18 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(dependsOn(result, "b/os")).To(ContainElement(refByName["db"]))
 	})
 
-	It("keeps the GOST properties of the container out of the document properties", func() {
-		bom := imageBOM("a")
-		bom.Properties = &[]cdx.Property{{Name: "custom", Value: "x"}}
+	It("moves the document properties of every image onto its container", func() {
+		bomA, bomB := imageBOM("a"), imageBOM("b")
+		bomA.Properties = &[]cdx.Property{{Name: "custom", Value: "x"}}
+		bomB.Properties = &[]cdx.Property{{Name: "custom", Value: "y"}}
 
-		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bomA), NewImageSBOM("b", bomB)}, ProductMeta{})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(*result.Properties).To(Equal([]cdx.Property{{Name: "custom", Value: "x"}}))
+		Expect(result.Properties).To(BeNil())
+		Expect(*(*result.Components)[0].Properties).To(ContainElement(cdx.Property{Name: "custom", Value: "x"}))
 		Expect(*(*result.Components)[0].Properties).To(HaveLen(3))
+		Expect(*(*result.Components)[1].Properties).To(ContainElement(cdx.Property{Name: "custom", Value: "y"}))
 	})
 
 	It("gives the container the external references of the image root only", func() {

@@ -20,7 +20,8 @@ type ContainerAssembler struct{}
 // in their own container instead of collapsing into a single entry, and the BOM
 // refs namespaced per image keep matching the merged dependency graph. The
 // container replaces the image's root component, taking over every reference to
-// it.
+// it and the document properties of the image, which describe that image and
+// not the product.
 func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
 	wrapped := make([]*cdx.BOM, 0, len(images))
 	for _, img := range images {
@@ -43,9 +44,8 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 			}
 		}
 
-		if imgBOM.Properties != nil {
-			container.Properties = lo.ToPtr(slices.Clone(*imgBOM.Properties))
-		}
+		container.Properties = imgBOM.Properties
+		imgBOM.Properties = nil
 
 		setMissingGOSTOnComponent(&container, img.GOST)
 

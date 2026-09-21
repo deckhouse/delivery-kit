@@ -345,6 +345,35 @@ var _ = Describe("NamespaceBOMRefs", func() {
 		}))
 	})
 
+	It("namespaces the refs declared by tools, formulation and vulnerabilities", func() {
+		bom := &cdx.BOM{
+			Metadata: &cdx.Metadata{Tools: &cdx.ToolsChoice{
+				Components: &[]cdx.Component{{BOMRef: "syft", Type: cdx.ComponentTypeApplication, Name: "syft"}},
+				Services:   &[]cdx.Service{{BOMRef: "scan", Name: "scan"}},
+			}},
+			Components: &[]cdx.Component{{BOMRef: "os", Type: cdx.ComponentTypeOS, Name: "alpine"}},
+			Formulation: &[]cdx.Formula{{
+				BOMRef:     "formula",
+				Components: &[]cdx.Component{{BOMRef: "build-input", Type: cdx.ComponentTypeLibrary, Name: "in"}},
+				Services:   &[]cdx.Service{{BOMRef: "build-svc", Name: "ci"}},
+			}},
+			Vulnerabilities: &[]cdx.Vulnerability{{BOMRef: "vuln", ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "os"}}}},
+			Compositions:    &[]cdx.Composition{{Aggregate: cdx.CompositionAggregateComplete, Vulnerabilities: &[]cdx.BOMReference{"vuln"}}},
+			Annotations:     &[]cdx.Annotation{{BOMRef: "note", Subjects: &[]cdx.BOMReference{"syft", "formula"}, Text: "x"}},
+		}
+
+		NamespaceBOMRefs(bom, "img")
+
+		Expect((*bom.Metadata.Tools.Components)[0].BOMRef).To(Equal("img/syft"))
+		Expect((*bom.Metadata.Tools.Services)[0].BOMRef).To(Equal("img/scan"))
+		Expect((*bom.Formulation)[0].BOMRef).To(Equal("img/formula"))
+		Expect((*(*bom.Formulation)[0].Components)[0].BOMRef).To(Equal("img/build-input"))
+		Expect((*(*bom.Formulation)[0].Services)[0].BOMRef).To(Equal("img/build-svc"))
+		Expect((*bom.Vulnerabilities)[0].BOMRef).To(Equal("img/vuln"))
+		Expect(*(*bom.Compositions)[0].Vulnerabilities).To(Equal([]cdx.BOMReference{"img/vuln"}))
+		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"img/syft", "img/formula"}))
+	})
+
 	It("renames every ref at once when one new ref equals another old one", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

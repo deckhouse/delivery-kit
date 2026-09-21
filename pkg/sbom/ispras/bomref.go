@@ -10,8 +10,9 @@ import (
 )
 
 // NamespaceBOMRefs prefixes every BOM ref declared by bom — the metadata
-// component, the components and the services, all recursively — with prefix
-// and rewrites every reference to them accordingly, mutating bom in place. Two
+// component and tools, the components, the services, the formulation and the
+// vulnerabilities, all recursively — with prefix and rewrites every reference
+// to them accordingly, mutating bom in place. Two
 // images may reuse one ref for different entities, so refs stay distinct only
 // while they carry the name of their image; services of equal identity are
 // collapsed again when the image documents are merged.
@@ -19,11 +20,25 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 	refMap := map[string]string{}
 
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		namespaceComponentBOMRef(bom.Metadata.Component, prefix, refMap)
+		namespaceRef(&bom.Metadata.Component.BOMRef, prefix, refMap)
 		namespaceComponentBOMRefs(lo.FromPtr(bom.Metadata.Component.Components), prefix, refMap)
+	}
+	if bom.Metadata != nil && bom.Metadata.Tools != nil {
+		namespaceComponentBOMRefs(lo.FromPtr(bom.Metadata.Tools.Components), prefix, refMap)
+		namespaceServiceBOMRefs(lo.FromPtr(bom.Metadata.Tools.Services), prefix, refMap)
 	}
 	namespaceComponentBOMRefs(lo.FromPtr(bom.Components), prefix, refMap)
 	namespaceServiceBOMRefs(lo.FromPtr(bom.Services), prefix, refMap)
+
+	for i := range lo.FromPtr(bom.Formulation) {
+		formula := &(*bom.Formulation)[i]
+		namespaceRef(&formula.BOMRef, prefix, refMap)
+		namespaceComponentBOMRefs(lo.FromPtr(formula.Components), prefix, refMap)
+		namespaceServiceBOMRefs(lo.FromPtr(formula.Services), prefix, refMap)
+	}
+	for i := range lo.FromPtr(bom.Vulnerabilities) {
+		namespaceRef(&(*bom.Vulnerabilities)[i].BOMRef, prefix, refMap)
+	}
 
 	namespaceUnknown := func(ref string) {
 		if _, known := refMap[ref]; known || ref == "" {
@@ -43,31 +58,26 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 
 func namespaceServiceBOMRefs(services []cdx.Service, prefix string, refMap map[string]string) {
 	for i := range services {
-		svc := &services[i]
-		if svc.BOMRef != "" {
-			namespaced := namespacedRef(svc.BOMRef, prefix)
-			refMap[svc.BOMRef] = namespaced
-			svc.BOMRef = namespaced
-		}
-		namespaceServiceBOMRefs(lo.FromPtr(svc.Services), prefix, refMap)
+		namespaceRef(&services[i].BOMRef, prefix, refMap)
+		namespaceServiceBOMRefs(lo.FromPtr(services[i].Services), prefix, refMap)
 	}
 }
 
 func namespaceComponentBOMRefs(components []cdx.Component, prefix string, refMap map[string]string) {
 	for i := range components {
-		namespaceComponentBOMRef(&components[i], prefix, refMap)
+		namespaceRef(&components[i].BOMRef, prefix, refMap)
 		namespaceComponentBOMRefs(lo.FromPtr(components[i].Components), prefix, refMap)
 	}
 }
 
-func namespaceComponentBOMRef(comp *cdx.Component, prefix string, refMap map[string]string) {
-	if comp.BOMRef == "" {
+func namespaceRef(ref *string, prefix string, refMap map[string]string) {
+	if *ref == "" {
 		return
 	}
 
-	namespaced := namespacedRef(comp.BOMRef, prefix)
-	refMap[comp.BOMRef] = namespaced
-	comp.BOMRef = namespaced
+	namespaced := namespacedRef(*ref, prefix)
+	refMap[*ref] = namespaced
+	*ref = namespaced
 }
 
 func namespacedRef(ref, prefix string) string {

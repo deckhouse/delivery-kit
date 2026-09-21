@@ -6,26 +6,33 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 )
 
 func collectBOMRefs(bom *cdx.BOM) []string {
 	var refs []string
 
-	if bom.Components != nil {
-		for _, c := range *bom.Components {
+	var walkComponents func(components *[]cdx.Component)
+	walkComponents = func(components *[]cdx.Component) {
+		for _, c := range lo.FromPtr(components) {
 			if c.BOMRef != "" {
 				refs = append(refs, c.BOMRef)
 			}
+			walkComponents(c.Components)
 		}
 	}
+	walkComponents(bom.Components)
 
-	if bom.Services != nil {
-		for _, s := range *bom.Services {
+	var walkServices func(services *[]cdx.Service)
+	walkServices = func(services *[]cdx.Service) {
+		for _, s := range lo.FromPtr(services) {
 			if s.BOMRef != "" {
 				refs = append(refs, s.BOMRef)
 			}
+			walkServices(s.Services)
 		}
 	}
+	walkServices(bom.Services)
 
 	return refs
 }
@@ -179,6 +186,19 @@ var _ = Describe("ensureUniqueBOMRefs", func() {
 					{BOMRef: "svc", Name: "svc-b", Version: "2.0"},
 				},
 			}, 2, false,
+		),
+		Entry("nested components and services get unique refs",
+			&cdx.BOM{
+				SerialNumber: "urn:uuid:test",
+				Components: &[]cdx.Component{
+					{BOMRef: "a", PackageURL: "pkg:generic/a@1", Name: "a", Version: "1", Components: &[]cdx.Component{{BOMRef: "nested", Name: "n", Version: "1"}}},
+					{BOMRef: "b", PackageURL: "pkg:generic/b@1", Name: "b", Version: "1", Components: &[]cdx.Component{{BOMRef: "nested", Name: "m", Version: "1"}}},
+				},
+				Services: &[]cdx.Service{
+					{BOMRef: "svc", Name: "svc-a", Services: &[]cdx.Service{{BOMRef: "sub", Name: "sub-a"}}},
+					{BOMRef: "svc", Name: "svc-b", Services: &[]cdx.Service{{BOMRef: "sub", Name: "sub-b"}}},
+				},
+			}, 8, false,
 		),
 	)
 

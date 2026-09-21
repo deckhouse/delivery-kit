@@ -6,6 +6,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	packageurl "github.com/package-url/packageurl-go"
+	"github.com/samber/lo"
 )
 
 const packageIDQualifier = "package-id"
@@ -57,25 +58,31 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 	serial := bom.SerialNumber
 	index := 0
 
-	if bom.Components != nil {
-		comps := *bom.Components
-		for i := range comps {
-			if comps[i].BOMRef != "" {
-				comps[i].BOMRef = assignNewRef(comps[i].BOMRef, comps[i].PackageURL, serial, index, refMap)
+	var walkComponents func(components *[]cdx.Component)
+	walkComponents = func(components *[]cdx.Component) {
+		for i := range lo.FromPtr(components) {
+			comp := &(*components)[i]
+			if comp.BOMRef != "" {
+				comp.BOMRef = assignNewRef(comp.BOMRef, comp.PackageURL, serial, index, refMap)
 			}
 			index++
+			walkComponents(comp.Components)
 		}
 	}
+	walkComponents(bom.Components)
 
-	if bom.Services != nil {
-		svcs := *bom.Services
-		for i := range svcs {
-			if svcs[i].BOMRef != "" {
-				svcs[i].BOMRef = assignNewRef(svcs[i].BOMRef, "", serial, index, refMap)
+	var walkServices func(services *[]cdx.Service)
+	walkServices = func(services *[]cdx.Service) {
+		for i := range lo.FromPtr(services) {
+			svc := &(*services)[i]
+			if svc.BOMRef != "" {
+				svc.BOMRef = assignNewRef(svc.BOMRef, "", serial, index, refMap)
 			}
 			index++
+			walkServices(svc.Services)
 		}
 	}
+	walkServices(bom.Services)
 
 	RewriteRefs(bom, refMap)
 }

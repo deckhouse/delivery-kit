@@ -71,7 +71,15 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 		cmd := werfExec.CommandContextCancellation(ctx, "bsign", "-N", "-s", "--pgoptions="+pgOptionsString, path)
 		cmd.Env = append(os.Environ(), cmdExtraEnv...)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return formatBsignError(path, output, err)
+			return formatBsignError("sign", path, output, err)
+		}
+
+		// bsign exits 0 even when the file it just rewrote no longer matches the
+		// hash it stored, which happens once another section sits behind its own.
+		// Its exit code alone would let such a binary ship.
+		check := werfExec.CommandContextCancellation(ctx, "bsign", "-c", path)
+		if output, err := check.CombinedOutput(); err != nil {
+			return formatBsignError("hash check", path, output, err)
 		}
 	}
 
@@ -99,8 +107,8 @@ var bsignExitCodeMessages = map[int]string{
 	72: "program not found - exec failed because program wasn't found (check gpg installation)",
 }
 
-func formatBsignError(path string, output []byte, err error) error {
-	baseMsg := fmt.Sprintf("bsign sign %q failed", path)
+func formatBsignError(action, path string, output []byte, err error) error {
+	baseMsg := fmt.Sprintf("bsign %s %q failed", action, path)
 
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

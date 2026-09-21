@@ -229,7 +229,10 @@ dk sbom validate --path=merged-sbom.json --ispras-format=container
 
 **Expected result:** validation succeeds (exit code 0). If the SBOM does not
 match the schema, the command returns an error describing the problem.
-Additionally, `--check-vcs` verifies VCS external references; `--path` can be
-repeated to validate several files in one run.
+By default both errors and warnings fail the validation; pass
+`--warnings-non-fatal` to keep warnings informational (printed on stderr) so
+that only errors fail. Additionally, `--check-vcs`
+verifies VCS external references; `--path` can be repeated to validate several
+files in one run.
 
 The flow is complete: you have a validated merged SBOM of the product.

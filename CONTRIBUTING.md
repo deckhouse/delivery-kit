@@ -155,8 +155,6 @@ Supported scopes are the following:
 - release
 - dev
 - deps
-- spec
-- wiki
 ```
 
 In the header, multiple and nested scopes are separated by commas, from the broadest to the most specific: `fix(build, stapel, import): ...`.

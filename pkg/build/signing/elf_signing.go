@@ -76,8 +76,9 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 
 		// bsign exits 0 even when the file it just rewrote no longer matches the
 		// hash it stored, which happens once another section sits behind its own.
-		// Its exit code alone would let such a binary ship.
-		check := werfExec.CommandContextCancellation(ctx, "bsign", "-c", path)
+		// -E checks only the ELF section; without it bsign also probes xattrs and
+		// detached storage, then returns 64 because those hashes are absent.
+		check := werfExec.CommandContextCancellation(ctx, "bsign", "-cE", path)
 		if output, err := check.CombinedOutput(); err != nil {
 			return formatBsignError("hash check", path, output, err)
 		}
@@ -105,6 +106,7 @@ var bsignExitCodeMessages = map[int]string{
 	70: "rewrite failed - error rewriting file",
 	71: "quit - premature application termination",
 	72: "program not found - exec failed because program wasn't found (check gpg installation)",
+	73: "signature section tampered - unused bytes in signature section are not zero",
 }
 
 func formatBsignError(action, path string, output []byte, err error) error {

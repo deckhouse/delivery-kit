@@ -229,7 +229,7 @@ func callCliWithRecordedOutput(ctx context.Context, commandCaller func(c command
 		},
 		commandCaller,
 	); err != nil {
-		return "", err
+		return output.String(), err
 	}
 
 	return output.String(), nil

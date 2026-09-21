@@ -683,8 +683,8 @@ func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts s
 	err := logboek.Context(ctx).Default().LogProcess("Scan image %q", scanOpts.Commands[0].SourcePath).DoError(func() error {
 		runArgs := mapSbomScanOptionsToDockerRunCommand(wt.RootDir(), wt.BillsDir(), billNames, scanOpts)
 		logboek.Context(ctx).Debug().LogF("docker %s\n", strings.Join(runArgs, " "))
-		if _, err := docker.CliRun_RecordedOutput(ctx, runArgs...); err != nil {
-			return fmt.Errorf("run scanner: %w", err)
+		if output, err := docker.CliRun_RecordedOutput(ctx, runArgs...); err != nil {
+			return scannerRunErr(err, output)
 		}
 
 		paths := wt.BillPaths()
@@ -703,6 +703,15 @@ func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts s
 	})
 
 	return bomJSON, err
+}
+
+func scannerRunErr(err error, output string) error {
+	err = namedContainerExitErr(err)
+	if output = strings.TrimSpace(output); output == "" {
+		return fmt.Errorf("run scanner: %w", err)
+	}
+
+	return fmt.Errorf("run scanner: %w: %s", err, output)
 }
 
 func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billNames []string, scanOpts scanner.ScanOptions) []string {

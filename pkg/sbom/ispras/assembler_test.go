@@ -138,6 +138,21 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(dependsOn(result, "b/lib")).To(ContainElement(survivor.BOMRef))
 	})
 
+	It("keeps a component nested under the image root and the edges to it", func() {
+		bom := rawImageBOM("a")
+		bom.Metadata.Component.Components = &[]cdx.Component{
+			{BOMRef: "nested", Type: cdx.ComponentTypeLibrary, Name: "nested", Version: "1"},
+		}
+		*bom.Dependencies = append(*bom.Dependencies, cdx.Dependency{Ref: "lib", Dependencies: &[]string{"nested"}})
+		NamespaceBOMRefs(bom, "a")
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{AppName: "app", AppVersion: "1"})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(collectRefs(*result.Components)).To(HaveKey("a/nested"))
+		Expect(dependsOn(result, "a/lib")).To(ContainElement("a/nested"))
+	})
+
 	It("keeps two services of different identity apart when the images reuse one ref for them", func() {
 		bomA, bomB := rawImageBOM("a"), rawImageBOM("b")
 		bomA.Services = &[]cdx.Service{{BOMRef: "svc", Name: "api"}}

@@ -20,6 +20,7 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
 		namespaceComponentBOMRef(bom.Metadata.Component, prefix, refMap)
+		namespaceComponentBOMRefs(lo.FromPtr(bom.Metadata.Component.Components), prefix, refMap)
 	}
 	namespaceComponentBOMRefs(lo.FromPtr(bom.Components), prefix, refMap)
 	namespaceServiceBOMRefs(lo.FromPtr(bom.Services), prefix, refMap)

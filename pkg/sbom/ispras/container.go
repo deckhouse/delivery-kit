@@ -49,7 +49,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 
 		setMissingGOSTOnComponent(&container, img.GOST)
 
-		imgComponents := lo.FromPtr(imgBOM.Components)
+		imgComponents := append(slices.Clone(lo.FromPtr(container.Components)), lo.FromPtr(imgBOM.Components)...)
 		if len(imgComponents) > 0 {
 			container.Components = &imgComponents
 		}

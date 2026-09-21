@@ -427,11 +427,22 @@ func AssertDependencyGraphResolves(bom *cdx.BOM) {
 // AssertKeepsDependencyEdges checks that every dependency edge between two
 // components of image is present in merged, with refs of the image mapped by
 // mapRef. Canonicalization drops every dangling edge, so a resolving graph
-// alone does not prove that no edge was lost.
+// alone does not prove that no edge was lost. A component without a PURL gets
+// a ref derived from the merge itself, which mapRef cannot predict, so an image
+// ref the merged document does not declare is resolved by component identity
+// instead.
 func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) string) {
-	componentRefs := map[string]struct{}{}
+	imageComponents := map[string]*cdx.Component{}
 	walkComponents(image.Components, func(c *cdx.Component) {
-		componentRefs[c.BOMRef] = struct{}{}
+		imageComponents[c.BOMRef] = c
+	})
+
+	mergedRefs := map[string]struct{}{}
+	mergedRefsByIdentity := map[string][]string{}
+	walkComponents(merged.Components, func(c *cdx.Component) {
+		mergedRefs[normalizePURL(c.BOMRef)] = struct{}{}
+		identity := componentIdentity(c)
+		mergedRefsByIdentity[identity] = append(mergedRefsByIdentity[identity], normalizePURL(c.BOMRef))
 	})
 
 	mergedEdges := map[string]struct{}{}
@@ -441,23 +452,53 @@ func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) 
 		}
 	}
 
+	candidates := func(ref string) []string {
+		mapped := normalizePURL(mapRef(ref))
+		if _, declared := mergedRefs[mapped]; declared {
+			return []string{mapped}
+		}
+		if byIdentity := mergedRefsByIdentity[componentIdentity(imageComponents[ref])]; len(byIdentity) > 0 {
+			return byIdentity
+		}
+
+		return []string{mapped}
+	}
+
 	var missing []string
 	for _, dep := range lo.FromPtr(image.Dependencies) {
-		if _, ok := componentRefs[dep.Ref]; !ok {
+		if _, ok := imageComponents[dep.Ref]; !ok {
 			continue
 		}
 		for _, target := range lo.FromPtr(dep.Dependencies) {
-			if _, ok := componentRefs[target]; !ok {
+			if _, ok := imageComponents[target]; !ok {
 				continue
 			}
-			edge := normalizePURL(mapRef(dep.Ref)) + " -> " + normalizePURL(mapRef(target))
-			if _, ok := mergedEdges[edge]; !ok {
-				missing = append(missing, edge)
+			subjects, targets := candidates(dep.Ref), candidates(target)
+			found := false
+			for _, subject := range subjects {
+				for _, t := range targets {
+					if _, ok := mergedEdges[subject+" -> "+t]; ok {
+						found = true
+					}
+				}
+			}
+			if !found {
+				missing = append(missing, fmt.Sprintf("%v -> %v", subjects, targets))
 			}
 		}
 	}
 
 	ExpectWithOffset(1, missing).To(BeEmpty(), "dependency edges of the image lost by the merge")
+}
+
+func componentIdentity(comp *cdx.Component) string {
+	if comp == nil {
+		return ""
+	}
+
+	return strings.Join([]string{
+		string(comp.Type), comp.Group, comp.Name, comp.Version, normalizePURL(comp.PackageURL),
+	}, "|")
 }
 
 func findProperty(props *[]cdx.Property, name string) (string, bool) {

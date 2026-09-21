@@ -131,6 +131,7 @@ func (r *dockerImageReader) copy(ctx context.Context, path string, visit func(tr
 // stream ends by copying the already extracted target files under the link path, so the
 // result reads like the image filesystem does through the link.
 type dirTarExtractor struct {
+	srcDir   string
 	prefix   string
 	destDir  string
 	patterns []string
@@ -139,6 +140,7 @@ type dirTarExtractor struct {
 
 func newDirTarExtractor(srcDir, destDir string, patterns []string) *dirTarExtractor {
 	return &dirTarExtractor{
+		srcDir: srcDir,
 		// docker cp of a directory yields entries prefixed with the directory's base name.
 		prefix:   filepath.Base(srcDir) + "/",
 		destDir:  destDir,
@@ -157,10 +159,24 @@ func (e *dirTarExtractor) rebase(name string) string {
 func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
-		rel := strings.TrimPrefix(hdr.Name, e.prefix)
-		target := filepath.Join(filepath.Dir(rel), hdr.Linkname)
+		// A link target must be expressed relative to the copied directory, because that is
+		// how the extracted files are laid out under destDir. A relative Linkname already is
+		// (relative to the link's own directory); an absolute one is relativized against the
+		// in-image source directory, and one pointing outside it is dropped — the target was
+		// not extracted, so the link cannot be resolved.
+		var target string
 		if filepath.IsAbs(hdr.Linkname) {
-			target = hdr.Linkname
+			rel, err := filepath.Rel(e.srcDir, hdr.Linkname)
+			if err != nil {
+				return fmt.Errorf("relativize symlink target %q: %w", hdr.Linkname, err)
+			}
+			if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return nil
+			}
+			target = rel
+		} else {
+			linkRel := strings.TrimPrefix(hdr.Name, e.prefix)
+			target = filepath.Join(filepath.Dir(linkRel), hdr.Linkname)
 		}
 		e.symlinks[e.rebase(hdr.Name)] = filepath.Join(e.destDir, filepath.Clean("/"+target))
 		return nil

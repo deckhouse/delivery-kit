@@ -70,7 +70,7 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 			cataloger.OptionalSourcePaths = []string{lockPath}
 		}
 
-		cataloger.Enrichment = toEnrichment(res.enrichment, workdir, lockPath)
+		cataloger.Enrichment = toEnrichment(res.enrichment, workdir, lockPath, directive.Env)
 
 		catalogers = append(catalogers, cataloger)
 	}
@@ -81,8 +81,9 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 // toEnrichment turns the ecosystem's enrichment source into a scan plan. A workdir root
 // is resolved here; the Go module cache root depends on the image environment and is
 // resolved at materialization time (see ResolveEnrichmentRoot), so it stays empty here
-// and does not feed the scan cache key.
-func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string) *scanner.Enrichment {
+// and does not feed the scan cache key. directiveEnv is the packages directive environment,
+// carried through so an image-specific root honors a packages.env override.
+func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string, directiveEnv map[string]string) *scanner.Enrichment {
 	if src == nil {
 		return nil
 	}
@@ -102,6 +103,7 @@ func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string) *scann
 			Kind:             scanner.EnrichmentKindGoModCache,
 			FileNamePatterns: src.FileNamePatterns,
 			LockPath:         lockPath,
+			DirectiveEnv:     directiveEnv,
 		}
 	default:
 		panic("unsupported enrichment root " + string(src.Root))
@@ -109,10 +111,11 @@ func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string) *scann
 }
 
 // ResolveEnrichmentRoot fills in an enrichment root that depends on the image
-// environment. imageEnv is the image config environment (KEY=VALUE entries).
+// environment. imageEnv is the image config environment (KEY=VALUE entries); the
+// directive environment carried on the plan overlays it.
 func ResolveEnrichmentRoot(enrichment *scanner.Enrichment, imageEnv []string) {
 	if enrichment == nil || enrichment.Kind != scanner.EnrichmentKindGoModCache {
 		return
 	}
-	enrichment.Root = GoModCacheDir(imageEnv)
+	enrichment.Root = GoModCacheDir(imageEnv, enrichment.DirectiveEnv)
 }

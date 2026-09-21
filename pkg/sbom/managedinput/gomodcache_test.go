@@ -7,16 +7,19 @@ import (
 
 var _ = Describe("GoModCacheDir", func() {
 	DescribeTable("resolves the module cache the way the go tool does inside the image",
-		func(env []string, expected string) {
-			Expect(GoModCacheDir(env)).To(Equal(expected))
+		func(imageEnv []string, overlay map[string]string, expected string) {
+			Expect(GoModCacheDir(imageEnv, overlay)).To(Equal(expected))
 		},
-		Entry("official golang image sets GOPATH", []string{"PATH=/usr/bin", "GOPATH=/go"}, "/go/pkg/mod"),
-		Entry("GOMODCACHE wins over GOPATH", []string{"GOPATH=/go", "GOMODCACHE=/cache/mod"}, "/cache/mod"),
-		Entry("first GOPATH element holds the cache", []string{"GOPATH=/first:/second"}, "/first/pkg/mod"),
-		Entry("no GOPATH falls back to $HOME/go", []string{"HOME=/home/build"}, "/home/build/go/pkg/mod"),
-		Entry("no GOPATH and no HOME falls back to /root/go", []string{"PATH=/usr/bin"}, "/root/go/pkg/mod"),
-		Entry("empty environment", nil, "/root/go/pkg/mod"),
-		Entry("malformed entries are ignored", []string{"NOEQUALS", "GOPATH=/go"}, "/go/pkg/mod"),
+		Entry("official golang image sets GOPATH", []string{"PATH=/usr/bin", "GOPATH=/go"}, nil, "/go/pkg/mod"),
+		Entry("GOMODCACHE wins over GOPATH", []string{"GOPATH=/go", "GOMODCACHE=/cache/mod"}, nil, "/cache/mod"),
+		Entry("first GOPATH element holds the cache", []string{"GOPATH=/first:/second"}, nil, "/first/pkg/mod"),
+		Entry("no GOPATH falls back to $HOME/go", []string{"HOME=/home/build"}, nil, "/home/build/go/pkg/mod"),
+		Entry("no GOPATH and no HOME falls back to /root/go", []string{"PATH=/usr/bin"}, nil, "/root/go/pkg/mod"),
+		Entry("empty environment", nil, nil, "/root/go/pkg/mod"),
+		Entry("malformed entries are ignored", []string{"NOEQUALS", "GOPATH=/go"}, nil, "/go/pkg/mod"),
+		Entry("directive GOPATH overrides the image GOPATH", []string{"GOPATH=/go"}, map[string]string{"GOPATH": "/opt/build/go"}, "/opt/build/go/pkg/mod"),
+		Entry("directive GOMODCACHE overrides everything", []string{"GOPATH=/go"}, map[string]string{"GOMODCACHE": "/d/mod"}, "/d/mod"),
+		Entry("directive HOME override when neither sets GOPATH", nil, map[string]string{"HOME": "/home/u"}, "/home/u/go/pkg/mod"),
 	)
 })
 

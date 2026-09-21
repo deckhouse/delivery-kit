@@ -404,6 +404,21 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			DeferCleanup(func() { cleanup(ctx) })
 		})
 
+		It("resolves the module cache from a packages.env GOPATH override, not the image GOPATH", func() {
+			// packages.env.GOPATH redirects where the install command writes the module cache,
+			// so enrichment must read from the same place, not the image's GOPATH.
+			overrideCataloger := goCataloger
+			overrideCataloger.Enrichment = goModCacheEnrichment("/app/go.sum", map[string]string{"GOPATH": "/opt/build/go"})
+
+			expectSpecAndLock()
+			mockReader.EXPECT().ReadDir(gomock.Any(), "/opt/build/go/pkg/mod/github.com/samber/lo@v1.47.0", gomock.Any(), gomock.Any()).Return(nil)
+			mockReader.EXPECT().ReadDir(gomock.Any(), "/opt/build/go/pkg/mod/github.com/!azure/go-autorest@v14.2.0+incompatible", gomock.Any(), gomock.Any()).Return(nil)
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, overrideCataloger, "", []string{"GOPATH=/go"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+		})
+
 		It("skips a module missing from the cache with a warning and keeps going", func() {
 			var output strings.Builder
 			ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))

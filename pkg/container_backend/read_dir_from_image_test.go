@@ -101,6 +101,35 @@ var _ = Describe("dirTarExtractor", func() {
 		Expect(os.IsNotExist(err)).To(BeTrue(), "the name filter also applies through the resolved link")
 	})
 
+	It("resolves an absolute symlink target against the source directory", func() {
+		// Some layouts (e.g. hoisted stores) express node_modules/<pkg> as an absolute
+		// symlink into the same tree; docker cp emits its Linkname verbatim, absolute.
+		destDir := GinkgoT().TempDir()
+		tr := buildTar([]entry{
+			{name: "node_modules/is-number", typeflag: tar.TypeSymlink, linkname: "/app/node_modules/.store/is-number"},
+			{name: "node_modules/.store/is-number/package.json", typeflag: tar.TypeReg, content: `{"name":"is-number","license":"MIT"}`},
+		})
+
+		extractAll(tr, destDir, []string{"package.json"})
+
+		manifest, err := os.ReadFile(filepath.Join(destDir, "is-number", "package.json"))
+		Expect(err).To(Succeed(), "an absolute link into the tree must resolve to its flat path")
+		Expect(string(manifest)).To(ContainSubstring(`"license":"MIT"`))
+	})
+
+	It("drops an absolute symlink pointing outside the source directory", func() {
+		destDir := GinkgoT().TempDir()
+		tr := buildTar([]entry{
+			{name: "node_modules/evil", typeflag: tar.TypeSymlink, linkname: "/etc"},
+			{name: "node_modules/x/package.json", typeflag: tar.TypeReg, content: "{}"},
+		})
+
+		extractAll(tr, destDir, []string{"package.json"})
+
+		_, err := os.Stat(filepath.Join(destDir, "evil"))
+		Expect(os.IsNotExist(err)).To(BeTrue(), "an absolute link outside the copied dir must not pull in host files")
+	})
+
 	It("ignores a symlink whose target was not extracted or points outside the tree", func() {
 		destDir := GinkgoT().TempDir()
 		tr := buildTar([]entry{

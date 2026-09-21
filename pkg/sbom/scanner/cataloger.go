@@ -33,4 +33,9 @@ type Enrichment struct {
 	FileNamePatterns []string
 	// LockPath is the in-image go.sum for EnrichmentKindGoModCache.
 	LockPath string
+	// DirectiveEnv is the packages directive environment. It overlays the image environment
+	// when resolving an image-specific root (EnrichmentKindGoModCache), so that a
+	// packages.env.GOPATH override — which also redirects where the install command writes
+	// the module cache — points enrichment at the same directory.
+	DirectiveEnv map[string]string
 }

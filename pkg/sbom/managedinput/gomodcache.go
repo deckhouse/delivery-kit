@@ -17,11 +17,16 @@ const (
 )
 
 // GoModCacheDir resolves the Go module cache directory the way the go tool does inside
-// the image: $GOMODCACHE, else $GOPATH/pkg/mod, else $HOME/go/pkg/mod. env is the image
-// config environment (KEY=VALUE entries). syft's go-module-file-cataloger looks for module
-// licenses under exactly this directory of the scanned filesystem.
-func GoModCacheDir(env []string) string {
-	vars := envMap(env)
+// the image: $GOMODCACHE, else $GOPATH/pkg/mod, else $HOME/go/pkg/mod. imageEnv is the
+// image config environment (KEY=VALUE entries); overlay (the packages directive env) takes
+// precedence over it, matching how the install command sees the environment. syft's
+// go-module-file-cataloger looks for module licenses under exactly this directory of the
+// scanned filesystem.
+func GoModCacheDir(imageEnv []string, overlay map[string]string) string {
+	vars := envMap(imageEnv)
+	for name, value := range overlay {
+		vars[name] = value
+	}
 
 	if modCache := vars["GOMODCACHE"]; modCache != "" {
 		return path.Clean(modCache)

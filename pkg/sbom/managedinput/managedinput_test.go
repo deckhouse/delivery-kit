@@ -110,6 +110,19 @@ var _ = Describe("ToCatalogers", func() {
 			},
 		),
 
+		Entry("a go-mod entry carries its packages.env into the module cache enrichment plan",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeGoMod,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum"},
+					Env:       map[string]string{"GOPATH": "/opt/build/go"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, OptionalSourcePaths: []string{"/app/go.sum"}, Enrichment: goModCacheEnrichment("/app/go.sum", map[string]string{"GOPATH": "/opt/build/go"})},
+			},
+		),
+
 		Entry("os-pm entries are skipped by buildResolvers per FR-012",
 			[]*config.PackagesDirective{
 				{

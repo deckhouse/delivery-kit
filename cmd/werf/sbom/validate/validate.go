@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/cmd/werf/common"
 	"github.com/werf/werf/v2/pkg/sbom/checker"
 	"github.com/werf/werf/v2/pkg/sbom/ispras"
@@ -20,6 +21,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	var pathFlags []string
 	var isprasFormatFlag string
 	var checkVCSFlag bool
+	var warningsNonFatalFlag bool
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:                   "validate",
@@ -53,7 +55,10 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			}
 
 			return common.LogRunningTime(func() error {
-				return runValidate(ctx, pathFlags, isprasFormat, checkVCSFlag)
+				return runValidate(ctx, pathFlags, isprasFormat, checker.RunOptions{
+					CheckVCS:         checkVCSFlag,
+					WarningsNonFatal: warningsNonFatalFlag,
+				})
 			})
 		},
 	})
@@ -71,11 +76,12 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringArrayVar(&pathFlags, "path", nil, "Path to CycloneDX JSON SBOM file (repeatable)")
 	cmd.Flags().StringVar(&isprasFormatFlag, "ispras-format", "", "ISPRAS SBOM format: oss or container")
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
+	cmd.Flags().BoolVar(&warningsNonFatalFlag, "warnings-non-fatal", util.GetBoolEnvironmentDefaultFalse("WERF_WARNINGS_NON_FATAL"), "Do not fail validation on checker warnings; only errors set a non-zero exit code (default $WERF_WARNINGS_NON_FATAL or false)")
 
 	return cmd
 }
 
-func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format, checkVCS bool) error {
+func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format, opts checker.RunOptions) error {
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                         &commonCmdData,
 		InitWerf:                    true,
@@ -85,7 +91,7 @@ func runValidate(ctx context.Context, paths []string, isprasFormat ispras.Format
 		return fmt.Errorf("component init error: %w", err)
 	}
 
-	return checker.Run(ctx, paths, isprasFormat, checker.RunOptions{CheckVCS: checkVCS})
+	return checker.Run(ctx, paths, isprasFormat, opts)
 }
 
 func validateFlags(path []string, isprasFormat string, checkVcs bool) error {

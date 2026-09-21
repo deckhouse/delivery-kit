@@ -275,6 +275,25 @@ func (p *Project) SbomValidate(ctx context.Context, opts *SbomValidateOptions) (
 	return string(outb)
 }
 
+func (p *Project) SbomValidateSeparateStreams(ctx context.Context, opts *SbomValidateOptions) (stdout, stderr string, err error) {
+	if opts == nil {
+		opts = &SbomValidateOptions{}
+	}
+
+	args := append([]string{"sbom", "validate"}, opts.ExtraArgs...)
+	outb, errb, err := iutils.RunCommandWithSeparateStreams(
+		ctx,
+		p.GitRepoPath,
+		p.WerfBinPath,
+		args,
+		iutils.RunCommandOptions{
+			ShouldSucceed: !opts.ShouldFail,
+			ExtraEnv:      opts.Envs,
+		})
+
+	return string(outb), string(errb), err
+}
+
 func (p *Project) SbomValidateWithErr(ctx context.Context, opts *SbomValidateOptions) (combinedOut string, err error) {
 	if opts == nil {
 		opts = &SbomValidateOptions{}

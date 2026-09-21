@@ -26,6 +26,39 @@ func RunSucceedCommand(ctx context.Context, dir, command string, args ...string)
 	_, _ = RunCommandWithOptions(ctx, dir, command, args, RunCommandOptions{ShouldSucceed: true})
 }
 
+func RunCommandWithSeparateStreams(ctx context.Context, dir, command string, args []string, options RunCommandOptions) (stdout, stderr []byte, err error) {
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd = werfExec.PrepareGracefulCancellation(cmd)
+
+	if dir != "" {
+		cmd.Dir = dir
+	}
+
+	cmd.Env = append(os.Environ(), options.ExtraEnv...)
+
+	if options.ToStdin != "" {
+		cmd.Stdin = bytes.NewReader([]byte(options.ToStdin))
+	}
+
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	Expect(cmd.Start()).To(Succeed())
+
+	err = cmd.Wait()
+
+	_, _ = GinkgoWriter.Write(outBuf.Bytes())
+	_, _ = GinkgoWriter.Write(errBuf.Bytes())
+
+	if options.ShouldSucceed {
+		errorDesc := fmt.Sprintf("%[2]s %[3]s (dir: %[1]s)", dir, command, strings.Join(args, " "))
+		Expect(err).ShouldNot(HaveOccurred(), errorDesc)
+	}
+
+	return outBuf.Bytes(), errBuf.Bytes(), err
+}
+
 func SucceedCommandOutputString(ctx context.Context, dir, command string, args ...string) string {
 	res, _ := RunCommandWithOptions(ctx, dir, command, args, RunCommandOptions{ShouldSucceed: true})
 	return string(res)

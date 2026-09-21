@@ -1,12 +1,16 @@
 package merge
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/docker_registry"
 )
 
 var _ = Describe("SBOM merge helpers", func() {
@@ -46,5 +50,19 @@ var _ = Describe("SBOM merge helpers", func() {
 		var payload map[string]bool
 		Expect(json.Unmarshal(data, &payload)).To(Succeed())
 		Expect(payload).To(HaveKeyWithValue("ok", true))
+	})
+})
+
+var _ = Describe("PullAndParseImages", func() {
+	It("pulls the images in a stable order regardless of the mapping iteration order", func() {
+		digest := "sha256:" + strings.Repeat("0", 64)
+		mapping := map[string]string{"zulu": digest, "alpha": digest, "mike": digest}
+
+		ctx := context.Background()
+		Expect(docker_registry.Init(ctx, true, true, nil, nil)).To(Succeed())
+
+		_, err := PullAndParseImages(ctx, "127.0.0.1:1/nonexistent", mapping)
+
+		Expect(err).To(MatchError(ContainSubstring(`pull SBOM for "alpha"`)))
 	})
 })

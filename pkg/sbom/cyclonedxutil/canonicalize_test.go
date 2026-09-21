@@ -599,6 +599,50 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*merged.Ratings).To(HaveLen(1))
 	})
 
+	It("takes every field of a merged vulnerability that the survivor lacks", func() {
+		dup := cdx.Vulnerability{
+			BOMRef: "v2", ID: "CVE-1", Source: &cdx.Source{Name: "nvd"},
+			Description: "desc", Detail: "detail", Recommendation: "upgrade", Workaround: "none",
+			Created: "2024-01-01", Published: "2024-01-02", Updated: "2024-01-03", Rejected: "2024-01-04",
+			ProofOfConcept: &cdx.ProofOfConcept{Environment: "poc"},
+			Credits:        &cdx.Credits{Individuals: &[]cdx.OrganizationalContact{{Name: "finder"}}},
+			Tools:          &cdx.ToolsChoice{Components: &[]cdx.Component{{Type: cdx.ComponentTypeApplication, Name: "scanner"}}},
+			Analysis:       &cdx.VulnerabilityAnalysis{State: cdx.IASNotAffected},
+			Affects:        &[]cdx.Affects{{Ref: "a"}},
+		}
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "a", Version: "1"}},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{BOMRef: "v1", ID: "CVE-1", Source: &cdx.Source{Name: "nvd"}, Affects: &[]cdx.Affects{{Ref: "a"}}},
+				dup,
+			},
+		}
+
+		Canonicalize(bom)
+
+		want := dup
+		want.BOMRef = "v1"
+		Expect(*bom.Vulnerabilities).To(Equal([]cdx.Vulnerability{want}))
+	})
+
+	It("rewrites the refs pointing at a merged vulnerability to the survivor", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "a", Version: "1"}},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{BOMRef: "v1", ID: "CVE-1", Source: &cdx.Source{Name: "nvd"}},
+				{BOMRef: "v2", ID: "CVE-1", Source: &cdx.Source{Name: "nvd"}},
+			},
+			Compositions: &[]cdx.Composition{{Aggregate: cdx.CompositionAggregateComplete, Vulnerabilities: &[]cdx.BOMReference{"v1", "v2"}}},
+			Annotations:  &[]cdx.Annotation{{BOMRef: "an", Subjects: &[]cdx.BOMReference{"v2"}, Text: "x"}},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Vulnerabilities).To(HaveLen(1))
+		Expect(*(*bom.Compositions)[0].Vulnerabilities).To(Equal([]cdx.BOMReference{"v1"}))
+		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"v1"}))
+	})
+
 	It("merges duplicate services", func() {
 		bom := &cdx.BOM{
 			Services: &[]cdx.Service{

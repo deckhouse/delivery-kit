@@ -113,6 +113,7 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	if opts.IsolateComponents {
 		refMap := map[string]string{}
 		result.Services = canonicalizeServices(result.Services, refMap)
+		result.Vulnerabilities = canonicalizeVulnerabilities(result.Vulnerabilities, refMap)
 		RewriteRefs(result, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(result))))
 		CanonicalizeDocument(result)
 	} else {

@@ -38,6 +38,7 @@ func Canonicalize(bom *cdx.BOM) {
 	}
 	bom.Components = canonicalizeComponents(bom.Components, refMap)
 	bom.Services = canonicalizeServices(bom.Services, refMap)
+	bom.Vulnerabilities = canonicalizeVulnerabilities(bom.Vulnerabilities, refMap)
 
 	RewriteRefs(bom, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(bom))))
 
@@ -71,7 +72,11 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 
 	bom.ExternalReferences = dedupExternalReferences(bom.ExternalReferences)
 	bom.Properties = dedupProperties(bom.Properties)
-	bom.Vulnerabilities = canonicalizeVulnerabilities(bom.Vulnerabilities)
+	for i := range lo.FromPtr(bom.Vulnerabilities) {
+		vuln := &(*bom.Vulnerabilities)[i]
+		vuln.Affects = dedupPtrSlice(vuln.Affects)
+		vuln.Properties = dedupProperties(vuln.Properties)
+	}
 	bom.Dependencies = canonicalizeDependencies(bom.Dependencies, collectKnownRefs(bom))
 	bom.Compositions = canonicalizeCompositions(bom.Compositions)
 	bom.Annotations = canonicalizeAnnotations(bom.Annotations)
@@ -350,7 +355,7 @@ func canonicalizeDependencies(deps *[]cdx.Dependency, knownRefs map[string]struc
 	return &result
 }
 
-func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability) *[]cdx.Vulnerability {
+func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability, refMap map[string]string) *[]cdx.Vulnerability {
 	if vulns == nil {
 		return nil
 	}
@@ -369,15 +374,13 @@ func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability) *[]cdx.Vulnerabilit
 
 		if pos, exists := index[key]; exists {
 			survivor := &result[pos]
-			survivor.Affects = dedupPtrSlice(appendPtrSlice(survivor.Affects, vuln.Affects))
-			survivor.Ratings = dedupPtrSlice(appendPtrSlice(survivor.Ratings, vuln.Ratings))
-			survivor.Advisories = dedupPtrSlice(appendPtrSlice(survivor.Advisories, vuln.Advisories))
-			survivor.CWEs = dedupPtrSlice(appendPtrSlice(survivor.CWEs, vuln.CWEs))
-			survivor.References = dedupPtrSlice(appendPtrSlice(survivor.References, vuln.References))
-			survivor.Properties = dedupProperties(appendPtrSlice(survivor.Properties, vuln.Properties))
-			if survivor.Analysis == nil {
-				survivor.Analysis = vuln.Analysis
+			switch {
+			case survivor.BOMRef == "":
+				survivor.BOMRef = vuln.BOMRef
+			case vuln.BOMRef != "" && vuln.BOMRef != survivor.BOMRef:
+				refMap[vuln.BOMRef] = survivor.BOMRef
 			}
+			mergeVulnerabilityInto(survivor, vuln)
 			continue
 		}
 
@@ -390,6 +393,29 @@ func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability) *[]cdx.Vulnerabilit
 	}
 
 	return &result
+}
+
+func mergeVulnerabilityInto(survivor *cdx.Vulnerability, dup cdx.Vulnerability) {
+	takeString(&survivor.Description, dup.Description)
+	takeString(&survivor.Detail, dup.Detail)
+	takeString(&survivor.Recommendation, dup.Recommendation)
+	takeString(&survivor.Workaround, dup.Workaround)
+	takeString(&survivor.Created, dup.Created)
+	takeString(&survivor.Published, dup.Published)
+	takeString(&survivor.Updated, dup.Updated)
+	takeString(&survivor.Rejected, dup.Rejected)
+	takePtr(&survivor.Source, dup.Source)
+	takePtr(&survivor.ProofOfConcept, dup.ProofOfConcept)
+	takePtr(&survivor.Credits, dup.Credits)
+	takePtr(&survivor.Tools, dup.Tools)
+	takePtr(&survivor.Analysis, dup.Analysis)
+
+	survivor.Affects = dedupPtrSlice(appendPtrSlice(survivor.Affects, dup.Affects))
+	survivor.Ratings = dedupPtrSlice(appendPtrSlice(survivor.Ratings, dup.Ratings))
+	survivor.Advisories = dedupPtrSlice(appendPtrSlice(survivor.Advisories, dup.Advisories))
+	survivor.CWEs = dedupPtrSlice(appendPtrSlice(survivor.CWEs, dup.CWEs))
+	survivor.References = dedupPtrSlice(appendPtrSlice(survivor.References, dup.References))
+	survivor.Properties = dedupProperties(appendPtrSlice(survivor.Properties, dup.Properties))
 }
 
 func canonicalizeCompositions(compositions *[]cdx.Composition) *[]cdx.Composition {
@@ -462,6 +488,12 @@ func collectKnownRefs(bom *cdx.BOM) map[string]struct{} {
 	for _, formula := range lo.FromPtr(bom.Formulation) {
 		collectComponents(formula.Components)
 		collectServices(formula.Services)
+	}
+
+	for _, vuln := range lo.FromPtr(bom.Vulnerabilities) {
+		if vuln.BOMRef != "" {
+			refs[vuln.BOMRef] = struct{}{}
+		}
 	}
 
 	return refs

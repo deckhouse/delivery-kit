@@ -80,12 +80,23 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 		// detached storage, then returns 64 because those hashes are absent.
 		check := werfExec.CommandContextCancellation(ctx, "bsign", "-cE", path)
 		if output, err := check.CombinedOutput(); err != nil {
-			return formatBsignError("hash check", path, output, err)
+			// A signature shorter than the section bsign reserves for it leaves the
+			// remaining bytes non-zero, and bsign reports that instead of ever
+			// reaching the hash, for a sound file as much as for a corrupt one.
+			if bsignExitCode(err) == bsignUnusedBytesNotZero {
+				logboek.Context(ctx).Debug().LogF("bsign cannot check the hash of %q: %s", path, output)
+			} else {
+				return formatBsignError("hash check", path, output, err)
+			}
 		}
 	}
 
 	return nil
 }
+
+// bsignUnusedBytesNotZero is bsign's exit status for a signature section whose
+// unused bytes are not zero.
+const bsignUnusedBytesNotZero = 73
 
 var bsignExitCodeMessages = map[int]string{
 	1:  "permission denied - insufficient privilege for operation",
@@ -107,6 +118,14 @@ var bsignExitCodeMessages = map[int]string{
 	71: "quit - premature application termination",
 	72: "program not found - exec failed because program wasn't found (check gpg installation)",
 	73: "signature section tampered - unused bytes in signature section are not zero",
+}
+
+func bsignExitCode(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func formatBsignError(action, path string, output []byte, err error) error {

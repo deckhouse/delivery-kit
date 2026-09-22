@@ -55,7 +55,7 @@ func TestSignELFFileRejectsUnhashableBsignResult(t *testing.T) {
 		message  string
 	}{
 		{66, "bad hash"},
-		{73, "signature section tampered"},
+		{64, "no hash"},
 	} {
 		t.Run(fmt.Sprint(tc.exitCode), func(t *testing.T) {
 			logPath := fakeBsign(t, tc.exitCode)
@@ -77,6 +77,25 @@ func TestSignELFFileRejectsUnhashableBsignResult(t *testing.T) {
 			assertBsignCalls(t, logPath, path)
 		})
 	}
+}
+
+// bsign reports a signature shorter than the section it reserves before it ever
+// reaches the hash, for a sound file as much as for a corrupt one, so the check
+// cannot decide either way and must not fail the build.
+func TestSignELFFileAcceptsUncheckableHash(t *testing.T) {
+	logPath := fakeBsign(t, 73)
+	path := filepath.Join(t.TempDir(), "binary")
+	if err := os.WriteFile(path, []byte("payload"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := signELFFile(context.Background(), path, ELFSigningOptions{
+		BsignEnabled:             true,
+		PGPPrivateKeyFingerprint: "TEST-FINGERPRINT",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertBsignCalls(t, logPath, path)
 }
 
 func TestSignELFFileAcceptsHashableBsignResult(t *testing.T) {

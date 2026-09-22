@@ -66,11 +66,11 @@ require (
 	github.com/werf/3p-helm-for-werf-helm v0.0.0-20241217155820-089f92cd5c9d
 	github.com/werf/common-go v0.0.0-20260414103517-0558f83edc6d
 	github.com/werf/copy-recurse v0.3.1
-	github.com/werf/kubedog v0.13.1-0.20260826131632-6d8dc9e2e3c5
+	github.com/werf/kubedog v0.13.1-0.20260912145640-ad1e8a134607
 	github.com/werf/kubedog-for-werf-helm v0.0.0-20241217155728-9d45c48b82b6
 	github.com/werf/lockgate v0.1.1
 	github.com/werf/logboek v0.7.1
-	github.com/werf/nelm v1.30.2-0.20260907144801-aba6e3a7874d
+	github.com/werf/nelm v1.30.5-0.20260918172005-312d2f269472
 	github.com/werf/nelm-for-werf-helm v0.0.0-20241217155925-b0e6734d1dbf
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.33.0
@@ -426,5 +426,6 @@ replace (
 	github.com/deislabs/oras => github.com/werf/3p-oras v0.9.1-0.20240115121544-03962ecbd40a // upstream not maintained
 	github.com/docker/buildx => github.com/werf/3p-docker-buildx v0.13.0-rc2.0.20241111114615-d77c2e1444ad // upstream not maintained
 	github.com/jaguilar/vt100 => github.com/tonistiigi/vt100 v0.0.0-20190402012908-ad4c4a574305 // upstream not maintained
+	github.com/mattn/go-sqlite3 => github.com/mattn/go-sqlite3 v1.14.22 // v2.0.1+incompatible is a mistagged 2019 release bundling SQLite 3.30.1; containers/image blob-info cache needs sqlite_schema (SQLite >= 3.33)
 	github.com/spf13/cobra => github.com/andremueller/cobra v0.0.0-20241025091859-0d550c15a8a4 // remove after merge to upstream
 )

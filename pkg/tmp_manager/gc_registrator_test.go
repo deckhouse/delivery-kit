@@ -30,6 +30,35 @@ var _ = Describe("gc registration queue", func() {
 		}
 	})
 
+	It("retries every failed registration", func(ctx SpecContext) {
+		root := GinkgoT().TempDir()
+		registrator := newGCRegistrator()
+		var blockedTargetDirs []string
+		var paths []string
+
+		for _, name := range []string{"first", "second"} {
+			blockedTargetDir := filepath.Join(root, name+"-blocked")
+			path := filepath.Join(root, name)
+			Expect(os.WriteFile(blockedTargetDir, nil, 0o600)).To(Succeed())
+			Expect(os.WriteFile(path, nil, 0o600)).To(Succeed())
+			Expect(registrator.queueRegistration(ctx, path, blockedTargetDir)).To(Succeed())
+			blockedTargetDirs = append(blockedTargetDirs, blockedTargetDir)
+			paths = append(paths, path)
+		}
+
+		err := registrator.registerAll(ctx)
+		Expect(err).NotTo(Succeed())
+		for _, targetDir := range blockedTargetDirs {
+			Expect(err.Error()).To(ContainSubstring(targetDir))
+			Expect(os.Remove(targetDir)).To(Succeed())
+		}
+
+		Expect(registrator.registerAll(ctx)).To(Succeed())
+		for index, targetDir := range blockedTargetDirs {
+			Expect(filepath.Join(targetDir, filepath.Base(paths[index]))).To(BeAnExistingFile())
+		}
+	})
+
 	It("retries a failed registration and the remaining queue", func(ctx SpecContext) {
 		root := GinkgoT().TempDir()
 		blockedTargetDir := filepath.Join(root, "blocked")

@@ -9,6 +9,7 @@ import (
 
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
+	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/patternmatcher/ignorefile"
 
 	"github.com/werf/common-go/pkg/util"
@@ -32,22 +33,7 @@ func MapDockerfileConfigToImages(ctx context.Context, metaConfig *config.Meta, d
 			return nil, fmt.Errorf("unable to read dockerfile %s: %w", relDockerfilePath, err)
 		}
 
-		dockerfileID := util.Sha256Hash(filepath.Clean(relDockerfilePath))
-
-		d, err := frontend.ParseDockerfileWithBuildkit(dockerfileID, dockerfileData, dockerfileImageConfig.Name, dockerfile.DockerfileOptions{
-			Target:               dockerfileImageConfig.Target,
-			TargetPlatform:       targetPlatform,
-			BuildArgs:            util.MapStringInterfaceToMapStringString(dockerfileImageConfig.Args),
-			AddHost:              dockerfileImageConfig.AddHost,
-			Network:              dockerfileImageConfig.Network,
-			SSH:                  dockerfileImageConfig.SSH,
-			DependenciesArgsKeys: stage.GetDependenciesArgsKeys(dockerfileImageConfig.Dependencies),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse dockerfile %s: %w", relDockerfilePath, err)
-		}
-
-		return mapDockerfileToImages(ctx, d, metaConfig, dockerfileImageConfig, targetPlatform, useCustomTag, opts)
+		return mapStagedDockerfileDataToImages(ctx, dockerfileData, relDockerfilePath, metaConfig, dockerfileImageConfig, targetPlatform, useCustomTag, opts)
 	}
 
 	img, err := mapLegacyDockerfileToImage(ctx, metaConfig, dockerfileImageConfig, targetPlatform, useCustomTag, opts)
@@ -58,12 +44,35 @@ func MapDockerfileConfigToImages(ctx context.Context, metaConfig *config.Meta, d
 	return []*Image{img}, nil
 }
 
+func mapStagedDockerfileDataToImages(ctx context.Context, dockerfileData []byte, relDockerfilePath string, metaConfig *config.Meta, dockerfileImageConfig *config.ImageFromDockerfile, targetPlatform string, useCustomTag bool, opts CommonImageOptions) ([]*Image, error) {
+	dependencyArgsKeys := stage.GetDependenciesArgsKeys(dockerfileImageConfig.Dependencies)
+	requiresResolvedDependencyInputs, err := dockerfileDependencyArgsReachContent(dockerfileData, dependencyArgsKeys)
+	if err != nil {
+		return nil, fmt.Errorf("inspect Dockerfile dependency args: %w", err)
+	}
+
+	d, err := frontend.ParseDockerfileWithBuildkit(util.Sha256Hash(filepath.Clean(relDockerfilePath)), dockerfileData, dockerfileImageConfig.Name, dockerfile.DockerfileOptions{
+		Target:               dockerfileImageConfig.Target,
+		TargetPlatform:       targetPlatform,
+		BuildArgs:            util.MapStringInterfaceToMapStringString(dockerfileImageConfig.Args),
+		AddHost:              dockerfileImageConfig.AddHost,
+		Network:              dockerfileImageConfig.Network,
+		SSH:                  dockerfileImageConfig.SSH,
+		DependenciesArgsKeys: dependencyArgsKeys,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse dockerfile %s: %w", relDockerfilePath, err)
+	}
+
+	return mapDockerfileToImages(ctx, d, metaConfig, dockerfileImageConfig, targetPlatform, useCustomTag, requiresResolvedDependencyInputs, opts)
+}
+
 // mapDockerfileToImages maps every Dockerfile stage reachable from the target
 // stage (via FROM and COPY/RUN --from=<stage> references) to its own *Image,
 // recording each image's stage-reference predecessors as build dependencies
 // so the build scheduler can start each stage as soon as its own specific
 // predecessors are ready, instead of waiting for unrelated stages.
-func mapDockerfileToImages(ctx context.Context, cfg *dockerfile.Dockerfile, metaConfig *config.Meta, dockerfileImageConfig *config.ImageFromDockerfile, targetPlatform string, useCustomTag bool, opts CommonImageOptions) ([]*Image, error) {
+func mapDockerfileToImages(ctx context.Context, cfg *dockerfile.Dockerfile, metaConfig *config.Meta, dockerfileImageConfig *config.ImageFromDockerfile, targetPlatform string, useCustomTag, requiresResolvedDependencyInputs bool, opts CommonImageOptions) ([]*Image, error) {
 	var images []*Image
 	visited := map[string]bool{}
 
@@ -112,15 +121,16 @@ func mapDockerfileToImages(ctx context.Context, cfg *dockerfile.Dockerfile, meta
 		var err error
 		if baseStg := cfg.FindStage(stg.BaseName); baseStg != nil {
 			img, err = NewImage(ctx, targetPlatform, item.WerfImageName, FromImage, ImageOptions{
-				IsFinal:                   dockerfileImageConfig.IsFinal() && item.IsTargetStage,
-				IsDockerfileImage:         true,
-				UseCustomTag:              useCustomTag,
-				DockerfileImageConfig:     dockerfileImageConfig,
-				CommonImageOptions:        opts,
-				BaseImageName:             baseStg.GetWerfImageName(),
-				DockerfileExpanderFactory: stg.ExpanderFactory,
-				Sbom:                      dockerfileImageConfig.Sbom(),
-				Vex:                       dockerfileImageConfig.Vex(),
+				IsFinal:                          dockerfileImageConfig.IsFinal() && item.IsTargetStage,
+				IsDockerfileImage:                true,
+				UseCustomTag:                     useCustomTag,
+				DockerfileImageConfig:            dockerfileImageConfig,
+				RequiresResolvedDependencyInputs: requiresResolvedDependencyInputs,
+				CommonImageOptions:               opts,
+				BaseImageName:                    baseStg.GetWerfImageName(),
+				DockerfileExpanderFactory:        stg.ExpanderFactory,
+				Sbom:                             dockerfileImageConfig.Sbom(),
+				Vex:                              dockerfileImageConfig.Vex(),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("unable to map stage %s to werf image %q: %w", stg.LogName(), dockerfileImageConfig.Name, err)
@@ -130,15 +140,16 @@ func mapDockerfileToImages(ctx context.Context, cfg *dockerfile.Dockerfile, meta
 			appendQueue(baseStg.GetWerfImageName(), baseStg)
 		} else {
 			img, err = NewImage(ctx, targetPlatform, item.WerfImageName, ImageFromRegistryAsBaseImage, ImageOptions{
-				IsDockerfileImage:         true,
-				IsFinal:                   dockerfileImageConfig.IsFinal() && item.IsTargetStage,
-				UseCustomTag:              useCustomTag,
-				DockerfileImageConfig:     dockerfileImageConfig,
-				CommonImageOptions:        opts,
-				BaseImageReference:        stg.BaseName,
-				DockerfileExpanderFactory: stg.ExpanderFactory,
-				Sbom:                      dockerfileImageConfig.Sbom(),
-				Vex:                       dockerfileImageConfig.Vex(),
+				IsDockerfileImage:                true,
+				IsFinal:                          dockerfileImageConfig.IsFinal() && item.IsTargetStage,
+				UseCustomTag:                     useCustomTag,
+				DockerfileImageConfig:            dockerfileImageConfig,
+				RequiresResolvedDependencyInputs: requiresResolvedDependencyInputs,
+				CommonImageOptions:               opts,
+				BaseImageReference:               stg.BaseName,
+				DockerfileExpanderFactory:        stg.ExpanderFactory,
+				Sbom:                             dockerfileImageConfig.Sbom(),
+				Vex:                              dockerfileImageConfig.Vex(),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("unable to map stage %s to werf image %q: %w", stg.LogName(), dockerfileImageConfig.Name, err)
@@ -278,6 +289,11 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 
 	frontend.ResolveDockerStagesFromValue(dockerStages)
 
+	requiresResolvedDependencyInputs, err := dependencyArgsReachContent(dockerStages, stage.GetDependenciesArgsKeys(dockerfileImageConfig.Dependencies), p.EscapeToken, false)
+	if err != nil {
+		return nil, fmt.Errorf("inspect Dockerfile dependency args: %w", err)
+	}
+
 	dockerTargetIndex, err := frontend.GetDockerTargetStageIndex(dockerStages, dockerfileImageConfig.Target)
 	if err != nil {
 		return nil, err
@@ -286,14 +302,15 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 	baseImageType, baseImageReference := extractBaseImageFromDockerfile(dockerStages, dockerTargetIndex)
 
 	img, err := NewImage(ctx, targetPlatform, dockerfileImageConfig.Name, baseImageType, ImageOptions{
-		CommonImageOptions:    opts,
-		IsFinal:               dockerfileImageConfig.IsFinal(),
-		IsDockerfileImage:     true,
-		UseCustomTag:          useCustomTag,
-		DockerfileImageConfig: dockerfileImageConfig,
-		BaseImageReference:    baseImageReference,
-		Sbom:                  dockerfileImageConfig.Sbom(),
-		Vex:                   dockerfileImageConfig.Vex(),
+		CommonImageOptions:               opts,
+		IsFinal:                          dockerfileImageConfig.IsFinal(),
+		IsDockerfileImage:                true,
+		UseCustomTag:                     useCustomTag,
+		DockerfileImageConfig:            dockerfileImageConfig,
+		RequiresResolvedDependencyInputs: requiresResolvedDependencyInputs,
+		BaseImageReference:               baseImageReference,
+		Sbom:                             dockerfileImageConfig.Sbom(),
+		Vex:                              dockerfileImageConfig.Vex(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create image %q: %w", dockerfileImageConfig.Name, err)
@@ -355,6 +372,64 @@ func mapLegacyDockerfileToImage(ctx context.Context, metaConfig *config.Meta, do
 	}
 
 	return img, nil
+}
+
+func dockerfileDependencyArgsReachContent(data []byte, dependencyArgKeys []string) (bool, error) {
+	parsed, err := parser.Parse(bytes.NewReader(data))
+	if err != nil {
+		return false, fmt.Errorf("parse Dockerfile: %w", err)
+	}
+
+	stages, _, err := instructions.Parse(parsed.AST, nil)
+	if err != nil {
+		return false, fmt.Errorf("parse Dockerfile instructions: %w", err)
+	}
+
+	return dependencyArgsReachContent(stages, dependencyArgKeys, parsed.EscapeToken, true)
+}
+
+func dependencyArgsReachContent(stages []instructions.Stage, dependencyArgKeys []string, escapeToken rune, dependencyArgsReachRun bool) (bool, error) {
+	if len(dependencyArgKeys) == 0 {
+		return false, nil
+	}
+
+	dependencyArgs := make(map[string]struct{}, len(dependencyArgKeys))
+	dependencyEnv := make([]string, 0, len(dependencyArgKeys))
+	for _, key := range dependencyArgKeys {
+		dependencyArgs[key] = struct{}{}
+		dependencyEnv = append(dependencyEnv, key+"=dependency")
+	}
+
+	lex := shell.NewLex(escapeToken)
+	for _, dockerStage := range stages {
+		for _, command := range dockerStage.Commands {
+			if _, ok := command.(*instructions.RunCommand); ok && dependencyArgsReachRun {
+				return true, nil
+			}
+			if argCommand, ok := command.(*instructions.ArgCommand); ok {
+				for _, arg := range argCommand.Args {
+					if _, ok := dependencyArgs[arg.Key]; ok {
+						return true, nil
+					}
+				}
+			}
+
+			stringer, ok := command.(interface{ String() string })
+			if !ok {
+				continue
+			}
+			commandString := stringer.String()
+			result, err := lex.ProcessWordWithMatches(commandString, shell.EnvsFromSlice(dependencyEnv))
+			if err != nil {
+				return true, nil
+			}
+			if len(result.Matched) > 0 {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func createDockerIgnorePathMatcher(ctx context.Context, giterminismMgr giterminism_manager.Manager, contextGitSubDir, dockerfileRelToContextPath string) (path_matcher.PathMatcher, error) {

@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestImageSuite(t *testing.T) {
+func TestImage(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Build Image Suite")
 }

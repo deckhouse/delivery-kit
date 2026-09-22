@@ -1,10 +1,13 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/build/stage/instruction"
 	"github.com/werf/werf/v2/pkg/build/verify_annotation"
+	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	backend_instruction "github.com/werf/werf/v2/pkg/container_backend/instruction"
 	"github.com/werf/werf/v2/pkg/docker_registry"
@@ -145,17 +149,244 @@ func (phase *BuildPhase) BeforeImages(ctx context.Context) error {
 	werfInContainer := os.Getenv("WERF_CONTAINERIZED") == "yes"
 
 	phase.ImagesReport.Runtime = RuntimeInfo{
+		WerfVersion: werf.Version,
 		Backend:     backend,
 		InContainer: werfInContainer,
 	}
 
 	telemetry.GetTelemetryWerfIO().BuildStarted(ctx, len(imagesPairs), backend, werfInContainer)
 
+	if err := phase.calculateAnchorDigests(ctx); err != nil {
+		return fmt.Errorf("unable to calculate content-based digests: %w", err)
+	}
+
+	if err := phase.resolveAvailableContentAnchors(ctx); err != nil {
+		return fmt.Errorf("unable to resolve available content anchors: %w", err)
+	}
+
+	phase.skipUnneededImages()
+
 	return nil
 }
 
-func collectHolisticInputs(ctx context.Context, img *image.Image, conveyor stage.Conveyor, buildContextArchive container_backend.BuildContextArchiver) ([]string, error) {
+func (phase *BuildPhase) calculateAnchorDigests(ctx context.Context) error {
+	graph := phase.Conveyor.imagesTree.GetImagesGraph()
+	if graph == nil {
+		return nil
+	}
+
+	for _, img := range graph.Nodes() {
+		dependencies := graph.Dependencies(img)
+		if !canCalculateAnchorDigest(img, dependencies) {
+			continue
+		}
+
+		if err := phase.calculateAnchorDigest(ctx, img, dependencies, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func canCalculateAnchorDigest(img *image.Image, dependencies []*image.Image) bool {
+	return !img.RequiresResolvedDependencyInputs && !slices.ContainsFunc(dependencies, func(dep *image.Image) bool {
+		return dep.GetAnchorDigest() == ""
+	})
+}
+
+func (phase *BuildPhase) calculateAnchorDigest(ctx context.Context, img *image.Image, dependencies []*image.Image, includeResolvedDependencyInputs bool) error {
+	stages := img.GetStages()
+	if len(stages) == 0 {
+		return nil
+	}
+	anchor := stages[len(stages)-1]
+	if !anchor.IsContentAnchor() {
+		return nil
+	}
+
+	var buildContextArchive container_backend.BuildContextArchiver
+	if img.UsesBuildContext() {
+		archive, err := img.GetOrCreateBuildContextArchive(ctx)
+		if err != nil {
+			return fmt.Errorf("image %q: %w", img.Name, err)
+		}
+		buildContextArchive = archive
+	}
+
+	holisticInputs, err := collectHolisticInputs(ctx, img, dependencies, phase.Conveyor, buildContextArchive, includeResolvedDependencyInputs)
+	if buildContextArchive != nil {
+		buildContextArchive.CleanupExtractedDir(ctx)
+	}
+	if err != nil {
+		return fmt.Errorf("image %q: %w", img.Name, err)
+	}
+
+	digest, err := calculateDigest(ctx, string(anchor.Name()), "", nil, phase.Conveyor, calculateDigestOptions{
+		TargetPlatform:    img.TargetPlatform,
+		BuildCacheVersion: imagePkg.BuildCacheVersion,
+		Anchor:            true,
+		HolisticInputs:    holisticInputs,
+	})
+	if err != nil {
+		return fmt.Errorf("image %q: %w", img.Name, err)
+	}
+	img.SetAnchorDigest(digest)
+
+	return nil
+}
+
+func (phase *BuildPhase) resolveAvailableContentAnchors(ctx context.Context) error {
+	graph := phase.Conveyor.imagesTree.GetImagesGraph()
+	if graph == nil {
+		return nil
+	}
+
+	for _, img := range graph.Nodes() {
+		img.Requested = phase.isRequestedImage(img)
+		if img.GetAnchorDigest() == "" {
+			continue
+		}
+
+		var outBuf, errBuf bytes.Buffer
+		resolveCtx := logboek.NewContext(ctx, logboek.Context(ctx).NewSubLogger(&outBuf, &errBuf))
+		phase.StagesIterator = NewStagesIterator(phase.Conveyor)
+		if err := phase.resolveContentAnchor(resolveCtx, img, false); err != nil {
+			return fmt.Errorf("image %q: %w", img.Name, err)
+		}
+		img.ContentAnchorOutLog = bytes.Clone(outBuf.Bytes())
+		img.ContentAnchorErrLog = bytes.Clone(errBuf.Bytes())
+	}
+
+	return nil
+}
+
+func (phase *BuildPhase) skipUnneededImages() {
+	graph := phase.Conveyor.imagesTree.GetImagesGraph()
+	if graph == nil {
+		return
+	}
+
+	nodes := graph.Nodes()
+	anchorExists := make(map[*image.Image]bool, len(nodes))
+	for _, img := range nodes {
+		anchorExists[img] = img.AnchorReused
+	}
+
+	markUnneededImages(graph, anchorExists, phase.isRequestedImage)
+}
+
+// markUnneededImages marks every non-final image that would have to be built
+// while no image being built needs it: one whose own content anchor is gone
+// from the storage and whose dependents are all reused by their own content
+// anchor. An image that is still available by its content anchor is processed
+// normally — reusing it costs nothing and keeps it in the build report.
+//
+// An image name is decided for all of its platforms at once: the build report
+// and the multiplatform image assembly expect every platform of an image name
+// to be processed.
+func markUnneededImages(graph *image.ImagesGraph, anchorExists map[*image.Image]bool, isRequested func(img *image.Image) bool) {
+	nodes := graph.Nodes()
+
+	skipped := make(map[string]bool, len(nodes))
+	for _, img := range nodes {
+		if img.IsFinal || len(graph.Dependents(img)) == 0 || anchorExists[img] || isRequested(img) {
+			skipped[img.Name] = false
+			continue
+		}
+		if _, decided := skipped[img.Name]; !decided {
+			skipped[img.Name] = true
+		}
+	}
+
+	// Dropping an image leaves the images it is built from unneeded in turn, and
+	// a dependent of one platform may be decided after a dependency of another,
+	// so keep resolving until the decisions stop changing.
+	for changed := true; changed; {
+		changed = false
+		for _, img := range nodes {
+			if !skipped[img.Name] {
+				continue
+			}
+			for _, dependent := range graph.Dependents(img) {
+				if skipped[dependent.Name] || anchorExists[dependent] {
+					continue
+				}
+				skipped[img.Name] = false
+				changed = true
+				break
+			}
+		}
+	}
+
+	for _, img := range nodes {
+		img.Skipped = skipped[img.Name]
+	}
+}
+
+func (phase *BuildPhase) isRequestedImage(img *image.Image) bool {
+	if slices.Contains(phase.Conveyor.imagesTree.ImagesToProcess.ImageNameList, img.Name) {
+		return true
+	}
+
+	return slices.ContainsFunc(phase.IntrospectOptions.Targets, func(target IntrospectTarget) bool {
+		return target.ImageName == "*" || target.ImageName == img.Name
+	})
+}
+
+func collectHolisticInputs(ctx context.Context, img *image.Image, dependencies []*image.Image, conveyor stage.Conveyor, buildContextArchive container_backend.BuildContextArchiver, includeResolvedDependencyInputs bool) ([]string, error) {
 	var inputs []string
+
+	dependencyInputs := make([]string, 0, len(dependencies))
+	for _, dep := range dependencies {
+		anchorDigest := dep.GetAnchorDigest()
+		if anchorDigest == "" {
+			return nil, fmt.Errorf("dependency image %q has no content-based digest", dep.Name)
+		}
+		dependencyInputs = append(dependencyInputs, fmt.Sprintf("dependency:%s:%s", dep.Name, anchorDigest))
+	}
+
+	if img.IsBasedOnStage() {
+		dependencyInputs = append(dependencyInputs, fmt.Sprintf("baseImage:%s", img.GetBaseImageName()))
+	}
+
+	var configuredDependencies []*config.Dependency
+	if img.IsDockerfileImage && img.DockerfileImageConfig != nil {
+		configuredDependencies = img.DockerfileImageConfig.Dependencies
+		for arg, value := range stage.ResolveDependenciesArgsForContent(configuredDependencies) {
+			dependencyInputs = append(dependencyInputs, fmt.Sprintf("dependencyArg:%s:%s", arg, value))
+		}
+	} else if img.StapelImageConfig != nil {
+		configuredDependencies = img.StapelImageConfig.ImageBaseConfig().Dependencies
+	}
+
+	if includeResolvedDependencyInputs {
+		for _, dependency := range configuredDependencies {
+			imageName := conveyor.GetImageContentTagName(img.TargetPlatform, dependency.From)
+			imageDigest := conveyor.GetImageContentTagDigest(img.TargetPlatform, dependency.From)
+			imageRepo, imageTag := imagePkg.ParseRepositoryAndTag(imageName)
+			for _, dependencyImport := range dependency.Imports {
+				var value string
+				switch dependencyImport.Type {
+				case config.ImageNameImport:
+					value = imageName
+				case config.ImageTagImport:
+					value = imageTag
+				case config.ImageRepoImport:
+					value = imageRepo
+				case config.ImageDigestImport:
+					value = imageDigest
+				default:
+					panic(fmt.Sprintf("unexpected dependency import type %q", dependencyImport.Type))
+				}
+				dependencyInputs = append(dependencyInputs, fmt.Sprintf("dependencyValue:%s:%s:%s:%s:%s", dependency.From, dependencyImport.Type, dependencyImport.TargetBuildArg, dependencyImport.TargetEnv, value))
+			}
+		}
+	}
+
+	sort.Strings(dependencyInputs)
+	inputs = append(inputs, dependencyInputs...)
+
 	for _, stg := range img.GetStages() {
 		deps, err := stg.GetContentDependencies(ctx, conveyor, buildContextArchive)
 		if err != nil {
@@ -218,7 +449,12 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 				}
 			}
 		} else {
-			img := image.NewMultiplatformImage(name, images, taskId, len(imagesPairs))
+			logIndex, ok := parallel.TaskStartOrder(ctx)
+			if !ok {
+				logIndex = taskId
+			}
+
+			img := image.NewMultiplatformImage(name, images, logIndex, len(imagesPairs))
 			phase.Conveyor.imagesTree.SetMultiplatformImage(img)
 
 			// TODO: Separate LocalStagesStorage and RepoStagesStorage interfaces, local should not include metadata publishing methods at all
@@ -682,6 +918,27 @@ func (phase *BuildPhase) ImageProcessingShouldBeStopped(_ context.Context, _ *im
 func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image) (deferFn func(), err error) {
 	phase.StagesIterator = NewStagesIterator(phase.Conveyor)
 
+	if stageDesc := img.GetContentTagDesc(); stageDesc != nil {
+		if _, err := logboek.Context(ctx).OutStream().Write(img.ContentAnchorOutLog); err != nil {
+			return nil, fmt.Errorf("write content anchor stdout log: %w", err)
+		}
+		if _, err := logboek.Context(ctx).ErrStream().Write(img.ContentAnchorErrLog); err != nil {
+			return nil, fmt.Errorf("write content anchor stderr log: %w", err)
+		}
+		phase.logContentAnchorReuse(ctx, img, stageDesc)
+		return nil, nil
+	}
+
+	// The content anchor is resolved before the base image is set up: a reused
+	// image is not built, so its base image is never needed — and it may not even
+	// exist, when nothing being built needs it (see markUnneededImages).
+	if err := phase.resolveContentAnchor(ctx, img, true); err != nil {
+		return nil, err
+	}
+	if img.GetContentTagDesc() != nil {
+		return nil, nil
+	}
+
 	if err := img.SetupBaseImage(ctx, phase.Conveyor.StorageManager, manager.StorageOptions{
 		ContainerBackend: phase.Conveyor.ContainerBackend,
 		DockerRegistry:   docker_registry.API(),
@@ -690,35 +947,37 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 	}
 
 	if img.UsesBuildContext() {
-		phase.buildContextArchive = image.NewBuildContextArchive(phase.Conveyor.giterminismManager, img.TmpDir)
-		if err := phase.buildContextArchive.Create(ctx, container_backend.BuildContextArchiveCreateOptions{
-			DockerfileRelToContextPath: img.DockerfileImageConfig.Dockerfile,
-			ContextGitSubDir:           img.DockerfileImageConfig.Context,
-			ContextAddFiles:            img.DockerfileImageConfig.ContextAddFiles,
-		}); err != nil {
-			return nil, fmt.Errorf("unable to create build context archive: %w", err)
+		buildContextArchive, err := img.GetOrCreateBuildContextArchive(ctx)
+		if err != nil {
+			return nil, err
 		}
+		phase.buildContextArchive = buildContextArchive
 
 		deferFn = func() {
-			phase.buildContextArchive.CleanupExtractedDir(ctx)
+			buildContextArchive.CleanupExtractedDir(ctx)
 		}
 	}
 
+	return deferFn, nil
+}
+
+func (phase *BuildPhase) resolveContentAnchor(ctx context.Context, img *image.Image, logResult bool) error {
 	stages := img.GetStages()
 	if len(stages) == 0 {
-		return deferFn, nil
+		return nil
 	}
 	anchor := stages[len(stages)-1]
 	if !anchor.IsContentAnchor() {
-		return deferFn, nil
+		return nil
 	}
 
-	if img.IsDockerfileImage && img.DockerfileImageConfig.Staged {
-		// The anchor's digest must reflect expanded dependencies (e.g. COPY --from=<dependency>)
-		// the same way the normal per-stage loop computes it in onImageStage, otherwise this
-		// pre-check digest never matches and the content-tag short-circuit never triggers.
-		if err := anchor.ExpandDependencies(ctx, phase.Conveyor, img.GetStagedDockerfileBaseEnv()); err != nil {
-			return deferFn, fmt.Errorf("unable to expand dependencies for stage %s: %w", anchor.LogDetailedName(), err)
+	if img.GetAnchorDigest() == "" {
+		graph := phase.Conveyor.imagesTree.GetImagesGraph()
+		if graph == nil {
+			return fmt.Errorf("calculate deferred content-based digest: images graph is not initialized")
+		}
+		if err := phase.calculateAnchorDigest(ctx, img, graph.Dependencies(img), img.RequiresResolvedDependencyInputs); err != nil {
+			return fmt.Errorf("calculate deferred content-based digest: %w", err)
 		}
 	}
 
@@ -731,14 +990,14 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 		unlockFn()
 	}
 	if err != nil {
-		return deferFn, fmt.Errorf("resolve image content tag: %w", err)
+		return fmt.Errorf("resolve image content tag: %w", err)
 	}
 
 	foundSuitable := foundInPrimary
 	if !foundSuitable {
 		foundInSecondary, err := phase.findAndFetchStageFromSecondaryStagesStorage(ctx, img, anchor)
 		if err != nil {
-			return deferFn, fmt.Errorf("resolve image content tag from secondary stages storage: %w", err)
+			return fmt.Errorf("resolve image content tag from secondary stages storage: %w", err)
 		}
 		foundSuitable = foundInSecondary
 	}
@@ -746,27 +1005,31 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 	if foundSuitable {
 		stageDesc := anchor.GetStageImage().Image.GetStageDesc()
 		if stageDesc == nil {
-			return deferFn, fmt.Errorf("image content tag for image %q resolved without stage descriptor", img.GetName())
+			return fmt.Errorf("image content tag for image %q resolved without stage descriptor", img.GetName())
 		}
 		img.SetContentTagDesc(stageDesc)
 		img.AnchorReused = true
 		// conveyor.doImage short-circuits when GetContentTagDesc() != nil, so
 		// intermediate OnImageStage/AfterImageStages calls are skipped entirely.
 
-		if foundInPrimary {
-			var platform string
-			if img.ShouldLogPlatform() {
-				platform = img.TargetPlatform
-			}
-			logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s by content-based tag\n", img.LogName())
-			container_backend.LogImageInfoByStageDesc(ctx, stageDesc, platform)
+		if foundInPrimary && logResult {
+			phase.logContentAnchorReuse(ctx, img, stageDesc)
 		}
-	} else if phase.ShouldBeBuiltMode {
+	} else if phase.ShouldBeBuiltMode && logResult {
 		logboek.Context(ctx).Warn().LogFHighlight("Content-based digest %s for image %s not found\n", anchor.GetDigest(), img.LogName())
 		logboek.Context(ctx).Warn().LogLn()
 	}
 
-	return deferFn, nil
+	return nil
+}
+
+func (phase *BuildPhase) logContentAnchorReuse(ctx context.Context, img *image.Image, stageDesc *imagePkg.StageDesc) {
+	var platform string
+	if img.ShouldLogPlatform() {
+		platform = img.TargetPlatform
+	}
+	logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s by content-based tag\n", img.LogName())
+	container_backend.LogImageInfoByStageDesc(ctx, stageDesc, platform)
 }
 
 func (phase *BuildPhase) AfterImageStages(ctx context.Context, img *image.Image) error {
@@ -1175,12 +1438,12 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 	var stageDependencies string
 	var prevNonEmptyStage stage.Interface
 	if stg.IsContentAnchor() {
-		holisticInputs, err := collectHolisticInputs(ctx, img, phase.Conveyor, phase.buildContextArchive)
-		if err != nil {
-			return false, nil, err
+		// The anchor digest is computed before calculateStage, either during the
+		// initial pass or after its dependency values are available. Recomputing
+		// it here would mix in instruction data already expanded in place.
+		if img.GetAnchorDigest() == "" {
+			return false, nil, fmt.Errorf("content-based digest of image %q is not calculated", img.GetName())
 		}
-		opts.Anchor = true
-		opts.HolisticInputs = holisticInputs
 	} else {
 		// FIXME(stapel-to-buildah): store StageImage-s everywhere in stage and build pkgs
 		deps, err := stg.GetDependencies(ctx, phase.Conveyor, phase.Conveyor.ContainerBackend, phase.StagesIterator.GetPrevImage(img, stg), phase.StagesIterator.GetPrevBuiltImage(img, stg), phase.buildContextArchive)
@@ -1197,9 +1460,13 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		}
 	}
 
-	stageDigest, err := calculateDigest(ctx, string(stg.Name()), stageDependencies, prevNonEmptyStage, phase.Conveyor, opts)
-	if err != nil {
-		return false, nil, err
+	stageDigest := img.GetAnchorDigest()
+	if !stg.IsContentAnchor() {
+		var err error
+		stageDigest, err = calculateDigest(ctx, string(stg.Name()), stageDependencies, prevNonEmptyStage, phase.Conveyor, opts)
+		if err != nil {
+			return false, nil, err
+		}
 	}
 	stg.SetDigest(stageDigest)
 

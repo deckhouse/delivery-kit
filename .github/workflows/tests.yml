@@ -38,6 +38,7 @@ jobs:
               - '.github/**'
               - 'cmd/werf/**'
               - 'pkg/**'
+              - 'schemas/**'
               - 'scripts/**'
               - 'test/**'
             docs_workflow_proceed:
@@ -45,6 +46,7 @@ jobs:
               - 'Taskfile.dist.yaml'
               - 'cmd/werf/**'
               - 'docs/**'
+              - 'schemas/**'
               - 'scripts/**'
               - 'test/legacy_e2e/suites/docs/**'
               - 'README.md'
@@ -194,7 +196,7 @@ jobs:
 
       - name: Integration tests (main)
         run: |
-          task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
+          task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
           echo loadavg: $(cat /proc/loadavg)
 
   e2e_simple:

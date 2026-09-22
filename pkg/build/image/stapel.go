@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/samber/lo"
@@ -40,6 +41,9 @@ func mapStapelConfigToImage(ctx context.Context, metaConfig *config.Meta, stapel
 		Sbom:               stapelImageConfig.Sbom(),
 		Vex:                stapelImageConfig.Vex(),
 	}
+	imageOpts.RequiresResolvedDependencyInputs = slices.ContainsFunc(imageBaseConfig.Dependencies, func(dependency *config.Dependency) bool {
+		return len(dependency.Imports) > 0
+	})
 
 	var baseImageType BaseImageType
 

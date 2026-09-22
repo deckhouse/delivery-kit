@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/containers/buildah/docker"
@@ -60,6 +61,10 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 	}
 
 	if elfSigningOptions.BsignEnabled {
+		if signedByKey(ctx, path, elfSigningOptions.PGPPrivateKeyFingerprint) {
+			return nil
+		}
+
 		var cmdExtraEnv []string
 		pgOptionsString := fmt.Sprintf("--batch --default-key=%s", elfSigningOptions.PGPPrivateKeyFingerprint)
 		if elfSigningOptions.PGPPrivateKeyPassphrase != "" {
@@ -92,6 +97,31 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 	}
 
 	return nil
+}
+
+// signedByKey reports whether the file already stores a sound hash signed by
+// the key about to sign it. bsign rewrites the signature on every run, so
+// signing again would only change the stored timestamp and, with it, the bytes
+// of a file whose content did not change.
+func signedByKey(ctx context.Context, path, fingerprint string) bool {
+	output, err := werfExec.CommandContextCancellation(ctx, "bsign", "-wE", path).CombinedOutput()
+	if err != nil {
+		return false
+	}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		signer, found := strings.CutPrefix(line, "signer: ")
+		if !found {
+			continue
+		}
+		// bsign reports the key by its identifier, the tail of the fingerprint.
+		if signer = strings.TrimSpace(signer); signer != "" && strings.HasSuffix(strings.ToUpper(fingerprint), strings.ToUpper(signer)) {
+			logboek.Context(ctx).Debug().LogF("Skipping %q already signed by %s\n", path, signer)
+			return true
+		}
+	}
+
+	return false
 }
 
 // bsignUnusedBytesNotZero is bsign's exit status for a signature section whose

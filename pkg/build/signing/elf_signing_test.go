@@ -19,6 +19,14 @@ func fakeBsign(t *testing.T, exitCode int) string {
 	logPath := filepath.Join(dir, "calls")
 	script := fmt.Sprintf(`#!/bin/sh
 printf '%%s\n' "$*" >> "$BSIGN_TEST_LOG"
+if [ "$1" = -wE ]; then
+	if [ -n "$BSIGN_TEST_SIGNER" ]; then
+		echo "signer: $BSIGN_TEST_SIGNER"
+		exit 0
+	fi
+	echo 'bsign: no hash found'
+	exit 64
+fi
 if [ "$1" = -cE ]; then
 	echo 'bsign: invalid hash'
 	exit %d
@@ -40,6 +48,7 @@ func assertBsignCalls(t *testing.T, logPath, path string) {
 		t.Fatal(err)
 	}
 	want := strings.Join([]string{
+		"-wE " + path,
 		"-N -s --pgoptions=--batch --default-key=TEST-FINGERPRINT " + path,
 		"-cE " + path,
 		"",
@@ -96,6 +105,32 @@ func TestSignELFFileAcceptsUncheckableHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertBsignCalls(t, logPath, path)
+}
+
+// Signing again would only replace the stored timestamp, changing the bytes of
+// a file whose content did not change.
+func TestSignELFFileSkipsFileSignedByTheSameKey(t *testing.T) {
+	logPath := fakeBsign(t, 0)
+	t.Setenv("BSIGN_TEST_SIGNER", "fingerprint")
+	path := filepath.Join(t.TempDir(), "binary")
+	if err := os.WriteFile(path, []byte("payload"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := signELFFile(context.Background(), path, ELFSigningOptions{
+		BsignEnabled:             true,
+		PGPPrivateKeyFingerprint: "TEST-FINGERPRINT",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "-wE " + path + "\n"; string(data) != want {
+		t.Fatalf("bsign calls:\n%s\nwant:\n%s", data, want)
+	}
 }
 
 func TestSignELFFileAcceptsHashableBsignResult(t *testing.T) {

@@ -113,7 +113,7 @@ increasing runner density.
 
 The initial per-job resource settings are:
 
-- Ginkgo: two test processes and one suite compiler.
+- Ginkgo: three test processes and one suite compiler.
 - Go in integration/e2e jobs: `GOMAXPROCS=2` and `GOFLAGS=-p=2`.
 - Lint, unit, docs-unit and binary-build jobs: `GOMAXPROCS=4` and `GOFLAGS=-p=4`.
 - Binary-build job timeout: 60 minutes for PRs, 90 minutes for daily race/coverage builds.

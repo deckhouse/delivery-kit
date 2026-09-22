@@ -101,7 +101,7 @@ jobs:
         uses: ./.github/actions/set-up-ci-base
 
       - name: Unit tests
-        run: task --yes test:unit -- --procs=2 --compilers=1 --keep-going
+        run: task --yes test:unit -- --procs=3 --compilers=1 --keep-going
 
   build_test_binary:
     if: |
@@ -199,7 +199,7 @@ jobs:
       - name: Integration tests (main)
         timeout-minutes: 60
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=2 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
+          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=3 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/ansible,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -262,7 +262,7 @@ jobs:
       - name: E2E tests (simple)
         timeout-minutes: 90
         run: |
-          task --yes test:e2e:simple -- --procs=2 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
+          task --yes test:e2e:simple -- --procs=3 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -325,7 +325,7 @@ jobs:
       - name: E2E tests (complex)
         timeout-minutes: 90
         run: |
-          task --yes test:e2e:complex -- --procs=2 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
+          task --yes test:e2e:complex -- --procs=3 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -388,7 +388,7 @@ jobs:
       - name: E2E tests (extra)
         timeout-minutes: 90
         run: |
-          task --yes test:e2e:extra -- --procs=2 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
+          task --yes test:e2e:extra -- --procs=3 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -451,7 +451,7 @@ jobs:
       - name: Integration tests (git)
         timeout-minutes: 60
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=2 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=3 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -496,7 +496,7 @@ jobs:
 
       - name: Doc unit tests
         run: |
-          task --yes test:unit paths="cmd/werf/docs" -- --procs=2 --compilers=1 --keep-going
+          task --yes test:unit paths="cmd/werf/docs" -- --procs=3 --compilers=1 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
   docs_integration:
@@ -548,7 +548,7 @@ jobs:
       - name: Doc integration tests
         timeout-minutes: 60
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=2 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=3 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment

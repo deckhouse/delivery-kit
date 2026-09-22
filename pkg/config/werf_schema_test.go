@@ -350,6 +350,14 @@ packages:
   spec: [curl]
   manager: ""
 `),
+		Entry("file packages with an explicitly empty manager", `
+image: app
+from: scratch
+packages:
+- type: go-mod
+  workdir: /app
+  manager: ""
+`),
 	)
 
 	DescribeTable("rejects a document the parser rejects",

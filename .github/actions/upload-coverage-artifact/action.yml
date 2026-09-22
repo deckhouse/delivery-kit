@@ -1,8 +1,9 @@
 name: Upload coverage artifact
+description: Upload the coverage artifact generated during the test run.
 inputs:
   coverage:
-    default: false
-    type: string
+    default: "false"
+    description: Whether to convert and upload coverage data.
 runs:
   using: composite
   steps:

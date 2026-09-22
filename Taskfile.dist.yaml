@@ -722,5 +722,14 @@ tasks:
   test:cleanup:environment:
     desc: "Cleanup environment"
     cmds:
-      - kind delete cluster --name ${JOB_ID} || true
-      - docker rm -f kind-registry-${JOB_ID} || true
+      - |
+        CLEANUP_EXIT=0
+        kind delete cluster --name "${JOB_ID:?}" || CLEANUP_EXIT=$?
+        if REGISTRY_ID="$(docker container ls --all --quiet --filter "name=^/kind-registry-${JOB_ID:?}$")"; then
+          if [ -n "$REGISTRY_ID" ]; then
+            docker rm --force --volumes "$REGISTRY_ID" || CLEANUP_EXIT=$?
+          fi
+        else
+          CLEANUP_EXIT=$?
+        fi
+        exit "$CLEANUP_EXIT"

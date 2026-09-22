@@ -7,6 +7,11 @@ on:
     types: ["test:daily"]
   workflow_dispatch:
 
+env:
+  GOMAXPROCS: "2"
+  GOFLAGS: "-p=2"
+  JOB_ID: ""
+
 jobs:
   lint:
     runs-on: delivery-github-runner
@@ -14,6 +19,8 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=4"
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -37,6 +44,8 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=4"
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -45,64 +54,20 @@ jobs:
         uses: ./.github/actions/set-up-ci-base
 
       - name: Unit tests
-        run: task -p --yes test:unit -- --race --keep-going
+        run: task --yes test:unit -- --procs=2 --compilers=1 --race --keep-going
 
-  kind_setup:
+  build_test_binary:
     if: always() && needs.lint.result == 'success' && needs.unit.result == 'success'
     needs:
       - lint
       - unit
     runs-on: delivery-github-runner
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
-      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-    outputs:
-      job_id: ${{ steps.export_cluster.outputs.job_id }}
-      kubeconfig_path: ${{ steps.export_cluster.outputs.kubeconfig_path }}
-      registry: ${{ steps.export_cluster.outputs.registry }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up CI base
-        uses: ./.github/actions/set-up-ci-base
-        with:
-          setJobId: "true"
-          prepareMultiarch: "true"
-
-      - name: Setup environment
-        run: task --yes test:setup:environment
-
-      - name: Export shared cluster parameters
-        id: export_cluster
-        run: |
-          SHARED_KUBECONFIG="/tmp/werf.kubeconfig-${JOB_ID}"
-          cp "$GITHUB_WORKSPACE/werf.kubeconfig-${JOB_ID}" "$SHARED_KUBECONFIG"
-          chmod 0644 "$SHARED_KUBECONFIG"
-          REGISTRY="localhost:$(docker inspect kind-registry-${JOB_ID} --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
-          echo "job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
-          echo "kubeconfig_path=$SHARED_KUBECONFIG" >> "$GITHUB_OUTPUT"
-          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
-
-  integration_main:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
-    needs:
-      - lint
-      - unit
-      - kind_setup
-    runs-on: delivery-github-runner
-    timeout-minutes: 120
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      TASK_X_REMOTE_TASKFILES: 1
-      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=4"
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -112,295 +77,419 @@ jobs:
       - name: Set up CI base
         uses: ./.github/actions/set-up-ci-base
 
-      - name: Set up prebuilt werf test binary
+      - name: Build werf test binary
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
           raceDetectorEnabled: "true"
 
+      - name: Package werf test binary
+        run: tar -cf "$RUNNER_TEMP/werf-test-binary.tar" -C bin werf
+
+      - name: Upload werf test binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: werf-test-binary
+          path: ${{ runner.temp }}/werf-test-binary.tar
+          if-no-files-found: error
+          retention-days: 35
+          overwrite: true
+
+  integration_main:
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    needs:
+      - lint
+      - unit
+      - build_test_binary
+    runs-on: delivery-github-runner
+    timeout-minutes: 210
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TASK_X_REMOTE_TASKFILES: 1
+      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
+    steps:
+      - name: Checkout code
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up CI base
+        timeout-minutes: 10
+        uses: ./.github/actions/set-up-ci-base
+        with:
+          prepareMultiarch: "true"
+
+      - name: Set up prebuilt werf test binary
+        timeout-minutes: 10
+        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
+        with:
+          coverage: "true"
+          raceDetectorEnabled: "true"
+          artifact: werf-test-binary
+
       - name: Set up git config
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
       - name: Install ginkgo
+        timeout-minutes: 10
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
+      - name: Set up test environment
+        uses: ./.github/actions/set-up-test-environment
+        timeout-minutes: 20
+
       - name: Integration tests (main)
+        timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
+          task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=2 --compilers=1 --timeout=115m --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/deploy,test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/helm/deploy_rollback,test/legacy_e2e/suites/bundles,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Cleanup environment
+        if: always() && env.JOB_ID != ''
+        timeout-minutes: 5
+        run: |
+          task --yes test:cleanup:environment
+          rm -f "$KUBECONFIG"
+
       - name: Upload coverage artifact
+        timeout-minutes: 5
         if: always()
         uses: ./.github/actions/upload-coverage-artifact
         with:
           coverage: true
 
   integration_git:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
     needs:
       - lint
       - unit
-      - kind_setup
+      - build_test_binary
     runs-on: delivery-github-runner
-    timeout-minutes: 120
+    timeout-minutes: 210
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
       WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
     steps:
       - name: Checkout code
+        timeout-minutes: 10
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up CI base
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
+        with:
+          prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
           raceDetectorEnabled: "true"
+          artifact: werf-test-binary
 
       - name: Set up git config
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
       - name: Install ginkgo
+        timeout-minutes: 10
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
+      - name: Set up test environment
+        uses: ./.github/actions/set-up-test-environment
+        timeout-minutes: 20
+
       - name: Integration tests (git)
+        timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=2 --compilers=1 --timeout=115m --flake-attempts=3 --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Cleanup environment
+        if: always() && env.JOB_ID != ''
+        timeout-minutes: 5
+        run: |
+          task --yes test:cleanup:environment
+          rm -f "$KUBECONFIG"
+
       - name: Upload coverage artifact
+        timeout-minutes: 5
         if: always()
         uses: ./.github/actions/upload-coverage-artifact
         with:
           coverage: true
 
   integration_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
     needs:
       - lint
       - unit
-      - kind_setup
+      - build_test_binary
     runs-on: delivery-github-runner
-    timeout-minutes: 120
+    timeout-minutes: 210
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
       WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
     steps:
       - name: Checkout code
+        timeout-minutes: 10
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up CI base
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
+        with:
+          prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
           raceDetectorEnabled: "true"
+          artifact: werf-test-binary
 
       - name: Set up git config
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
       - name: Install ginkgo
+        timeout-minutes: 10
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
+      - name: Set up test environment
+        uses: ./.github/actions/set-up-test-environment
+        timeout-minutes: 20
+
       - name: Integration tests (per-k8s)
+        timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:integration paths="test/legacy_e2e/suites/cleanup_after_converge test/legacy_e2e/suites/deploy test/legacy_e2e/suites/helm/deploy_rollback" -- --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/cleanup_after_converge test/legacy_e2e/suites/deploy test/legacy_e2e/suites/helm/deploy_rollback" -- --procs=2 --compilers=1 --timeout=115m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Cleanup environment
+        if: always() && env.JOB_ID != ''
+        timeout-minutes: 5
+        run: |
+          task --yes test:cleanup:environment
+          rm -f "$KUBECONFIG"
+
       - name: Upload coverage artifact
+        timeout-minutes: 5
         if: always()
         uses: ./.github/actions/upload-coverage-artifact
         with:
           coverage: true
 
   e2e_simple_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
     needs:
       - lint
       - unit
-      - kind_setup
+      - build_test_binary
     runs-on: delivery-github-runner
-    timeout-minutes: 120
+    timeout-minutes: 210
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
       WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
     steps:
       - name: Checkout code
+        timeout-minutes: 10
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up CI base
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
+        with:
+          prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
           raceDetectorEnabled: "true"
+          artifact: werf-test-binary
 
       - name: Set up git config
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
       - name: Install ginkgo
+        timeout-minutes: 10
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
+      - name: Set up test environment
+        uses: ./.github/actions/set-up-test-environment
+        timeout-minutes: 20
+
       - name: E2E tests (simple per-k8s)
+        timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:e2e:simple -- --keep-going
+          task --yes test:e2e:simple -- --procs=2 --compilers=1 --timeout=115m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Cleanup environment
+        if: always() && env.JOB_ID != ''
+        timeout-minutes: 5
+        run: |
+          task --yes test:cleanup:environment
+          rm -f "$KUBECONFIG"
+
       - name: Upload coverage artifact
+        timeout-minutes: 5
         if: always()
         uses: ./.github/actions/upload-coverage-artifact
         with:
           coverage: true
 
   e2e_complex_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
     needs:
       - lint
       - unit
-      - kind_setup
+      - build_test_binary
     runs-on: delivery-github-runner
-    timeout-minutes: 120
+    timeout-minutes: 210
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
       WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
     steps:
       - name: Checkout code
+        timeout-minutes: 10
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up CI base
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
+        with:
+          prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
           raceDetectorEnabled: "true"
+          artifact: werf-test-binary
 
       - name: Set up git config
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
       - name: Install ginkgo
+        timeout-minutes: 10
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
+      - name: Set up test environment
+        uses: ./.github/actions/set-up-test-environment
+        timeout-minutes: 20
+
       - name: E2E tests (complex per-k8s)
+        timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:e2e:complex -- --keep-going
+          task --yes test:e2e:complex -- --procs=2 --compilers=1 --timeout=115m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Cleanup environment
+        if: always() && env.JOB_ID != ''
+        timeout-minutes: 5
+        run: |
+          task --yes test:cleanup:environment
+          rm -f "$KUBECONFIG"
+
       - name: Upload coverage artifact
+        timeout-minutes: 5
         if: always()
         uses: ./.github/actions/upload-coverage-artifact
         with:
           coverage: true
 
   e2e_extra_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
+    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
     needs:
       - lint
       - unit
-      - kind_setup
+      - build_test_binary
     runs-on: delivery-github-runner
-    timeout-minutes: 120
+    timeout-minutes: 210
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
       WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
-      WERF_TEST_K8S_DOCKER_REGISTRY: ${{ needs.kind_setup.outputs.registry }}
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-      KUBECONFIG: ${{ needs.kind_setup.outputs.kubeconfig_path }}
     steps:
       - name: Checkout code
+        timeout-minutes: 10
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up CI base
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
+        with:
+          prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "true"
           raceDetectorEnabled: "true"
+          artifact: werf-test-binary
 
       - name: Set up git config
+        timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
       - name: Install ginkgo
+        timeout-minutes: 10
         run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
+      - name: Set up test environment
+        uses: ./.github/actions/set-up-test-environment
+        timeout-minutes: 20
+
       - name: E2E tests (extra per-k8s)
+        timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task -p --yes test:e2e:extra -- --keep-going
+          task --yes test:e2e:extra -- --procs=2 --compilers=1 --timeout=115m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
+      - name: Cleanup environment
+        if: always() && env.JOB_ID != ''
+        timeout-minutes: 5
+        run: |
+          task --yes test:cleanup:environment
+          rm -f "$KUBECONFIG"
+
       - name: Upload coverage artifact
+        timeout-minutes: 5
         if: always()
         uses: ./.github/actions/upload-coverage-artifact
         with:
           coverage: true
-
-  kind_cleanup:
-    if: always() && needs.kind_setup.result == 'success'
-    needs:
-      - kind_setup
-      - integration_main
-      - integration_git
-      - integration_per_k8s
-      - e2e_simple_per_k8s
-      - e2e_complex_per_k8s
-      - e2e_extra_per_k8s
-    runs-on: delivery-github-runner
-    timeout-minutes: 20
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      TASK_X_REMOTE_TASKFILES: 1
-      JOB_ID: ${{ needs.kind_setup.outputs.job_id }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up CI base
-        uses: ./.github/actions/set-up-ci-base
-
-      - name: Cleanup environment
-        run: task --yes test:cleanup:environment
 
   coverage_report:
     runs-on: delivery-github-runner
@@ -420,6 +509,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: coverage
+          pattern: coverage-*
 
       - name: Format and upload coverage report
         uses: qltysh/qlty-action/coverage@v2
@@ -434,14 +524,13 @@ jobs:
     needs:
       - lint
       - unit
-      - kind_setup
+      - build_test_binary
       - integration_main
       - integration_git
       - integration_per_k8s
       - e2e_simple_per_k8s
       - e2e_complex_per_k8s
       - e2e_extra_per_k8s
-      - kind_cleanup
       - coverage_report
     uses: werf/common-ci/.github/workflows/notification.yml@main
     secrets:

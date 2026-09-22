@@ -1,9 +1,14 @@
 package e2e_build_test
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
+	"github.com/werf/werf/v2/test/pkg/suite_init"
+	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
@@ -46,9 +51,17 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 			Expect(buildOut).To(ContainSubstring("Building stage"))
 
 			By("rebuild with build.sbom.enable=true - cache is reused")
+			builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), "sbom-caching-builder")
+			utils.RunSucceedCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
 			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
+
+			bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
+			}))
+			Expect(bom.Components).NotTo(BeNil())
+			Expect(*bom.Components).NotTo(BeEmpty())
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{
 			ContainerBackendMode: "vanilla-docker",

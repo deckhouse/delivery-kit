@@ -2098,6 +2098,15 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 		}
 	}
 
+	if baseImageInfo == nil && img.GetBaseStageImage() != nil {
+		if _, err := img.FetchBaseImage(ctx); err != nil {
+			return nil, fmt.Errorf("fetch base image %q for SBOM: %w", img.GetBaseImageReference(), err)
+		}
+		if baseStageDesc := img.GetBaseStageImage().Image.GetStageDesc(); baseStageDesc != nil {
+			baseImageInfo = baseStageDesc.Info
+		}
+	}
+
 	if baseImageInfo == nil {
 		info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, img.GetBaseImageReference(), container_backend.GetImageInfoOpts{})
 		if err != nil {

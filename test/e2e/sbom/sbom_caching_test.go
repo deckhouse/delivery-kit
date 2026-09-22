@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/test/pkg/contback"
 	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
@@ -56,6 +57,10 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 			builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), "sbom-caching-builder")
 			if strings.HasSuffix(testOpts.ContainerBackendMode, "-docker") {
 				utils.RunSucceedCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
+			} else {
+				buildahRuntime, ok := contback.NewContainerBackend(testOpts.ContainerBackendMode).(*contback.NativeBuildahBackend)
+				Expect(ok).To(BeTrue(), "test requires the native buildah backend")
+				buildahRuntime.RmiByRepoRef(ctx, suite_init.TestRegistry()+"/sbom-caching-builder")
 			}
 			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(buildOut).To(ContainSubstring("Pulling base image " + builderBaseRef))

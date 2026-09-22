@@ -14,6 +14,7 @@ import (
 	"github.com/werf/werf/v2/pkg/build/stage"
 	"github.com/werf/werf/v2/pkg/config"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/sbom/convergefailure"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/manager"
 )
@@ -46,6 +47,7 @@ func newTestBuildPhase(storageManager manager.StorageManagerInterface, requested
 		},
 		BasePhase: BasePhase{Conveyor: &Conveyor{
 			StorageManager:   storageManager,
+			werfConfig:       config.NewWerfConfig(&config.Meta{}, nil),
 			stageImages:      make(map[string]*stage.StageImage),
 			serviceRWMutex:   make(map[string]*sync.RWMutex),
 			stageDigestMutex: make(map[string]*sync.Mutex),
@@ -248,7 +250,18 @@ var _ = Describe("BuildPhase.isRequestedImage", func() {
 	})
 })
 
-var _ manager.StorageManagerInterface = (*anchorLookupStorageManager)(nil)
+var (
+	_ manager.StorageManagerInterface = (*anchorLookupStorageManager)(nil)
+	_ manager.StorageManagerInterface = (*nonLocalStorageManager)(nil)
+)
+
+type nonLocalStorageManager struct {
+	manager.StorageManagerInterface
+}
+
+func (*nonLocalStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
+	return nil
+}
 
 type anchorLookupStorageManager struct {
 	manager.StorageManagerInterface
@@ -337,6 +350,64 @@ var _ = Describe("BuildPhase content-anchor pre-resolution", func() {
 		Expect(base.Requested).To(BeFalse())
 		Expect(app.AnchorReused).To(BeTrue())
 		Expect(app.Requested).To(BeTrue())
+	})
+
+	It("keeps dependency images when SBOM generation is enabled", func() {
+		base := newTestImage("base", false)
+		app := newTestImage("app", true, "base")
+		app.SetContentTagDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:app-anchor"}})
+		app.AnchorReused = true
+		phase := newTestBuildPhase(nil, []string{"app"})
+		phase.Conveyor.werfConfig = config.NewWerfConfig(&config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}, nil)
+		phase.Conveyor.imagesTree.SetImagesGraphForTests(newTestImagesGraph(base, app))
+
+		phase.skipUnneededImages()
+
+		Expect(base.Skipped).To(BeFalse())
+	})
+
+	It("sets up the internal base of an anchor-reused image for SBOM convergence", func(ctx SpecContext) {
+		phase := newTestBuildPhase(nil, []string{"app"})
+		phase.Conveyor.werfConfig = config.NewWerfConfig(&config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}, nil)
+
+		base := newTestImage("base", false)
+		base.Conveyor = phase.Conveyor
+		base.SetContentTagDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:base-anchor"}})
+		app, err := image.NewImage(ctx, "linux/amd64", "app", image.FromImage, image.ImageOptions{BaseImageName: "base", IsFinal: true})
+		Expect(err).To(Succeed())
+		app.Conveyor = phase.Conveyor
+		app.ForceTargetPlatformLogging = true
+		app.SetContentTagDesc(&imagePkg.StageDesc{Info: &imagePkg.Info{Name: "repo:app-anchor"}})
+		phase.Conveyor.imagesTree.SetImagesGraphForTests(newTestImagesGraph(base, app))
+
+		_, err = phase.BeforeImageStages(ctx, app)
+
+		Expect(err).To(Succeed())
+		Expect(app.GetBaseImageReference()).To(Equal("repo:base-anchor"))
+	})
+})
+
+var _ = Describe("skipped image convergence", func() {
+	It("omits skipped images from SBOM convergence", func(ctx SpecContext) {
+		img := newTestImage("app", true)
+		img.Skipped = true
+		phase := newTestBuildPhase(nil, nil)
+		tracker := convergefailure.NewTracker("")
+
+		total, err := phase.doConvergeSbomByImagesSets(ctx, newTestImagesGraph(img), tracker)
+
+		Expect(err).To(Succeed())
+		Expect(total).To(BeZero())
+	})
+
+	It("omits skipped images from VEX convergence", func(ctx SpecContext) {
+		img, err := image.NewImage(ctx, "linux/amd64", "app", image.NoBaseImage, image.ImageOptions{Vex: &config.Vex{Document: "vex.json"}})
+		Expect(err).To(Succeed())
+		img.Skipped = true
+		phase := newTestBuildPhase(&nonLocalStorageManager{}, nil)
+		phase.Conveyor.imagesTree.SetImagesGraphForTests(newTestImagesGraph(img))
+
+		Expect(phase.convergeVexByImagesSets(ctx)).To(Succeed())
 	})
 })
 

@@ -136,6 +136,25 @@ var _ = Describe("BuildPhase", func() {
 		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
 	})
 
+	It("includes the ELF signing identity in the image anchor digest", func(ctx SpecContext) {
+		anchorDigest := func(fingerprint string) string {
+			img, err := image.NewImage(ctx, "linux/amd64", "app", image.NoBaseImage, image.ImageOptions{})
+			Expect(err).To(Succeed())
+
+			anchor := stage.GenerateVerityAnnotationStage(&stage.BaseStageOptions{TargetPlatform: "linux/amd64"})
+			anchor.SetContentAnchor(true)
+			img.SetStages([]stage.Interface{anchor})
+
+			phase := &BuildPhase{BuildPhaseOptions: BuildPhaseOptions{BuildOptions: BuildOptions{
+				ELFSigningOptions: signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: fingerprint},
+			}}}
+			Expect(phase.calculateAnchorDigest(ctx, img, nil, false)).To(Succeed())
+			return img.GetAnchorDigest()
+		}
+
+		Expect(anchorDigest("fingerprint-a")).NotTo(Equal(anchorDigest("fingerprint-b")))
+	})
+
 	Describe("VEX convergence", func() {
 		newImage := func(ctx SpecContext, platform string, vex *config.Vex) *image.Image {
 			img, err := image.NewImage(ctx, platform, "app", image.NoBaseImage, image.ImageOptions{Vex: vex})

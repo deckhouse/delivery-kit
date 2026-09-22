@@ -223,10 +223,12 @@ func (phase *BuildPhase) calculateAnchorDigest(ctx context.Context, img *image.I
 	}
 
 	digest, err := calculateDigest(ctx, string(anchor.Name()), "", nil, phase.Conveyor, calculateDigestOptions{
-		TargetPlatform:    img.TargetPlatform,
-		BuildCacheVersion: imagePkg.BuildCacheVersion,
-		Anchor:            true,
-		HolisticInputs:    holisticInputs,
+		TargetPlatform:         img.TargetPlatform,
+		BuildCacheVersion:      imagePkg.BuildCacheVersion,
+		ManifestSigningOptions: phase.ManifestSigningOptions,
+		ELFSigningOptions:      phase.ELFSigningOptions,
+		Anchor:                 true,
+		HolisticInputs:         holisticInputs,
 	})
 	if err != nil {
 		return fmt.Errorf("image %q: %w", img.Name, err)
@@ -262,6 +264,10 @@ func (phase *BuildPhase) resolveAvailableContentAnchors(ctx context.Context) err
 }
 
 func (phase *BuildPhase) skipUnneededImages() {
+	if phase.Conveyor.EnableSbom() {
+		return
+	}
+
 	graph := phase.Conveyor.imagesTree.GetImagesGraph()
 	if graph == nil {
 		return
@@ -534,6 +540,9 @@ func (phase *BuildPhase) doConvergeSbomByImagesSets(ctx context.Context, graph *
 	for _, imagesInSet := range graph.Levels() {
 		imagesByName := make(map[string][]*image.Image)
 		for _, img := range imagesInSet {
+			if img.Skipped {
+				continue
+			}
 			imagesByName[img.Name] = append(imagesByName[img.Name], img)
 		}
 
@@ -926,17 +935,16 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 			return nil, fmt.Errorf("write content anchor stderr log: %w", err)
 		}
 		phase.logContentAnchorReuse(ctx, img, stageDesc)
-		return nil, nil
-	}
-
-	// The content anchor is resolved before the base image is set up: a reused
-	// image is not built, so its base image is never needed — and it may not even
-	// exist, when nothing being built needs it (see markUnneededImages).
-	if err := phase.resolveContentAnchor(ctx, img, true); err != nil {
-		return nil, err
-	}
-	if img.GetContentTagDesc() != nil {
-		return nil, nil
+		if !phase.Conveyor.EnableSbom() {
+			return nil, nil
+		}
+	} else {
+		if err := phase.resolveContentAnchor(ctx, img, true); err != nil {
+			return nil, err
+		}
+		if img.GetContentTagDesc() != nil && !phase.Conveyor.EnableSbom() {
+			return nil, nil
+		}
 	}
 
 	if err := img.SetupBaseImage(ctx, phase.Conveyor.StorageManager, manager.StorageOptions{
@@ -944,6 +952,10 @@ func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image
 		DockerRegistry:   docker_registry.API(),
 	}); err != nil {
 		return nil, fmt.Errorf("unable to setup base image: %w", err)
+	}
+
+	if img.GetContentTagDesc() != nil {
+		return nil, nil
 	}
 
 	if img.UsesBuildContext() {
@@ -1984,6 +1996,9 @@ func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
 		imagesByName := make(map[string][]*image.Image)
 
 		for _, img := range imagesInSet {
+			if img.Skipped {
+				continue
+			}
 			imagesByName[img.Name] = append(imagesByName[img.Name], img)
 		}
 

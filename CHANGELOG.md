@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.78.1-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.78.1-dk.1...v2.78.1-dk.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* **signing:** keep repeated ELF signing idempotent ([#339](https://github.com/deckhouse/delivery-kit/issues/339)) ([f349dd2](https://github.com/deckhouse/delivery-kit/commit/f349dd2b9e6a5edf11a1e0fd950517163d6c821e))
+
 ## [2.78.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.77.0-dk.5...v2.78.1-dk.1) (2026-09-09)
 
 

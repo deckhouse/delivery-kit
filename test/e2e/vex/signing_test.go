@@ -16,7 +16,7 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
-var _ = Describe("VEX signing", Label("e2e", "VEX", "signing", "simple"), func() {
+var _ = Describe("VEX signing", Label("e2e", "vex", "signing", "simple"), func() {
 	It("US1/US4/US5: signs the VEX artifact, keeps the cache honest, verifies via attest verify", func(ctx SpecContext) {
 		setupVexEnv("vanilla-docker")
 

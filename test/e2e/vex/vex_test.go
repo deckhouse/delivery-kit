@@ -14,7 +14,7 @@ import (
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
-var _ = Describe("VEX lifecycle", Label("e2e", "VEX", "lifecycle", "simple"), func() {
+var _ = Describe("VEX lifecycle", Label("e2e", "vex", "lifecycle", "simple"), func() {
 	DescribeTable("US1: publish VEX artifact during build",
 		Label("publish"),
 		func(ctx SpecContext, containerBackendMode string) {

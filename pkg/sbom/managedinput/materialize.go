@@ -65,9 +65,9 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 		}
 	}()
 
-	m := materializer{ctx: ctx, reader: reader, imageRef: imageRef, cataloger: cataloger, scanDir: scanDir}
+	m := materializer{reader: reader, imageRef: imageRef, cataloger: cataloger, scanDir: scanDir}
 
-	if err := m.materialize(imageEnv); err != nil {
+	if err := m.materialize(ctx, imageEnv); err != nil {
 		cleanup(ctx)
 		return "", nil, err
 	}
@@ -85,16 +85,15 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 }
 
 type materializer struct {
-	ctx       context.Context
 	reader    container_backend.ImageReader
 	imageRef  string
 	cataloger scanner.Cataloger
 	scanDir   string
 }
 
-func (m *materializer) materialize(imageEnv []string) error {
+func (m *materializer) materialize(ctx context.Context, imageEnv []string) error {
 	for _, sourcePath := range m.cataloger.SourcePaths {
-		data, err := m.reader.ReadFile(m.ctx, sourcePath)
+		data, err := m.reader.ReadFile(ctx, sourcePath)
 		if err != nil {
 			return m.readErr(sourcePath, err)
 		}
@@ -105,9 +104,9 @@ func (m *materializer) materialize(imageEnv []string) error {
 
 	var lockData []byte
 	for _, sourcePath := range m.cataloger.OptionalSourcePaths {
-		data, err := m.reader.ReadFile(m.ctx, sourcePath)
+		data, err := m.reader.ReadFile(ctx, sourcePath)
 		if errors.Is(err, fs.ErrNotExist) {
-			logboek.Context(m.ctx).Warn().LogF("WARNING: lock file %s not found in image %q for cataloger %q; scanning the spec only. This is expected for a project without dependencies; otherwise transitive dependencies will be missing from the SBOM\n", sourcePath, m.imageRef, m.cataloger.Name)
+			logboek.Context(ctx).Warn().LogF("WARNING: lock file %s not found in image %q for cataloger %q; scanning the spec only. This is expected for a project without dependencies; otherwise transitive dependencies will be missing from the SBOM\n", sourcePath, m.imageRef, m.cataloger.Name)
 			continue
 		}
 		if err != nil {
@@ -121,13 +120,13 @@ func (m *materializer) materialize(imageEnv []string) error {
 		}
 	}
 
-	return m.enrich(imageEnv, lockData)
+	return m.enrich(ctx, imageEnv, lockData)
 }
 
 // enrich copies the cataloger's enrichment source into the scan dir. The cataloger picks
 // which files to read from it; only the manifests/license files are copied, not the
 // installed code.
-func (m *materializer) enrich(imageEnv []string, lockData []byte) error {
+func (m *materializer) enrich(ctx context.Context, imageEnv []string, lockData []byte) error {
 	enrichment := m.cataloger.Enrichment
 	if enrichment == nil {
 		return nil
@@ -136,7 +135,7 @@ func (m *materializer) enrich(imageEnv []string, lockData []byte) error {
 
 	switch enrichment.Kind {
 	case scanner.EnrichmentKindDir:
-		return m.copyEnrichmentDir(enrichment.Root, enrichment.FileNamePatterns)
+		return m.copyEnrichmentDir(ctx, enrichment.Root, enrichment.FileNamePatterns)
 
 	case scanner.EnrichmentKindGoModCache:
 		// No go.sum in the image means no modules to look up.
@@ -148,7 +147,7 @@ func (m *materializer) enrich(imageEnv []string, lockData []byte) error {
 			return fmt.Errorf("list modules of %s for cataloger %q: %w", enrichment.LockPath, m.cataloger.Name, err)
 		}
 		for _, moduleDir := range moduleDirs {
-			if err := m.copyEnrichmentDir(path.Join(enrichment.Root, moduleDir), enrichment.FileNamePatterns); err != nil {
+			if err := m.copyEnrichmentDir(ctx, path.Join(enrichment.Root, moduleDir), enrichment.FileNamePatterns); err != nil {
 				return err
 			}
 		}
@@ -159,11 +158,11 @@ func (m *materializer) enrich(imageEnv []string, lockData []byte) error {
 	}
 }
 
-func (m *materializer) copyEnrichmentDir(dirPath string, patterns []string) error {
+func (m *materializer) copyEnrichmentDir(ctx context.Context, dirPath string, patterns []string) error {
 	destDir := filepath.Join(m.scanDir, filepath.Clean("/"+dirPath))
-	err := m.reader.ReadDir(m.ctx, dirPath, destDir, container_backend.ReadDirOpts{FileNamePatterns: patterns})
+	err := m.reader.ReadDir(ctx, dirPath, destDir, container_backend.ReadDirOpts{FileNamePatterns: patterns})
 	if errors.Is(err, fs.ErrNotExist) {
-		logboek.Context(m.ctx).Warn().LogF("WARNING: %s not found in image %q for cataloger %q; component metadata such as licenses may be missing from the SBOM\n", dirPath, m.imageRef, m.cataloger.Name)
+		logboek.Context(ctx).Warn().LogF("WARNING: %s not found in image %q for cataloger %q; component metadata such as licenses may be missing from the SBOM\n", dirPath, m.imageRef, m.cataloger.Name)
 		return nil
 	}
 	if err != nil {

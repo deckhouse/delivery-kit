@@ -107,7 +107,8 @@ deploy:
 
 	DescribeTable("accepts a document with every directive",
 		func(document string) {
-			Expect(parseWerfDocument(document)).To(Succeed())
+			meta := &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: true}}}
+			Expect(parseWerfDocumentWithMeta(document, meta)).To(Succeed())
 			Expect(schema.Validate(yamlDocument(document))).To(Succeed())
 		},
 		Entry("meta with every section", `
@@ -125,6 +126,12 @@ build:
       removeLabels: ["/^io\\.k8s\\..*/"]
       labels:
         team: backend
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+    gost:
+      attackSurface: "yes"
+      securityFunction: indirect
 deploy:
   helmChartDir: .helm
   helmChartConfig:
@@ -172,6 +179,11 @@ args:
   DEBUG: true
 addHost: registry.local:10.0.0.1
 network: host
+sbom:
+  gost:
+    attackSurface: "no"
+vex:
+  document: vex/backend.openvex.json
 secrets:
 - env: GITHUB_TOKEN
 - src: ~/.npmrc
@@ -218,6 +230,21 @@ from: alpine:3.20
 fromLatest: true
 fromCacheVersion: "1"
 network: host
+sbom:
+  gost:
+    securityFunction: "yes"
+vex: vex/app.openvex.json
+packages:
+- type: os-pm
+  spec: [curl, jq]
+  env: {DEBIAN_FRONTEND: noninteractive}
+- type: python-pip
+  workdir: /tools
+- type: go-mod
+  workdir: /app
+  spec: go.mod
+  lock: go.sum
+  manager: /tools/bin/go
 git:
 - to: /app
   includePaths: src
@@ -228,6 +255,7 @@ git:
     install: package.json
     beforeSetup: [config/**]
     setup: "*.env"
+    packages: [go.mod, go.sum]
 - url: https://github.com/werf/werf.git
   basicAuth:
     username: 12345

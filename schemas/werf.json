@@ -511,6 +511,138 @@
         }
       }
     },
+    "gost": {
+      "description": "GOST component properties added to the generated SBOM.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attackSurface": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "no",
+            "indirect"
+          ]
+        },
+        "securityFunction": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "no",
+            "indirect"
+          ]
+        }
+      }
+    },
+    "sbom": {
+      "description": "Per-image SBOM settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gost": {
+          "$ref": "#/definitions/gost"
+        }
+      }
+    },
+    "metaBuildSbom": {
+      "description": "Project-wide SBOM generation settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {
+          "type": "boolean"
+        },
+        "standard": {
+          "type": "string",
+          "const": "cyclonedx@1.6"
+        },
+        "gost": {
+          "$ref": "#/definitions/gost"
+        }
+      }
+    },
+    "vex": {
+      "description": "VEX document associated with the image.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "document"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "packages": {
+      "description": "Package manifests or operating-system packages managed as a dedicated build stage.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "os-pm",
+              "go-mod",
+              "python-uv",
+              "python-pip",
+              "python-poetry",
+              "rust-cargo",
+              "javascript-npm",
+              "javascript-yarn",
+              "javascript-pnpm",
+              "lua-rock"
+            ]
+          },
+          "spec": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "workdir": {
+            "type": "string"
+          },
+          "lock": {
+            "type": "string"
+          },
+          "manager": {
+            "type": "string",
+            "minLength": 1
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "cleanupLimit": {
       "type": "object",
       "additionalProperties": false,
@@ -575,6 +707,9 @@
             },
             "imageSpec": {
               "$ref": "#/definitions/imageSpecGlobal"
+            },
+            "sbom": {
+              "$ref": "#/definitions/metaBuildSbom"
             }
           }
         },
@@ -816,6 +951,12 @@
           "description": "The networking mode for the RUN instructions during build (similar to `docker build --network`).",
           "type": "string"
         },
+        "sbom": {
+          "$ref": "#/definitions/sbom"
+        },
+        "vex": {
+          "$ref": "#/definitions/vex"
+        },
         "ssh": {
           "description": "DEPRECATED. SSH agent socket or keys for the build (similar to `docker build --ssh`).\nhttps://werf.io/docs/latest/usage/build/images.html#using-build-secrets",
           "deprecationMessage": "Use `secrets` instead.",
@@ -985,6 +1126,10 @@
             },
             "setup": {
               "description": "Globs for the setup stage.",
+              "$ref": "#/definitions/stringOrStringArray"
+            },
+            "packages": {
+              "description": "Globs for the packages stage.",
               "$ref": "#/definitions/stringOrStringArray"
             }
           }
@@ -1293,6 +1438,15 @@
         "network": {
           "description": "The networking mode for the assembly containers.",
           "type": "string"
+        },
+        "sbom": {
+          "$ref": "#/definitions/sbom"
+        },
+        "vex": {
+          "$ref": "#/definitions/vex"
+        },
+        "packages": {
+          "$ref": "#/definitions/packages"
         },
         "secrets": {
           "description": "Secrets used in the image build.\nhttps://werf.io/docs/latest/usage/build/stapel/instructions.html#using-build-secrets",

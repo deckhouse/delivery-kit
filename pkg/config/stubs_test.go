@@ -34,6 +34,10 @@ func (manager *GiterminismManagerStub) Inspector() giterminism_manager.Inspector
 	return &giterminismInspectorStub{}
 }
 
+func (manager *GiterminismManagerStub) FileReader() giterminism_manager.FileReader {
+	return &giterminismFileReaderStub{}
+}
+
 func (manager *GiterminismManagerStub) Dev() bool {
 	return false
 }
@@ -44,9 +48,21 @@ func (manager *GiterminismManagerStub) HeadCommit(ctx context.Context) string {
 	return commit
 }
 
-type giterminismInspectorStub struct{}
+type (
+	giterminismInspectorStub  struct{}
+	giterminismFileReaderStub struct {
+		giterminism_manager.FileReader
+	}
+)
 
-var _ giterminism_manager.Inspector = (*giterminismInspectorStub)(nil)
+var (
+	_ giterminism_manager.Inspector  = (*giterminismInspectorStub)(nil)
+	_ giterminism_manager.FileReader = (*giterminismFileReaderStub)(nil)
+)
+
+func (reader *giterminismFileReaderStub) ReadVEXFile(_ context.Context, _ string) ([]byte, error) {
+	return []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","statements":[]}`), nil
+}
 
 func (inspector *giterminismInspectorStub) InspectCustomTags() error {
 	return nil

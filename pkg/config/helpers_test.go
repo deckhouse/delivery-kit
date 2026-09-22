@@ -54,6 +54,10 @@ func yamlDocument(data string) any {
 // and directive conversion that GetWerfConfig applies, dispatching on the key
 // splitByMetaAndRawImages dispatches on.
 func parseWerfDocument(data string) error {
+	return parseWerfDocumentWithMeta(data, &Meta{})
+}
+
+func parseWerfDocumentWithMeta(data string, meta *Meta) error {
 	parentStack = util.NewStack()
 	giterminismManager := NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"))
 
@@ -71,14 +75,14 @@ func parseWerfDocument(data string) error {
 		if err := yamlv2.UnmarshalStrict(document.Content, image); err != nil {
 			return err
 		}
-		_, err := image.toImageFromDockerfileDirectives(context.Background(), giterminismManager, &Meta{})
+		_, err := image.toImageFromDockerfileDirectives(context.Background(), giterminismManager, meta)
 		return err
 	case isImageDoc(raw):
 		image := &rawStapelImage{doc: document}
 		if err := yamlv2.UnmarshalStrict(document.Content, image); err != nil {
 			return err
 		}
-		_, err := image.toStapelImageDirectives(context.Background(), giterminismManager, &Meta{})
+		_, err := image.toStapelImageDirectives(context.Background(), giterminismManager, meta)
 		return err
 	default:
 		return errors.New("cannot recognize config section type")

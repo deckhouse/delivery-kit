@@ -352,6 +352,34 @@ project: app
 deploy:
   helmChart: .helm
 `),
+		Entry("enabled SBOM without a standard", `
+configVersion: 1
+project: app
+build:
+  sbom:
+    enable: true
+`),
+		Entry("SBOM standard without explicit enablement", `
+configVersion: 1
+project: app
+build:
+  sbom:
+    standard: cyclonedx@1.6
+`),
+		Entry("os-pm packages with workdir", `
+image: app
+from: scratch
+packages:
+- type: os-pm
+  spec: [curl]
+  workdir: /app
+`),
+		Entry("file packages without workdir", `
+image: app
+from: scratch
+packages:
+- type: go-mod
+`),
 		Entry("cleanup keep policy without references", `
 configVersion: 1
 project: app

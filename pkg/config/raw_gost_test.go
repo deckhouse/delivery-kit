@@ -51,5 +51,11 @@ var _ = Describe("rawGost", func() {
 			},
 			gost.Config{},
 			HaveOccurred()),
+		Entry("unknown field",
+			map[string]interface{}{
+				"securtyFunction": "no",
+			},
+			gost.Config{},
+			HaveOccurred()),
 	)
 })

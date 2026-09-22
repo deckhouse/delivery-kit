@@ -548,6 +548,42 @@
       "description": "Project-wide SBOM generation settings.",
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "enable"
+            ],
+            "properties": {
+              "enable": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "standard"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "standard"
+            ]
+          },
+          "then": {
+            "required": [
+              "enable"
+            ],
+            "properties": {
+              "enable": {
+                "const": true
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "enable": {
           "type": "boolean"
@@ -592,6 +628,95 @@
         "required": [
           "type"
         ],
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "const": "os-pm"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "spec"
+              ],
+              "properties": {
+                "spec": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "workdir": {
+                  "const": ""
+                },
+                "manager": {
+                  "const": ""
+                }
+              }
+            },
+            "else": {
+              "required": [
+                "workdir"
+              ],
+              "properties": {
+                "workdir": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "spec": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "const": "lua-rock"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "spec"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "python-pip",
+                    "lua-rock"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "lock": {
+                  "const": ""
+                }
+              }
+            }
+          }
+        ],
         "properties": {
           "type": {
             "type": "string",
@@ -632,10 +757,14 @@
           },
           "manager": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$"
           },
           "env": {
             "type": "object",
+            "propertyNames": {
+              "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+            },
             "additionalProperties": {
               "type": "string"
             }

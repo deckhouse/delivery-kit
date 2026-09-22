@@ -135,22 +135,14 @@ profile have not been established; validate them on a new Linux runner before
 treating the timeouts as sufficient. Do not remove host-wide resource budgeting to
 address an individual slow job.
 
-Before merging this workflow change, drain and provision persistent ARM64 binfmt
-support on every VM with the `delivery-github-runner` label, then verify the handler
-before resuming runner services. Repeat provisioning after host reboots if it is
-not restored automatically:
-
-```shell
-docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-grep -q '^enabled$' /proc/sys/fs/binfmt_misc/qemu-aarch64
-grep -q '^flags:.*F' /proc/sys/fs/binfmt_misc/qemu-aarch64
-```
-
-Run this only while the host has no active test jobs. Jobs check for an enabled
-`qemu-aarch64` handler with the `F` flag; they never reset host-wide handlers.
-Runners must access the local Docker daemon, not a daemon on another VM.
-An unprovisioned runner fails before environment creation; merging first and fixing
-provisioning afterwards is not a supported rollout order.
+Jobs set up ARM64 emulation with `docker/setup-qemu-action@v4`, requesting only
+`arm64` with `reset: false`, then require `linux/arm64` in the action's available-platforms output.
+The default `tonistiigi/binfmt` installer registers missing handlers without
+resetting existing ones. Manual binfmt provisioning is not required on a fresh
+runner; an existing broken handler is not automatically replaced, and failed ARM64
+availability verification stops the job before environment creation.
+Runners must access the local Docker daemon with permission to run privileged
+containers, not a daemon on another VM.
 
 Cleanup runs on the same runner after success, failure or partial setup, and removes
 the registry's anonymous volume as well as the cluster. Step timeouts leave room

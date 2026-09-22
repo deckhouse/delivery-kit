@@ -12,14 +12,17 @@ import (
 
 func TestSuite(t *testing.T) {
 	requiredTools := []string{"docker", "git"}
+	suiteLabels := []string{suite_init.LabelNeedsRegistry}
 	if runtime.GOOS == "linux" {
 		requiredTools = append(requiredTools, "buildah")
+		suiteLabels = append(suiteLabels, suite_init.LabelNeedsBuildah)
 	}
 	suite_init.MakeTestSuiteEntrypointFunc("E2E VEX suite", suite_init.TestSuiteEntrypointFuncOptions{
 		RequiredSuiteTools: requiredTools,
 		RequiredSuiteEnvs: []string{
 			"WERF_TEST_K8S_DOCKER_REGISTRY",
 		},
+		SuiteLabels: suiteLabels,
 	})(t)
 }
 

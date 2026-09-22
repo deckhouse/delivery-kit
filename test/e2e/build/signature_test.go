@@ -143,7 +143,7 @@ var _ = Describe("Signature", Label("e2e", "signature", "simple"), func() {
 			Expect(totalFilesCount).To(Equal(5))
 			Expect(elfFilesCount).To(Equal(1))
 		},
-		Entry("with repo using Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
+		backendEntry("with repo using Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
 			ContainerBackendMode:        "docker",
 			WithLocalRepo:               true,
 			WithStagedDockerfileBuilder: false,
@@ -210,7 +210,7 @@ var _ = Describe("Signature", Label("e2e", "signature", "simple"), func() {
 				Expect(totalFilesCount).To(Equal(5))
 				Expect(elfFilesCount).To(Equal(1))
 			},
-			Entry("with repo using Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
+			backendEntry("with repo using Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
 				ContainerBackendMode:        "docker",
 				WithLocalRepo:               true,
 				WithStagedDockerfileBuilder: false,

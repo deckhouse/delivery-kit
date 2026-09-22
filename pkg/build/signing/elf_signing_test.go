@@ -11,6 +11,9 @@ import (
 	"testing"
 )
 
+// testFingerprint ends with the key id bsign reports for it.
+const testFingerprint = "F8A5558145F0A40F1D3FDB1E0047AD5C47A2A1AB"
+
 // fakeBsign puts a bsign stub first on PATH. It exits 0 when signing and with
 // exitCode when asked to check the ELF hash, and records both invocations.
 func fakeBsign(t *testing.T, exitCode int) string {
@@ -49,7 +52,7 @@ func assertBsignCalls(t *testing.T, logPath, path string) {
 	}
 	want := strings.Join([]string{
 		"-wE " + path,
-		"-N -s --pgoptions=--batch --default-key=TEST-FINGERPRINT " + path,
+		"-N -s --pgoptions=--batch --default-key=" + testFingerprint + " " + path,
 		"-cE " + path,
 		"",
 	}, "\n")
@@ -75,7 +78,7 @@ func TestSignELFFileRejectsUnhashableBsignResult(t *testing.T) {
 
 			err := signELFFile(context.Background(), path, ELFSigningOptions{
 				BsignEnabled:             true,
-				PGPPrivateKeyFingerprint: "TEST-FINGERPRINT",
+				PGPPrivateKeyFingerprint: testFingerprint,
 			})
 			if err == nil {
 				t.Fatal("signing accepted a file bsign cannot hash")
@@ -100,7 +103,7 @@ func TestSignELFFileAcceptsUncheckableHash(t *testing.T) {
 
 	if err := signELFFile(context.Background(), path, ELFSigningOptions{
 		BsignEnabled:             true,
-		PGPPrivateKeyFingerprint: "TEST-FINGERPRINT",
+		PGPPrivateKeyFingerprint: testFingerprint,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,26 +113,58 @@ func TestSignELFFileAcceptsUncheckableHash(t *testing.T) {
 // Signing again would only replace the stored timestamp, changing the bytes of
 // a file whose content did not change.
 func TestSignELFFileSkipsFileSignedByTheSameKey(t *testing.T) {
-	logPath := fakeBsign(t, 0)
-	t.Setenv("BSIGN_TEST_SIGNER", "fingerprint")
-	path := filepath.Join(t.TempDir(), "binary")
-	if err := os.WriteFile(path, []byte("payload"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	for name, signer := range map[string]string{
+		"same case":  "0047AD5C47A2A1AB",
+		"mixed case": "0047ad5c47a2a1ab",
+	} {
+		t.Run(name, func(t *testing.T) {
+			logPath := fakeBsign(t, 0)
+			t.Setenv("BSIGN_TEST_SIGNER", signer)
+			path := filepath.Join(t.TempDir(), "binary")
+			if err := os.WriteFile(path, []byte("payload"), 0o755); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := signELFFile(context.Background(), path, ELFSigningOptions{
-		BsignEnabled:             true,
-		PGPPrivateKeyFingerprint: "TEST-FINGERPRINT",
-	}); err != nil {
-		t.Fatal(err)
-	}
+			if err := signELFFile(context.Background(), path, ELFSigningOptions{
+				BsignEnabled:             true,
+				PGPPrivateKeyFingerprint: testFingerprint,
+			}); err != nil {
+				t.Fatal(err)
+			}
 
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
+			data, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := "-wE " + path + "\n"; string(data) != want {
+				t.Fatalf("bsign calls:\n%s\nwant:\n%s", data, want)
+			}
+		})
 	}
-	if want := "-wE " + path + "\n"; string(data) != want {
-		t.Fatalf("bsign calls:\n%s\nwant:\n%s", data, want)
+}
+
+func TestSignELFFileSignsFileSignedByAnotherKey(t *testing.T) {
+	for name, signer := range map[string]string{
+		"foreign key":      "4DB0A0F78C169921",
+		"not a key id":     "FINGERPRINT",
+		"truncated key id": "47A2A1AB",
+	} {
+		t.Run(name, func(t *testing.T) {
+			logPath := fakeBsign(t, 0)
+			t.Setenv("BSIGN_TEST_SIGNER", signer)
+			path := filepath.Join(t.TempDir(), "binary")
+			if err := os.WriteFile(path, []byte("payload"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := signELFFile(context.Background(), path, ELFSigningOptions{
+				BsignEnabled:             true,
+				PGPPrivateKeyFingerprint: testFingerprint,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			assertBsignCalls(t, logPath, path)
+		})
 	}
 }
 
@@ -142,7 +177,7 @@ func TestSignELFFileAcceptsHashableBsignResult(t *testing.T) {
 
 	if err := signELFFile(context.Background(), path, ELFSigningOptions{
 		BsignEnabled:             true,
-		PGPPrivateKeyFingerprint: "TEST-FINGERPRINT",
+		PGPPrivateKeyFingerprint: testFingerprint,
 	}); err != nil {
 		t.Fatal(err)
 	}

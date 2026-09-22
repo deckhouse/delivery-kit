@@ -103,6 +103,11 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 // the key about to sign it. bsign rewrites the signature on every run, so
 // signing again would only change the stored timestamp and, with it, the bytes
 // of a file whose content did not change.
+//
+// A signature too short for the section bsign reserves leaves the remaining
+// bytes non-zero, and bsign then reports neither the signer nor the hash,
+// leaving a sound file indistinguishable from a corrupt one. Such a file is
+// signed again, which costs the stable bytes but never keeps a stale signature.
 func signedByKey(ctx context.Context, path, fingerprint string) bool {
 	output, err := werfExec.CommandContextCancellation(ctx, "bsign", "-wE", path).CombinedOutput()
 	if err != nil {
@@ -115,13 +120,27 @@ func signedByKey(ctx context.Context, path, fingerprint string) bool {
 			continue
 		}
 		// bsign reports the key by its identifier, the tail of the fingerprint.
-		if signer = strings.TrimSpace(signer); signer != "" && strings.HasSuffix(strings.ToUpper(fingerprint), strings.ToUpper(signer)) {
-			logboek.Context(ctx).Debug().LogF("Skipping %q already signed by %s\n", path, signer)
-			return true
+		signer = strings.TrimSpace(signer)
+		if !isKeyID(signer) || !strings.HasSuffix(strings.ToUpper(fingerprint), strings.ToUpper(signer)) {
+			return false
 		}
+		logboek.Context(ctx).Debug().LogF("Skipping %q already signed by %s\n", path, signer)
+		return true
 	}
 
 	return false
+}
+
+func isKeyID(s string) bool {
+	if len(s) != 16 {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // bsignUnusedBytesNotZero is bsign's exit status for a signature section whose

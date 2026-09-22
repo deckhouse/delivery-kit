@@ -2,6 +2,8 @@ package e2e_build_test
 
 import (
 	"fmt"
+	"runtime"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -52,8 +54,11 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 
 			By("rebuild with build.sbom.enable=true - cache is reused")
 			builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), "sbom-caching-builder")
-			utils.RunSucceedCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
+			if strings.HasSuffix(testOpts.ContainerBackendMode, "-docker") {
+				utils.RunSucceedCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
+			}
 			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			Expect(buildOut).To(ContainSubstring("Pulling base image " + builderBaseRef))
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
 
@@ -69,11 +74,18 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{
 			ContainerBackendMode: "buildkit-docker",
 		}}),
-		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{
+		nativeBuildahEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{
 			ContainerBackendMode: "native-rootless",
 		}}),
-		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{
+		nativeBuildahEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{
 			ContainerBackendMode: "native-chroot",
 		}}),
 	)
 })
+
+func nativeBuildahEntry(description string, parameters ...any) TableEntry {
+	if runtime.GOOS != "linux" {
+		return XEntry(description, parameters...)
+	}
+	return Entry(description, parameters...)
+}

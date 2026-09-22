@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.74.3-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.2-dk...v2.74.3-dk) (2026-09-22)
+
+
+### Bug Fixes
+
+* **signing:** guard repeated bsign passes in v2.74.2 ([#340](https://github.com/deckhouse/delivery-kit/issues/340)) ([364cf91](https://github.com/deckhouse/delivery-kit/commit/364cf9110ac8d48af5188a604494a309115243bb))
+
 ## [2.74.2-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.1-dk...v2.74.2-dk) (2026-07-10)
 
 

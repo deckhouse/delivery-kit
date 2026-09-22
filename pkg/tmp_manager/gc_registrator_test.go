@@ -44,10 +44,10 @@ var _ = Describe("gc registration queue", func() {
 		Expect(registrator.queueRegistration(ctx, firstPath, blockedTargetDir)).To(Succeed())
 		Expect(registrator.queueRegistration(ctx, secondPath, readyTargetDir)).To(Succeed())
 		Expect(registrator.registerAll(ctx)).NotTo(Succeed())
+		Expect(filepath.Join(readyTargetDir, filepath.Base(secondPath))).To(BeAnExistingFile())
 		Expect(os.Remove(blockedTargetDir)).To(Succeed())
 
 		Expect(registrator.registerAll(ctx)).To(Succeed())
 		Expect(filepath.Join(blockedTargetDir, filepath.Base(firstPath))).To(BeAnExistingFile())
-		Expect(filepath.Join(readyTargetDir, filepath.Base(secondPath))).To(BeAnExistingFile())
 	})
 })

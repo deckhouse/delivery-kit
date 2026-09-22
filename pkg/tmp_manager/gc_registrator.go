@@ -27,8 +27,11 @@ func (r *gcRegistrator) registerAll(_ context.Context) error {
 	r.pathQueue = nil
 	r.mutex.Unlock()
 
-	for _, item := range pathQueue {
+	for index, item := range pathQueue {
 		if err := registerPath(item.A, item.B); err != nil {
+			r.mutex.Lock()
+			r.pathQueue = append(pathQueue[index:], r.pathQueue...)
+			r.mutex.Unlock()
 			return err
 		}
 	}

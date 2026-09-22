@@ -29,4 +29,25 @@ var _ = Describe("gc registration queue", func() {
 			Expect(DelegateCleanup(GinkgoT().Context())).To(Succeed())
 		}
 	})
+
+	It("retries a failed registration and the remaining queue", func(ctx SpecContext) {
+		root := GinkgoT().TempDir()
+		blockedTargetDir := filepath.Join(root, "blocked")
+		readyTargetDir := filepath.Join(root, "ready")
+		firstPath := filepath.Join(root, "first")
+		secondPath := filepath.Join(root, "second")
+		Expect(os.WriteFile(blockedTargetDir, nil, 0o600)).To(Succeed())
+		Expect(os.WriteFile(firstPath, nil, 0o600)).To(Succeed())
+		Expect(os.WriteFile(secondPath, nil, 0o600)).To(Succeed())
+
+		registrator := newGCRegistrator()
+		Expect(registrator.queueRegistration(ctx, firstPath, blockedTargetDir)).To(Succeed())
+		Expect(registrator.queueRegistration(ctx, secondPath, readyTargetDir)).To(Succeed())
+		Expect(registrator.registerAll(ctx)).NotTo(Succeed())
+		Expect(os.Remove(blockedTargetDir)).To(Succeed())
+
+		Expect(registrator.registerAll(ctx)).To(Succeed())
+		Expect(filepath.Join(blockedTargetDir, filepath.Base(firstPath))).To(BeAnExistingFile())
+		Expect(filepath.Join(readyTargetDir, filepath.Base(secondPath))).To(BeAnExistingFile())
+	})
 })

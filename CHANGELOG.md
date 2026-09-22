@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.4.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.2...v3.4.0-dk.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* **sbom, build:** report scanner exit code and output when SBOM scan fails ([#334](https://github.com/deckhouse/delivery-kit/issues/334)) ([f58b505](https://github.com/deckhouse/delivery-kit/commit/f58b5050281b5207ee8311a661f2a8ff2c8ddc24))
+* **sbom:** report the pm package catalogue version the build installed with ([#320](https://github.com/deckhouse/delivery-kit/issues/320)) ([7384b6a](https://github.com/deckhouse/delivery-kit/commit/7384b6aeb810c1ef7920d91a389b548a72710ea6))
+* **signing:** check the file bsign produced instead of its exit code ([#336](https://github.com/deckhouse/delivery-kit/issues/336)) ([5515529](https://github.com/deckhouse/delivery-kit/commit/5515529342789ccdde7eeda36a569a51dee7acf1))
+
 ## [3.4.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.1...v3.4.0-dk.2) (2026-09-11)
 
 

@@ -1,4 +1,4 @@
-package e2e_build_test
+package e2e_sbom_validate_test
 
 import (
 	"path/filepath"
@@ -11,7 +11,7 @@ import (
 
 var _ = Describe("sbom validate", Label("e2e", "sbom", "validate", "simple"), func() {
 	fixturePath := func(name string) string {
-		absPath, err := filepath.Abs(filepath.Join("_fixtures", "validate", name+".json"))
+		absPath, err := filepath.Abs(filepath.Join("_fixtures", name+".json"))
 		Expect(err).NotTo(HaveOccurred())
 		return absPath
 	}

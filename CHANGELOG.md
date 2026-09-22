@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.74.3-dk](https://github.com/deckhouse/delivery-kit/compare/v2.74.2-dk...v2.74.3-dk) (2026-09-22)
+## [2.74.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.74.2-dk...v2.74.2-dk.1) (2026-09-22)
 
 
 ### Bug Fixes

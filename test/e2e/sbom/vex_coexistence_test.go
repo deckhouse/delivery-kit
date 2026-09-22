@@ -18,7 +18,7 @@ import (
 var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing", "simple"), func() {
 	It("US2: keeps both artifacts independently published, listed and superseded", func(ctx SpecContext) {
 		By("initializing")
-		setupSbomBuildEnv(setupEnvOptions{ContainerBackendMode: "vanilla-docker"})
+		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_vex_coexistence"
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing_vex")

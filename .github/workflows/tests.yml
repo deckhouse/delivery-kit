@@ -20,7 +20,7 @@ env:
 jobs:
   detect-changes:
     if: ${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 10
     permissions:
       pull-requests: read
@@ -58,7 +58,7 @@ jobs:
   lint:
     if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
     needs: detect-changes
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 60
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -86,7 +86,7 @@ jobs:
     needs:
       - detect-changes
       - lint
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 90
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -113,7 +113,7 @@ jobs:
       - detect-changes
       - lint
       - unit
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 60
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -158,7 +158,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 150
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -221,7 +221,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -284,7 +284,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -347,7 +347,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -410,7 +410,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 150
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -467,7 +467,7 @@ jobs:
       needs.detect-changes.outputs.docs_workflow_proceed != 'false'
     needs:
       - detect-changes
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 60
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -507,7 +507,7 @@ jobs:
     needs:
       - detect-changes
       - build_test_binary
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 150
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -564,7 +564,7 @@ jobs:
       needs.detect-changes.outputs.docs_workflow_proceed != 'false'
     needs:
       - detect-changes
-    runs-on: test-runner
+    runs-on: delivery-github-runner
     timeout-minutes: 60
     env:
       DEBIAN_FRONTEND: noninteractive

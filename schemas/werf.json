@@ -575,12 +575,7 @@
           "then": {
             "required": [
               "enable"
-            ],
-            "properties": {
-              "enable": {
-                "const": true
-              }
-            }
+            ]
           }
         }
       ],
@@ -658,6 +653,13 @@
                 },
                 "manager": {
                   "const": ""
+                },
+                "env": {
+                  "not": {
+                    "required": [
+                      "PM_LOCK_FILE"
+                    ]
+                  }
                 }
               }
             },
@@ -673,6 +675,11 @@
                 "spec": {
                   "type": "string",
                   "minLength": 1
+                },
+                "manager": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$"
                 }
               }
             }
@@ -756,9 +763,7 @@
             "type": "string"
           },
           "manager": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[a-zA-Z0-9_./][a-zA-Z0-9_./@+-]*$"
+            "type": "string"
           },
           "env": {
             "type": "object",

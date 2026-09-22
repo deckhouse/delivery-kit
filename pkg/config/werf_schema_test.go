@@ -329,6 +329,29 @@ imageSpec:
 `),
 	)
 
+	DescribeTable("accepts parser edge cases",
+		func(document string) {
+			Expect(parseWerfDocument(document)).To(Succeed())
+			Expect(schema.Validate(yamlDocument(document))).To(Succeed())
+		},
+		Entry("disabled SBOM with an explicit standard", `
+configVersion: 1
+project: app
+build:
+  sbom:
+    enable: false
+    standard: cyclonedx@1.6
+`),
+		Entry("os-pm with an explicitly empty manager", `
+image: app
+from: scratch
+packages:
+- type: os-pm
+  spec: [curl]
+  manager: ""
+`),
+	)
+
 	DescribeTable("rejects a document the parser rejects",
 		func(document string) {
 			Expect(parseWerfDocument(document)).NotTo(Succeed())
@@ -373,6 +396,15 @@ packages:
 - type: os-pm
   spec: [curl]
   workdir: /app
+`),
+		Entry("os-pm packages with a lock-file environment variable", `
+image: app
+from: scratch
+packages:
+- type: os-pm
+  spec: [curl]
+  env:
+    PM_LOCK_FILE: packages.lock
 `),
 		Entry("file packages without workdir", `
 image: app

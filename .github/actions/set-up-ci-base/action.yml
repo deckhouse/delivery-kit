@@ -42,6 +42,18 @@ runs:
           ~/go/bin/golangci-lint
         key: ${{ runner.os }}-go-tools-${{ hashFiles('go.mod', 'go.sum', 'Taskfile.dist.yaml') }}
 
+    - name: Install matching ginkgo
+      shell: bash
+      run: |
+        expected_version="$(awk '$1 == "github.com/onsi/ginkgo/v2" && $2 ~ /^v[0-9]/ { print $2; exit }' go.mod)"
+        installed_version=""
+        if command -v ginkgo >/dev/null 2>&1; then
+          installed_version="v$(ginkgo version | awk '{print $3}')"
+        fi
+        if [[ "$installed_version" != "$expected_version" ]]; then
+          task --yes deps:install:ginkgo
+        fi
+
     - if: inputs.installGolangciLint == 'true'
       name: Install golangci-lint
       shell: bash

@@ -121,9 +121,6 @@ jobs:
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
 
-      - name: Install ginkgo
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
-
       - name: Integration tests (main)
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
@@ -168,9 +165,6 @@ jobs:
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
       - name: Integration tests (git)
         run: |
@@ -217,9 +211,6 @@ jobs:
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
 
-      - name: Install ginkgo
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
-
       - name: Integration tests (per-k8s)
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
@@ -264,9 +255,6 @@ jobs:
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
       - name: E2E tests (simple per-k8s)
         run: |
@@ -313,9 +301,6 @@ jobs:
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
 
-      - name: Install ginkgo
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
-
       - name: E2E tests (complex per-k8s)
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
@@ -360,9 +345,6 @@ jobs:
 
       - name: Set up git config
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
       - name: E2E tests (extra per-k8s)
         run: |

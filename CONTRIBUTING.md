@@ -157,6 +157,35 @@ verify registry push/pull, Kubernetes access, failure cleanup and rerunning a fa
 job without rerunning setup elsewhere. Keep the existing test groups and selectors;
 splitting or reducing test coverage is a separate change.
 
+### Test profiling
+
+The diagnostic PR workflow wraps its five heavy test groups with
+`bash scripts/ci/profile-tests.sh task ... -- ...`. Test selectors, concurrency,
+retries and timeouts are unchanged. Each job uploads a
+`test-profile-<job>-<attempt>` artifact after environment cleanup, retained for
+seven days, including when tests fail.
+
+Artifacts contain per-suite Ginkgo JSON reports (including successful-spec output,
+events, durations and attempts), verbose console output, the test exit code,
+checkout SHA, run/attempt/runner identity, and before/after host snapshots.
+`vmstat` samples CPU, memory and disk counters every ten seconds; `iostat` and
+`pidstat` add disk latency and per-process CPU/memory/I/O when sysstat is already
+installed. Missing tools are explicitly reported; profiling installs nothing.
+GNU `time`, when available, records aggregate command resource usage, excluding
+Docker-daemon-managed containers. Linux requires `setsid` to isolate the test
+process group. Cancellation sends TERM, allows five seconds for graceful exit,
+then sends KILL to the group even if the immediate child has already exited.
+This adds no time limit to a normally running test command.
+
+These are shared-host measurements, not proof that a test caused host saturation.
+Separate compile/setup time from suite/spec time, ignore the initial since-boot
+samples when comparing load, and compare several runs with their runner identities.
+Only completed suites have JSON reports; verbose logs and already-written reports
+may survive cancellation, but a runner crash or forced kill can prevent upload.
+Reports contain raw test output and are not GitHub-log-secret-masked: use only
+synthetic fixture credentials, never pass real secrets to a diagnostic test.
+The collector does not dump environment variables or process command lines.
+
 ### Commit message
 
 Each commit message consists of a **header** and a [**body**](#body). The header has a special format that includes a [**type**](#type), a [**scope**](#scope) and a [**subject**](#subject):

@@ -9,6 +9,8 @@ The command runs sbom-checker inside a Docker container and reports validation r
 
 The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several files in one run. Pass `--check-vcs` to additionally validate VCS URLs.
 
+Checker findings are reported separately as errors and warnings, and the summary shows both counts. By default any error or warning fails validation. Pass `--warnings-non-fatal` to keep warnings informational: they are still printed (on stderr), but only errors set a non-zero exit code.
+
 {{ header }} Syntax
 
 ```shell
@@ -63,5 +65,8 @@ werf sbom validate [options]
             $WERF_SKIP_TLS_VERIFY_REGISTRY)
       --tmp-dir=""
             Use specified dir to store tmp files and dirs (default $WERF_TMP_DIR or system tmp dir)
+      --warnings-non-fatal=false
+            Do not fail validation on checker warnings; only errors set a non-zero exit code        
+            (default $WERF_WARNINGS_NON_FATAL or false)
 ```
 

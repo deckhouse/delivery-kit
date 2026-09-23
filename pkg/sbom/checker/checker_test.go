@@ -12,41 +12,65 @@ import (
 
 var _ = Describe("checker", func() {
 	Describe("parseResult", func() {
-		DescribeTable("parses output correctly",
-			func(out, fileName string, index, total int, matcher types.GomegaMatcher) {
-				err := parseResult(context.Background(), out, fileName, index, total)
-				Expect(err).To(matcher)
+		DescribeTable("splits checker output into errors and warnings",
+			func(out string, want fileResult) {
+				Expect(parseResult(out)).To(Equal(want))
 			},
 			Entry("no errors no warnings",
-				"файл корректный\n", "valid.json", 1, 1,
-				Succeed()),
+				"файл корректный\n",
+				fileResult{}),
 			Entry("empty output",
-				"", "empty.json", 1, 1,
-				Succeed()),
+				"",
+				fileResult{}),
 			Entry("errors only",
-				"ERROR: missing bomFormat\nERROR: missing specVersion\n", "bad.json", 1, 3,
-				MatchError(ContainSubstring("validation failed for bad.json"))),
+				"ERROR: missing bomFormat\nERROR: missing specVersion\n",
+				fileResult{errs: []string{"ERROR: missing bomFormat", "ERROR: missing specVersion"}}),
 			Entry("warnings only",
-				"WARNING: vcs url not found for pkg1\nWARNING: vcs url not found for pkg2\n", "warn.json", 2, 3,
-				MatchError(ContainSubstring("validation failed for warn.json"))),
-			Entry("errors and warnings",
-				"ERROR: bad field\nWARNING: vcs issue\n", "mixed.json", 1, 1,
-				MatchError(ContainSubstring("validation failed for mixed.json"))),
-			Entry("non-prefixed output only",
-				"some random output\nanother line\n", "random.json", 1, 2,
+				"WARNING: vcs url not found for pkg1\nWARNING: vcs url not found for pkg2\n",
+				fileResult{warnings: []string{"WARNING: vcs url not found for pkg1", "WARNING: vcs url not found for pkg2"}}),
+			Entry("errors and warnings mixed with non-prefixed lines",
+				"starting check\nERROR: bad field\nWARNING: vcs issue\ndone\n",
+				fileResult{errs: []string{"ERROR: bad field"}, warnings: []string{"WARNING: vcs issue"}}),
+		)
+	})
+
+	Describe("fileResult.report", func() {
+		DescribeTable("fails on errors, and on warnings unless warningsNonFatal is set",
+			func(res fileResult, warningsNonFatal bool, matcher types.GomegaMatcher) {
+				err := res.report(context.Background(), "sbom.json", 1, 1, warningsNonFatal)
+				Expect(err).To(matcher)
+			},
+			Entry("clean result passes",
+				fileResult{}, false,
 				Succeed()),
-			Entry("errors mixed with non-prefixed lines",
-				"starting check\nERROR: bad field\ndone\n", "report.json", 3, 5,
-				MatchError(ContainSubstring("validation failed for report.json"))),
-			Entry("error details included in message",
-				"ERROR: missing bomFormat\nERROR: missing specVersion\n", "bad.json", 1, 1,
+			Entry("clean result passes with warningsNonFatal",
+				fileResult{}, true,
+				Succeed()),
+			Entry("errors fail",
+				fileResult{errs: []string{"ERROR: missing bomFormat", "ERROR: missing specVersion"}}, false,
 				MatchError(And(
+					ContainSubstring("validation failed for sbom.json"),
 					ContainSubstring("ERROR: missing bomFormat"),
 					ContainSubstring("ERROR: missing specVersion"),
 				))),
-			Entry("warning details included in message",
-				"WARNING: vcs url not found\n", "warn.json", 1, 1,
-				MatchError(ContainSubstring("WARNING: vcs url not found"))),
+			Entry("errors fail even with warningsNonFatal",
+				fileResult{errs: []string{"ERROR: missing bomFormat"}}, true,
+				MatchError(ContainSubstring("validation failed for sbom.json"))),
+			Entry("warnings alone fail by default",
+				fileResult{warnings: []string{"WARNING: vcs url not found"}}, false,
+				MatchError(And(
+					ContainSubstring("validation failed for sbom.json"),
+					ContainSubstring("WARNING: vcs url not found"),
+				))),
+			Entry("warnings alone pass with warningsNonFatal",
+				fileResult{warnings: []string{"WARNING: vcs url not found"}}, true,
+				Succeed()),
+			Entry("errors with warnings fail and report both",
+				fileResult{errs: []string{"ERROR: bad field"}, warnings: []string{"WARNING: vcs issue"}}, false,
+				MatchError(And(
+					ContainSubstring("ERROR: bad field"),
+					ContainSubstring("WARNING: vcs issue"),
+				))),
 		)
 	})
 

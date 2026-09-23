@@ -2,6 +2,7 @@ package tmp_manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,13 +23,27 @@ func newGCRegistrator() *gcRegistrator {
 }
 
 func (r *gcRegistrator) registerAll(_ context.Context) error {
-	for _, item := range r.pathQueue {
+	r.mutex.Lock()
+	pathQueue := r.pathQueue
+	r.pathQueue = nil
+	r.mutex.Unlock()
+
+	var failed []lo.Tuple2[string, string]
+	var errs []error
+	for _, item := range pathQueue {
 		if err := registerPath(item.A, item.B); err != nil {
-			return err
+			failed = append(failed, item)
+			errs = append(errs, err)
 		}
 	}
 
-	return nil
+	if len(failed) > 0 {
+		r.mutex.Lock()
+		r.pathQueue = append(failed, r.pathQueue...)
+		r.mutex.Unlock()
+	}
+
+	return errors.Join(errs...)
 }
 
 func (r *gcRegistrator) queueRegistration(_ context.Context, actualPath, targetDir string) error {

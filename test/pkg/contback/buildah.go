@@ -97,13 +97,14 @@ func (r *NativeBuildahBackend) SaveImageToStream(ctx context.Context, image stri
 
 // RmiByRepoRef removes every local image tagged under repoRef from the containers storage.
 func (r *NativeBuildahBackend) RmiByRepoRef(ctx context.Context, repoRef string) {
-	listArgs := append(append([]string{}, r.CommonCliArgs...), "images", "--format", "{{.Name}}:{{.Tag}}")
+	listArgs := append(append([]string{}, r.CommonCliArgs...), "images", "--filter", "reference="+repoRef+":*", "--format", "{{.Name}}:{{.Tag}}")
 	output := utils.SucceedCommandOutputString(ctx, "/", "buildah", listArgs...)
 
 	for _, ref := range strings.Fields(output) {
 		if !strings.HasPrefix(ref, repoRef+":") {
 			continue
 		}
+
 		rmiArgs := append(append([]string{}, r.CommonCliArgs...), "rmi", "--force", ref)
 		utils.RunSucceedCommand(ctx, "/", "buildah", rmiArgs...)
 	}

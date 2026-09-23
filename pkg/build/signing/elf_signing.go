@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/buildah/docker"
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signature/elf/inhouse"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -19,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"go.podman.io/buildah/docker"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"

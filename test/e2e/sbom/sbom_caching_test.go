@@ -1,9 +1,13 @@
 package e2e_build_test
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/test/pkg/suite_init"
+	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
@@ -46,7 +50,13 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 			Expect(buildOut).To(ContainSubstring("Building stage"))
 
 			By("rebuild with build.sbom.enable=true - cache is reused")
+			builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), "sbom-caching-builder")
+			removeOut, err := utils.RunCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
+			if err != nil {
+				Expect(string(removeOut)).To(ContainSubstring("No such image"))
+			}
 			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			Expect(buildOut).To(ContainSubstring("Pulling base image " + builderBaseRef))
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
 		},

@@ -88,3 +88,9 @@ type AttestVerifyOptions struct {
 type AttestLsOptions struct {
 	CommonOptions
 }
+
+type DismissOptions struct {
+	CommonOptions
+	Release   string
+	Namespace string
+}

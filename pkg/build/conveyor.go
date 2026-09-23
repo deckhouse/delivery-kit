@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/opencontainers/go-digest"
@@ -813,14 +813,33 @@ func (c *Conveyor) runPhases(ctx context.Context, phases []Phase, logImages bool
 	return nil
 }
 
+const skippedImageReason = "no image being built needs it"
+
+func (c *Conveyor) hiddenFromLog(ctx context.Context, img *image.Image) bool {
+	if logboek.Context(ctx).IsAcceptedLevel(level.Info) || img.Requested {
+		return false
+	}
+	return img.Skipped || (!img.IsFinal && img.AnchorReused)
+}
+
 func (c *Conveyor) doImages(ctx context.Context, phases []Phase, logImages bool) error {
-	if c.Parallel && len(c.imagesTree.GetImages()) > 1 {
+	images := c.imagesTree.GetImages()
+	if c.Parallel && len(images) > 1 {
 		err := c.doImagesInParallel(ctx, phases, logImages)
 		if err != nil {
 			return fmt.Errorf("unable to process images in parallel: %w", err)
 		}
 	} else {
-		for _, img := range c.imagesTree.GetImages() {
+		loggedImages := lo.Filter(images, func(img *image.Image, _ int) bool {
+			return !img.Skipped && !c.hiddenFromLog(ctx, img)
+		})
+		processedIndex := 0
+		for _, img := range images {
+			if !img.Skipped && !c.hiddenFromLog(ctx, img) {
+				img.SetBuildOrderIndex(processedIndex)
+				img.SetBuildTotalImages(len(loggedImages))
+				processedIndex++
+			}
 			if err := c.doImage(ctx, img, phases); err != nil {
 				return fmt.Errorf("unable to process image %q: %w", img.LogName(), err)
 			}
@@ -845,9 +864,19 @@ func (c *Conveyor) doImagesInParallel(ctx context.Context, phases []Phase, logIm
 				options.Style(stylePkg.Highlight())
 			}).
 			Do(func() {
-				for levelId, level := range graph.Levels() {
+				levelId := 0
+				for _, levelImages := range graph.Levels() {
+					visible := lo.Filter(levelImages, func(img *image.Image, _ int) bool { return !c.hiddenFromLog(ctx, img) })
+					if len(visible) == 0 {
+						continue
+					}
 					logboek.Context(ctx).LogFHighlight("Level #%d:\n", levelId)
-					for _, img := range level {
+					levelId++
+					for _, img := range visible {
+						if img.Skipped {
+							logboek.Context(ctx).LogLnHighlight("-", fmt.Sprintf("%s (skipped: %s)", img.LogPlanName(), skippedImageReason))
+							continue
+						}
 						logboek.Context(ctx).LogLnHighlight("-", img.LogPlanName())
 					}
 					logboek.Context(ctx).LogOptionalLn()
@@ -855,27 +884,44 @@ func (c *Conveyor) doImagesInParallel(ctx context.Context, phases []Phase, logIm
 			})
 	}
 
+	processedNodes := lo.Filter(nodes, func(img *image.Image, _ int) bool { return !img.Skipped })
+	processedGraph, err := image.BuildImagesGraph(processedNodes)
+	if err != nil {
+		return fmt.Errorf("build processed images dependency graph: %w", err)
+	}
+	processedNodes = processedGraph.Nodes()
+
 	numberOfWorkers := int(c.ParallelTasksLimit)
-	if numberOfWorkers <= 0 || numberOfWorkers > len(nodes) {
-		numberOfWorkers = len(nodes)
+	if numberOfWorkers <= 0 || numberOfWorkers > len(processedNodes) {
+		numberOfWorkers = len(processedNodes)
 	}
 
-	scheduler := newGraphScheduler(graph)
+	scheduler := newGraphScheduler(processedGraph)
 
-	// buildOrder assigns each image its build-time log progress index in the
-	// order it is actually handed out for building, instead of the static
-	// topological position ImagesTree.Calculate assigned it — the two can
-	// diverge arbitrarily under concurrent, dependency-driven scheduling, and
-	// only the former is a meaningful "N/Total" progress indicator to a user
-	// watching the log.
-	var buildOrder atomic.Int64
+	loggedNodes := lo.Filter(processedNodes, func(img *image.Image, _ int) bool { return !c.hiddenFromLog(ctx, img) })
+	loggedOrder := 0
 
+	// Each logged image takes its build-time log progress index from the order
+	// it is actually handed out for building, instead of the static topological
+	// position ImagesTree.Calculate assigned it — the two can diverge
+	// arbitrarily under concurrent, dependency-driven scheduling, and only
+	// the former is a meaningful "N/Total" progress indicator to a user
+	// watching the log. That order is also the order the parallel printer
+	// emits the per-image blocks in, so the numbers come out ascending.
 	if err := parallel.DoTasksDynamic(ctx, parallel.DoTasksOptions{
 		InitDockerCLIForEachWorker: true,
 		MaxNumberOfWorkers:         numberOfWorkers,
+		OnTaskEnqueued: func(taskID, _ int) {
+			taskImage := processedNodes[taskID]
+			if c.hiddenFromLog(ctx, taskImage) {
+				return
+			}
+			taskImage.SetBuildOrderIndex(loggedOrder)
+			taskImage.SetBuildTotalImages(len(loggedNodes))
+			loggedOrder++
+		},
 	}, scheduler.next, func(ctx context.Context, taskId int) error {
-		taskImage := nodes[taskId]
-		taskImage.SetBuildOrderIndex(int(buildOrder.Add(1)) - 1)
+		taskImage := processedNodes[taskId]
 		if workerID, ok := ctx.Value(parallel.CtxBackgroundTaskIDKey).(int); ok {
 			taskImage.SetWorkerID(workerID)
 		}
@@ -901,7 +947,7 @@ func (c *Conveyor) doImagesInParallel(ctx context.Context, phases []Phase, logIm
 		// diverge, and listing topologically while showing each image's
 		// build-order index would make the summary numbers look scattered
 		// again, defeating the point of assigning them in the first place.
-		byBuildOrder := slices.Clone(nodes)
+		byBuildOrder := slices.Clone(loggedNodes)
 		sort.Slice(byBuildOrder, func(i, j int) bool {
 			return byBuildOrder[i].GetBuildOrderIndex() < byBuildOrder[j].GetBuildOrderIndex()
 		})
@@ -915,6 +961,11 @@ func (c *Conveyor) doImagesInParallel(ctx context.Context, phases []Phase, logIm
 				for _, img := range byBuildOrder {
 					logboek.Context(ctx).LogLnHighlight("-", fmt.Sprintf("%s (%.2f seconds)", img.LogDetailedName(), img.BuildDuration.Seconds()))
 				}
+				for _, img := range nodes {
+					if img.Skipped && !c.hiddenFromLog(ctx, img) {
+						logboek.Context(ctx).LogLnHighlight("-", fmt.Sprintf("%s (skipped: %s)", img.LogPlanName(), skippedImageReason))
+					}
+				}
 			})
 	}
 
@@ -922,6 +973,15 @@ func (c *Conveyor) doImagesInParallel(ctx context.Context, phases []Phase, logIm
 }
 
 func (c *Conveyor) doImage(ctx context.Context, img *image.Image, phases []Phase) error {
+	if c.hiddenFromLog(ctx, img) {
+		ctx = logboek.NewContext(ctx, logboek.Context(ctx).NewSubLogger(io.Discard, io.Discard))
+	}
+
+	if img.Skipped {
+		logboek.Context(ctx).Default().LogFDetails("Skipping image %s: %s\n", img.LogName(), skippedImageReason)
+		return nil
+	}
+
 	start := time.Now()
 
 	err := logboek.Context(ctx).LogProcess(img.LogDetailedName()).

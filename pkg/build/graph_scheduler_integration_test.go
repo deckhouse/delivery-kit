@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -13,15 +14,57 @@ import (
 	"github.com/werf/werf/v2/pkg/werf"
 )
 
+// concurrencyBarrier releases every waiter once target images have entered it
+// at the same time, and lets every later arrival through immediately. It turns
+// "N images were genuinely built concurrently" into a property the scheduler
+// has to satisfy for the test to finish at all: with fewer than target workers
+// the target is never reached and the waiters fail on the context deadline.
+type concurrencyBarrier struct {
+	mu       sync.Mutex
+	arrived  int
+	target   int
+	released chan struct{}
+}
+
+func newConcurrencyBarrier(target int) *concurrencyBarrier {
+	return &concurrencyBarrier{target: target, released: make(chan struct{})}
+}
+
+func (b *concurrencyBarrier) wait(ctx context.Context, name string) error {
+	b.mu.Lock()
+	b.arrived++
+	if b.arrived == b.target {
+		close(b.released)
+	}
+	b.mu.Unlock()
+
+	select {
+	case <-b.released:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("image %q waited for %d images to build concurrently, never reached: %w", name, b.target, ctx.Err())
+	}
+}
+
 // recordingPhase is a minimal Phase implementation that records, for each
 // image it processes, the image's name (after an optional artificial delay)
 // into a shared, mutex-protected order slice. It lets a test observe the
 // actual build ORDER produced by Conveyor.doImages/doImagesInParallel without
 // needing a real container backend.
+//
+// waitFor, signal and barrier express scheduling expectations as
+// synchronization rather than as racing sleep budgets: an image listed in
+// waitFor blocks until its channel is closed, an image listed in signal closes
+// its channel right after it has been recorded, and barrier holds every image
+// until enough of them are in flight at once. Properties asserted this way
+// hold regardless of how loaded the machine running the test is.
 type recordingPhase struct {
-	mu     *sync.Mutex
-	order  *[]string
-	delays map[string]time.Duration
+	mu      *sync.Mutex
+	order   *[]string
+	delays  map[string]time.Duration
+	waitFor map[string]chan struct{}
+	signal  map[string]chan struct{}
+	barrier *concurrencyBarrier
 }
 
 func (p *recordingPhase) Name() string                       { return "recording" }
@@ -36,12 +79,31 @@ func (p *recordingPhase) OnImageStage(context.Context, *image.Image, stage.Inter
 }
 
 func (p *recordingPhase) AfterImageStages(ctx context.Context, img *image.Image) error {
+	if p.barrier != nil {
+		if err := p.barrier.wait(ctx, img.Name); err != nil {
+			return err
+		}
+	}
+
+	if ch, ok := p.waitFor[img.Name]; ok {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return fmt.Errorf("image %q gave up waiting for its gate: %w", img.Name, ctx.Err())
+		}
+	}
+
 	if d := p.delays[img.Name]; d > 0 {
 		time.Sleep(d)
 	}
 	p.mu.Lock()
 	*p.order = append(*p.order, img.Name)
 	p.mu.Unlock()
+
+	if ch, ok := p.signal[img.Name]; ok {
+		close(ch)
+	}
+
 	return nil
 }
 
@@ -60,8 +122,15 @@ func (p *recordingPhase) Report() *ImagesReport { return nil }
 // directly, over a hand-built graph with an independent slow image and a
 // fast a -> b -> c chain. It asserts b/c build right after their real
 // dependency finishes instead of waiting for the unrelated slow image.
+//
+// "slow" is held on a gate released only once "c" has been recorded, so the
+// chain always finishes first on a correct scheduler no matter how loaded the
+// machine is. Should a wave/level barrier ever be reintroduced, "c" can no
+// longer be reached while "slow" is still pending, the gate is never
+// released, and the test fails on the context deadline instead of silently
+// depending on which sleep happened to win.
 func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *testing.T) {
-	require.NoError(t, werf.Init(t.TempDir(), "")) // tmp_manager (used by parallel.NewWorker) requires werf init
+	require.NoError(t, werf.Init(t.TempDir(), t.TempDir())) // tmp_manager (used by parallel.NewWorker) requires werf init
 
 	newImg := func(name string) *image.Image {
 		img := &image.Image{Name: name, TargetPlatform: "linux/amd64"}
@@ -93,17 +162,15 @@ func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *te
 		stageDigestMutex: map[string]*sync.Mutex{},
 	}
 
+	chainDone := make(chan struct{})
+
 	var mu sync.Mutex
 	var order []string
 	phase := &recordingPhase{
-		mu:    &mu,
-		order: &order,
-		delays: map[string]time.Duration{
-			"slow": 150 * time.Millisecond,
-			"a":    10 * time.Millisecond,
-			"b":    10 * time.Millisecond,
-			"c":    10 * time.Millisecond,
-		},
+		mu:      &mu,
+		order:   &order,
+		waitFor: map[string]chan struct{}{"slow": chainDone},
+		signal:  map[string]chan struct{}{"c": chainDone},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -123,13 +190,16 @@ func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *te
 		return -1
 	}
 
+	// These three assertions can no longer fail on their own: the gate holds
+	// "slow" until "c" has been recorded, so reaching this point already
+	// implies the order. The detector is the require.NoError above — under a
+	// reintroduced wave/level barrier "c" is unreachable while "slow" is
+	// pending, the gate is never released, and doImages fails on the context
+	// deadline carrying "gave up waiting for its gate". Keep the gate: dropping
+	// it and relying on these assertions restores the sleep-budget race they
+	// used to be.
 	require.Less(t, indexOf("a"), indexOf("b"), "b must build after a")
 	require.Less(t, indexOf("b"), indexOf("c"), "c must build after b")
-
-	// The core regression check: b/c must not be gated behind the unrelated,
-	// slower "slow" image just because a graph-scheduling bug reintroduced a
-	// wave/level barrier. With a 150ms artificial delay on "slow" and only
-	// 10ms on a/b/c, both b and c finish well before "slow" does.
 	require.Less(t, indexOf("c"), indexOf("slow"),
 		"dependent chain a->b->c must not wait for unrelated image \"slow\"; observed order=%v", order)
 }
@@ -163,7 +233,7 @@ func TestDoImagesInParallel_DependentImageDoesNotWaitForUnrelatedSlowImage(t *te
 // basic sanity check, not the core regression signal — a purely topological
 // assignment would also happen to satisfy it for a simple chain.
 func TestDoImagesInParallel_AssignsBuildOrderIndexByRealDequeueNotStaticTopology(t *testing.T) {
-	require.NoError(t, werf.Init(t.TempDir(), ""))
+	require.NoError(t, werf.Init(t.TempDir(), t.TempDir()))
 
 	newImg := func(name string) *image.Image {
 		img := &image.Image{Name: name, TargetPlatform: "linux/amd64"}
@@ -248,8 +318,18 @@ func TestDoImagesInParallel_AssignsBuildOrderIndexByRealDequeueNotStaticTopology
 // in isolation (pkg/logging/image_ai_test.go). With 4 independent images
 // and exactly 2 workers, both worker IDs must actually get used (not just
 // a default/zero value), and every image must end up with a worker ID set.
+//
+// The detector is the barrier, not the assertions below it. runWorkers spawns
+// worker goroutines without any handshake, so nothing stops worker 0 from
+// draining the whole queue before worker 1 is ever scheduled: with artificial
+// per-image sleeps instead of a barrier this test passes only because the
+// sleeps happen to yield, and it fails outright once they do not — under
+// GOMAXPROCS=1 with the sleeps removed, 38 of 50 runs saw a single worker take
+// all four images. Holding two images in the phase at once makes "both workers
+// were used" true by construction, and makes a single-worker regression fail on
+// the context deadline instead of on load.
 func TestDoImagesInParallel_AnnotatesEachImageWithARealWorkerID(t *testing.T) {
-	require.NoError(t, werf.Init(t.TempDir(), ""))
+	require.NoError(t, werf.Init(t.TempDir(), t.TempDir()))
 
 	newImg := func(name string) *image.Image {
 		img := &image.Image{Name: name, TargetPlatform: "linux/amd64"}
@@ -279,14 +359,9 @@ func TestDoImagesInParallel_AnnotatesEachImageWithARealWorkerID(t *testing.T) {
 	var mu sync.Mutex
 	var order []string
 	phase := &recordingPhase{
-		mu:    &mu,
-		order: &order,
-		delays: map[string]time.Duration{
-			"w1": 20 * time.Millisecond,
-			"w2": 20 * time.Millisecond,
-			"w3": 20 * time.Millisecond,
-			"w4": 20 * time.Millisecond,
-		},
+		mu:      &mu,
+		order:   &order,
+		barrier: newConcurrencyBarrier(2),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

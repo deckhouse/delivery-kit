@@ -685,6 +685,28 @@ var _ = Describe("Canonicalize", func() {
 		}))
 	})
 
+	It("keeps an annotation about a formula or a composition the document declares", func() {
+		bom := &cdx.BOM{
+			Components:  &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
+			Formulation: &[]cdx.Formula{{BOMRef: "formula"}},
+			Compositions: &[]cdx.Composition{
+				{BOMRef: "composition", Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"c1"}},
+			},
+			Annotations: &[]cdx.Annotation{
+				{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"formula"}, Text: "about the formula"},
+				{BOMRef: "a2", Subjects: &[]cdx.BOMReference{"composition"}, Text: "about the composition"},
+				{BOMRef: "a3", Subjects: &[]cdx.BOMReference{"dropped"}, Text: "about a dropped composition"},
+			},
+		}
+
+		Canonicalize(bom)
+
+		Expect(*bom.Annotations).To(Equal([]cdx.Annotation{
+			{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"formula"}, Text: "about the formula"},
+			{BOMRef: "a2", Subjects: &[]cdx.BOMReference{"composition"}, Text: "about the composition"},
+		}))
+	})
+
 	It("merges duplicate services", func() {
 		bom := &cdx.BOM{
 			Services: &[]cdx.Service{

@@ -83,6 +83,16 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 		knownRefs[bom.SerialNumber] = struct{}{}
 	}
 	bom.Compositions = canonicalizeCompositions(bom.Compositions, knownRefs)
+	for _, formula := range lo.FromPtr(bom.Formulation) {
+		if formula.BOMRef != "" {
+			knownRefs[formula.BOMRef] = struct{}{}
+		}
+	}
+	for _, composition := range lo.FromPtr(bom.Compositions) {
+		if composition.BOMRef != "" {
+			knownRefs[composition.BOMRef] = struct{}{}
+		}
+	}
 	bom.Annotations = canonicalizeAnnotations(bom.Annotations, knownRefs)
 	bom.Formulation = dedupPtrSlice(bom.Formulation)
 }

@@ -1,11 +1,15 @@
 name: Set up prebuilt werf test binary
+description: Build or download a werf binary and configure the test runtime.
 inputs:
+  artifact:
+    default: ""
+    description: Download this artifact instead of building the test binary.
   coverage:
-    default: false
-    type: string
+    default: "false"
+    description: Enable coverage collection for the test binary.
   raceDetectorEnabled:
-    default: false
-    type: string
+    default: "false"
+    description: Enable the race detector when building the test binary.
 runs:
   using: composite
   steps:
@@ -31,7 +35,22 @@ runs:
         mkdir -p "$WERF_TEST_COVER_DIR"
       shell: bash
 
-    - name: Build werf test binary
+    - if: inputs.artifact != ''
+      name: Download werf test binary
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ runner.temp }}/werf-test-binary
+
+    - if: inputs.artifact != ''
+      name: Extract werf test binary
+      shell: bash
+      run: |
+        mkdir -p "$GITHUB_WORKSPACE/bin"
+        tar -xf "$RUNNER_TEMP/werf-test-binary/werf-test-binary.tar" -C "$GITHUB_WORKSPACE/bin"
+
+    - if: inputs.artifact == ''
+      name: Build werf test binary
       run: |
         if ${{ inputs.coverage }}; then
           task --yes build-with-coverage raceDetectorEnabled=${{ inputs.raceDetectorEnabled }}

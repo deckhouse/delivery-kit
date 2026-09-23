@@ -91,6 +91,72 @@ You can also check the existing [issues](https://github.com/werf/werf/issues), [
 
 ## Conventions
 
+### CI runner pool
+
+The PR and daily test workflows run each integration/e2e group with its own
+registry, kind cluster and kubeconfig. Jobs may run on different VMs or share a VM;
+they do not exchange local paths or registry endpoints. Resource names include the
+workflow run, attempt and job ID. Do not add a matrix to these jobs without also
+adding its identity to the resource names.
+
+Each workflow builds one binary for its heavy test groups and transfers it as a
+tar artifact, preserving executable permissions. Daily groups use a binary built
+with coverage and the race detector. All runners with the `delivery-github-runner`
+label must have a compatible Linux/amd64 userspace and the same required tools.
+Use separate workspaces and temporary directories for each runner service.
+
+For a 16-vCPU, 32-GiB RAM, 100-GB disk VM, start with no more than four runner
+services in total, across all PRs and workflows. This is a host provisioning limit,
+not a per-workflow limit; the workflow does not register runners or enforce it.
+Several jobs may run on the same VM. Add VMs to increase the number of slots before
+increasing runner density.
+
+The initial per-job resource settings are:
+
+- Ginkgo: three test processes and one suite compiler.
+- Go in integration/e2e jobs: `GOMAXPROCS=2` and `GOFLAGS=-p=2`.
+- Lint, unit, docs-unit and binary-build jobs: `GOMAXPROCS=4` and `GOFLAGS=-p=4`.
+- Binary-build job timeout: 60 minutes for PRs, 90 minutes for daily race/coverage builds.
+- After setup, the kind node: two CPUs and 4 GiB RAM, with no additional swap.
+- After setup, the registry: half a CPU and 512 MiB RAM, with no additional swap.
+
+These are starting budgets, not a bound on total job memory or disk usage. The kind
+bootstrap runs before container limits are applied; test builds can start other
+containers. Monitor peak memory, free disk, I/O latency and test timeouts under concurrent PR load before
+raising density. Race-enabled daily tests can require more memory. A container OOM
+or a longer queue is a reason to adjust the budget using measurements, not to hide
+the failure with retries.
+
+The Go limits are inherited by child processes, including werf under test. Daily
+integration/e2e tests retain the race detector but run with two Go execution threads
+per process; this is a resource compromise, not evidence of equivalent race coverage
+to an unrestricted run. Cold-cache build/lint/unit timings with the four-thread
+profile have not been established; validate them on a new Linux runner before
+treating the timeouts as sufficient. Do not remove host-wide resource budgeting to
+address an individual slow job.
+
+Jobs set up ARM64 emulation with `docker/setup-qemu-action@v4`, requesting only
+`arm64` with `reset: false`, then require `linux/arm64` in the action's available-platforms output.
+The default `tonistiigi/binfmt` installer registers missing handlers without
+resetting existing ones. Manual binfmt provisioning is not required on a fresh
+runner; an existing broken handler is not automatically replaced, and failed ARM64
+availability verification stops the job before environment creation.
+Runners must access the local Docker daemon with permission to run privileged
+containers, not a daemon on another VM.
+
+Cleanup runs on the same runner after success, failure or partial setup, and removes
+the registry's anonymous volume as well as the cluster. Step timeouts leave room
+for cleanup before the job timeout. A runner crash or forced termination can still
+leave resources behind. Existing scheduled host cleanup remains unchanged; the
+workflows neither manage runner availability nor replace that cleanup. Scheduled
+deletion of shared caches or container storage can interrupt active jobs, so jobs
+must tolerate cold caches but are not guaranteed to survive concurrent deletion.
+
+When rolling out, run two groups concurrently on one host, then on different hosts;
+verify registry push/pull, Kubernetes access, failure cleanup and rerunning a failed
+job without rerunning setup elsewhere. Keep the existing test groups and selectors;
+splitting or reducing test coverage is a separate change.
+
 ### Commit message
 
 Each commit message consists of a **header** and a [**body**](#body). The header has a special format that includes a [**type**](#type), a [**scope**](#scope) and a [**subject**](#subject):

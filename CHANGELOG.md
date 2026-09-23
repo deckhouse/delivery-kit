@@ -1,5 +1,37 @@
 # Changelog
 
+## [3.4.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.3...v3.4.0-dk.4) (2026-09-23)
+
+
+### Features
+
+* **build:** hide no-op secondary images by default ([#7894](https://github.com/deckhouse/delivery-kit/issues/7894)) ([63371e3](https://github.com/deckhouse/delivery-kit/commit/63371e3fdb102524f36c21f93fa2229e903e498e))
+* **cleanup:** report recent automatic host cleanup ([81cf86f](https://github.com/deckhouse/delivery-kit/commit/81cf86ff6a2d8112e0bf486403f959ae71d9d1d9))
+* **dev:** publish JSON Schemas for werf configuration files ([#7860](https://github.com/deckhouse/delivery-kit/issues/7860)) ([25bfb25](https://github.com/deckhouse/delivery-kit/commit/25bfb25d61f08a4dd42ed4e6a639b56b81864929))
+
+
+### Bug Fixes
+
+* align schema validation with config parsing ([260b39e](https://github.com/deckhouse/delivery-kit/commit/260b39efcee9e0bee5386a11084b674b72b44356))
+* allow explicit empty package managers ([ad4e480](https://github.com/deckhouse/delivery-kit/commit/ad4e480eaec4083fb9d7a22e2da6ad7806b62cdb))
+* **build:** synchronize legacy image metadata ([#7892](https://github.com/deckhouse/delivery-kit/issues/7892)) ([d82cd44](https://github.com/deckhouse/delivery-kit/commit/d82cd44815cb812771e353c231abb6d390c6c673))
+* **ci:** clear rootless storage in user namespace ([e2d644f](https://github.com/deckhouse/delivery-kit/commit/e2d644f84cb6a13d086700e9042c1cf100e6e214))
+* **ci:** fit expanded suites to runner capacity ([cb05fa4](https://github.com/deckhouse/delivery-kit/commit/cb05fa4c6f3e4f4f53afcb297ad9e590a058c521))
+* **ci:** install matching Ginkgo for every test job ([30f404f](https://github.com/deckhouse/delivery-kit/commit/30f404fa701244fdcc6a040d95c40f5489aaf4a3))
+* **ci:** isolate shared Buildah test storage ([b699ccc](https://github.com/deckhouse/delivery-kit/commit/b699ccc0a5b823ddb2971044456084eaa09651b7))
+* **ci:** preserve upstream suite coverage ([db2bc1e](https://github.com/deckhouse/delivery-kit/commit/db2bc1eca4dbab16544800d7c541a3e1a7142204))
+* **ci:** reset Buildah storage compatibly ([628f0d2](https://github.com/deckhouse/delivery-kit/commit/628f0d21ab1f3986e10f1e3dd4f47f4ee7040468))
+* **ci:** restore origin/3 daily coverage ([#7890](https://github.com/deckhouse/delivery-kit/issues/7890)) ([867e10d](https://github.com/deckhouse/delivery-kit/commit/867e10ddbd7a571dbcad6432e4a9bd5b9b1c6428))
+* complete delivery-kit schema parity ([a810a47](https://github.com/deckhouse/delivery-kit/commit/a810a4799c52b23e5f7c1712b67ccdfaf153f6b6))
+* continue independent cleanup registrations ([09544d4](https://github.com/deckhouse/delivery-kit/commit/09544d45a0c08f36ed44393dc44b308d71b025a7))
+* fetch external bases for cached SBOM builds ([fbc13f5](https://github.com/deckhouse/delivery-kit/commit/fbc13f5800d78b104c62c66d9fa93a307e5fe8b9))
+* include delivery-kit directives in werf schema ([f911a47](https://github.com/deckhouse/delivery-kit/commit/f911a47eb284d8a29670a99ec0c258c26e6eb3ba))
+* label delivery-kit e2e resource requirements ([957adb4](https://github.com/deckhouse/delivery-kit/commit/957adb47e7b0766d0a7fc37852e4529d29ab31a9))
+* normalize VEX e2e labels ([ebb23da](https://github.com/deckhouse/delivery-kit/commit/ebb23dacc1cdd8aa2f60e2bec43e10e8157cac8d))
+* preserve build metadata across anchor reuse ([a7a4ff5](https://github.com/deckhouse/delivery-kit/commit/a7a4ff51856e65574cb10befcb3dc7c338240d95))
+* **registry:** delete Harbor repositories through v2 API ([#7891](https://github.com/deckhouse/delivery-kit/issues/7891)) ([2f47707](https://github.com/deckhouse/delivery-kit/commit/2f47707934818132f558b725ae50ad488a9b462f))
+* retain failed cleanup registrations ([1919b23](https://github.com/deckhouse/delivery-kit/commit/1919b234feaf8b5b6d58dc7d6694fa8085496c37))
+
 ## [3.4.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.2...v3.4.0-dk.3) (2026-09-22)
 
 

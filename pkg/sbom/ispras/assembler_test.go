@@ -197,6 +197,53 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(gost.GetComponent(&container)).To(Equal(gost.Config{AttackSurface: gost.GostValueNo, SecurityFunction: gost.GostValueNo}))
 	})
 
+	It("keeps the annotations about a formula and a composition of an image", func() {
+		bom := rawImageBOM("a")
+		bom.Formulation = &[]cdx.Formula{{BOMRef: "formula"}}
+		bom.Compositions = &[]cdx.Composition{{BOMRef: "composition", Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"lib"}}}
+		bom.Annotations = &[]cdx.Annotation{
+			{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"formula"}, Text: "about the formula"},
+			{BOMRef: "a2", Subjects: &[]cdx.BOMReference{"composition"}, Text: "about the composition"},
+		}
+		NamespaceBOMRefs(bom, "a")
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(lo.Map(lo.FromPtr(result.Annotations), func(a cdx.Annotation, _ int) string { return a.Text })).
+			To(ConsistOf("about the formula", "about the composition"))
+		Expect(*(*result.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"a/formula"}))
+		Expect(*(*result.Annotations)[1].Subjects).To(Equal([]cdx.BOMReference{"a/composition"}))
+	})
+
+	It("keeps an annotation about the document of an image as a link to that document", func() {
+		bom := rawImageBOM("a")
+		bom.SerialNumber = "urn:uuid:11111111-1111-1111-1111-111111111111"
+		bom.Annotations = &[]cdx.Annotation{{BOMRef: "a1", Subjects: &[]cdx.BOMReference{cdx.BOMReference(bom.SerialNumber)}, Text: "about the document"}}
+		NamespaceBOMRefs(bom, "a")
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(lo.FromPtr(result.Annotations)).To(HaveLen(1))
+		Expect((*result.Annotations)[0].Text).To(Equal("about the document"))
+		Expect(*(*result.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/1"}))
+	})
+
+	It("aggregates the GOST values of the components nested under the image root too", func() {
+		bom := rawImageBOM("a")
+		nested := cdx.Component{BOMRef: "nested", Type: cdx.ComponentTypeLibrary, Name: "nested", Version: "1.0"}
+		gost.SetComponent(&nested, gost.Config{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes})
+		bom.Metadata.Component.Components = &[]cdx.Component{nested}
+		NamespaceBOMRefs(bom, "a")
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		container := (*result.Components)[0]
+		Expect(gost.GetComponent(&container)).To(Equal(gost.Config{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes}))
+	})
+
 	It("moves the document properties of every image onto its container", func() {
 		bomA, bomB := imageBOM("a"), imageBOM("b")
 		bomA.Properties = &[]cdx.Property{{Name: "custom", Value: "x"}}

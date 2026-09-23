@@ -5,7 +5,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/types"
 
 	"github.com/werf/werf/v2/pkg/sbom/ispras"
 )
@@ -36,41 +35,23 @@ var _ = Describe("checker", func() {
 
 	Describe("fileResult.report", func() {
 		DescribeTable("fails on errors, and on warnings unless warningsNonFatal is set",
-			func(res fileResult, warningsNonFatal bool, matcher types.GomegaMatcher) {
-				err := res.report(context.Background(), "sbom.json", 1, 1, warningsNonFatal)
-				Expect(err).To(matcher)
+			func(res fileResult, warningsNonFatal, wantFailed bool) {
+				Expect(res.report(context.Background(), "sbom.json", 1, 1, warningsNonFatal)).To(Equal(wantFailed))
 			},
 			Entry("clean result passes",
-				fileResult{}, false,
-				Succeed()),
+				fileResult{}, false, false),
 			Entry("clean result passes with warningsNonFatal",
-				fileResult{}, true,
-				Succeed()),
+				fileResult{}, true, false),
 			Entry("errors fail",
-				fileResult{errs: []string{"ERROR: missing bomFormat", "ERROR: missing specVersion"}}, false,
-				MatchError(And(
-					ContainSubstring("validation failed for sbom.json"),
-					ContainSubstring("ERROR: missing bomFormat"),
-					ContainSubstring("ERROR: missing specVersion"),
-				))),
+				fileResult{errs: []string{"ERROR: missing bomFormat", "ERROR: missing specVersion"}}, false, true),
 			Entry("errors fail even with warningsNonFatal",
-				fileResult{errs: []string{"ERROR: missing bomFormat"}}, true,
-				MatchError(ContainSubstring("validation failed for sbom.json"))),
+				fileResult{errs: []string{"ERROR: missing bomFormat"}}, true, true),
 			Entry("warnings alone fail by default",
-				fileResult{warnings: []string{"WARNING: vcs url not found"}}, false,
-				MatchError(And(
-					ContainSubstring("validation failed for sbom.json"),
-					ContainSubstring("WARNING: vcs url not found"),
-				))),
+				fileResult{warnings: []string{"WARNING: vcs url not found"}}, false, true),
 			Entry("warnings alone pass with warningsNonFatal",
-				fileResult{warnings: []string{"WARNING: vcs url not found"}}, true,
-				Succeed()),
-			Entry("errors with warnings fail and report both",
-				fileResult{errs: []string{"ERROR: bad field"}, warnings: []string{"WARNING: vcs issue"}}, false,
-				MatchError(And(
-					ContainSubstring("ERROR: bad field"),
-					ContainSubstring("WARNING: vcs issue"),
-				))),
+				fileResult{warnings: []string{"WARNING: vcs url not found"}}, true, false),
+			Entry("errors with warnings fail",
+				fileResult{errs: []string{"ERROR: bad field"}, warnings: []string{"WARNING: vcs issue"}}, false, true),
 		)
 	})
 

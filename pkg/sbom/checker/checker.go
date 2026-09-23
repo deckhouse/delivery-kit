@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/werf/logboek"
@@ -38,7 +37,7 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 	return logboek.Context(ctx).Default().LogProcess(header).DoError(func() error {
 		logboek.Context(ctx).Debug().LogF("Using checker image: %s\n", Image)
 
-		var failures []string
+		var failed []string
 		var errCount, warningCount int
 		total := len(paths)
 
@@ -59,16 +58,16 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			errCount += len(res.errs)
 			warningCount += len(res.warnings)
 
-			if err := res.report(ctx, fileName, i+1, total, opts.WarningsNonFatal); err != nil {
-				failures = append(failures, err.Error())
+			if res.report(ctx, fileName, i+1, total, opts.WarningsNonFatal) {
+				failed = append(failed, fileName)
 			}
 		}
 
-		passed := total - len(failures)
-		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed; %d error(s), %d warning(s)\n", passed, len(failures), errCount, warningCount)
+		passed := total - len(failed)
+		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed; %d error(s), %d warning(s)\n", passed, len(failed), errCount, warningCount)
 
-		if len(failures) > 0 {
-			return fmt.Errorf("%s", strings.Join(failures, "\n"))
+		if len(failed) > 0 {
+			return fmt.Errorf("validation failed for %d of %d SBOM file(s): %s", len(failed), total, strings.Join(failed, ", "))
 		}
 
 		return nil
@@ -118,7 +117,7 @@ func parseResult(out string) fileResult {
 	}
 }
 
-func (r fileResult) report(ctx context.Context, fileName string, index, total int, warningsNonFatal bool) error {
+func (r fileResult) report(ctx context.Context, fileName string, index, total int, warningsNonFatal bool) bool {
 	failed := len(r.errs) > 0 || (!warningsNonFatal && len(r.warnings) > 0)
 
 	switch {
@@ -137,11 +136,7 @@ func (r fileResult) report(ctx context.Context, fileName string, index, total in
 		logboek.Context(ctx).Warn().LogF("  %s\n", w)
 	}
 
-	if !failed {
-		return nil
-	}
-
-	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(slices.Concat(r.errs, r.warnings), "\n"))
+	return failed
 }
 
 func extractPrefixedLines(text, prefix string) []string {

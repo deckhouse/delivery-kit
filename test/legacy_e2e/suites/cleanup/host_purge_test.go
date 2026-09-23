@@ -1,6 +1,10 @@
 package cleanup_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -11,6 +15,16 @@ import (
 
 var _ = Describe("host purge command", func() {
 	BeforeEach(func(ctx SpecContext) {
+		storageConfigPath := filepath.Join(SuiteData.TmpDir, "storage.conf")
+		storageConfig := fmt.Sprintf(`[storage]
+driver = "vfs"
+runroot = %q
+graphroot = %q
+`, filepath.Join(SuiteData.TmpDir, "runroot"), filepath.Join(SuiteData.TmpDir, "graphroot"))
+		Expect(os.WriteFile(storageConfigPath, []byte(storageConfig), 0o600)).To(Succeed())
+		SuiteData.Stubs.SetEnv("CONTAINERS_STORAGE_CONF", storageConfigPath)
+		SuiteData.Stubs.SetEnv("WERF_BUILDAH_MODE", "auto")
+
 		Expect(werf.Init(SuiteData.TmpDir, "")).To(Succeed())
 		SuiteData.Stubs.UnsetEnv("WERF_REPO")
 

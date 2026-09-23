@@ -51,7 +51,10 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 
 			By("rebuild with build.sbom.enable=true - cache is reused")
 			builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), "sbom-caching-builder")
-			utils.RunSucceedCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
+			removeOut, err := utils.RunCommand(ctx, testRepoPath, "docker", "image", "rm", builderBaseRef)
+			if err != nil {
+				Expect(string(removeOut)).To(ContainSubstring("No such image"))
+			}
 			buildOut = werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 			Expect(buildOut).To(ContainSubstring("Pulling base image " + builderBaseRef))
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))

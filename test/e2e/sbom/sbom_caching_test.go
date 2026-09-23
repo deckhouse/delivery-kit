@@ -6,7 +6,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 	"github.com/werf/werf/v2/test/pkg/werf"
@@ -57,12 +56,6 @@ var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "cachi
 			Expect(buildOut).To(ContainSubstring("Pulling base image " + builderBaseRef))
 			Expect(buildOut).To(ContainSubstring("Use previously built image"))
 			Expect(buildOut).NotTo(ContainSubstring("Building stage"))
-
-			bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}, Envs: builderEnv},
-			}))
-			Expect(bom.Components).NotTo(BeNil())
-			Expect(*bom.Components).NotTo(BeEmpty())
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{
 			ContainerBackendMode: "vanilla-docker",

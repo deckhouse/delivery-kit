@@ -96,9 +96,12 @@ var _ = ginkgo.Describe("Cleanup report", ginkgo.Label("e2e", "cleanup", "simple
 			gomega.Expect(finalDigest).To(gomega.Equal(primaryDigest))
 
 			cleanupArgs := []string{"cleanup", "--final-repo", finalRepo, "--without-kube", "--save-cleanup-report"}
+			keepListPath := filepath.Join(repoPath, ".werf-keep-list")
+			gomega.Expect(os.WriteFile(keepListPath, []byte(stageTag+"\n"), 0o600)).To(gomega.Succeed())
 			for _, dryRun := range []bool{true, false} {
-				ginkgo.By("retaining a recently built primary stage and its final counterpart")
+				ginkgo.By("retaining a primary stage and its final counterpart")
 				args := append([]string{}, cleanupArgs...)
+				args = append(args, "--keep-stages-built-within-last-n-hours=0", "--keep-list", keepListPath)
 				if dryRun {
 					args = append(args, "--dry-run")
 				}
@@ -109,7 +112,7 @@ var _ = ginkgo.Describe("Cleanup report", ginkgo.Label("e2e", "cleanup", "simple
 				gomega.Expect(report.Repo).To(gomega.Equal(primaryRepo))
 				gomega.Expect(report.FinalRepo).To(gomega.Equal(finalRepo))
 				gomega.Expect(report.Kept).To(gomega.ContainElements(
-					reportItem{Type: "stage", Tag: stageTag, Reason: "built within last 2 hours"},
+					reportItem{Type: "stage", Tag: stageTag, Reason: "keep list"},
 					reportItem{Type: "finalStage", Tag: stageTag, Reason: "found in repo"},
 				))
 				gomega.Expect(report.Deleted).To(gomega.BeEmpty())

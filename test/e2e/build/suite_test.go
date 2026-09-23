@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-
 	"github.com/werf/werf/v2/test/pkg/externalrefmock"
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
@@ -38,9 +36,5 @@ var (
 
 	_ = SuiteData.AppendSynchronizedAfterSuiteAllNodesFunc(func(_ context.Context) {
 		externalrefmock.Stop()
-	})
-
-	_ = AfterEach(func(ctx SpecContext) {
-		utils.RunSucceedCommand(ctx, "", SuiteData.WerfBinPath, "host", "purge", "--force", "--project-name", SuiteData.ProjectName)
 	})
 )

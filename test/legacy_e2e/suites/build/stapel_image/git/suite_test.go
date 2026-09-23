@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-
 	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/utils"
 )
@@ -21,10 +19,6 @@ func TestSuite(t *testing.T) {
 }
 
 var SuiteData suite_init.SuiteData
-
-var _ = AfterEach(func(ctx SpecContext) {
-	utils.RunSucceedCommand(ctx, SuiteData.TestDirPath, SuiteData.WerfBinPath, "host", "purge", "--force")
-})
 
 var (
 	_ = SuiteData.SetupStubs(suite_init.NewStubsData())

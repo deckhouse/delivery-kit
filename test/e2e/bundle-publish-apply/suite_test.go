@@ -6,7 +6,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 
 	"github.com/werf/werf/v2/test/pkg/suite_init"
-	"github.com/werf/werf/v2/test/pkg/utils"
 )
 
 func TestSuite(t *testing.T) {
@@ -28,8 +27,4 @@ var (
 	_ = SuiteData.SetupK8sDockerRegistry(suite_init.NewK8sDockerRegistryData(SuiteData.ProjectNameData, SuiteData.StubsData))
 
 	_ = BeforeEach(func() {})
-
-	_ = AfterEach(func(ctx SpecContext) {
-		utils.RunSucceedCommand(ctx, "", SuiteData.WerfBinPath, "host", "purge", "--force", "--project-name", SuiteData.ProjectName)
-	})
 )

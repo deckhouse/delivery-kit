@@ -96,6 +96,15 @@ var _ = ginkgo.Describe("Cleanup report", ginkgo.Label("e2e", "cleanup", "simple
 			gomega.Expect(finalDigest).To(gomega.Equal(primaryDigest))
 
 			cleanupArgs := []string{"cleanup", "--final-repo", finalRepo, "--without-kube", "--save-cleanup-report"}
+
+			ginkgo.By("retaining a primary stage by the built-within-last-n-hours policy")
+			werfProject.RunCommand(ctx, append(append([]string{}, cleanupArgs...), "--dry-run", "--keep-stages-built-within-last-n-hours=87600"), werf.CommonOptions{})
+			timePolicyReport := readCleanupReport(repoPath)
+			gomega.Expect(timePolicyReport.Kept).To(gomega.ContainElement(
+				reportItem{Type: "stage", Tag: stageTag, Reason: "built within last 87600 hours"},
+			))
+			gomega.Expect(timePolicyReport.Deleted).To(gomega.BeEmpty())
+
 			keepListPath := filepath.Join(repoPath, ".werf-keep-list")
 			gomega.Expect(os.WriteFile(keepListPath, []byte(stageTag+"\n"), 0o600)).To(gomega.Succeed())
 			for _, dryRun := range []bool{true, false} {

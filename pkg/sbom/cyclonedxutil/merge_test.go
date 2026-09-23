@@ -758,6 +758,29 @@ var _ = Describe("MergeBOMs with isolated components", func() {
 		Expect(lo.Map(*result.Services, func(s cdx.Service, _ int) string { return s.BOMRef + ":" + s.Name })).To(Equal([]string{"s:api", "s2:db"}))
 		Expect(*result.Dependencies).To(ContainElement(cdx.Dependency{Ref: "b/os", Dependencies: &[]string{"s2"}}))
 	})
+
+	It("turns a reference to the serial of a merged BOM into a link to that document", func() {
+		bom := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			SerialNumber: "urn:uuid:11111111-1111-1111-1111-111111111111",
+			Version:      3,
+			Components:   &[]cdx.Component{{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0"}},
+			Annotations: &[]cdx.Annotation{
+				{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"urn:uuid:11111111-1111-1111-1111-111111111111"}, Text: "about the document"},
+			},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{bom}, PreserveBOMRefs: true, IsolateComponents: true})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Annotations).To(Equal([]cdx.Annotation{
+			{
+				BOMRef:   "a1",
+				Subjects: &[]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/3"},
+				Text:     "about the document",
+			},
+		}))
+	})
 })
 
 var _ = Describe("MergeBOMs input isolation", func() {

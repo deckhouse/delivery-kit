@@ -90,6 +90,8 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 		}
 		boms[i] = clone
 
+		linkSelfReferences(boms[i])
+
 		if opts.IsolateComponents {
 			Canonicalize(boms[i])
 		}
@@ -125,6 +127,20 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	}
 
 	return result, nil
+}
+
+// linkSelfReferences turns a reference to the serial number of bom into a
+// BOM-Link to that document. The merged BOM gets a serial of its own, so a
+// reference to the serial of an input would otherwise name nothing and be
+// dropped as dangling, losing what the input said about itself.
+func linkSelfReferences(bom *cdx.BOM) {
+	if bom == nil || !strings.HasPrefix(bom.SerialNumber, "urn:uuid:") {
+		return
+	}
+
+	RewriteRefs(bom, map[string]string{
+		bom.SerialNumber: fmt.Sprintf("urn:cdx:%s/%d", strings.TrimPrefix(bom.SerialNumber, "urn:uuid:"), bom.Version),
+	})
 }
 
 func mergeComponents(boms []*cdx.BOM) *[]cdx.Component {

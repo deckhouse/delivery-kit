@@ -132,10 +132,6 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
-      - name: Install ginkgo
-        timeout-minutes: 10
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
-
       - name: Set up test environment
         uses: ./.github/actions/set-up-test-environment
         timeout-minutes: 20
@@ -197,10 +193,6 @@ jobs:
       - name: Set up git config
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        timeout-minutes: 10
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
       - name: Set up test environment
         uses: ./.github/actions/set-up-test-environment
@@ -264,10 +256,6 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
-      - name: Install ginkgo
-        timeout-minutes: 10
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
-
       - name: Set up test environment
         uses: ./.github/actions/set-up-test-environment
         timeout-minutes: 20
@@ -276,7 +264,7 @@ jobs:
         timeout-minutes: 120
         run: |
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
-          task --yes test:integration paths="test/legacy_e2e/suites/cleanup_after_converge test/legacy_e2e/suites/deploy test/legacy_e2e/suites/helm/deploy_rollback" -- --procs=3 --compilers=1 --timeout=115m --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/cleanup_after_converge" -- --procs=3 --compilers=1 --timeout=115m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -329,10 +317,6 @@ jobs:
       - name: Set up git config
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        timeout-minutes: 10
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
       - name: Set up test environment
         uses: ./.github/actions/set-up-test-environment
@@ -396,10 +380,6 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
 
-      - name: Install ginkgo
-        timeout-minutes: 10
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
-
       - name: Set up test environment
         uses: ./.github/actions/set-up-test-environment
         timeout-minutes: 20
@@ -461,10 +441,6 @@ jobs:
       - name: Set up git config
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
-
-      - name: Install ginkgo
-        timeout-minutes: 10
-        run: command -v ginkgo >/dev/null 2>&1 || task --yes deps:install:ginkgo
 
       - name: Set up test environment
         uses: ./.github/actions/set-up-test-environment

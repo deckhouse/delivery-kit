@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.79.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.78.1-dk.2...v2.79.1-dk.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **build:** synchronize legacy image metadata ([#7892](https://github.com/deckhouse/delivery-kit/issues/7892)) ([d82cd44](https://github.com/deckhouse/delivery-kit/commit/d82cd44815cb812771e353c231abb6d390c6c673))
+* **registry:** delete Harbor repositories through v2 API ([#7891](https://github.com/deckhouse/delivery-kit/issues/7891)) ([2f47707](https://github.com/deckhouse/delivery-kit/commit/2f47707934818132f558b725ae50ad488a9b462f))
+
+
+### Miscellaneous Chores
+
+* force release 2.79.0-dk.1 ([24795a7](https://github.com/deckhouse/delivery-kit/commit/24795a7fbbb1722dc9f7d811742cc6822db6efe0))
+* **release:** merge werf 2.79.1 into delivery-kit ([c55f96b](https://github.com/deckhouse/delivery-kit/commit/c55f96b93be83b191b41ea8a73c3180230b33263))
+* **release:** merge werf 2.79.1 into delivery-kit ([#353](https://github.com/deckhouse/delivery-kit/issues/353)) ([1e6706d](https://github.com/deckhouse/delivery-kit/commit/1e6706dc31f6175737094404b0663b454f3da929))
+
 ## [2.78.1-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.78.1-dk.1...v2.78.1-dk.2) (2026-09-22)
 
 

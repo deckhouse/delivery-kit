@@ -194,8 +194,7 @@ jobs:
 
       - name: Integration tests (main)
         run: |
-          buildah system reset --force
-          rm -rf "$HOME/.werf/service/tmp"
+          rm -rf "$HOME/.local/share/containers/storage" "$HOME/.werf/service/tmp"
           task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs,test/legacy_e2e/suites/ansible'
           echo loadavg: $(cat /proc/loadavg)
 
@@ -243,8 +242,7 @@ jobs:
 
       - name: E2E tests (simple)
         run: |
-          buildah system reset --force
-          rm -rf "$HOME/.werf/service/tmp"
+          rm -rf "$HOME/.local/share/containers/storage" "$HOME/.werf/service/tmp"
           task -p --yes test:e2e:simple -- --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
@@ -292,8 +290,7 @@ jobs:
 
       - name: E2E tests (complex)
         run: |
-          buildah system reset --force
-          rm -rf "$HOME/.werf/service/tmp"
+          rm -rf "$HOME/.local/share/containers/storage" "$HOME/.werf/service/tmp"
           task -p --yes test:e2e:complex -- --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 
@@ -341,8 +338,7 @@ jobs:
 
       - name: E2E tests (extra)
         run: |
-          buildah system reset --force
-          rm -rf "$HOME/.werf/service/tmp"
+          rm -rf "$HOME/.local/share/containers/storage" "$HOME/.werf/service/tmp"
           task -p --yes test:e2e:extra -- --procs=6 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)
 

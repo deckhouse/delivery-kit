@@ -127,8 +127,7 @@ jobs:
 
       - name: Integration tests (main)
         run: |
-          buildah system reset --force
-          rm -rf "$HOME/.werf/service/tmp"
+          rm -rf "$HOME/.local/share/containers/storage" "$HOME/.werf/service/tmp"
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
           echo loadavg: $(cat /proc/loadavg)

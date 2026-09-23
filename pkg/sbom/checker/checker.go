@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -73,7 +72,7 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			return err
 		}
 
-		var failures []string
+		var failed []string
 		var errCount, warningCount int
 		total := len(paths)
 
@@ -105,16 +104,16 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			res := parseResult(ctx, out, runErr, fileName, i+1, total, opts.WarningsNonFatal)
 			errCount += res.errCount
 			warningCount += res.warningCount
-			if res.err != nil {
-				failures = append(failures, res.err.Error())
+			if res.failed {
+				failed = append(failed, fileName)
 			}
 		}
 
-		passed := total - len(failures)
-		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed; %d error(s), %d warning(s)\n", passed, len(failures), errCount, warningCount)
+		passed := total - len(failed)
+		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed; %d error(s), %d warning(s)\n", passed, len(failed), errCount, warningCount)
 
-		if len(failures) > 0 {
-			return fmt.Errorf("%s", strings.Join(failures, "\n"))
+		if len(failed) > 0 {
+			return fmt.Errorf("validation failed for %d of %d SBOM file(s): %s", len(failed), total, strings.Join(failed, ", "))
 		}
 
 		return nil
@@ -201,7 +200,7 @@ func enabledChecks(opts RunOptions) []string {
 type fileResult struct {
 	errCount     int
 	warningCount int
-	err          error
+	failed       bool
 }
 
 // parseResult combines independent failure signals: the checker reports
@@ -223,11 +222,14 @@ func parseResult(ctx context.Context, out string, runErr error, fileName string,
 		fatal = append(fatal, "checker produced no output")
 	}
 
-	res := fileResult{errCount: len(errs), warningCount: len(warnings)}
-	failed := len(fatal) > 0 || (!warningsNonFatal && len(warnings) > 0)
+	res := fileResult{
+		errCount:     len(errs),
+		warningCount: len(warnings),
+		failed:       len(fatal) > 0 || (!warningsNonFatal && len(warnings) > 0),
+	}
 
 	switch {
-	case failed:
+	case res.failed:
 		logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
 	case len(warnings) > 0:
 		logboek.Context(ctx).Default().LogF("(%d/%d) %s... OK (%d warning(s))\n", index, total, fileName, len(warnings))
@@ -243,12 +245,6 @@ func parseResult(ctx context.Context, out string, runErr error, fileName string,
 			logboek.Context(ctx).Warn().LogF("  %s\n", w)
 		}
 	})
-
-	if !failed {
-		return res
-	}
-
-	res.err = fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(slices.Concat(fatal, warnings), "\n"))
 
 	return res
 }

@@ -89,6 +89,10 @@ jobs:
           echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
 
   integration_main:
+    concurrency:
+      group: werf-buildah-e2e
+      queue: max
+      cancel-in-progress: false
     if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.kind_setup.result == 'success'
     needs:
       - lint
@@ -123,6 +127,8 @@ jobs:
 
       - name: Integration tests (main)
         run: |
+          buildah system reset --force
+          rm -rf "$HOME/.werf/service/tmp"
           export GOCOVERDIR="$WERF_TEST_COVER_DIR"
           task -p --yes test:integration paths="test/legacy_e2e/suites" -- --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
           echo loadavg: $(cat /proc/loadavg)

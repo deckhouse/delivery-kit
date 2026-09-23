@@ -1,0 +1,22 @@
+project: werf-test-e2e-sbom-python-pip-module-shadow
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - requirements.txt
+        - pip.py
+packages:
+  - type: os-pm
+    spec:
+      - python==3.12.12
+  - type: python-pip
+    workdir: /app

@@ -389,11 +389,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("PythonPip env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
-			substring: `cd "/app" && python3 -m pip install --no-cache-dir -r "requirements.txt"`,
+			substring: `cd "/app" && python3 -P -m pip install --no-cache-dir -r "requirements.txt"`,
 		}),
 		Entry("PythonPip env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{}},
-			substring: `cd "/app" && python3 -m pip install --no-cache-dir -r "requirements.txt"`,
+			substring: `cd "/app" && python3 -P -m pip install --no-cache-dir -r "requirements.txt"`,
 		}),
 		Entry("PythonPoetry env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
@@ -469,7 +469,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("python-pip passes PIP_INDEX_URL", nonOsPmEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{"PIP_INDEX_URL": "http://private-pypi"}},
-			substring: "python3 -m pip install",
+			substring: "python3 -P -m pip install",
 			envPrefix: `PIP_INDEX_URL=http://private-pypi`,
 		}),
 
@@ -510,7 +510,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("PythonPip with PIP_INDEX_URL", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{"PIP_INDEX_URL": "http://pypi:8080"}},
-			substring:  `python3 -m pip install --no-cache-dir -r "requirements.txt"`,
+			substring:  `python3 -P -m pip install --no-cache-dir -r "requirements.txt"`,
 			envVarName: "PIP_INDEX_URL",
 			envValue:   "http://pypi:8080",
 		}),
@@ -624,7 +624,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 
 		Entry("PythonPip with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}, Env: map[string]string{"HTTP_PROXY": "http://proxy:8080", "HTTPS_PROXY": "https://proxy:8443"}},
-			substring: `python3 -m pip install --no-cache-dir -r "requirements.txt"`,
+			substring: `python3 -P -m pip install --no-cache-dir -r "requirements.txt"`,
 		}),
 
 		Entry("RustCargo with HTTP_PROXY and HTTPS_PROXY", proxyEnvVarEntry{
@@ -642,6 +642,24 @@ var _ = Describe("GeneratePackagesCommands non-os-pm proxy env vars", func() {
 			substring: `yarn install --frozen-lockfile`,
 		}),
 	)
+})
+
+var _ = Describe("GeneratePackagesCommands python-pip module resolution", func() {
+	It("keeps the workdir out of the module search path", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
+		})
+		Expect(cmds).To(HaveLen(1))
+		Expect(cmds[0]).To(Equal(`cd "/app" && python3 -P -m pip install --no-cache-dir -r "requirements.txt"`))
+	})
+
+	It("runs an explicit manager as given, without the interpreter", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt", Manager: "/app/.venv/bin/pip"}},
+		})
+		Expect(cmds).To(HaveLen(1))
+		Expect(cmds[0]).To(Equal(`cd "/app" && "/app/.venv/bin/pip" install --no-cache-dir -r "requirements.txt"`))
+	})
 })
 
 var _ = Describe("GeneratePackagesCommands no os-pm", func() {

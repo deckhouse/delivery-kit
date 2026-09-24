@@ -1079,14 +1079,17 @@ func (m *cleanupManager) deleteUnusedImportsMetadata(ctx context.Context) error 
 		return nil
 	}
 
+	protectedStageDescSet := m.stageManager.GetProtectedStageDescSet()
+	protectedStageIDs := make(map[string]struct{}, protectedStageDescSet.Cardinality())
+	for _, protectedStageDesc := range protectedStageDescSet.ToSlice() {
+		protectedStageIDs[protectedStageDesc.StageID.String()] = struct{}{}
+	}
+
 	var importMetadataIDsToDelete []string
-outerLoop:
 	for sourceStageID, importMetadataIDs := range m.sourceStageIDImportIDs {
-		for protectedStageDesc := range m.stageManager.GetProtectedStageDescSet().Iter() {
-			// Skip existent/protected stages.
-			if sourceStageID == protectedStageDesc.StageID.String() {
-				continue outerLoop
-			}
+		// Skip existent/protected stages.
+		if _, ok := protectedStageIDs[sourceStageID]; ok {
+			continue
 		}
 
 		importMetadataIDsToDelete = append(importMetadataIDsToDelete, importMetadataIDs...)

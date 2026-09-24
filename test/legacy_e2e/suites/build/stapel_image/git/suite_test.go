@@ -23,7 +23,7 @@ func TestSuite(t *testing.T) {
 var SuiteData suite_init.SuiteData
 
 var _ = AfterEach(func(ctx SpecContext) {
-	utils.RunSucceedCommand(ctx, SuiteData.TestDirPath, SuiteData.WerfBinPath, "host", "purge", "--force")
+	utils.RunSucceedCommand(ctx, SuiteData.TestDirPath, SuiteData.WerfBinPath, "host", "purge", "--force", "--log-debug")
 })
 
 var (

@@ -42,8 +42,12 @@ func (storage *LocalStagesStorage) FilterStageDescSetAndProcessRelatedData(ctx c
 	for stageDesc := range stageDescSet.Iter() {
 		containersOpts.Filters = append(containersOpts.Filters, image.ContainerFilter{Ancestor: stageDesc.Info.ID})
 	}
-	containers, err := storage.ContainerBackend.Containers(ctx, containersOpts)
-	if err != nil {
+	var containers image.ContainerList
+	if err := logboek.Context(ctx).Debug().LogProcess("Purge: list containers for %d stages", stageDescSet.Cardinality()).DoError(func() error {
+		var err error
+		containers, err = storage.ContainerBackend.Containers(ctx, containersOpts)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
@@ -71,7 +75,9 @@ func (storage *LocalStagesStorage) FilterStageDescSetAndProcessRelatedData(ctx c
 		}
 	}
 
-	if err := storage.deleteContainers(ctx, containerListToRemove, opts.RmForce); err != nil {
+	if err := logboek.Context(ctx).Debug().LogProcess("Purge: remove %d related containers", len(containerListToRemove)).DoError(func() error {
+		return storage.deleteContainers(ctx, containerListToRemove, opts.RmForce)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -180,7 +186,9 @@ func (storage *LocalStagesStorage) DeleteStage(ctx context.Context, stageDesc *i
 	}
 
 	for _, ref := range imageReferences {
-		if err := storage.ContainerBackend.Rmi(ctx, ref, container_backend.RmiOpts{Force: options.RmiForce}); err != nil {
+		if err := logboek.Context(ctx).Debug().LogProcess("Purge: remove image %s", ref).DoError(func() error {
+			return storage.ContainerBackend.Rmi(ctx, ref, container_backend.RmiOpts{Force: options.RmiForce})
+		}); err != nil {
 			return fmt.Errorf("unable to remove %q: %w", ref, err)
 		}
 	}

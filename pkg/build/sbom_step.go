@@ -212,22 +212,31 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 	)
 }
 
+// PropagateArtifactsOptions carries the destinations of a propagation: the final repo
+// descriptor of the same image when the build published one, and the cache stages
+// storages the stage was placed in.
+type PropagateArtifactsOptions struct {
+	FinalRepo              string
+	FinalDigest            string
+	CacheStagesStorageList []storage.StagesStorage
+}
+
 // PropagateArtifacts copies the artifacts attached to the image in the repository it
 // was built in — its SBOM, VEX and any other attached kind — into the final repo and
 // the cache repos. Stages are copied there before the artifacts exist, so the
 // artifacts have to catch up separately. The copy runs on every build and is
 // idempotent, so a destination holding the image without its artifacts is repaired
 // by the next run.
-func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName, srcRepo, srcDigest, finalRepo, finalDigest string, cacheStagesStorageList []storage.StagesStorage) error {
-	if finalRepo != "" && finalRepo != srcRepo {
-		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into the final repo %s", werfImgName, finalRepo).DoError(func() error {
-			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalRepo, finalDigest)
+func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName, srcRepo, srcDigest string, opts PropagateArtifactsOptions) error {
+	if opts.FinalRepo != "" && opts.FinalRepo != srcRepo {
+		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into the final repo %s", werfImgName, opts.FinalRepo).DoError(func() error {
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, opts.FinalRepo, opts.FinalDigest)
 		}); err != nil {
-			return fmt.Errorf("copy attached artifacts into final repo %s: %w", finalRepo, err)
+			return fmt.Errorf("copy attached artifacts into final repo %s: %w", opts.FinalRepo, err)
 		}
 	}
 
-	for _, cache := range cacheStagesStorageList {
+	for _, cache := range opts.CacheStagesStorageList {
 		if cache.Address() == storage.LocalStorageAddress || cache.Address() == srcRepo {
 			continue
 		}

@@ -539,7 +539,7 @@ func (c *Conveyor) GetImageInfoGetters(opts imagePkg.InfoGetterOptions) ([]*imag
 
 		if len(platforms) == 1 {
 			img := images[0]
-			getter := c.StorageManager.GetImageInfoGetter(img.Name, img.GetContentTagDesc(), opts)
+			getter := c.StorageManager.GetImageInfoGetter(img.Name, img.GetPublishedContentTagDesc(), opts)
 			imagesGetters = append(imagesGetters, getter)
 		} else {
 			img := c.imagesTree.GetMultiplatformImage(name)
@@ -581,7 +581,10 @@ func (c *Conveyor) GetImagesEnvArray() []string {
 			continue
 		}
 
-		envArray = append(envArray, GenerateImageEnv(img.Name, c.GetImageContentTagName(img.TargetPlatform, img.Name)))
+		// werf compose hands these references to docker compose, so they have to name
+		// the image where it was published — the final repo when the build used one,
+		// matching what GetImagesEnvArrayFromReport reads out of the build report.
+		envArray = append(envArray, GenerateImageEnv(img.Name, img.GetPublishedContentTagDesc().Info.Name))
 	}
 
 	return envArray

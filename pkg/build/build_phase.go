@@ -689,44 +689,44 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 // so a destination holding the image without its artifacts is repaired by the next
 // run. For a multi-platform image the per-platform artifacts are copied onto the
 // platform manifest digests — preserved by the registry-level index copy — and the
-// image-level artifacts (e.g. VEX) onto the index digest.
+// image-level artifacts (e.g. VEX) onto the index digest, which exists in the primary
+// stages storage and in the final repo but never in a cache repo.
 func (phase *BuildPhase) propagateArtifacts(ctx context.Context) error {
+	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
+		return nil
+	}
+
 	cacheStagesStorageList := phase.Conveyor.StorageManager.GetCacheStagesStorageList()
 
 	for _, pair := range phase.Conveyor.imagesTree.GetImagesByName(false) {
 		name, images := pair.Unpair()
 
 		if multiImg := phase.Conveyor.imagesTree.GetMultiplatformImage(name); multiImg != nil {
-			var finalRepo string
 			finalDesc := multiImg.GetFinalStageDesc()
-			if finalDesc != nil {
-				finalRepo = finalDesc.Info.Repository
-			}
 
 			for _, img := range images {
 				stageDesc := img.GetContentTagDesc()
 				if stageDesc == nil {
 					continue
 				}
-				if err := phase.sbomStep.PropagateArtifacts(ctx, name,
-					stageDesc.Info.Repository, stageDesc.Info.GetDigest(),
-					finalRepo, stageDesc.Info.GetDigest(),
-					cacheStagesStorageList,
-				); err != nil {
+
+				opts := PropagateArtifactsOptions{CacheStagesStorageList: cacheStagesStorageList}
+				if finalDesc != nil {
+					opts.FinalRepo = finalDesc.Info.Repository
+					opts.FinalDigest = stageDesc.Info.GetDigest()
+				}
+
+				if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc.Info.Repository, stageDesc.Info.GetDigest(), opts); err != nil {
 					return fmt.Errorf("unable to propagate artifacts for image %q (platform %s): %w", name, img.TargetPlatform, err)
 				}
 			}
 
-			if idxDesc := multiImg.GetStageDesc(); idxDesc != nil {
-				var finalDigest string
-				if finalDesc != nil {
-					finalDigest = finalDesc.Info.GetDigest()
+			if idxDesc := multiImg.GetStageDesc(); idxDesc != nil && finalDesc != nil {
+				opts := PropagateArtifactsOptions{
+					FinalRepo:   finalDesc.Info.Repository,
+					FinalDigest: finalDesc.Info.GetDigest(),
 				}
-				if err := phase.sbomStep.PropagateArtifacts(ctx, name,
-					idxDesc.Info.Repository, idxDesc.Info.GetDigest(),
-					finalRepo, finalDigest,
-					cacheStagesStorageList,
-				); err != nil {
+				if err := phase.sbomStep.PropagateArtifacts(ctx, name, idxDesc.Info.Repository, idxDesc.Info.GetDigest(), opts); err != nil {
 					return fmt.Errorf("unable to propagate artifacts for image %q: %w", name, err)
 				}
 			}
@@ -734,23 +734,20 @@ func (phase *BuildPhase) propagateArtifacts(ctx context.Context) error {
 			continue
 		}
 
-		img := images[0]
-		stageDesc := img.GetContentTagDesc()
+		// An image built out of no stages has no descriptor and nothing attached to
+		// propagate.
+		stageDesc := images[0].GetContentTagDesc()
 		if stageDesc == nil {
 			continue
 		}
 
-		var finalRepo, finalDigest string
-		if finalDesc := img.GetFinalContentTagDesc(); finalDesc != nil {
-			finalRepo = finalDesc.Info.Repository
-			finalDigest = finalDesc.Info.GetDigest()
+		opts := PropagateArtifactsOptions{CacheStagesStorageList: cacheStagesStorageList}
+		if finalDesc := images[0].GetFinalContentTagDesc(); finalDesc != nil {
+			opts.FinalRepo = finalDesc.Info.Repository
+			opts.FinalDigest = finalDesc.Info.GetDigest()
 		}
 
-		if err := phase.sbomStep.PropagateArtifacts(ctx, name,
-			stageDesc.Info.Repository, stageDesc.Info.GetDigest(),
-			finalRepo, finalDigest,
-			cacheStagesStorageList,
-		); err != nil {
+		if err := phase.sbomStep.PropagateArtifacts(ctx, name, stageDesc.Info.Repository, stageDesc.Info.GetDigest(), opts); err != nil {
 			return fmt.Errorf("unable to propagate artifacts for image %q: %w", name, err)
 		}
 	}

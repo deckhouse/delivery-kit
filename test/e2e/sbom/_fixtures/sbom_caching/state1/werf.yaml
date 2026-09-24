@@ -5,7 +5,7 @@ build:
     enable: false
 ---
 image: app
-from: registry.werf.io/base/ubuntu:22.04
+from: registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1
 shell:
   setup:
     - echo 'sbom-caching-test' > /marker

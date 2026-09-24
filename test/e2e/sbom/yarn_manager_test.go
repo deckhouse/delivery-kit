@@ -17,15 +17,12 @@ var _ = Describe("SBOM javascript-yarn packages with an explicit manager", Label
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/yarn_manager")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-yarn-manager-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 

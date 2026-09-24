@@ -9,4 +9,4 @@ build:
       securityFunction: indirect
 ---
 image: app
-from: registry.werf.io/werf/scratch:latest
+from: scratch

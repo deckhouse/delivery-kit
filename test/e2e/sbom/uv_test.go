@@ -17,15 +17,12 @@ var _ = Describe("SBOM python-uv packages", Label("e2e", "sbom", "uv", "simple")
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/uv_simple")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-python-uv-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 

@@ -20,15 +20,12 @@ var _ = Describe("SBOM go-mod packages", Label("e2e", "sbom", "gomod", "simple")
 
 			utils.RunSucceedCommand(ctx, testRepoPath, "git", "tag", "v1.0.0")
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-inject-gomod-replace-builder")
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
 				},
 			})
 

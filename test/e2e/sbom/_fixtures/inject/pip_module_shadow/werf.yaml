@@ -1,4 +1,4 @@
-project: werf-test-e2e-sbom-python-uv-simple
+project: werf-test-e2e-sbom-python-pip-module-shadow
 configVersion: 1
 build:
   sbom:
@@ -10,25 +10,13 @@ from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9
 git:
   - add: /
     to: /app
-    excludePaths:
-      - tools
-    stageDependencies:
-      packages:
-        - pyproject.toml
-        - uv.lock
-  - add: /tools
-    to: /opt/tools
     stageDependencies:
       packages:
         - requirements.txt
+        - pip.py
 packages:
   - type: os-pm
     spec:
       - python==3.12.12
   - type: python-pip
-    workdir: /opt/tools
-    env:
-      PIP_TARGET: /opt/tools
-  - type: python-uv
     workdir: /app
-    manager: /opt/tools/bin/uv

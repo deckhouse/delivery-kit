@@ -154,6 +154,7 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 				"merged SBOM did not pass %q validation; output:\n%s", isprasFormat, validateOut)
 		},
 		Entry("container format", "container"),
+		Entry("oss format", "oss"),
 	)
 
 	It("sbom get fails when SBOM is not enabled in werf.yaml", func(ctx SpecContext) {

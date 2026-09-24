@@ -447,11 +447,15 @@ func (m *cleanupManager) gitHistoryBasedCleanup(ctx context.Context) error {
 	}, func(ctx context.Context, taskId int) error {
 		pair := imagePairs[taskId]
 		imageName, stageIDCommitList := pair.Unpair()
+		logIndex, ok := parallel.TaskStartOrder(ctx)
+		if !ok {
+			logIndex = taskId
+		}
 		var reachedStageIDs []string
 		var hitStageIDCommitList map[string][]string
 		// TODO(multiarch): iterate target platforms
 
-		header := logging.ImageLogProcessName(imageName, false, "", logging.WithProgress(taskId+1, len(imagePairs)))
+		header := logging.ImageLogProcessName(imageName, false, "", logging.WithProgress(logIndex+1, len(imagePairs)))
 		if err := logboek.Context(ctx).LogProcess(header).DoError(func() error {
 			if logboek.Context(ctx).Streams().Width() > 120 {
 				m.printStageIDCommitListTable(ctx, imageName)
@@ -1082,17 +1086,10 @@ func deleteOrphanedArtifacts(ctx context.Context, stagesStorage storage.StagesSt
 }
 
 func (m *cleanupManager) cleanupFinalStages(ctx context.Context) error {
-	// Skip stages from the final repo that are not exist in the repo.
-	// Note: we cannot make difference between repo and final because they have different stage descriptions.
-FilterOutFinalStages:
 	for finalStageDesc := range m.stageManager.GetFinalStageDescSet().Iter() {
-		for stageDesc := range m.stageManager.GetStageDescSet().Iter() {
-			if stageDesc.StageID.IsEqual(*finalStageDesc.StageID) {
-				continue FilterOutFinalStages
-			}
+		if m.stageManager.ContainsStageDescByStageID(finalStageDesc.StageID.String()) {
+			m.stageManager.MarkFinalStageDescAsProtected(finalStageDesc, stage_manager.ProtectionReasonFoundInRepo, false)
 		}
-
-		m.stageManager.MarkFinalStageDescAsProtected(finalStageDesc, stage_manager.ProtectionReasonNotFoundInRepo, false)
 	}
 
 	for reason, finalStageDescSetToKeep := range m.stageManager.GetFinalProtectedStageDescSetByReason() {

@@ -5,18 +5,22 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
 	"github.com/werf/werf/v2/pkg/stapel"
 )
 
 var _ = Describe("formatEnvVars shell safety", func() {
 	readEnvVar := func(ctx SpecContext, name, value string) (string, string, error) {
-		cmd := exec.CommandContext(ctx, "bash", "-ec", formatEnvVars(map[string]string{name: value})+`; printf '%s' "$`+name+`"`)
+		assignments, prefix := formatEnvVars(map[string]string{name: value}, nil)
+		script := strings.Join(append(assignments, fmt.Sprintf(`%s sh -c 'printf %%s "$%s"'`, prefix, name)), "; ")
+		cmd := exec.CommandContext(ctx, "bash", "-ec", script)
 		stderr := &bytes.Buffer{}
 		cmd.Stderr = stderr
 		stdout, err := cmd.Output()
@@ -47,6 +51,11 @@ var _ = Describe("formatWorkdirCommand", func() {
 			To(Equal(`cd "/app" && GOPROXY=direct go mod download`))
 	})
 
+	It("keeps cd in the parent shell and isolates only a secret-backed value", func() {
+		Expect(formatWorkdirCommand("/app", "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"})).
+			To(Equal(`cd "/app" && (GOPROXY="$(</run/secrets/proxy)"; GOPROXY="$GOPROXY" go mod download)`))
+	})
+
 	It("exposes the env var to the package manager process", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
 		command := formatWorkdirCommand(dir, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"})
@@ -58,49 +67,56 @@ var _ = Describe("formatWorkdirCommand", func() {
 		Expect(err).NotTo(HaveOccurred(), stderr.String())
 		Expect(string(stdout)).To(Equal("some-value\n"))
 	})
-})
 
-var _ = Describe("formatSecretVar", func() {
-	readSecret := func(ctx SpecContext, dir, name, presetValue string) (string, string, error) {
-		snippet := strings.ReplaceAll(formatSecretVar(name), "/run/secrets/", dir+"/")
-		cmd := exec.CommandContext(ctx, "bash", "-ec", snippet+`; printf '%s' "$`+name+`"`)
-		cmd.Env = []string{"PATH="}
-		if presetValue != "" {
-			cmd.Env = append(cmd.Env, name+"="+presetValue)
+	Describe("two directives in one stage script", func() {
+		runStage := func(ctx SpecContext, firstEnv, secrets map[string]string) (string, error) {
+			dir := GinkgoT().TempDir()
+			secretsDir := filepath.Join(dir, "secrets")
+			Expect(os.MkdirAll(secretsDir, 0o700)).To(Succeed())
+			for id, value := range secrets {
+				Expect(os.WriteFile(filepath.Join(secretsDir, id), []byte(value), 0o600)).To(Succeed())
+			}
+
+			appDir := filepath.Join(dir, "app")
+			Expect(os.MkdirAll(filepath.Join(appDir, "tools"), 0o700)).To(Succeed())
+
+			// The second workdir is relative: it resolves against the `cd` of the first directive,
+			// which the shared stage shell keeps between directives.
+			script := strings.Join([]string{
+				formatWorkdirCommand(appDir, "printenv GOPROXY", firstEnv),
+				formatWorkdirCommand("tools", "printenv GOPROXY", nil),
+			}, "\n")
+			script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
+
+			cmd := exec.CommandContext(ctx, "bash", "-ec", script)
+			cmd.Dir = dir
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GOPROXY=base-proxy"}
+			stderr := &bytes.Buffer{}
+			cmd.Stderr = stderr
+			stdout, err := cmd.Output()
+			if err != nil {
+				return string(stdout), fmt.Errorf("run packages stage script: %w: %s", err, stderr)
+			}
+
+			return string(stdout), nil
 		}
-		stderr := &bytes.Buffer{}
-		cmd.Stderr = stderr
-		stdout, err := cmd.Output()
-		return string(stdout), stderr.String(), err
-	}
 
-	It("reads the secret with no binary reachable on PATH", func(ctx SpecContext) {
-		dir := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(dir, "PACKAGES_VERSION"), []byte("1.2.3\n"), 0o600)).To(Succeed())
+		DescribeTable("keeps an override of a variable the base image exports local to its own directive",
+			func(ctx SpecContext, firstEnv, secrets map[string]string) {
+				stdout, err := runStage(ctx, firstEnv, secrets)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(stdout).To(Equal("private-proxy\nbase-proxy\n"))
+			},
 
-		stdout, stderr, err := readSecret(ctx, dir, "PACKAGES_VERSION", "")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(Equal("1.2.3"))
-	})
+			Entry("literal value", map[string]string{"GOPROXY": "private-proxy"}, nil),
+			Entry("secret-backed value", map[string]string{"GOPROXY": "%secret:proxy%"}, map[string]string{"proxy": "private-proxy"}),
+		)
 
-	It("leaves the value empty and stays quiet when the secret is absent", func(ctx SpecContext) {
-		stdout, stderr, err := readSecret(ctx, GinkgoT().TempDir(), "REGISTRY", "")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(BeEmpty())
-		Expect(stderr).To(BeEmpty())
-	})
-
-	It("keeps a value already present in the environment", func(ctx SpecContext) {
-		dir := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(dir, "REGISTRY"), []byte("from-secret\n"), 0o600)).To(Succeed())
-
-		stdout, stderr, err := readSecret(ctx, dir, "REGISTRY", "from-env")
-		Expect(err).NotTo(HaveOccurred(), stderr)
-		Expect(stdout).To(Equal("from-env"))
-	})
-
-	It("references nothing under the stapel mount root", func() {
-		Expect(formatSecretVar("PACKAGES_VERSION")).NotTo(ContainSubstring(stapel.CONTAINER_MOUNT_ROOT))
+		It("fails the stage before the next directive when the referenced secret cannot be read", func(ctx SpecContext) {
+			stdout, err := runStage(ctx, map[string]string{"GOPROXY": "%secret:proxy%"}, nil)
+			Expect(err).To(MatchError(ContainSubstring("proxy: No such file or directory")))
+			Expect(stdout).To(BeEmpty())
+		})
 	})
 })
 
@@ -112,8 +128,6 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Expect(cmds).To(HaveLen(1))
 		cmd := cmds[0]
 		Expect(cmd).To(ContainSubstring("mkdir -p /var/lib/pm"))
-		Expect(cmd).To(ContainSubstring(`PACKAGES_VERSION="${PACKAGES_VERSION:-$(`))
-		Expect(cmd).To(ContainSubstring(`REGISTRY="${REGISTRY:-$(`))
 		Expect(cmd).To(ContainSubstring("pm install curl jq"))
 	})
 
@@ -124,6 +138,31 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Expect(cmds).To(HaveLen(1))
 		Expect(cmds[0]).To(ContainSubstring("pm install curl==8.12.1 jq"))
 	})
+
+	It("reads no secret the config does not reference", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+		})
+		Expect(cmds).To(HaveLen(1))
+		Expect(cmds[0]).NotTo(ContainSubstring(packageSecretsDir))
+	})
+
+	DescribeTable("produces exactly this command, byte for byte",
+		func(env map[string]string, expected string) {
+			cmds := GeneratePackagesCommands([]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: env},
+			})
+			Expect(cmds).To(HaveLen(1))
+			Expect(cmds[0]).To(Equal(fmt.Sprintf(expected, stapel.MkdirBinPath(), packagesVersionMissingMessage)))
+		},
+
+		Entry("without env", nil,
+			`%s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; pm install curl jq`),
+		Entry("with a secret path, which is a literal and stays inline", map[string]string{"PACKAGES_VERSION": "1.0.0", "DOCKER_CONFIG": "%secret_path:dockercfg%"},
+			`(PACKAGES_VERSION=1.0.0; %s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; DOCKER_CONFIG=/run/secrets/dockercfg PACKAGES_VERSION="$PACKAGES_VERSION" pm install curl jq)`),
+		Entry("with a literal and a secret-backed variable", map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"},
+			`(PACKAGES_VERSION=1.0.0; REGISTRY="$(</run/secrets/REGISTRY)"; %s -p /var/lib/pm; : "${PACKAGES_VERSION:?%s}" && printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; PACKAGES_VERSION="$PACKAGES_VERSION" REGISTRY="$REGISTRY" pm install curl jq)`),
+	)
 
 	It("each os-pm directive becomes one command", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
@@ -216,6 +255,107 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 		Entry("env is nil", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}}),
 		Entry("env is empty map", &PackagesDirective{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: map[string]string{}}),
 	)
+})
+
+var _ = Describe("GeneratePackagesCommands os-pm PACKAGES_VERSION", func() {
+	type runResult struct {
+		versionFile     string
+		installVersion  string
+		installRegistry string
+	}
+
+	run := func(ctx SpecContext, env map[string]string, baseImageEnv string, secrets map[string]string) (runResult, error) {
+		dir := GinkgoT().TempDir()
+		secretsDir := filepath.Join(dir, "secrets")
+		Expect(os.MkdirAll(secretsDir, 0o700)).To(Succeed())
+		for id, value := range secrets {
+			Expect(os.WriteFile(filepath.Join(secretsDir, id), []byte(value+"\n"), 0o600)).To(Succeed())
+		}
+
+		installEnvFile := filepath.Join(dir, "install-env")
+		pmStub := filepath.Join(dir, "pm")
+		Expect(os.WriteFile(pmStub, []byte("#!/bin/bash\nprintf '%s\\n%s' \"$PACKAGES_VERSION\" \"$REGISTRY\" > "+installEnvFile+"\n"), 0o700)).To(Succeed())
+
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}, Env: env},
+		})
+		Expect(cmds).To(HaveLen(1))
+
+		script := cmds[0]
+		script = strings.ReplaceAll(script, stapel.MkdirBinPath(), "mkdir")
+		script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
+		script = strings.ReplaceAll(script, metadata.ContainerFactoryVersionPath, filepath.Join(dir, "container-factory-version"))
+		script = strings.ReplaceAll(script, path.Dir(metadata.ContainerFactoryVersionPath), dir)
+
+		cmd := exec.CommandContext(ctx, "bash", "-ec", script)
+		cmd.Env = []string{"PATH=" + dir + ":" + os.Getenv("PATH")}
+		if baseImageEnv != "" {
+			cmd.Env = append(cmd.Env, "PACKAGES_VERSION="+baseImageEnv)
+		}
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		if err := cmd.Run(); err != nil {
+			return runResult{}, fmt.Errorf("run packages stage script: %w: %s", err, stderr)
+		}
+
+		versionFile, err := os.ReadFile(filepath.Join(dir, "container-factory-version"))
+		Expect(err).NotTo(HaveOccurred())
+		installEnv, err := os.ReadFile(installEnvFile)
+		Expect(err).NotTo(HaveOccurred())
+
+		installed := strings.SplitN(string(installEnv), "\n", 2)
+		return runResult{
+			versionFile:     strings.TrimSuffix(string(versionFile), "\n"),
+			installVersion:  installed[0],
+			installRegistry: installed[1],
+		}, nil
+	}
+
+	DescribeTable("records the same version it installs with",
+		func(ctx SpecContext, env map[string]string, baseImageEnv string, secrets map[string]string, expected string) {
+			result, err := run(ctx, env, baseImageEnv, secrets)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.versionFile).To(Equal(expected))
+			Expect(result.installVersion).To(Equal(expected))
+		},
+
+		Entry("base image env only", nil, "1.0.0", nil, "1.0.0"),
+		Entry("packages env only", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "", nil, "2.0.0"),
+		Entry("packages env wins over base image env", map[string]string{"PACKAGES_VERSION": "2.0.0"}, "1.0.0", nil, "2.0.0"),
+		Entry("packages env reads a secret", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", map[string]string{"PACKAGES_VERSION": "3.0.0"}, "3.0.0"),
+	)
+
+	It("passes a referenced secret to the package manager for any variable", func(ctx SpecContext) {
+		result, err := run(ctx,
+			map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"},
+			"", map[string]string{"REGISTRY": "registry.example.com/catalog"},
+		)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.installRegistry).To(Equal("registry.example.com/catalog"))
+	})
+
+	DescribeTable("fails the stage instead of installing with a version it cannot record",
+		func(ctx SpecContext, env map[string]string, baseImageEnv string, secrets map[string]string, expectedError string) {
+			_, err := run(ctx, env, baseImageEnv, secrets)
+			Expect(err).To(MatchError(ContainSubstring(expectedError)))
+		},
+
+		Entry("no source provides the version", nil, "", nil,
+			`PACKAGES_VERSION: werf records it in the SBOM; set it in packages[].env, e.g. PACKAGES_VERSION: "%secret:PACKAGES_VERSION%"`),
+		Entry("a declared secret the env does not reference", nil, "", map[string]string{"PACKAGES_VERSION": "3.0.0"},
+			"set it in packages[].env"),
+		Entry("the referenced secret file is missing", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", nil,
+			"PACKAGES_VERSION: No such file or directory"),
+		Entry("the value is set but empty", map[string]string{"PACKAGES_VERSION": ""}, "", nil,
+			"set it in packages[].env"),
+		Entry("the referenced secret is empty", map[string]string{"PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"}, "", map[string]string{"PACKAGES_VERSION": ""},
+			"set it in packages[].env"),
+	)
+
+	It("fails the stage when a secret another variable references cannot be read", func(ctx SpecContext) {
+		_, err := run(ctx, map[string]string{"PACKAGES_VERSION": "1.0.0", "REGISTRY": "%secret:REGISTRY%"}, "", nil)
+		Expect(err).To(MatchError(ContainSubstring("REGISTRY: No such file or directory")))
+	})
 })
 
 var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func() {

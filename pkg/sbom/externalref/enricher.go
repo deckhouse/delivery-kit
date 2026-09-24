@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -24,6 +25,46 @@ func validateRefKind(kind string) error {
 	default:
 		return fmt.Errorf("enrich: external reference kind %q is not allowed, expected %q or %q", kind, cdx.ERTypeVCS, cdx.ERTypeSourceDistribution)
 	}
+}
+
+// The ISPRAS SBOM schema identifies a source distribution by a GOST R 34.11-2012
+// (Streebog) digest of the archive the link points to and accepts no other
+// algorithm there, so a source-distribution reference without one fails
+// validation after an otherwise green build. The resolver computes the digest;
+// enrichment only checks its shape before it enters the SBOM.
+const (
+	hashAlgStreebog256 = "STREEBOG-256"
+	hashAlgStreebog512 = "STREEBOG-512"
+)
+
+var hashContentRe = map[string]*regexp.Regexp{
+	hashAlgStreebog256: regexp.MustCompile(`^[a-fA-F0-9]{64}$`),
+	hashAlgStreebog512: regexp.MustCompile(`^[a-fA-F0-9]{128}$`),
+}
+
+// validateRefHashes rejects a source distribution the SBOM could not be
+// validated with: no digest at all, or a digest in an algorithm or an encoding
+// the schema does not accept.
+func validateRefHashes(kind string, hashes []Hash) error {
+	if cdx.ExternalReferenceType(kind) != cdx.ERTypeSourceDistribution {
+		return nil
+	}
+
+	if len(hashes) == 0 {
+		return fmt.Errorf("enrich: source distribution has no hashes, expected %q or %q", hashAlgStreebog256, hashAlgStreebog512)
+	}
+
+	for _, hash := range hashes {
+		contentRe, ok := hashContentRe[hash.Algorithm]
+		if !ok {
+			return fmt.Errorf("enrich: source distribution hash algorithm %q is not allowed, expected %q or %q", hash.Algorithm, hashAlgStreebog256, hashAlgStreebog512)
+		}
+		if !contentRe.MatchString(hash.Content) {
+			return fmt.Errorf("enrich: source distribution hash %q has invalid content %q, expected %s", hash.Algorithm, hash.Content, hashContentDescription(hash.Algorithm))
+		}
+	}
+
+	return nil
 }
 
 func purlNotExpected(ct cdx.ComponentType) bool {
@@ -97,7 +138,6 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	outcomes := e.resolvePurls(ctx, lo.Uniq(purls))
 
 	var failed []*componentError
-	var added int
 	reported := make(map[string]struct{})
 	for i := range components {
 		comp := &components[i]
@@ -120,24 +160,45 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 			continue
 		}
 
-		// A component carrying two links of the same type fails ISPRAS validation,
-		// and downstream images re-enrich an already enriched BOM.
-		if hasRefType(lo.FromPtr(comp.ExternalReferences), outcome.ref.Type) {
-			continue
-		}
-
 		if comp.ExternalReferences == nil {
 			comp.ExternalReferences = &[]cdx.ExternalReference{}
 		}
-		*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
-		added++
+		// A component carrying two links of the same type fails ISPRAS validation,
+		// and downstream images re-enrich an already enriched BOM. A source
+		// distribution an older enrichment left without a digest is replaced
+		// rather than kept: the base image it came from cannot be fixed from here,
+		// and keeping it would carry the unvalidatable link into this SBOM too.
+		if existing, idx, ok := findRefType(*comp.ExternalReferences, outcome.ref.Type); ok {
+			if hasHashes(existing) || outcome.ref.Hashes == nil {
+				continue
+			}
+			(*comp.ExternalReferences)[idx] = outcome.ref
+		} else {
+			*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
+		}
 	}
 
 	if len(failed) > 0 {
 		return newComponentError(failed)
 	}
 
-	logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", added)
+	// The BOM-wide list is derived from the final component references: a link
+	// replaced on one component may still be carried, with a digest, by another.
+	seen := make(map[string]cdx.ExternalReference)
+	for _, comp := range components {
+		if comp.ExternalReferences == nil {
+			continue
+		}
+		for _, ref := range *comp.ExternalReferences {
+			seen[refKey(ref)] = ref
+		}
+	}
+
+	if len(seen) > 0 {
+		bomRefs := lo.Values(seen)
+		bom.ExternalReferences = &bomRefs
+		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
+	}
 
 	return nil
 }
@@ -170,10 +231,16 @@ func (e *Enricher) resolvePurls(ctx context.Context, purls []string) map[string]
 				return nil
 			}
 
+			if err := validateRefHashes(res.Kind, res.Hashes); err != nil {
+				outcome.err = err
+				return nil
+			}
+
 			outcome.ref = cdx.ExternalReference{
 				URL:     res.URL,
 				Type:    cdx.ExternalReferenceType(res.Kind),
 				Comment: cyclonedxutil.ExternalReferenceCommentResolved,
+				Hashes:  refHashes(res.Kind, res.Hashes),
 			}
 			return nil
 		})
@@ -216,8 +283,41 @@ func componentNeedsResolve(comp *cdx.Component) bool {
 	return comp.PackageURL != "" && comp.Version != "(devel)"
 }
 
-func hasRefType(refs []cdx.ExternalReference, refType cdx.ExternalReferenceType) bool {
-	return lo.ContainsBy(refs, func(ref cdx.ExternalReference) bool {
+func refKey(ref cdx.ExternalReference) string {
+	return ref.URL + "|" + string(ref.Type)
+}
+
+func hashContentDescription(algorithm string) string {
+	if algorithm == hashAlgStreebog512 {
+		return "128 hexadecimal characters"
+	}
+	return "64 hexadecimal characters"
+}
+
+// refHashes carries the resolver hashes into the reference. Only a source
+// distribution needs them: for a vcs link the schema demands none and the
+// resolver reports none either.
+func refHashes(kind string, hashes []Hash) *[]cdx.Hash {
+	if cdx.ExternalReferenceType(kind) != cdx.ERTypeSourceDistribution {
+		return nil
+	}
+
+	cdxHashes := lo.Map(hashes, func(hash Hash, _ int) cdx.Hash {
+		return cdx.Hash{
+			Algorithm: cdx.HashAlgorithm(hash.Algorithm),
+			Value:     hash.Content,
+		}
+	})
+
+	return &cdxHashes
+}
+
+func hasHashes(ref cdx.ExternalReference) bool {
+	return ref.Hashes != nil && len(*ref.Hashes) > 0
+}
+
+func findRefType(refs []cdx.ExternalReference, refType cdx.ExternalReferenceType) (cdx.ExternalReference, int, bool) {
+	return lo.FindIndexOf(refs, func(ref cdx.ExternalReference) bool {
 		return ref.Type == refType
 	})
 }

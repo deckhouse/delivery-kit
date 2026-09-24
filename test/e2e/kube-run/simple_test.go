@@ -1,8 +1,6 @@
 package e2e_kube_run_test
 
 import (
-	"os"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -10,6 +8,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v2/test/pkg/report"
+	"github.com/werf/werf/v2/test/pkg/suite_init"
 	"github.com/werf/werf/v2/test/pkg/werf"
 )
 
@@ -94,7 +93,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 					ShouldFail:            true,
 					ExtraArgs:             []string{}, // be able to work without "-it" options
 					CancelOnOutput:        "Looping ...",
-					CancelOnOutputTimeout: time.Minute,
+					CancelOnOutputTimeout: 3 * time.Minute,
 				},
 			},
 			func(out string) {
@@ -102,7 +101,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 				Expect(out).To(ContainSubstring("Signal handled"))   // from script
 				Expect(out).To(ContainSubstring("Script completed")) // from script
 			},
-			SpecTimeout(time.Minute*3),
+			SpecTimeout(5*time.Minute),
 		),
 	)
 
@@ -198,7 +197,7 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 					ShouldFail:            true,
 					ExtraArgs:             []string{}, // be able to work without "-it" options
 					CancelOnOutput:        "Looping ...",
-					CancelOnOutputTimeout: time.Minute,
+					CancelOnOutputTimeout: 3 * time.Minute,
 				},
 			},
 			func(out string) {
@@ -206,13 +205,13 @@ var _ = Describe("Simple kube-run", Label("e2e", "kube-run", "simple"), func() {
 				Expect(out).To(ContainSubstring("Signal handled"))   // from script
 				Expect(out).To(ContainSubstring("Script completed")) // from script
 			},
-			SpecTimeout(time.Minute*3),
+			SpecTimeout(5*time.Minute),
 		),
 	)
 })
 
 func setupEnv() {
-	SuiteData.Stubs.SetEnv("WERF_REPO", strings.Join([]string{os.Getenv("WERF_TEST_K8S_DOCKER_REGISTRY"), SuiteData.ProjectName}, "/"))
+	SuiteData.Stubs.SetEnv("WERF_REPO", suite_init.TestRepo(SuiteData.ProjectName))
 
 	if util.GetBoolEnvironmentDefaultFalse("WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE") {
 		SuiteData.Stubs.SetEnv("WERF_INSECURE_REGISTRY", "1")

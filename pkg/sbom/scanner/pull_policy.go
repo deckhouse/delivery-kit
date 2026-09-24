@@ -1,7 +1,7 @@
 package scanner
 
 import (
-	"github.com/containers/buildah/define"
+	"go.podman.io/buildah/define"
 )
 
 type PullPolicy define.PullPolicy

@@ -1,28 +1,36 @@
 name: Set up CI base
-description: Prepare common CI prerequisites (job id, Go, cache, tools). Requires checkout before use.
+description: Prepare common CI prerequisites (Go, cache, tools). Requires checkout before use.
 inputs:
-  setJobId:
-    default: "false"
-    description: Whether to export JOB_ID to GITHUB_ENV.
   prepareMultiarch:
     default: "false"
-    description: Whether to prepare system for multiarch builds.
+    description: Whether to ensure the runner supports multiarch builds.
   installGolangciLint:
     default: "false"
     description: Whether to ensure golangci-lint is installed.
 runs:
   using: composite
   steps:
-    - if: inputs.setJobId == 'true'
-      name: Set up JOB_ID
-      shell: bash
-      run: |
-        echo "JOB_ID=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+    - if: inputs.prepareMultiarch == 'true'
+      name: Set up multiarch support
+      id: qemu
+      uses: docker/setup-qemu-action@v4
+      with:
+        platforms: arm64
+        reset: false
 
     - if: inputs.prepareMultiarch == 'true'
-      name: Prepare system for multiarch builds
+      name: Verify ARM64 support
       shell: bash
-      run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
+      env:
+        QEMU_PLATFORMS: ${{ steps.qemu.outputs.platforms }}
+      run: |
+        case ",${QEMU_PLATFORMS}," in
+          *,linux/arm64,*) ;;
+          *)
+            echo "::error::QEMU setup did not enable linux/arm64 support."
+            exit 1
+            ;;
+        esac
 
     - name: Set up Go
       uses: actions/setup-go@v6
@@ -41,6 +49,18 @@ runs:
           ~/go/bin/ginkgo
           ~/go/bin/golangci-lint
         key: ${{ runner.os }}-go-tools-${{ hashFiles('go.mod', 'go.sum', 'Taskfile.dist.yaml') }}
+
+    - name: Install matching ginkgo
+      shell: bash
+      run: |
+        expected_version="$(awk '$1 == "github.com/onsi/ginkgo/v2" && $2 ~ /^v[0-9]/ { print $2; exit }' go.mod)"
+        installed_version=""
+        if command -v ginkgo >/dev/null 2>&1; then
+          installed_version="v$(ginkgo version | awk '{print $3}')"
+        fi
+        if [[ "$installed_version" != "$expected_version" ]]; then
+          task --yes deps:install:ginkgo
+        fi
 
     - if: inputs.installGolangciLint == 'true'
       name: Install golangci-lint

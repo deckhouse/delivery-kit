@@ -8,9 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
-	"github.com/containers/buildah/docker"
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signature/elf/inhouse"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"go.podman.io/buildah/docker"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -60,6 +61,10 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 	}
 
 	if elfSigningOptions.BsignEnabled {
+		if signedByKey(ctx, path, elfSigningOptions.PGPPrivateKeyFingerprint) {
+			return nil
+		}
+
 		var cmdExtraEnv []string
 		pgOptionsString := fmt.Sprintf("--batch --default-key=%s", elfSigningOptions.PGPPrivateKeyFingerprint)
 		if elfSigningOptions.PGPPrivateKeyPassphrase != "" {
@@ -71,12 +76,76 @@ func signELFFile(ctx context.Context, path string, elfSigningOptions ELFSigningO
 		cmd := werfExec.CommandContextCancellation(ctx, "bsign", "-N", "-s", "--pgoptions="+pgOptionsString, path)
 		cmd.Env = append(os.Environ(), cmdExtraEnv...)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return formatBsignError(path, output, err)
+			return formatBsignError("sign", path, output, err)
+		}
+
+		// bsign exits 0 even when the file it just rewrote no longer matches the
+		// hash it stored, which happens once another section sits behind its own.
+		// -E checks only the ELF section; without it bsign also probes xattrs and
+		// detached storage, then returns 64 because those hashes are absent.
+		check := werfExec.CommandContextCancellation(ctx, "bsign", "-cE", path)
+		if output, err := check.CombinedOutput(); err != nil {
+			// A signature shorter than the section bsign reserves for it leaves the
+			// remaining bytes non-zero, and bsign reports that instead of ever
+			// reaching the hash, for a sound file as much as for a corrupt one.
+			if bsignExitCode(err) == bsignUnusedBytesNotZero {
+				logboek.Context(ctx).Debug().LogF("bsign cannot check the hash of %q: %s", path, output)
+			} else {
+				return formatBsignError("hash check", path, output, err)
+			}
 		}
 	}
 
 	return nil
 }
+
+// signedByKey reports whether the file already stores a sound hash signed by
+// the key about to sign it. bsign rewrites the signature on every run, so
+// signing again would only change the stored timestamp and, with it, the bytes
+// of a file whose content did not change.
+//
+// A signature too short for the section bsign reserves leaves the remaining
+// bytes non-zero, and bsign then reports neither the signer nor the hash,
+// leaving a sound file indistinguishable from a corrupt one. Such a file is
+// signed again, which costs the stable bytes but never keeps a stale signature.
+func signedByKey(ctx context.Context, path, fingerprint string) bool {
+	output, err := werfExec.CommandContextCancellation(ctx, "bsign", "-wE", path).CombinedOutput()
+	if err != nil {
+		return false
+	}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		signer, found := strings.CutPrefix(line, "signer: ")
+		if !found {
+			continue
+		}
+		// bsign reports the key by its identifier, the tail of the fingerprint.
+		signer = strings.TrimSpace(signer)
+		if !isKeyID(signer) || !strings.HasSuffix(strings.ToUpper(fingerprint), strings.ToUpper(signer)) {
+			return false
+		}
+		logboek.Context(ctx).Debug().LogF("Skipping %q already signed by %s\n", path, signer)
+		return true
+	}
+
+	return false
+}
+
+func isKeyID(s string) bool {
+	if len(s) != 16 {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return false
+		}
+	}
+	return true
+}
+
+// bsignUnusedBytesNotZero is bsign's exit status for a signature section whose
+// unused bytes are not zero.
+const bsignUnusedBytesNotZero = 73
 
 var bsignExitCodeMessages = map[int]string{
 	1:  "permission denied - insufficient privilege for operation",
@@ -97,10 +166,19 @@ var bsignExitCodeMessages = map[int]string{
 	70: "rewrite failed - error rewriting file",
 	71: "quit - premature application termination",
 	72: "program not found - exec failed because program wasn't found (check gpg installation)",
+	73: "signature section tampered - unused bytes in signature section are not zero",
 }
 
-func formatBsignError(path string, output []byte, err error) error {
-	baseMsg := fmt.Sprintf("bsign sign %q failed", path)
+func bsignExitCode(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
+func formatBsignError(action, path string, output []byte, err error) error {
+	baseMsg := fmt.Sprintf("bsign %s %q failed", action, path)
 
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

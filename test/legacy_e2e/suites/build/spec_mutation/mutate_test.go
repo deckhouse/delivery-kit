@@ -21,18 +21,13 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 		func(ctx SpecContext, testOpts simpleTestOptions) {
 			By("initializing")
 			setupEnv(testOpts.setupEnvOptions)
-			contRuntime, err := contback.NewContainerBackend(testOpts.ContainerBackendMode)
-			if err == contback.ErrRuntimeUnavailable {
-				Skip(err.Error())
-			} else if err != nil {
-				Fail(err.Error())
-			}
+			contRuntime := contback.NewContainerBackend(testOpts.ContainerBackendMode)
 
-			expectedBasicPorts := manifest.Schema2PortSet{"99": {}}
-			expectedCleanPorts := manifest.Schema2PortSet{"": {}}
+			basicPortsMatcher := Equal(manifest.Schema2PortSet{"99": {}})
+			cleanPortsMatcher := Equal(manifest.Schema2PortSet{"": {}})
 			if testOpts.ContainerBackendMode == "docker" {
-				expectedBasicPorts = manifest.Schema2PortSet{"99/tcp": {}}
-				expectedCleanPorts = manifest.Schema2PortSet{"invalid port": {}}
+				basicPortsMatcher = Or(basicPortsMatcher, Equal(manifest.Schema2PortSet{"99/tcp": {}}))
+				cleanPortsMatcher = Or(cleanPortsMatcher, Equal(manifest.Schema2PortSet{"invalid port": {}}))
 			}
 
 			By(fmt.Sprintf("%s: starting", testOpts.State))
@@ -79,12 +74,12 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 						Expect(imgCfg.Volumes).Should(HaveKey("/second/test/volume"))
 						Expect(imgCfg.Volumes).ShouldNot(HaveKey("/home/remove/me"))
 
-						Expect(imgCfg.Cmd).Should(ContainElement("/bin/sh"))
-						Expect(imgCfg.Entrypoint).Should(ContainElement("test"))
+						Expect([]string(imgCfg.Cmd)).Should(Equal([]string{"/bin/sh", "-c", "echo cmd"}))
+						Expect([]string(imgCfg.Entrypoint)).Should(Equal([]string{"command", "param1", "param2"}))
 
 						Expect(imgCfg.Labels).Should(HaveKey("maintainer"))
 						Expect(imgCfg.Labels).Should(HaveKey("save"))
-						Expect(imgCfg.Labels).Should(HaveKey("test"))
+						Expect(imgCfg.Labels).Should(HaveKeyWithValue("test", "test_value"))
 						Expect(imgCfg.Labels).Should(HaveKey("werf"))
 						Expect(imgCfg.Labels).Should(HaveKey("global_label"))
 						Expect(imgCfg.Labels).Should(HaveKey("werf.io/parent-stage-id"))
@@ -94,13 +89,17 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal("testuser"))
 
-						Expect(imgCfg.ExposedPorts).Should(Equal(expectedBasicPorts))
+						Expect(imgCfg.ExposedPorts).Should(basicPortsMatcher)
 
 						Expect(imgCfg.ExposedPorts).ShouldNot(HaveKey("1234/tcp"))
 
 						Expect(imgCfg.WorkingDir).Should(Equal("/test/work"))
 
 						Expect(imgCfg.StopSignal).Should(Equal("SIGINT"))
+
+						Expect(imgCfg.Healthcheck).ShouldNot(BeNil())
+						Expect(imgCfg.Healthcheck.Test).Should(Equal([]string{"curl -f http://localhost/ || exit 1"}))
+						Expect(imgCfg.Healthcheck.Retries).Should(Equal(3))
 
 					case "clean-test":
 
@@ -117,7 +116,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal(""))
 
-						Expect(imgCfg.ExposedPorts).Should(Equal(expectedCleanPorts))
+						Expect(imgCfg.ExposedPorts).Should(cleanPortsMatcher)
 
 						Expect(imgCfg.WorkingDir).Should(Equal(""))
 

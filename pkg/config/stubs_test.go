@@ -7,6 +7,7 @@ import (
 
 	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v2/pkg/path_matcher"
 )
 
 type GiterminismManagerStub struct {
@@ -29,12 +30,16 @@ func (manager *GiterminismManagerStub) LocalGitRepo() git_repo.GitRepo {
 	return manager.localGitRepo
 }
 
-func (manager *GiterminismManagerStub) Dev() bool {
-	return false
+func (manager *GiterminismManagerStub) Inspector() giterminism_manager.Inspector {
+	return &giterminismInspectorStub{}
 }
 
-func (manager *GiterminismManagerStub) Inspector() giterminism_manager.Inspector {
-	return &GiterminismInspectorStub{}
+func (manager *GiterminismManagerStub) FileReader() giterminism_manager.FileReader {
+	return &giterminismFileReaderStub{}
+}
+
+func (manager *GiterminismManagerStub) Dev() bool {
+	return false
 }
 
 func (manager *GiterminismManagerStub) HeadCommit(ctx context.Context) string {
@@ -43,11 +48,71 @@ func (manager *GiterminismManagerStub) HeadCommit(ctx context.Context) string {
 	return commit
 }
 
-type GiterminismInspectorStub struct {
-	giterminism_manager.Inspector
+type (
+	giterminismInspectorStub  struct{}
+	giterminismFileReaderStub struct {
+		giterminism_manager.FileReader
+	}
+)
+
+var (
+	_ giterminism_manager.Inspector  = (*giterminismInspectorStub)(nil)
+	_ giterminism_manager.FileReader = (*giterminismFileReaderStub)(nil)
+)
+
+func (reader *giterminismFileReaderStub) ReadVEXFile(_ context.Context, _ string) ([]byte, error) {
+	return []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","statements":[]}`), nil
 }
 
-func (inspector *GiterminismInspectorStub) InspectConfigSecretEnvAccepted(secret string) error {
+func (inspector *giterminismInspectorStub) InspectCustomTags() error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigGoTemplateRenderingEnv(ctx context.Context, envName string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigStapelFromLatest() error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigStapelGitBranch() error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigStapelMountBuildDir() error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigStapelMountFromPath(fromPath string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigDockerfileContextAddFile(relPath string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectBuildContextFiles(ctx context.Context, matcher path_matcher.PathMatcher) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigSecretEnvAccepted(secret string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigSecretSrcAccepted(secret string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigSecretValueAccepted(secret string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectConfigVexFilePath(relPath string) error {
+	return nil
+}
+
+func (inspector *giterminismInspectorStub) InspectIncludesAllowUpdate() error {
 	return nil
 }
 

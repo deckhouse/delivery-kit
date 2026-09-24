@@ -59,7 +59,8 @@ var _ = Describe("ExternalRef Integration", func() {
 			Expect(comp.ExternalReferences).NotTo(BeNil())
 			Expect(*comp.ExternalReferences).To(HaveLen(1))
 		}
-		Expect(bom.ExternalReferences).To(BeNil())
+		Expect(bom.ExternalReferences).NotTo(BeNil())
+		Expect(*bom.ExternalReferences).To(HaveLen(1))
 	})
 
 	It("should retry and eventually succeed on temporary server errors", func() {

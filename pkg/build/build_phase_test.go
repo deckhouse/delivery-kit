@@ -78,9 +78,13 @@ var _ = Describe("BuildPhase", func() {
 				Expect(err).To(HaveOccurred())
 
 				done := make(chan struct{})
+				// The buggy variant leaves the mutex locked on purpose, so this
+				// goroutine blocks; it takes the mutex through a local of its
+				// own, because the variable is reassigned for the next spec.
+				mutex := digestMutex
 				go func() {
-					digestMutex.Lock()
-					digestMutex.Unlock()
+					mutex.Lock()
+					mutex.Unlock()
 					close(done)
 				}()
 
@@ -88,6 +92,8 @@ var _ = Describe("BuildPhase", func() {
 					Eventually(done, 3*time.Second).Should(BeClosed())
 				} else {
 					Consistently(done, 500*time.Millisecond).ShouldNot(BeClosed())
+					mutex.Unlock()
+					Eventually(done, 3*time.Second).Should(BeClosed())
 				}
 			},
 			Entry("buggy: cleanupFunc not called on error path leaks mutex", onImageStageVariant{
@@ -123,11 +129,30 @@ var _ = Describe("BuildPhase", func() {
 			stage.GenerateSignStage(baseStageOptions, signing.NewManifestSigningOptions(signer)),
 		})
 
-		inputs, err := collectHolisticInputs(ctx, img, nil, nil)
+		inputs, err := collectHolisticInputs(ctx, img, nil, nil, nil, false)
 		Expect(err).To(Succeed())
 		Expect(inputs).To(HaveLen(2))
 		Expect(inputs[0]).To(HavePrefix(string(stage.VerityAnnotation) + ":"))
 		Expect(inputs[1]).To(HavePrefix(string(stage.Sign) + ":"))
+	})
+
+	It("includes the ELF signing identity in the image anchor digest", func(ctx SpecContext) {
+		anchorDigest := func(fingerprint string) string {
+			img, err := image.NewImage(ctx, "linux/amd64", "app", image.NoBaseImage, image.ImageOptions{})
+			Expect(err).To(Succeed())
+
+			anchor := stage.GenerateVerityAnnotationStage(&stage.BaseStageOptions{TargetPlatform: "linux/amd64"})
+			anchor.SetContentAnchor(true)
+			img.SetStages([]stage.Interface{anchor})
+
+			phase := &BuildPhase{BuildPhaseOptions: BuildPhaseOptions{BuildOptions: BuildOptions{
+				ELFSigningOptions: signing.ELFSigningOptions{BsignEnabled: true, PGPPrivateKeyFingerprint: fingerprint},
+			}}}
+			Expect(phase.calculateAnchorDigest(ctx, img, nil, false)).To(Succeed())
+			return img.GetAnchorDigest()
+		}
+
+		Expect(anchorDigest("fingerprint-a")).NotTo(Equal(anchorDigest("fingerprint-b")))
 	})
 
 	Describe("VEX convergence", func() {

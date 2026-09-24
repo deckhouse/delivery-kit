@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/containers/buildah/copier"
+	"go.podman.io/buildah/copier"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -130,6 +130,7 @@ func (a *BuildContextArchive) CleanupExtractedDir(ctx context.Context) {
 	if err := os.RemoveAll(a.extractionDir); err != nil {
 		logboek.Context(ctx).Warn().LogF("WARNING: unable to remove extracted context dir %q: %s", a.extractionDir, err)
 	}
+	a.extractionDir = ""
 }
 
 func (a *BuildContextArchive) CalculateGlobsChecksum(ctx context.Context, globs []string, opts container_backend.CalculateGlobsChecksumOptions) (string, error) {

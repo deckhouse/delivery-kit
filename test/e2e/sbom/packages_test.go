@@ -205,7 +205,7 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
 	)
 
-	DescribeTable("resolves pm env from build secrets on a scratch base image without own coreutils",
+	DescribeTable("resolves pm env from referenced build secrets on a scratch base image without own coreutils",
 		func(ctx SpecContext, testOpts sbomTestOptions) {
 			setupSbomBuildEnv(testOpts.setupEnvOptions)
 
@@ -215,8 +215,8 @@ var _ = Describe("SBOM os-pm packages", Label("e2e", "sbom", "packages", "simple
 
 			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-packages-scratch-secrets-builder")
 			// The app image is built from scratch, so PACKAGES_VERSION and REGISTRY
-			// reach the packages stage only as build secrets mounted under
-			// /run/secrets, which the stage reads with Bash builtins alone.
+			// reach the packages stage only through the %secret:ID% references in
+			// packages[].env, which the stage resolves with Bash builtins alone.
 			buildEnv := append(builderEnv,
 				"PACKAGES_VERSION=v1.3.6",
 				"REGISTRY=registry.deckhouse.io/container-factory",

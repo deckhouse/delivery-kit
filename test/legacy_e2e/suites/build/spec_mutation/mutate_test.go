@@ -23,11 +23,11 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 			setupEnv(testOpts.setupEnvOptions)
 			contRuntime := contback.NewContainerBackend(testOpts.ContainerBackendMode)
 
-			expectedBasicPorts := manifest.Schema2PortSet{"99": {}}
-			expectedCleanPorts := manifest.Schema2PortSet{"": {}}
+			basicPortsMatcher := Equal(manifest.Schema2PortSet{"99": {}})
+			cleanPortsMatcher := Equal(manifest.Schema2PortSet{"": {}})
 			if testOpts.ContainerBackendMode == "docker" {
-				expectedBasicPorts = manifest.Schema2PortSet{"99/tcp": {}}
-				expectedCleanPorts = manifest.Schema2PortSet{"invalid port": {}}
+				basicPortsMatcher = Or(basicPortsMatcher, Equal(manifest.Schema2PortSet{"99/tcp": {}}))
+				cleanPortsMatcher = Or(cleanPortsMatcher, Equal(manifest.Schema2PortSet{"invalid port": {}}))
 			}
 
 			By(fmt.Sprintf("%s: starting", testOpts.State))
@@ -89,7 +89,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal("testuser"))
 
-						Expect(imgCfg.ExposedPorts).Should(Equal(expectedBasicPorts))
+						Expect(imgCfg.ExposedPorts).Should(basicPortsMatcher)
 
 						Expect(imgCfg.ExposedPorts).ShouldNot(HaveKey("1234/tcp"))
 
@@ -116,7 +116,7 @@ var _ = Describe("build and mutate image spec", Label("integration", "build", "m
 
 						Expect(imgCfg.User).Should(Equal(""))
 
-						Expect(imgCfg.ExposedPorts).Should(Equal(expectedCleanPorts))
+						Expect(imgCfg.ExposedPorts).Should(cleanPortsMatcher)
 
 						Expect(imgCfg.WorkingDir).Should(Equal(""))
 

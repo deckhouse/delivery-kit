@@ -185,6 +185,24 @@ var _ = Describe("dirTarExtractor", func() {
 		}
 	})
 
+	It("drops a chain whose intermediate link escapes the tree instead of following it outside", func() {
+		// is-number -> alias -> ../outside. The escaping hop is dropped on record, so the
+		// head of the chain must resolve to nothing rather than to a substituted directory.
+		destDir := GinkgoT().TempDir()
+		tr := buildTar([]entry{
+			{name: "node_modules/is-number", typeflag: tar.TypeSymlink, linkname: "alias"},
+			{name: "node_modules/alias", typeflag: tar.TypeSymlink, linkname: "../outside"},
+			{name: "node_modules/outside/package.json", typeflag: tar.TypeReg, content: `{"name":"is-number","license":"Apache-2.0"}`},
+		})
+
+		extractAll(tr, destDir, []string{"package.json"})
+
+		for _, p := range []string{"is-number", "alias"} {
+			_, err := os.Stat(filepath.Join(destDir, p))
+			Expect(os.IsNotExist(err)).To(BeTrue(), "link %s must not be materialized through an escaping hop", p)
+		}
+	})
+
 	It("terminates on a symlink cycle without materializing either link", func() {
 		destDir := GinkgoT().TempDir()
 		tr := buildTar([]entry{

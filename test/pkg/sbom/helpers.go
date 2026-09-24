@@ -207,11 +207,32 @@ func AssertNoComponent(bom *cdx.BOM, name string) {
 	})
 }
 
+// AssertGostPropertyOnComponent asserts the GOST property on a single component.
+// Use it where the value differs across the tree: an attack surface of `yes`
+// lands on the roots of the dependency tree only, while everything another
+// component depends on is demoted to `indirect` — see gost.Upsert.
+func AssertGostPropertyOnComponent(bom *cdx.BOM, name, version, propertyName string, expected gost.GostValue) {
+	ExpectWithOffset(1, propertyName).To(BeElementOf(gost.PropertyAttackSurface, gost.PropertySecurityFunction),
+		"unknown GOST property name %q", propertyName)
+
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found", name, version)
+
+	val, found := findProperty(comp.Properties, propertyName)
+	ExpectWithOffset(1, found).To(BeTrue(),
+		"component %s@%s missing GOST property %q", name, version, propertyName)
+	ExpectWithOffset(1, val).To(Equal(expected.String()),
+		"component %s@%s GOST property %q: expected %q, got %q",
+		name, version, propertyName, expected.String(), val)
+}
+
 // AssertGostPropertyOnMetadata asserts the GOST property on `bom.Metadata.Component`
 // only. Use it together with AssertGostPropertyOnComponents when a test needs to
-// verify that both surfaces carry the same value (single-image builds, where werf
-// applies the resolved image-level GOST config uniformly to metadata and to every
-// component — see gost.Upsert in pkg/sbom/cyclonedxutil/gost/upsert.go).
+// verify that both surfaces carry the same value — which holds for `no` and
+// `indirect`, and for the security function in all cases, since those apply
+// unchanged to the whole tree (see gost.Upsert in
+// pkg/sbom/cyclonedxutil/gost/upsert.go).
 // Splitting the two checks documents the intent explicitly and produces a targeted
 // error message when only one of the surfaces regresses.
 func AssertGostPropertyOnMetadata(bom *cdx.BOM, propertyName string, expected gost.GostValue) {

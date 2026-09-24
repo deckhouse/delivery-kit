@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"slices"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -17,6 +18,7 @@ import (
 	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var multiplatformSbomPlatforms = []string{"linux/amd64", "linux/arm64"}
@@ -93,6 +95,21 @@ func expectNoSbomArtifact(ctx SpecContext, repo, parentDigest string) {
 		return
 	}
 	Expect(dsseDescs).To(BeEmpty(), "no SBOM artifact must be attached to the index digest %s", parentDigest)
+}
+
+// stagesImageDigestOf resolves the digest of the image's last stage in the stages
+// repo, which is what artifacts in the stages and cache repos are attached to.
+func stagesImageDigestOf(ctx SpecContext, werfProject *werf.Project, imageName string) string {
+	stagesRepo := os.Getenv("WERF_REPO")
+	Expect(stagesRepo).NotTo(BeEmpty())
+
+	tagRef, err := name.NewTag(stagesRepo+":"+stageTagOf(ctx, werfProject, imageName, nil), name.Insecure)
+	Expect(err).NotTo(HaveOccurred())
+
+	desc, err := remote.Get(tagRef, insecureRemoteOptions(ctx)...)
+	Expect(err).NotTo(HaveOccurred())
+
+	return desc.Digest.String()
 }
 
 func mustExtractInTotoSubjectDigest(dsseEnvelope []byte) string {

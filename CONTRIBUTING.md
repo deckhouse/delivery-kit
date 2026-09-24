@@ -196,8 +196,15 @@ selected image IDs/tags/digests, StageIDs, and errors. Single-filter responses a
 filtered on the client using the missing condition and compared with the unmodified
 two-filter response; a mismatch or error fails the scenario but still runs its
 ordinary AfterEach purge. The probe does not create or delete images and must be
-excluded from ordinary test-duration comparisons. Other scenarios and the purge
-implementation are unchanged by this comparison.
+excluded from ordinary test-duration comparisons. Other scenarios and the
+per-test cleanup schedule are unchanged by this comparison.
+
+Local stage discovery now requests Docker images by project reference only and
+checks the exact `werf` project label in the client before converting tags to
+StageIDs. Missing labels are excluded, including for an empty project name.
+Returned tags and digest references are not rewritten. The comparison above
+continues to measure the original two-filter query as its baseline, while the
+ordinary purge uses the optimized discovery path.
 
 ### Commit message
 

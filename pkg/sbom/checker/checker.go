@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/docker/cli/cli"
@@ -24,6 +25,7 @@ const (
 )
 
 type RunOptions struct {
+	Errors                  int
 	CheckVCS                bool
 	CheckVCSLeafOnly        bool
 	CheckSourceDistribution bool
@@ -35,6 +37,10 @@ type RunOptions struct {
 // the archives of every non-leaf component go unchecked while the run reports
 // success.
 func (opts RunOptions) Validate() error {
+	if opts.Errors < 0 {
+		return fmt.Errorf("--errors cannot be negative: got %d; use 0 for unlimited", opts.Errors)
+	}
+
 	if opts.CheckVCSLeafOnly && opts.CheckSourceDistribution {
 		return fmt.Errorf("--check-vcs-leaf-only cannot be combined with --check-source-distribution: the checker would skip source distributions of non-leaf components; use --check-vcs instead")
 	}
@@ -133,7 +139,7 @@ func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]stri
 		"-v", absPath + ":" + containerPath + ":ro",
 		Image,
 		"--format", format.String(),
-		"--errors", "0",
+		"--errors", strconv.Itoa(opts.Errors),
 	}
 
 	if opts.CheckVCS {

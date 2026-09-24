@@ -7,7 +7,7 @@ Validate CycloneDX JSON SBOM files against ISPRAS schemas using sbom-checker.
 
 The command runs sbom-checker inside a Docker container and reports validation results. Supports both OSS and container SBOM types.
 
-The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several files in one run. Pass `--check-vcs` or `--check-vcs-leaf-only` to additionally validate VCS URLs, and `--check-source-distribution` to check that source distribution URLs exist and point to an archive. `--check-source-distribution` also validates VCS URLs of every component and cannot be combined with `--check-vcs-leaf-only`.
+The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several files in one run. Use `--errors` to cap how many errors are printed per file (0 means unlimited). Pass `--check-vcs` or `--check-vcs-leaf-only` to additionally validate VCS URLs, and `--check-source-distribution` to check that source distribution URLs exist and point to an archive. `--check-source-distribution` also validates VCS URLs of every component and cannot be combined with `--check-vcs-leaf-only`.
 
 {{ header }} Syntax
 
@@ -32,6 +32,8 @@ werf sbom validate [options]
             Specify docker config directory path. Default $WERF_DOCKER_CONFIG or $DOCKER_CONFIG or  
             ~/.docker (in the order of priority)
             Command needs granted permissions to pull the ISPRAS SBOM checker image
+      --errors=0
+            Maximum number of errors to print per file (0 = unlimited)
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
       --insecure-registry=false

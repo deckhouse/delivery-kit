@@ -19,6 +19,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	var pathFlags []string
 	var isprasFormatFlag string
+	var errorsFlag int
 	var checkVCSFlag bool
 	var checkVCSLeafOnlyFlag bool
 	var checkSourceDistributionFlag bool
@@ -44,6 +45,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			common.LogVersion()
 
 			if err := validateFlags(pathFlags, isprasFormatFlag, checker.RunOptions{
+				Errors:                  errorsFlag,
 				CheckVCS:                checkVCSFlag,
 				CheckVCSLeafOnly:        checkVCSLeafOnlyFlag,
 				CheckSourceDistribution: checkSourceDistributionFlag,
@@ -60,6 +62,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 			return common.LogRunningTime(func() error {
 				return runValidate(ctx, pathFlags, isprasFormat, checker.RunOptions{
+					Errors:                  errorsFlag,
 					CheckVCS:                checkVCSFlag,
 					CheckVCSLeafOnly:        checkVCSLeafOnlyFlag,
 					CheckSourceDistribution: checkSourceDistributionFlag,
@@ -80,6 +83,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringArrayVar(&pathFlags, "path", nil, "Path to CycloneDX JSON SBOM file (repeatable)")
 	cmd.Flags().StringVar(&isprasFormatFlag, "ispras-format", "", "ISPRAS SBOM format: oss or container")
+	cmd.Flags().IntVar(&errorsFlag, "errors", 0, "Maximum number of errors to print per file (0 = unlimited)")
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
 	cmd.Flags().BoolVar(&checkVCSLeafOnlyFlag, "check-vcs-leaf-only", false, "Enable VCS URL validation for leaf components only")
 	cmd.Flags().BoolVar(&checkSourceDistributionFlag, "check-source-distribution", false, "Enable source distribution URL validation: the URL must exist and point to an archive. Also validates VCS URLs of every component, as --check-vcs does; cannot be combined with --check-vcs-leaf-only")

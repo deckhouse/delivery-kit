@@ -16,40 +16,34 @@ import (
 )
 
 var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), func() {
-	DescribeTable("single-image pipeline: build → get → parse SBOM content",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("single-image pipeline: build → get → parse SBOM content", func(ctx SpecContext) {
+		setupSbomBuildEnv()
 
-			repoDirname := "repo_sbom_lifecycle_single"
-			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
-			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+		repoDirname := "repo_sbom_lifecycle_single"
+		SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-single-builder")
+		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-single-builder")
 
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
 
-			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{
-					ExtraArgs: []string{"app"},
-					Envs:      builderEnv,
-				},
-			})
+		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{"app"},
+				Envs:      builderEnv,
+			},
+		})
 
-			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
-			sbomtest.AssertHasComponent(bom, "openssl", "3.6.2")
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
-		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
-	)
+		bom := sbomtest.MustParseSBOMOutput(sbomOut)
+		sbomtest.AssertHasComponent(bom, "curl", "8.12.1")
+		sbomtest.AssertHasComponent(bom, "openssl", "3.6.2")
+	})
 
 	DescribeTable("multi-image: build + merge two image SBOMs into a product SBOM",
 		Label("annotation-consistency"),
-		func(ctx SpecContext, testOpts sbomTestOptions, isprasFormat string) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+		func(ctx SpecContext, isprasFormat string) {
+			setupSbomBuildEnv()
 
 			repoDirname := "repo_sbom_lifecycle_multi_" + isprasFormat
 			SuiteData.InitTestRepo(ctx, repoDirname, "lifecycle/multi_image")
@@ -105,17 +99,13 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
 		},
-		Entry("container format using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}, "container"),
-		Entry("container format using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}, "container"),
-		Entry("oss format using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}, "oss"),
-		Entry("oss format using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}, "oss"),
-		XEntry("container format using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}, "container"),
-		XEntry("container format using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}, "container"),
+		Entry("container format", "container"),
+		Entry("oss format", "oss"),
 	)
 
 	DescribeTable("single-image full lifecycle: build → merge → validate produces ISPRAS-valid SBOM",
-		func(ctx SpecContext, testOpts sbomTestOptions, isprasFormat string) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+		func(ctx SpecContext, isprasFormat string) {
+			setupSbomBuildEnv()
 
 			repoDirname := "repo_sbom_lifecycle_validate_" + isprasFormat
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
@@ -163,145 +153,121 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			Expect(validateOut).To(ContainSubstring("OK"),
 				"merged SBOM did not pass %q validation; output:\n%s", isprasFormat, validateOut)
 		},
-		Entry("container format using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}, "container"),
-		Entry("container format using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}, "container"),
-		XEntry("container format using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}, "container"),
-		XEntry("container format using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}, "container"),
+		Entry("container format", "container"),
+		Entry("oss format", "oss"),
 	)
 
-	DescribeTable("sbom get fails when SBOM is not enabled in werf.yaml",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("sbom get fails when SBOM is not enabled in werf.yaml", func(ctx SpecContext) {
+		setupSbomBuildEnv()
 
-			repoDirname := "repo_sbom_lifecycle_get_disabled"
-			SuiteData.InitTestRepo(ctx, repoDirname, "negative/sbom_disabled")
-			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+		repoDirname := "repo_sbom_lifecycle_get_disabled"
+		SuiteData.InitTestRepo(ctx, repoDirname, "negative/sbom_disabled")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			out := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-				CommonOptions: werf.CommonOptions{
-					ShouldFail: true,
-					ExtraArgs:  []string{"app"},
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		out := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{
+				ShouldFail: true,
+				ExtraArgs:  []string{"app"},
+			},
+		})
+		Expect(out).To(ContainSubstring("SBOM should be enabled"),
+			"expected explicit error about disabled SBOM; got:\n%s", out)
+	})
+
+	It("sbom merge fails when --input file does not exist", func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+		out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			CommonOptions: werf.CommonOptions{
+				ShouldFail: true,
+				ExtraArgs: []string{
+					"--input", "/nonexistent/mapping.json",
+					"--ispras-format", "container",
+					"--app-name", "test-product",
+					"--app-version", "1.0.0",
+					"--manufacturer", "test",
 				},
-			})
-			Expect(out).To(ContainSubstring("SBOM should be enabled"),
-				"expected explicit error about disabled SBOM; got:\n%s", out)
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-		XEntry("with local repo using Native Buildah with chroot isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-chroot"}}),
-		XEntry("with local repo using Native Buildah with rootless isolation", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "native-rootless"}}),
-	)
+			},
+		})
+		Expect(out).To(ContainSubstring("unable to read"),
+			"expected error about unreadable input file; got:\n%s", out)
+	})
 
-	DescribeTable("sbom merge fails when --input file does not exist",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("sbom merge fails when --input contains malformed JSON", func(ctx SpecContext) {
+		setupSbomBuildEnv()
 
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-			out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
-				CommonOptions: werf.CommonOptions{
-					ShouldFail: true,
-					ExtraArgs: []string{
-						"--input", "/nonexistent/mapping.json",
-						"--ispras-format", "container",
-						"--app-name", "test-product",
-						"--app-version", "1.0.0",
-						"--manufacturer", "test",
-					},
+		mappingPath := filepath.Join(SuiteData.TmpDir, "malformed_mapping.json")
+		Expect(os.WriteFile(mappingPath, []byte("{not-valid-json"), 0o644)).To(Succeed())
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+		out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			CommonOptions: werf.CommonOptions{
+				ShouldFail: true,
+				ExtraArgs: []string{
+					"--input", mappingPath,
+					"--ispras-format", "container",
+					"--app-name", "test-product",
+					"--app-version", "1.0.0",
+					"--manufacturer", "test",
 				},
-			})
-			Expect(out).To(ContainSubstring("unable to read"),
-				"expected error about unreadable input file; got:\n%s", out)
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-	)
+			},
+		})
+		Expect(out).To(ContainSubstring("unable to parse JSON"),
+			"expected JSON parse error; got:\n%s", out)
+	})
 
-	DescribeTable("sbom merge fails when --input contains malformed JSON",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("sbom merge fails when --ispras-format is invalid", func(ctx SpecContext) {
+		setupSbomBuildEnv()
 
-			mappingPath := filepath.Join(SuiteData.TmpDir, "malformed_mapping.json")
-			Expect(os.WriteFile(mappingPath, []byte("{not-valid-json"), 0o644)).To(Succeed())
+		// Create a syntactically valid mapping so validation reaches --ispras-format check.
+		mappingPath := filepath.Join(SuiteData.TmpDir, "valid_mapping_for_format_check.json")
+		writeMappingFile(mappingPath, map[string]string{
+			"app": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		})
 
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-			out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
-				CommonOptions: werf.CommonOptions{
-					ShouldFail: true,
-					ExtraArgs: []string{
-						"--input", mappingPath,
-						"--ispras-format", "container",
-						"--app-name", "test-product",
-						"--app-version", "1.0.0",
-						"--manufacturer", "test",
-					},
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+		out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			CommonOptions: werf.CommonOptions{
+				ShouldFail: true,
+				ExtraArgs: []string{
+					"--input", mappingPath,
+					"--ispras-format", "invalid-format",
+					"--app-name", "test-product",
+					"--app-version", "1.0.0",
+					"--manufacturer", "test",
 				},
-			})
-			Expect(out).To(ContainSubstring("unable to parse JSON"),
-				"expected JSON parse error; got:\n%s", out)
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-	)
+			},
+		})
+		Expect(out).To(ContainSubstring("ispras-format"),
+			"expected error mentioning ispras-format; got:\n%s", out)
+	})
 
-	DescribeTable("sbom merge fails when --ispras-format is invalid",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("sbom merge fails when a required flag is missing", func(ctx SpecContext) {
+		setupSbomBuildEnv()
 
-			// Create a syntactically valid mapping so validation reaches --ispras-format check.
-			mappingPath := filepath.Join(SuiteData.TmpDir, "valid_mapping_for_format_check.json")
-			writeMappingFile(mappingPath, map[string]string{
-				"app": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-			})
+		mappingPath := filepath.Join(SuiteData.TmpDir, "valid_mapping_for_flag_check.json")
+		writeMappingFile(mappingPath, map[string]string{
+			"app": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		})
 
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-			out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
-				CommonOptions: werf.CommonOptions{
-					ShouldFail: true,
-					ExtraArgs: []string{
-						"--input", mappingPath,
-						"--ispras-format", "invalid-format",
-						"--app-name", "test-product",
-						"--app-version", "1.0.0",
-						"--manufacturer", "test",
-					},
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+		out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			CommonOptions: werf.CommonOptions{
+				ShouldFail: true,
+				ExtraArgs: []string{
+					"--input", mappingPath,
+					"--ispras-format", "container",
+					// --app-name intentionally omitted
+					"--app-version", "1.0.0",
+					"--manufacturer", "test",
 				},
-			})
-			Expect(out).To(ContainSubstring("ispras-format"),
-				"expected error mentioning ispras-format; got:\n%s", out)
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-	)
-
-	DescribeTable("sbom merge fails when a required flag is missing",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
-
-			mappingPath := filepath.Join(SuiteData.TmpDir, "valid_mapping_for_flag_check.json")
-			writeMappingFile(mappingPath, map[string]string{
-				"app": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-			})
-
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
-			out := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
-				CommonOptions: werf.CommonOptions{
-					ShouldFail: true,
-					ExtraArgs: []string{
-						"--input", mappingPath,
-						"--ispras-format", "container",
-						// --app-name intentionally omitted
-						"--app-version", "1.0.0",
-						"--manufacturer", "test",
-					},
-				},
-			})
-			Expect(out).To(ContainSubstring("--app-name"),
-				"expected error mentioning missing --app-name flag; got:\n%s", out)
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-	)
+			},
+		})
+		Expect(out).To(ContainSubstring("--app-name"),
+			"expected error mentioning missing --app-name flag; got:\n%s", out)
+	})
 })
 
 func writeMappingFile(path string, mapping map[string]string) {

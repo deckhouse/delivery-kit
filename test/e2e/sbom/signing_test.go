@@ -14,94 +14,90 @@ import (
 )
 
 var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"), func() {
-	DescribeTable("build with --sign-key publishes signed sigstore bundle verifiable offline",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			By("initializing")
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("build with --sign-key publishes signed sigstore bundle verifiable offline", func(ctx SpecContext) {
+		By("initializing")
+		setupSbomBuildEnv()
 
-			repoDirname := "repo_sbom_signing"
-			SuiteData.InitTestRepo(ctx, repoDirname, "signing")
-			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+		repoDirname := "repo_sbom_signing"
+		SuiteData.InitTestRepo(ctx, repoDirname, "signing")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-signing-builder")
+		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-signing-builder")
 
-			signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir)
-			signEnv := append(builderEnv,
-				"WERF_SIGN_KEY="+signKeys.KeyPath,
-				"WERF_SIGN_CERT="+signKeys.CertPath,
-			)
+		signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir)
+		signEnv := append(builderEnv,
+			"WERF_SIGN_KEY="+signKeys.KeyPath,
+			"WERF_SIGN_CERT="+signKeys.CertPath,
+		)
 
-			By("building with --sign-key/--sign-cert")
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			reportProject := report.NewProjectWithReport(werfProject)
-			buildOut, buildReport := reportProject.BuildWithReport(ctx,
-				SuiteData.GetBuildReportPath("sbom_signing.json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}},
-			)
-			Expect(buildOut).NotTo(ContainSubstring("multi-platform SBOM signing is not yet supported"))
+		By("building with --sign-key/--sign-cert")
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		reportProject := report.NewProjectWithReport(werfProject)
+		buildOut, buildReport := reportProject.BuildWithReport(ctx,
+			SuiteData.GetBuildReportPath("sbom_signing.json"),
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}},
+		)
+		Expect(buildOut).NotTo(ContainSubstring("multi-platform SBOM signing is not yet supported"))
 
-			digest := buildReport.Images["app"].DockerImageDigest
-			Expect(digest).NotTo(BeEmpty())
+		digest := buildReport.Images["app"].DockerImageDigest
+		Expect(digest).NotTo(BeEmpty())
 
-			repo := os.Getenv("WERF_REPO")
-			Expect(repo).NotTo(BeEmpty())
+		repo := os.Getenv("WERF_REPO")
+		Expect(repo).NotTo(BeEmpty())
 
-			By("locating the bundle artifact in the fallback index")
-			bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
-			Expect(bundleDesc).NotTo(BeNil(), "no sigstore bundle artifact found in fallback index")
-			Expect(bundleDesc.Annotations[image.WerfImageNameAnnotation]).To(Equal("app"))
-			Expect(bundleDesc.Annotations[image.WerfChecksumAnnotation]).NotTo(BeEmpty())
+		By("locating the bundle artifact in the fallback index")
+		bundleDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)
+		Expect(bundleDesc).NotTo(BeNil(), "no sigstore bundle artifact found in fallback index")
+		Expect(bundleDesc.Annotations[image.WerfImageNameAnnotation]).To(Equal("app"))
+		Expect(bundleDesc.Annotations[image.WerfChecksumAnnotation]).NotTo(BeEmpty())
 
-			By("asserting no stale bare-DSSE artifact remains for the same image")
-			dsseDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.DSSEMediaType)
-			Expect(dsseDesc).To(BeNil(), "stale bare-DSSE artifact must be superseded by the bundle")
+		By("asserting no stale bare-DSSE artifact remains for the same image")
+		dsseDesc := attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.DSSEMediaType)
+		Expect(dsseDesc).To(BeNil(), "stale bare-DSSE artifact must be superseded by the bundle")
 
-			By("fetching the bundle and verifying the DSSE signature with the public key")
-			bundleJSON := attestutils.FetchArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
+		By("fetching the bundle and verifying the DSSE signature with the public key")
+		bundleJSON := attestutils.FetchArtifactLayerContent(ctx, repo, bundleDesc.Digest.String())
 
-			envelopeJSON, err := attestation.UnwrapBundle(bundleJSON)
-			Expect(err).NotTo(HaveOccurred())
+		envelopeJSON, err := attestation.UnwrapBundle(bundleJSON)
+		Expect(err).NotTo(HaveOccurred())
 
-			signed, err := attestation.HasSignatures(envelopeJSON)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(signed).To(BeTrue(), "sbom dsse envelope must be signed")
+		signed, err := attestation.HasSignatures(envelopeJSON)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(signed).To(BeTrue(), "sbom dsse envelope must be signed")
 
-			verifiers, err := attestation.LoadVerifiers([]string{signKeys.PubKeyPath})
-			Expect(err).NotTo(HaveOccurred())
+		verifiers, err := attestation.LoadVerifiers([]string{signKeys.PubKeyPath})
+		Expect(err).NotTo(HaveOccurred())
 
-			stmtBytes, err := attestation.VerifyDSSE(ctx, envelopeJSON, attestation.InTotoMediaType, verifiers)
-			Expect(err).NotTo(HaveOccurred(), "DSSE signature must verify with the signing public key")
-			Expect(string(stmtBytes)).To(ContainSubstring(`"predicateType":"https://cyclonedx.org/bom"`))
+		stmtBytes, err := attestation.VerifyDSSE(ctx, envelopeJSON, attestation.InTotoMediaType, verifiers)
+		Expect(err).NotTo(HaveOccurred(), "DSSE signature must verify with the signing public key")
+		Expect(string(stmtBytes)).To(ContainSubstring(`"predicateType":"https://cyclonedx.org/bom"`))
 
-			By("verifying the subject points to the image digest")
-			Expect(string(stmtBytes)).To(ContainSubstring(digest[len("sha256:"):]))
+		By("verifying the subject points to the image digest")
+		Expect(string(stmtBytes)).To(ContainSubstring(digest[len("sha256:"):]))
 
-			By("verifying via dk attest verify")
-			verifyOut := werfProject.AttestVerify(ctx, &werf.AttestVerifyOptions{
-				CommonOptions: werf.CommonOptions{
-					ExtraArgs: []string{
-						"--type", "cyclonedx",
-						"--key", signKeys.PubKeyPath,
-						"--repo", repo,
-						"--digest", digest,
-					},
+		By("verifying via dk attest verify")
+		verifyOut := werfProject.AttestVerify(ctx, &werf.AttestVerifyOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{
+					"--type", "cyclonedx",
+					"--key", signKeys.PubKeyPath,
+					"--repo", repo,
+					"--digest", digest,
 				},
-			})
-			Expect(verifyOut).To(ContainSubstring("CycloneDX"))
+			},
+		})
+		Expect(verifyOut).To(ContainSubstring("CycloneDX"))
 
-			By("verifying offline with real cosign when available")
-			runCosignOfflineVerify(ctx, repo, digest, signKeys.PubKeyPath)
+		By("verifying offline with real cosign when available")
+		runCosignOfflineVerify(ctx, repo, digest, signKeys.PubKeyPath)
 
-			By("rebuilding unchanged - SBOM cache hit, no re-publication")
-			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
-			Expect(rebuildOut).To(ContainSubstring("Use previously generated SBOM from registry"))
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-	)
+		By("rebuilding unchanged - SBOM cache hit, no re-publication")
+		rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
+		Expect(rebuildOut).To(ContainSubstring("Use previously generated SBOM from registry"))
+	})
 
 	It("build without key keeps legacy unsigned bare-DSSE artifact", Label("e2e", "sbom", "sbom-signing", "unsigned"), func(ctx SpecContext) {
-		setupSbomBuildEnv(setupEnvOptions{ContainerBackendMode: "vanilla-docker"})
+		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_signing_unsigned"
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing")
@@ -132,7 +128,7 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 	})
 
 	It("build with key but without cert fails", Label("e2e", "sbom", "sbom-signing", "negative"), func(ctx SpecContext) {
-		setupSbomBuildEnv(setupEnvOptions{ContainerBackendMode: "vanilla-docker"})
+		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_signing_no_cert"
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing")

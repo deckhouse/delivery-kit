@@ -2,7 +2,6 @@ package e2e_build_test
 
 import (
 	"context"
-	"runtime"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,18 +12,12 @@ import (
 )
 
 func TestSuite(t *testing.T) {
-	requiredTools := []string{"docker", "git"}
-	suiteLabels := []string{suite_init.LabelNeedsRegistry}
-	if runtime.GOOS == "linux" {
-		requiredTools = append(requiredTools, "buildah")
-		suiteLabels = append(suiteLabels, suite_init.LabelNeedsBuildah)
-	}
 	suite_init.MakeTestSuiteEntrypointFunc("E2E SBOM suite", suite_init.TestSuiteEntrypointFuncOptions{
-		RequiredSuiteTools: requiredTools,
+		RequiredSuiteTools: []string{"docker", "git"},
 		RequiredSuiteEnvs: []string{
 			"WERF_TEST_K8S_DOCKER_REGISTRY",
 		},
-		SuiteLabels: suiteLabels,
+		SuiteLabels: []string{suite_init.LabelNeedsRegistry},
 	})(t)
 }
 

@@ -25,47 +25,43 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 		mockServer.Close()
 	})
 
-	DescribeTable("three-image build with mixed PURL resolution outcomes",
-		func(ctx SpecContext, testOpts sbomTestOptions) {
-			setupSbomBuildEnv(testOpts.setupEnvOptions)
+	It("three-image build with mixed PURL resolution outcomes", func(ctx SpecContext) {
+		setupSbomBuildEnv()
 
-			// Override the external refs server URL with our custom mock that returns failures
-			// for specific packages (curl, openssl) and success for others (jq).
-			SuiteData.Stubs.SetEnv("WERF_EXTERNAL_REFS_SERVER_URL", mockServer.URL)
+		// Override the external refs server URL with our custom mock that returns failures
+		// for specific packages (curl, openssl) and success for others (jq).
+		SuiteData.Stubs.SetEnv("WERF_EXTERNAL_REFS_SERVER_URL", mockServer.URL)
 
-			repoDirname := "repo_purl_resolver_errors"
-			SuiteData.InitTestRepo(ctx, repoDirname, "purl_resolver_errors")
-			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+		repoDirname := "repo_purl_resolver_errors"
+		SuiteData.InitTestRepo(ctx, repoDirname, "purl_resolver_errors")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "purl-errors-builder")
+		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "purl-errors-builder")
 
-			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-			out, err := werfProject.BuildWithErr(ctx, &werf.BuildOptions{
-				CommonOptions: werf.CommonOptions{
-					Envs: builderEnv,
-				},
-			})
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		out, err := werfProject.BuildWithErr(ctx, &werf.BuildOptions{
+			CommonOptions: werf.CommonOptions{
+				Envs: builderEnv,
+			},
+		})
 
-			Expect(err).To(HaveOccurred(), "build should fail with aggregated PURL error")
+		Expect(err).To(HaveOccurred(), "build should fail with aggregated PURL error")
 
-			By("build output contains resolve external references format")
-			Expect(out).To(ContainSubstring("resolve external references"))
+		By("build output contains resolve external references format")
+		Expect(out).To(ContainSubstring("resolve external references"))
 
-			By("error has hierarchical format: image names prefixed with '(image)'")
-			Expect(out).To(ContainSubstring("  - image: image-fail-all"))
-			Expect(out).To(ContainSubstring("  - image: image-fail-partial"))
+		By("error has hierarchical format: image names prefixed with '(image)'")
+		Expect(out).To(ContainSubstring("  - image: image-fail-all"))
+		Expect(out).To(ContainSubstring("  - image: image-fail-partial"))
 
-			By("error lists component names of failing packages with PURL and error details")
-			Expect(out).To(ContainSubstring(`    - component: curl (pkg:generic/curl@8.12.1`))
-			Expect(out).To(ContainSubstring(`    - component: openssl (pkg:generic/openssl@3.6.2`))
-			Expect(out).To(ContainSubstring("resolve: unexpected status 404"))
+		By("error lists component names of failing packages with PURL and error details")
+		Expect(out).To(ContainSubstring(`    - component: curl (pkg:generic/curl@8.12.1`))
+		Expect(out).To(ContainSubstring(`    - component: openssl (pkg:generic/openssl@3.6.2`))
+		Expect(out).To(ContainSubstring("resolve: unexpected status 404"))
 
-			By("aggregated error does NOT contain (image) image-ok")
-			Expect(out).NotTo(ContainSubstring("image: image-ok"))
-		},
-		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
-		XEntry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),
-	)
+		By("aggregated error does NOT contain (image) image-ok")
+		Expect(out).NotTo(ContainSubstring("image: image-ok"))
+	})
 })
 
 func mockResponse(w http.ResponseWriter, purl string) {

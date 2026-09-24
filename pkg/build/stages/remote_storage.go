@@ -124,8 +124,10 @@ func (s *RemoteStorage) copyAllFromRemote(ctx context.Context, fromRemote *Remot
 			return fmt.Errorf("error copying stage %s into %s: %w", stageName, reference.FullName(), err)
 		}
 
-		if err := artifact.CopyAllAttachedArtifacts(ctx, stageDesc.Info.Repository, stageDesc.Info.GetDigest(), reference.Repo, stageDesc.Info.GetDigest()); err != nil {
-			return fmt.Errorf("error copying artifacts attached to stage %s into %s: %w", stageName, reference.Repo, err)
+		if digest := stageDesc.Info.GetDigest(); digest != "" {
+			if err := artifact.CopyAllAttachedArtifacts(ctx, stageDesc.Info.Repository, digest, reference.Repo, digest); err != nil {
+				return fmt.Errorf("error copying artifacts attached to stage %s into %s: %w", stageName, reference.Repo, err)
+			}
 		}
 	}
 

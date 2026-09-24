@@ -1,0 +1,4 @@
+FROM rust:1.78-slim
+COPY --from=golang:1.22-bookworm /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH
+LABEL io.deckhouse.internal.builder=true

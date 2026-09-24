@@ -1,0 +1,44 @@
+project: werf-test-e2e-sbom-final-repo-sweep
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: carrier
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /c
+    stageDependencies:
+      packages:
+        - Cargo.toml
+        - Cargo.lock
+packages:
+  - type: rust-cargo
+    workdir: /c
+---
+image: base
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /base
+    to: /b
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+packages:
+  - type: go-mod
+    workdir: /b
+---
+image: app
+fromImage: base
+git:
+  - add: /
+    to: /a
+import:
+  - image: carrier
+    add: /c/werf.yaml
+    to: /imported/werf.yaml
+    before: setup
+vex: vex.openvex.json

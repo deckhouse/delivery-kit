@@ -55,6 +55,10 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 	return logboek.Context(ctx).Default().LogProcess(header).DoError(func() error {
 		logboek.Context(ctx).Debug().LogF("Using checker image: %s\n", Image)
 
+		if err := ensureImage(ctx); err != nil {
+			return err
+		}
+
 		var failures []string
 		total := len(paths)
 
@@ -83,6 +87,23 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			return fmt.Errorf("%s", strings.Join(failures, "\n"))
 		}
 
+		return nil
+	})
+}
+
+func ensureImage(ctx context.Context) error {
+	exist, err := docker.ImageExist(ctx, Image)
+	if err != nil {
+		return fmt.Errorf("inspect checker image: %w", err)
+	}
+	if exist {
+		return nil
+	}
+
+	return logboek.Context(ctx).Default().LogProcess("Pulling SBOM checker image").DoError(func() error {
+		if err := docker.CliPullWithRetries(ctx, Image); err != nil {
+			return fmt.Errorf("pull checker image: %w", err)
+		}
 		return nil
 	})
 }

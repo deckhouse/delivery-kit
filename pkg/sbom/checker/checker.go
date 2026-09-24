@@ -75,6 +75,9 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			fileName := filepath.Base(p)
 
 			out, runErr := docker.CliRun_RecordedOutput(ctx, args...)
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
+			}
 
 			if err := parseResult(ctx, out, runErr, fileName, i+1, total); err != nil {
 				failures = append(failures, err.Error())
@@ -178,9 +181,7 @@ func parseResult(ctx context.Context, out string, runErr error, fileName string,
 	switch {
 	case runErr != nil:
 		details = append(details, fmt.Sprintf("checker exited with error: %s", describeRunErr(runErr)))
-		if len(findings) == 0 {
-			details = append(details, nonEmptyLines(out)...)
-		}
+		details = append(details, unprefixedLines(out)...)
 	case strings.TrimSpace(out) == "":
 		details = append(details, "checker produced no output")
 	}
@@ -221,9 +222,9 @@ func extractPrefixedLines(text, prefix string) []string {
 	return result
 }
 
-func nonEmptyLines(text string) []string {
+func unprefixedLines(text string) []string {
 	return lo.FilterMap(strings.Split(text, "\n"), func(line string, _ int) (string, bool) {
 		trimmed := strings.TrimSpace(line)
-		return trimmed, trimmed != ""
+		return trimmed, trimmed != "" && !strings.HasPrefix(trimmed, errorPrefix) && !strings.HasPrefix(trimmed, warningPrefix)
 	})
 }

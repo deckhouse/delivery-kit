@@ -80,12 +80,21 @@ var _ = Describe("checker", func() {
 			Entry("docker status error with message keeps the message",
 				"", cli.StatusError{StatusCode: 125, Status: "no such image"}, "valid.json", 1, 1,
 				MatchError(ContainSubstring("checker exited with error: no such image"))),
-			Entry("findings with non-zero exit keep findings and omit raw output",
-				"starting check\nERROR: bad field\n", errors.New("exit status 1"), "bad.json", 1, 1,
+			Entry("findings with non-zero exit keep findings once and attach the remaining output",
+				"starting check\nERROR: bad field\nTraceback (most recent call last):\nRuntimeError: boom\n", errors.New("exit status 1"), "bad.json", 1, 1,
 				MatchError(And(
 					ContainSubstring("ERROR: bad field"),
+					Not(MatchRegexp(`(?s)ERROR: bad field.*ERROR: bad field`)),
 					ContainSubstring("checker exited with error: exit status 1"),
+					ContainSubstring("starting check"),
+					ContainSubstring("RuntimeError: boom"),
+				))),
+			Entry("findings with clean exit omit the unprefixed output",
+				"starting check\nERROR: bad field\ndone\n", nil, "bad.json", 1, 1,
+				MatchError(And(
+					ContainSubstring("ERROR: bad field"),
 					Not(ContainSubstring("starting check")),
+					Not(ContainSubstring("done")),
 				))),
 		)
 	})

@@ -645,12 +645,14 @@ func (client *BundlesRegistryClientStub) PushChart(ctx context.Context, ref *bun
 type DockerRegistryStub struct {
 	docker_registry.Interface
 
-	ImagesByReference map[string][]byte
+	ImagesByReference     map[string][]byte
+	RepoImagesByReference map[string]*image.Info
 }
 
 func NewDockerRegistryStub() *DockerRegistryStub {
 	return &DockerRegistryStub{
-		ImagesByReference: make(map[string][]byte),
+		ImagesByReference:     make(map[string][]byte),
+		RepoImagesByReference: make(map[string]*image.Info),
 	}
 }
 
@@ -687,11 +689,11 @@ func (registry *DockerRegistryStub) PullImageArchive(ctx context.Context, archiv
 	return nil
 }
 
-// TryGetRepoImage reports every image as absent: the stub holds archives, not
-// registry manifests, so there are no attached artifacts to resolve and the
-// artifact-carrying step is skipped.
-func (registry *DockerRegistryStub) TryGetRepoImage(_ context.Context, _ string) (*image.Info, error) {
-	return nil, nil
+// TryGetRepoImage resolves only what a spec put into RepoImagesByReference. The
+// stub holds archives rather than registry manifests, so by default an image has
+// no digest to carry artifacts for and the artifact-carrying step is skipped.
+func (registry *DockerRegistryStub) TryGetRepoImage(_ context.Context, reference string) (*image.Info, error) {
+	return registry.RepoImagesByReference[reference], nil
 }
 
 func (registry *DockerRegistryStub) CopyImage(_ context.Context, sourceReference, destinationReference string, _ docker_registry.CopyImageOptions) error {

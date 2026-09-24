@@ -186,6 +186,19 @@ Reports contain raw test output and are not GitHub-log-secret-masked: use only
 synthetic fixture credentials, never pass real secrets to a diagnostic test.
 The collector does not dump environment variables or process command lines.
 
+The Git suite's `should set correct owner and group for /app` scenario compares
+Docker ImageList filters before its existing project purge. Each attempt performs
+three rotating rounds of `reference+label`, `reference`, and `label` queries, with
+a 90-second deadline per query and a ten-minute context for the experiment.
+`PURGE_IMAGE_LIST` JSON lines in the Ginkgo output contain the project, round,
+position, start timestamp, request/client-processing durations, raw responses,
+selected image IDs/tags/digests, StageIDs, and errors. Single-filter responses are
+filtered on the client using the missing condition and compared with the unmodified
+two-filter response; a mismatch or error fails the scenario but still runs its
+ordinary AfterEach purge. The probe does not create or delete images and must be
+excluded from ordinary test-duration comparisons. Other scenarios and the purge
+implementation are unchanged by this comparison.
+
 ### Commit message
 
 Each commit message consists of a **header** and a [**body**](#body). The header has a special format that includes a [**type**](#type), a [**scope**](#scope) and a [**subject**](#subject):

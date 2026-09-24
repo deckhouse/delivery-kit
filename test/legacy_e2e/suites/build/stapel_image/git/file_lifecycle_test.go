@@ -122,6 +122,9 @@ var _ = Describe("file lifecycle", func() {
 			[]string{},
 			cmd,
 		)
+
+		By("comparing Docker ImageList filters before project cleanup")
+		comparePurgeImageLists(ctx, SuiteData.ProjectName)
 	})
 
 	type test struct {

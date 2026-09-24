@@ -160,23 +160,24 @@ func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
 	switch hdr.Typeflag {
 	case tar.TypeSymlink:
 		// A link target must be expressed relative to the copied directory, because that is
-		// how the extracted files are laid out under destDir. A relative Linkname already is
-		// (relative to the link's own directory); an absolute one is relativized against the
-		// in-image source directory, and one pointing outside it is dropped — the target was
-		// not extracted, so the link cannot be resolved.
+		// how the extracted files are laid out under destDir. A relative Linkname is relative
+		// to the link's own directory; an absolute one is relativized against the in-image
+		// source directory. Either form may point outside the copied directory, and such a
+		// link is dropped: its target was not extracted, and anchoring the cleaned path
+		// under destDir would silently substitute an unrelated in-tree directory.
 		var target string
 		if filepath.IsAbs(hdr.Linkname) {
 			rel, err := filepath.Rel(e.srcDir, hdr.Linkname)
 			if err != nil {
 				return fmt.Errorf("relativize symlink target %q: %w", hdr.Linkname, err)
 			}
-			if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return nil
-			}
 			target = rel
 		} else {
 			linkRel := strings.TrimPrefix(hdr.Name, e.prefix)
 			target = filepath.Join(filepath.Dir(linkRel), hdr.Linkname)
+		}
+		if target == ".." || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+			return nil
 		}
 		e.symlinks[e.rebase(hdr.Name)] = filepath.Join(e.destDir, filepath.Clean("/"+target))
 		return nil
@@ -205,15 +206,17 @@ func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
 }
 
 // resolveSymlinks materializes each recorded symlink whose target is an extracted
-// directory by copying the target's files under the link path. Links to files, to
-// nothing, or to paths outside destDir are left out.
+// directory by copying the target's files under the link path. A target that is itself a
+// recorded link is followed through the link graph first, so a chain resolves regardless
+// of the order links were recorded in; a cycle, a link to a file, to nothing, or to a
+// path outside destDir is left out.
 func (e *dirTarExtractor) resolveSymlinks() error {
-	for linkPath, target := range e.symlinks {
-		info, err := os.Stat(target)
-		if err != nil || !info.IsDir() {
+	for linkPath := range e.symlinks {
+		target, ok := e.resolveTarget(linkPath, map[string]struct{}{})
+		if !ok {
 			continue
 		}
-		err = filepath.WalkDir(target, func(srcPath string, d fs.DirEntry, err error) error {
+		err := filepath.WalkDir(target, func(srcPath string, d fs.DirEntry, err error) error {
 			if err != nil || !d.Type().IsRegular() {
 				return err
 			}
@@ -236,6 +239,27 @@ func (e *dirTarExtractor) resolveSymlinks() error {
 		}
 	}
 	return nil
+}
+
+// resolveTarget follows linkPath through recorded links until it reaches a path that is
+// not a link, and reports that path if it is an extracted directory. active holds the
+// links on the current chain so a cycle terminates instead of recursing forever.
+func (e *dirTarExtractor) resolveTarget(linkPath string, active map[string]struct{}) (string, bool) {
+	if _, seen := active[linkPath]; seen {
+		return "", false
+	}
+	active[linkPath] = struct{}{}
+
+	target := e.symlinks[linkPath]
+	if _, isLink := e.symlinks[target]; isLink {
+		return e.resolveTarget(target, active)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return target, true
 }
 
 // matchesAnyFileNamePattern reports whether name matches one of the shell patterns,

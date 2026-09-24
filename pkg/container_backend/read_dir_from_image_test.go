@@ -146,6 +146,61 @@ var _ = Describe("dirTarExtractor", func() {
 		Expect(os.IsNotExist(err)).To(BeTrue(), "a link escaping the tree must not pull in host files")
 	})
 
+	It("drops a relative symlink escaping the tree instead of rebasing it onto an in-tree directory", func() {
+		// /app/node_modules/is-number -> ../store/is-number really points at
+		// /app/store/is-number, which was not copied. Cleaning "../store/is-number" under
+		// an anchored root would turn it into the unrelated in-tree
+		// node_modules/store/is-number and report that package's license instead.
+		destDir := GinkgoT().TempDir()
+		tr := buildTar([]entry{
+			{name: "node_modules/is-number", typeflag: tar.TypeSymlink, linkname: "../store/is-number"},
+			{name: "node_modules/store/is-number/package.json", typeflag: tar.TypeReg, content: `{"name":"is-number","license":"Apache-2.0"}`},
+		})
+
+		extractAll(tr, destDir, []string{"package.json"})
+
+		_, err := os.Stat(filepath.Join(destDir, "is-number"))
+		Expect(os.IsNotExist(err)).To(BeTrue(), "an escaping link must not be substituted with the colliding in-tree directory")
+		_, err = os.Stat(filepath.Join(destDir, "store", "is-number", "package.json"))
+		Expect(err).To(Succeed(), "the genuine in-tree manifest is still extracted at its own path")
+	})
+
+	It("resolves a chain of directory symlinks regardless of the order links were recorded", func() {
+		// is-number -> alias -> .store/is-number. Resolving links in a single pass over an
+		// unordered set would skip is-number whenever it is visited before alias has been
+		// materialized, so the outcome depended on iteration order. Repeat to cover orders.
+		for i := 0; i < 20; i++ {
+			destDir := GinkgoT().TempDir()
+			tr := buildTar([]entry{
+				{name: "node_modules/is-number", typeflag: tar.TypeSymlink, linkname: "alias"},
+				{name: "node_modules/alias", typeflag: tar.TypeSymlink, linkname: ".store/is-number"},
+				{name: "node_modules/.store/is-number/package.json", typeflag: tar.TypeReg, content: `{"name":"is-number","license":"MIT"}`},
+			})
+
+			extractAll(tr, destDir, []string{"package.json"})
+
+			manifest, err := os.ReadFile(filepath.Join(destDir, "is-number", "package.json"))
+			Expect(err).To(Succeed(), "iteration %d: the head of the chain must resolve to the stored manifest", i)
+			Expect(string(manifest)).To(ContainSubstring(`"license":"MIT"`))
+		}
+	})
+
+	It("terminates on a symlink cycle without materializing either link", func() {
+		destDir := GinkgoT().TempDir()
+		tr := buildTar([]entry{
+			{name: "node_modules/a", typeflag: tar.TypeSymlink, linkname: "b"},
+			{name: "node_modules/b", typeflag: tar.TypeSymlink, linkname: "a"},
+			{name: "node_modules/x/package.json", typeflag: tar.TypeReg, content: "{}"},
+		})
+
+		extractAll(tr, destDir, []string{"package.json"})
+
+		for _, p := range []string{"a", "b"} {
+			_, err := os.Stat(filepath.Join(destDir, p))
+			Expect(os.IsNotExist(err)).To(BeTrue(), "link %s in a cycle resolves to nothing", p)
+		}
+	})
+
 	It("extracts every regular file when no name filter is given", func() {
 		destDir := GinkgoT().TempDir()
 		tr := buildTar([]entry{

@@ -51,7 +51,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		result.Components = nil
 	}
 
-	result.Metadata = buildProductMetadata(meta)
+	result.Metadata = buildProductMetadata(meta, aggregateSourceLangs(images))
 
 	return result, nil
 }

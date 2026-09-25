@@ -43,6 +43,10 @@ type PackageEcosystem struct {
 	DefaultLockFile string
 	InstallCmd      func(workdir string, files FileBasedSpec, pkgs []string, env map[string]string) string
 	CatalogerName   string
+	// SourceLang is the source language of the packages this ecosystem installs, as
+	// reported in the GOST:source_langs property. Empty when the ecosystem installs
+	// packages of an arbitrary language: os-pm distributes prebuilt binaries.
+	SourceLang string
 }
 
 var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
@@ -54,6 +58,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s mod download", managerBin(files, "go")), env)
 		},
 		CatalogerName: "go-module-file-cataloger",
+		SourceLang:    "Go",
 	},
 	PackagesDirectiveTypePythonUV: {
 		Type:            PackagesDirectiveTypePythonUV,
@@ -63,6 +68,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s sync --frozen", managerBin(files, "uv")), env)
 		},
 		CatalogerName: "python-package-cataloger",
+		SourceLang:    "Python",
 	},
 	PackagesDirectiveTypePythonPip: {
 		Type:            PackagesDirectiveTypePythonPip,
@@ -72,6 +78,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "pip"), files.Spec), env)
 		},
 		CatalogerName: "python-package-cataloger",
+		SourceLang:    "Python",
 	},
 	PackagesDirectiveTypePythonPoetry: {
 		Type:            PackagesDirectiveTypePythonPoetry,
@@ -81,6 +88,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s sync --no-root", managerBin(files, "poetry")), env)
 		},
 		CatalogerName: "python-package-cataloger",
+		SourceLang:    "Python",
 	},
 	PackagesDirectiveTypeRustCargo: {
 		Type:            PackagesDirectiveTypeRustCargo,
@@ -90,6 +98,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s fetch", managerBin(files, "cargo")), env)
 		},
 		CatalogerName: "rust-cargo-lock-cataloger",
+		SourceLang:    "Rust",
 	},
 	PackagesDirectiveTypeJavaScriptNpm: {
 		Type:            PackagesDirectiveTypeJavaScriptNpm,
@@ -99,6 +108,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s ci", managerBin(files, "npm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		SourceLang:    "JavaScript",
 	},
 	PackagesDirectiveTypeJavaScriptYarn: {
 		Type:            PackagesDirectiveTypeJavaScriptYarn,
@@ -108,6 +118,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "yarn")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		SourceLang:    "JavaScript",
 	},
 	PackagesDirectiveTypeJavaScriptPnpm: {
 		Type:            PackagesDirectiveTypeJavaScriptPnpm,
@@ -117,6 +128,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		SourceLang:    "JavaScript",
 	},
 	PackagesDirectiveTypeLuaRock: {
 		Type:            PackagesDirectiveTypeLuaRock,
@@ -126,6 +138,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --only-deps %q", managerBin(files, "luarocks"), files.Spec), env)
 		},
 		CatalogerName: "lua-rock-cataloger",
+		SourceLang:    "Lua",
 	},
 	PackagesDirectiveTypeOSPM: {
 		Type:            PackagesDirectiveTypeOSPM,

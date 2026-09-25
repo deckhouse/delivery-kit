@@ -16,5 +16,6 @@ type Cataloger struct {
 	Name        string
 	FilterMode  CatalogerFilterMode
 	SourcePaths []string
+	SourceLang  string
 	Workdir     string
 }

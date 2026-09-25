@@ -30,12 +30,11 @@ func (a *accessor) SetSecurityFunction(val GostValue) {
 }
 
 func (a *accessor) getProperty(name string) (GostValue, bool) {
-	for _, prop := range lo.FromPtr(a.comp.Properties) {
-		if prop.Name == name {
-			return GostValue(prop.Value), true
-		}
+	raw, found := a.getRawProperty(name)
+	if !found {
+		return GostValueUndefined, false
 	}
-	return GostValueUndefined, false
+	return GostValue(raw), true
 }
 
 func (a *accessor) setProperty(name string, val GostValue) {
@@ -43,10 +42,23 @@ func (a *accessor) setProperty(name string, val GostValue) {
 		return
 	}
 
+	a.setRawProperty(name, val.String())
+}
+
+func (a *accessor) getRawProperty(name string) (string, bool) {
+	for _, prop := range lo.FromPtr(a.comp.Properties) {
+		if prop.Name == name {
+			return prop.Value, true
+		}
+	}
+	return "", false
+}
+
+func (a *accessor) setRawProperty(name, value string) {
 	// update case
 	for i, prop := range lo.FromPtr(a.comp.Properties) {
 		if prop.Name == name {
-			(*a.comp.Properties)[i].Value = val.String()
+			(*a.comp.Properties)[i].Value = value
 			return
 		}
 	}
@@ -58,6 +70,6 @@ func (a *accessor) setProperty(name string, val GostValue) {
 	// insert case
 	*a.comp.Properties = append(*a.comp.Properties, cdx.Property{
 		Name:  name,
-		Value: val.String(),
+		Value: value,
 	})
 }

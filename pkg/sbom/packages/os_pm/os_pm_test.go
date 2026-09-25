@@ -6,6 +6,8 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
 
 const testContainerFactoryVersion = "v1.0.0-test"
@@ -32,6 +34,7 @@ var examplePmInstalledJSON = []byte(`{
     "license": "curl",
     "originalRepo": "https://github.com/curl/curl",
     "repo": "curl/curl",
+    "srcLanguages": ["C"],
     "type": "runtime",
     "version": "8.12.1",
     "digest": "sha256:6f2108c511daa7c46ace9879c0d9bbef2573fb5fd88bee5fad745d96ceda081d"
@@ -106,6 +109,7 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 		Expect(curl.License).To(Equal("curl"))
 		Expect(curl.Digest).To(Equal("sha256:6f2108c511daa7c46ace9879c0d9bbef2573fb5fd88bee5fad745d96ceda081d"))
 		Expect(curl.Depends).To(ConsistOf("brotli", "libpsl"))
+		Expect(curl.SrcLanguages).To(Equal([]string{"C"}))
 	})
 
 	It("should parse jq package fields correctly", func() {
@@ -186,6 +190,18 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		Entry("libpsl", "libpsl"),
 		Entry("libunistring", "libunistring"),
 	)
+
+	It("should set source languages only for packages that declare them", func() {
+		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
+		Expect(err).To(Succeed())
+
+		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
+
+		curl := goldenComponent(bom, "curl")
+		Expect(gost.GetComponentSourceLangs(&curl)).To(Equal([]string{"C"}))
+		brotli := goldenComponent(bom, "brotli")
+		Expect(gost.GetComponentSourceLangs(&brotli)).To(BeNil())
+	})
 
 	It("should set licenses from package info", func() {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)

@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/werf/werf/v2/pkg/config"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v2/pkg/sbom/scanner"
 )
 
@@ -61,8 +62,8 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}, Workdir: "/app/api"},
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/cli/go.mod", "/app/cli/go.sum"}, Workdir: "/app/cli"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}, SourceLang: "Go", Workdir: "/app/api"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/cli/go.mod", "/app/cli/go.sum"}, SourceLang: "Go", Workdir: "/app/cli"},
 			},
 		),
 
@@ -98,7 +99,7 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go", Workdir: "/app"},
 			},
 		),
 
@@ -146,7 +147,7 @@ var _ = Describe("FilterBOMBySourcePaths", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}, Workdir: "/app/api"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/api/go.mod", "/app/api/go.sum"}, SourceLang: "Go", Workdir: "/app/api"},
 			},
 			[]string{"github.com/foo/bar"},
 		),
@@ -167,6 +168,21 @@ var _ = Describe("FilterBOMBySourcePaths", func() {
 			[]string(nil),
 		),
 	)
+
+	It("stamps a kept component with the source language of the matching cataloger", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{Name: "github.com/foo/bar", Properties: goModProps("/app/api/go.mod")},
+			},
+		}
+
+		FilterBOMBySourcePaths(bom, []scanner.Cataloger{
+			{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/api/go.mod"}, SourceLang: "Go", Workdir: "/app/api"},
+		})
+
+		Expect(*bom.Components).To(HaveLen(1))
+		Expect(gost.GetComponentSourceLangs(&(*bom.Components)[0])).To(Equal([]string{"Go"}))
+	})
 })
 
 var _ = Describe("ToCatalogers rust", func() {
@@ -183,7 +199,7 @@ var _ = Describe("ToCatalogers rust", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, SourceLang: "Rust", Workdir: "/app"},
 			},
 		),
 
@@ -195,7 +211,7 @@ var _ = Describe("ToCatalogers rust", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/service/Cargo.toml", "/src/service/Cargo.lock"}, Workdir: "/src/service"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/service/Cargo.toml", "/src/service/Cargo.lock"}, SourceLang: "Rust", Workdir: "/src/service"},
 			},
 		),
 
@@ -211,8 +227,8 @@ var _ = Describe("ToCatalogers rust", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/lib/Cargo.toml", "/lib/Cargo.lock"}, Workdir: "/lib"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, SourceLang: "Rust", Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/lib/Cargo.toml", "/lib/Cargo.lock"}, SourceLang: "Rust", Workdir: "/lib"},
 			},
 		),
 	)
@@ -232,7 +248,7 @@ var _ = Describe("ToCatalogers javascript", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 		),
 
@@ -244,7 +260,7 @@ var _ = Describe("ToCatalogers javascript", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/yarn.lock"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/yarn.lock"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 		),
 
@@ -256,7 +272,7 @@ var _ = Describe("ToCatalogers javascript", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/pnpm-lock.yaml"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/pnpm-lock.yaml"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 		),
 
@@ -268,7 +284,7 @@ var _ = Describe("ToCatalogers javascript", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/web/package.json", "/src/web/package-lock.json"}, Workdir: "/src/web"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/web/package.json", "/src/web/package-lock.json"}, SourceLang: "JavaScript", Workdir: "/src/web"},
 			},
 		),
 
@@ -284,8 +300,8 @@ var _ = Describe("ToCatalogers javascript", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/sdk/package.json", "/sdk/pnpm-lock.yaml"}, Workdir: "/sdk"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, SourceLang: "JavaScript", Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/sdk/package.json", "/sdk/pnpm-lock.yaml"}, SourceLang: "JavaScript", Workdir: "/sdk"},
 			},
 		),
 	)
@@ -305,7 +321,7 @@ var _ = Describe("ToCatalogers lua", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, SourceLang: "Lua", Workdir: "/app"},
 			},
 		),
 
@@ -317,7 +333,7 @@ var _ = Describe("ToCatalogers lua", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/rockspecs/app-0.1-1.rockspec"}, Workdir: "/src"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/src/rockspecs/app-0.1-1.rockspec"}, SourceLang: "Lua", Workdir: "/src"},
 			},
 		),
 
@@ -333,8 +349,8 @@ var _ = Describe("ToCatalogers lua", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/lib/lib-2.0-1.rockspec"}, Workdir: "/lib"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, SourceLang: "Lua", Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/lib/lib-2.0-1.rockspec"}, SourceLang: "Lua", Workdir: "/lib"},
 			},
 		),
 	)
@@ -354,7 +370,7 @@ var _ = Describe("ToCatalogers python", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/requirements.txt"}, Workdir: "/app"},
+				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/requirements.txt"}, SourceLang: "Python", Workdir: "/app"},
 			},
 		),
 
@@ -366,7 +382,7 @@ var _ = Describe("ToCatalogers python", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
+				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, SourceLang: "Python", Workdir: "/app"},
 			},
 		),
 
@@ -378,7 +394,7 @@ var _ = Describe("ToCatalogers python", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, Workdir: "/svc"},
+				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, SourceLang: "Python", Workdir: "/svc"},
 			},
 		),
 	)
@@ -416,7 +432,7 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, Workdir: "/app"},
+				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/pyproject.toml", "/app/uv.lock"}, SourceLang: "Python", Workdir: "/app"},
 			},
 			[]string{"requests"},
 		),
@@ -429,7 +445,7 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/requirements.txt"}, Workdir: "/app"},
+				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/requirements.txt"}, SourceLang: "Python", Workdir: "/app"},
 			},
 			[]string{"requests"},
 		),
@@ -442,7 +458,7 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, Workdir: "/svc"},
+				{Name: "python-package-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/svc/pyproject.toml", "/svc/poetry.lock"}, SourceLang: "Python", Workdir: "/svc"},
 			},
 			[]string{"requests"},
 		),
@@ -455,7 +471,7 @@ var _ = Describe("FilterBOMBySourcePaths python declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go", Workdir: "/app"},
 			},
 			[]string{"github.com/foo/bar"},
 		),
@@ -500,7 +516,7 @@ var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, SourceLang: "Rust", Workdir: "/app"},
 			},
 			[]string{"anyhow"},
 		),
@@ -513,7 +529,7 @@ var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, SourceLang: "Rust", Workdir: "/app"},
 			},
 			[]string{"anyhow"},
 		),
@@ -526,7 +542,7 @@ var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/Cargo.toml", "/app/Cargo.lock"}, SourceLang: "Rust", Workdir: "/app"},
 			},
 			[]string{"anyhow"},
 		),
@@ -539,8 +555,8 @@ var _ = Describe("FilterBOMBySourcePaths rust-cargo declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
-				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/crate/Cargo.toml", "/crate/Cargo.lock"}, Workdir: "/crate"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go", Workdir: "/app"},
+				{Name: "rust-cargo-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/crate/Cargo.toml", "/crate/Cargo.lock"}, SourceLang: "Rust", Workdir: "/crate"},
 			},
 			[]string{"github.com/foo/bar", "anyhow"},
 		),
@@ -585,7 +601,7 @@ var _ = Describe("FilterBOMBySourcePaths javascript declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 			[]string{"lodash"},
 		),
@@ -598,7 +614,7 @@ var _ = Describe("FilterBOMBySourcePaths javascript declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/yarn.lock"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/yarn.lock"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 			[]string{"lodash"},
 		),
@@ -611,7 +627,7 @@ var _ = Describe("FilterBOMBySourcePaths javascript declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/pnpm-lock.yaml"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/pnpm-lock.yaml"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 			[]string{"lodash"},
 		),
@@ -624,7 +640,7 @@ var _ = Describe("FilterBOMBySourcePaths javascript declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 			[]string{"lodash"},
 		),
@@ -637,8 +653,8 @@ var _ = Describe("FilterBOMBySourcePaths javascript declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
-				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, Workdir: "/app"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go", Workdir: "/app"},
+				{Name: "javascript-lock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/package.json", "/app/package-lock.json"}, SourceLang: "JavaScript", Workdir: "/app"},
 			},
 			[]string{"github.com/foo/bar", "lodash"},
 		),
@@ -683,7 +699,7 @@ var _ = Describe("FilterBOMBySourcePaths lua-rock declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, SourceLang: "Lua", Workdir: "/app"},
 			},
 			[]string{"app"},
 		),
@@ -696,7 +712,7 @@ var _ = Describe("FilterBOMBySourcePaths lua-rock declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/app-0.1-1.rockspec"}, SourceLang: "Lua", Workdir: "/app"},
 			},
 			[]string{"app"},
 		),
@@ -709,8 +725,8 @@ var _ = Describe("FilterBOMBySourcePaths lua-rock declared", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, Workdir: "/app"},
-				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/rock/app-0.1-1.rockspec"}, Workdir: "/rock"},
+				{Name: "go-module-file-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/app/go.mod", "/app/go.sum"}, SourceLang: "Go", Workdir: "/app"},
+				{Name: "lua-rock-cataloger", FilterMode: scanner.CatalogerFilterExactPath, SourcePaths: []string{"/rock/app-0.1-1.rockspec"}, SourceLang: "Lua", Workdir: "/rock"},
 			},
 			[]string{"github.com/foo/bar", "app"},
 		),

@@ -209,6 +209,46 @@ var _ = Describe("Gost SBOM setter", func() {
 			},
 			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
 			map[string]GostValue{"a": GostValueYes, "b": GostValueYes}),
+		Entry("a cycle nothing else depends on is a root",
+			&cdx.BOM{
+				Components: &[]cdx.Component{{BOMRef: "libc"}, {BOMRef: "libgcc"}, {BOMRef: "zlib"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "libc", Dependencies: &[]string{"libgcc", "zlib"}},
+					{Ref: "libgcc", Dependencies: &[]string{"libc"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{
+				"libc":   GostValueYes,
+				"libgcc": GostValueYes,
+				"zlib":   GostValueIndirect,
+			}),
+		Entry("a cycle another component depends on is demoted as a whole",
+			&cdx.BOM{
+				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "libc"}, {BOMRef: "libgcc"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "curl", Dependencies: &[]string{"libc"}},
+					{Ref: "libc", Dependencies: &[]string{"libgcc"}},
+					{Ref: "libgcc", Dependencies: &[]string{"libc"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{
+				"curl":   GostValueYes,
+				"libc":   GostValueIndirect,
+				"libgcc": GostValueIndirect,
+			}),
+		Entry("a cycle longer than two components stays one root",
+			&cdx.BOM{
+				Components: &[]cdx.Component{{BOMRef: "a"}, {BOMRef: "b"}, {BOMRef: "c"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "a", Dependencies: &[]string{"b"}},
+					{Ref: "b", Dependencies: &[]string{"c"}},
+					{Ref: "c", Dependencies: &[]string{"a"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{"a": GostValueYes, "b": GostValueYes, "c": GostValueYes}),
 		Entry("indirect applies to the whole tree, roots included",
 			&cdx.BOM{
 				Components:   &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "openssl"}},

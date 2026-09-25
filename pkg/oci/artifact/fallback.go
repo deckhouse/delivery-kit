@@ -321,7 +321,7 @@ func ListUnregenerableArtifacts(ctx context.Context, repo, parentDigest string, 
 		return nil, fmt.Errorf("read fallback index manifest: %w", err)
 	}
 
-	var types []string
+	var predicateTypes []string
 	for _, desc := range im.Manifests {
 		if desc.ArtifactType == "" || desc.Annotations[image.WerfChecksumAnnotation] != "" {
 			continue
@@ -330,10 +330,10 @@ func ListUnregenerableArtifacts(ctx context.Context, repo, parentDigest string, 
 		if predicateType == "" {
 			predicateType = desc.ArtifactType
 		}
-		types = append(types, predicateType)
+		predicateTypes = append(predicateTypes, predicateType)
 	}
 
-	return lo.Uniq(types), nil
+	return lo.Uniq(predicateTypes), nil
 }
 
 func multipleArtifactEntriesWarning(parentDigest string, matches []v1.Descriptor) string {

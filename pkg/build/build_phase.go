@@ -734,8 +734,6 @@ func (phase *BuildPhase) propagateArtifacts(ctx context.Context) error {
 			continue
 		}
 
-		// An image built out of no stages has no descriptor and nothing attached to
-		// propagate.
 		stageDesc := images[0].GetContentTagDesc()
 		if stageDesc == nil {
 			continue

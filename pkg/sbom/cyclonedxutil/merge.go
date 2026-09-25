@@ -16,6 +16,18 @@ type MergeOpts struct {
 	BaseBOM    *cdx.BOM
 	ImportBOMs []*cdx.BOM
 	Gost       gost.Config
+	// PreserveBOMRefs keeps the BOM refs of the merged BOMs instead of deriving
+	// new ones. Set it when the caller has already made the refs unique across
+	// the merged BOMs and keeps documents that refer to them.
+	PreserveBOMRefs bool
+	// IsolateComponents keeps the components of every merged BOM apart instead
+	// of collapsing equal ones into a single entry. Each BOM is canonicalized on
+	// its own beforehand, so duplicates within one BOM still merge. Set it when
+	// the components of a BOM describe the contents of one thing among several
+	// — a container per image — and a package of one must not become a package
+	// of another. Services are merged across the BOMs either way: a service is
+	// infrastructure several images talk to rather than content of one of them.
+	IsolateComponents bool
 }
 
 func (o MergeOpts) IsEmpty() bool {
@@ -42,6 +54,27 @@ func (o MergeOpts) mergeOrder(target *cdx.BOM) []*cdx.BOM {
 	return boms
 }
 
+// CloneBOM deep copies a BOM so that merging never rewrites the refs of the
+// BOMs it merges: base and import BOMs are reused across the images of a single
+// build, and a BOM mutated by one merge cannot be merged correctly again.
+func CloneBOM(bom *cdx.BOM) (*cdx.BOM, error) {
+	if bom == nil {
+		return nil, nil
+	}
+
+	data, err := json.Marshal(bom)
+	if err != nil {
+		return nil, fmt.Errorf("marshal BOM: %w", err)
+	}
+
+	var clone cdx.BOM
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return nil, fmt.Errorf("unmarshal BOM: %w", err)
+	}
+
+	return &clone, nil
+}
+
 func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	if err := validateBOMSpecVersions(target, opts); err != nil {
 		return nil, err
@@ -49,11 +82,24 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 	result := NewBOM()
 
-	if target != nil && target.Metadata != nil {
-		result.Metadata = target.Metadata
+	boms := opts.mergeOrder(target)
+	for i := range boms {
+		clone, err := CloneBOM(boms[i])
+		if err != nil {
+			return nil, fmt.Errorf("clone BOM for merge: %w", err)
+		}
+		boms[i] = clone
+
+		linkSelfReferences(boms[i])
+
+		if opts.IsolateComponents {
+			Canonicalize(boms[i])
+		}
 	}
 
-	boms := opts.mergeOrder(target)
+	if merged := boms[len(boms)-1]; merged != nil && merged.Metadata != nil {
+		result.Metadata = merged.Metadata
+	}
 
 	result.Components = mergeComponents(boms)
 	result.Services = mergeServices(boms)
@@ -66,11 +112,35 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	result.Formulation = mergeFormulation(boms)
 	result.Declarations = mergeDeclarations(boms)
 
-	ensureUniqueBOMRefs(result)
+	if opts.IsolateComponents {
+		refMap := map[string]string{}
+		result.Services = canonicalizeServices(result.Services, refMap)
+		result.Vulnerabilities = canonicalizeVulnerabilities(result.Vulnerabilities, refMap)
+		RewriteRefs(result, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(result))))
+		CanonicalizeDocument(result)
+	} else {
+		Canonicalize(result)
+	}
 
-	DedupBOM(result)
+	if !opts.PreserveBOMRefs {
+		ensureUniqueBOMRefs(result)
+	}
 
 	return result, nil
+}
+
+// linkSelfReferences turns a reference to the serial number of bom into a
+// BOM-Link to that document. The merged BOM gets a serial of its own, so a
+// reference to the serial of an input would otherwise name nothing and be
+// dropped as dangling, losing what the input said about itself.
+func linkSelfReferences(bom *cdx.BOM) {
+	if bom == nil || !strings.HasPrefix(bom.SerialNumber, "urn:uuid:") {
+		return
+	}
+
+	RewriteRefs(bom, map[string]string{
+		bom.SerialNumber: fmt.Sprintf("urn:cdx:%s/%d", strings.TrimPrefix(bom.SerialNumber, "urn:uuid:"), bom.Version),
+	})
 }
 
 func mergeComponents(boms []*cdx.BOM) *[]cdx.Component {

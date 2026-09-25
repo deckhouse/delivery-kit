@@ -2146,7 +2146,48 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 }
 
 func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, error) {
+	importImages, err := phase.resolveImportImages(ctx, img)
+	if err != nil {
+		return nil, err
+	}
+
 	var importImageSboms []*cdx.BOM
+
+	for _, importImage := range importImages {
+		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importImage.lookupName, importImage.info)
+		if err != nil {
+			if errors.Is(err, ErrSbomNotRequired) {
+				continue
+			}
+			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
+		}
+		importImageSboms = append(importImageSboms, importImageSbom)
+	}
+
+	return importImageSboms, nil
+}
+
+type importSBOMKey struct {
+	repository string
+	digest     string
+	lookupName string
+}
+
+type resolvedImportImage struct {
+	imageName  string
+	lookupName string
+	info       *imagePkg.Info
+}
+
+// resolveImportImages resolves every import source of the image to its image info,
+// keeping a single entry per SBOM artifact it would read: an image imported by
+// several import directives has one SBOM, and pulling and merging it more than once
+// would only duplicate the components it contributes. The lookup name is part of
+// that identity because two internal images can share a digest while their SBOM
+// artifacts are told apart by the werf image name they are annotated with.
+func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Image) ([]resolvedImportImage, error) {
+	var result []resolvedImportImage
+	seenImages := make(map[importSBOMKey]struct{})
 
 	for _, importInfo := range img.GetImportImagesInfo() {
 		if !importInfo.ExternalImage {
@@ -2186,17 +2227,26 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			importLookupName = importInfo.ImageName
 		}
 
-		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importLookupName, importImageInfo)
-		if err != nil {
-			if errors.Is(err, ErrSbomNotRequired) {
+		if digest := importImageInfo.GetDigest(); digest != "" {
+			key := importSBOMKey{
+				repository: importImageInfo.Repository,
+				digest:     digest,
+				lookupName: importLookupName,
+			}
+			if _, seen := seenImages[key]; seen {
 				continue
 			}
-			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importInfo.ImageName, err)
+			seenImages[key] = struct{}{}
 		}
-		importImageSboms = append(importImageSboms, importImageSbom)
+
+		result = append(result, resolvedImportImage{
+			imageName:  importInfo.ImageName,
+			lookupName: importLookupName,
+			info:       importImageInfo,
+		})
 	}
 
-	return importImageSboms, nil
+	return result, nil
 }
 
 func (phase *BuildPhase) Clone() Phase {

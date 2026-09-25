@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -195,7 +197,8 @@ func PullAndParseImages(ctx context.Context, repo string, mapping map[string]str
 	logboek.Context(ctx).Default().LogF("Pulling SBOMs: %d image(s)\n", total)
 
 	idx := 0
-	for imageName, imageDigest := range mapping {
+	for _, imageName := range slices.Sorted(maps.Keys(mapping)) {
+		imageDigest := mapping[imageName]
 		idx++
 
 		err := logboek.Context(ctx).Default().

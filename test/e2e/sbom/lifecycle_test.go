@@ -8,6 +8,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/test/pkg/report"
@@ -59,10 +60,14 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			)
 
 			mapping := map[string]string{}
+			imageBOMs := map[string]*cdx.BOM{}
 			for name, rec := range buildReport.Images {
 				Expect(rec.DockerImageDigest).NotTo(BeEmpty(),
 					"image %q has no digest in build report", name)
 				mapping[name] = rec.DockerImageDigest
+				imageBOMs[name] = sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+					CommonOptions: werf.CommonOptions{ExtraArgs: []string{name}, Envs: builderEnv},
+				}))
 			}
 			Expect(mapping).To(HaveLen(2), "expected exactly 2 images in build report")
 
@@ -98,6 +103,21 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			// and does NOT carry GOST — hence AssertGostPropertyOnComponents (not AssertGostProperty).
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
+
+			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")
+			sbomtest.AssertDependsOn(merged,
+				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
+				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6")
+			sbomtest.AssertDependencyGraphResolves(merged)
+			for name, imageBOM := range imageBOMs {
+				rootRef := imageBOM.Metadata.Component.BOMRef
+				sbomtest.AssertKeepsDependencyEdges(merged, imageBOM, func(ref string) string {
+					if ref == rootRef {
+						return lo.Ternary(isprasFormat == "container", name, "")
+					}
+					return lo.Ternary(isprasFormat == "container", name+"/"+ref, ref)
+				})
+			}
 		},
 		Entry("container format", "container"),
 		Entry("oss format", "oss"),

@@ -25,10 +25,10 @@ var _ = Describe("aggregateGOST", func() {
 		Entry("empty", nil, GOSTValues{}),
 		Entry("flat list",
 			[]cdx.Component{
-				withGOST("a", gost.GostValueNo, gost.GostValueIndirect),
+				withGOST("a", gost.GostValueNo, gost.GostValueYes),
 				withGOST("b", gost.GostValueIndirect, gost.GostValueNo),
 			},
-			GOSTValues{AttackSurface: gost.GostValueIndirect, SecurityFunction: gost.GostValueIndirect}),
+			GOSTValues{AttackSurface: gost.GostValueIndirect, SecurityFunction: gost.GostValueYes}),
 		Entry("higher value only in a grandchild",
 			[]cdx.Component{
 				withGOST("parent", gost.GostValueNo, gost.GostValueNo,
@@ -41,9 +41,9 @@ var _ = Describe("aggregateGOST", func() {
 		Entry("fields are aggregated independently",
 			[]cdx.Component{
 				withGOST("parent", gost.GostValueYes, gost.GostValueNo,
-					withGOST("child", gost.GostValueNo, gost.GostValueIndirect),
+					withGOST("child", gost.GostValueNo, gost.GostValueYes),
 				),
 			},
-			GOSTValues{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueIndirect}),
+			GOSTValues{AttackSurface: gost.GostValueYes, SecurityFunction: gost.GostValueYes}),
 	)
 })

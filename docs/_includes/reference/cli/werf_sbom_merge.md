@@ -11,7 +11,7 @@ Two ISPRAS-defined output formats are supported:
 - `container`: hierarchical — each image becomes a top-level container component with nested packages.
 - `oss`: flat — all packages from all images are merged into a deduplicated flat list.
 
-GOST properties (`attack_surface`, `security_function`) are aggregated bottom-up using the `yes > indirect > no` precedence rule.
+GOST properties are aggregated bottom-up: `attack_surface` with the `yes > indirect > no` precedence rule, `security_function` with `yes > no`.
 
 The flags `--input`, `--ispras-format`, `--app-name`, `--app-version` and `--manufacturer` are required. The merged SBOM is written to stdout unless `--output` is given.
 

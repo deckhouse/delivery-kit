@@ -7,7 +7,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
-	"github.com/werf/werf/v2/pkg/sbom/externalref"
+	"github.com/werf/werf/v3/pkg/sbom/externalref"
 )
 
 // componentEnrichError produces the real error an image gets when enrichment

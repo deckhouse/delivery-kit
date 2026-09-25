@@ -7,18 +7,18 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/vex"
-	"github.com/werf/werf/v2/test/pkg/attestutils"
-	"github.com/werf/werf/v2/test/pkg/report"
-	"github.com/werf/werf/v2/test/pkg/utils"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/vex"
+	"github.com/werf/werf/v3/test/pkg/attestutils"
+	"github.com/werf/werf/v3/test/pkg/report"
+	"github.com/werf/werf/v3/test/pkg/utils"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing", "simple"), func() {
 	It("US2: keeps both artifacts independently published, listed and superseded", func(ctx SpecContext) {
 		By("initializing")
-		setupSbomBuildEnv(setupEnvOptions{ContainerBackendMode: "vanilla-docker"})
+		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_vex_coexistence"
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing_vex")

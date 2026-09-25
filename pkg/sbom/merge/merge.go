@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/opencontainers/go-digest"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
-	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
-	"github.com/werf/werf/v2/pkg/sbom/ispras"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
 type Options struct {
@@ -195,7 +197,8 @@ func PullAndParseImages(ctx context.Context, repo string, mapping map[string]str
 	logboek.Context(ctx).Default().LogF("Pulling SBOMs: %d image(s)\n", total)
 
 	idx := 0
-	for imageName, imageDigest := range mapping {
+	for _, imageName := range slices.Sorted(maps.Keys(mapping)) {
+		imageDigest := mapping[imageName]
 		idx++
 
 		err := logboek.Context(ctx).Default().

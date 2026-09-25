@@ -14,11 +14,11 @@ import (
 	io "io"
 	reflect "reflect"
 
-	container_backend "github.com/werf/werf/v2/pkg/container_backend"
-	info "github.com/werf/werf/v2/pkg/container_backend/info"
-	prune "github.com/werf/werf/v2/pkg/container_backend/prune"
-	image "github.com/werf/werf/v2/pkg/image"
-	scanner "github.com/werf/werf/v2/pkg/sbom/scanner"
+	container_backend "github.com/werf/werf/v3/pkg/container_backend"
+	info "github.com/werf/werf/v3/pkg/container_backend/info"
+	prune "github.com/werf/werf/v3/pkg/container_backend/prune"
+	image "github.com/werf/werf/v3/pkg/image"
+	scanner "github.com/werf/werf/v3/pkg/sbom/scanner"
 	gomock "go.uber.org/mock/gomock"
 )
 

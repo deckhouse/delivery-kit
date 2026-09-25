@@ -12,19 +12,19 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
-	"github.com/werf/werf/v2/pkg/sbom/externalref"
-	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
-	"github.com/werf/werf/v2/pkg/sbom/managedinput"
-	osPm "github.com/werf/werf/v2/pkg/sbom/packages/os_pm"
-	"github.com/werf/werf/v2/pkg/sbom/scanner"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/pkg/werf/global_warnings"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/externalref"
+	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/sbom/managedinput"
+	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
 
 //go:generate mockgen -source sbom_step.go -package mock -destination ../../test/mock/bom_patcher.go -mock_names BOMPatcherInterface=MockBOMPatcher
@@ -171,6 +171,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
 
+		cyclonedxutil.Canonicalize(resultBOM)
+
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
 			return fmt.Errorf("serialize BOM: %w", err)
@@ -186,7 +188,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-const sbomArtifactFormatVersion = "3"
+const sbomArtifactFormatVersion = "5"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

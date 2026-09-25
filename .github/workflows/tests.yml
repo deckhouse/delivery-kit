@@ -3,7 +3,7 @@ name: tests:all
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "2"]
   workflow_dispatch:
   repository_dispatch:
     types: [tests:all]
@@ -104,6 +104,9 @@ jobs:
 
       - name: Unit tests
         run: task --yes test:unit -- --procs=3 --compilers=1 --keep-going
+
+      - name: Embedded asset tests
+        run: task --yes test:unit:embedded
 
   build_test_binary:
     if: |

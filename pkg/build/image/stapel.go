@@ -11,11 +11,11 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/util/option"
-	"github.com/werf/werf/v2/pkg/werf/global_warnings"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/util/option"
+	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
 
 var sbomNetworkWarningOnce sync.Once

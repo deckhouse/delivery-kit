@@ -12,8 +12,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
 var _ = Describe("Verify / Get against a registry", func() {

@@ -10,12 +10,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/werf/common-go/pkg/graceful"
-	"github.com/werf/nelm/pkg/action"
-	"github.com/werf/werf/v2/cmd/werf/common"
-	"github.com/werf/werf/v2/cmd/werf/root"
-	"github.com/werf/werf/v2/pkg/background"
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/process_exterminator"
+	"github.com/werf/nelm/v2/pkg/action"
+	"github.com/werf/werf/v3/cmd/werf/common"
+	"github.com/werf/werf/v3/cmd/werf/root"
+	"github.com/werf/werf/v3/pkg/background"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/process_exterminator"
 )
 
 func main() {

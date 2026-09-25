@@ -8,9 +8,9 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("ResolveUnknownVersions", func() {

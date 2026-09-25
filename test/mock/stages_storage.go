@@ -14,9 +14,9 @@ import (
 	reflect "reflect"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	container_backend "github.com/werf/werf/v2/pkg/container_backend"
-	image "github.com/werf/werf/v2/pkg/image"
-	storage "github.com/werf/werf/v2/pkg/storage"
+	container_backend "github.com/werf/werf/v3/pkg/container_backend"
+	image "github.com/werf/werf/v3/pkg/image"
+	storage "github.com/werf/werf/v3/pkg/storage"
 	gomock "go.uber.org/mock/gomock"
 )
 

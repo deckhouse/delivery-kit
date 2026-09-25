@@ -13,8 +13,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 var _ = Describe("Enricher", func() {

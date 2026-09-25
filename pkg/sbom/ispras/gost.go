@@ -4,7 +4,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 func aggregateGOST(components []cdx.Component) GOSTValues {

@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 func componentNames(bom *cdx.BOM) []string {

@@ -13,12 +13,12 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	werfImage "github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	werfImage "github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("SbomStep PropagateArtifacts", func() {

@@ -13,8 +13,8 @@ import (
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/test/pkg/signutils"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/test/pkg/signutils"
 )
 
 func generateKeyPair() (signature.Signer, signature.Verifier) {

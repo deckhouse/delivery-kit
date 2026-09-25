@@ -13,11 +13,11 @@ import (
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/types"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
+	"github.com/werf/werf/v3/pkg/logging"
 )
 
 type ImagesTree struct {
@@ -450,6 +450,11 @@ func stageDependenciesToMap(sd *config.StageDependencies) map[stage.StageName][]
 		stage.BeforeSetup: sd.BeforeSetup,
 		stage.Setup:       sd.Setup,
 		stage.Packages:    sd.Packages,
+	}
+	for name, paths := range result {
+		if paths == nil {
+			delete(result, name)
+		}
 	}
 
 	return result

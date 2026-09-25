@@ -5,12 +5,12 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
-	"github.com/werf/werf/v2/pkg/build/image"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	imagePkg "github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/build/image"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	imagePkg "github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("resolveImportImages", func() {

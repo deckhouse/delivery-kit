@@ -35,11 +35,11 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 
-	nelmcommon "github.com/werf/nelm/pkg/common"
-	"github.com/werf/nelm/pkg/helm/pkg/chart/loader"
-	chart "github.com/werf/nelm/pkg/helm/pkg/chart/v2"
-	chartv2util "github.com/werf/nelm/pkg/helm/pkg/chart/v2/util"
-	"github.com/werf/werf/v2/pkg/ref"
+	nelmcommon "github.com/werf/nelm/v2/pkg/common"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/chart/loader"
+	chart "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2"
+	chartv2util "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2/util"
+	"github.com/werf/werf/v3/pkg/ref"
 )
 
 const (

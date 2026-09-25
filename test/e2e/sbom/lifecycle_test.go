@@ -10,10 +10,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
-	"github.com/werf/werf/v2/test/pkg/report"
-	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/test/pkg/report"
+	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), func() {

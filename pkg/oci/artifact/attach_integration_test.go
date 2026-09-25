@@ -22,10 +22,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo/parallel"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
 var _ = Describe("Attach / PullFallbackIndex (integration)", func() {

@@ -1,7 +1,7 @@
 package config
 
 import (
-	sbomPkg "github.com/werf/werf/v2/pkg/sbom"
+	sbomPkg "github.com/werf/werf/v3/pkg/sbom"
 )
 
 // buildImageSbom builds image-level SBOM configuration based on meta build settings.

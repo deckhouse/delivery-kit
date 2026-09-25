@@ -1,5 +1,3 @@
-//go:build ai_tests
-
 package config
 
 import (
@@ -11,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
 )
 
 func TestMain(m *testing.M) {
@@ -229,7 +227,7 @@ from: image1
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1, rawImage2}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1, rawImage2}, nil, meta)
 	require.NoError(t, err)
 }
 
@@ -255,7 +253,7 @@ import:
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must include a tag")
 }
@@ -282,7 +280,7 @@ import:
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.NoError(t, err)
 }
 
@@ -317,7 +315,7 @@ import:
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	werfConfig, err := prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1, rawImage2}, nil, meta)
+	werfConfig, err := prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1, rawImage2}, nil, meta)
 	require.NoError(t, err)
 
 	image2, err := getStapelImageByName(t, werfConfig, "image2")
@@ -346,7 +344,7 @@ from: scratch
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	werfConfig, err := prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	werfConfig, err := prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.NoError(t, err)
 
 	image1, err := getStapelImageByName(t, werfConfig, "image1")
@@ -403,7 +401,7 @@ import:
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "scratch")
 }
@@ -425,7 +423,7 @@ from: ubuntu:22.04
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reserved")
 }
@@ -447,7 +445,7 @@ from: scratch
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err = prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
+	_, err = prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1}, nil, meta)
 	require.NoError(t, err)
 }
 
@@ -576,7 +574,7 @@ dependencies:
 	meta.ConfigVersion = 1
 	meta.Project = "test"
 
-	_, err := prepareWerfConfig(giterminismManager, []*rawStapelImage{rawImage1, rawImage2}, nil, meta)
+	_, err := prepareWerfConfig(context.Background(), giterminismManager, []*rawStapelImage{rawImage1, rawImage2}, nil, meta)
 	require.NoError(t, err)
 }
 

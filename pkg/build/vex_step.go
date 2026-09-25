@@ -9,10 +9,10 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	vexImage "github.com/werf/werf/v2/pkg/vex/image"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	vexImage "github.com/werf/werf/v3/pkg/vex/image"
 )
 
 type vexStep struct{}

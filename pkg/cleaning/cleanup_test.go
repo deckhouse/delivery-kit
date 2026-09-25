@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/werf/werf/v2/pkg/cleaning/stage_manager"
-	"github.com/werf/werf/v2/pkg/cleanup_report"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/pkg/storage/manager"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/cleaning/stage_manager"
+	"github.com/werf/werf/v3/pkg/cleanup_report"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/storage/manager"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("deleteOrphanedArtifacts", func() {

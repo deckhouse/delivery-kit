@@ -8,8 +8,8 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
 )
 
 const (

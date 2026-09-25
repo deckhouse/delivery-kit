@@ -21,33 +21,33 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
-	"github.com/werf/werf/v2/pkg/build/cleanup"
-	"github.com/werf/werf/v2/pkg/build/image"
-	"github.com/werf/werf/v2/pkg/build/signing"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/build/stage/instruction"
-	"github.com/werf/werf/v2/pkg/build/verify_annotation"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	backend_instruction "github.com/werf/werf/v2/pkg/container_backend/instruction"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	imagePkg "github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/opstats"
-	"github.com/werf/werf/v2/pkg/sbom/convergefailure"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
-	"github.com/werf/werf/v2/pkg/sbom/externalref"
-	"github.com/werf/werf/v2/pkg/sbom/gomod"
-	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
-	"github.com/werf/werf/v2/pkg/sbom/managedinput"
-	"github.com/werf/werf/v2/pkg/sbom/scanner"
-	"github.com/werf/werf/v2/pkg/stapel"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/pkg/storage/manager"
-	"github.com/werf/werf/v2/pkg/telemetry"
-	"github.com/werf/werf/v2/pkg/util/parallel"
-	"github.com/werf/werf/v2/pkg/werf"
+	"github.com/werf/werf/v3/pkg/build/cleanup"
+	"github.com/werf/werf/v3/pkg/build/image"
+	"github.com/werf/werf/v3/pkg/build/signing"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/build/stage/instruction"
+	"github.com/werf/werf/v3/pkg/build/verify_annotation"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	backend_instruction "github.com/werf/werf/v3/pkg/container_backend/instruction"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	imagePkg "github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/opstats"
+	"github.com/werf/werf/v3/pkg/sbom/convergefailure"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/externalref"
+	"github.com/werf/werf/v3/pkg/sbom/gomod"
+	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/sbom/managedinput"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/stapel"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/storage/manager"
+	"github.com/werf/werf/v3/pkg/telemetry"
+	"github.com/werf/werf/v3/pkg/util/parallel"
+	"github.com/werf/werf/v3/pkg/werf"
 )
 
 type BuildPhaseOptions struct {
@@ -113,6 +113,7 @@ type BuildPhase struct {
 	ImagesReport   *ImagesReport
 
 	buildContextArchive container_backend.BuildContextArchiver
+	anchorPrepass       bool
 
 	sbomFailures *convergefailure.Tracker
 }
@@ -244,6 +245,8 @@ func (phase *BuildPhase) resolveAvailableContentAnchors(ctx context.Context) err
 		return nil
 	}
 
+	prepass := *phase
+	prepass.anchorPrepass = true
 	for _, img := range graph.Nodes() {
 		img.Requested = phase.isRequestedImage(img)
 		if img.GetAnchorDigest() == "" {
@@ -252,8 +255,8 @@ func (phase *BuildPhase) resolveAvailableContentAnchors(ctx context.Context) err
 
 		var outBuf, errBuf bytes.Buffer
 		resolveCtx := logboek.NewContext(ctx, logboek.Context(ctx).NewSubLogger(&outBuf, &errBuf))
-		phase.StagesIterator = NewStagesIterator(phase.Conveyor)
-		if err := phase.resolveContentAnchor(resolveCtx, img, false); err != nil {
+		prepass.StagesIterator = NewStagesIterator(phase.Conveyor)
+		if err := prepass.resolveContentAnchor(resolveCtx, img, false); err != nil {
 			return fmt.Errorf("image %q: %w", img.Name, err)
 		}
 		img.ContentAnchorOutLog = bytes.Clone(outBuf.Bytes())
@@ -1396,7 +1399,13 @@ func (phase *BuildPhase) findAndFetchStageFromSecondaryStagesStorage(ctx context
 
 ScanSecondaryStagesStorageList:
 	for _, secondaryStagesStorage := range storageManager.GetSecondaryStagesStorageList() {
-		secondaryStages, err := storageManager.GetStageDescSetByDigestFromStagesStorageWithCache(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
+		var secondaryStages imagePkg.StageDescSet
+		var err error
+		if phase.anchorPrepass {
+			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
+		} else {
+			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageWithCache(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
+		}
 		if err != nil {
 			return false, err
 		} else {
@@ -1494,7 +1503,13 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		})
 
 	storageManager := phase.Conveyor.StorageManager
-	stageDescSet, err := storageManager.GetStageDescSetByDigestWithCache(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg))
+	var stageDescSet imagePkg.StageDescSet
+	var err error
+	if phase.anchorPrepass {
+		stageDescSet, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg), storageManager.GetStagesStorage())
+	} else {
+		stageDescSet, err = storageManager.GetStageDescSetByDigestWithCache(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg))
+	}
 	if err != nil {
 		return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, err
 	}

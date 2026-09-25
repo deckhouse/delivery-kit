@@ -13,12 +13,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/vex"
-	veximage "github.com/werf/werf/v2/pkg/vex/image"
-	"github.com/werf/werf/v2/test/pkg/signutils"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/vex"
+	veximage "github.com/werf/werf/v3/pkg/vex/image"
+	"github.com/werf/werf/v3/test/pkg/signutils"
 )
 
 var _ = Describe("PushVEX against a registry", func() {

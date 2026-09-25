@@ -6,14 +6,15 @@ import (
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/samber/lo"
 	"sigs.k8s.io/yaml"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/docker_registry/api"
-	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/docker_registry/api"
+	"github.com/werf/werf/v3/pkg/image"
 )
 
 const (
@@ -96,12 +97,15 @@ func (storage *LocalStagesStorage) deleteContainers(ctx context.Context, contain
 func (storage *LocalStagesStorage) GetStagesIDs(ctx context.Context, projectName string, opts ...Option) ([]image.StageID, error) {
 	imagesOpts := container_backend.ImagesOptions{}
 	imagesOpts.Filters = append(imagesOpts.Filters, util.NewPair("reference", fmt.Sprintf(LocalStage_ImageRepoFormat, projectName)))
-	imagesOpts.Filters = append(imagesOpts.Filters, util.NewPair("label", fmt.Sprintf("%s=%s", image.WerfLabel, projectName)))
 
 	images, err := storage.ContainerBackend.Images(ctx, imagesOpts)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list images: %w", err)
 	}
+	images = lo.Filter(images, func(summary image.Summary, _ int) bool {
+		value, present := summary.Labels[image.WerfLabel]
+		return present && value == projectName
+	})
 	return images.ConvertToStages()
 }
 
@@ -145,7 +149,7 @@ func (storage *LocalStagesStorage) GetStageDesc(ctx context.Context, projectName
 			Info:    info,
 		}, nil
 	}
-	return nil, nil
+	return nil, ErrStageNotFound
 }
 
 func (storage *LocalStagesStorage) ExportStage(ctx context.Context, stageDesc *image.StageDesc, destinationReference string, mutateConfigFunc func(config v1.Config) (v1.Config, error)) error {

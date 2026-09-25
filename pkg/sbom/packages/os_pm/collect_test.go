@@ -12,9 +12,9 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/level"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/sbom/externalref"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/sbom/externalref"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("CollectBOM (AI)", func() {

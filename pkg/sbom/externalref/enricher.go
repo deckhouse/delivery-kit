@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 // validateRefKind restricts enrichment to the reference types the ISPRAS SBOM

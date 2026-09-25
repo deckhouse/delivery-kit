@@ -655,7 +655,7 @@ func (repo *Remote) GetOrCreateChecksum(ctx context.Context, opts ChecksumOption
 		return err
 	})
 
-	return
+	return checksum, err
 }
 
 func (repo *Remote) IsCommitExists(ctx context.Context, commit string) (bool, error) {
@@ -722,6 +722,9 @@ func (repo *Remote) initRepoHandleBackedByWorkTree(ctx context.Context, commit s
 	hasSubmodules, err := HasSubmodulesInCommit(commitObj)
 	if err != nil {
 		return nil, err
+	}
+	if !hasSubmodules {
+		return repo_handle.NewHandleWithoutSubmodules(ctx, repository), nil
 	}
 
 	var repoHandle repo_handle.Handle

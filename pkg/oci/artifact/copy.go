@@ -2,15 +2,53 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 )
+
+// CopyAllAttachedArtifacts copies every artifact attached to srcDigest in srcRepo
+// onto dstDigest in dstRepo, and when srcDigest is an image index it also copies
+// the artifacts attached to every manifest the index references. Referenced
+// manifests are addressed by the same digest in both repositories, which holds for
+// registry-level copies — the only in-scope way an index travels between
+// repositories.
+func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, opts ...remote.Option) error {
+	if err := CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, opts...); err != nil {
+		return err
+	}
+
+	entries, err := ListIndexPlatforms(ctx, srcRepo, srcDigest, opts...)
+	if err != nil {
+		// A source that does not hold the manifest holds no artifacts attached to it
+		// either, which is the same no-op CopyAttachedArtifacts makes of a missing
+		// fallback index rather than a reason to fail the operation that copied the
+		// image.
+		var transportErr *transport.Error
+		if errors.As(err, &transportErr) && transportErr.StatusCode == 404 {
+			return nil
+		}
+		return fmt.Errorf("list index manifests of %s: %w", srcRepo+"@"+srcDigest, err)
+	}
+
+	for _, entry := range entries {
+		if entry.Digest == srcDigest {
+			continue
+		}
+		if err := CopyAttachedArtifacts(ctx, srcRepo, entry.Digest, dstRepo, entry.Digest, opts...); err != nil {
+			return fmt.Errorf("copy artifacts of index manifest %s: %w", entry.Digest, err)
+		}
+	}
+
+	return nil
+}
 
 // CopyAttachedArtifacts copies every artifact attached to srcDigest in srcRepo onto
 // dstDigest in dstRepo. Artifacts are re-attached from their payload rather than

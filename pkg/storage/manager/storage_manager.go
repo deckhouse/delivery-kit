@@ -825,8 +825,22 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 		return nil, fmt.Errorf("unable to get stage %s description from %s: %w", stageDesc.StageID.String(), destinationStagesStorage.String(), err)
 	} else {
 		if sourceStagesStorage.Address() != storage.LocalStorageAddress && destinationStagesStorage.Address() != storage.LocalStorageAddress {
-			if err := artifact.CopyAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
-				return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
+			// The backend-mediated copy does not guarantee digest preservation. Artifacts
+			// describe the source digest; when it changed, werf regenerates its own by
+			// convergence and only what it cannot regenerate is worth reporting.
+			if destinationStageDesc.Info.GetDigest() == stageDesc.Info.GetDigest() {
+				if err := artifact.CopyAllAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
+					return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
+				}
+			} else {
+				leftBehind, err := artifact.ListUnregenerableArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest())
+				if err != nil {
+					return nil, fmt.Errorf("unable to list artifacts attached to stage %s in %s: %w", stageDesc.StageID.String(), sourceStagesStorage.String(), err)
+				}
+				if len(leftBehind) > 0 {
+					logboek.Context(ctx).Warn().LogF("WARNING: attestations [%s] of stage %s stay in %s: the copy changed the image digest, re-issue them against %s\n",
+						strings.Join(leftBehind, ", "), stageDesc.StageID.String(), sourceStagesStorage.String(), destinationStageDesc.Info.GetDigest())
+				}
 			}
 		}
 		return destinationStageDesc, nil

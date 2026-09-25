@@ -212,26 +212,35 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 	)
 }
 
-// PropagateArtifacts copies the artifacts attached to the image stage (e.g. its SBOM)
-// into the final repo and the cache repos. Stages themselves are copied there before
-// SBOM generation runs, so the artifacts have to catch up separately.
-func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName string, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
-	srcRepo := stageDesc.Info.Repository
-	srcDigest := stageDesc.Info.GetDigest()
+// PropagateArtifactsOptions carries the destinations of a propagation: the final repo
+// descriptor of the same image when the build published one, and the cache stages
+// storages the stage was placed in.
+type PropagateArtifactsOptions struct {
+	FinalRepo              string
+	FinalDigest            string
+	CacheStagesStorageList []storage.StagesStorage
+}
 
-	if finalStageDesc != nil && finalStageDesc.Info.Repository != srcRepo {
-		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo %s", werfImgName, finalStageDesc.Info.Repository).DoError(func() error {
-			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalStageDesc.Info.Repository, finalStageDesc.Info.GetDigest())
+// PropagateArtifacts copies the artifacts attached to the image in the repository it
+// was built in — its SBOM, VEX and any other attached kind — into the final repo and
+// the cache repos. Stages are copied there before the artifacts exist, so the
+// artifacts have to catch up separately. The copy runs on every build and is
+// idempotent, so a destination holding the image without its artifacts is repaired
+// by the next run.
+func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName, srcRepo, srcDigest string, opts PropagateArtifactsOptions) error {
+	if opts.FinalRepo != "" && opts.FinalRepo != srcRepo {
+		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into the final repo %s", werfImgName, opts.FinalRepo).DoError(func() error {
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, opts.FinalRepo, opts.FinalDigest)
 		}); err != nil {
-			return fmt.Errorf("copy attached artifacts into final repo %s: %w", finalStageDesc.Info.Repository, err)
+			return fmt.Errorf("copy attached artifacts into final repo %s: %w", opts.FinalRepo, err)
 		}
 	}
 
-	for _, cache := range cacheStagesStorageList {
+	for _, cache := range opts.CacheStagesStorageList {
 		if cache.Address() == storage.LocalStorageAddress || cache.Address() == srcRepo {
 			continue
 		}
-		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy SBOM artifacts into cache %s", werfImgName, cache.String()).DoError(func() error {
+		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into cache %s", werfImgName, cache.String()).DoError(func() error {
 			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, cache.Address(), srcDigest)
 		}); err != nil {
 			logboek.Context(ctx).Warn().LogF("Warning: unable to copy attached artifacts into cache stages storage %s: %s\n", cache.String(), err)

@@ -15,6 +15,7 @@ import (
 	chartcommon "github.com/werf/nelm/v2/pkg/helm/pkg/chart/common"
 	chart "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2"
 	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/logging"
 	bundles_registry "github.com/werf/werf/v3/pkg/ref"
 )
@@ -644,12 +645,14 @@ func (client *BundlesRegistryClientStub) PushChart(ctx context.Context, ref *bun
 type DockerRegistryStub struct {
 	docker_registry.Interface
 
-	ImagesByReference map[string][]byte
+	ImagesByReference     map[string][]byte
+	RepoImagesByReference map[string]*image.Info
 }
 
 func NewDockerRegistryStub() *DockerRegistryStub {
 	return &DockerRegistryStub{
-		ImagesByReference: make(map[string][]byte),
+		ImagesByReference:     make(map[string][]byte),
+		RepoImagesByReference: make(map[string]*image.Info),
 	}
 }
 
@@ -684,6 +687,13 @@ func (registry *DockerRegistryStub) PullImageArchive(ctx context.Context, archiv
 		return fmt.Errorf("error copying image archive: %w", err)
 	}
 	return nil
+}
+
+// TryGetRepoImage resolves only what a spec put into RepoImagesByReference. The
+// stub holds archives rather than registry manifests, so by default an image has
+// no digest to carry artifacts for and the artifact-carrying step is skipped.
+func (registry *DockerRegistryStub) TryGetRepoImage(_ context.Context, reference string) (*image.Info, error) {
+	return registry.RepoImagesByReference[reference], nil
 }
 
 func (registry *DockerRegistryStub) CopyImage(_ context.Context, sourceReference, destinationReference string, _ docker_registry.CopyImageOptions) error {

@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/image"
@@ -302,6 +303,37 @@ func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageNam
 	}
 
 	return matches[0], true, nil
+}
+
+// ListUnregenerableArtifacts returns the predicate types of the artifacts attached to
+// parentDigest that a build cannot produce again. Everything werf generates itself —
+// the SBOM and the VEX document — carries the checksum annotation of its cache
+// identity, while an attestation signed through werf attest sign carries none: its
+// predicate and its signing key exist only on the user's side.
+func ListUnregenerableArtifacts(ctx context.Context, repo, parentDigest string, opts ...remote.Option) ([]string, error) {
+	idx, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	im, err := idx.IndexManifest()
+	if err != nil {
+		return nil, fmt.Errorf("read fallback index manifest: %w", err)
+	}
+
+	var predicateTypes []string
+	for _, desc := range im.Manifests {
+		if desc.ArtifactType == "" || desc.Annotations[image.WerfChecksumAnnotation] != "" {
+			continue
+		}
+		predicateType := desc.Annotations[PredicateTypeAnnotation]
+		if predicateType == "" {
+			predicateType = desc.ArtifactType
+		}
+		predicateTypes = append(predicateTypes, predicateType)
+	}
+
+	return lo.Uniq(predicateTypes), nil
 }
 
 func multipleArtifactEntriesWarning(parentDigest string, matches []v1.Descriptor) string {

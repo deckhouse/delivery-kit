@@ -1,6 +1,9 @@
 package artifact_test
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 
@@ -8,6 +11,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	. "github.com/onsi/ginkgo/v2"
@@ -148,5 +153,133 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 		im := pullIndex(ctx, dstRepo, srcDigest)
 		Expect(im.Manifests).To(BeEmpty())
+	})
+
+	Describe("CopyAllAttachedArtifacts", func() {
+		// The index carries a platform per manifest the way a werf multi-platform
+		// image does: entries without one are not platform manifests and are not
+		// traversed.
+		pushMultiplatformIndex := func(ctx SpecContext, repo, tag string) (string, []string) {
+			idx := v1.ImageIndex(empty.Index)
+			var children []string
+
+			for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+				img, err := random.Image(256, 1)
+				Expect(err).To(Succeed())
+
+				parsed, err := v1.ParsePlatform(platform)
+				Expect(err).To(Succeed())
+
+				idx = mutate.AppendManifests(idx, mutate.IndexAddendum{
+					Add:        img,
+					Descriptor: v1.Descriptor{Platform: parsed},
+				})
+
+				dgst, err := img.Digest()
+				Expect(err).To(Succeed())
+				children = append(children, dgst.String())
+			}
+
+			ref, err := name.NewTag(repo + ":" + tag)
+			Expect(err).To(Succeed())
+			Expect(remote.WriteIndex(ref, idx, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+
+			dgst, err := idx.Digest()
+			Expect(err).To(Succeed())
+
+			return dgst.String(), children
+		}
+
+		copyIndexByDigest := func(ctx SpecContext, fromRepo, toRepo, digest string) {
+			fromRef, err := name.NewDigest(fromRepo + "@" + digest)
+			Expect(err).To(Succeed())
+			idx, err := remote.Index(fromRef, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)
+			Expect(err).To(Succeed())
+
+			toRef, err := name.NewDigest(toRepo + "@" + digest)
+			Expect(err).To(Succeed())
+			Expect(remote.WriteIndex(toRef, idx, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+		}
+
+		It("should carry the artifacts of every manifest an index references", func(ctx SpecContext) {
+			indexDigest, children := pushMultiplatformIndex(ctx, srcRepo, "index")
+
+			store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(store.Attach(ctx, indexDigest, artifactType, []byte(`{"scope":"image"}`), "checksum-index", "", "")).To(Succeed())
+			for i, child := range children {
+				payload := fmt.Sprintf(`{"scope":"platform-%d"}`, i)
+				Expect(store.Attach(ctx, child, artifactType, []byte(payload), fmt.Sprintf("checksum-%d", i), "", "")).To(Succeed())
+			}
+
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			content, err := dstStore.GetAttachedContent(ctx, indexDigest, artifactType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"scope":"image"}`))
+
+			for i, child := range children {
+				childContent, err := dstStore.GetAttachedContent(ctx, child, artifactType, nil)
+				Expect(err).To(Succeed())
+				Expect(childContent).To(MatchJSON(fmt.Sprintf(`{"scope":"platform-%d"}`, i)))
+			}
+		})
+
+		It("should not move an artifact of a referenced manifest onto the index digest", func(ctx SpecContext) {
+			indexDigest, children := pushMultiplatformIndex(ctx, srcRepo, "index")
+
+			store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(store.Attach(ctx, children[0], artifactType, []byte(`{"scope":"platform-0"}`), "checksum-0", "", "")).To(Succeed())
+
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+
+			Expect(pullIndex(ctx, dstRepo, indexDigest).Manifests).To(BeEmpty())
+			Expect(pullIndex(ctx, dstRepo, children[0]).Manifests).To(HaveLen(1))
+		})
+
+		It("should be a no-op when the source does not hold the manifest", func(ctx SpecContext) {
+			absentDigest := pushRandomImage(ctx, dstRepo, "only-in-dst")
+
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, absentDigest, dstRepo, absentDigest, remoteOpts...)).To(Succeed())
+
+			Expect(pullIndex(ctx, dstRepo, absentDigest).Manifests).To(BeEmpty())
+		})
+
+		It("should fail when the source manifest cannot be read for a reason other than absence", func(ctx SpecContext) {
+			indexDigest, _ := pushMultiplatformIndex(ctx, srcRepo, "index")
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			upstream := server.Listener.Addr().String()
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/manifests/"+indexDigest) {
+					http.Error(w, "registry unavailable", http.StatusInternalServerError)
+					return
+				}
+				r.URL.Scheme = "http"
+				r.URL.Host = upstream
+				r.RequestURI = ""
+				resp, err := http.DefaultTransport.RoundTrip(r)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+				defer resp.Body.Close()
+				for k, vs := range resp.Header {
+					w.Header()[k] = vs
+				}
+				w.WriteHeader(resp.StatusCode)
+				_, _ = io.Copy(w, resp.Body)
+			}))
+			defer failing.Close()
+
+			failingSrcRepo := strings.TrimPrefix(failing.URL, "http://") + "/test/src"
+
+			err := artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)
+			Expect(err).To(MatchError(ContainSubstring("list index manifests")))
+		})
 	})
 })

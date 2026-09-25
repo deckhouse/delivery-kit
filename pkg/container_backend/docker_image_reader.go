@@ -206,13 +206,15 @@ func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
 }
 
 // resolveSymlinks materializes each recorded symlink whose target is an extracted
-// directory by copying the target's files under the link path. A target that is itself a
-// recorded link is followed through the link graph first, so a chain resolves regardless
-// of the order links were recorded in; a cycle, a link to a file, to nothing, or to a
-// path outside destDir is left out.
+// directory by copying the target's files under the link path. Links are resolved on the
+// recorded link set alone, expanding a recorded link found in any path component of the
+// target (not only an exact match) and keeping the remaining suffix, so a chain or a link
+// through a linked parent resolves regardless of the order links were recorded in and
+// without depending on directories earlier iterations materialized. A cycle, a link to a
+// file, to nothing, or to a path outside destDir is left out.
 func (e *dirTarExtractor) resolveSymlinks() error {
 	for linkPath := range e.symlinks {
-		target, ok := e.resolveTarget(linkPath, map[string]struct{}{})
+		target, ok := e.resolveTarget(linkPath)
 		if !ok {
 			continue
 		}
@@ -241,18 +243,25 @@ func (e *dirTarExtractor) resolveSymlinks() error {
 	return nil
 }
 
-// resolveTarget follows linkPath through recorded links until it reaches a path that is
-// not a link, and reports that path if it is an extracted directory. active holds the
-// links on the current chain so a cycle terminates instead of recursing forever.
-func (e *dirTarExtractor) resolveTarget(linkPath string, active map[string]struct{}) (string, bool) {
-	if _, seen := active[linkPath]; seen {
+// resolveTarget expands linkPath's target until no path component of it is a recorded
+// link, and reports the result if it is an extracted directory. Each expansion replaces
+// the longest recorded-link prefix with that link's target and re-appends the suffix, so
+// alias/is-number with alias -> .store becomes .store/is-number. Expansions are bounded
+// by the number of recorded links: a cycle cannot make progress past that and is dropped.
+func (e *dirTarExtractor) resolveTarget(linkPath string) (string, bool) {
+	target := e.symlinks[linkPath]
+	for range len(e.symlinks) {
+		prefix, rest, found := e.longestLinkPrefix(target)
+		if !found {
+			break
+		}
+		target = filepath.Join(e.symlinks[prefix], rest)
+	}
+	if _, _, stillLinked := e.longestLinkPrefix(target); stillLinked {
 		return "", false
 	}
-	active[linkPath] = struct{}{}
-
-	target := e.symlinks[linkPath]
-	if _, isLink := e.symlinks[target]; isLink {
-		return e.resolveTarget(target, active)
+	if !strings.HasPrefix(target, e.destDir+string(filepath.Separator)) {
+		return "", false
 	}
 
 	info, err := os.Stat(target)
@@ -260,6 +269,23 @@ func (e *dirTarExtractor) resolveTarget(linkPath string, active map[string]struc
 		return "", false
 	}
 	return target, true
+}
+
+// longestLinkPrefix finds the longest recorded link that is p itself or one of its parent
+// directories, returning that link and the path remainder below it.
+func (e *dirTarExtractor) longestLinkPrefix(p string) (prefix, rest string, found bool) {
+	for cur := p; ; cur = filepath.Dir(cur) {
+		if _, isLink := e.symlinks[cur]; isLink {
+			rel, err := filepath.Rel(cur, p)
+			if err != nil {
+				return "", "", false
+			}
+			return cur, rel, true
+		}
+		if cur == e.destDir || cur == filepath.Dir(cur) {
+			return "", "", false
+		}
+	}
 }
 
 // matchesAnyFileNamePattern reports whether name matches one of the shell patterns,

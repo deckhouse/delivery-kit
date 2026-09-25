@@ -203,6 +203,27 @@ var _ = Describe("dirTarExtractor", func() {
 		}
 	})
 
+	It("resolves a link whose target passes through a linked parent directory, regardless of record order", func() {
+		// is-number -> alias/is-number with alias -> .store. The linked component is a
+		// prefix of the target, not the whole target, so an exact-key lookup misses it and
+		// the outcome depended on whether alias had been materialized first. Repeat to
+		// cover orders.
+		for i := 0; i < 20; i++ {
+			destDir := GinkgoT().TempDir()
+			tr := buildTar([]entry{
+				{name: "node_modules/is-number", typeflag: tar.TypeSymlink, linkname: "alias/is-number"},
+				{name: "node_modules/alias", typeflag: tar.TypeSymlink, linkname: ".store"},
+				{name: "node_modules/.store/is-number/package.json", typeflag: tar.TypeReg, content: `{"name":"is-number","license":"MIT"}`},
+			})
+
+			extractAll(tr, destDir, []string{"package.json"})
+
+			manifest, err := os.ReadFile(filepath.Join(destDir, "is-number", "package.json"))
+			Expect(err).To(Succeed(), "iteration %d: a link through a linked parent must resolve to the stored manifest", i)
+			Expect(string(manifest)).To(ContainSubstring(`"license":"MIT"`))
+		}
+	})
+
 	It("terminates on a symlink cycle without materializing either link", func() {
 		destDir := GinkgoT().TempDir()
 		tr := buildTar([]entry{

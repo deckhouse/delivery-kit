@@ -1,0 +1,26 @@
+project: werf-test-e2e-sbom-inject-gomod-license
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: {{ env "BUILDER_BASE_IMAGE" }}
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+shell:
+  install:
+    - cd /app && CGO_ENABLED=0 go build -o /bin/app .
+packages:
+  - type: go-mod
+    workdir: /app
+    # go 1.12 has no default module proxy and the base image has no git, so
+    # `go mod download` needs the proxy to fetch a registry module.
+    env:
+      GOPROXY: https://proxy.golang.org

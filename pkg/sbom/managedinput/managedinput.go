@@ -3,9 +3,7 @@ package managedinput
 import (
 	"path"
 	"slices"
-	"strings"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/config"
@@ -15,9 +13,7 @@ import (
 type inputResolver struct {
 	inputType     config.PackagesDirectiveType
 	catalogerName string
-	filterMode    scanner.CatalogerFilterMode
-	sourcePaths   func(directive *config.PackagesDirective) []string
-	workdir       func(directive *config.PackagesDirective) string
+	enrichment    *config.EnrichmentSource
 }
 
 var resolvers = buildResolvers()
@@ -40,28 +36,13 @@ func buildResolvers() []inputResolver {
 		if t == config.PackagesDirectiveTypeOSPM {
 			continue
 		}
-		filterMode := filterModeForEcosystem(t)
 		built = append(built, inputResolver{
 			inputType:     eco.Type,
 			catalogerName: eco.CatalogerName,
-			filterMode:    filterMode,
-			sourcePaths: func(d *config.PackagesDirective) []string {
-				paths := []string{path.Join(d.FileBased.Workdir, d.FileBased.Spec)}
-				if d.FileBased.Lock != "" {
-					paths = append(paths, path.Join(d.FileBased.Workdir, d.FileBased.Lock))
-				}
-				return paths
-			},
-			workdir: func(d *config.PackagesDirective) string {
-				return d.FileBased.Workdir
-			},
+			enrichment:    eco.Enrichment,
 		})
 	}
 	return built
-}
-
-func filterModeForEcosystem(_ config.PackagesDirectiveType) scanner.CatalogerFilterMode {
-	return scanner.CatalogerFilterExactPath
 }
 
 func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
@@ -75,106 +56,66 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 			continue
 		}
 
-		catalogers = append(catalogers, scanner.Cataloger{
+		workdir := directive.FileBased.Workdir
+		cataloger := scanner.Cataloger{
 			Name:        res.catalogerName,
-			FilterMode:  res.filterMode,
-			SourcePaths: res.sourcePaths(directive),
-			Workdir:     res.workdir(directive),
-		})
+			SourcePaths: []string{path.Join(workdir, directive.FileBased.Spec)},
+		}
+
+		// The lock is optional: a spec with no dependencies (e.g. a go module without a
+		// go.sum) has none, and the build must not fail over its absence.
+		var lockPath string
+		if directive.FileBased.Lock != "" {
+			lockPath = path.Join(workdir, directive.FileBased.Lock)
+			cataloger.OptionalSourcePaths = []string{lockPath}
+		}
+
+		cataloger.Enrichment = toEnrichment(res.enrichment, workdir, lockPath, directive.Env)
+
+		catalogers = append(catalogers, cataloger)
 	}
 
 	return catalogers
 }
 
-func FilterBOMBySourcePaths(bom *cdx.BOM, catalogers []scanner.Cataloger) {
-	if bom == nil || bom.Components == nil || len(catalogers) == 0 {
+// toEnrichment turns the ecosystem's enrichment source into a scan plan. A workdir root
+// is resolved here; the Go module cache root depends on the image environment and is
+// resolved at materialization time (see ResolveEnrichmentRoot), so it stays empty here
+// and does not feed the scan cache key. directiveEnv is the packages directive environment,
+// carried through so an image-specific root honors a packages.env override.
+func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string, directiveEnv map[string]string) *scanner.Enrichment {
+	if src == nil {
+		return nil
+	}
+
+	switch src.Root {
+	case config.EnrichmentRootWorkdir:
+		return &scanner.Enrichment{
+			Kind:             scanner.EnrichmentKindDir,
+			Root:             path.Join(workdir, src.Path),
+			FileNamePatterns: src.FileNamePatterns,
+		}
+	case config.EnrichmentRootGoModCache:
+		if lockPath == "" {
+			return nil
+		}
+		return &scanner.Enrichment{
+			Kind:             scanner.EnrichmentKindGoModCache,
+			FileNamePatterns: src.FileNamePatterns,
+			LockPath:         lockPath,
+			DirectiveEnv:     directiveEnv,
+		}
+	default:
+		panic("unsupported enrichment root " + string(src.Root))
+	}
+}
+
+// ResolveEnrichmentRoot fills in an enrichment root that depends on the image
+// environment. imageEnv is the image config environment (KEY=VALUE entries); the
+// directive environment carried on the plan overlays it.
+func ResolveEnrichmentRoot(enrichment *scanner.Enrichment, imageEnv []string) {
+	if enrichment == nil || enrichment.Kind != scanner.EnrichmentKindGoModCache {
 		return
 	}
-
-	type catalogerFilter struct {
-		name       string
-		filterMode scanner.CatalogerFilterMode
-		paths      map[string]struct{}
-		workdir    string
-	}
-
-	filters := make([]catalogerFilter, 0, len(catalogers))
-	for _, cat := range catalogers {
-		paths := make(map[string]struct{}, len(cat.SourcePaths))
-		for _, p := range cat.SourcePaths {
-			paths[p] = struct{}{}
-		}
-		filters = append(filters, catalogerFilter{
-			name:       cat.Name,
-			filterMode: cat.FilterMode,
-			paths:      paths,
-			workdir:    cat.Workdir,
-		})
-	}
-
-	filtered := lo.Filter(*bom.Components, func(comp cdx.Component, _ int) bool {
-		for _, f := range filters {
-			if !componentFoundByCataloger(comp, f.name) {
-				continue
-			}
-			switch f.filterMode {
-			case scanner.CatalogerFilterCatalogerOnly:
-				return true
-			case scanner.CatalogerFilterWorkdirPrefix:
-				if componentMatchesWorkdirPrefix(comp, f.workdir) {
-					return true
-				}
-			default:
-				if componentMatchesAllowedPaths(comp, f.paths) {
-					return true
-				}
-			}
-		}
-		return false
-	})
-
-	*bom.Components = filtered
-}
-
-func componentFoundByCataloger(comp cdx.Component, catalogerName string) bool {
-	if comp.Properties == nil {
-		return false
-	}
-	for _, prop := range *comp.Properties {
-		if prop.Name == "syft:package:foundBy" {
-			return prop.Value == catalogerName
-		}
-	}
-	return false
-}
-
-func componentMatchesAllowedPaths(comp cdx.Component, allowedPaths map[string]struct{}) bool {
-	if comp.Properties == nil {
-		return false
-	}
-	for _, prop := range *comp.Properties {
-		if !strings.HasPrefix(prop.Name, "syft:location:") || !strings.HasSuffix(prop.Name, ":path") {
-			continue
-		}
-		if _, ok := allowedPaths[prop.Value]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func componentMatchesWorkdirPrefix(comp cdx.Component, workdir string) bool {
-	if comp.Properties == nil {
-		return false
-	}
-	prefix := workdir + "/"
-	for _, prop := range *comp.Properties {
-		if !strings.HasPrefix(prop.Name, "syft:location:") || !strings.HasSuffix(prop.Name, ":path") {
-			continue
-		}
-		if strings.HasPrefix(prop.Value, prefix) {
-			return true
-		}
-	}
-	return false
+	enrichment.Root = GoModCacheDir(imageEnv, enrichment.DirectiveEnv)
 }

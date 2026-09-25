@@ -32,5 +32,9 @@ var _ = Describe("SBOM javascript-npm packages", Label("e2e", "sbom", "npm", "si
 		lodash := sbomtest.FindComponent(bom, "lodash", "4.17.21")
 		Expect(lodash).NotTo(BeNil(),
 			"expected lodash@4.17.21 (from package-lock.json) not found in BOM")
+
+		// The lock carries no license; syft reads it from the installed package's own
+		// manifest under node_modules. The targeted scan must keep that enrichment.
+		sbomtest.AssertHasLicense(bom, "lodash", "4.17.21", "MIT")
 	})
 })

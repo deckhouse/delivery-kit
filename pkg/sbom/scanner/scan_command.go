@@ -82,6 +82,12 @@ func (c ScanCommand) selectCatalogersArg() string {
 	return fmt.Sprintf("--override-default-catalogers=%s", strings.Join(names, ","))
 }
 
+// Checksum names the cached bill of materials for this command. It intentionally omits
+// Enrichment.DirectiveEnv: that env only affects which packages the install command
+// produces, which is already captured by the Packages stage (and thus image) digest the
+// bill is stored under, so identical image content implies identical env. The Go module
+// cache Enrichment.Root is likewise empty here and only resolved at materialize time,
+// which is sound for the same reason.
 func (c ScanCommand) Checksum() string {
 	args := []string{
 		"scanner_type", c.scannerType.String(),
@@ -92,6 +98,11 @@ func (c ScanCommand) Checksum() string {
 	for _, cat := range c.Catalogers {
 		args = append(args, "cataloger", cat.Name)
 		args = append(args, cat.SourcePaths...)
+		args = append(args, cat.OptionalSourcePaths...)
+		if cat.Enrichment != nil {
+			args = append(args, "enrichment", string(cat.Enrichment.Kind), cat.Enrichment.Root, cat.Enrichment.LockPath)
+			args = append(args, cat.Enrichment.FileNamePatterns...)
+		}
 	}
 
 	return util.Sha256Hash(args...)

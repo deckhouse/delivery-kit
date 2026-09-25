@@ -43,6 +43,49 @@ type PackageEcosystem struct {
 	DefaultLockFile string
 	InstallCmd      func(workdir string, files FileBasedSpec, pkgs []string, env map[string]string) string
 	CatalogerName   string
+	// Enrichment describes where the syft cataloger reads metadata the lock lacks (e.g.
+	// licenses) from the installed packages. Nil when the cataloger has no such source.
+	Enrichment *EnrichmentSource
+}
+
+// EnrichmentRoot tells how the enrichment root is located in the image.
+type EnrichmentRoot string
+
+const (
+	// EnrichmentRootWorkdir: Path is relative to the directive workdir (node_modules); the
+	// whole directory is copied.
+	EnrichmentRootWorkdir EnrichmentRoot = "workdir"
+	// EnrichmentRootGoModCache: the Go module cache, $GOMODCACHE or $GOPATH/pkg/mod resolved
+	// from the image environment; Path is unused. Only the directories of the modules
+	// listed in go.sum are copied, since the whole cache is the image's entire dependency
+	// source tree.
+	EnrichmentRootGoModCache EnrichmentRoot = "go-mod-cache"
+)
+
+// EnrichmentSource is what a syft cataloger reads, next to the lock it parsed, to enrich
+// lock-derived components with metadata the lock itself lacks. It is copied from the
+// built image into the targeted scan so the directory scan yields the same metadata the
+// full-image scan did. Only files matching FileNamePatterns are copied.
+type EnrichmentSource struct {
+	Root EnrichmentRoot
+	// Path is the workdir-relative directory for EnrichmentRootWorkdir.
+	Path string
+	// FileNamePatterns are case-insensitive shell patterns of the files the cataloger
+	// reads inside the root, e.g. package.json or LICENSE*.
+	FileNamePatterns []string
+}
+
+// syftLicenseFileNamePatterns mirrors the file names syft's license detector accepts
+// (internal/licenses names.go): LICENSE and its British spelling, UNLICENSE, MIT-LICENSE,
+// COPYING and NOTICE, with any extension and case.
+var syftLicenseFileNamePatterns = []string{"licen[cs]e*", "unlicen[cs]e*", "mit-licen[cs]e*", "copying*", "notice*"}
+
+// javascriptEnrichment: syft's javascript-lock-cataloger reads the license field of
+// node_modules/<pkg>/package.json for every package it found in the lock.
+var javascriptEnrichment = EnrichmentSource{
+	Root:             EnrichmentRootWorkdir,
+	Path:             "node_modules",
+	FileNamePatterns: []string{"package.json"},
 }
 
 var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
@@ -54,6 +97,10 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s mod download", managerBin(files, "go")), env)
 		},
 		CatalogerName: "go-module-file-cataloger",
+		Enrichment: &EnrichmentSource{
+			Root:             EnrichmentRootGoModCache,
+			FileNamePatterns: syftLicenseFileNamePatterns,
+		},
 	},
 	PackagesDirectiveTypePythonUV: {
 		Type:            PackagesDirectiveTypePythonUV,
@@ -99,6 +146,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s ci", managerBin(files, "npm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		Enrichment:    &javascriptEnrichment,
 	},
 	PackagesDirectiveTypeJavaScriptYarn: {
 		Type:            PackagesDirectiveTypeJavaScriptYarn,
@@ -108,6 +156,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "yarn")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		Enrichment:    &javascriptEnrichment,
 	},
 	PackagesDirectiveTypeJavaScriptPnpm: {
 		Type:            PackagesDirectiveTypeJavaScriptPnpm,
@@ -117,6 +166,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
+		Enrichment:    &javascriptEnrichment,
 	},
 	PackagesDirectiveTypeLuaRock: {
 		Type:            PackagesDirectiveTypeLuaRock,

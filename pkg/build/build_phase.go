@@ -2133,7 +2133,7 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, error) {
 	importImages, err := phase.resolveImportImages(ctx, img)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve import images: %w", err)
 	}
 
 	var importImageSboms []*cdx.BOM
@@ -2214,7 +2214,7 @@ func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Ima
 
 		if digest := importImageInfo.GetDigest(); digest != "" {
 			key := importSBOMKey{
-				repository: importImageInfo.Repository,
+				repository: imagePkg.NormalizeRepository(importImageInfo.Repository),
 				digest:     digest,
 				lookupName: importLookupName,
 			}

@@ -224,6 +224,45 @@ var _ = Describe("dirTarExtractor", func() {
 		}
 	})
 
+	It("materializes a link into a directory that itself holds a link, regardless of record order", func() {
+		// wide -> pkgs, and inside that directory pkgs/p -> ../.store/p. In the image
+		// wide/p/package.json exists through both links. Copying wide's target from disk
+		// would only see pkgs/p if that link happened to be materialized earlier in the same
+		// pass; the copy must be derived from the archive instead. Repeat to cover orders.
+		for i := 0; i < 20; i++ {
+			destDir := GinkgoT().TempDir()
+			tr := buildTar([]entry{
+				{name: "node_modules/wide", typeflag: tar.TypeSymlink, linkname: "pkgs"},
+				{name: "node_modules/pkgs/p", typeflag: tar.TypeSymlink, linkname: "../.store/p"},
+				{name: "node_modules/pkgs/q/package.json", typeflag: tar.TypeReg, content: `{"name":"q"}`},
+				{name: "node_modules/.store/p/package.json", typeflag: tar.TypeReg, content: `{"name":"p","license":"MIT"}`},
+			})
+
+			extractAll(tr, destDir, []string{"package.json"})
+
+			manifest, err := os.ReadFile(filepath.Join(destDir, "wide", "p", "package.json"))
+			Expect(err).To(Succeed(), "iteration %d: a link nested under the target must be materialized through the outer link", i)
+			Expect(string(manifest)).To(ContainSubstring(`"license":"MIT"`))
+			_, err = os.Stat(filepath.Join(destDir, "wide", "q", "package.json"))
+			Expect(err).To(Succeed(), "iteration %d: the target's own files are still copied", i)
+		}
+	})
+
+	It("drops a link to the copied directory itself", func() {
+		// node_modules/x -> . would copy the whole tree, links included, under x. syft never
+		// resolves a package to the node_modules root, so nothing is lost by dropping it.
+		destDir := GinkgoT().TempDir()
+		tr := buildTar([]entry{
+			{name: "node_modules/x", typeflag: tar.TypeSymlink, linkname: "."},
+			{name: "node_modules/y/package.json", typeflag: tar.TypeReg, content: "{}"},
+		})
+
+		extractAll(tr, destDir, []string{"package.json"})
+
+		_, err := os.Stat(filepath.Join(destDir, "x"))
+		Expect(os.IsNotExist(err)).To(BeTrue(), "a link to the tree root must not be materialized")
+	})
+
 	It("terminates on a symlink cycle without materializing either link", func() {
 		destDir := GinkgoT().TempDir()
 		tr := buildTar([]entry{

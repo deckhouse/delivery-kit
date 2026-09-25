@@ -136,6 +136,10 @@ type dirTarExtractor struct {
 	destDir  string
 	patterns []string
 	symlinks map[string]string
+	// files records every regular file written from the archive, so materializing a link
+	// can copy a target's original contents without picking up what other links already
+	// wrote there in the same pass.
+	files map[string]struct{}
 }
 
 func newDirTarExtractor(srcDir, destDir string, patterns []string) *dirTarExtractor {
@@ -146,6 +150,7 @@ func newDirTarExtractor(srcDir, destDir string, patterns []string) *dirTarExtrac
 		destDir:  destDir,
 		patterns: patterns,
 		symlinks: map[string]string{},
+		files:    map[string]struct{}{},
 	}
 }
 
@@ -202,52 +207,83 @@ func (e *dirTarExtractor) extract(tr *tar.Reader, hdr *tar.Header) error {
 		file.Close()
 		return fmt.Errorf("write %s: %w", destPath, err)
 	}
+	e.files[destPath] = struct{}{}
 	return file.Close()
 }
 
 // resolveSymlinks materializes each recorded symlink whose target is an extracted
-// directory by copying the target's files under the link path. Links are resolved on the
-// recorded link set alone, expanding a recorded link found in any path component of the
-// target (not only an exact match) and keeping the remaining suffix, so a chain or a link
-// through a linked parent resolves regardless of the order links were recorded in and
-// without depending on directories earlier iterations materialized. A cycle, a link to a
-// file, to nothing, or to a path outside destDir is left out.
+// directory by copying the target's files under the link path. What gets copied is
+// computed from the archive alone — the regular files it carried and the links it
+// recorded — never from what other links already wrote to disk in this pass, so the
+// result is the same whatever order the links are visited in. A link found under a
+// target is followed too, so a link into a directory that itself holds links reads like
+// the image does through them. A cycle, a link to a file, to nothing, or to a path
+// outside destDir is left out.
 func (e *dirTarExtractor) resolveSymlinks() error {
 	for linkPath := range e.symlinks {
-		target, ok := e.resolveTarget(linkPath)
-		if !ok {
-			continue
-		}
-		err := filepath.WalkDir(target, func(srcPath string, d fs.DirEntry, err error) error {
-			if err != nil || !d.Type().IsRegular() {
-				return err
-			}
-			rel, err := filepath.Rel(target, srcPath)
-			if err != nil {
-				return err
-			}
-			destPath := filepath.Join(linkPath, rel)
+		copies := map[string]string{}
+		e.collectLinkContents(linkPath, copies, map[string]struct{}{})
+		for destPath, srcPath := range copies {
 			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-				return err
+				return fmt.Errorf("resolve symlink %s: %w", linkPath, err)
 			}
 			data, err := os.ReadFile(srcPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("resolve symlink %s: %w", linkPath, err)
 			}
-			return os.WriteFile(destPath, data, 0o644)
-		})
-		if err != nil {
-			return fmt.Errorf("resolve symlink %s -> %s: %w", linkPath, target, err)
+			if err := os.WriteFile(destPath, data, 0o644); err != nil {
+				return fmt.Errorf("resolve symlink %s: %w", linkPath, err)
+			}
 		}
 	}
 	return nil
 }
 
+// collectLinkContents fills copies with destPath -> archive file for everything that
+// should appear under linkPath: the archive's regular files below the resolved target,
+// re-rooted at linkPath, plus the contents of every recorded link below that target.
+// active holds the links on the current expansion so a cycle terminates.
+func (e *dirTarExtractor) collectLinkContents(linkPath string, copies map[string]string, active map[string]struct{}) {
+	if _, seen := active[linkPath]; seen {
+		return
+	}
+	active[linkPath] = struct{}{}
+	defer delete(active, linkPath)
+
+	target, ok := e.resolveTarget(linkPath)
+	if !ok {
+		return
+	}
+	targetPrefix := target + string(filepath.Separator)
+
+	for file := range e.files {
+		if !strings.HasPrefix(file, targetPrefix) {
+			continue
+		}
+		copies[filepath.Join(linkPath, strings.TrimPrefix(file, targetPrefix))] = file
+	}
+
+	for nested := range e.symlinks {
+		if !strings.HasPrefix(nested, targetPrefix) {
+			continue
+		}
+		nestedCopies := map[string]string{}
+		e.collectLinkContents(nested, nestedCopies, active)
+		for destPath, srcPath := range nestedCopies {
+			rel := strings.TrimPrefix(destPath, nested)
+			copies[filepath.Join(linkPath, strings.TrimPrefix(nested, targetPrefix), rel)] = srcPath
+		}
+	}
+}
+
 // resolveTarget expands linkPath's target until no path component of it is a recorded
-// link, and reports the result if it is an extracted directory. Each expansion replaces
-// the longest recorded-link prefix with that link's target and re-appends the suffix, so
-// alias/is-number with alias -> .store becomes .store/is-number. Expansions are bounded
-// by the number of recorded links: a cycle cannot make progress past that and is dropped.
+// link. Each expansion replaces the longest recorded-link prefix with that link's target
+// and re-appends the suffix, so alias/is-number with alias -> .store becomes
+// .store/is-number. Expansions are bounded by the number of recorded links: a cycle
+// cannot make progress past that and is dropped. The target must lie strictly below
+// destDir — a link to the copied directory itself is dropped, since materializing it
+// would copy the whole tree, links included, under itself. Whether anything exists at
+// the target is decided by the caller from the archive's files and links, not the disk.
 func (e *dirTarExtractor) resolveTarget(linkPath string) (string, bool) {
 	target := e.symlinks[linkPath]
 	for range len(e.symlinks) {
@@ -261,11 +297,6 @@ func (e *dirTarExtractor) resolveTarget(linkPath string) (string, bool) {
 		return "", false
 	}
 	if !strings.HasPrefix(target, e.destDir+string(filepath.Separator)) {
-		return "", false
-	}
-
-	info, err := os.Stat(target)
-	if err != nil || !info.IsDir() {
 		return "", false
 	}
 	return target, true

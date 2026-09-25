@@ -46,9 +46,7 @@ var _ = Describe("SBOM and VEX across every repository of a build", Label("e2e",
 		SuiteData.Stubs.SetEnv("WERF_REPO", stagesRepo)
 		SuiteData.Stubs.SetEnv("WERF_SECONDARY_REPO_1", secondaryRepo)
 		SuiteData.Stubs.SetEnv("WERF_FINAL_REPO", finalRepo)
-		// A cache repo that holds none of these stages must not break the
-		// propagation: artifacts of what it does not hold have nowhere to go.
-		SuiteData.Stubs.SetEnv("WERF_CACHE_REPO", cacheRepo)
+		SuiteData.Stubs.SetEnv("WERF_CACHE_REPO_1", cacheRepo)
 
 		_, buildReport := reportProject.BuildWithReport(ctx,
 			SuiteData.GetBuildReportPath("sbom_final_repo_sweep.json"), nil)
@@ -90,6 +88,13 @@ var _ = Describe("SBOM and VEX across every repository of a build", Label("e2e",
 		stagesDigest := stagesImageDigestOf(ctx, werfProject, "app")
 		Expect(attestutils.FindArtifactDescriptorByPredicate(ctx, stagesRepo, stagesDigest, vex.DSSEMediaType, vex.VEXPredicateURI)).NotTo(BeNil(),
 			"the stages repo must serve the VEX document on its own")
+
+		By("the cache repo holds the stage under the stages repo digest and serves its SBOM and VEX")
+		cacheDesc, cachePayload := fetchSingleSbomArtifact(ctx, cacheRepo, stagesDigest)
+		Expect(cacheDesc.Annotations[image.WerfImageNameAnnotation]).To(Equal("app"))
+		Expect(mustExtractInTotoSubjectDigest(cachePayload)).To(Equal(stagesDigest))
+		Expect(attestutils.FindArtifactDescriptorByPredicate(ctx, cacheRepo, stagesDigest, vex.DSSEMediaType, vex.VEXPredicateURI)).NotTo(BeNil(),
+			"the cache repo must serve the VEX document of the stage it mirrors")
 	})
 })
 

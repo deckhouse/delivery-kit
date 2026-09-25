@@ -205,6 +205,8 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		attach(ctx, stagesRepo, children[1], `{"scope":"arm64"}`)
 
 		copyManifestByDigest(ctx, stagesRepo, finalRepo, indexDigest)
+		copyManifestByDigest(ctx, stagesRepo, cacheRepo, children[0])
+		copyManifestByDigest(ctx, stagesRepo, cacheRepo, children[1])
 
 		tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
 		images := make([]*image.Image, 0, len(platforms))
@@ -225,13 +227,13 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		})
 		tree.SetMultiplatformImage(multiImg)
 
-		// A cache repo never holds the index digest, so offering it the image-level
-		// artifact could only ever warn; the platform manifests do travel there.
 		Expect(newPhase(tree, cacheStorage(cacheRepo)).propagateArtifacts(ctx)).To(Succeed())
 
 		expectAttached(ctx, finalRepo, indexDigest, `{"scope":"image"}`)
 		expectAttached(ctx, finalRepo, children[0], `{"scope":"amd64"}`)
 		expectAttached(ctx, finalRepo, children[1], `{"scope":"arm64"}`)
+		expectAttached(ctx, cacheRepo, children[0], `{"scope":"amd64"}`)
+		expectAttached(ctx, cacheRepo, children[1], `{"scope":"arm64"}`)
 		expectNothingAttached(ctx, cacheRepo, indexDigest)
 	})
 })

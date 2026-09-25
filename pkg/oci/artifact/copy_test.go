@@ -2,6 +2,8 @@ package artifact_test
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 
@@ -245,6 +247,39 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, absentDigest, dstRepo, absentDigest, remoteOpts...)).To(Succeed())
 
 			Expect(pullIndex(ctx, dstRepo, absentDigest).Manifests).To(BeEmpty())
+		})
+
+		It("should fail when the source manifest cannot be read for a reason other than absence", func(ctx SpecContext) {
+			indexDigest, _ := pushMultiplatformIndex(ctx, srcRepo, "index")
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			upstream := server.Listener.Addr().String()
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/manifests/"+indexDigest) {
+					http.Error(w, "registry unavailable", http.StatusInternalServerError)
+					return
+				}
+				r.URL.Scheme = "http"
+				r.URL.Host = upstream
+				r.RequestURI = ""
+				resp, err := http.DefaultTransport.RoundTrip(r)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+				defer resp.Body.Close()
+				for k, vs := range resp.Header {
+					w.Header()[k] = vs
+				}
+				w.WriteHeader(resp.StatusCode)
+				_, _ = io.Copy(w, resp.Body)
+			}))
+			defer failing.Close()
+
+			failingSrcRepo := strings.TrimPrefix(failing.URL, "http://") + "/test/src"
+
+			err := artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)
+			Expect(err).To(MatchError(ContainSubstring("list index manifests")))
 		})
 	})
 })

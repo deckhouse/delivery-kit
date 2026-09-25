@@ -946,13 +946,9 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
 	if desc != nil {
-		// The manifest is already in place, but its artifacts may not be: an earlier
-		// run could have copied the stage and failed before the artifacts, or the
-		// artifacts could have appeared in the source afterwards. The copy is
-		// idempotent, so repeating it here repairs such a destination. Both
-		// repositories are addressed by the same digest because a stage reaches this
-		// destination through a registry-level copy, which preserves it; a source that
-		// does not hold that digest is a no-op rather than a failure.
+		// The manifest may be in place without its artifacts; the copy is idempotent
+		// and repairs that. The digest is the same on both sides because a stage
+		// reaches this destination through a registry-level copy.
 		if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
 			return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
 		}

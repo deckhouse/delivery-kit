@@ -139,13 +139,13 @@ var _ = Describe("Gost SBOM setter", func() {
 			&cdx.BOM{
 				Components: &[]cdx.Component{{Name: "test"}},
 			},
-			Config{AttackSurface: GostValueIndirect, SecurityFunction: GostValueIndirect},
+			Config{AttackSurface: GostValueIndirect, SecurityFunction: GostValueNo},
 			[]cdx.Component{
 				{
 					Name: "test",
 					Properties: &[]cdx.Property{
 						{Name: PropertyAttackSurface, Value: "indirect"},
-						{Name: PropertySecurityFunction, Value: "indirect"},
+						{Name: PropertySecurityFunction, Value: "no"},
 					},
 				},
 			},

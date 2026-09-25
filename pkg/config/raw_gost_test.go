@@ -57,5 +57,11 @@ var _ = Describe("rawGost", func() {
 			},
 			gost.Config{},
 			HaveOccurred()),
+		Entry("indirect is rejected for the security function",
+			map[string]interface{}{
+				"securityFunction": "indirect",
+			},
+			gost.Config{},
+			MatchError(ContainSubstring("expected 'yes' or 'no'"))),
 	)
 })

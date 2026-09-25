@@ -59,6 +59,6 @@ var _ = Describe("SBOM GOST cache invalidation", Label("e2e", "sbom", "gost", "s
 			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
 		}))
 		sbomtest.AssertGostPropertyOnMetadata(bom1, gost.PropertyAttackSurface, gost.GostValueNo)
-		sbomtest.AssertGostPropertyOnMetadata(bom1, gost.PropertySecurityFunction, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnMetadata(bom1, gost.PropertySecurityFunction, gost.GostValueNo)
 	})
 })

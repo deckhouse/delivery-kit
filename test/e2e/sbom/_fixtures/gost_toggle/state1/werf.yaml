@@ -6,7 +6,7 @@ build:
     standard: "cyclonedx@1.6"
     gost:
       attackSurface: no
-      securityFunction: indirect
+      securityFunction: no
 ---
 image: app
 from: scratch

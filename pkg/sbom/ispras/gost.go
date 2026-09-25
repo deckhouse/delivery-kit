@@ -2,32 +2,23 @@ package ispras
 
 import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
 )
-
-var gostPrecedence = map[gost.GostValue]int{
-	gost.GostValueUndefined: 0,
-	gost.GostValueNo:        1,
-	gost.GostValueIndirect:  2,
-	gost.GostValueYes:       3,
-}
 
 func aggregateGOST(components []cdx.Component) GOSTValues {
 	var result GOSTValues
 	for i := range components {
 		cfg := gost.GetComponent(&components[i])
-		result.AttackSurface = maxGOSTValue(result.AttackSurface, cfg.AttackSurface)
-		result.SecurityFunction = maxGOSTValue(result.SecurityFunction, cfg.SecurityFunction)
+		result.AttackSurface = gost.Max(result.AttackSurface, cfg.AttackSurface)
+		result.SecurityFunction = gost.Max(result.SecurityFunction, cfg.SecurityFunction)
+
+		nested := aggregateGOST(lo.FromPtr(components[i].Components))
+		result.AttackSurface = gost.Max(result.AttackSurface, nested.AttackSurface)
+		result.SecurityFunction = gost.Max(result.SecurityFunction, nested.SecurityFunction)
 	}
 	return result
-}
-
-func maxGOSTValue(a, b gost.GostValue) gost.GostValue {
-	if gostPrecedence[b] > gostPrecedence[a] {
-		return b
-	}
-	return a
 }
 
 func setMissingGOSTOnComponent(comp *cdx.Component, values GOSTValues) {

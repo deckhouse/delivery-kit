@@ -9,7 +9,6 @@ import (
 type ImageSBOM struct {
 	Name string
 	BOM  *cdx.BOM
-	GOST GOSTValues
 }
 
 type GOSTValues struct {

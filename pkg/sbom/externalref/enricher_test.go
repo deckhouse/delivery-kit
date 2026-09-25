@@ -14,6 +14,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
 )
 
 var _ = Describe("Enricher", func() {
@@ -152,6 +153,7 @@ var _ = Describe("Enricher", func() {
 			Expect(refs).To(HaveLen(1))
 			Expect(refs[0].URL).To(Equal("https://github.com/lodash/lodash"))
 			Expect(refs[0].Type).To(Equal(cdx.ERTypeVCS))
+			Expect(refs[0].Comment).To(Equal(cyclonedxutil.ExternalReferenceCommentResolved))
 
 			Expect(bom.ExternalReferences).NotTo(BeNil())
 			Expect(*bom.ExternalReferences).To(HaveLen(1))
@@ -169,6 +171,23 @@ var _ = Describe("Enricher", func() {
 
 			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
 			Expect(*bom.ExternalReferences).To(HaveLen(2))
+		})
+
+		It("marks the resolved link so canonicalization keeps the package manager one", func() {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+			fromPackageManager := cdx.ExternalReference{URL: "https://git.example.com/lodash.git", Type: cdx.ERTypeVCS}
+			(*bom.Components)[0].ExternalReferences = lo.ToPtr(append(*(*bom.Components)[0].ExternalReferences, fromPackageManager))
+
+			cyclonedxutil.Canonicalize(bom)
+
+			Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{fromPackageManager}))
 		})
 
 		It("resolves a duplicated package URL once and enriches every duplicate", func() {
@@ -633,7 +652,7 @@ var _ = Describe("Enricher", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(bom))
-			Expect(result.ExternalReferences).NotTo(BeNil())
+			Expect((*result.Components)[0].ExternalReferences).NotTo(BeNil())
 		})
 
 		It("returns original BOM on error", func() {

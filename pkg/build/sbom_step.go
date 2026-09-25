@@ -171,6 +171,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
 
+		cyclonedxutil.Canonicalize(resultBOM)
+
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
 			return fmt.Errorf("serialize BOM: %w", err)
@@ -186,7 +188,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-const sbomArtifactFormatVersion = "3"
+const sbomArtifactFormatVersion = "5"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

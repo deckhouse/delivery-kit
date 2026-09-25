@@ -89,6 +89,28 @@ func parseWerfDocumentWithMeta(data string, meta *Meta) error {
 	}
 }
 
+func stapelImageWithGit(gitYaml string) string {
+	return "image: image1\nfrom: alpine\nshell:\n  install:\n  - echo install\n  beforeSetup:\n  - echo beforeSetup\n  setup:\n  - echo setup\ngit:\n" + gitYaml
+}
+
+func parseStapelImageGitLocals(data string) ([]*GitLocal, error) {
+	parentStack = util.NewStack()
+	giterminismManager := NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"))
+
+	document := &doc{Content: []byte(data)}
+	image := &rawStapelImage{doc: document}
+	if err := yamlv2.UnmarshalStrict(document.Content, image); err != nil {
+		return nil, err
+	}
+
+	stapelImage, err := image.toStapelImageDirective(context.Background(), giterminismManager, &Meta{}, "image1")
+	if err != nil {
+		return nil, err
+	}
+
+	return stapelImage.Git.Local, nil
+}
+
 func nonTemplatedWerfYamlFixtures(root string) []string {
 	var fixtures []string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {

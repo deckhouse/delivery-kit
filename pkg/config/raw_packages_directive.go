@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/werf/werf/v2/pkg/werf/global_warnings"
+	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
 
 type rawPackagesDirective struct {

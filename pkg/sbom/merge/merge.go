@@ -11,9 +11,9 @@ import (
 	"github.com/opencontainers/go-digest"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
-	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
-	"github.com/werf/werf/v2/pkg/sbom/ispras"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
 type Options struct {

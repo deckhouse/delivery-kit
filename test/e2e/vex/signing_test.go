@@ -6,14 +6,14 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/vex"
-	"github.com/werf/werf/v2/test/pkg/attestutils"
-	"github.com/werf/werf/v2/test/pkg/report"
-	"github.com/werf/werf/v2/test/pkg/suite_init"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/vex"
+	"github.com/werf/werf/v3/test/pkg/attestutils"
+	"github.com/werf/werf/v3/test/pkg/report"
+	"github.com/werf/werf/v3/test/pkg/suite_init"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("VEX signing", Label("e2e", "vex", "signing", "simple"), func() {

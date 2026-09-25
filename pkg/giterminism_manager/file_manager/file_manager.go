@@ -12,10 +12,11 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	nelmcommon "github.com/werf/nelm/pkg/common"
-	"github.com/werf/werf/v2/pkg/giterminism_manager/file_reader"
-	"github.com/werf/werf/v2/pkg/giterminism_manager/inspector"
-	"github.com/werf/werf/v2/pkg/includes"
+	nelmcommon "github.com/werf/nelm/v2/pkg/common"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/ignore"
+	"github.com/werf/werf/v3/pkg/giterminism_manager/file_reader"
+	"github.com/werf/werf/v3/pkg/giterminism_manager/inspector"
+	"github.com/werf/werf/v3/pkg/includes"
 )
 
 type FileReader interface {
@@ -38,6 +39,9 @@ type FileReader interface {
 	ListFilesByGlob(ctx context.Context, dir, glob string) ([]string, error)
 
 	IsRegularFileExist(ctx context.Context, relPath string) (exist bool, err error)
+
+	ReadChartIgnoreRules(ctx context.Context, chartDir string, opts file_reader.ReadChartIgnoreRulesOptions) (file_reader.ChartIgnoreRules, error)
+	LoadChartDirWithIgnoreRules(ctx context.Context, chartDir string, rules file_reader.ChartIgnoreRules) ([]*nelmcommon.BufferedFile, error)
 
 	nelmcommon.ChartFileReaderer
 }
@@ -354,9 +358,18 @@ func (f *FileManager) ReadChartFile(ctx context.Context, filePath string) ([]byt
 	return data, nil
 }
 
+// LoadChartDir assembles the chart from the local directory and from the includes, where a local
+// file always wins over an imported one, and applies the chart's .helmignore to the result. The
+// rules are resolved once for the effective chart tree: a chart delivered entirely through an
+// include has to be filtered too, and a file excluded here must not come back from an include.
 func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*nelmcommon.BufferedFile, error) {
 	chartLocalAbsPath := getDirAbsPath(dir, f.customProjectDir)
-	processed := make(map[string]bool)
+	normDir := filepath.ToSlash(filepath.Clean(dir))
+	dirPrefix := normDir + "/"
+	if normDir == "." {
+		dirPrefix = ""
+	}
+	processed := make(map[string]struct{})
 
 	var chartDir []*nelmcommon.BufferedFile
 
@@ -365,26 +378,24 @@ func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*nelmcomm
 		return nil, err
 	}
 
+	rules, err := f.readChartIgnoreRules(ctx, chartLocalAbsPath, normDir)
+	if err != nil {
+		return nil, err
+	}
+
 	if readFromLocalFs {
-		var err error
-		chartDir, err = f.fileReader.LoadChartDir(ctx, chartLocalAbsPath)
+		chartDir, err = f.fileReader.LoadChartDirWithIgnoreRules(ctx, chartLocalAbsPath, rules)
 		if err != nil {
 			return nil, fmt.Errorf("unable to load chart directory: %w", err)
 		}
 		for _, file := range chartDir {
 			processedPath := filepath.ToSlash(filepath.Join(dir, file.Name))
 			logboek.Context(ctx).Debug().LogF("--- %s read from filesystem \n", processedPath)
-			processed[processedPath] = true
+			processed[processedPath] = struct{}{}
 		}
 	}
 
 	logboek.Context(ctx).Debug().LogF("Try to read additional files from includes\n")
-
-	normDir := filepath.ToSlash(filepath.Clean(dir))
-	dirPrefix := normDir + "/"
-	if normDir == "." {
-		dirPrefix = ""
-	}
 
 	for _, include := range f.includes {
 		err := include.WalkObjects(func(toPath, _ string) error {
@@ -397,6 +408,12 @@ func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*nelmcomm
 				return nil
 			}
 
+			relToChartPath := strings.TrimPrefix(normToPath, dirPrefix)
+			if rules.IsFileIgnored(ctx, relToChartPath) {
+				logboek.Context(ctx).Debug().LogF("--- %s excluded by %s\n", relToChartPath, ignore.HelmIgnore)
+				return nil
+			}
+
 			data, err := include.GetFile(ctx, normToPath)
 			if err != nil {
 				return fmt.Errorf("unable to read included chart file %q from %s: %w", normToPath, include.GetName(), err)
@@ -405,10 +422,10 @@ func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*nelmcomm
 			logboek.Context(ctx).Debug().LogF("--- %s read from includes \n", normToPath)
 
 			chartDir = append(chartDir, &nelmcommon.BufferedFile{
-				Name: strings.TrimPrefix(normToPath, dirPrefix),
+				Name: relToChartPath,
 				Data: data,
 			})
-			processed[normToPath] = false
+			processed[normToPath] = struct{}{}
 			return nil
 		})
 		if err != nil {
@@ -417,10 +434,45 @@ func (f *FileManager) LoadChartDir(ctx context.Context, dir string) ([]*nelmcomm
 	}
 
 	if len(chartDir) == 0 {
-		return nil, fmt.Errorf("load chart dir error: the directory %q not found in the project git repository or includes", dir)
+		err := fmt.Errorf("no chart files found in %q", dir)
+		if rules.HasIgnoreFile() {
+			return nil, fmt.Errorf("%w; the chart has a %s, check whether its rules exclude every file", err, ignore.HelmIgnore)
+		}
+
+		return nil, err
 	}
 
 	return chartDir, nil
+}
+
+// readChartIgnoreRules resolves the chart's .helmignore, where a local one takes precedence over
+// one delivered by the includes.
+func (f *FileManager) readChartIgnoreRules(ctx context.Context, chartLocalAbsPath, normDir string) (file_reader.ChartIgnoreRules, error) {
+	relPath := path.Join(normDir, ignore.HelmIgnore)
+
+	rules, err := f.fileReader.ReadChartIgnoreRules(ctx, chartLocalAbsPath, file_reader.ReadChartIgnoreRulesOptions{
+		FallbackFunc: func(ctx context.Context) ([]byte, bool, error) {
+			for _, include := range f.includes {
+				data, err := include.GetFile(ctx, relPath)
+				if err != nil {
+					if errors.Is(err, includes.ErrFileNotFound) {
+						continue
+					}
+
+					return nil, false, fmt.Errorf("read %q from include %q: %w", relPath, include.GetName(), err)
+				}
+
+				return data, true, nil
+			}
+
+			return nil, false, nil
+		},
+	})
+	if err != nil {
+		return file_reader.ChartIgnoreRules{}, fmt.Errorf("unable to read chart ignore rules: %w", err)
+	}
+
+	return rules, nil
 }
 
 func loadChartDirFromLocalSource(dir string) (bool, error) {

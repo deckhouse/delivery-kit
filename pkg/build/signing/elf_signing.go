@@ -22,9 +22,9 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	elfTar "github.com/werf/werf/v2/pkg/signature/elf/tar"
-	"github.com/werf/werf/v2/pkg/tmp_manager"
-	werfExec "github.com/werf/werf/v2/pkg/werf/exec"
+	elfTar "github.com/werf/werf/v3/pkg/signature/elf/tar"
+	"github.com/werf/werf/v3/pkg/tmp_manager"
+	werfExec "github.com/werf/werf/v3/pkg/werf/exec"
 )
 
 // ELF state machine removed in favor of debug/elf

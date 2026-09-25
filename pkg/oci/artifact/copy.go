@@ -8,8 +8,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/image"
 )
 
 // CopyAttachedArtifacts copies every artifact attached to srcDigest in srcRepo onto

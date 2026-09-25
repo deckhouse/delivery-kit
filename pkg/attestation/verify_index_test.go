@@ -17,8 +17,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/test/pkg/signutils"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/test/pkg/signutils"
 )
 
 var _ = Describe("VerifyIndex", func() {

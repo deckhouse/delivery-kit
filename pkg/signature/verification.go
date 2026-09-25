@@ -14,11 +14,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/signature/elf/bsign"
-	elfTar "github.com/werf/werf/v2/pkg/signature/elf/tar"
-	"github.com/werf/werf/v2/pkg/tmp_manager"
-	"github.com/werf/werf/v2/pkg/util/parallel"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/signature/elf/bsign"
+	elfTar "github.com/werf/werf/v3/pkg/signature/elf/tar"
+	"github.com/werf/werf/v3/pkg/tmp_manager"
+	"github.com/werf/werf/v3/pkg/util/parallel"
 )
 
 type VerifyOptions struct {

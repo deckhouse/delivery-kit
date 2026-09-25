@@ -8,7 +8,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
+	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
 )
 
 type PackagesDirectiveType string

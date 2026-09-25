@@ -10,8 +10,8 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"github.com/werf/werf/v2/pkg/container_backend/thirdparty/platformutil"
-	"github.com/werf/werf/v2/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/container_backend/thirdparty/platformutil"
+	"github.com/werf/werf/v3/pkg/docker_registry"
 )
 
 // ErrIndexPlatformRequired is returned when a digest points to a multi-platform

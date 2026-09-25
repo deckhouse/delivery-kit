@@ -6,7 +6,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/container_backend/label"
+	"github.com/werf/werf/v3/pkg/container_backend/label"
 )
 
 type FilterList []Filter

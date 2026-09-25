@@ -4,9 +4,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
-	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("SBOM GOST cache invalidation", Label("e2e", "sbom", "gost", "simple"), func() {

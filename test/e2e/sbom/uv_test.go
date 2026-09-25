@@ -4,8 +4,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	sbomtest "github.com/werf/werf/v2/test/pkg/sbom"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("SBOM python-uv packages", Label("e2e", "sbom", "uv", "simple"), func() {

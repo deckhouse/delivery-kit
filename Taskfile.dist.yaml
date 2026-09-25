@@ -28,13 +28,13 @@ vars:
   mode: '{{ternary "cgo" "go" (eq .os "linux")}}'
   devBinary: './bin/werf{{if (eq .targetOS "windows")}}.exe{{end}}'
   withCoverageBinary: './bin/werf-with-coverage{{if (eq .targetOS "windows")}}.exe{{end}}'
-  package: "github.com/werf/werf/v2/cmd/werf"
+  package: "github.com/werf/werf/v3/cmd/werf"
   kubeVersion: '{{.kubeVersion | default "1.36.1"}}'
 
   pmImage: "registry.deckhouse.io/container-factory@sha256:b9ebf99d849cc88889ee2281f8a9100fdeee4b95b11c4a0350f38135a835f5d1"
 
   goTags: "dfrunsecurity dfrunnetwork dfrunmount dfssh containers_image_openpgp"
-  goLDFlags: "-s -w -X github.com/werf/werf/v2/pkg/werf.Version={{.version}}"
+  goLDFlags: "-s -w -X github.com/werf/werf/v3/pkg/werf.Version={{.version}}"
 
   cgoTags: "{{.goTags}} osusergo exclude_graphdriver_devicemapper netgo no_devmapper static_build"
   cgoLDFlags: "{{.goLDFlags}} -linkmode external -extldflags=-static"
@@ -114,7 +114,7 @@ tasks:
       - pkg/stapel/embed/linux/arm64/werf-stapel-toolchain.tar.gz
       - pkg/stapel/embed/linux/arm64/werf-stapel-toolchain.tar.sha256
     cmds:
-      - env -u GOOS -u GOARCH WERF_STAPEL_IMAGE_VERSION="$(sed -n 's/.*VERSION *= *"\(.*\)"/\1/p' pkg/stapel/stapel.go | head -1)" go run ./cmd/embed-stapel
+      - env -u GOOS -u GOARCH -u WERF_STAPEL_IMAGE_NAME WERF_STAPEL_IMAGE_VERSION="$(sed -n 's/.*VERSION *= *"\(.*\)"/\1/p' pkg/stapel/stapel.go | head -1)" go run ./cmd/embed-stapel
 
   deno:embed:
     desc: 'Download and embed the Deno binary for one platform. Important vars: "platform".'
@@ -123,7 +123,7 @@ tasks:
     vars:
       platform: '{{.platform | default (printf "%s/%s" .os .arch)}}'
       denoVersionSource:
-        sh: printf '%s/pkg/ts/denolock/data/lock.json' "$(go list -m -f '{{`{{.Dir}}`}}' github.com/werf/nelm)"
+        sh: printf '%s/pkg/ts/denolock/data/lock.json' "$(go list -m -f '{{`{{.Dir}}`}}' github.com/werf/nelm/v2)"
     sources:
       # The pinned nelm version determines the lock, and unlike the path below it always resolves: on
       # a cold module cache "go list -m" reports an empty Dir and that entry matches nothing.
@@ -132,7 +132,7 @@ tasks:
     generates:
       - pkg/deno/embed/{{.platform}}/deno.gz
     cmds:
-      - env -u GOOS -u GOARCH DENO_EMBED_ROOT=pkg/deno/embed DENO_EMBED_PLATFORM="{{.platform}}" go run github.com/werf/nelm/scripts/embed-deno
+      - env -u GOOS -u GOARCH DENO_EMBED_ROOT=pkg/deno/embed DENO_EMBED_PLATFORM="{{.platform}}" go run github.com/werf/nelm/v2/scripts/embed-deno
 
   _build:cgo:dev: &build_cgo_dev
     deps:
@@ -417,6 +417,16 @@ tasks:
           paths: '{{.paths | default "./pkg ./cmd ./schemas"}}'
           parallel: "{{.parallel}}"
 
+  test:unit:embedded:
+    desc: "Test embedded Stapel and Deno assets."
+    deps:
+      - stapel:embed
+      - deno:embed
+    cmds:
+      - go test -ldflags="{{.goLDFlags}}" -tags="{{.distGoTags}}" ./pkg/stapel ./pkg/deno
+    env:
+      CGO_ENABLED: "0"
+
   test:integration:
     desc: 'Run integration tests. Important vars: "paths".'
     cmds:
@@ -543,8 +553,14 @@ tasks:
   doc:
     desc: "Run all docs generators, formatters and linters."
     cmds:
+      - task: doc:check-source-links
       - task: doc:gen
       - task: doc:check-broken-links
+
+  doc:check-source-links:
+    desc: "Verify documentation Source links select the matching branch."
+    cmds:
+      - node scripts/docs/check_editme_links.js
 
   doc:gen:
     desc: "Regenerate docs."

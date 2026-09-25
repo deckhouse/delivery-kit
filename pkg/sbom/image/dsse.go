@@ -6,7 +6,7 @@ import (
 
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/attestation"
 )
 
 func WrapInDSSE(ctx context.Context, payload []byte, payloadType string, signer signature.Signer) ([]byte, error) {

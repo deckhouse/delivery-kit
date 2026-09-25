@@ -15,12 +15,12 @@ import (
 	"github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/buildah/thirdparty"
-	"github.com/werf/werf/v2/pkg/container_backend/filter"
-	"github.com/werf/werf/v2/pkg/container_backend/info"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/sbom/scanner"
-	"github.com/werf/werf/v2/pkg/werf"
+	"github.com/werf/werf/v3/pkg/buildah/thirdparty"
+	"github.com/werf/werf/v3/pkg/container_backend/filter"
+	"github.com/werf/werf/v3/pkg/container_backend/info"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/werf"
 )
 
 const (

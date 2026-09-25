@@ -3,7 +3,7 @@ package ispras
 import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 var gostPrecedence = map[gost.GostValue]int{

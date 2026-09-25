@@ -11,12 +11,12 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
 
-	nelmcommon "github.com/werf/nelm/pkg/common"
-	chartcommon "github.com/werf/nelm/pkg/helm/pkg/chart/common"
-	chart "github.com/werf/nelm/pkg/helm/pkg/chart/v2"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/logging"
-	bundles_registry "github.com/werf/werf/v2/pkg/ref"
+	nelmcommon "github.com/werf/nelm/v2/pkg/common"
+	chartcommon "github.com/werf/nelm/v2/pkg/helm/pkg/chart/common"
+	chart "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/logging"
+	bundles_registry "github.com/werf/werf/v3/pkg/ref"
 )
 
 var _ = Describe("Bundle copy", func() {

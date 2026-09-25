@@ -8,8 +8,8 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 type BOMPatcher struct {

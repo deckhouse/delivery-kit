@@ -16,7 +16,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 
-	"github.com/werf/werf/v2/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
 // SigningKeyPair is the on-disk key material a signing e2e scenario needs:

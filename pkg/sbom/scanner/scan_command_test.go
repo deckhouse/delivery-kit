@@ -6,7 +6,7 @@ import (
 	"github.com/onsi/gomega/matchers"
 	"github.com/onsi/gomega/types"
 
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v3/pkg/sbom"
 )
 
 var _ = Describe("ScanCommand", func() {

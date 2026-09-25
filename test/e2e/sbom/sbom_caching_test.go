@@ -6,9 +6,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/test/pkg/suite_init"
-	"github.com/werf/werf/v2/test/pkg/utils"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	"github.com/werf/werf/v3/test/pkg/suite_init"
+	"github.com/werf/werf/v3/test/pkg/utils"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("SBOM caching (build.sbom.enable)", Label("e2e", "sbom", "caching"), func() {

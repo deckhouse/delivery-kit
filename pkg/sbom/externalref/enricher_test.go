@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v3/pkg/logging"
 )
 
 var _ = Describe("Enricher", func() {

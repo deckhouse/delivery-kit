@@ -14,9 +14,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	sbomImage "github.com/werf/werf/v2/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 )
 
 var multiplatformSbomPlatforms = []string{"linux/amd64", "linux/arm64"}

@@ -3,7 +3,7 @@ package e2e_verify_test
 import (
 	"strings"
 
-	"github.com/werf/werf/v2/test/pkg/suite_init"
+	"github.com/werf/werf/v3/test/pkg/suite_init"
 )
 
 type setupEnvOptions struct {

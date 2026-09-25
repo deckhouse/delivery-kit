@@ -12,6 +12,7 @@ import (
 	"github.com/werf/werf/v3/test/pkg/report"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
 	"github.com/werf/werf/v3/test/pkg/suite_init"
+	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
@@ -65,6 +66,12 @@ var _ = Describe("SBOM retention across cleanup", Label("e2e", "sbom", "final-re
 		// that is not on the list.
 		keepListPath := filepath.Join(testRepoPath, ".werf-keep-list")
 		Expect(os.WriteFile(keepListPath, []byte(stageTag+"\n"), 0o600)).To(Succeed())
+
+		// werf cleanup requires a git remote origin; it lives outside the project
+		// directory so that it does not turn into an untracked file of the build.
+		bareRemotePath := filepath.Join(SuiteData.TmpDir, "sbom_final_repo_cleanup_remote.git")
+		utils.RunSucceedCommand(ctx, testRepoPath, "git", "init", "--bare", bareRemotePath)
+		utils.RunSucceedCommand(ctx, testRepoPath, "git", "remote", "add", "origin", bareRemotePath)
 
 		cleanupArgs := []string{"cleanup", "--without-kube", "--keep-stages-built-within-last-n-hours=0"}
 

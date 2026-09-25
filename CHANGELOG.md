@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.79.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.79.1-dk.1...v2.79.2-dk.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **cleanup:** stop import metadata cleanup leaking goroutines ([#7864](https://github.com/deckhouse/delivery-kit/issues/7864)) ([5b7332f](https://github.com/deckhouse/delivery-kit/commit/5b7332f09b36f20f30f5f336ec11ec03b7ec7113)), closes [#7862](https://github.com/deckhouse/delivery-kit/issues/7862)
+* **release:** relabel only merged releases of the current branch ([6e73257](https://github.com/deckhouse/delivery-kit/commit/6e73257ac346b3203ff8b13a014b3e9213c33b62))
+
+
+### Miscellaneous Chores
+
+* force release 2.79.2-dk.1 ([966498a](https://github.com/deckhouse/delivery-kit/commit/966498a97e834e43168e99d715c390ecd3488a4b))
+* **release:** merge werf upstream into delivery-kit (2.79.2-dk.1) ([#365](https://github.com/deckhouse/delivery-kit/issues/365)) ([ae6b9fd](https://github.com/deckhouse/delivery-kit/commit/ae6b9fdec5e3d3d9f80868c9b31ba54369d3a6c6))
+
 ## [2.79.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.78.1-dk.2...v2.79.1-dk.1) (2026-09-23)
 
 

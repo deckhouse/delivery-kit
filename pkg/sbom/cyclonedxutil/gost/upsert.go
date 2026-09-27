@@ -61,27 +61,25 @@ func setComponents(components []cdx.Component, rootConfig, dependencyConfig Conf
 // other), and counting in-edges alone would leave such a cycle with no root
 // even when nothing outside of it depends on it.
 //
-// Edges sourced at the scanned image's own metadata component are skipped: a
-// cataloger that lists every package under the image root describes what the
-// image contains, not what one package pulls in, and honoring those edges would
-// leave the tree without a single root.
+// Only edges sourced at a component count. An edge from the scanned image's
+// own metadata component describes what the image contains, not what one
+// package pulls in, and honoring it would leave the tree without a single root;
+// an edge from a service describes what the service uses, and a package is not
+// pulled in by the service that calls it.
 func dependencyTargets(bom *cdx.BOM) map[string]struct{} {
-	var rootRef string
+	componentRefs := make(map[string]struct{})
+	collectComponentRefs(lo.FromPtr(bom.Components), componentRefs)
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		rootRef = bom.Metadata.Component.BOMRef
+		collectComponentRefs(lo.FromPtr(bom.Metadata.Component.Components), componentRefs)
 	}
 
 	edges := make(map[string][]string)
 	for _, dep := range lo.FromPtr(bom.Dependencies) {
-		if rootRef != "" && dep.Ref == rootRef {
+		if _, ok := componentRefs[dep.Ref]; !ok {
 			continue
 		}
 
-		for _, ref := range lo.FromPtr(dep.Dependencies) {
-			if ref != dep.Ref {
-				edges[dep.Ref] = append(edges[dep.Ref], ref)
-			}
-		}
+		edges[dep.Ref] = append(edges[dep.Ref], lo.FromPtr(dep.Dependencies)...)
 	}
 
 	componentOf := stronglyConnectedComponents(edges)
@@ -103,6 +101,15 @@ func dependencyTargets(bom *cdx.BOM) map[string]struct{} {
 	}
 
 	return targets
+}
+
+func collectComponentRefs(components []cdx.Component, refs map[string]struct{}) {
+	for i := range components {
+		if components[i].BOMRef != "" {
+			refs[components[i].BOMRef] = struct{}{}
+		}
+		collectComponentRefs(lo.FromPtr(components[i].Components), refs)
+	}
 }
 
 // stronglyConnectedComponents runs Tarjan's algorithm over the adjacency list

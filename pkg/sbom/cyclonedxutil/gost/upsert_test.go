@@ -196,6 +196,16 @@ var _ = Describe("Gost SBOM setter", func() {
 			},
 			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
 			map[string]GostValue{"curl": GostValueYes, "jq": GostValueYes}),
+		Entry("an edge sourced at a service does not demote anything",
+			&cdx.BOM{
+				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "jq"}},
+				Services:   &[]cdx.Service{{BOMRef: "api"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "api", Dependencies: &[]string{"curl", "jq"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{"curl": GostValueYes, "jq": GostValueYes}),
 		Entry("a provides edge does not demote what it points at",
 			&cdx.BOM{
 				Components:   &[]cdx.Component{{BOMRef: "openssl"}, {BOMRef: "libssl"}},
@@ -311,5 +321,19 @@ var _ = Describe("Gost SBOM setter", func() {
 		nested := lo.FromPtr((*bom.Components)[0].Components)
 		Expect(GetComponent(&nested[0]).AttackSurface).To(Equal(GostValueIndirect))
 		Expect(GetComponent(&nested[1]).AttackSurface).To(Equal(GostValueYes))
+	})
+
+	It("honors an edge sourced at a nested component", func() {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "parent", Components: &[]cdx.Component{{BOMRef: "nested"}}},
+				{BOMRef: "openssl"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "nested", Dependencies: &[]string{"openssl"}}},
+		}
+
+		Expect(Upsert(bom, Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes})).To(Succeed())
+
+		Expect(GetComponent(&(*bom.Components)[1]).AttackSurface).To(Equal(GostValueIndirect))
 	})
 })

@@ -17,30 +17,30 @@ import (
 	"github.com/werf/logboek/pkg/level"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
-	"github.com/werf/nelm/pkg/action"
-	"github.com/werf/nelm/pkg/common"
-	"github.com/werf/nelm/pkg/helm/pkg/chart/loader"
-	"github.com/werf/nelm/pkg/helm/pkg/engine"
-	"github.com/werf/nelm/pkg/log"
-	"github.com/werf/nelm/pkg/ts"
-	"github.com/werf/werf/v2/pkg/build"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/buildah"
-	"github.com/werf/werf/v2/pkg/cleanup_report"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/deno"
-	"github.com/werf/werf/v2/pkg/docker"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/pkg/storage/manager"
-	"github.com/werf/werf/v2/pkg/true_git"
-	"github.com/werf/werf/v2/pkg/util/option"
-	"github.com/werf/werf/v2/pkg/werf"
-	"github.com/werf/werf/v2/pkg/werf/global_warnings"
+	"github.com/werf/nelm/v2/pkg/action"
+	"github.com/werf/nelm/v2/pkg/common"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/chart/loader"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/engine"
+	"github.com/werf/nelm/v2/pkg/log"
+	"github.com/werf/nelm/v2/pkg/ts"
+	"github.com/werf/werf/v3/pkg/build"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/buildah"
+	"github.com/werf/werf/v3/pkg/cleanup_report"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/deno"
+	"github.com/werf/werf/v3/pkg/docker"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/storage/manager"
+	"github.com/werf/werf/v3/pkg/true_git"
+	"github.com/werf/werf/v3/pkg/util/option"
+	"github.com/werf/werf/v3/pkg/werf"
+	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
 
 const (
@@ -1376,7 +1376,21 @@ func SetupChartRepoInsecure(cmdData *CmdData, cmd *cobra.Command) {
 
 func SetupScanContextNamespaceOnly(cmdData *CmdData, cmd *cobra.Command) {
 	cmdData.ScanContextNamespaceOnly = new(bool)
-	cmd.Flags().BoolVarP(cmdData.ScanContextNamespaceOnly, "scan-context-namespace-only", "", util.GetBoolEnvironmentDefaultFalse("WERF_SCAN_CONTEXT_NAMESPACE_ONLY"), "Scan for used images only in namespace linked with context for each available context in kube-config (or only for the context specified with option --kube-context). When disabled will scan all namespaces in all contexts (or only for the context specified with option --kube-context). (Default $WERF_SCAN_CONTEXT_NAMESPACE_ONLY)")
+	cmd.Flags().BoolVarP(cmdData.ScanContextNamespaceOnly, "scan-context-namespace-only", "", util.GetBoolEnvironmentDefaultFalse("WERF_SCAN_CONTEXT_NAMESPACE_ONLY"), "Scan for used images only in namespace linked with context for each available context in kube-config (or only for the context specified with option --kube-context). When disabled will scan all namespaces in all contexts (or only for the context specified with option --kube-context), unless --kube-scan-namespaces is set. (Default $WERF_SCAN_CONTEXT_NAMESPACE_ONLY)")
+}
+
+func SetupKubeScanNamespaces(cmdData *CmdData, cmd *cobra.Command) {
+	cmdData.KubeScanNamespaces = new([]string)
+	cmd.Flags().StringArrayVarP(cmdData.KubeScanNamespaces, "kube-scan-namespaces", "", []string{}, `Kubernetes namespaces to scan for used images for each selected context (can specify multiple). Takes precedence over --scan-context-namespace-only when set.
+Also, can be specified with $WERF_KUBE_SCAN_NAMESPACES_* (e.g. $WERF_KUBE_SCAN_NAMESPACES_1=..., $WERF_KUBE_SCAN_NAMESPACES_2=...)`)
+}
+
+func GetKubeScanNamespaces(cmdData *CmdData) []string {
+	res := util.PredefinedValuesByEnvNamePrefix("WERF_KUBE_SCAN_NAMESPACES_")
+	if cmdData.KubeScanNamespaces == nil {
+		return res
+	}
+	return append(res, *cmdData.KubeScanNamespaces...)
 }
 
 func GetCacheStagesStorage(cmdData *CmdData) []string {

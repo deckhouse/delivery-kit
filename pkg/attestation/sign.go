@@ -6,7 +6,7 @@ import (
 
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
 func Sign(ctx context.Context, predicate []byte, predicateType, repo, parentDigest, imageName string, signer signature.Signer) error {

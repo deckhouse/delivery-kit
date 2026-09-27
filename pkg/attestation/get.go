@@ -7,7 +7,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
-	"github.com/werf/werf/v2/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
 func Get(ctx context.Context, repo, parentDigest, imageName, predicateType string) ([]byte, error) {

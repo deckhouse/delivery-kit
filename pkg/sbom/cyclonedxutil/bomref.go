@@ -6,7 +6,10 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	packageurl "github.com/package-url/packageurl-go"
+	"github.com/samber/lo"
 )
+
+const packageIDQualifier = "package-id"
 
 func packageID(serial string, index int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", serial, index)))
@@ -21,10 +24,18 @@ func deriveBomRef(purl, serial string, index int) string {
 		return id
 	}
 
-	parsed.Qualifiers = append(parsed.Qualifiers, packageurl.Qualifier{
-		Key:   "package-id",
+	qualifiers := make(packageurl.Qualifiers, 0, len(parsed.Qualifiers)+1)
+	for _, qualifier := range parsed.Qualifiers {
+		if qualifier.Key == packageIDQualifier {
+			continue
+		}
+		qualifiers = append(qualifiers, qualifier)
+	}
+	qualifiers = append(qualifiers, packageurl.Qualifier{
+		Key:   packageIDQualifier,
 		Value: id,
 	})
+	parsed.Qualifiers = qualifiers
 
 	return parsed.ToString()
 }
@@ -47,29 +58,40 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 	serial := bom.SerialNumber
 	index := 0
 
-	if bom.Components != nil {
-		comps := *bom.Components
-		for i := range comps {
-			if comps[i].BOMRef != "" {
-				comps[i].BOMRef = assignNewRef(comps[i].BOMRef, comps[i].PackageURL, serial, index, refMap)
+	var walkComponents func(components *[]cdx.Component)
+	walkComponents = func(components *[]cdx.Component) {
+		for i := range lo.FromPtr(components) {
+			comp := &(*components)[i]
+			if comp.BOMRef != "" {
+				comp.BOMRef = assignNewRef(comp.BOMRef, comp.PackageURL, serial, index, refMap)
 			}
 			index++
+			walkComponents(comp.Components)
 		}
 	}
+	walkComponents(bom.Components)
 
-	if bom.Services != nil {
-		svcs := *bom.Services
-		for i := range svcs {
-			if svcs[i].BOMRef != "" {
-				svcs[i].BOMRef = assignNewRef(svcs[i].BOMRef, "", serial, index, refMap)
+	var walkServices func(services *[]cdx.Service)
+	walkServices = func(services *[]cdx.Service) {
+		for i := range lo.FromPtr(services) {
+			svc := &(*services)[i]
+			if svc.BOMRef != "" {
+				svc.BOMRef = assignNewRef(svc.BOMRef, "", serial, index, refMap)
 			}
 			index++
+			walkServices(svc.Services)
 		}
 	}
+	walkServices(bom.Services)
 
-	rewriteAllRefs(bom, refMap)
+	RewriteRefs(bom, refMap)
 }
 
+// remapRef replaces a ref exactly once. The mapping describes a simultaneous
+// rename, so a value that is itself a key belongs to a different entity and
+// must not be followed: renaming "lib" to "img/lib" alongside "img/lib" to
+// "img/img/lib" would otherwise move everything pointing at the first entity
+// onto the second.
 func remapRef(ref string, refMap map[string]string) string {
 	if newRef, ok := refMap[ref]; ok {
 		return newRef
@@ -98,7 +120,10 @@ func remapBOMReferenceSlice(refs *[]cdx.BOMReference, refMap map[string]string) 
 	}
 }
 
-func rewriteAllRefs(bom *cdx.BOM, refMap map[string]string) {
+// RewriteRefs replaces every BOM ref that occurs as a key of refMap — in
+// dependencies, vulnerabilities, compositions, annotations and declarations —
+// with the mapped value. Component refs themselves are left untouched.
+func RewriteRefs(bom *cdx.BOM, refMap map[string]string) {
 	if len(refMap) == 0 {
 		return
 	}

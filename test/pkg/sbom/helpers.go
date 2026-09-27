@@ -10,8 +10,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 func ParseSBOMOutput(output string) (*cdx.BOM, error) {
@@ -404,6 +404,115 @@ func AssertDependsOn(bom *cdx.BOM, ref, dependsOnRef string) {
 	}
 	ExpectWithOffset(1, false).To(BeTrue(),
 		"ref %q not found in dependency graph; refs: %v", refBase, dependencyRefs(bom))
+}
+
+// AssertDependencyGraphResolves checks that every dependency subject and target
+// refers to a component present in the BOM (nested components included).
+func AssertDependencyGraphResolves(bom *cdx.BOM) {
+	refs := map[string]struct{}{}
+	walkComponents(bom.Components, func(c *cdx.Component) {
+		if c.BOMRef != "" {
+			refs[c.BOMRef] = struct{}{}
+		}
+	})
+
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		ExpectWithOffset(1, refs).To(HaveKey(dep.Ref),
+			"dependency subject %q has no component", dep.Ref)
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			ExpectWithOffset(1, refs).To(HaveKey(target),
+				"dependency target %q of %q has no component", target, dep.Ref)
+		}
+	}
+}
+
+// AssertKeepsDependencyEdges checks that every dependency edge between two
+// components of image, its metadata component included, is present in merged,
+// with refs of the image mapped by mapRef. Canonicalization drops every
+// dangling edge, so a resolving graph alone does not prove that no edge was
+// lost. A component without a PURL gets a ref derived from the merge itself,
+// which mapRef cannot predict, so an image ref the merged document does not
+// declare is resolved by component identity instead. mapRef returning "" marks
+// a component the merge is expected to drop, the edges of which are skipped.
+func AssertKeepsDependencyEdges(merged, image *cdx.BOM, mapRef func(ref string) string) {
+	imageComponents := map[string]*cdx.Component{}
+	if image.Metadata != nil && image.Metadata.Component != nil {
+		walkComponents(&[]cdx.Component{*image.Metadata.Component}, func(c *cdx.Component) {
+			imageComponents[c.BOMRef] = c
+		})
+	}
+	walkComponents(image.Components, func(c *cdx.Component) {
+		imageComponents[c.BOMRef] = c
+	})
+
+	mergedRefs := map[string]struct{}{}
+	mergedRefsByIdentity := map[string][]string{}
+	walkComponents(merged.Components, func(c *cdx.Component) {
+		mergedRefs[normalizePURL(c.BOMRef)] = struct{}{}
+		identity := componentIdentity(c)
+		mergedRefsByIdentity[identity] = append(mergedRefsByIdentity[identity], normalizePURL(c.BOMRef))
+	})
+
+	mergedEdges := map[string]struct{}{}
+	for _, dep := range lo.FromPtr(merged.Dependencies) {
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			mergedEdges[normalizePURL(dep.Ref)+" -> "+normalizePURL(target)] = struct{}{}
+		}
+	}
+
+	candidates := func(ref string) []string {
+		mapped := normalizePURL(mapRef(ref))
+		if mapped == "" {
+			return nil
+		}
+		if _, declared := mergedRefs[mapped]; declared {
+			return []string{mapped}
+		}
+		if byIdentity := mergedRefsByIdentity[componentIdentity(imageComponents[ref])]; len(byIdentity) > 0 {
+			return byIdentity
+		}
+
+		return []string{mapped}
+	}
+
+	var missing []string
+	for _, dep := range lo.FromPtr(image.Dependencies) {
+		if _, ok := imageComponents[dep.Ref]; !ok {
+			continue
+		}
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			if _, ok := imageComponents[target]; !ok {
+				continue
+			}
+			subjects, targets := candidates(dep.Ref), candidates(target)
+			if subjects == nil || targets == nil {
+				continue
+			}
+			found := false
+			for _, subject := range subjects {
+				for _, t := range targets {
+					if _, ok := mergedEdges[subject+" -> "+t]; ok {
+						found = true
+					}
+				}
+			}
+			if !found {
+				missing = append(missing, fmt.Sprintf("%v -> %v", subjects, targets))
+			}
+		}
+	}
+
+	ExpectWithOffset(1, missing).To(BeEmpty(), "dependency edges of the image lost by the merge")
+}
+
+func componentIdentity(comp *cdx.Component) string {
+	if comp == nil {
+		return ""
+	}
+
+	return strings.Join([]string{
+		string(comp.Type), comp.Group, comp.Name, comp.Version, normalizePURL(comp.PackageURL),
+	}, "|")
 }
 
 func findProperty(props *[]cdx.Property, name string) (string, bool) {

@@ -14,12 +14,12 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/docker_registry"
-	"github.com/werf/werf/v2/pkg/docker_registry/api"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/slug"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/docker_registry/api"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/slug"
 )
 
 const (
@@ -392,7 +392,7 @@ func (storage *RepoStagesStorage) GetStageDesc(ctx context.Context, projectName 
 
 	imgInfo, err := storage.DockerRegistry.GetRepoImage(ctx, stageImageName)
 	if docker_registry.IsImageNotFoundError(err) {
-		return nil, nil
+		return nil, ErrStageNotFound
 	}
 	if docker_registry.IsBrokenImageError(err) {
 		return nil, ErrBrokenImage
@@ -410,7 +410,7 @@ func (storage *RepoStagesStorage) GetStageDesc(ctx context.Context, projectName 
 		return nil, fmt.Errorf("unable to check rejected image record %q: %w", rejectedImageName, err)
 	} else if rejected {
 		logboek.Context(ctx).Info().LogF("Stage digest %s creation timestamp %d image is rejected: ignore stage image\n", stageID.Digest, stageID.CreationTs)
-		return nil, nil
+		return nil, ErrStageRejected
 	}
 
 	return &image.StageDesc{
@@ -658,20 +658,6 @@ func (storage *RepoStagesStorage) ShouldFetchImage(ctx context.Context, img cont
 func (storage *RepoStagesStorage) PutImageMetadata(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string) error {
 	if debugStagesStorage() {
 		logboek.Context(ctx).Debug().LogF("-- RepoStagesStorage.PutImageMetadata %s %s %s %s\n", projectName, imageNameOrManagedImageName, commit, stageID)
-	}
-
-	tagName := makeRepoImageMetadataTagName(imageNameOrManagedImageName, commit, stageID)
-	tags, err := storage.Tags(ctx, storage.RepoAddress)
-	if err != nil {
-		return fmt.Errorf("unable to get repo %s tags: %w", storage.RepoAddress, err)
-	}
-
-	for _, tag := range tags {
-		if tag == tagName {
-			logboek.Context(ctx).Debug().LogF("-- RepoStagesStorage.PutImageMetadata tag %s already exists, skipping push\n", tagName)
-
-			return nil
-		}
 	}
 
 	fullImageName := makeRepoImageMetadataName(storage.RepoAddress, imageNameOrManagedImageName, commit, stageID)
@@ -956,7 +942,7 @@ func (storage *RepoStagesStorage) PostMultiplatformImage(ctx context.Context, pr
 
 func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src StagesStorage, projectName string, stageID image.StageID, opts CopyFromStorageOptions) (*image.StageDesc, error) {
 	desc, err := storage.GetStageDesc(ctx, projectName, stageID)
-	if err != nil {
+	if err != nil && !IsErrStageUnavailable(err) {
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
 	if desc != nil {

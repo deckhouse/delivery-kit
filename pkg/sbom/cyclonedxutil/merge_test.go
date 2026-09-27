@@ -1,11 +1,14 @@
 package cyclonedxutil
 
 import (
+	"encoding/json"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 func componentNames(bom *cdx.BOM) []string {
@@ -731,5 +734,104 @@ var _ = Describe("StableBOMChecksum", func() {
 		}
 
 		Expect(StableBOMChecksum(bom1)).NotTo(Equal(StableBOMChecksum(bom2)))
+	})
+})
+
+var _ = Describe("MergeBOMs with isolated components", func() {
+	It("keeps an edge to a service whose ref a merged duplicate of another service shared", func() {
+		bomA := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			Components:   &[]cdx.Component{{BOMRef: "a/os", Type: cdx.ComponentTypeOS, Name: "alpine"}},
+			Services:     &[]cdx.Service{{BOMRef: "s", Name: "api"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "a/os", Dependencies: &[]string{"s"}}},
+		}
+		bomB := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			Components:   &[]cdx.Component{{BOMRef: "b/os", Type: cdx.ComponentTypeOS, Name: "debian"}},
+			Services:     &[]cdx.Service{{BOMRef: "s2", Name: "api"}, {BOMRef: "s2", Name: "db"}},
+			Dependencies: &[]cdx.Dependency{{Ref: "b/os", Dependencies: &[]string{"s2"}}},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{bomA, bomB}, PreserveBOMRefs: true, IsolateComponents: true})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(lo.Map(*result.Services, func(s cdx.Service, _ int) string { return s.BOMRef + ":" + s.Name })).To(Equal([]string{"s:api", "s2:db"}))
+		Expect(*result.Dependencies).To(ContainElement(cdx.Dependency{Ref: "b/os", Dependencies: &[]string{"s2"}}))
+	})
+
+	It("turns a reference to the serial of a merged BOM into a link to that document", func() {
+		bom := &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			SerialNumber: "urn:uuid:11111111-1111-1111-1111-111111111111",
+			Version:      3,
+			Components:   &[]cdx.Component{{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0"}},
+			Annotations: &[]cdx.Annotation{
+				{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"urn:uuid:11111111-1111-1111-1111-111111111111"}, Text: "about the document"},
+			},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{bom}, PreserveBOMRefs: true, IsolateComponents: true})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Annotations).To(Equal([]cdx.Annotation{
+			{
+				BOMRef:   "a1",
+				Subjects: &[]cdx.BOMReference{"urn:cdx:11111111-1111-1111-1111-111111111111/3"},
+				Text:     "about the document",
+			},
+		}))
+	})
+})
+
+var _ = Describe("MergeBOMs input isolation", func() {
+	It("leaves the merged BOMs untouched", func() {
+		importBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
+				{BOMRef: "lib-dup", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
+			},
+			Dependencies:    &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"lib-dup"}}},
+			Vulnerabilities: &[]cdx.Vulnerability{{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib-dup"}}}},
+		}
+		before, err := json.Marshal(importBOM)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{importBOM}})
+		Expect(err).NotTo(HaveOccurred())
+
+		after, err := json.Marshal(importBOM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(after)).To(Equal(string(before)))
+	})
+
+	It("keeps the dependency graph intact when the same BOM is merged twice", func() {
+		shared := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "os", Type: cdx.ComponentTypeOS, Name: "alpine", Version: "3.20"},
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "os", Dependencies: &[]string{"lib"}}},
+		}
+
+		_, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{shared}})
+		Expect(err).NotTo(HaveOccurred())
+
+		reused, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{shared}})
+		Expect(err).NotTo(HaveOccurred())
+
+		refs := lo.Map(*reused.Components, func(comp cdx.Component, _ int) string { return comp.BOMRef })
+		Expect(*reused.Dependencies).To(HaveLen(1))
+		Expect(refs).To(ContainElement((*reused.Dependencies)[0].Ref))
+		Expect(refs).To(ContainElement((*(*reused.Dependencies)[0].Dependencies)[0]))
+	})
+
+	It("fails when an input BOM cannot be cloned", func() {
+		_, err := MergeBOMs(nil, MergeOpts{ImportBOMs: []*cdx.BOM{{
+			SpecVersion: cdx.SpecVersion1_6,
+			Metadata:    &cdx.Metadata{Tools: &cdx.ToolsChoice{}},
+		}}})
+		Expect(err).To(MatchError(ContainSubstring("clone BOM for merge")))
 	})
 })

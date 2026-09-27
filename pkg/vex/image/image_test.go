@@ -7,10 +7,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/oci/artifact"
-	"github.com/werf/werf/v2/pkg/vex"
-	veximage "github.com/werf/werf/v2/pkg/vex/image"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	"github.com/werf/werf/v3/pkg/vex"
+	veximage "github.com/werf/werf/v3/pkg/vex/image"
 )
 
 var _ = Describe("AttestationRoundTrip", func() {

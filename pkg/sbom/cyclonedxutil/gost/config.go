@@ -48,3 +48,18 @@ func IsValidGostValue(v string) bool {
 func (v GostValue) IsUndefined() bool {
 	return v == GostValueUndefined
 }
+
+var gostValuePrecedence = map[GostValue]int{
+	GostValueUndefined: 0,
+	GostValueNo:        1,
+	GostValueIndirect:  2,
+	GostValueYes:       3,
+}
+
+// Max returns the stronger of two values: yes over indirect over no over undefined.
+func Max(a, b GostValue) GostValue {
+	if gostValuePrecedence[b] > gostValuePrecedence[a] {
+		return b
+	}
+	return a
+}

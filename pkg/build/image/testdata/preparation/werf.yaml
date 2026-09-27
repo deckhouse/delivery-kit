@@ -1,0 +1,13 @@
+configVersion: 1
+project: preparation
+build:
+  sbom:
+    enable: false
+gitWorktree:
+  allowUnshallow: true
+---
+image: [app, other]
+from: scratch
+git:
+- add: /
+  to: /src

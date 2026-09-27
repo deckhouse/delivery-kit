@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v3/pkg/image"
 )
 
 const containerFactoryRegistry = "registry.deckhouse.io/container-factory"

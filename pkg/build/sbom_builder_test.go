@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	werfImage "github.com/werf/werf/v2/pkg/image"
+	werfImage "github.com/werf/werf/v3/pkg/image"
 )
 
 var _ = Describe("Builder image classification", func() {

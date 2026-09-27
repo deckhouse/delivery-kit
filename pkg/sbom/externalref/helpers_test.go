@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// Digests as the resolver reports them for a source distribution: STREEBOG
+// (GOST R 34.11-2012) in the upper-case spelling the ISPRAS schema requires.
+const (
+	streebog256Content = "4559fe98d002ff12ab69dafaf495d49ab7bfe14fd4408bf733dd99b3056c65bf"
+	streebog512Content = "8e945da209aa869f0455928529bcae4679e9873ab707b55315f56ceb98bef0a7362f715528356ee83cda5f2aac4c6ad2ba3a715c1bcd81cb8e9f90bf4c1c1a8a"
+)
+
 func mockResolver() (http.Handler, *int) {
 	calls := new(int)
 
@@ -27,6 +34,10 @@ func mockResolver() (http.Handler, *int) {
 		"pkg:npm/react@18.2.0": {
 			status: http.StatusOK,
 			body:   `{"purl":"pkg:npm/react@18.2.0","purl_requested":"pkg:npm/react@18.2.0","url":"https://github.com/facebook/react","kind":"vcs","confirmed":true,"status":"confirmed","confidence":0.9,"provider":"libraries.io","resolution":"database"}`,
+		},
+		"pkg:npm/commondir@1.0.1": {
+			status: http.StatusOK,
+			body:   `{"purl":"pkg:npm/commondir@1.0.1","purl_requested":"pkg:npm/commondir@1.0.1","url":"https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz","kind":"source-distribution","confirmed":true,"status":"confirmed","provider":"deps.dev","resolution":"database","hashes":[{"alg":"STREEBOG-256","content":"` + streebog256Content + `"}]}`,
 		},
 		"pkg:npm/empty-url-pkg@1.0.0": {
 			status: http.StatusOK,

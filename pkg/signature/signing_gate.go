@@ -3,7 +3,7 @@ package signature
 import (
 	"fmt"
 
-	"github.com/werf/werf/v2/pkg/build/signing"
+	"github.com/werf/werf/v3/pkg/build/signing"
 )
 
 type ResolvedSigningOptions struct {

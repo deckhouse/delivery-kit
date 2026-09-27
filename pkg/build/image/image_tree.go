@@ -9,15 +9,17 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/types"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/logging"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/util/parallel"
 )
 
 type ImagesTree struct {
@@ -35,7 +37,8 @@ type ImagesTree struct {
 type ImagesTreeOptions struct {
 	CommonImageOptions
 
-	ImagesToProcess config.ImagesToProcess
+	ImagesToProcess     config.ImagesToProcess
+	RemoteGitTasksLimit int
 }
 
 func NewImagesTree(werfConfig *config.WerfConfig, opts ImagesTreeOptions) *ImagesTree {
@@ -61,7 +64,14 @@ func (tree *ImagesTree) Calculate(ctx context.Context) error {
 		commonTargetPlatforms = []string{tree.ContainerBackend.GetDefaultPlatform()}
 	}
 
+	if err := tree.prepareRemoteGitRepos(ctx, imagesToProcess); err != nil {
+		return err
+	}
+
 	commonImageOpts := tree.CommonImageOptions
+	commonImageOpts.prepareLocalGitRepo = sync.OnceValue(func() error {
+		return prepareLocalGitRepo(ctx, tree.werfConfig.Meta, tree.GiterminismManager.LocalGitRepo())
+	})
 
 	var allImages []*Image
 
@@ -148,6 +158,58 @@ func (tree *ImagesTree) Calculate(ctx context.Context) error {
 	return nil
 }
 
+func (tree *ImagesTree) prepareRemoteGitRepos(ctx context.Context, images []config.ImageInterface) error {
+	if tree.RemoteGitTasksLimit <= 1 {
+		return nil
+	}
+
+	var mirrors [][]*config.GitRemote
+	mirrorIndexes := make(map[string]int)
+	seenKeys := make(map[string]bool)
+	for _, imageConfig := range images {
+		stapelConfig, ok := imageConfig.(config.StapelImageInterface)
+		if !ok {
+			continue
+		}
+		for _, remote := range stapelConfig.ImageBaseConfig().Git.Remote {
+			if seenKeys[remote.RepoCacheKey] || tree.Conveyor.GetRemoteGitRepo(remote.RepoCacheKey) != nil {
+				continue
+			}
+			seenKeys[remote.RepoCacheKey] = true
+			repo, err := git_repo.OpenRemoteRepo(remote.Name, remote.Url, remote.BasicAuth)
+			if err != nil {
+				return fmt.Errorf("open remote git repo %s: %w", remote.Name, err)
+			}
+			// Before fetching, GetClonePath identifies the shared full mirror, including
+			// URLs that differ only in credentials.
+			mirrorPath := repo.GetClonePath()
+			index, ok := mirrorIndexes[mirrorPath]
+			if !ok {
+				index = len(mirrors)
+				mirrorIndexes[mirrorPath] = index
+				mirrors = append(mirrors, nil)
+			}
+			mirrors[index] = append(mirrors[index], remote)
+		}
+	}
+	if len(mirrors) == 0 {
+		return nil
+	}
+
+	var nextMirror atomic.Int64
+	return parallel.DoTasksDynamic(ctx, parallel.DoTasksOptions{MaxNumberOfWorkers: tree.RemoteGitTasksLimit}, func(context.Context) (int, bool, error) {
+		taskID := int(nextMirror.Add(1)) - 1
+		return taskID, taskID < len(mirrors), nil
+	}, func(ctx context.Context, taskID int) error {
+		for _, remote := range mirrors[taskID] {
+			if _, err := prepareRemoteGitRepo(ctx, remote, tree.Conveyor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 type GetImagesByNameOption func(*getImagesByNameConfig)
 
 type getImagesByNameConfig struct {
@@ -227,7 +289,7 @@ func (tree *ImagesTree) GetImagesNames() (res []string) {
 	for _, img := range tree.images {
 		res = util.UniqAppendString(res, img.Name)
 	}
-	return
+	return res
 }
 
 func (tree *ImagesTree) GetImages() []*Image {
@@ -450,6 +512,11 @@ func stageDependenciesToMap(sd *config.StageDependencies) map[stage.StageName][]
 		stage.BeforeSetup: sd.BeforeSetup,
 		stage.Setup:       sd.Setup,
 		stage.Packages:    sd.Packages,
+	}
+	for name, paths := range result {
+		if paths == nil {
+			delete(result, name)
+		}
 	}
 
 	return result

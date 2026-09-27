@@ -6,7 +6,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 
-	"github.com/werf/werf/v2/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/docker_registry"
 )
 
 // DigestHex returns the hex-encoded portion of a digest string (e.g. "sha256:abc123..." → "abc123...").

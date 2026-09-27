@@ -11,8 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/werf"
+	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/werf"
 )
 
 var _ = Describe("Service", func() {
@@ -71,6 +71,15 @@ var _ = Describe("Service", func() {
 					Expect(r.URL).To(Equal("https://github.com/expressjs/express"))
 					Expect(r.Kind).To(Equal("vcs"))
 					Expect(r.Confirmed).To(BeTrue())
+				},
+			}),
+			Entry("resolves commondir to a source distribution with hashes", resolveCase{
+				purl: "pkg:npm/commondir@1.0.1",
+				check: func(r *ResolveResult, err error) {
+					Expect(err).NotTo(HaveOccurred())
+					Expect(r.URL).To(Equal("https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz"))
+					Expect(r.Kind).To(Equal("source-distribution"))
+					Expect(r.Hashes).To(Equal([]Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}}))
 				},
 			}),
 			Entry("returns error on 404", resolveCase{

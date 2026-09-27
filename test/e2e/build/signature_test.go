@@ -15,11 +15,11 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	elfTar "github.com/werf/werf/v2/pkg/signature/elf/tar"
-	"github.com/werf/werf/v2/test/pkg/report"
-	"github.com/werf/werf/v2/test/pkg/utils"
-	"github.com/werf/werf/v2/test/pkg/utils/gpg"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	elfTar "github.com/werf/werf/v3/pkg/signature/elf/tar"
+	"github.com/werf/werf/v3/test/pkg/report"
+	"github.com/werf/werf/v3/test/pkg/utils"
+	"github.com/werf/werf/v3/test/pkg/utils/gpg"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var (

@@ -29,3 +29,4 @@ packages:
   spec:
      - jq==1.8.1
      - yq==4.53.6
+     - curl==8.12.1

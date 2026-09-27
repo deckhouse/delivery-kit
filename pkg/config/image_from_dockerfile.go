@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/vex"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
+	"github.com/werf/werf/v3/pkg/vex"
 )
 
 type ImageFromDockerfile struct {

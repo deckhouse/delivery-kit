@@ -7,7 +7,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/sbom"
+	"github.com/werf/werf/v3/pkg/sbom"
 )
 
 type ScanCommand struct {

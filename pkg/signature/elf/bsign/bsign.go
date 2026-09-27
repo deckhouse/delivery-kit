@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/werf/exec"
+	"github.com/werf/werf/v3/pkg/werf/exec"
 )
 
 // Verify is a wrapper around bsign --verify

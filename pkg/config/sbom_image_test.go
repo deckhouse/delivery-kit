@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
-	pkgsbom "github.com/werf/werf/v2/pkg/sbom"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	pkgsbom "github.com/werf/werf/v3/pkg/sbom"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 var _ = Describe("buildImageSbom", func() {

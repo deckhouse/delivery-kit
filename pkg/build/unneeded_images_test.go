@@ -10,13 +10,13 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/build/image"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/config"
-	imagePkg "github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/sbom/convergefailure"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/pkg/storage/manager"
+	"github.com/werf/werf/v3/pkg/build/image"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
+	imagePkg "github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/sbom/convergefailure"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/storage/manager"
 )
 
 func newTestImage(name string, isFinal bool, dependencyNames ...string) *image.Image {
@@ -265,12 +265,31 @@ func (*nonLocalStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
 
 type anchorLookupStorageManager struct {
 	manager.StorageManagerInterface
+	mutex                  sync.Mutex
+	primaryStagesStorage   storage.PrimaryStagesStorage
 	secondaryStagesStorage storage.StagesStorage
 	inPrimary              imagePkg.StageDescSet
 	inSecondary            imagePkg.StageDescSet
+	cachedPrimaryLookups   int
+	cachedSecondaryLookups int
+	primaryLookups         int
+	strictPrimaryLookups   int
+	recentPrimaryLookups   int
+	secondaryLookups       int
 }
 
 func (m *anchorLookupStorageManager) GetStageDescSetByDigestWithCache(_ context.Context, _, _ string, _ int64) (imagePkg.StageDescSet, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.primaryLookups++
+	m.strictPrimaryLookups++
+	return m.inPrimary, nil
+}
+
+func (m *anchorLookupStorageManager) GetStageDescSetByDigestWithRecentCache(_ context.Context, _, _ string, _ int64) (imagePkg.StageDescSet, error) {
+	m.primaryLookups++
+	m.recentPrimaryLookups++
 	return m.inPrimary, nil
 }
 
@@ -279,10 +298,15 @@ func (m *anchorLookupStorageManager) GetSecondaryStagesStorageList() []storage.S
 }
 
 func (m *anchorLookupStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(_ context.Context, _, _ string, _ int64, stagesStorage storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if stagesStorage == m.secondaryStagesStorage {
+		m.secondaryLookups++
 		return m.inSecondary, nil
 	}
 
+	m.primaryLookups++
 	return m.inPrimary, nil
 }
 
@@ -331,6 +355,7 @@ var _ = Describe("BuildPhase content-anchor pre-resolution", func() {
 		app.SetStages([]stage.Interface{appAnchor})
 
 		phase := newTestBuildPhase(&anchorLookupStorageManager{
+			primaryStagesStorage:   &anchorPrimaryStagesStorage{},
 			secondaryStagesStorage: &fakeStagesStorage{},
 			inPrimary: imagePkg.NewStageDescSet(&imagePkg.StageDesc{
 				StageID: imagePkg.NewStageID("anchor", 1),

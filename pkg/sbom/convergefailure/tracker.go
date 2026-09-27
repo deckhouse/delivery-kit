@@ -17,7 +17,7 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
-	"github.com/werf/werf/v2/pkg/sbom/externalref"
+	"github.com/werf/werf/v3/pkg/sbom/externalref"
 )
 
 // Record marks an image whose SBOM was not generated in this run. A direct

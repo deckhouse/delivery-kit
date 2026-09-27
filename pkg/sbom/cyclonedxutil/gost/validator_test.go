@@ -34,6 +34,34 @@ var _ = Describe("Gost SBOM validator", func() {
 				},
 			},
 			MatchError(ContainSubstring("missing mandatory GOST properties"))),
+		Entry("should fail if GOST properties are missing in components nested under the metadata component",
+			&cdx.BOM{
+				SpecVersion: cdx.SpecVersion1_6,
+				Metadata: &cdx.Metadata{
+					Component: &cdx.Component{
+						Name: "root",
+						Properties: &[]cdx.Property{
+							{Name: PropertyAttackSurface, Value: "yes"},
+							{Name: PropertySecurityFunction, Value: "yes"},
+						},
+						Components: &[]cdx.Component{{Name: "root-child"}},
+					},
+				},
+			},
+			MatchError(And(ContainSubstring(`component "root-child"`), ContainSubstring("missing mandatory GOST properties")))),
+		Entry("should fail if GOST properties are missing in nested components",
+			&cdx.BOM{
+				SpecVersion: cdx.SpecVersion1_6,
+				Components: &[]cdx.Component{{
+					Name: "parent",
+					Properties: &[]cdx.Property{
+						{Name: PropertyAttackSurface, Value: "yes"},
+						{Name: PropertySecurityFunction, Value: "yes"},
+					},
+					Components: &[]cdx.Component{{Name: "child"}},
+				}},
+			},
+			MatchError(And(ContainSubstring(`component "child"`), ContainSubstring("missing mandatory GOST properties")))),
 		Entry("should fail if GOST properties have invalid values",
 			&cdx.BOM{
 				SpecVersion: cdx.SpecVersion1_6,

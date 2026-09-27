@@ -6,7 +6,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 var _ Assembler = (*OSSAssembler)(nil)

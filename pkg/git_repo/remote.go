@@ -24,11 +24,11 @@ import (
 	"github.com/werf/common-go/pkg/util/timestamps"
 	"github.com/werf/lockgate"
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/git_repo/repo_handle"
-	"github.com/werf/werf/v2/pkg/opstats"
-	"github.com/werf/werf/v2/pkg/path_matcher"
-	"github.com/werf/werf/v2/pkg/true_git"
-	"github.com/werf/werf/v2/pkg/werf"
+	"github.com/werf/werf/v3/pkg/git_repo/repo_handle"
+	"github.com/werf/werf/v3/pkg/opstats"
+	"github.com/werf/werf/v3/pkg/path_matcher"
+	"github.com/werf/werf/v3/pkg/true_git"
+	"github.com/werf/werf/v3/pkg/werf"
 )
 
 type Remote struct {
@@ -655,7 +655,7 @@ func (repo *Remote) GetOrCreateChecksum(ctx context.Context, opts ChecksumOption
 		return err
 	})
 
-	return
+	return checksum, err
 }
 
 func (repo *Remote) IsCommitExists(ctx context.Context, commit string) (bool, error) {
@@ -722,6 +722,9 @@ func (repo *Remote) initRepoHandleBackedByWorkTree(ctx context.Context, commit s
 	hasSubmodules, err := HasSubmodulesInCommit(commitObj)
 	if err != nil {
 		return nil, err
+	}
+	if !hasSubmodules {
+		return repo_handle.NewHandleWithoutSubmodules(repository), nil
 	}
 
 	var repoHandle repo_handle.Handle

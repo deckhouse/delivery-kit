@@ -11,9 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	helmreleasecommon "github.com/werf/nelm/pkg/helm/pkg/release/common"
-	"github.com/werf/werf/v2/test/pkg/report"
-	"github.com/werf/werf/v2/test/pkg/werf"
+	helmreleasecommon "github.com/werf/nelm/v2/pkg/helm/pkg/release/common"
+	"github.com/werf/werf/v3/test/pkg/report"
+	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
 var _ = Describe("Complex bundle publish/apply", Label("e2e", "bundle-publish-apply", "complex"), func() {
@@ -191,7 +191,7 @@ var _ = Describe("Complex bundle publish/apply", Label("e2e", "bundle-publish-ap
 
 				for _, configMapName := range []string{
 					"config-disabledchart",
-					"not-deployed-because-in-helm-ignore",
+					"not-deployed-because-in-helmignore",
 				} {
 					By("state0: ensure configmap \"" + configMapName + "\" is absent in cluster")
 					resourceShouldNotExist(clientFactory.Static().CoreV1().ConfigMaps(werfProject.Namespace(ctx)).Get(ctx, configMapName, metav1.GetOptions{}))

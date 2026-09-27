@@ -18,6 +18,9 @@ var _ = Describe("Gost SBOM setter", func() {
 			if bom.Components != nil {
 				Expect(lo.FromPtr(bom.Components)).To(Equal(expectedComponents))
 			}
+			if bom.Metadata != nil && bom.Metadata.Component != nil {
+				Expect(lo.FromPtr(bom.Metadata.Component.Components)).To(Equal(expectedComponents))
+			}
 		},
 		Entry("should fail if BOM is nil",
 			nil, Config{}, nil, MatchError("BOM is required")),
@@ -80,6 +83,57 @@ var _ = Describe("Gost SBOM setter", func() {
 					},
 				},
 			},
+			Succeed()),
+		Entry("should set GOST properties on nested components",
+			&cdx.BOM{
+				Components: &[]cdx.Component{{
+					Name: "parent",
+					Components: &[]cdx.Component{{
+						Name:       "child",
+						Components: &[]cdx.Component{{Name: "grandchild"}},
+					}},
+				}},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueNo},
+			[]cdx.Component{{
+				Name: "parent",
+				Properties: &[]cdx.Property{
+					{Name: PropertyAttackSurface, Value: "yes"},
+					{Name: PropertySecurityFunction, Value: "no"},
+				},
+				Components: &[]cdx.Component{{
+					Name: "child",
+					Properties: &[]cdx.Property{
+						{Name: PropertyAttackSurface, Value: "yes"},
+						{Name: PropertySecurityFunction, Value: "no"},
+					},
+					Components: &[]cdx.Component{{
+						Name: "grandchild",
+						Properties: &[]cdx.Property{
+							{Name: PropertyAttackSurface, Value: "yes"},
+							{Name: PropertySecurityFunction, Value: "no"},
+						},
+					}},
+				}},
+			}},
+			Succeed()),
+		Entry("should set GOST properties on components nested under the metadata component",
+			&cdx.BOM{
+				Metadata: &cdx.Metadata{
+					Component: &cdx.Component{
+						Name:       "root",
+						Components: &[]cdx.Component{{Name: "root-child"}},
+					},
+				},
+			},
+			Config{AttackSurface: GostValueNo, SecurityFunction: GostValueYes},
+			[]cdx.Component{{
+				Name: "root-child",
+				Properties: &[]cdx.Property{
+					{Name: PropertyAttackSurface, Value: "no"},
+					{Name: PropertySecurityFunction, Value: "yes"},
+				},
+			}},
 			Succeed()),
 		Entry("should inject 'indirect' value",
 			&cdx.BOM{

@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
+	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
 )
 
 var _ = Describe("package ecosystem registration", func() {

@@ -5,9 +5,9 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/sbom"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
-	"github.com/werf/werf/v2/pkg/util/option"
+	"github.com/werf/werf/v3/pkg/sbom"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/util/option"
 )
 
 type rawMetaBuildSbom struct {

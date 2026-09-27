@@ -9,8 +9,8 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	packageurl "github.com/package-url/packageurl-go"
 
-	"github.com/werf/werf/v2/pkg/sbom/cpe"
-	"github.com/werf/werf/v2/pkg/sbom/os_pm/metadata"
+	"github.com/werf/werf/v3/pkg/sbom/cpe"
+	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
 )
 
 const (

@@ -8,8 +8,8 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
 )
 
 type inputResolver struct {

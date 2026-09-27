@@ -3,8 +3,8 @@ package config
 import (
 	cyclonedx "github.com/CycloneDX/cyclonedx-go"
 
-	"github.com/werf/werf/v2/pkg/sbom"
-	"github.com/werf/werf/v2/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 // Sbom represents an SBOM directive attached to a specific image configuration.

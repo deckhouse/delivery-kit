@@ -56,6 +56,9 @@ jobs:
       - name: Unit tests
         run: task --yes test:unit -- --procs=3 --compilers=1 --race --keep-going
 
+      - name: Embedded asset tests
+        run: task --yes test:unit:embedded
+
   build_test_binary:
     if: always() && needs.lint.result == 'success' && needs.unit.result == 'success'
     needs:
@@ -492,6 +495,7 @@ jobs:
         with:
           token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
           files: coverage/coverage-*/*.out
+          strip-prefix: github.com/werf/werf/v3/
           validate: false
           skip-errors: false
 

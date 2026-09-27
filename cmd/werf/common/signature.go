@@ -14,10 +14,10 @@ import (
 	"golang.org/x/crypto/openpgp"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/build/signing"
-	"github.com/werf/werf/v2/pkg/signature"
-	"github.com/werf/werf/v2/pkg/util/option"
-	"github.com/werf/werf/v2/pkg/werf/exec"
+	"github.com/werf/werf/v3/pkg/build/signing"
+	"github.com/werf/werf/v3/pkg/signature"
+	"github.com/werf/werf/v3/pkg/util/option"
+	"github.com/werf/werf/v3/pkg/werf/exec"
 )
 
 func SetupSigningOptions(cmdData *CmdData, cmd *cobra.Command) {

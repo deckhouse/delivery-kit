@@ -22,22 +22,22 @@ import (
 	"github.com/werf/logboek/pkg/level"
 	stylePkg "github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
-	"github.com/werf/werf/v2/pkg/build/image"
-	"github.com/werf/werf/v2/pkg/build/import_server"
-	"github.com/werf/werf/v2/pkg/build/signing"
-	"github.com/werf/werf/v2/pkg/build/stage"
-	"github.com/werf/werf/v2/pkg/build/verify_annotation"
-	"github.com/werf/werf/v2/pkg/config"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/container_backend/thirdparty/platformutil"
-	"github.com/werf/werf/v2/pkg/git_repo"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	imagePkg "github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/opstats"
-	"github.com/werf/werf/v2/pkg/storage"
-	"github.com/werf/werf/v2/pkg/storage/manager"
-	"github.com/werf/werf/v2/pkg/telemetry"
-	"github.com/werf/werf/v2/pkg/util/parallel"
+	"github.com/werf/werf/v3/pkg/build/image"
+	"github.com/werf/werf/v3/pkg/build/import_server"
+	"github.com/werf/werf/v3/pkg/build/signing"
+	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/build/verify_annotation"
+	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/container_backend/thirdparty/platformutil"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
+	imagePkg "github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
+	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/storage/manager"
+	"github.com/werf/werf/v3/pkg/telemetry"
+	"github.com/werf/werf/v3/pkg/util/parallel"
 )
 
 type Conveyor struct {
@@ -120,6 +120,14 @@ func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_m
 		stageDigestMutex: map[string]*sync.Mutex{},
 	}
 
+	remoteGitTasksLimit := 1
+	if opts.Parallel {
+		remoteGitTasksLimit = 4
+		if opts.ParallelTasksLimit > 0 && opts.ParallelTasksLimit < int64(remoteGitTasksLimit) {
+			remoteGitTasksLimit = int(opts.ParallelTasksLimit)
+		}
+	}
+
 	c.imagesTree = image.NewImagesTree(werfConfig, image.ImagesTreeOptions{
 		CommonImageOptions: image.CommonImageOptions{
 			Conveyor:                c,
@@ -133,7 +141,8 @@ func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_m
 			ManifestSigningOptions:  opts.ManifestSigningOptions,
 			VerityAnnotationOptions: opts.VerityAnnotationOptions,
 		},
-		ImagesToProcess: opts.ImagesToProcess,
+		ImagesToProcess:     opts.ImagesToProcess,
+		RemoteGitTasksLimit: remoteGitTasksLimit,
 	})
 
 	return c

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/werf/werf/v2/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/attestation"
 )
 
 // Predicate URIs and media types of VEX artifacts. attestation.PredicateKindOpenVEX

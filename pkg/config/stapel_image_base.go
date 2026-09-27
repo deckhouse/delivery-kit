@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/werf/common-go/pkg/util"
-	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/vex"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
+	"github.com/werf/werf/v3/pkg/vex"
 )
 
 type StapelImageBase struct {
@@ -83,7 +83,7 @@ func (c *StapelImageBase) HasOSPMPackages() bool {
 }
 
 func (c *StapelImageBase) dependsOn() DependsOn {
-	var dependsOn DependsOn
+	dependsOn := DependsOn{From: c.From}
 
 	for _, imp := range c.Import {
 		if imp.From != "" && !imp.ExternalImage {

@@ -6,10 +6,10 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
-	"github.com/werf/werf/v2/pkg/attestation"
-	"github.com/werf/werf/v2/pkg/image"
-	"github.com/werf/werf/v2/pkg/vex"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/vex"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("VexStep", func() {

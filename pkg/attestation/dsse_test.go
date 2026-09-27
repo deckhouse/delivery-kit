@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/signature"
 
-	"github.com/werf/werf/v2/test/pkg/signutils"
+	"github.com/werf/werf/v3/test/pkg/signutils"
 )
 
 func generateKeyPair() (signature.Signer, signature.Verifier) {

@@ -273,6 +273,8 @@ type anchorLookupStorageManager struct {
 	cachedPrimaryLookups   int
 	cachedSecondaryLookups int
 	primaryLookups         int
+	strictPrimaryLookups   int
+	recentPrimaryLookups   int
 	secondaryLookups       int
 }
 
@@ -281,6 +283,13 @@ func (m *anchorLookupStorageManager) GetStageDescSetByDigestWithCache(_ context.
 	defer m.mutex.Unlock()
 
 	m.primaryLookups++
+	m.strictPrimaryLookups++
+	return m.inPrimary, nil
+}
+
+func (m *anchorLookupStorageManager) GetStageDescSetByDigestWithRecentCache(_ context.Context, _, _ string, _ int64) (imagePkg.StageDescSet, error) {
+	m.primaryLookups++
+	m.recentPrimaryLookups++
 	return m.inPrimary, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -109,6 +110,14 @@ func (b *stageLookupBackend) GetImageInfo(_ context.Context, _ string, _ contain
 	return b.info, nil
 }
 
+func stageStrings(stages []image.StageID) []string {
+	result := make([]string, 0, len(stages))
+	for _, stage := range stages {
+		result = append(result, stage.String())
+	}
+	return result
+}
+
 var _ container_backend.ContainerBackend = (*localImageListBackendStub)(nil)
 
 type localImageListBackendStub struct {
@@ -116,9 +125,14 @@ type localImageListBackendStub struct {
 	images  image.ImagesList
 	err     error
 	options container_backend.ImagesOptions
+	mu      sync.Mutex
+	calls   int
 }
 
 func (backend *localImageListBackendStub) Images(_ context.Context, options container_backend.ImagesOptions) (image.ImagesList, error) {
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	backend.calls++
 	backend.options = options
 	return backend.images, backend.err
 }

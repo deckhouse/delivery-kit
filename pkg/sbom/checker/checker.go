@@ -13,6 +13,7 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
+	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
@@ -192,9 +193,11 @@ func parseResult(ctx context.Context, out string, runErr error, fileName string,
 	}
 
 	logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
-	for _, d := range details {
-		logboek.Context(ctx).Default().LogF("  %s\n", d)
-	}
+	logging.DoWithoutLineWrapping(ctx, func() {
+		for _, d := range details {
+			logboek.Context(ctx).Default().LogF("  %s\n", d)
+		}
+	})
 
 	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
 }

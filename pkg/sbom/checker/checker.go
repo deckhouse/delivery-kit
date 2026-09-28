@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/docker/cli/cli"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
+	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
@@ -24,6 +26,8 @@ const (
 )
 
 type RunOptions struct {
+	Errors                  int
+	Verbose                 bool
 	CheckVCS                bool
 	CheckVCSLeafOnly        bool
 	CheckSourceDistribution bool
@@ -35,6 +39,10 @@ type RunOptions struct {
 // the archives of every non-leaf component go unchecked while the run reports
 // success.
 func (opts RunOptions) Validate() error {
+	if opts.Errors < 0 {
+		return fmt.Errorf("--errors cannot be negative: got %d; use 0 for unlimited", opts.Errors)
+	}
+
 	if opts.CheckVCSLeafOnly && opts.CheckSourceDistribution {
 		return fmt.Errorf("--check-vcs-leaf-only cannot be combined with --check-source-distribution: the checker would skip source distributions of non-leaf components; use --check-vcs instead")
 	}
@@ -66,6 +74,10 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 		var failures []string
 		total := len(paths)
 
+		// Files are checked one at a time because parseResult prints the checker
+		// output with line wrapping of the shared stream suspended. Checking them
+		// concurrently would race that mode between goroutines; buffer the output of
+		// every file and print it under a single suspension instead.
 		for i, p := range paths {
 			args, err := buildDockerArgs(p, format, opts)
 			if err != nil {
@@ -77,6 +89,14 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			out, runErr := docker.CliRun_RecordedOutput(ctx, args...)
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
+			}
+
+			// On a non-zero exit parseResult already echoes the raw output, so
+			// print the verbose block only when it would otherwise stay hidden.
+			if opts.Verbose && runErr == nil {
+				logboek.Context(ctx).Default().LogBlock("Checker output for %s", fileName).Do(func() {
+					logboek.Context(ctx).Default().LogLn(strings.TrimRight(out, "\n"))
+				})
 			}
 
 			if err := parseResult(ctx, out, runErr, fileName, i+1, total); err != nil {
@@ -133,7 +153,11 @@ func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]stri
 		"-v", absPath + ":" + containerPath + ":ro",
 		Image,
 		"--format", format.String(),
-		"--errors", "0",
+		"--errors", strconv.Itoa(opts.Errors),
+	}
+
+	if opts.Verbose {
+		args = append(args, "--verbose")
 	}
 
 	if opts.CheckVCS {
@@ -192,9 +216,11 @@ func parseResult(ctx context.Context, out string, runErr error, fileName string,
 	}
 
 	logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
-	for _, d := range details {
-		logboek.Context(ctx).Default().LogF("  %s\n", d)
-	}
+	logging.DoWithoutLineWrapping(ctx, func() {
+		for _, d := range details {
+			logboek.Context(ctx).Default().LogF("  %s\n", d)
+		}
+	})
 
 	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
 }

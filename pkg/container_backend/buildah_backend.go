@@ -891,35 +891,6 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 	}, nil
 }
 
-func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
-	containers, err := backend.createContainers(ctx, []string{imageRef}, CommonOpts(opts))
-	if err != nil {
-		return nil, err
-	}
-	container := containers[0]
-	defer func() {
-		if err := backend.removeContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
-			logboek.Context(ctx).Error().LogF("ERROR: unable to remove temporal container %q: %s\n", container.Name, err)
-		}
-	}()
-
-	if err := backend.mountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
-		return nil, fmt.Errorf("mount container %q: %w", container.Name, err)
-	}
-	defer func() {
-		if err := backend.unmountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
-			logboek.Context(ctx).Error().LogF("ERROR: unable to unmount container %q: %s\n", container.Name, err)
-		}
-	}()
-
-	data, err := os.ReadFile(filepath.Join(container.RootMount, path))
-	if err != nil {
-		return nil, fmt.Errorf("read %s from image %q: %w", path, imageRef, err)
-	}
-
-	return data, nil
-}
-
 func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) error {
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {

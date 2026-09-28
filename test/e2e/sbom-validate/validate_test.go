@@ -81,6 +81,17 @@ var _ = Describe("sbom validate", Label("e2e", "sbom", "validate", "simple"), fu
 		Entry("three files two invalid", []string{"valid_oss", "missing_bom_format", "missing_metadata"}, "oss", ""),
 	)
 
+	It("should print the checker output with --checker-verbose", func(ctx SpecContext) {
+		args := []string{"--path", fixturePath("valid_oss"), "--ispras-format", "oss", "--checker-verbose"}
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.TmpDir)
+		out := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: args},
+		})
+		Expect(out).To(ContainSubstring("Checker output for valid_oss.json"))
+		Expect(out).To(ContainSubstring("OK"))
+	})
+
 	It("should fail when file does not exist", func(ctx SpecContext) {
 		args := []string{"--path", "/nonexistent/sbom.json", "--ispras-format", "oss"}
 

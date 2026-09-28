@@ -30,5 +30,9 @@ var _ = Describe("SBOM javascript-yarn packages with an explicit manager", Label
 			"expected lodash@4.17.21 (from yarn.lock) not found in BOM")
 		Expect(sbomtest.FindComponent(bom, "yarn", "1.22.22")).NotTo(BeNil(),
 			"expected the bootstrapped yarn@1.22.22 not found in BOM")
+
+		// The lock carries no license; syft reads it from the installed package's own
+		// manifest under node_modules. The targeted scan must keep that enrichment.
+		sbomtest.AssertHasLicense(bom, "lodash", "4.17.21", "MIT")
 	})
 })

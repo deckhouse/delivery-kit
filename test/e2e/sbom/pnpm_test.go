@@ -32,5 +32,10 @@ var _ = Describe("SBOM javascript-pnpm packages", Label("e2e", "sbom", "pnpm", "
 		lodash := sbomtest.FindComponent(bom, "lodash", "4.17.21")
 		Expect(lodash).NotTo(BeNil(),
 			"expected lodash@4.17.21 (from pnpm-lock.yaml) not found in BOM")
+
+		// The lock carries no license; syft reads it from the installed package's own
+		// manifest under node_modules. pnpm exposes packages there only as symlinks into
+		// its .pnpm store, so this also proves the link is resolved during extraction.
+		sbomtest.AssertHasLicense(bom, "lodash", "4.17.21", "MIT")
 	})
 })

@@ -26,6 +26,7 @@ const (
 
 type RunOptions struct {
 	Errors                  int
+	Verbose                 bool
 	CheckVCS                bool
 	CheckVCSLeafOnly        bool
 	CheckSourceDistribution bool
@@ -85,6 +86,14 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
 			}
 
+			// On a non-zero exit parseResult already echoes the raw output, so
+			// print the verbose block only when it would otherwise stay hidden.
+			if opts.Verbose && runErr == nil {
+				logboek.Context(ctx).Default().LogBlock("Checker output for %s", fileName).Do(func() {
+					logboek.Context(ctx).Default().LogLn(strings.TrimRight(out, "\n"))
+				})
+			}
+
 			if err := parseResult(ctx, out, runErr, fileName, i+1, total); err != nil {
 				failures = append(failures, err.Error())
 			}
@@ -140,6 +149,10 @@ func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]stri
 		Image,
 		"--format", format.String(),
 		"--errors", strconv.Itoa(opts.Errors),
+	}
+
+	if opts.Verbose {
+		args = append(args, "--verbose")
 	}
 
 	if opts.CheckVCS {

@@ -171,6 +171,14 @@ var _ = Describe("checker", func() {
 					Image,
 					"--format", "container", "--errors", "10", "/sbom/input.json",
 				}),
+			Entry("verbose forwarded",
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{Verbose: true},
+				[]string{
+					"--rm",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "oss", "--errors", "0", "--verbose", "/sbom/input.json",
+				}),
 		)
 	})
 

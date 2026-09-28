@@ -14,6 +14,7 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
+	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
@@ -73,6 +74,10 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 		var failures []string
 		total := len(paths)
 
+		// Files are checked one at a time because parseResult prints the checker
+		// output with line wrapping of the shared stream suspended. Checking them
+		// concurrently would race that mode between goroutines; buffer the output of
+		// every file and print it under a single suspension instead.
 		for i, p := range paths {
 			args, err := buildDockerArgs(p, format, opts)
 			if err != nil {
@@ -211,9 +216,11 @@ func parseResult(ctx context.Context, out string, runErr error, fileName string,
 	}
 
 	logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
-	for _, d := range details {
-		logboek.Context(ctx).Default().LogF("  %s\n", d)
-	}
+	logging.DoWithoutLineWrapping(ctx, func() {
+		for _, d := range details {
+			logboek.Context(ctx).Default().LogF("  %s\n", d)
+		}
+	})
 
 	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
 }

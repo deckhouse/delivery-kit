@@ -1,14 +1,17 @@
 package checker
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/docker/cli/cli"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
@@ -97,6 +100,17 @@ var _ = Describe("checker", func() {
 					Not(ContainSubstring("done")),
 				))),
 		)
+
+		It("prints a checker line longer than the stream width intact", func() {
+			var out bytes.Buffer
+			ctx := logboek.NewContext(context.Background(), logboek.NewLogger(&out, &out))
+
+			finding := errorPrefix + " " + strings.Repeat("a", 4*logboek.Context(ctx).Streams().ContentWidth())
+
+			Expect(parseResult(ctx, finding+"\n", nil, "bad.json", 1, 1)).NotTo(Succeed())
+			Expect(out.String()).To(ContainSubstring(finding))
+			Expect(logboek.Context(ctx).Streams().IsLineWrappingEnabled()).To(BeTrue())
+		})
 	})
 
 	Describe("buildDockerArgs", func() {

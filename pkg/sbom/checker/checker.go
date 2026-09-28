@@ -67,6 +67,10 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 		var failures []string
 		total := len(paths)
 
+		// Files are checked one at a time because parseResult prints the checker
+		// output with line wrapping of the shared stream suspended. Checking them
+		// concurrently would race that mode between goroutines; buffer the output of
+		// every file and print it under a single suspension instead.
 		for i, p := range paths {
 			args, err := buildDockerArgs(p, format, opts)
 			if err != nil {

@@ -86,8 +86,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringArrayVar(&pathFlags, "path", nil, "Path to CycloneDX JSON SBOM file (repeatable)")
 	cmd.Flags().StringVar(&isprasFormatFlag, "ispras-format", "", "ISPRAS SBOM format: oss or container")
-	cmd.Flags().IntVar(&errorsFlag, "errors", 0, "Maximum number of errors to print per file (0 = unlimited). Caps schema and container-format findings; the checker may print one extra container-format error past the cap, and VCS and source distribution findings are never capped")
-	cmd.Flags().BoolVar(&checkerVerboseFlag, "checker-verbose", false, "Run the checker in verbose mode and print its full output for every file, including the git/svn/hg/fossil diagnostics behind each VCS or source distribution failure. Does not affect werf log verbosity, see --log-verbose")
+	cmd.Flags().IntVar(&errorsFlag, "errors", 0, "Maximum number of errors to print per file (0 = unlimited). Caps schema and container-format findings only; VCS and source distribution findings are never capped")
+	cmd.Flags().BoolVar(&checkerVerboseFlag, "checker-verbose", false, "Run the checker in verbose mode and print its full output for every file, including the checker's own VCS tool diagnostics. The output is printed at the default log level, so --log-quiet suppresses it; it does not affect werf log verbosity, see --log-verbose")
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
 	cmd.Flags().BoolVar(&checkVCSLeafOnlyFlag, "check-vcs-leaf-only", false, "Enable VCS URL validation for leaf components only")
 	cmd.Flags().BoolVar(&checkSourceDistributionFlag, "check-source-distribution", false, "Enable source distribution URL validation: the URL must exist and point to an archive. Also validates VCS URLs of every component, as --check-vcs does; cannot be combined with --check-vcs-leaf-only")

@@ -7,7 +7,7 @@ Validate CycloneDX JSON SBOM files against ISPRAS schemas using sbom-checker.
 
 The command runs sbom-checker inside a Docker container and reports validation results. Supports both OSS and container SBOM types.
 
-The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several files in one run. Use `--errors` to cap how many schema and container-format errors are printed per file (0 means unlimited); the checker may print one extra container-format error past the cap, and VCS and source distribution findings are never capped. Pass `--check-vcs` or `--check-vcs-leaf-only` to additionally validate VCS URLs, and `--check-source-distribution` to check that source distribution URLs exist and point to an archive. `--check-source-distribution` also validates VCS URLs of every component and cannot be combined with `--check-vcs-leaf-only`. Pass `--checker-verbose` to print the full checker output for every file, including the git/svn/hg/fossil diagnostics behind each VCS or source distribution failure; it does not change werf's own log verbosity.
+The flags `--path` and `--ispras-format` are required. Repeat `--path` to validate several files in one run. Use `--errors` to cap how many errors are printed per file (0 means unlimited); it caps schema and container-format findings only, VCS and source distribution findings are never capped. Pass `--check-vcs` or `--check-vcs-leaf-only` to additionally validate VCS URLs, and `--check-source-distribution` to check that source distribution URLs exist and point to an archive. `--check-source-distribution` also validates VCS URLs of every component and cannot be combined with `--check-vcs-leaf-only`. Pass `--checker-verbose` to print the full checker output for every file, including the checker's own VCS tool diagnostics; it is printed at the default log level, so `--log-quiet` suppresses it, and it does not change werf's own log verbosity.
 
 {{ header }} Syntax
 
@@ -28,8 +28,8 @@ werf sbom validate [options]
             Enable VCS URL validation for leaf components only
       --checker-verbose=false
             Run the checker in verbose mode and print its full output for every file, including the 
-            git/svn/hg/fossil diagnostics behind each VCS or source distribution failure. Does not  
-            affect werf log verbosity, see --log-verbose
+            checker`s own VCS tool diagnostics. The output is printed at the default log level, so  
+            --log-quiet suppresses it; it does not affect werf log verbosity, see --log-verbose
       --container-registry-mirror=[]
             (Buildah-only) Use specified mirrors for docker.io
       --docker-config=""
@@ -38,8 +38,7 @@ werf sbom validate [options]
             Command needs granted permissions to pull the ISPRAS SBOM checker image
       --errors=0
             Maximum number of errors to print per file (0 = unlimited). Caps schema and             
-            container-format findings; the checker may print one extra container-format error past  
-            the cap, and VCS and source distribution findings are never capped
+            container-format findings only; VCS and source distribution findings are never capped
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
       --insecure-registry=false

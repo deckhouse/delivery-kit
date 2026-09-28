@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/docker/cli/cli"
@@ -24,6 +25,8 @@ const (
 )
 
 type RunOptions struct {
+	Errors                  int
+	Verbose                 bool
 	CheckVCS                bool
 	CheckVCSLeafOnly        bool
 	CheckSourceDistribution bool
@@ -35,6 +38,10 @@ type RunOptions struct {
 // the archives of every non-leaf component go unchecked while the run reports
 // success.
 func (opts RunOptions) Validate() error {
+	if opts.Errors < 0 {
+		return fmt.Errorf("--errors cannot be negative: got %d; use 0 for unlimited", opts.Errors)
+	}
+
 	if opts.CheckVCSLeafOnly && opts.CheckSourceDistribution {
 		return fmt.Errorf("--check-vcs-leaf-only cannot be combined with --check-source-distribution: the checker would skip source distributions of non-leaf components; use --check-vcs instead")
 	}
@@ -77,6 +84,14 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			out, runErr := docker.CliRun_RecordedOutput(ctx, args...)
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
+			}
+
+			// On a non-zero exit parseResult already echoes the raw output, so
+			// print the verbose block only when it would otherwise stay hidden.
+			if opts.Verbose && runErr == nil {
+				logboek.Context(ctx).Default().LogBlock("Checker output for %s", fileName).Do(func() {
+					logboek.Context(ctx).Default().LogLn(strings.TrimRight(out, "\n"))
+				})
 			}
 
 			if err := parseResult(ctx, out, runErr, fileName, i+1, total); err != nil {
@@ -133,7 +148,11 @@ func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]stri
 		"-v", absPath + ":" + containerPath + ":ro",
 		Image,
 		"--format", format.String(),
-		"--errors", "0",
+		"--errors", strconv.Itoa(opts.Errors),
+	}
+
+	if opts.Verbose {
+		args = append(args, "--verbose")
 	}
 
 	if opts.CheckVCS {

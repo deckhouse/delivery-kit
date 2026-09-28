@@ -163,6 +163,22 @@ var _ = Describe("checker", func() {
 					Image,
 					"--format", "container", "--errors", "0", "--check-vcs", "/sbom/input.json",
 				}),
+			Entry("errors limit forwarded",
+				"/tmp/sbom.json", ispras.FormatContainer, RunOptions{Errors: 10},
+				[]string{
+					"--rm",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "container", "--errors", "10", "/sbom/input.json",
+				}),
+			Entry("verbose forwarded",
+				"/tmp/sbom.json", ispras.FormatOSS, RunOptions{Verbose: true},
+				[]string{
+					"--rm",
+					"-v", "/tmp/sbom.json:/sbom/input.json:ro",
+					Image,
+					"--format", "oss", "--errors", "0", "--verbose", "/sbom/input.json",
+				}),
 		)
 	})
 
@@ -177,6 +193,15 @@ var _ = Describe("checker", func() {
 			Entry("vcs and leaf-only vcs", RunOptions{CheckVCS: true, CheckVCSLeafOnly: true}),
 			Entry("source distribution", RunOptions{CheckSourceDistribution: true}),
 			Entry("vcs and source distribution", RunOptions{CheckVCS: true, CheckSourceDistribution: true}),
+			Entry("zero errors limit", RunOptions{Errors: 0}),
+			Entry("positive errors limit", RunOptions{Errors: 10}),
+		)
+
+		DescribeTable("rejects negative errors limit",
+			func(opts RunOptions) {
+				Expect(opts.Validate()).To(MatchError(ContainSubstring("--errors cannot be negative")))
+			},
+			Entry("negative errors", RunOptions{Errors: -1}),
 		)
 
 		DescribeTable("rejects leaf-only vcs combined with source distribution",

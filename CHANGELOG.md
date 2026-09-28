@@ -1,5 +1,38 @@
 # Changelog
 
+## [3.6.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.0-dk.1...v3.6.1-dk.1) (2026-09-28)
+
+
+### Features
+
+* **sbom:** expose the ISPRAS checker options in sbom validate ([#375](https://github.com/deckhouse/delivery-kit/issues/375)) ([8fe11f0](https://github.com/deckhouse/delivery-kit/commit/8fe11f09337801972e927f63806695b0245513eb))
+
+
+### Bug Fixes
+
+* **build, git:** reuse one ssh connection for git requests ([#368](https://github.com/deckhouse/delivery-kit/issues/368)) ([708a660](https://github.com/deckhouse/delivery-kit/commit/708a6600f33ef7a851344c45b121d03522da62d3))
+* **build, git:** reuse one ssh connection for git requests ([#7930](https://github.com/deckhouse/delivery-kit/issues/7930)) ([6bf8313](https://github.com/deckhouse/delivery-kit/commit/6bf8313121c1df70f26c2a6d51507b8ea70a12b3))
+* **build:** resolve content anchors concurrently in parallel builds ([#369](https://github.com/deckhouse/delivery-kit/issues/369)) ([26d9ae6](https://github.com/deckhouse/delivery-kit/commit/26d9ae63a0fb5ee318c2f5a85022d126e2923ed9))
+* **build:** resolve content anchors concurrently in parallel builds ([#7931](https://github.com/deckhouse/delivery-kit/issues/7931)) ([39f664f](https://github.com/deckhouse/delivery-kit/commit/39f664ffdbf9154f4424c5cf42bd2f75c3053c4f))
+* **build:** speed up build preparation before workers start ([#367](https://github.com/deckhouse/delivery-kit/issues/367)) ([4e39f88](https://github.com/deckhouse/delivery-kit/commit/4e39f8823aa855fe2294684f5d8f3b85655a35d7))
+* **build:** speed up build preparation before workers start ([#7928](https://github.com/deckhouse/delivery-kit/issues/7928)) ([7a188c2](https://github.com/deckhouse/delivery-kit/commit/7a188c2897bc6778ceed0290f99141ca45aea072))
+* **build:** stop per-digest local image scans before image workers start ([#7929](https://github.com/deckhouse/delivery-kit/issues/7929)) ([20d74b6](https://github.com/deckhouse/delivery-kit/commit/20d74b624a0f062b0668418d09012f4f78b788e2))
+* **git:** keep a healthy cached worktree on canceled builds ([#374](https://github.com/deckhouse/delivery-kit/issues/374)) ([ed3e5fa](https://github.com/deckhouse/delivery-kit/commit/ed3e5fadaa11473ed0d9b59a793dc5d9d55aaa35))
+* **git:** keep a healthy cached worktree on canceled builds ([#7935](https://github.com/deckhouse/delivery-kit/issues/7935)) ([ad187a4](https://github.com/deckhouse/delivery-kit/commit/ad187a492c487dee18f6e1646985df89d5be3d31))
+* **git:** keep local submodule reuse for nested submodule names ([#371](https://github.com/deckhouse/delivery-kit/issues/371)) ([0e82710](https://github.com/deckhouse/delivery-kit/commit/0e827105e44cfd7092cfaa04b61905c8422b63f2))
+* **git:** keep local submodule reuse for nested submodule names ([#7933](https://github.com/deckhouse/delivery-kit/issues/7933)) ([196df14](https://github.com/deckhouse/delivery-kit/commit/196df14db49a7d52b181ef83cdaa80b3ef48faff))
+* **git:** rebuild a broken cached worktree instead of failing ([#370](https://github.com/deckhouse/delivery-kit/issues/370)) ([967c83d](https://github.com/deckhouse/delivery-kit/commit/967c83dff4f976a012e64cb7ab296b3bb15231b2))
+* **git:** rebuild a broken cached worktree instead of failing ([#7932](https://github.com/deckhouse/delivery-kit/issues/7932)) ([c89fdb6](https://github.com/deckhouse/delivery-kit/commit/c89fdb68af6a137d37053afc8c327266ada66a07))
+* **sbom:** keep long sbom validate checker messages on one line ([#376](https://github.com/deckhouse/delivery-kit/issues/376)) ([5ec87d4](https://github.com/deckhouse/delivery-kit/commit/5ec87d48aef01826da01ffc8f02d589f4576beea))
+* **storage:** avoid repeated local image scans before builds ([#366](https://github.com/deckhouse/delivery-kit/issues/366)) ([88bf86f](https://github.com/deckhouse/delivery-kit/commit/88bf86f498486d340c39d9e0a6c1d2d80cd26024))
+* **storage:** reuse recent tags listings for stage lookups on cache misses ([#372](https://github.com/deckhouse/delivery-kit/issues/372)) ([fad4fea](https://github.com/deckhouse/delivery-kit/commit/fad4fea59211237e8add204cf769d9a25d7df110))
+* **storage:** reuse recent tags listings for stage lookups on cache misses ([#7934](https://github.com/deckhouse/delivery-kit/issues/7934)) ([d3d0c41](https://github.com/deckhouse/delivery-kit/commit/d3d0c41fa515ebd2c234d90bf87aa832186fcfd0))
+
+
+### Miscellaneous Chores
+
+* force release 3.6.1-dk.1 ([30bdf77](https://github.com/deckhouse/delivery-kit/commit/30bdf77534305a2da8e2b05474288fe6f04cf3ac))
+
 ## [3.6.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.4...v3.6.0-dk.1) (2026-09-25)
 
 

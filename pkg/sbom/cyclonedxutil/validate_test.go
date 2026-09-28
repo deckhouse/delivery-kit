@@ -62,6 +62,52 @@ var _ = Describe("CycloneDX Schema Validation", func() {
 					]
 				}`,
 				MatchError(ContainSubstring("Must validate one and only one schema"))),
+
+			Entry("STREEBOG digest on a source distribution",
+				`{
+					"bomFormat": "CycloneDX",
+					"specVersion": "1.6",
+					"version": 1,
+					"components": [
+						{
+							"type": "library",
+							"name": "commondir",
+							"externalReferences": [
+								{
+									"type": "source-distribution",
+									"url": "https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz",
+									"hashes": [
+										{ "alg": "STREEBOG-256", "content": "4559fe98d002ff12ab69dafaf495d49ab7bfe14fd4408bf733dd99b3056c65bf" }
+									]
+								}
+							]
+						}
+					]
+				}`,
+				Succeed()),
+
+			Entry("hash algorithm outside the extended enum",
+				`{
+					"bomFormat": "CycloneDX",
+					"specVersion": "1.6",
+					"version": 1,
+					"components": [
+						{
+							"type": "library",
+							"name": "commondir",
+							"externalReferences": [
+								{
+									"type": "source-distribution",
+									"url": "https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz",
+									"hashes": [
+										{ "alg": "Streebog-256", "content": "4559fe98d002ff12ab69dafaf495d49ab7bfe14fd4408bf733dd99b3056c65bf" }
+									]
+								}
+							]
+						}
+					]
+				}`,
+				MatchError(ContainSubstring("alg"))),
 		)
 	})
 })

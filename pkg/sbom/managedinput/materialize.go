@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
 )
 
 // MaterializeCatalogerInputs extracts a cataloger's declared spec/lock files from the

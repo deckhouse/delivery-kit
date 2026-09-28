@@ -16,9 +16,9 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/logboek"
-	"github.com/werf/werf/v2/pkg/container_backend"
-	"github.com/werf/werf/v2/pkg/sbom/scanner"
-	"github.com/werf/werf/v2/test/mock"
+	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/test/mock"
 )
 
 var _ = Describe("MaterializeCatalogerInputs", func() {

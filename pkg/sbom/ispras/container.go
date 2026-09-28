@@ -11,6 +11,8 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
+const imageDescriptionLabelProperty = "syft:image:labels:org.opencontainers.image.description"
+
 var _ Assembler = (*ContainerAssembler)(nil)
 
 type ContainerAssembler struct{}
@@ -49,6 +51,10 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		}
 		imgBOM.Properties = nil
 
+		if container.Description == "" {
+			container.Description = containerDescription(img.Name, lo.FromPtr(container.Properties))
+		}
+
 		imgComponents := append(slices.Clone(lo.FromPtr(container.Components)), lo.FromPtr(imgBOM.Components)...)
 		setMissingGOSTOnComponent(&container, aggregateGOST(imgComponents))
 		if len(imgComponents) > 0 {
@@ -71,4 +77,17 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 	result.Metadata = buildProductMetadata(meta)
 
 	return result, nil
+}
+
+// containerDescription falls back to the image name because ISPRAS requires a
+// description on every container component, while an image only carries one
+// when it was built with the matching OCI label and scanned as an image.
+func containerDescription(imageName string, props []cdx.Property) string {
+	for _, prop := range props {
+		if prop.Name == imageDescriptionLabelProperty && prop.Value != "" {
+			return prop.Value
+		}
+	}
+
+	return fmt.Sprintf("Container image %s", imageName)
 }

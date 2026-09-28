@@ -197,6 +197,34 @@ var _ = Describe("ContainerAssembler", func() {
 		Expect(gost.GetComponent(&container)).To(Equal(gost.Config{AttackSurface: gost.GostValueNo, SecurityFunction: gost.GostValueNo}))
 	})
 
+	It("describes a container with the description label of the image", func() {
+		bom := imageBOM("a")
+		bom.Properties = &[]cdx.Property{{Name: "syft:image:labels:org.opencontainers.image.description", Value: "Backend API server"}}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect((*result.Components)[0].Description).To(Equal("Backend API server"))
+	})
+
+	It("describes a container by its image name when the image has no description", func() {
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", imageBOM("a"))}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect((*result.Components)[0].Description).To(Equal("Container image a"))
+	})
+
+	It("keeps the description of the image root", func() {
+		bom := imageBOM("a")
+		bom.Metadata.Component.Description = "Described by the scanner"
+		bom.Properties = &[]cdx.Property{{Name: "syft:image:labels:org.opencontainers.image.description", Value: "Backend API server"}}
+
+		result, err := (&ContainerAssembler{}).Assemble(context.Background(), []*ImageSBOM{NewImageSBOM("a", bom)}, ProductMeta{})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect((*result.Components)[0].Description).To(Equal("Described by the scanner"))
+	})
+
 	It("keeps the annotations about a formula and a composition of an image", func() {
 		bom := rawImageBOM("a")
 		bom.Formulation = &[]cdx.Formula{{BOMRef: "formula"}}

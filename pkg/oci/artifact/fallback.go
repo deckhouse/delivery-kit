@@ -22,6 +22,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 )
 
@@ -311,6 +312,10 @@ func GetAttached(ctx context.Context, repo, parentDigest, artifactType, imageNam
 // identity, while an attestation signed through werf attest sign carries none: its
 // predicate and its signing key exist only on the user's side.
 func ListUnregenerableArtifacts(ctx context.Context, repo, parentDigest string, opts ...remote.Option) ([]string, error) {
+	if len(opts) == 0 {
+		opts = docker_registry.API().RemoteOptionsForHost(ctx, repo)
+	}
+
 	idx, err := pullFallbackIndex(ctx, repo, parentDigest, opts...)
 	if err != nil {
 		return nil, err

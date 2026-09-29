@@ -14,6 +14,10 @@ var _ Assembler = (*OSSAssembler)(nil)
 type OSSAssembler struct{}
 
 func (a *OSSAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
+	if err := validateImages(images); err != nil {
+		return nil, err
+	}
+
 	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
 		ImportBOMs: imageBOMs(images),
 	})

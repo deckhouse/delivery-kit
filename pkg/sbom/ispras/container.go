@@ -25,6 +25,10 @@ type ContainerAssembler struct{}
 // it and the document properties of the image, which describe that image and
 // not the product.
 func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
+	if err := validateImages(images); err != nil {
+		return nil, err
+	}
+
 	wrapped := make([]*cdx.BOM, 0, len(images))
 	for _, img := range images {
 		imgBOM, err := cyclonedxutil.CloneBOM(img.BOM)

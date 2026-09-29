@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -17,7 +18,7 @@ import (
 
 var _ = Describe("Service", func() {
 	var ts *httptest.Server
-	var calls *int
+	var calls *atomic.Int64
 	var service *Service
 	var ctx context.Context
 
@@ -135,7 +136,7 @@ var _ = Describe("Service", func() {
 		It("counts resolve calls", func() {
 			_, _ = service.Resolve(ctx, "pkg:npm/lodash@4.17.21")
 			_, _ = service.Resolve(ctx, "pkg:npm/express@4.18.2")
-			Expect(*calls).To(Equal(2))
+			Expect(calls.Load()).To(Equal(int64(2)))
 		})
 	})
 
@@ -248,11 +249,11 @@ var _ = Describe("Service", func() {
 				Expect(err).To(HaveOccurred())
 			}
 
-			callsBefore := *calls
+			callsBefore := calls.Load()
 			_, err := breakerService.Resolve(ctx, "pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
-			Expect(*calls).To(Equal(callsBefore), "tripped breaker must not produce HTTP requests")
+			Expect(calls.Load()).To(Equal(callsBefore), "tripped breaker must not produce HTTP requests")
 		})
 
 		It("aborts an in-flight retry loop when the breaker trips", func() {
@@ -263,11 +264,11 @@ var _ = Describe("Service", func() {
 				breaker.RecordFailure(FailureClassInfra, &ClassifiedError{Class: FailureClassInfra, Err: errors.New("connection refused")})
 			}
 
-			callsBefore := *calls
+			callsBefore := calls.Load()
 			_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
-			Expect(*calls).To(Equal(callsBefore))
+			Expect(calls.Load()).To(Equal(callsBefore))
 		})
 
 		It("resets the breaker counter on successful resolution", func() {

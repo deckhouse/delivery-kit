@@ -3,7 +3,6 @@ package artifact_test
 import (
 	"encoding/base64"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -85,16 +84,7 @@ var _ = Describe("ListUnregenerableArtifacts against an authenticated registry",
 	)
 
 	It("should authenticate with the configured registry credentials when the caller supplies none", func(ctx SpecContext) {
-		upstream := registry.New()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user, pass, ok := r.BasicAuth()
-			if !ok || user != username || pass != password {
-				w.Header().Set("WWW-Authenticate", `Basic realm="registry"`)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			upstream.ServeHTTP(w, r)
-		}))
+		server := httptest.NewServer(requireBasicAuth(registry.New(), username, password))
 		DeferCleanup(server.Close)
 
 		host := strings.TrimPrefix(server.URL, "http://")
@@ -121,7 +111,7 @@ var _ = Describe("ListUnregenerableArtifacts against an authenticated registry",
 		)).To(Succeed())
 		GinkgoT().Setenv("DOCKER_CONFIG", dockerConfig)
 
-		Expect(docker_registry.Init(ctx, false, false, nil, []string{host})).To(Succeed())
+		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
 
 		Expect(artifact.ListUnregenerableArtifacts(ctx, repo, dgst.String())).To(ConsistOf("https://example.com/predicate/v1"))
 	})

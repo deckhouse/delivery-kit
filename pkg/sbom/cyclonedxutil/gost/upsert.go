@@ -115,53 +115,66 @@ func collectComponentRefs(components []cdx.Component, refs map[string]struct{}) 
 // stronglyConnectedComponents runs Tarjan's algorithm over the adjacency list
 // and labels every node with the index of its component.
 func stronglyConnectedComponents(edges map[string][]string) map[string]int {
-	index := make(map[string]int)
-	lowlink := make(map[string]int)
-	onStack := make(map[string]bool)
-	componentOf := make(map[string]int)
-	var stack []string
-	nextIndex, nextComponent := 0, 0
-
-	var visit func(node string)
-	visit = func(node string) {
-		index[node] = nextIndex
-		lowlink[node] = nextIndex
-		nextIndex++
-		stack = append(stack, node)
-		onStack[node] = true
-
-		for _, next := range edges[node] {
-			if _, seen := index[next]; !seen {
-				visit(next)
-				lowlink[node] = min(lowlink[node], lowlink[next])
-			} else if onStack[next] {
-				lowlink[node] = min(lowlink[node], index[next])
-			}
-		}
-
-		if lowlink[node] != index[node] {
-			return
-		}
-
-		for {
-			top := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			onStack[top] = false
-			componentOf[top] = nextComponent
-			if top == node {
-				break
-			}
-		}
-		nextComponent++
+	t := &tarjan{
+		edges:       edges,
+		index:       make(map[string]int),
+		lowlink:     make(map[string]int),
+		onStack:     make(map[string]bool),
+		componentOf: make(map[string]int),
 	}
 
 	for _, node := range slices.Sorted(maps.Keys(edges)) {
-		if _, seen := index[node]; !seen {
-			visit(node)
+		if _, seen := t.index[node]; !seen {
+			t.visit(node)
 		}
 	}
 
-	return componentOf
+	return t.componentOf
+}
+
+type tarjan struct {
+	edges         map[string][]string
+	index         map[string]int
+	lowlink       map[string]int
+	onStack       map[string]bool
+	componentOf   map[string]int
+	stack         []string
+	nextIndex     int
+	nextComponent int
+}
+
+func (t *tarjan) visit(node string) {
+	t.index[node] = t.nextIndex
+	t.lowlink[node] = t.nextIndex
+	t.nextIndex++
+	t.stack = append(t.stack, node)
+	t.onStack[node] = true
+
+	for _, next := range t.edges[node] {
+		if _, seen := t.index[next]; !seen {
+			t.visit(next)
+			t.lowlink[node] = min(t.lowlink[node], t.lowlink[next])
+		} else if t.onStack[next] {
+			t.lowlink[node] = min(t.lowlink[node], t.index[next])
+		}
+	}
+
+	if t.lowlink[node] == t.index[node] {
+		t.popComponent(node)
+	}
+}
+
+func (t *tarjan) popComponent(root string) {
+	for {
+		top := t.stack[len(t.stack)-1]
+		t.stack = t.stack[:len(t.stack)-1]
+		t.onStack[top] = false
+		t.componentOf[top] = t.nextComponent
+		if top == root {
+			break
+		}
+	}
+	t.nextComponent++
 }
 
 // SetComponent inserts or updates mandatory GOST properties in a single component.

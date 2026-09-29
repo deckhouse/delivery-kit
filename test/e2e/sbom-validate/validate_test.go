@@ -38,6 +38,10 @@ var _ = Describe("sbom validate", Label("e2e", "sbom", "validate", "simple"), fu
 		Entry("valid container SBOM", []string{"valid_container"}, "container", []string(nil), ""),
 		Entry("valid OSS with multiple components", []string{"valid_oss_multiple_components"}, "oss", []string(nil), ""),
 		Entry("valid OSS with VCS reference", []string{"valid_oss_with_vcs"}, "oss", []string(nil), ""),
+		// A leaf component whose only link is a source distribution must carry a
+		// STREEBOG digest of the archive; a digest in another algorithm next to it
+		// is accepted.
+		Entry("valid OSS with a source distribution digest", []string{"valid_oss_with_source_distribution"}, "oss", []string(nil), ""),
 		Entry("valid container with multiple containers", []string{"valid_container_multiple"}, "container", []string(nil), ""),
 		Entry("multiple valid OSS files", []string{"valid_oss", "valid_oss_multiple_components"}, "oss", []string(nil), ""),
 		Entry("multiple valid container files", []string{"valid_container", "valid_container_multiple"}, "container", []string(nil), ""),
@@ -79,6 +83,7 @@ var _ = Describe("sbom validate", Label("e2e", "sbom", "validate", "simple"), fu
 		Entry("additional properties", []string{"additional_property"}, "oss", "Additional properties"),
 		Entry("container bad GOST", []string{"container_bad_gost"}, "container", ""),
 		Entry("container attack surface mismatch", []string{"container_attack_surface_mismatch"}, "container", ""),
+		Entry("source distribution without a digest", []string{"oss_source_distribution_without_digest"}, "oss", "hashes"),
 		Entry("warnings alone fail by default", []string{"oss_multiple_vcs_urls"}, "oss", "WARNING"),
 		Entry("multiple files with one invalid", []string{"valid_oss", "missing_bom_format"}, "oss", "bomFormat"),
 		Entry("multiple files all invalid", []string{"missing_bom_format", "missing_version"}, "oss", ""),

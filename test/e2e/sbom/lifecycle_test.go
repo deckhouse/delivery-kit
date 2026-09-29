@@ -11,6 +11,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/test/pkg/externalrefmock"
 	"github.com/werf/werf/v3/test/pkg/report"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
 	"github.com/werf/werf/v3/test/pkg/werf"
@@ -173,6 +174,72 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 		XEntry("oss format", "oss"),
 	)
 
+	It("source distributions: build → merge → validate keeps the STREEBOG digest", func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_lifecycle_src_dist"
+		SuiteData.InitTestRepo(ctx, repoDirname, "lifecycle/source_distribution")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		reportProject := report.NewProjectWithReport(werfProject)
+		_, buildReport := reportProject.BuildWithReport(ctx,
+			SuiteData.GetBuildReportPath("lifecycle_src_dist.json"),
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
+		)
+
+		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{"app"},
+			},
+		})
+
+		// The resolver answers an npm purl with the published archive, so lodash
+		// carries a source distribution as its only link — the case the ISPRAS
+		// schema requires a digest for.
+		lodashArchive := externalrefmock.SourceDistributionURL("pkg:npm/lodash@4.17.21")
+		bom := sbomtest.MustParseSBOMOutput(sbomOut)
+		assertSourceDistributionDigest(bom, "lodash", "4.17.21", lodashArchive)
+
+		mapping := map[string]string{}
+		for name, rec := range buildReport.Images {
+			mapping[name] = rec.DockerImageDigest
+		}
+		Expect(mapping).To(HaveLen(1), "expected exactly 1 image in build report")
+
+		mappingPath := filepath.Join(SuiteData.TmpDir, "lifecycle_src_dist_mapping.json")
+		writeMappingFile(mappingPath, mapping)
+
+		mergedJSONPath := filepath.Join(SuiteData.TmpDir, "lifecycle_src_dist_merged.json")
+		mergeOut := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{
+					"--input", mappingPath,
+					"--ispras-format", "oss",
+					"--app-name", "lifecycle-src-dist",
+					"--app-version", "1.0.0",
+					"--manufacturer", "e2e-test",
+					"--output", mergedJSONPath,
+				},
+			},
+		})
+		Expect(mergeOut).NotTo(BeEmpty())
+
+		mergedJSON, err := os.ReadFile(mergedJSONPath)
+		Expect(err).NotTo(HaveOccurred())
+		merged := &cdx.BOM{}
+		Expect(json.Unmarshal(mergedJSON, merged)).To(Succeed())
+		assertSourceDistributionDigest(merged, "lodash", "4.17.21", lodashArchive)
+
+		// The merged document is not run through "sbom validate --ispras-format oss"
+		// here for the reason the oss entry of the table above is disabled: the SBOM
+		// of the base-images builder carries a component with neither a vcs nor a
+		// source-distribution link, and the oss schema rejects it before it gets to
+		// any digest. That the schema accepts the shape asserted above is covered by
+		// the "valid OSS with a source distribution digest" fixture in
+		// test/e2e/sbom-validate.
+	})
+
 	It("sbom get fails when SBOM is not enabled in werf.yaml", func(ctx SpecContext) {
 		setupSbomBuildEnv()
 
@@ -285,6 +352,34 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			"expected error mentioning missing --app-name flag; got:\n%s", out)
 	})
 })
+
+// assertSourceDistributionDigest checks the shape the ISPRAS oss schema demands
+// of a leaf component whose only link is a source distribution: the archive URL
+// and a STREEBOG digest of it, both carried by the same reference.
+func assertSourceDistributionDigest(bom *cdx.BOM, name, version, archiveURL string) {
+	comp := sbomtest.FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(), "component %s@%s not found", name, version)
+	ExpectWithOffset(1, comp.ExternalReferences).NotTo(BeNil(),
+		"component %s@%s has no external references", name, version)
+
+	// A vcs link next to it would take the component out of the schema branch
+	// that demands the digest, and the assertions below would prove nothing.
+	ExpectWithOffset(1, *comp.ExternalReferences).NotTo(ContainElement(HaveField("Type", cdx.ERTypeVCS)),
+		"component %s@%s also carries a vcs link, the digest requirement would not apply", name, version)
+
+	refs := lo.Filter(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
+		return ref.Type == cdx.ERTypeSourceDistribution
+	})
+	ExpectWithOffset(1, refs).To(HaveLen(1),
+		"component %s@%s: expected exactly one source distribution, got %v", name, version, *comp.ExternalReferences)
+	ExpectWithOffset(1, refs[0].URL).To(Equal(archiveURL))
+	ExpectWithOffset(1, refs[0].Hashes).NotTo(BeNil(),
+		"component %s@%s: source distribution %s carries no digest", name, version, refs[0].URL)
+	ExpectWithOffset(1, *refs[0].Hashes).To(ContainElement(cdx.Hash{
+		Algorithm: cdx.HashAlgorithm(externalrefmock.SourceDistributionHash.Algorithm),
+		Value:     externalrefmock.SourceDistributionHash.Content,
+	}))
+}
 
 func writeMappingFile(path string, mapping map[string]string) {
 	data, err := json.Marshal(mapping)

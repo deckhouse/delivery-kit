@@ -9,7 +9,9 @@ func GetDocs() structs.DocsStruct {
 
 The command runs sbom-checker inside a Docker container and reports validation results. Supports both OSS and container SBOM types.
 
-The flags --path and --ispras-format are required. Repeat --path to validate several files in one run. Use --errors to cap how many errors are printed per file (0 means unlimited); it caps schema and container-format findings only, VCS and source distribution findings are never capped. Pass --check-vcs or --check-vcs-leaf-only to additionally validate VCS URLs, and --check-source-distribution to check that source distribution URLs exist and point to an archive. --check-source-distribution also validates VCS URLs of every component and cannot be combined with --check-vcs-leaf-only. Pass --checker-verbose to print the full checker output for every file, including the checker's own VCS tool diagnostics; it is printed at the default log level, so --log-quiet suppresses it, and it does not change werf's own log verbosity.`
+The flags --path and --ispras-format are required. Repeat --path to validate several files in one run. Use --errors to cap how many errors are printed per file (0 means unlimited); it caps schema and container-format findings only, VCS and source distribution findings are never capped. Pass --check-vcs or --check-vcs-leaf-only to additionally validate VCS URLs, and --check-source-distribution to check that source distribution URLs exist and point to an archive. --check-source-distribution also validates VCS URLs of every component and cannot be combined with --check-vcs-leaf-only. Pass --checker-verbose to print the full checker output for every file, including the checker's own VCS tool diagnostics; it is printed at the default log level, so --log-quiet suppresses it, and it does not change werf's own log verbosity.
+
+Checker findings are reported separately as errors and warnings, and the summary shows both counts. By default any error or warning fails validation. Pass --warnings-non-fatal to keep warnings informational: they are still printed (on stderr), but only errors set a non-zero exit code.`
 
 	docs.LongMD = "Validate CycloneDX JSON SBOM files against ISPRAS schemas using sbom-checker.\n\n" +
 		"The command runs sbom-checker inside a Docker container and reports validation results. " +
@@ -21,7 +23,10 @@ The flags --path and --ispras-format are required. Repeat --path to validate sev
 		"and `--check-source-distribution` to check that source distribution URLs exist and point to an archive. " +
 		"`--check-source-distribution` also validates VCS URLs of every component and cannot be combined with `--check-vcs-leaf-only`. " +
 		"Pass `--checker-verbose` to print the full checker output for every file, including the checker's own VCS tool diagnostics; " +
-		"it is printed at the default log level, so `--log-quiet` suppresses it, and it does not change werf's own log verbosity."
+		"it is printed at the default log level, so `--log-quiet` suppresses it, and it does not change werf's own log verbosity.\n\n" +
+		"Checker findings are reported separately as errors and warnings, and the summary shows both counts. " +
+		"By default any error or warning fails validation. Pass `--warnings-non-fatal` to keep warnings " +
+		"informational: they are still printed (on stderr), but only errors set a non-zero exit code."
 
 	return docs
 }

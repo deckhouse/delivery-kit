@@ -19,8 +19,8 @@ var _ = Describe("checker", func() {
 	Describe("parseResult", func() {
 		DescribeTable("parses output correctly",
 			func(out string, runErr error, fileName string, index, total int, matcher types.GomegaMatcher) {
-				err := parseResult(context.Background(), out, runErr, fileName, index, total)
-				Expect(err).To(matcher)
+				res := parseResult(context.Background(), out, runErr, fileName, index, total, false)
+				Expect(res.err).To(matcher)
 			},
 			Entry("no errors no warnings",
 				"файл корректный\n", nil, "valid.json", 1, 1,
@@ -107,10 +107,46 @@ var _ = Describe("checker", func() {
 
 			finding := errorPrefix + " " + strings.Repeat("a", 4*logboek.Context(ctx).Streams().ContentWidth())
 
-			Expect(parseResult(ctx, finding+"\n", nil, "bad.json", 1, 1)).NotTo(Succeed())
+			Expect(parseResult(ctx, finding+"\n", nil, "bad.json", 1, 1, false).err).NotTo(Succeed())
 			Expect(out.String()).To(ContainSubstring(finding))
 			Expect(logboek.Context(ctx).Streams().IsLineWrappingEnabled()).To(BeTrue())
 		})
+
+		DescribeTable("fails on warnings unless warningsNonFatal is set, and counts findings",
+			func(out string, runErr error, warningsNonFatal bool, wantErrs, wantWarnings int, matcher types.GomegaMatcher) {
+				res := parseResult(context.Background(), out, runErr, "sbom.json", 1, 1, warningsNonFatal)
+				Expect(res.errCount).To(Equal(wantErrs))
+				Expect(res.warningCount).To(Equal(wantWarnings))
+				Expect(res.err).To(matcher)
+			},
+			Entry("warnings alone fail by default",
+				"WARNING: vcs url not found\n", nil, false, 0, 1,
+				MatchError(And(
+					ContainSubstring("validation failed for sbom.json"),
+					ContainSubstring("WARNING: vcs url not found"),
+				))),
+			Entry("warnings alone pass with warningsNonFatal",
+				"WARNING: vcs url not found\nWARNING: another\n", nil, true, 0, 2,
+				Succeed()),
+			Entry("errors fail even with warningsNonFatal",
+				"ERROR: missing bomFormat\n", nil, true, 1, 0,
+				MatchError(ContainSubstring("ERROR: missing bomFormat"))),
+			Entry("errors with warnings fail with warningsNonFatal and report both",
+				"ERROR: bad field\nWARNING: vcs issue\n", nil, true, 1, 1,
+				MatchError(And(
+					ContainSubstring("ERROR: bad field"),
+					ContainSubstring("WARNING: vcs issue"),
+				))),
+			Entry("checker crash fails even with warningsNonFatal",
+				"WARNING: vcs issue\nTraceback: boom\n", errors.New("exit status 1"), true, 0, 1,
+				MatchError(ContainSubstring("checker exited with error: exit status 1"))),
+			Entry("empty output fails even with warningsNonFatal",
+				"", nil, true, 0, 0,
+				MatchError(ContainSubstring("checker produced no output"))),
+			Entry("clean result passes and counts nothing",
+				"файл корректный\n", nil, true, 0, 0,
+				Succeed()),
+		)
 	})
 
 	Describe("buildDockerArgs", func() {

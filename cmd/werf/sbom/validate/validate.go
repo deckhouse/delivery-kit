@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v3/cmd/werf/common"
 	"github.com/werf/werf/v3/pkg/sbom/checker"
 	"github.com/werf/werf/v3/pkg/sbom/ispras"
@@ -24,6 +25,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	var checkVCSFlag bool
 	var checkVCSLeafOnlyFlag bool
 	var checkSourceDistributionFlag bool
+	var warningsNonFatalFlag bool
 
 	cmd := common.SetCommandContext(ctx, &cobra.Command{
 		Use:                   "validate",
@@ -51,6 +53,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 				CheckVCS:                checkVCSFlag,
 				CheckVCSLeafOnly:        checkVCSLeafOnlyFlag,
 				CheckSourceDistribution: checkSourceDistributionFlag,
+				WarningsNonFatal:        warningsNonFatalFlag,
 			}); err != nil {
 				common.PrintHelp(cmd)
 				return err
@@ -69,6 +72,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 					CheckVCS:                checkVCSFlag,
 					CheckVCSLeafOnly:        checkVCSLeafOnlyFlag,
 					CheckSourceDistribution: checkSourceDistributionFlag,
+					WarningsNonFatal:        warningsNonFatalFlag,
 				})
 			})
 		},
@@ -91,6 +95,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	cmd.Flags().BoolVar(&checkVCSFlag, "check-vcs", false, "Enable VCS URL validation")
 	cmd.Flags().BoolVar(&checkVCSLeafOnlyFlag, "check-vcs-leaf-only", false, "Enable VCS URL validation for leaf components only")
 	cmd.Flags().BoolVar(&checkSourceDistributionFlag, "check-source-distribution", false, "Enable source distribution URL validation: the URL must exist and point to an archive. Also validates VCS URLs of every component, as --check-vcs does; cannot be combined with --check-vcs-leaf-only")
+	cmd.Flags().BoolVar(&warningsNonFatalFlag, "warnings-non-fatal", util.GetBoolEnvironmentDefaultFalse("WERF_WARNINGS_NON_FATAL"), "Do not fail validation on checker warnings; only errors set a non-zero exit code (default $WERF_WARNINGS_NON_FATAL or false)")
 
 	return cmd
 }

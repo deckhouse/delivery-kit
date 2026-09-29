@@ -13,7 +13,7 @@ Two ISPRAS-defined output formats are supported:
 - "container": hierarchical — each image becomes a top-level container component with nested packages.
 - "oss": flat — all packages from all images are merged into a deduplicated flat list.
 
-GOST properties are aggregated bottom-up: attack_surface with the "yes > indirect > no" precedence rule, security_function with "yes > no".
+GOST properties are aggregated bottom-up: attack_surface with the "yes > indirect > no" precedence rule, security_function with "yes > no". An image SBOM carrying a GOST value outside these domains, such as security_function "indirect" written by an older werf, is rejected; rebuild the image first.
 
 The flags --input, --ispras-format, --app-name, --app-version and --manufacturer are required. The merged SBOM is written to stdout unless --output is given.`
 
@@ -24,7 +24,8 @@ The flags --input, --ispras-format, --app-name, --app-version and --manufacturer
 		"- `container`: hierarchical — each image becomes a top-level container component with nested packages.\n" +
 		"- `oss`: flat — all packages from all images are merged into a deduplicated flat list.\n\n" +
 		"GOST properties are aggregated bottom-up: `attack_surface` with the `yes > indirect > no` " +
-		"precedence rule, `security_function` with `yes > no`.\n\n" +
+		"precedence rule, `security_function` with `yes > no`. An image SBOM carrying a GOST value outside these domains, " +
+		"such as `security_function: indirect` written by an older werf, is rejected; rebuild the image first.\n\n" +
 		"The flags `--input`, `--ispras-format`, `--app-name`, `--app-version` and `--manufacturer` " +
 		"are required. The merged SBOM is written to stdout unless `--output` is given."
 

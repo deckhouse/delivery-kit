@@ -6,7 +6,7 @@ build:
     standard: cyclonedx@1.6
 ---
 image: app
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.deckhouse.io/container-factory@sha256:ef3bd2afef793bbaf31ce020550e577c7190cc7cb4cd9b3b3e9188587e3612cd
 git:
   - add: /
     to: /app
@@ -20,7 +20,3 @@ shell:
 packages:
   - type: go-mod
     workdir: /app
-    # go 1.12 has no default module proxy and the base image has no git, so
-    # `go mod download` needs the proxy to fetch a registry module.
-    env:
-      GOPROXY: https://proxy.golang.org

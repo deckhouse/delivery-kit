@@ -24,15 +24,13 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing_vex")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-vex-coexistence-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		reportProject := report.NewProjectWithReport(werfProject)
 
 		By("building without a key: both bare-DSSE artifacts coexist")
 		_, buildReport := reportProject.BuildWithReport(ctx,
 			SuiteData.GetBuildReportPath("sbom_vex_coexistence_unsigned.json"),
-			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 		)
 		digest := buildReport.Images["app"].DockerImageDigest
 		Expect(digest).NotTo(BeEmpty())
@@ -56,10 +54,10 @@ var _ = Describe("SBOM and VEX coexistence", Label("e2e", "sbom", "sbom-signing"
 
 		By("building with a key: both signed bundles coexist, each superseding its own kind only")
 		signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir)
-		signEnv := append(builderEnv,
-			"WERF_SIGN_KEY="+signKeys.KeyPath,
-			"WERF_SIGN_CERT="+signKeys.CertPath,
-		)
+		signEnv := []string{
+			"WERF_SIGN_KEY=" + signKeys.KeyPath,
+			"WERF_SIGN_CERT=" + signKeys.CertPath,
+		}
 		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
 
 		sbomBundle := attestutils.FindArtifactDescriptorByPredicate(ctx, repo, digest, attestation.BundleMediaType, attestation.PredicateKindCycloneDX.SignedType)

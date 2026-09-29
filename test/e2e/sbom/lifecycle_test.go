@@ -24,15 +24,12 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-single-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{"app"},
-				Envs:      builderEnv,
 			},
 		})
 
@@ -50,13 +47,11 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			SuiteData.InitTestRepo(ctx, repoDirname, "lifecycle/multi_image")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-multi-builder-"+isprasFormat)
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("lifecycle_multi_"+isprasFormat+".json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 			)
 
 			mapping := map[string]string{}
@@ -66,7 +61,7 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 					"image %q has no digest in build report", name)
 				mapping[name] = rec.DockerImageDigest
 				imageBOMs[name] = sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-					CommonOptions: werf.CommonOptions{ExtraArgs: []string{name}, Envs: builderEnv},
+					CommonOptions: werf.CommonOptions{ExtraArgs: []string{name}},
 				}))
 			}
 			Expect(mapping).To(HaveLen(2), "expected exactly 2 images in build report")
@@ -83,20 +78,19 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 						"--app-version", "1.0.0",
 						"--manufacturer", "e2e-test",
 					},
-					Envs: builderEnv,
 				},
 			})
 
 			merged := sbomtest.MustParseSBOMOutput(mergeOut)
 			sbomtest.AssertHasComponent(merged, "jq", "1.8.1")
-			sbomtest.AssertHasComponent(merged, "yq", "4.48.1")
+			sbomtest.AssertHasComponent(merged, "yq", "4.53.6")
 
 			sbomtest.AssertHasLicense(merged, "jq", "1.8.1", "MIT")
-			sbomtest.AssertHasLicense(merged, "yq", "4.48.1", "MIT")
+			sbomtest.AssertHasLicense(merged, "yq", "4.53.6", "MIT")
 			sbomtest.AssertHasHash(merged, "jq", "1.8.1", cdx.HashAlgoSHA256,
-				"c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899")
-			sbomtest.AssertHasHash(merged, "yq", "4.48.1", cdx.HashAlgoSHA256,
-				"2ce3f5219fb99420eb3396da2d6d6f13e75e5f5ed0abcf038db17c2920ec426c")
+				"99f0d20ba2e7084999a592d6db575ff3b734c960f9b9f61fee88f0e2e4430164")
+			sbomtest.AssertHasHash(merged, "yq", "4.53.6", cdx.HashAlgoSHA256,
+				"a5e7736e6248f0068b4a258876ba54ef4e251f6357e1654bfb541bd2d09766e0")
 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name
@@ -106,8 +100,8 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 
 			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")
 			sbomtest.AssertDependsOn(merged,
-				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
-				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6")
+				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v3.0.2",
+				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v3.0.2")
 			sbomtest.AssertDependencyGraphResolves(merged)
 			for name, imageBOM := range imageBOMs {
 				rootRef := imageBOM.Metadata.Component.BOMRef
@@ -131,13 +125,11 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-validate-builder-"+isprasFormat)
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("lifecycle_validate_"+isprasFormat+".json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 			)
 
 			mapping := map[string]string{}
@@ -160,21 +152,25 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 						"--manufacturer", "e2e-test",
 						"--output", mergedJSONPath,
 					},
-					Envs: builderEnv,
 				},
 			})
 
 			validateOut := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"--path", mergedJSONPath, "--ispras-format", isprasFormat},
-					Envs:      builderEnv,
 				},
 			})
 			Expect(validateOut).To(ContainSubstring("OK"),
 				"merged SBOM did not pass %q validation; output:\n%s", isprasFormat, validateOut)
 		},
 		Entry("container format", "container"),
-		Entry("oss format", "oss"),
+		// The SBOM attached to the base-images v3.0.2 builders was generated by a
+		// delivery-kit that still ran syft over the whole stapel image, so it carries
+		// syft's os-release `operating-system` component without a vcs reference,
+		// which the ISPRAS oss schema rejects. Re-enable once base-images is rebuilt
+		// with a delivery-kit that no longer scans stapel images and the digests are
+		// re-pinned.
+		XEntry("oss format", "oss"),
 	)
 
 	It("sbom get fails when SBOM is not enabled in werf.yaml", func(ctx SpecContext) {

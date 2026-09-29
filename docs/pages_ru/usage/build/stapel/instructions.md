@@ -233,7 +233,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `pip install --no-cache-dir -r requirements.txt`. Spec по умолчанию: `requirements.txt`. Lock-файл не поддерживается (pip не имеет семантики lock; поле `lock` отклоняется с ошибкой).
+Выполняет `python3 -P -m pip install --no-cache-dir -r requirements.txt`. Spec по умолчанию: `requirements.txt`. Lock-файл не поддерживается (pip не имеет семантики lock; поле `lock` отклоняется с ошибкой). Флаг `-P` исключает рабочий каталог из путей поиска модулей, поэтому файл проекта с именем `pip.py` не может подменить установщик; он требует Python 3.11 или новее в образе — на более старом интерпретаторе укажите путь к исполняемому файлу pip в `manager`.
 
 **Python — poetry** (`python-poetry`):
 

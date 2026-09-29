@@ -9,7 +9,7 @@ build:
       securityFunction: no
 ---
 image: app
-from: registry.werf.io/werf/scratch:latest
+from: scratch
 sbom:
   gost:
     attackSurface: no

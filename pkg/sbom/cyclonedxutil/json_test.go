@@ -58,6 +58,58 @@ var _ = Describe("ToJSON", func() {
 		Expect(err).To(MatchError(ContainSubstring(`component "nested" carries a STREEBOG-512 hash`)))
 	})
 
+	It("reports a STREEBOG digest on a pedigree component", func() {
+		_, err := ToJSON(newBOM(cdx.Component{
+			Type: cdx.ComponentTypeLibrary,
+			Name: "app",
+			Pedigree: &cdx.Pedigree{
+				Variants: &[]cdx.Component{{
+					Type:   cdx.ComponentTypeLibrary,
+					Name:   "variant",
+					Hashes: &[]cdx.Hash{{Algorithm: "STREEBOG-256", Value: streebog256Content}},
+				}},
+			},
+		}))
+
+		Expect(err).To(MatchError(ContainSubstring(`component "variant" carries a STREEBOG-256 hash`)))
+	})
+
+	It("reports a STREEBOG digest on the metadata component", func() {
+		_, err := ToJSON(&cdx.BOM{
+			BOMFormat:   "CycloneDX",
+			SpecVersion: cdx.SpecVersion1_6,
+			Version:     1,
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{
+					Type:   cdx.ComponentTypeApplication,
+					Name:   "root",
+					Hashes: &[]cdx.Hash{{Algorithm: "STREEBOG-256", Value: streebog256Content}},
+				},
+			},
+		})
+
+		Expect(err).To(MatchError(ContainSubstring(`component "root" carries a STREEBOG-256 hash`)))
+	})
+
+	It("reports a STREEBOG digest on a metadata tool component", func() {
+		_, err := ToJSON(&cdx.BOM{
+			BOMFormat:   "CycloneDX",
+			SpecVersion: cdx.SpecVersion1_6,
+			Version:     1,
+			Metadata: &cdx.Metadata{
+				Tools: &cdx.ToolsChoice{
+					Components: &[]cdx.Component{{
+						Type:   cdx.ComponentTypeApplication,
+						Name:   "syft",
+						Hashes: &[]cdx.Hash{{Algorithm: "STREEBOG-512", Value: streebog256Content}},
+					}},
+				},
+			},
+		})
+
+		Expect(err).To(MatchError(ContainSubstring(`component "syft" carries a STREEBOG-512 hash`)))
+	})
+
 	It("keeps the hashes the spec version knows", func() {
 		data, err := ToJSON(newBOM(cdx.Component{
 			Type:   cdx.ComponentTypeLibrary,

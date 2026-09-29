@@ -29,14 +29,40 @@ func ToJSON(bom *cdx.BOM) ([]byte, error) {
 // digest of a source distribution comes through. A STREEBOG hash on a component
 // is therefore a mistake worth a build failure rather than a missing field
 // noticed at validation time.
+//
+// The prefix match is deliberately case-insensitive, unlike the exact,
+// case-sensitive match the enricher applies to a source-distribution reference:
+// here the point is to catch a dropped digest whatever its casing, while there
+// the point is the exact spelling the schema and the ISPRAS checker accept.
 func validateEncodableHashes(bom *cdx.BOM) error {
 	if bom == nil {
 		return nil
 	}
 
+	// The component-bearing places werf's SBOM populates: the metadata
+	// component, the top-level component tree (with each component's pedigree),
+	// and the tools recorded as components. Legacy tools (metadata.tools.tools)
+	// carry hashes too and are checked below since they are not cdx.Component
+	// values. CycloneDX can also serialize component hashes under
+	// bom.Formulation and vulnerability tools; werf emits neither, so the walk
+	// does not descend into them.
 	var roots []cdx.Component
-	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		roots = append(roots, *bom.Metadata.Component)
+	if bom.Metadata != nil {
+		if bom.Metadata.Component != nil {
+			roots = append(roots, *bom.Metadata.Component)
+		}
+		if tools := bom.Metadata.Tools; tools != nil {
+			if tools.Components != nil {
+				roots = append(roots, *tools.Components...)
+			}
+			if tools.Tools != nil {
+				for _, tool := range *tools.Tools {
+					if err := checkComponentHashes(tool.Name, tool.Hashes); err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 	if bom.Components != nil {
 		roots = append(roots, *bom.Components...)
@@ -49,19 +75,43 @@ func validateEncodableHashes(bom *cdx.BOM) error {
 		if comp.Components != nil {
 			roots = append(roots, *comp.Components...)
 		}
-		if comp.Hashes == nil {
-			continue
+		// A pedigree records the same package under other identities, each a
+		// component whose hashes the encoder drops just the same.
+		if p := comp.Pedigree; p != nil {
+			if p.Ancestors != nil {
+				roots = append(roots, *p.Ancestors...)
+			}
+			if p.Descendants != nil {
+				roots = append(roots, *p.Descendants...)
+			}
+			if p.Variants != nil {
+				roots = append(roots, *p.Variants...)
+			}
 		}
 
-		for _, hash := range *comp.Hashes {
-			if !strings.HasPrefix(strings.ToUpper(string(hash.Algorithm)), "STREEBOG") {
-				continue
-			}
-			return fmt.Errorf(
-				"sbom: component %q carries a %s hash, which the CycloneDX %s encoder drops: a STREEBOG digest belongs on a source-distribution external reference",
-				comp.Name, hash.Algorithm, cdx.SpecVersion1_6,
-			)
+		if err := checkComponentHashes(comp.Name, comp.Hashes); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+// checkComponentHashes fails when a component-like element carries a STREEBOG
+// digest the 1.6 encoder would silently drop.
+func checkComponentHashes(name string, hashes *[]cdx.Hash) error {
+	if hashes == nil {
+		return nil
+	}
+
+	for _, hash := range *hashes {
+		if !strings.HasPrefix(strings.ToUpper(string(hash.Algorithm)), "STREEBOG") {
+			continue
+		}
+		return fmt.Errorf(
+			"sbom: component %q carries a %s hash, which the CycloneDX %s encoder drops: a STREEBOG digest belongs on a source-distribution external reference",
+			name, hash.Algorithm, cdx.SpecVersion1_6,
+		)
 	}
 
 	return nil

@@ -55,6 +55,12 @@ func validateRefHashes(kind string, hashes []Hash) error {
 
 	var streebogHashes int
 	for _, hash := range hashes {
+		// Only STREEBOG algorithms are matched here, so a digest in another
+		// algorithm (a resolver reporting the SHA-256 of the archive) is passed
+		// through with its content unchecked. The map keys are the exact
+		// upper-case spellings the schema and the ISPRAS checker accept, so a
+		// mis-cased "Streebog-256" misses the match and leaves streebogHashes at
+		// zero — reported below with the spelling it actually had.
 		contentRe, ok := hashContentRe[hash.Algorithm]
 		if !ok {
 			continue

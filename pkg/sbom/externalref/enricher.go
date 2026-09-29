@@ -44,10 +44,12 @@ var hashContentRe = map[string]*regexp.Regexp{
 }
 
 // validateRefHashes rejects a source distribution the SBOM could not be
-// validated with: one carrying no STREEBOG digest at all, or one whose STREEBOG
-// digest is malformed. A digest in another algorithm travels along untouched —
-// the schema asks for a STREEBOG one among the hashes, not instead of them, and
-// a resolver that also reports the SHA-256 of the archive must not fail a build.
+// validated with: one carrying no STREEBOG digest at all, one whose STREEBOG
+// digest is malformed, or one whose non-STREEBOG digest is in an algorithm the
+// CycloneDX 1.6 schema does not define. A well-formed digest in an accepted
+// algorithm travels along untouched — the schema asks for a STREEBOG one among
+// the hashes, not instead of them, and a resolver that also reports the SHA-256
+// of the archive must not fail a build.
 func validateRefHashes(kind string, hashes []Hash) error {
 	if cdx.ExternalReferenceType(kind) != cdx.ERTypeSourceDistribution {
 		return nil
@@ -55,14 +57,18 @@ func validateRefHashes(kind string, hashes []Hash) error {
 
 	var streebogHashes int
 	for _, hash := range hashes {
-		// Only STREEBOG algorithms are matched here, so a digest in another
-		// algorithm (a resolver reporting the SHA-256 of the archive) is passed
-		// through with its content unchecked. The map keys are the exact
-		// upper-case spellings the schema and the ISPRAS checker accept, so a
-		// mis-cased "Streebog-256" misses the match and leaves streebogHashes at
-		// zero — reported below with the spelling it actually had.
 		contentRe, ok := hashContentRe[hash.Algorithm]
 		if !ok {
+			// A non-STREEBOG digest travels along, but only if its algorithm is a
+			// member of the schema enum: with build-time schema validation off,
+			// nothing else stops an unknown algorithm from reaching the registry.
+			allowed, err := cyclonedxutil.HashAlgorithmAllowed(hash.Algorithm)
+			if err != nil {
+				return fmt.Errorf("enrich: check hash algorithm %q: %w", hash.Algorithm, err)
+			}
+			if !allowed {
+				return fmt.Errorf("enrich: source distribution hash algorithm %q is not in the CycloneDX 1.6 schema", hash.Algorithm)
+			}
 			continue
 		}
 		if !contentRe.MatchString(hash.Content) {
@@ -78,9 +84,9 @@ func validateRefHashes(kind string, hashes []Hash) error {
 	return nil
 }
 
-// hashAlgorithms renders what the resolver did report, so a spelling the schema
-// does not accept — "Streebog-256" instead of "STREEBOG-256" — is visible in the
-// error instead of looking like a missing digest.
+// hashAlgorithms renders the algorithms the resolver reported, for the error
+// raised when a source distribution carries schema-valid hashes (a lone SHA-256,
+// say) but no STREEBOG digest among them.
 func hashAlgorithms(hashes []Hash) string {
 	if len(hashes) == 0 {
 		return "no hashes"

@@ -595,7 +595,7 @@ var _ = Describe("Enricher", func() {
 			Entry("only a foreign algorithm", []Hash{{Algorithm: "SHA-256", Content: streebog256Content}},
 				`enrich: source distribution has no "STREEBOG-256" or "STREEBOG-512" hash, got "SHA-256"`),
 			Entry("lower-case algorithm name the schema does not accept", []Hash{{Algorithm: "Streebog-256", Content: streebog256Content}},
-				`enrich: source distribution has no "STREEBOG-256" or "STREEBOG-512" hash, got "Streebog-256"`),
+				`enrich: source distribution hash algorithm "Streebog-256" is not in the CycloneDX 1.6 schema`),
 			Entry("content of the wrong length", []Hash{{Algorithm: "STREEBOG-512", Content: streebog256Content}},
 				`enrich: source distribution hash "STREEBOG-512" has invalid content "`+streebog256Content+`", expected 128 hexadecimal characters`),
 			Entry("empty content", []Hash{{Algorithm: "STREEBOG-256", Content: ""}},
@@ -606,6 +606,10 @@ var _ = Describe("Enricher", func() {
 				{Algorithm: "SHA-256", Content: streebog256Content},
 				{Algorithm: "STREEBOG-256", Content: "abc"},
 			}, `enrich: source distribution hash "STREEBOG-256" has invalid content "abc"`),
+			Entry("a non-STREEBOG algorithm outside the CycloneDX 1.6 schema", []Hash{
+				{Algorithm: "STREEBOG-256", Content: streebog256Content},
+				{Algorithm: "MD6", Content: streebog256Content},
+			}, `enrich: source distribution hash algorithm "MD6" is not in the CycloneDX 1.6 schema`),
 		)
 
 		It("keeps a digest in another algorithm next to the STREEBOG one", func() {

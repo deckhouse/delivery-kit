@@ -110,4 +110,19 @@ var _ = Describe("CycloneDX Schema Validation", func() {
 				MatchError(ContainSubstring("alg"))),
 		)
 	})
+
+	Describe("HashAlgorithmAllowed", func() {
+		DescribeTable("reports membership in the embedded schema's hash-alg enum",
+			func(alg string, expected bool) {
+				allowed, err := HashAlgorithmAllowed(alg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(allowed).To(Equal(expected))
+			},
+			Entry("SHA-256 is accepted", "SHA-256", true),
+			Entry("the STREEBOG extension is accepted", "STREEBOG-256", true),
+			Entry("STREEBOG-512 is accepted", "STREEBOG-512", true),
+			Entry("an unknown algorithm is not", "MD6", false),
+			Entry("the enum is case-sensitive", "sha-256", false),
+		)
+	})
 })

@@ -589,24 +589,52 @@ var _ = Describe("Enricher", func() {
 				Expect((*bom.Components)[0].ExternalReferences).To(BeNil())
 			},
 			Entry("no hashes at all", nil,
-				`enrich: source distribution has no hashes, expected "STREEBOG-256" or "STREEBOG-512"`),
+				`enrich: source distribution has no "STREEBOG-256" or "STREEBOG-512" hash, got no hashes`),
 			Entry("empty hash list", []Hash{},
-				`enrich: source distribution has no hashes, expected "STREEBOG-256" or "STREEBOG-512"`),
-			Entry("foreign algorithm", []Hash{{Algorithm: "SHA-256", Content: streebog256Content}},
-				`enrich: source distribution hash algorithm "SHA-256" is not allowed, expected "STREEBOG-256" or "STREEBOG-512"`),
-			Entry("lower-case algorithm name", []Hash{{Algorithm: "Streebog-256", Content: streebog256Content}},
-				`enrich: source distribution hash algorithm "Streebog-256" is not allowed`),
+				`enrich: source distribution has no "STREEBOG-256" or "STREEBOG-512" hash, got no hashes`),
+			Entry("only a foreign algorithm", []Hash{{Algorithm: "SHA-256", Content: streebog256Content}},
+				`enrich: source distribution has no "STREEBOG-256" or "STREEBOG-512" hash, got "SHA-256"`),
+			Entry("lower-case algorithm name the schema does not accept", []Hash{{Algorithm: "Streebog-256", Content: streebog256Content}},
+				`enrich: source distribution has no "STREEBOG-256" or "STREEBOG-512" hash, got "Streebog-256"`),
 			Entry("content of the wrong length", []Hash{{Algorithm: "STREEBOG-512", Content: streebog256Content}},
 				`enrich: source distribution hash "STREEBOG-512" has invalid content "`+streebog256Content+`", expected 128 hexadecimal characters`),
 			Entry("empty content", []Hash{{Algorithm: "STREEBOG-256", Content: ""}},
 				`enrich: source distribution hash "STREEBOG-256" has invalid content "", expected 64 hexadecimal characters`),
 			Entry("content that is not hexadecimal", []Hash{{Algorithm: "STREEBOG-256", Content: strings.Repeat("z", 64)}},
 				`expected 64 hexadecimal characters`),
-			Entry("one foreign algorithm next to a valid one", []Hash{
-				{Algorithm: "STREEBOG-256", Content: streebog256Content},
-				{Algorithm: "MD5", Content: strings.Repeat("a", 32)},
-			}, `enrich: source distribution hash algorithm "MD5" is not allowed`),
+			Entry("malformed STREEBOG next to a foreign algorithm", []Hash{
+				{Algorithm: "SHA-256", Content: streebog256Content},
+				{Algorithm: "STREEBOG-256", Content: "abc"},
+			}, `enrich: source distribution hash "STREEBOG-256" has invalid content "abc"`),
 		)
+
+		It("keeps a digest in another algorithm next to the STREEBOG one", func() {
+			sha256Content := strings.Repeat("a", 64)
+			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				return &ResolveResult{
+					URL:  "https://example.com/pkg.tgz",
+					Kind: "source-distribution",
+					Hashes: []Hash{
+						{Algorithm: "SHA-256", Content: sha256Content},
+						{Algorithm: "STREEBOG-256", Content: streebog256Content},
+					},
+				}, nil
+			})
+
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{Name: "pkg-a", Version: "1.0", PackageURL: "pkg:npm/pkg-a@1.0", Type: cdx.ComponentTypeLibrary},
+				},
+			}
+
+			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(*refs[0].Hashes).To(Equal([]cdx.Hash{
+				{Algorithm: cdx.HashAlgorithm("SHA-256"), Value: sha256Content},
+				{Algorithm: cdx.HashAlgorithm("STREEBOG-256"), Value: streebog256Content},
+			}))
+		})
 
 		It("uses public Resolve field for custom mock", func() {
 			called := false

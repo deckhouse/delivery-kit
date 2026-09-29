@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -43,28 +44,45 @@ var hashContentRe = map[string]*regexp.Regexp{
 }
 
 // validateRefHashes rejects a source distribution the SBOM could not be
-// validated with: no digest at all, or a digest in an algorithm or an encoding
-// the schema does not accept.
+// validated with: one carrying no STREEBOG digest at all, or one whose STREEBOG
+// digest is malformed. A digest in another algorithm travels along untouched —
+// the schema asks for a STREEBOG one among the hashes, not instead of them, and
+// a resolver that also reports the SHA-256 of the archive must not fail a build.
 func validateRefHashes(kind string, hashes []Hash) error {
 	if cdx.ExternalReferenceType(kind) != cdx.ERTypeSourceDistribution {
 		return nil
 	}
 
-	if len(hashes) == 0 {
-		return fmt.Errorf("enrich: source distribution has no hashes, expected %q or %q", hashAlgStreebog256, hashAlgStreebog512)
-	}
-
+	var streebogHashes int
 	for _, hash := range hashes {
 		contentRe, ok := hashContentRe[hash.Algorithm]
 		if !ok {
-			return fmt.Errorf("enrich: source distribution hash algorithm %q is not allowed, expected %q or %q", hash.Algorithm, hashAlgStreebog256, hashAlgStreebog512)
+			continue
 		}
 		if !contentRe.MatchString(hash.Content) {
 			return fmt.Errorf("enrich: source distribution hash %q has invalid content %q, expected %s", hash.Algorithm, hash.Content, hashContentDescription(hash.Algorithm))
 		}
+		streebogHashes++
+	}
+
+	if streebogHashes == 0 {
+		return fmt.Errorf("enrich: source distribution has no %q or %q hash, got %s", hashAlgStreebog256, hashAlgStreebog512, hashAlgorithms(hashes))
 	}
 
 	return nil
+}
+
+// hashAlgorithms renders what the resolver did report, so a spelling the schema
+// does not accept — "Streebog-256" instead of "STREEBOG-256" — is visible in the
+// error instead of looking like a missing digest.
+func hashAlgorithms(hashes []Hash) string {
+	if len(hashes) == 0 {
+		return "no hashes"
+	}
+
+	return strings.Join(lo.Map(hashes, func(hash Hash, _ int) string {
+		return strconv.Quote(hash.Algorithm)
+	}), ", ")
 }
 
 func purlNotExpected(ct cdx.ComponentType) bool {

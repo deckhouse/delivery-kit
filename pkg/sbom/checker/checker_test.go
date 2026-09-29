@@ -17,88 +17,99 @@ import (
 
 var _ = Describe("checker", func() {
 	Describe("parseResult", func() {
-		DescribeTable("parses output correctly",
-			func(out string, runErr error, fileName string, index, total int, matcher types.GomegaMatcher) {
-				res := parseResult(context.Background(), out, runErr, fileName, index, total, false)
-				Expect(res.err).To(matcher)
+		run := func(out string, runErr error, fileName string, index, total int, warningsNonFatal bool) (fileResult, string) {
+			var printed bytes.Buffer
+			ctx := logboek.NewContext(context.Background(), logboek.NewLogger(&printed, &printed))
+			res := parseResult(ctx, out, runErr, fileName, index, total, warningsNonFatal)
+			return res, printed.String()
+		}
+
+		DescribeTable("decides pass or fail and prints every finding once",
+			func(out string, runErr error, fileName string, index, total int, wantFailed bool, printedMatcher types.GomegaMatcher) {
+				res, printed := run(out, runErr, fileName, index, total, false)
+				Expect(res.failed).To(Equal(wantFailed))
+				Expect(printed).To(printedMatcher)
 			},
 			Entry("no errors no warnings",
-				"файл корректный\n", nil, "valid.json", 1, 1,
-				Succeed()),
+				"файл корректный\n", nil, "valid.json", 1, 1, false,
+				ContainSubstring("(1/1) valid.json... OK")),
 			Entry("empty output",
-				"", nil, "empty.json", 1, 1,
-				MatchError(And(
-					ContainSubstring("validation failed for empty.json"),
+				"", nil, "empty.json", 1, 1, true,
+				And(
+					ContainSubstring("(1/1) empty.json... FAILED"),
 					ContainSubstring("checker produced no output"),
-				))),
+				)),
 			Entry("whitespace-only output",
-				"\n  \n", nil, "empty.json", 1, 1,
-				MatchError(ContainSubstring("checker produced no output"))),
+				"\n  \n", nil, "empty.json", 1, 1, true,
+				ContainSubstring("checker produced no output")),
 			Entry("errors only",
-				"ERROR: missing bomFormat\nERROR: missing specVersion\n", nil, "bad.json", 1, 3,
-				MatchError(ContainSubstring("validation failed for bad.json"))),
-			Entry("warnings only",
-				"WARNING: vcs url not found for pkg1\nWARNING: vcs url not found for pkg2\n", nil, "warn.json", 2, 3,
-				MatchError(ContainSubstring("validation failed for warn.json"))),
-			Entry("errors and warnings",
-				"ERROR: bad field\nWARNING: vcs issue\n", nil, "mixed.json", 1, 1,
-				MatchError(ContainSubstring("validation failed for mixed.json"))),
-			Entry("non-prefixed output only",
-				"some random output\nanother line\n", nil, "random.json", 1, 2,
-				Succeed()),
-			Entry("errors mixed with non-prefixed lines",
-				"starting check\nERROR: bad field\ndone\n", nil, "report.json", 3, 5,
-				MatchError(ContainSubstring("validation failed for report.json"))),
-			Entry("error details included in message",
-				"ERROR: missing bomFormat\nERROR: missing specVersion\n", nil, "bad.json", 1, 1,
-				MatchError(And(
+				"ERROR: missing bomFormat\nERROR: missing specVersion\n", nil, "bad.json", 1, 3, true,
+				And(
+					ContainSubstring("(1/3) bad.json... FAILED"),
 					ContainSubstring("ERROR: missing bomFormat"),
 					ContainSubstring("ERROR: missing specVersion"),
-				))),
-			Entry("warning details included in message",
-				"WARNING: vcs url not found\n", nil, "warn.json", 1, 1,
-				MatchError(ContainSubstring("WARNING: vcs url not found"))),
+					Not(MatchRegexp(`(?s)ERROR: missing bomFormat.*ERROR: missing bomFormat`)),
+				)),
+			Entry("warnings only",
+				"WARNING: vcs url not found for pkg1\nWARNING: vcs url not found for pkg2\n", nil, "warn.json", 2, 3, true,
+				And(
+					ContainSubstring("(2/3) warn.json... FAILED"),
+					ContainSubstring("WARNING: vcs url not found for pkg1"),
+					Not(MatchRegexp(`(?s)pkg1.*pkg1`)),
+				)),
+			Entry("errors and warnings",
+				"ERROR: bad field\nWARNING: vcs issue\n", nil, "mixed.json", 1, 1, true,
+				And(
+					ContainSubstring("ERROR: bad field"),
+					ContainSubstring("WARNING: vcs issue"),
+				)),
+			Entry("non-prefixed output only",
+				"some random output\nanother line\n", nil, "random.json", 1, 2, false,
+				ContainSubstring("(1/2) random.json... OK")),
+			Entry("errors mixed with non-prefixed lines",
+				"starting check\nERROR: bad field\ndone\n", nil, "report.json", 3, 5, true,
+				ContainSubstring("(3/5) report.json... FAILED")),
 			Entry("non-prefixed output with non-zero exit",
-				"Traceback (most recent call last):\n  File \"/app/sbom-checker.py\", line 46\njson.decoder.JSONDecodeError: Expecting value\n", errors.New("exit status 1"), "broken.json", 1, 1,
-				MatchError(And(
-					ContainSubstring("validation failed for broken.json"),
+				"Traceback (most recent call last):\n  File \"/app/sbom-checker.py\", line 46\njson.decoder.JSONDecodeError: Expecting value\n", errors.New("exit status 1"), "broken.json", 1, 1, true,
+				And(
+					ContainSubstring("(1/1) broken.json... FAILED"),
 					ContainSubstring("checker exited with error: exit status 1"),
 					ContainSubstring("json.decoder.JSONDecodeError: Expecting value"),
-				))),
+				)),
 			Entry("usage error with non-zero exit",
-				"usage: sbom-checker.py [-h] filename\nsbom-checker.py: error: unrecognized arguments: --bogus\n", errors.New("exit status 2"), "valid.json", 1, 1,
-				MatchError(And(
+				"usage: sbom-checker.py [-h] filename\nsbom-checker.py: error: unrecognized arguments: --bogus\n", errors.New("exit status 2"), "valid.json", 1, 1, true,
+				And(
 					ContainSubstring("checker exited with error: exit status 2"),
 					ContainSubstring("unrecognized arguments: --bogus"),
-				))),
+				)),
 			Entry("empty output with non-zero exit",
-				"", errors.New("exit status 1"), "silent.json", 1, 1,
-				MatchError(ContainSubstring("checker exited with error: exit status 1"))),
+				"", errors.New("exit status 1"), "silent.json", 1, 1, true,
+				ContainSubstring("checker exited with error: exit status 1")),
 			Entry("docker status error without message spells out the exit code",
-				"Traceback (most recent call last):\nFileNotFoundError: no such file\n", cli.StatusError{StatusCode: 1}, "gone.json", 1, 1,
-				MatchError(And(
+				"Traceback (most recent call last):\nFileNotFoundError: no such file\n", cli.StatusError{StatusCode: 1}, "gone.json", 1, 1, true,
+				And(
 					ContainSubstring("checker exited with error: exit code 1"),
 					ContainSubstring("FileNotFoundError: no such file"),
-				))),
+				)),
 			Entry("docker status error with message keeps the message",
-				"", cli.StatusError{StatusCode: 125, Status: "no such image"}, "valid.json", 1, 1,
-				MatchError(ContainSubstring("checker exited with error: no such image"))),
+				"", cli.StatusError{StatusCode: 125, Status: "no such image"}, "valid.json", 1, 1, true,
+				ContainSubstring("checker exited with error: no such image")),
 			Entry("findings with non-zero exit keep findings once and attach the remaining output",
-				"starting check\nERROR: bad field\nTraceback (most recent call last):\nRuntimeError: boom\n", errors.New("exit status 1"), "bad.json", 1, 1,
-				MatchError(And(
+				"starting check\nERROR: bad field\nTraceback (most recent call last):\nRuntimeError: boom\n", errors.New("exit status 1"), "bad.json", 1, 1, true,
+				And(
 					ContainSubstring("ERROR: bad field"),
 					Not(MatchRegexp(`(?s)ERROR: bad field.*ERROR: bad field`)),
 					ContainSubstring("checker exited with error: exit status 1"),
 					ContainSubstring("starting check"),
 					ContainSubstring("RuntimeError: boom"),
-				))),
+				)),
 			Entry("findings with clean exit omit the unprefixed output",
-				"starting check\nERROR: bad field\ndone\n", nil, "bad.json", 1, 1,
-				MatchError(And(
+				"starting check\nERROR: bad field\ndone\n", nil, "bad.json", 1, 1, true,
+				And(
 					ContainSubstring("ERROR: bad field"),
 					Not(ContainSubstring("starting check")),
 					Not(ContainSubstring("done")),
-				))),
+				)),
 		)
 
 		It("prints a checker line longer than the stream width intact", func() {
@@ -107,45 +118,49 @@ var _ = Describe("checker", func() {
 
 			finding := errorPrefix + " " + strings.Repeat("a", 4*logboek.Context(ctx).Streams().ContentWidth())
 
-			Expect(parseResult(ctx, finding+"\n", nil, "bad.json", 1, 1, false).err).NotTo(Succeed())
+			Expect(parseResult(ctx, finding+"\n", nil, "bad.json", 1, 1, false).failed).To(BeTrue())
 			Expect(out.String()).To(ContainSubstring(finding))
 			Expect(logboek.Context(ctx).Streams().IsLineWrappingEnabled()).To(BeTrue())
 		})
 
 		DescribeTable("fails on warnings unless warningsNonFatal is set, and counts findings",
-			func(out string, runErr error, warningsNonFatal bool, wantErrs, wantWarnings int, matcher types.GomegaMatcher) {
-				res := parseResult(context.Background(), out, runErr, "sbom.json", 1, 1, warningsNonFatal)
+			func(out string, runErr error, warningsNonFatal bool, wantErrs, wantWarnings int, wantFailed bool, printedMatcher types.GomegaMatcher) {
+				res, printed := run(out, runErr, "sbom.json", 1, 1, warningsNonFatal)
 				Expect(res.errCount).To(Equal(wantErrs))
 				Expect(res.warningCount).To(Equal(wantWarnings))
-				Expect(res.err).To(matcher)
+				Expect(res.failed).To(Equal(wantFailed))
+				Expect(printed).To(printedMatcher)
 			},
 			Entry("warnings alone fail by default",
-				"WARNING: vcs url not found\n", nil, false, 0, 1,
-				MatchError(And(
-					ContainSubstring("validation failed for sbom.json"),
+				"WARNING: vcs url not found\n", nil, false, 0, 1, true,
+				And(
+					ContainSubstring("sbom.json... FAILED"),
 					ContainSubstring("WARNING: vcs url not found"),
-				))),
+				)),
 			Entry("warnings alone pass with warningsNonFatal",
-				"WARNING: vcs url not found\nWARNING: another\n", nil, true, 0, 2,
-				Succeed()),
+				"WARNING: vcs url not found\nWARNING: another\n", nil, true, 0, 2, false,
+				And(
+					ContainSubstring("sbom.json... OK (2 warning(s))"),
+					ContainSubstring("WARNING: another"),
+				)),
 			Entry("errors fail even with warningsNonFatal",
-				"ERROR: missing bomFormat\n", nil, true, 1, 0,
-				MatchError(ContainSubstring("ERROR: missing bomFormat"))),
+				"ERROR: missing bomFormat\n", nil, true, 1, 0, true,
+				ContainSubstring("ERROR: missing bomFormat")),
 			Entry("errors with warnings fail with warningsNonFatal and report both",
-				"ERROR: bad field\nWARNING: vcs issue\n", nil, true, 1, 1,
-				MatchError(And(
+				"ERROR: bad field\nWARNING: vcs issue\n", nil, true, 1, 1, true,
+				And(
 					ContainSubstring("ERROR: bad field"),
 					ContainSubstring("WARNING: vcs issue"),
-				))),
+				)),
 			Entry("checker crash fails even with warningsNonFatal",
-				"WARNING: vcs issue\nTraceback: boom\n", errors.New("exit status 1"), true, 0, 1,
-				MatchError(ContainSubstring("checker exited with error: exit status 1"))),
+				"WARNING: vcs issue\nTraceback: boom\n", errors.New("exit status 1"), true, 0, 1, true,
+				ContainSubstring("checker exited with error: exit status 1")),
 			Entry("empty output fails even with warningsNonFatal",
-				"", nil, true, 0, 0,
-				MatchError(ContainSubstring("checker produced no output"))),
+				"", nil, true, 0, 0, true,
+				ContainSubstring("checker produced no output")),
 			Entry("clean result passes and counts nothing",
-				"файл корректный\n", nil, true, 0, 0,
-				Succeed()),
+				"файл корректный\n", nil, true, 0, 0, false,
+				ContainSubstring("sbom.json... OK\n")),
 		)
 	})
 

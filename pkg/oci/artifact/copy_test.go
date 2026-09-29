@@ -156,9 +156,6 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 	})
 
 	Describe("CopyAllAttachedArtifacts", func() {
-		// The index carries a platform per manifest the way a werf multi-platform
-		// image does: entries without one are not platform manifests and are not
-		// traversed.
 		pushMultiplatformIndex := func(ctx SpecContext, repo, tag string) (string, []string) {
 			idx := v1.ImageIndex(empty.Index)
 			var children []string
@@ -188,6 +185,16 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			Expect(err).To(Succeed())
 
 			return dgst.String(), children
+		}
+
+		writeIndex := func(ctx SpecContext, repo, tag string, idx v1.ImageIndex) string {
+			ref, err := name.NewTag(repo + ":" + tag)
+			Expect(err).To(Succeed())
+			Expect(remote.WriteIndex(ref, idx, append([]remote.Option{remote.WithContext(ctx)}, remoteOpts...)...)).To(Succeed())
+
+			dgst, err := idx.Digest()
+			Expect(err).To(Succeed())
+			return dgst.String()
 		}
 
 		copyIndexByDigest := func(ctx SpecContext, fromRepo, toRepo, digest string) {
@@ -239,6 +246,56 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			Expect(pullIndex(ctx, dstRepo, indexDigest).Manifests).To(BeEmpty())
 			Expect(pullIndex(ctx, dstRepo, children[0]).Manifests).To(HaveLen(1))
+		})
+
+		It("should carry the artifacts of an index child that declares no platform", func(ctx SpecContext) {
+			img, err := random.Image(256, 1)
+			Expect(err).To(Succeed())
+			childDigest, err := img.Digest()
+			Expect(err).To(Succeed())
+
+			idx := mutate.AppendManifests(v1.ImageIndex(empty.Index), mutate.IndexAddendum{Add: img})
+			indexDigest := writeIndex(ctx, srcRepo, "platformless", idx)
+
+			store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(store.Attach(ctx, childDigest.String(), artifactType, []byte(`{"scope":"child"}`), "checksum-child", "", "")).To(Succeed())
+
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			content, err := dstStore.GetAttachedContent(ctx, childDigest.String(), artifactType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"scope":"child"}`))
+		})
+
+		It("should descend into a nested index", func(ctx SpecContext) {
+			leaf, err := random.Image(256, 1)
+			Expect(err).To(Succeed())
+			leafDigest, err := leaf.Digest()
+			Expect(err).To(Succeed())
+
+			amd64, err := v1.ParsePlatform("linux/amd64")
+			Expect(err).To(Succeed())
+			inner := mutate.AppendManifests(v1.ImageIndex(empty.Index), mutate.IndexAddendum{
+				Add:        leaf,
+				Descriptor: v1.Descriptor{Platform: amd64},
+			})
+			outer := mutate.AppendManifests(v1.ImageIndex(empty.Index), mutate.IndexAddendum{Add: inner})
+			indexDigest := writeIndex(ctx, srcRepo, "nested", outer)
+
+			store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(store.Attach(ctx, leafDigest.String(), artifactType, []byte(`{"scope":"leaf"}`), "checksum-leaf", "", "")).To(Succeed())
+
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"scope":"leaf"}`))
 		})
 
 		It("should be a no-op when the source does not hold the manifest", func(ctx SpecContext) {

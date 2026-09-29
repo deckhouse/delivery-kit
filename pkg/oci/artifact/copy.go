@@ -25,7 +25,7 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 		return err
 	}
 
-	entries, err := ListIndexPlatforms(ctx, srcRepo, srcDigest, opts...)
+	referenced, err := listReferencedDigests(ctx, srcRepo, srcDigest, opts...)
 	if err != nil {
 		// A source that does not hold the manifest holds no artifacts attached to it
 		// either, which is the same no-op CopyAttachedArtifacts makes of a missing
@@ -38,12 +38,9 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 		return fmt.Errorf("list index manifests of %s: %w", srcRepo+"@"+srcDigest, err)
 	}
 
-	for _, entry := range entries {
-		if entry.Digest == srcDigest {
-			continue
-		}
-		if err := CopyAttachedArtifacts(ctx, srcRepo, entry.Digest, dstRepo, entry.Digest, opts...); err != nil {
-			return fmt.Errorf("copy artifacts of index manifest %s: %w", entry.Digest, err)
+	for _, digest := range referenced {
+		if err := CopyAttachedArtifacts(ctx, srcRepo, digest, dstRepo, digest, opts...); err != nil {
+			return fmt.Errorf("copy artifacts of index manifest %s: %w", digest, err)
 		}
 	}
 

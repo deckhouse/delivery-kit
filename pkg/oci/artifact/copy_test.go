@@ -197,6 +197,35 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			return dgst.String()
 		}
 
+		// proxyFailingManifest serves srcRepo's registry unchanged except for GETs of
+		// failDigest's manifest, which answer with status.
+		proxyFailingManifest := func(failDigest string, status int) string {
+			upstream := server.Listener.Addr().String()
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/manifests/"+failDigest) {
+					http.Error(w, "manifest unavailable", status)
+					return
+				}
+				r.URL.Scheme = "http"
+				r.URL.Host = upstream
+				r.RequestURI = ""
+				resp, err := http.DefaultTransport.RoundTrip(r)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+				defer resp.Body.Close()
+				for k, vs := range resp.Header {
+					w.Header()[k] = vs
+				}
+				w.WriteHeader(resp.StatusCode)
+				_, _ = io.Copy(w, resp.Body)
+			}))
+			DeferCleanup(failing.Close)
+
+			return strings.TrimPrefix(failing.URL, "http://") + "/test/src"
+		}
+
 		copyIndexByDigest := func(ctx SpecContext, fromRepo, toRepo, digest string) {
 			fromRef, err := name.NewDigest(fromRepo + "@" + digest)
 			Expect(err).To(Succeed())
@@ -248,27 +277,37 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			Expect(pullIndex(ctx, dstRepo, children[0]).Manifests).To(HaveLen(1))
 		})
 
-		It("should carry the artifacts of an index child that declares no platform", func(ctx SpecContext) {
-			img, err := random.Image(256, 1)
-			Expect(err).To(Succeed())
-			childDigest, err := img.Digest()
-			Expect(err).To(Succeed())
+		// A platform is optional in an OCI index, and a builder that writes
+		// attestation manifests marks them unknown/unknown; neither shape is a
+		// platform manifest, and both travel with a registry-level index copy.
+		DescribeTable("should carry the artifacts of an index child that is not a platform manifest",
+			func(ctx SpecContext, tag string, platform *v1.Platform) {
+				img, err := random.Image(256, 1)
+				Expect(err).To(Succeed())
+				childDigest, err := img.Digest()
+				Expect(err).To(Succeed())
 
-			idx := mutate.AppendManifests(v1.ImageIndex(empty.Index), mutate.IndexAddendum{Add: img})
-			indexDigest := writeIndex(ctx, srcRepo, "platformless", idx)
+				idx := mutate.AppendManifests(v1.ImageIndex(empty.Index), mutate.IndexAddendum{
+					Add:        img,
+					Descriptor: v1.Descriptor{Platform: platform},
+				})
+				indexDigest := writeIndex(ctx, srcRepo, tag, idx)
 
-			store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
-			Expect(store.Attach(ctx, childDigest.String(), artifactType, []byte(`{"scope":"child"}`), "checksum-child", "", "")).To(Succeed())
+				store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+				Expect(store.Attach(ctx, childDigest.String(), artifactType, []byte(`{"scope":"child"}`), "checksum-child", "", "")).To(Succeed())
 
-			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+				copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
 
-			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+				Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
 
-			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-			content, err := dstStore.GetAttachedContent(ctx, childDigest.String(), artifactType, nil)
-			Expect(err).To(Succeed())
-			Expect(content).To(MatchJSON(`{"scope":"child"}`))
-		})
+				dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+				content, err := dstStore.GetAttachedContent(ctx, childDigest.String(), artifactType, nil)
+				Expect(err).To(Succeed())
+				Expect(content).To(MatchJSON(`{"scope":"child"}`))
+			},
+			Entry("no platform at all", "platformless", nil),
+			Entry("an attestation manifest", "attestation", &v1.Platform{OS: "unknown", Architecture: "unknown"}),
+		)
 
 		It("should descend into a nested index", func(ctx SpecContext) {
 			leaf, err := random.Image(256, 1)
@@ -310,33 +349,43 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			indexDigest, _ := pushMultiplatformIndex(ctx, srcRepo, "index")
 			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
 
-			upstream := server.Listener.Addr().String()
-			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/manifests/"+indexDigest) {
-					http.Error(w, "registry unavailable", http.StatusInternalServerError)
-					return
-				}
-				r.URL.Scheme = "http"
-				r.URL.Host = upstream
-				r.RequestURI = ""
-				resp, err := http.DefaultTransport.RoundTrip(r)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusBadGateway)
-					return
-				}
-				defer resp.Body.Close()
-				for k, vs := range resp.Header {
-					w.Header()[k] = vs
-				}
-				w.WriteHeader(resp.StatusCode)
-				_, _ = io.Copy(w, resp.Body)
-			}))
-			defer failing.Close()
-
-			failingSrcRepo := strings.TrimPrefix(failing.URL, "http://") + "/test/src"
+			failingSrcRepo := proxyFailingManifest(indexDigest, http.StatusInternalServerError)
 
 			err := artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)
 			Expect(err).To(MatchError(ContainSubstring("list index manifests")))
+		})
+
+		It("should still carry the artifacts it can reach when a nested index is gone from the source", func(ctx SpecContext) {
+			leaf, err := random.Image(256, 1)
+			Expect(err).To(Succeed())
+			leafDigest, err := leaf.Digest()
+			Expect(err).To(Succeed())
+
+			orphan, err := random.Image(256, 1)
+			Expect(err).To(Succeed())
+			inner := mutate.AppendManifests(v1.ImageIndex(empty.Index), mutate.IndexAddendum{Add: orphan})
+			innerDigest, err := inner.Digest()
+			Expect(err).To(Succeed())
+
+			outer := mutate.AppendManifests(v1.ImageIndex(empty.Index),
+				mutate.IndexAddendum{Add: inner},
+				mutate.IndexAddendum{Add: leaf},
+			)
+			indexDigest := writeIndex(ctx, srcRepo, "nested-gone", outer)
+
+			store := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(store.Attach(ctx, leafDigest.String(), artifactType, []byte(`{"scope":"leaf"}`), "checksum-leaf", "", "")).To(Succeed())
+
+			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
+
+			failingSrcRepo := proxyFailingManifest(innerDigest.String(), http.StatusNotFound)
+
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil)
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"scope":"leaf"}`), "a nested index the source no longer holds must not cancel the artifacts of its siblings")
 		})
 	})
 })

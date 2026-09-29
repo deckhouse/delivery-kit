@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"github.com/werf/werf/v3/pkg/container_backend/thirdparty/platformutil"
 	"github.com/werf/werf/v3/pkg/docker_registry"
@@ -112,6 +113,9 @@ func ListIndexPlatforms(ctx context.Context, repo, digestStr string, opts ...rem
 // digestStr, descending into nested indexes. Unlike ListIndexPlatforms it does not
 // filter by platform: the platform field is optional in an OCI index, and a
 // registry-level copy transfers a child regardless of whether it carries one.
+// A nested index the repository no longer holds ends that branch of the walk: it
+// references nothing that can still be copied, while the root staying absent is
+// reported so the caller can tell it from an index that is merely empty.
 func listReferencedDigests(ctx context.Context, repo, digestStr string, opts ...remote.Option) ([]string, error) {
 	visited := map[string]struct{}{digestStr: {}}
 	queue := []string{digestStr}
@@ -123,6 +127,10 @@ func listReferencedDigests(ctx context.Context, repo, digestStr string, opts ...
 
 		desc, err := getManifestDescriptor(ctx, repo, current, opts...)
 		if err != nil {
+			var transportErr *transport.Error
+			if current != digestStr && errors.As(err, &transportErr) && transportErr.StatusCode == 404 {
+				continue
+			}
 			return nil, err
 		}
 		if !desc.MediaType.IsIndex() {

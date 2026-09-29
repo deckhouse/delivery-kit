@@ -2,6 +2,8 @@ package manager
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 
@@ -146,6 +148,43 @@ var _ = Describe("StorageManager.CopySuitableStageDescByDigest", func() {
 		Expect(desc.Info.GetDigest()).To(Equal(digest))
 
 		Expect(attachedPayloads(ctx, dstRepo, digest)).To(HaveLen(1))
+	})
+
+	It("keeps the transferred stage when the source cannot be asked what stays behind", func(ctx SpecContext) {
+		srcDigest := pushRandomImage(ctx, srcRepo)
+		dstDigest := pushRandomImage(ctx, dstRepo)
+		Expect(dstDigest).NotTo(Equal(srcDigest))
+
+		upstream := server.Listener.Addr().String()
+		failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/test/secondary/manifests/"+artifact.FallbackTag(srcDigest)) {
+				http.Error(w, "registry unavailable", http.StatusInternalServerError)
+				return
+			}
+			r.URL.Scheme = "http"
+			r.URL.Host = upstream
+			r.RequestURI = ""
+			resp, err := http.DefaultTransport.RoundTrip(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer resp.Body.Close()
+			for k, vs := range resp.Header {
+				w.Header()[k] = vs
+			}
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
+		}))
+		DeferCleanup(failing.Close)
+
+		src := &copySuitableFakeStorage{address: strings.TrimPrefix(failing.URL, "http://") + "/test/secondary"}
+		dst := &copySuitableFakeStorage{address: dstRepo, desc: stageDescIn(dstRepo, dstDigest)}
+		m, backend := newManager(dst)
+
+		desc, err := m.CopySuitableStageDescByDigest(logging.WithLogger(ctx), stageDescIn(src.address, srcDigest), src, dst, backend, "linux/amd64")
+		Expect(err).NotTo(HaveOccurred(), "a failed diagnostic listing must not discard a stage that was already copied")
+		Expect(desc.Info.GetDigest()).To(Equal(dstDigest))
 	})
 
 	It("carries nothing when the copy changed the digest", func(ctx SpecContext) {

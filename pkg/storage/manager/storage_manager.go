@@ -875,9 +875,11 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 					return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
 				}
 			} else {
+				// The stage is already in the destination at this point, and this listing
+				// only feeds a warning, so a source that cannot answer must not undo it.
 				leftBehind, err := artifact.ListUnregenerableArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest())
 				if err != nil {
-					return nil, fmt.Errorf("unable to list artifacts attached to stage %s in %s: %w", stageDesc.StageID.String(), sourceStagesStorage.String(), err)
+					logboek.Context(ctx).Warn().LogF("WARNING: unable to list artifacts attached to stage %s in %s: %s\n", stageDesc.StageID.String(), sourceStagesStorage.String(), err)
 				}
 				if len(leftBehind) > 0 {
 					logboek.Context(ctx).Warn().LogF("WARNING: attestations [%s] of stage %s stay in %s: the copy changed the image digest, re-issue them against %s\n",

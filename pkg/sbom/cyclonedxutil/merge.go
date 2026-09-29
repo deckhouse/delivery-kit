@@ -12,6 +12,9 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
+// MergeOpts names the BOMs merged into the target. Every base and import BOM
+// is a closed document: a BOM ref is local to the document that declares it,
+// so a reference from one BOM into another names nothing and is dropped.
 type MergeOpts struct {
 	BaseBOM    *cdx.BOM
 	ImportBOMs []*cdx.BOM

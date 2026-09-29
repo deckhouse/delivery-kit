@@ -127,6 +127,32 @@ var _ = Describe("ensureUniqueBOMRefs", func() {
 		Expect(collectBOMRefs(bom)).To(Equal(first))
 	})
 
+	It("derives the refs of vulnerabilities, compositions, annotations and formulas and keeps references to them", func() {
+		bom := &cdx.BOM{
+			SerialNumber: "urn:uuid:test",
+			Components:   &[]cdx.Component{{BOMRef: "lib", Name: "lib", PackageURL: "pkg:generic/lib@1"}},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{BOMRef: "merge-input-0/vuln", ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib"}}},
+			},
+			Compositions: &[]cdx.Composition{
+				{BOMRef: "merge-input-0/comp", Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"lib"}, Vulnerabilities: &[]cdx.BOMReference{"merge-input-0/vuln"}},
+			},
+			Annotations: &[]cdx.Annotation{
+				{BOMRef: "merge-input-0/note", Text: "t", Subjects: &[]cdx.BOMReference{"merge-input-0/comp", "merge-input-0/formula"}},
+			},
+			Formulation: &[]cdx.Formula{{BOMRef: "merge-input-0/formula"}},
+		}
+		ensureUniqueBOMRefs(bom)
+
+		vuln := (*bom.Vulnerabilities)[0].BOMRef
+		comp := (*bom.Compositions)[0].BOMRef
+		formula := (*bom.Formulation)[0].BOMRef
+		Expect([]string{vuln, comp, (*bom.Annotations)[0].BOMRef, formula}).To(HaveEach(Not(ContainSubstring("merge-input-0/"))))
+		Expect(uniqueStrings(append(collectBOMRefs(bom), vuln, comp, (*bom.Annotations)[0].BOMRef, formula))).To(BeTrue())
+		Expect(*(*bom.Compositions)[0].Vulnerabilities).To(Equal([]cdx.BOMReference{cdx.BOMReference(vuln)}))
+		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{cdx.BOMReference(comp), cdx.BOMReference(formula)}))
+	})
+
 	It("skips components with empty bom-ref", func() {
 		bom := &cdx.BOM{
 			SerialNumber: "urn:uuid:test",

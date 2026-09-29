@@ -84,6 +84,45 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 	}
 	walkServices(bom.Services)
 
+	if bom.Metadata != nil && bom.Metadata.Tools != nil {
+		walkComponents(bom.Metadata.Tools.Components)
+		walkServices(bom.Metadata.Tools.Services)
+	}
+
+	for i := range lo.FromPtr(bom.Formulation) {
+		formula := &(*bom.Formulation)[i]
+		if formula.BOMRef != "" {
+			formula.BOMRef = assignNewRef(formula.BOMRef, "", serial, index, refMap)
+		}
+		index++
+		walkComponents(formula.Components)
+		walkServices(formula.Services)
+	}
+
+	for i := range lo.FromPtr(bom.Vulnerabilities) {
+		vuln := &(*bom.Vulnerabilities)[i]
+		if vuln.BOMRef != "" {
+			vuln.BOMRef = assignNewRef(vuln.BOMRef, "", serial, index, refMap)
+		}
+		index++
+	}
+
+	for i := range lo.FromPtr(bom.Compositions) {
+		composition := &(*bom.Compositions)[i]
+		if composition.BOMRef != "" {
+			composition.BOMRef = assignNewRef(composition.BOMRef, "", serial, index, refMap)
+		}
+		index++
+	}
+
+	for i := range lo.FromPtr(bom.Annotations) {
+		annotation := &(*bom.Annotations)[i]
+		if annotation.BOMRef != "" {
+			annotation.BOMRef = assignNewRef(annotation.BOMRef, "", serial, index, refMap)
+		}
+		index++
+	}
+
 	RewriteRefs(bom, refMap)
 }
 

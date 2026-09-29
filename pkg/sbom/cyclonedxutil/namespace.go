@@ -1,4 +1,4 @@
-package ispras
+package cyclonedxutil
 
 import (
 	"fmt"
@@ -6,8 +6,6 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
-
-	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 // NamespaceBOMRefs prefixes every BOM ref declared by bom — the metadata
@@ -61,7 +59,7 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 		}
 	}
 
-	cyclonedxutil.RewriteRefs(bom, refMap)
+	RewriteRefs(bom, refMap)
 }
 
 func namespaceServiceBOMRefs(services []cdx.Service, prefix string, refMap map[string]string) {

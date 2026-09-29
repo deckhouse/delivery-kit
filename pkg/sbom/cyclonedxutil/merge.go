@@ -92,6 +92,10 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 		linkSelfReferences(boms[i])
 
+		if !opts.PreserveBOMRefs && boms[i] != nil && i < len(boms)-1 {
+			NamespaceBOMRefs(boms[i], fmt.Sprintf("merge-input-%d", i))
+		}
+
 		if opts.IsolateComponents {
 			Canonicalize(boms[i])
 		}

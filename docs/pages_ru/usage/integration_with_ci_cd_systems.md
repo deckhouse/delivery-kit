@@ -101,7 +101,12 @@ converge:
         fetch-depth: 0
 
     - name: Install werf
-      uses: werf/actions/install@v2
+      uses: werf/trdl/actions/setup-app@v0.13.0
+      with:
+        preset: werf
+        group: "3"
+        channel: stable
+        force: false
 
     - name: Run script
       run: |

@@ -642,6 +642,8 @@ func (storage *RepoStagesStorage) StoreImage(ctx context.Context, img container_
 		return fmt.Errorf("unable to push image %q: %w", img.Name(), err)
 	}
 
+	docker_registry.AddCachedTag(ctx, storage.DockerRegistry, img.Name())
+
 	return nil
 }
 
@@ -1126,6 +1128,8 @@ func (storage *RepoStagesStorage) MutateAndPushImage(ctx context.Context, src, d
 
 		return err
 	}
+
+	docker_registry.AddCachedTag(ctx, storage.DockerRegistry, dest)
 
 	return nil
 }

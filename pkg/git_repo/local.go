@@ -35,6 +35,9 @@ type Local struct {
 
 	statusResult *status.Result
 	mutex        sync.Mutex
+
+	dockerfileContextChecksums sync.Map
+	dockerfileContextMutex     sync.Map
 }
 
 type OpenLocalRepoOptions struct {

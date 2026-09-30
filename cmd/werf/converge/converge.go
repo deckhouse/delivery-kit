@@ -191,6 +191,8 @@ werf converge --repo registry.mydomain.com/web --env production`,
 }
 
 func runMain(ctx context.Context, imageNameListFromArgs []string) error {
+	ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+	defer logOperationsSummaryFn()
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd: &commonCmdData,
 		InitTrueGitWithOptions: &common.InitTrueGitOptions{
@@ -430,7 +432,7 @@ func run(
 			return ctx, fmt.Errorf("get HEAD commit time: %w", err)
 		}
 
-		registryCredentialsPath := docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
+		registryCredentialsPath = docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
 
 		serviceValues, err = deploy.GetServiceValues(ctx, werfConfig.Meta.Project, imagesRepo, imagesInfoGetters, deploy.ServiceValuesOptions{
 			Namespace:                releaseNamespace,

@@ -880,10 +880,12 @@ func (phase *BuildPhase) publishFinalImage(ctx context.Context, name string, img
 		return fmt.Errorf("content tag desc not set for image %q", name)
 	}
 
+	stages := img.GetStages()
 	desc, err := phase.Conveyor.StorageManager.CopyStageIntoFinalStorage(
 		ctx, *contentTagDesc.StageID,
 		phase.Conveyor.StorageManager.GetFinalStagesStorage(),
 		manager.CopyStageIntoStorageOptions{
+			FetchStage:        stages[len(stages)-1],
 			ContainerBackend:  phase.Conveyor.ContainerBackend,
 			ShouldBeBuiltMode: phase.ShouldBeBuiltMode,
 			LogDetailedName:   img.LogDetailedName(),
@@ -1106,6 +1108,14 @@ func (phase *BuildPhase) resolveContentAnchor(ctx context.Context, img *image.Im
 		if err := phase.calculateAnchorDigest(ctx, img, graph.Dependencies(img), img.RequiresResolvedDependencyInputs); err != nil {
 			return fmt.Errorf("calculate deferred content-based digest: %w", err)
 		}
+	}
+
+	// Reusing the content anchor short-circuits conveyor.doImage, so a stage
+	// requested for introspection would never be processed.
+	if slices.ContainsFunc(stages, func(stg stage.Interface) bool {
+		return phase.IntrospectOptions.ImageStageShouldBeIntrospected(img.GetName(), string(stg.Name()))
+	}) {
+		return nil
 	}
 
 	foundInPrimary, unlockFn, err := phase.calculateStage(ctx, img, anchor)

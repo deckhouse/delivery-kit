@@ -15,6 +15,7 @@ import (
 
 	"github.com/werf/werf/v3/pkg/cleaning/stage_manager"
 	"github.com/werf/werf/v3/pkg/cleanup_report"
+	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
@@ -144,10 +145,11 @@ type fakePrimaryStagesStorage struct {
 	deleteTagErrs     map[string]error
 	unregisterTagErrs map[string]error
 
-	deletedImages    []image.StageID
-	deletedRecords   []image.StageID
-	deletedTags      []string
-	unregisteredTags []string
+	deletedImages      []image.StageID
+	deletedRecords     []image.StageID
+	deletedTags        []string
+	unregisteredTags   []string
+	lastCleanupRecords []string
 
 	orphanedArtifactNames []string
 	deletedArtifacts      []string
@@ -205,6 +207,7 @@ type fakeStorageManager struct {
 
 	stageDescSet       image.StageDescSet
 	finalStageDescSet  image.StageDescSet
+	deletedStages      []*image.StageDesc
 	deletedFinalStages []*image.StageDesc
 }
 
@@ -623,4 +626,42 @@ var _ = Describe("Cleanup final stages", func() {
 			)
 		})
 	}
+})
+
+var _ = Describe("Cleanup last cleanup record", func() {
+	DescribeTable("writes the record to the meta storage only for a real run, and previews deletions either way",
+		func(dryRun bool, expectedRecords []string) {
+			ctx := context.Background()
+			stageDesc := newTestStageDesc("example.com/primary", image.NewStageID("ff0011", 1748001122334))
+
+			storageManager := newFakeStorageManagerWithSplitStorages()
+			storageManager.stageDescSet = image.NewStageDescSet(stageDesc)
+
+			report := cleanup_report.NewReport(ctx, "cleanup", dryRun, "example.com/primary", cleanup_report.NewReportOptions{})
+			cleanup := &cleanupManager{
+				stageManager:      stage_manager.NewManager(),
+				StorageManager:    storageManager,
+				ProjectName:       "myproject",
+				DryRun:            dryRun,
+				WithoutKube:       true,
+				ConfigMetaCleanup: config.MetaCleanup{DisableGitHistoryBasedPolicy: true},
+				keepList:          NewKeepList(),
+				report:            report,
+			}
+
+			Expect(cleanup.run(ctx)).To(Succeed())
+
+			Expect(storageManager.meta.lastCleanupRecords).To(Equal(expectedRecords))
+			Expect(report.Deleted).To(Equal([]cleanup_report.Item{{
+				Type: cleanup_report.ItemTypeStage, Tag: stageDesc.Info.Tag,
+			}}), "the deletion preview must be identical in both modes")
+			if dryRun {
+				Expect(storageManager.deletedStages).To(BeEmpty())
+			} else {
+				Expect(storageManager.deletedStages).To(ConsistOf(stageDesc))
+			}
+		},
+		Entry("dry run must not write anything to the meta repo", true, []string(nil)),
+		Entry("real run records the cleanup", false, []string{"myproject"}),
+	)
 })

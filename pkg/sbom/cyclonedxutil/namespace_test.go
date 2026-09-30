@@ -94,6 +94,36 @@ var _ = Describe("NamespaceBOMRefs", func() {
 		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"img/os", "urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}))
 	})
 
+	It("namespaces a reference to a ref the document does not declare, wherever it occurs", func() {
+		bom := &cdx.BOM{
+			Components:      &[]cdx.Component{{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib"}},
+			Dependencies:    &[]cdx.Dependency{{Ref: "lib", Dependencies: &[]string{"ghost-dep"}, Provides: &[]string{"ghost-prov"}}},
+			Vulnerabilities: &[]cdx.Vulnerability{{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "ghost-vuln"}}}},
+			Compositions:    &[]cdx.Composition{{Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"ghost-asm"}, Dependencies: &[]cdx.BOMReference{"ghost-cdep"}}},
+			Annotations:     &[]cdx.Annotation{{Text: "t", Subjects: &[]cdx.BOMReference{"ghost-subj"}}},
+		}
+
+		NamespaceBOMRefs(bom, "img")
+
+		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"img/ghost-dep"}))
+		Expect(*(*bom.Dependencies)[0].Provides).To(Equal([]string{"img/ghost-prov"}))
+		Expect((*(*bom.Vulnerabilities)[0].Affects)[0].Ref).To(Equal("img/ghost-vuln"))
+		Expect(*(*bom.Compositions)[0].Assemblies).To(Equal([]cdx.BOMReference{"img/ghost-asm"}))
+		Expect(*(*bom.Compositions)[0].Dependencies).To(Equal([]cdx.BOMReference{"img/ghost-cdep"}))
+		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"img/ghost-subj"}))
+	})
+
+	It("leaves a reference to the document's own serial alone", func() {
+		bom := &cdx.BOM{
+			SerialNumber: "urn:uuid:11111111-1111-1111-1111-111111111111",
+			Annotations:  &[]cdx.Annotation{{Text: "t", Subjects: &[]cdx.BOMReference{"urn:uuid:11111111-1111-1111-1111-111111111111"}}},
+		}
+
+		NamespaceBOMRefs(bom, "img")
+
+		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"urn:uuid:11111111-1111-1111-1111-111111111111"}))
+	})
+
 	It("renames every ref at once when one new ref equals another old one", func() {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

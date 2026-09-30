@@ -46,20 +46,45 @@ func NamespaceBOMRefs(bom *cdx.BOM, prefix string) {
 		namespaceRef(&(*bom.Annotations)[i].BOMRef, prefix, refMap)
 	}
 
-	namespaceUnknown := func(ref string) {
-		if _, known := refMap[ref]; known || ref == "" || strings.HasPrefix(ref, "urn:cdx:") {
+	namespaceUndeclaredReferences(bom, prefix, refMap)
+
+	RewriteRefs(bom, refMap)
+}
+
+// namespaceUndeclaredReferences prefixes every reference to a ref the document
+// does not declare — a dangling edge, a vulnerability about a package the
+// document lacks — so that it cannot land on an entity of another document
+// once the two are merged. A BOM-Link and a reference to the document's own
+// serial address a document, not an entity, and stay as they are.
+func namespaceUndeclaredReferences(bom *cdx.BOM, prefix string, refMap map[string]string) {
+	visit := func(ref string) {
+		if _, known := refMap[ref]; known || ref == "" || ref == bom.SerialNumber || strings.HasPrefix(ref, "urn:cdx:") {
 			return
 		}
 		refMap[ref] = namespacedRef(ref, prefix)
 	}
-	for _, dep := range lo.FromPtr(bom.Dependencies) {
-		namespaceUnknown(dep.Ref)
-		for _, d := range lo.FromPtr(dep.Dependencies) {
-			namespaceUnknown(d)
+	visitAll := func(refs *[]cdx.BOMReference) {
+		for _, ref := range lo.FromPtr(refs) {
+			visit(string(ref))
 		}
 	}
 
-	RewriteRefs(bom, refMap)
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		visit(dep.Ref)
+		lo.ForEach(lo.FromPtr(dep.Dependencies), func(ref string, _ int) { visit(ref) })
+		lo.ForEach(lo.FromPtr(dep.Provides), func(ref string, _ int) { visit(ref) })
+	}
+	for _, vuln := range lo.FromPtr(bom.Vulnerabilities) {
+		lo.ForEach(lo.FromPtr(vuln.Affects), func(affects cdx.Affects, _ int) { visit(affects.Ref) })
+	}
+	for _, composition := range lo.FromPtr(bom.Compositions) {
+		visitAll(composition.Assemblies)
+		visitAll(composition.Dependencies)
+		visitAll(composition.Vulnerabilities)
+	}
+	for _, annotation := range lo.FromPtr(bom.Annotations) {
+		visitAll(annotation.Subjects)
+	}
 }
 
 func namespaceServiceBOMRefs(services []cdx.Service, prefix string, refMap map[string]string) {

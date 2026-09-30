@@ -397,13 +397,13 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 
 	if mergeOpts.BaseBOM != nil {
 		if err := gost.Validate(mergeOpts.BaseBOM); err != nil {
-			return fmt.Errorf("base SBOM validation failed: %w", err)
+			return fmt.Errorf("base SBOM validation failed (rebuild the base image with the current werf if its SBOM was built by an older one): %w", err)
 		}
 	}
 
 	for i, externalBOM := range mergeOpts.ImportBOMs {
 		if err := gost.Validate(externalBOM); err != nil {
-			return fmt.Errorf("external SBOM [%d] validation failed: %w", i, err)
+			return fmt.Errorf("external SBOM [%d] validation failed (rebuild the imported image with the current werf if its SBOM was built by an older one): %w", i, err)
 		}
 	}
 

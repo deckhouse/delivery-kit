@@ -14,7 +14,49 @@ var (
 	bom16Schema          *gojsonschema.Schema
 	bom16SchemaOnce      sync.Once
 	errCycloneDX16Schema error
+
+	hashAlgorithms     map[string]struct{}
+	hashAlgorithmsOnce sync.Once
+	errHashAlgorithms  error
 )
+
+// HashAlgorithmAllowed reports whether alg is a member of the "hash-alg" enum of
+// the embedded CycloneDX 1.6 schema — the same schema ValidateCycloneDX16Schema
+// checks against, so callers stay in sync with it without duplicating the list.
+// It returns an error only if the embedded schema cannot be parsed.
+func HashAlgorithmAllowed(alg string) (bool, error) {
+	hashAlgorithmsOnce.Do(func() {
+		hashAlgorithms, errHashAlgorithms = loadHashAlgorithms()
+	})
+	if errHashAlgorithms != nil {
+		return false, errHashAlgorithms
+	}
+
+	_, ok := hashAlgorithms[alg]
+	return ok, nil
+}
+
+func loadHashAlgorithms() (map[string]struct{}, error) {
+	var schema struct {
+		Definitions struct {
+			HashAlg struct {
+				Enum []string `json:"enum"`
+			} `json:"hash-alg"`
+		} `json:"definitions"`
+	}
+	if err := json.Unmarshal([]byte(bom_1_6_SchemaValue), &schema); err != nil {
+		return nil, fmt.Errorf("parse embedded CycloneDX 1.6 schema: %w", err)
+	}
+	if len(schema.Definitions.HashAlg.Enum) == 0 {
+		return nil, fmt.Errorf("embedded CycloneDX 1.6 schema has no hash-alg enum")
+	}
+
+	algs := make(map[string]struct{}, len(schema.Definitions.HashAlg.Enum))
+	for _, alg := range schema.Definitions.HashAlg.Enum {
+		algs[alg] = struct{}{}
+	}
+	return algs, nil
+}
 
 // preloadCycloneDX16Schema ensures offline usage because of the network restrictions.
 func preloadCycloneDX16Schema() (*gojsonschema.Schema, error) {

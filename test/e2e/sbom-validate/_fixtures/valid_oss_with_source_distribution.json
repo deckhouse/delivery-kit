@@ -1,0 +1,38 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2025-01-01T00:00:00Z",
+    "component": {
+      "type": "application",
+      "name": "test-app",
+      "version": "1.0.0",
+      "manufacturer": {
+        "name": "Test Org"
+      }
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "commondir",
+      "version": "1.0.1",
+      "purl": "pkg:npm/commondir@1.0.1",
+      "properties": [
+        {"name": "GOST:attack_surface", "value": "no"},
+        {"name": "GOST:security_function", "value": "no"}
+      ],
+      "externalReferences": [
+        {
+          "type": "source-distribution",
+          "url": "https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz",
+          "hashes": [
+            {"alg": "SHA-256", "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            {"alg": "STREEBOG-256", "content": "4559fe98d002ff12ab69dafaf495d49ab7bfe14fd4408bf733dd99b3056c65bf"}
+          ]
+        }
+      ]
+    }
+  ]
+}

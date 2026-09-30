@@ -62,6 +62,67 @@ var _ = Describe("CycloneDX Schema Validation", func() {
 					]
 				}`,
 				MatchError(ContainSubstring("Must validate one and only one schema"))),
+
+			Entry("STREEBOG digest on a source distribution",
+				`{
+					"bomFormat": "CycloneDX",
+					"specVersion": "1.6",
+					"version": 1,
+					"components": [
+						{
+							"type": "library",
+							"name": "commondir",
+							"externalReferences": [
+								{
+									"type": "source-distribution",
+									"url": "https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz",
+									"hashes": [
+										{ "alg": "STREEBOG-256", "content": "4559fe98d002ff12ab69dafaf495d49ab7bfe14fd4408bf733dd99b3056c65bf" }
+									]
+								}
+							]
+						}
+					]
+				}`,
+				Succeed()),
+
+			Entry("hash algorithm outside the extended enum",
+				`{
+					"bomFormat": "CycloneDX",
+					"specVersion": "1.6",
+					"version": 1,
+					"components": [
+						{
+							"type": "library",
+							"name": "commondir",
+							"externalReferences": [
+								{
+									"type": "source-distribution",
+									"url": "https://registry.npmjs.org/commondir/-/commondir-1.0.1.tgz",
+									"hashes": [
+										{ "alg": "Streebog-256", "content": "4559fe98d002ff12ab69dafaf495d49ab7bfe14fd4408bf733dd99b3056c65bf" }
+									]
+								}
+							]
+						}
+					]
+				}`,
+				MatchError(ContainSubstring("alg"))),
+		)
+	})
+
+	Describe("HashAlgorithmAllowed", func() {
+		DescribeTable("reports membership in the embedded schema's hash-alg enum",
+			func(alg string, expected bool) {
+				allowed, err := HashAlgorithmAllowed(alg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(allowed).To(Equal(expected))
+			},
+			Entry("SHA-256 is accepted", "SHA-256", true),
+			Entry("the STREEBOG extension is accepted", "STREEBOG-256", true),
+			Entry("STREEBOG-512 is accepted", "STREEBOG-512", true),
+			Entry("an unknown algorithm is not", "MD6", false),
+			Entry("the enum is case-sensitive", "sha-256", false),
 		)
 	})
 })

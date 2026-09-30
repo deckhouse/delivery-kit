@@ -103,7 +103,7 @@ func stagesImageDigestOf(ctx SpecContext, werfProject *werf.Project, imageName s
 	stagesRepo := os.Getenv("WERF_REPO")
 	Expect(stagesRepo).NotTo(BeEmpty())
 
-	tagRef, err := name.NewTag(stagesRepo+":"+stageTagOf(ctx, werfProject, imageName, nil), name.Insecure)
+	tagRef, err := name.NewTag(stagesRepo+":"+stageTagOf(ctx, werfProject, imageName), name.Insecure)
 	Expect(err).NotTo(HaveOccurred())
 
 	desc, err := remote.Get(tagRef, insecureRemoteOptions(ctx)...)

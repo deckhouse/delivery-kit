@@ -28,13 +28,10 @@ var _ = Describe("SBOM retention across cleanup", Label("e2e", "sbom", "final-re
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-final-repo-cleanup-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		reportProject := report.NewProjectWithReport(werfProject)
 		_, buildReport := reportProject.BuildWithReport(ctx,
-			SuiteData.GetBuildReportPath("sbom_final_repo_cleanup.json"),
-			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+			SuiteData.GetBuildReportPath("sbom_final_repo_cleanup.json"), nil,
 		)
 
 		appRecord, found := buildReport.Images["app"]
@@ -44,13 +41,12 @@ var _ = Describe("SBOM retention across cleanup", Label("e2e", "sbom", "final-re
 		finalDigest := appRecord.DockerImageDigest
 		Expect(finalDigest).NotTo(BeEmpty())
 
-		stageTag := stageTagOf(ctx, werfProject, "app", builderEnv)
+		stageTag := stageTagOf(ctx, werfProject, "app")
 
 		assertSbomReadable := func(repo string, extraArgs ...string) {
 			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: append([]string{"--repo", repo}, extraArgs...),
-					Envs:      builderEnv,
 				},
 			})
 			sbomtest.AssertHasComponent(sbomtest.MustParseSBOMOutput(sbomOut), "curl", "8.12.1")
@@ -78,14 +74,14 @@ var _ = Describe("SBOM retention across cleanup", Label("e2e", "sbom", "final-re
 		By("running cleanup twice while the stage is on the keep list")
 		for range 2 {
 			werfProject.RunCommand(ctx, append(append([]string{}, cleanupArgs...), "--keep-list", keepListPath),
-				werf.CommonOptions{Envs: builderEnv})
+				werf.CommonOptions{})
 
 			assertSbomReadable(finalRepo, "--digest", finalDigest)
 			assertSbomReadable(stagesRepo, "--tag", stageTag)
 		}
 
 		By("running cleanup with nothing protecting the stage")
-		werfProject.RunCommand(ctx, cleanupArgs, werf.CommonOptions{Envs: builderEnv})
+		werfProject.RunCommand(ctx, cleanupArgs, werf.CommonOptions{})
 
 		registryOptions := []crane.Option{crane.Insecure, crane.WithContext(ctx)}
 		for _, repo := range []string{stagesRepo, finalRepo} {
@@ -102,8 +98,8 @@ var _ = Describe("SBOM retention across cleanup", Label("e2e", "sbom", "final-re
 
 // stageTagOf returns the content-based tag of the image's last stage in the stages repo.
 // werf stage image prints the reference as its last line, so the preceding log lines are dropped.
-func stageTagOf(ctx SpecContext, werfProject *werf.Project, imageName string, envs []string) string {
-	out := werfProject.RunCommand(ctx, []string{"stage", "image", imageName, "--log-quiet"}, werf.CommonOptions{Envs: envs})
+func stageTagOf(ctx SpecContext, werfProject *werf.Project, imageName string) string {
+	out := werfProject.RunCommand(ctx, []string{"stage", "image", imageName, "--log-quiet"}, werf.CommonOptions{})
 
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	ref := strings.TrimSpace(lines[len(lines)-1])

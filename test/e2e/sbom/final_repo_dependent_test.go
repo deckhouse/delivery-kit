@@ -115,7 +115,7 @@ func assertAppSbomInStagesRepo(ctx SpecContext, werfProject *werf.Project, stage
 
 	sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 		CommonOptions: werf.CommonOptions{
-			ExtraArgs: []string{"--repo", stagesRepo, "--tag", stageTagOf(ctx, werfProject, imageName, nil)},
+			ExtraArgs: []string{"--repo", stagesRepo, "--tag", stageTagOf(ctx, werfProject, imageName)},
 		},
 	})
 	sbomtest.MustParseSBOMOutput(sbomOut)

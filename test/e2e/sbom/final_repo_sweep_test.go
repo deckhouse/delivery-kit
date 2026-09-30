@@ -1,8 +1,6 @@
 package e2e_build_test
 
 import (
-	"strings"
-
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,11 +22,6 @@ var _ = Describe("SBOM and VEX across every repository of a build", Label("e2e",
 		repoDirname := "repo_sbom_final_repo_sweep"
 		SuiteData.InitTestRepo(ctx, repoDirname, "final_repo_sweep")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
-		for _, envVar := range buildTrustedBuilderBase(ctx, testRepoPath, "sbom-final-repo-sweep-builder") {
-			key, value, found := strings.Cut(envVar, "=")
-			Expect(found).To(BeTrue())
-			SuiteData.Stubs.SetEnv(key, value)
-		}
 
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		reportProject := report.NewProjectWithReport(werfProject)
@@ -77,7 +70,7 @@ var _ = Describe("SBOM and VEX across every repository of a build", Label("e2e",
 
 		By("the stages repo serves the same SBOM on its own, not by proxy of the final repo")
 		stagesSbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--repo", stagesRepo, "--tag", stageTagOf(ctx, werfProject, "app", nil)}},
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--repo", stagesRepo, "--tag", stageTagOf(ctx, werfProject, "app")}},
 		})
 		assertCarriesImportedComponents(ctx, werfProject, stagesRepo, sbomtest.MustParseSBOMOutput(stagesSbomOut))
 
@@ -102,12 +95,12 @@ var _ = Describe("SBOM and VEX across every repository of a build", Label("e2e",
 // SBOMs of its base image and its import source list. app is a Stapel image with
 // no packages directive, so it is never scanned on its own: a component of either
 // source can only have reached it through the merge of that image's SBOM. base
-// (Go module) and carrier (Cargo) catalog different ecosystems, so each side of
-// the merge is discriminated on its own.
+// declares an OS package the other does not and carrier declares Cargo crates, so
+// each side of the merge is discriminated on its own.
 func assertCarriesImportedComponents(ctx SpecContext, werfProject *werf.Project, stagesRepo string, appBom *cdx.BOM) {
 	for _, source := range []string{"base", "carrier"} {
 		sourceSbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--repo", stagesRepo, "--tag", stageTagOf(ctx, werfProject, source, nil)}},
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--repo", stagesRepo, "--tag", stageTagOf(ctx, werfProject, source)}},
 		})
 		sourceBom := sbomtest.MustParseSBOMOutput(sourceSbomOut)
 

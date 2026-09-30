@@ -167,7 +167,11 @@ func (r *markerRegistry) CopyImage(_ context.Context, sourceReference, destinati
 	for k, v := range src.Labels {
 		labels[k] = v
 	}
-	r.images[destinationReference] = &image.Info{Name: destinationReference, Tag: refTag(destinationReference), Labels: labels}
+	dst := &image.Info{Name: destinationReference, Tag: refTag(destinationReference), Labels: labels}
+	if src.RepoDigest != "" {
+		dst.RepoDigest = refRepo(destinationReference) + "@" + strings.SplitN(src.RepoDigest, "@", 2)[1]
+	}
+	r.images[destinationReference] = dst
 	return nil
 }
 

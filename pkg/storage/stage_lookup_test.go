@@ -13,6 +13,11 @@ import (
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
+// stageLookupDigest is a syntactically valid digest for stages the stub registry
+// fabricates: the artifact copy addresses the stage by digest and rejects an
+// empty one before reaching the registry.
+const stageLookupDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
 var _ = ginkgo.Describe("stage lookup", func() {
 	ginkgo.DescribeTable("returns an unavailable error instead of a nil descriptor",
 		func(ctx ginkgo.SpecContext, present, rejected bool, expected error) {
@@ -57,8 +62,8 @@ var _ = ginkgo.Describe("stage lookup", func() {
 		stageID := image.NewStageID("digest", 1)
 		sourceRef := source.ConstructStageImageName("project", stageID.Digest, stageID.CreationTs)
 		destinationRef := destination.ConstructStageImageName("project", stageID.Digest, stageID.CreationTs)
-		registry.put(sourceRef, nil)
-		registry.put(destinationRef, nil)
+		putWithDigest(registry.markerRegistry, sourceRef, source.RepoAddress+"@"+stageLookupDigest)
+		putWithDigest(registry.markerRegistry, destinationRef, destination.RepoAddress+"@"+stageLookupDigest)
 		registry.brokenImage = registry.images[destinationRef]
 
 		desc, err := destination.CopyFromStorage(ctx, source, "project", *stageID, CopyFromStorageOptions{})
@@ -78,9 +83,9 @@ var _ = ginkgo.Describe("stage lookup", func() {
 			stageID := image.NewStageID("digest", 1)
 			sourceRef := source.ConstructStageImageName("project", stageID.Digest, stageID.CreationTs)
 			destinationRef := destination.ConstructStageImageName("project", stageID.Digest, stageID.CreationTs)
-			registry.put(sourceRef, nil)
+			putWithDigest(registry.markerRegistry, sourceRef, source.RepoAddress+"@"+stageLookupDigest)
 			if existing {
-				registry.put(destinationRef, nil)
+				putWithDigest(registry.markerRegistry, destinationRef, destination.RepoAddress+"@"+stageLookupDigest)
 			}
 			if rejected {
 				registry.put(makeRepoRejectedStageImageRecord(destination.RepoAddress, stageID.Digest, stageID.CreationTs), nil)

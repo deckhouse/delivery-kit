@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"github.com/werf/werf/v3/pkg/container_backend/thirdparty/platformutil"
 	"github.com/werf/werf/v3/pkg/docker_registry"
@@ -108,6 +109,55 @@ func ListIndexPlatforms(ctx context.Context, repo, digestStr string, opts ...rem
 	return indexPlatformDigests(desc, repo, digestStr)
 }
 
+// listReferencedDigests returns the digests of every manifest reachable from
+// digestStr, descending into nested indexes. Unlike ListIndexPlatforms it does not
+// filter by platform: the platform field is optional in an OCI index, and a
+// registry-level copy transfers a child regardless of whether it carries one.
+// A nested index the repository no longer holds ends that branch of the walk: it
+// references nothing that can still be copied, while the root staying absent is
+// reported so the caller can tell it from an index that is merely empty.
+func listReferencedDigests(ctx context.Context, repo, digestStr string, opts ...remote.Option) ([]string, error) {
+	visited := map[string]struct{}{digestStr: {}}
+	queue := []string{digestStr}
+
+	var digests []string
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		desc, err := getManifestDescriptor(ctx, repo, current, opts...)
+		if err != nil {
+			var transportErr *transport.Error
+			if current != digestStr && errors.As(err, &transportErr) && transportErr.StatusCode == 404 {
+				continue
+			}
+			return nil, err
+		}
+		if !desc.MediaType.IsIndex() {
+			continue
+		}
+
+		im, err := indexManifest(desc, repo, current)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, m := range im.Manifests {
+			child := m.Digest.String()
+			if _, seen := visited[child]; seen {
+				continue
+			}
+			visited[child] = struct{}{}
+			digests = append(digests, child)
+			if m.MediaType.IsIndex() {
+				queue = append(queue, child)
+			}
+		}
+	}
+
+	return digests, nil
+}
+
 func getManifestDescriptor(ctx context.Context, repo, digestStr string, opts ...remote.Option) (*remote.Descriptor, error) {
 	ref, err := name.NewDigest(repo + "@" + digestStr)
 	if err != nil {
@@ -126,6 +176,14 @@ func getManifestDescriptor(ctx context.Context, repo, digestStr string, opts ...
 }
 
 func indexPlatformDigests(desc *remote.Descriptor, repo, digestStr string) ([]PlatformDigest, error) {
+	im, err := indexManifest(desc, repo, digestStr)
+	if err != nil {
+		return nil, err
+	}
+	return platformDigestsFromIndexManifest(im), nil
+}
+
+func indexManifest(desc *remote.Descriptor, repo, digestStr string) (*v1.IndexManifest, error) {
 	idx, err := desc.ImageIndex()
 	if err != nil {
 		return nil, fmt.Errorf("read image index %q: %w", repo+"@"+digestStr, err)
@@ -134,7 +192,7 @@ func indexPlatformDigests(desc *remote.Descriptor, repo, digestStr string) ([]Pl
 	if err != nil {
 		return nil, fmt.Errorf("read index manifest %q: %w", repo+"@"+digestStr, err)
 	}
-	return platformDigestsFromIndexManifest(im), nil
+	return im, nil
 }
 
 func verifyManifestPlatform(desc *remote.Descriptor, digestStr, platform string) error {

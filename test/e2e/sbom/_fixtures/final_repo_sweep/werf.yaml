@@ -1,0 +1,46 @@
+project: werf-test-e2e-sbom-final-repo-sweep
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: carrier
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /c
+    stageDependencies:
+      packages:
+        - Cargo.toml
+        - Cargo.lock
+packages:
+  - type: os-pm
+    spec:
+      - rust==1.96.0
+      - cargo==1.96.0
+      - curl==8.12.1
+  - type: rust-cargo
+    workdir: /c
+---
+image: base
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /b
+packages:
+  - type: os-pm
+    spec:
+      - jq==1.8.1
+---
+image: app
+fromImage: base
+git:
+  - add: /
+    to: /a
+import:
+  - image: carrier
+    add: /c/werf.yaml
+    to: /imported/werf.yaml
+    before: setup
+vex: vex.openvex.json

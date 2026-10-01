@@ -61,6 +61,9 @@ func NewCmd(ctx context.Context) *cobra.Command {
 			common.LogVersion()
 
 			return common.LogRunningTime(func() error {
+				ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+				defer logOperationsSummaryFn()
+
 				if tagFlag != "" {
 					return runGetByTag(ctx, tagFlag)
 				}

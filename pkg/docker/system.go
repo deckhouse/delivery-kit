@@ -2,31 +2,164 @@ package docker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
-	"github.com/docker/docker/api/types/system"
-	dockerclient "github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/system"
+	"github.com/moby/moby/client"
+	"github.com/moby/moby/client/pkg/versions"
 )
 
-func Info(ctx context.Context) (system.Info, error) {
-	return apiCli(ctx).Info(ctx)
+// daemonPingTimeout mirrors the init timeout of the docker cli (cli/command.defaultInitTimeout),
+// with more headroom for remote daemons: without it a socket which accepts the connection but
+// never answers hangs the command forever.
+var daemonPingTimeout = 10 * time.Second
+
+type daemonPing struct {
+	apiVersion string
+	err        error
+	timedOut   bool
 }
 
+// checkedDaemons holds the API version of every daemon whose ping already succeeded, keyed by the
+// api client. Only the version is cached: it does not change for the lifetime of the client, while
+// the daemon being unreachable does — a daemon which starts up later must be pinged again.
+var checkedDaemons sync.Map
+
+type CheckConnectionOptions struct {
+	AllowDaemonUnavailable bool
+}
+
+func CheckConnection(ctx context.Context, opts CheckConnectionOptions) error {
+	api := apiCli(ctx)
+
+	cached, ok := checkedDaemons.Load(api)
+	if !ok {
+		result := pingDaemon(ctx, api)
+		switch {
+		case result.timedOut:
+			return fmt.Errorf("check Docker daemon API: %w", errDaemonDidNotAnswer())
+		case result.err != nil:
+			if opts.AllowDaemonUnavailable && ctx.Err() == nil && isDaemonUnavailableErr(result.err) {
+				return nil
+			}
+			return fmt.Errorf("check Docker daemon API: %w", result.err)
+		case result.apiVersion == "":
+			return fmt.Errorf("Docker daemon did not report an API version; minimum supported API version is %s", client.MinAPIVersion)
+		}
+		checkedDaemons.Store(api, result.apiVersion)
+		cached = result.apiVersion
+	}
+
+	if apiVersion := cached.(string); versions.LessThan(apiVersion, client.MinAPIVersion) {
+		return fmt.Errorf("Docker daemon API version %s is unsupported: minimum supported API version is %s", apiVersion, client.MinAPIVersion)
+	}
+
+	return nil
+}
+
+func pingDaemon(ctx context.Context, api client.APIClient) daemonPing {
+	var ping client.PingResult
+	timedOut, err := callDaemon(ctx, func(callCtx context.Context) error {
+		var err error
+		ping, err = api.Ping(callCtx, client.PingOptions{NegotiateAPIVersion: true})
+		return err
+	})
+	switch {
+	case timedOut:
+		return daemonPing{timedOut: true}
+	case err != nil:
+		return daemonPing{err: err}
+	default:
+		return daemonPing{apiVersion: ping.APIVersion}
+	}
+}
+
+// callDaemon runs an Engine API call under the daemon deadline. It reports whether the call gave
+// up on a daemon which never answered, as opposed to ctx itself being canceled.
+func callDaemon(ctx context.Context, call func(ctx context.Context) error) (bool, error) {
+	callCtx, cancel := context.WithTimeout(ctx, daemonPingTimeout)
+	defer cancel()
+
+	err := call(callCtx)
+	if err != nil && ctx.Err() == nil && errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+		return true, err
+	}
+
+	return false, err
+}
+
+func errDaemonDidNotAnswer() error {
+	return fmt.Errorf("Docker daemon did not answer within %s", daemonPingTimeout)
+}
+
+func Info(ctx context.Context) (system.Info, error) {
+	api := apiCli(ctx)
+
+	var result client.SystemInfoResult
+	timedOut, err := callDaemon(ctx, func(callCtx context.Context) error {
+		var err error
+		result, err = api.Info(callCtx, client.InfoOptions{})
+		return err
+	})
+	if timedOut {
+		return system.Info{}, errDaemonDidNotAnswer()
+	}
+	if err != nil {
+		return system.Info{}, err
+	}
+
+	return result.Info, nil
+}
+
+// Native Winsock errors differ from Go's synthetic syscall constants on Windows.
+// Their localized diagnostics survive Moby's normalization, so match the errno.
+const (
+	errWSAENetDown     = syscall.Errno(10050)
+	errWSAENetUnreach  = syscall.Errno(10051)
+	errWSAEConnRefused = syscall.Errno(10061)
+	errWSAEHostDown    = syscall.Errno(10064)
+	errWSAEHostUnreach = syscall.Errno(10065)
+)
+
 func isDaemonUnavailableErr(err error) bool {
-	if err == nil {
+	if !client.IsErrConnectionFailed(err) {
 		return false
 	}
-	if dockerclient.IsErrConnectionFailed(err) {
+
+	for _, unavailableErr := range []error{
+		os.ErrNotExist, syscall.ENETDOWN, syscall.ENETUNREACH, syscall.EHOSTDOWN, syscall.EHOSTUNREACH,
+		errWSAENetDown, errWSAENetUnreach, errWSAEConnRefused, errWSAEHostDown, errWSAEHostUnreach,
+	} {
+		if errors.Is(err, unavailableErr) {
+			return true
+		}
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
 		return true
 	}
 
 	msg := err.Error()
+	if strings.Contains(msg, "ssh: connect to host ") {
+		for _, cause := range []string{"Connection refused", "Network is unreachable", "Network is down", "No route to host", "Host is down", "Operation timed out", "Connection timed out"} {
+			if strings.Contains(msg, cause) {
+				return true
+			}
+		}
+	}
 	for _, substr := range []string{
 		"Cannot connect to the Docker daemon",
 		"connect: no such file or directory",
 		"connect: connection refused",
-		"dial unix",
+		"ssh: Could not resolve hostname ",
 	} {
 		if strings.Contains(msg, substr) {
 			return true
@@ -37,25 +170,60 @@ func isDaemonUnavailableErr(err error) bool {
 }
 
 func getDaemonInfo(ctx context.Context) (*system.Info, error) {
-	var info system.Info
-	var err error
-
-	if IsContext(ctx) {
-		info, err = apiCli(ctx).Info(ctx)
-	} else if IsEnabled() && defaultAPIClient != nil {
-		info, err = defaultAPIClient.Info(ctx)
-	} else {
+	var api client.APIClient
+	switch {
+	case IsContext(ctx):
+		api = apiCli(ctx)
+	case IsEnabled() && defaultAPIClient != nil:
+		api = defaultAPIClient
+	default:
 		return nil, nil
 	}
 
+	var result client.SystemInfoResult
+	var unsupported bool
+	timedOut, err := callDaemon(ctx, func(callCtx context.Context) error {
+		cached, ok := checkedDaemons.Load(api)
+		if !ok {
+			// Check the advertised version without negotiation: Moby rejects old versions
+			// during negotiation, but ignores that error when constructing the /info URL.
+			ping, err := api.Ping(callCtx, client.PingOptions{})
+			if err != nil {
+				return err
+			}
+			if ping.APIVersion != "" {
+				major, minor, found := strings.Cut(ping.APIVersion, ".")
+				_, majorErr := strconv.ParseUint(major, 10, 32)
+				_, minorErr := strconv.ParseUint(minor, 10, 32)
+				if !found || majorErr != nil || minorErr != nil {
+					return fmt.Errorf("invalid Docker daemon API version %q", ping.APIVersion)
+				}
+				checkedDaemons.Store(api, ping.APIVersion)
+				cached = ping.APIVersion
+			}
+		}
+		if cached != nil && versions.LessThan(cached.(string), client.MinAPIVersion) {
+			unsupported = true
+			return callCtx.Err()
+		}
+		var err error
+		result, err = api.Info(callCtx, client.InfoOptions{})
+		return err
+	})
+	if timedOut {
+		return nil, nil
+	}
 	if err != nil {
-		if isDaemonUnavailableErr(err) {
+		if ctx.Err() == nil && isDaemonUnavailableErr(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	if unsupported {
+		return nil, nil
+	}
 
-	return &info, nil
+	return &result.Info, nil
 }
 
 func GetRegistryMirrors(ctx context.Context) ([]string, error) {
@@ -89,7 +257,7 @@ func GetInsecureRegistries(ctx context.Context) ([]string, error) {
 		}
 
 		for _, cidr := range info.RegistryConfig.InsecureRegistryCIDRs {
-			cidrStr := (*net.IPNet)(cidr).String()
+			cidrStr := cidr.String()
 			if !seen[cidrStr] {
 				seen[cidrStr] = true
 				result = append(result, cidrStr)

@@ -291,6 +291,26 @@ func (mr *MockStagesStorageMockRecorder) GetAllAndGroupImageMetadataByImageName(
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAndGroupImageMetadataByImageName", reflect.TypeOf((*MockStagesStorage)(nil).GetAllAndGroupImageMetadataByImageName), varargs...)
 }
 
+// GetClientIDRecords mocks base method.
+func (m *MockStagesStorage) GetClientIDRecords(ctx context.Context, projectName string, opts ...storage.Option) ([]*storage.ClientIDRecord, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, projectName}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetClientIDRecords", varargs...)
+	ret0, _ := ret[0].([]*storage.ClientIDRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetClientIDRecords indicates an expected call of GetClientIDRecords.
+func (mr *MockStagesStorageMockRecorder) GetClientIDRecords(ctx, projectName any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, projectName}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClientIDRecords", reflect.TypeOf((*MockStagesStorage)(nil).GetClientIDRecords), varargs...)
+}
+
 // GetLastCleanupRecord mocks base method.
 func (m *MockStagesStorage) GetLastCleanupRecord(ctx context.Context, projectName string, opts ...storage.Option) (*storage.CleanupRecord, error) {
 	m.ctrl.T.Helper()
@@ -421,6 +441,26 @@ func (mr *MockStagesStorageMockRecorder) GetStagesIDsByDigest(ctx, projectName, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStagesIDsByDigest", reflect.TypeOf((*MockStagesStorage)(nil).GetStagesIDsByDigest), varargs...)
 }
 
+// GetSyncServerRecords mocks base method.
+func (m *MockStagesStorage) GetSyncServerRecords(ctx context.Context, projectName string, opts ...storage.Option) ([]*storage.SyncServerRecord, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, projectName}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetSyncServerRecords", varargs...)
+	ret0, _ := ret[0].([]*storage.SyncServerRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSyncServerRecords indicates an expected call of GetSyncServerRecords.
+func (mr *MockStagesStorageMockRecorder) GetSyncServerRecords(ctx, projectName any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, projectName}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSyncServerRecords", reflect.TypeOf((*MockStagesStorage)(nil).GetSyncServerRecords), varargs...)
+}
+
 // IsImageMetadataExist mocks base method.
 func (m *MockStagesStorage) IsImageMetadataExist(ctx context.Context, projectName, imageNameOrManagedImageName, commit, stageID string, opts ...storage.Option) (bool, error) {
 	m.ctrl.T.Helper()
@@ -475,6 +515,20 @@ func (mr *MockStagesStorageMockRecorder) MutateAndPushImage(ctx, src, dest, newC
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MutateAndPushImage", reflect.TypeOf((*MockStagesStorage)(nil).MutateAndPushImage), ctx, src, dest, newConfig, stageImage)
 }
 
+// PostClientIDRecord mocks base method.
+func (m *MockStagesStorage) PostClientIDRecord(ctx context.Context, projectName string, rec *storage.ClientIDRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostClientIDRecord", ctx, projectName, rec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostClientIDRecord indicates an expected call of PostClientIDRecord.
+func (mr *MockStagesStorageMockRecorder) PostClientIDRecord(ctx, projectName, rec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostClientIDRecord", reflect.TypeOf((*MockStagesStorage)(nil).PostClientIDRecord), ctx, projectName, rec)
+}
+
 // PostLastCleanupRecord mocks base method.
 func (m *MockStagesStorage) PostLastCleanupRecord(ctx context.Context, projectName string) error {
 	m.ctrl.T.Helper()
@@ -515,6 +569,20 @@ func (m *MockStagesStorage) PostMultiplatformImage(ctx context.Context, projectN
 func (mr *MockStagesStorageMockRecorder) PostMultiplatformImage(ctx, projectName, tag, allPlatformsImages, platforms any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostMultiplatformImage", reflect.TypeOf((*MockStagesStorage)(nil).PostMultiplatformImage), ctx, projectName, tag, allPlatformsImages, platforms)
+}
+
+// PostSyncServerRecord mocks base method.
+func (m *MockStagesStorage) PostSyncServerRecord(ctx context.Context, projectName string, rec *storage.SyncServerRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PostSyncServerRecord", ctx, projectName, rec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PostSyncServerRecord indicates an expected call of PostSyncServerRecord.
+func (mr *MockStagesStorageMockRecorder) PostSyncServerRecord(ctx, projectName, rec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostSyncServerRecord", reflect.TypeOf((*MockStagesStorage)(nil).PostSyncServerRecord), ctx, projectName, rec)
 }
 
 // PutImageMetadata mocks base method.

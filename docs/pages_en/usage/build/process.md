@@ -1,15 +1,13 @@
 ---
 title: Build process
 permalink: usage/build/process.html
-keywords: werf build process, container registry authentication, image tagging, build cache, multi-platform build, cross-platform building, ssh agent, build secrets, buildah, docker, stapel, dockerfile, cache versioning, parallel builds, docker.io mirrors, custom tags, target platform builds
-tags: [build, docker, buildah, ssh, cache, registry, multi-arch, stapel]
+keywords: werf build process, container registry authentication, image tagging, build cache, multi-platform build, cross-platform building, ssh agent, build secrets, buildah, docker, stapel, dockerfile, cache versioning, parallel builds, docker.io mirrors, image synchronization, k8s build sync, custom tags, target platform builds
+tags: [build, docker, buildah, ssh, cache, registry, multi-arch, stapel, sync]
 ---
 
 {% include pages/en/cr_login.md.liquid %}
 
 ## Tagging images
-
-<!-- reference https://werf.io/docs/v2/internals/stages_and_storage.html#stage-naming -->
 
 The tagging of werf images is performed automatically as part of the build process. werf uses an optimal tagging scheme based on the contents of the image, thus preventing unnecessary rebuilds and application wait times during deployment.
 
@@ -70,9 +68,7 @@ werf build --repo REPO --add-custom-tag "%image%-latest"
 
 ## Layer-by-layer image caching
 
-<!-- reference https://werf.io/docs/v2/internals/stages_and_storage.html#storage -->
-
-Layer-by-layer image caching is essential part of the werf build process. werf saves and reuses the build cache in the container registry.
+Layer-by-layer image caching is essential part of the werf build process. werf saves and reuses the build cache in the container registry and synchronizes parallel builders.
 
 <div class="details">
 <a href="javascript:void(0)" class="details__summary">How assembly works</a>
@@ -90,7 +86,7 @@ The image building algorithm in werf is different:
 1. If the next layer to be built is already present in the container registry, it will not be built or downloaded.
 2. If the next layer to be built is not in the container registry, the previous layer is downloaded (the base layer for building the current one).
 3. The new layer is built on the local machine and published to the container registry.
-4. At publishing time, werf relies on the content-addressable nature of stages: a stage tag is derived from its content digest, so identical content always maps to the same tag and concurrent publishing of identical content is registry-safe. Parallel builders may therefore build the same layer independently, but the published result is identical.
+4. At publishing time, werf automatically resolves conflicts between builders from different hosts that try to publish the same layer. Under a shared synchronization backend and a valid lock lease, a builder rechecks the registry and reuses an already published suitable layer. ([The built-in sync service](#synchronizing-builders) makes this possible).
 5. The process continues until all the layers of the image are built.
 
 The algorithm of stage selection in werf works as follows:
@@ -152,8 +148,6 @@ from: alpine:3.14
 ```
 
 ## Parallelism and image assembly order
-
-<!-- reference: https://werf.io/docs/v2/internals/build_process.html#parallel-build -->
 
 All the images described in `werf.yaml` are built in parallel on the same build host. Each image starts building as soon as all the images it depends on have been built — an image never waits for unrelated images.
 
@@ -503,6 +497,66 @@ Caching repositories have higher priority than the main repository when the buil
 
 You can clean up a caching repository by deleting it entirely without any risks.
 
+## Synchronizing builders
+
+<!-- reference https://werf.io/docs/v2/advanced/synchronization.html -->
+
+To coordinate publication of built images, werf synchronizes parallel builders. By default, the public synchronization service at [https://synchronization.werf.io/](https://synchronization.werf.io/) is used and no extra user interaction is required.
+
+<div class="details">
+<a href="javascript:void(0)" class="details__summary">How the synchronization service works</a>
+<div class="details__content" markdown="1">
+
+The synchronization service is a werf component that is designed to coordinate multiple werf processes. It acts as a _lock manager_. The locks are required to correctly publish new images to the container registry and to implement the build algorithm described in ["Layer-by-layer image caching"](#layer-by-layer-image-caching).
+
+The synchronization service receives the shared client ID, project name and stage digest used to identify each lock. Registry credentials and image contents are not part of the lock requests.
+
+All builders sharing a repository must use the same synchronization backend and project name. Failure to acquire a lock stops publication. As in v2, lease-based locking does not provide registry-side fencing during a prolonged network partition or an in-memory server restart.
+
+A synchronization service can be:
+1. An HTTP synchronization server implemented in the `werf synchronization` command.
+2. The ConfigMap resource in a Kubernetes cluster. The mechanism used is the [lockgate](https://github.com/werf/lockgate) library, which implements distributed locks by storing annotations in the selected resource.
+3. Local file locks provided by the operating system.
+
+</div>
+</div>
+
+### Using your own synchronization service
+
+#### HTTP server
+
+The synchronization server can be run with the `werf synchronization` command. In the example below, port 55581 (the default one) is used:
+
+```shell
+werf synchronization --host 0.0.0.0 --port 55581
+```
+
+By default, the HTTP server stores locks in process memory. Separate server processes do not share locks, even when given the same directory options; restarting the server loses its locks. Use `werf synchronization --kubernetes` to store locks in ConfigMaps in the fixed `werf-synchronization` namespace. The `--local`, `--local-lock-manager-base-dir`, `--local-stages-storage-cache-base-dir`, `--kubernetes-namespace-prefix` and `--ttl` options remain accepted for compatibility but have no effect.
+
+— This server only supports HTTP mode. To use HTTPS, you have to configure additional SSL termination by third-party tools (e.g., via the Kubernetes Ingress).
+
+Then, for all werf commands that use the `--repo` parameter, the `--synchronization=http[s]://DOMAIN` parameter must be specified as well, for example:
+
+```shell
+werf build --repo registry.mydomain.org/repo --synchronization https://synchronization.domain.org
+werf converge --repo registry.mydomain.org/repo --synchronization https://synchronization.domain.org
+```
+
+#### Kubernetes synchronization
+
+Use Kubernetes ConfigMap locks directly with `--synchronization=kubernetes://NAMESPACE[:CONTEXT][@CONFIG_PATH]`. An embedded kubeconfig is also supported: `kubernetes://NAMESPACE@base64:BASE64_CONFIG_DATA`. All builders must use the same cluster and namespace. The client needs permission to create the namespace and to read, create and update its ConfigMaps.
+
+#### Local synchronization
+
+Local synchronization is enabled by the `--synchronization=:local` option. The local _lock manager_ uses file locks provided by the operating system.
+
+```shell
+werf build --repo registry.mydomain.org/repo --synchronization :local
+werf converge --repo registry.mydomain.org/repo --synchronization :local
+```
+
+> **NOTE:** This method is only suitable if all werf runs are triggered by the same runner in your CI/CD system.
+
 ## Build report
 
 A build report captures the results of a build: image names, tags, digests, and other metadata. It can be saved to a file and then consumed by other werf commands to skip rebuilding.
@@ -556,16 +610,18 @@ The JSON report contains detailed information about the build:
 
 * **ImagesByPlatform** — per-platform breakdown for multiarch builds. This field is populated only when the `WERF_ENABLE_REPORT_BY_PLATFORM=1` environment variable is set. The record structure is the same as in `Images`, but the data is grouped by image name and platform.
 
-* **Operations** — aggregated timings of low-level build operations (stage build, image pull/push, registry API calls, git operations, stage lock waits and so on). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations.
+* **Operations** — aggregated timings of low-level operations collected for the whole command run (stage build, image pull/push, registry API calls, git operations, werf config render, giterminism initialization, stage lock waits and so on). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
 
-* **StageCache** — per-source counters of how stages were satisfied during the build: found in the local or repo stages storage, copied from a secondary storage, or built. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`).
+* **StageCache** — per-source counters of how stages were satisfied during the build, counted in stages: found in the local or repo stages storage, copied from a secondary storage, or built. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`).
 
-Example report in JSON format (the `Operations` and `StageCache` sections are present because the report was generated with `--build-report-operations`):
+* **RegistryCache** — counters of tag-list requests using a cached or shared result: `registry tags cache hit` (the listing came from the in-memory tags cache) and `registry tags shared result` (the result was shared by concurrent requests for the same repository). A shared result is counted for every caller, including the one that initiated the registry request, so this is not a count of avoided network requests. These counters are kept apart from `StageCache` because they count requests, not stages. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`), and omitted when no such request was recorded. Both cache sections follow the same rules as `Operations`: the console summary covers the whole command run, while a saved report covers only the interval since the previous report of the same command.
+
+Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache` sections are present because the report was generated with `--build-report-operations`):
 
 ```json
 {
   "Runtime": {
-    "WerfVersion": "v2.76.0",
+    "WerfVersion": "v3.6.1",
     "Backend": "docker",
     "InContainer": false
   },
@@ -617,12 +673,26 @@ Example report in JSON format (the `Operations` and `StageCache` sections are pr
   },
   "ImagesByPlatform": {},
   "Operations": {
+    "config render": {
+      "Count": 1,
+      "TotalTimeSeconds": 0.213458291,
+      "WallTimeSeconds": 0.213458291,
+      "AvgTimeSeconds": 0.213458291,
+      "MaxTimeSeconds": 0.213458291
+    },
     "docker daemon API": {
       "Count": 31,
       "TotalTimeSeconds": 0.61870432,
       "WallTimeSeconds": 0.549330501,
       "AvgTimeSeconds": 0.019958204,
       "MaxTimeSeconds": 0.112832542
+    },
+    "giterminism init": {
+      "Count": 1,
+      "TotalTimeSeconds": 0.122435459,
+      "WallTimeSeconds": 0.122435459,
+      "AvgTimeSeconds": 0.122435459,
+      "MaxTimeSeconds": 0.122435459
     },
     "local image inspect": {
       "Count": 5,
@@ -655,6 +725,10 @@ Example report in JSON format (the `Operations` and `StageCache` sections are pr
   },
   "StageCache": {
     "built": 2
+  },
+  "RegistryCache": {
+    "registry tags cache hit": 3,
+    "registry tags shared result": 1
   }
 }
 ```

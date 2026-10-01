@@ -29,10 +29,13 @@ These changes affect existing projects even without configuration edits:
 | `patches.yaml` | Not applied automatically. | Files from the main chart and dependent charts are applied automatically. | Check their contents; disable with `--no-default-patches`; [details](#automatic-patches-and-null). |
 | `null` in manifests | Preserved without an experimental cleanup flag. | Fields and list entries whose value is `null` are removed. | Check CRDs and intentional `null` values; [details](#automatic-patches-and-null). |
 | Sensitive data in diffs | `Secret` resources and resources annotated with `werf.io/sensitive: "true"` are hidden except for identifying fields. | Only `data.*` and `stringData.*` are hidden by default. | Set sensitive paths; [details](#sensitive-data-in-diffs). |
+| External dependencies | `<name>.external-dependency.werf.io/resource` waits for a resource outside the release. | The annotation is ignored with a warning. | Replace with `werf.io/deploy-dependency-<name>`; [details](#external-dependency-annotations). |
+| Resource deletion | Dependents are deleted with `Foreground` propagation. | `Background` propagation. | `--delete-propagation=Foreground`; [details](#resource-deletion-and-recreation). |
+| Readiness tracking | Condition types are matched case-sensitively. | Case-insensitively. | Check resources with `Ready` or `Available` conditions; [details](#readiness-tracking). |
 | Service values | `.Values.global.env` is populated automatically. | `.Values.global.werf.env` is populated automatically; the old key is no longer populated. | Temporary compatibility: `WERF_LEGACY_VALUES_GLOBAL_ENV=1`; [details](#values-and-environment-variables). |
 | Release storage | `HELM_DRIVER` is honored if `WERF_RELEASE_STORAGE` is not set. | `WERF_RELEASE_STORAGE` is used; without it, the default storage applies. | Transfer the variable's value; [details](#values-and-environment-variables). |
 | Published chart name | `--helm-compatible-chart=false`. | `--helm-compatible-chart=true`. | Pass `false` if you need the previous name; [details](#charts-and-bundles). |
-| `.helmignore` | Does not filter files when werf reads the chart. | **Since v3.6.0**, filters files, including Helm's default rules. | Check exclusions before deploying; [details](#charts-and-bundles). |
+| `.helmignore` | Does not filter files when werf reads the chart. | Filters files, including Helm's default rules. | Check exclusions before deploying; [details](#charts-and-bundles). |
 
 ### CI and automation
 
@@ -44,6 +47,7 @@ These changes affect existing projects even without configuration edits:
 
 - With `--exit-code` enabled, code `3` means a release-only update — see [Plan exit codes](#plan-exit-codes).
 - When reusing an image, the JSON build report may contain `StagesSkipped: true` without `Stages` — see [Build report format](#build-report-format).
+- The JSON deploy report identifies its format with `apiVersion` instead of `version` — see [Deploy report format](#deploy-report-format).
 
 ## Compatibility with v2
 
@@ -67,6 +71,8 @@ final: false
 ```
 
 Keep the other image settings unchanged.
+
+**Required for Stapel using `disableGitAfterPatch`:** remove the directive from `werf.yaml`; it is no longer supported, and an unknown key is a configuration error. v2 suggested it for keeping artifact behavior when replacing `artifact` with `image`. There is no equivalent switch in v3. Use `git.stageDependencies` to control which changes rerun build instructions, but this does not disable updates to the Git files themselves — see [Git dependencies of build stages](#git-dependencies-of-build-stages).
 
 ### Image names
 
@@ -158,9 +164,9 @@ See [Destination path rules]({{ "/usage/build/stapel/imports.html#destination-pa
 
 ### Git dependencies of build stages
 
-For Stapel with Git mappings: `git.stageDependencies` determines which Git file changes trigger Shell-stage rebuilds. **The rules below apply starting with v3.6.0.** In v3.5.0 and earlier v3 versions, both an omitted stage setting and an explicit `[]` are replaced with `**/*`: an empty list does not disable the direct Git-file dependency there. Upgrade to v3.6.0 or later to use `[]` and the partially filled block rules below.
+For Stapel with Git mappings: `git.stageDependencies` determines which Git file changes trigger Shell-stage rebuilds.
 
-Starting with v3.6.0, **an omitted setting and an explicit empty list can mean different things**:
+In v3, **an omitted setting and an explicit empty list can mean different things**:
 
 | Setting | Before — v2 | After — v3 |
 |---|---|---|
@@ -239,7 +245,7 @@ werf config list --final-images-only=false
 
 ### Synchronization server
 
-werf v3 no longer uses a synchronization server, including the public `synchronization.werf.io`. If you ran your own server, v3 no longer needs it. Shut it down only after upgrading all clients that use it; remaining v2 clients may still need it.
+werf v3 retains synchronization for publishing built images. Continue using the same synchronization server for all builders that share a repository. The `--synchronization` / `-S` flag, `WERF_SYNCHRONIZATION`, and `werf synchronization` command remain supported. Registry builds use the public `synchronization.werf.io` service by default; local builds use local file locks.
 
 ### Buildah
 
@@ -301,6 +307,45 @@ If you need an exception, use `--resource-validation-skip`; disable all resource
 
 **Fields and list entries whose value is `null` are now removed recursively.** In v2, this required an experimental flag. An absent field and an explicit `null` are not always equivalent for Kubernetes and CRDs, so check resources that intentionally use `null`. There is no switch to restore the previous behavior.
 
+**Non-string values in `metadata.annotations` and `metadata.labels` now fail rendering** with a `decode resource` error. In v2, such values were silently dropped. Quote numbers and booleans in templates, for example `example.com/replicas: "3"`. Resources already stored in a release are not rejected: their invalid entries are dropped with a warning.
+
+### External dependency annotations
+
+**Required if you wait for resources outside the release:** the `<name>.external-dependency.werf.io/resource` and `<name>.external-dependency.werf.io/namespace` annotations are no longer supported. werf prints a warning and does not wait for the resource. Replace them with `werf.io/deploy-dependency-<name>`, specifying `kind`, `version`, `name` and, for a group resource, `group`.
+
+Before — v2:
+
+```yaml
+annotations:
+  secret.external-dependency.werf.io/resource: secret/my-vault-secret
+  secret.external-dependency.werf.io/namespace: vault
+```
+
+After — v3:
+
+```yaml
+annotations:
+  werf.io/deploy-dependency-secret: state=ready,kind=Secret,version=v1,name=my-vault-secret,namespace=vault,external=true
+```
+
+`external=true` always treats the dependency as an external resource. With the default `external=auto`, a dependency that matches no release resource is also treated as external, so a mistyped selector waits for a cluster resource instead of failing. To order deletion after an external resource is gone, use `werf.io/delete-dependency-<name>` with `state=absent`.
+
+See [Waiting for non-release (external) resources]({{ "/usage/deploy/deployment_order.html#waiting-for-non-release-external-resources-werf-only" | true_relative_url }}) and [Resource dependencies]({{ "/reference/deploy_annotations.html#resource-dependencies" | true_relative_url }}).
+
+### Resource deletion and recreation
+
+**Resources are now deleted with `Background` propagation by default**, instead of `Foreground`. werf no longer waits for the dependents of a deleted resource, such as the Pods of a Deployment, to disappear before proceeding. If a subsequent step depends on that, set `werf.io/delete-propagation: Foreground` on the resource or pass `--delete-propagation=Foreground` / `WERF_DELETE_PROPAGATION=Foreground`.
+
+**A resource with `helm.sh/resource-policy` can no longer be recreated.** When an immutable field changes, the deploy fails with `cannot recreate the resource ... because its deletion is prohibited` instead of deleting and recreating the resource. Revert the field or remove the annotation for that deploy.
+
+### Readiness tracking
+
+Condition types are now matched case-insensitively. In v2, a CamelCase condition such as `Ready` or `Available` on a custom resource did not match the built-in `ready` rules, and the resource counted as ready immediately. Now werf waits for that condition to become `True`. If a custom resource never sets it, the deploy times out: set `werf.io/track-termination-mode: NonBlocking` on the resource or fix the controller.
+
+### Offline rendering
+
+Without cluster access, `werf render`, `werf lint` and `werf bundle render` now assume Kubernetes `1.36.0` instead of `1.20.0`. `.Capabilities.KubeVersion` changes accordingly, so templates that branch on it may render differently. Pass `--kube-version` to pin the previous version.
+
 ### Replacing removed werf helm commands
 
 Deployment and release-inspection commands under `werf helm` are removed. For werf projects, use the dedicated commands:
@@ -335,11 +380,13 @@ These are **workflow replacements, not drop-in aliases**. `converge`, `render` a
 
 The old `.Values.global.env` key can render as an empty value without an error. Set `WERF_LEGACY_VALUES_GLOBAL_ENV=1` for temporary compatibility.
 
-Without replacing `HELM_DRIVER`, werf uses its default release storage rather than the storage previously selected by that variable. Helm's path variables — `HELM_CACHE_HOME`, `HELM_CONFIG_HOME`, `HELM_DATA_HOME` — continue to work.
+Without replacing `HELM_DRIVER`, werf uses its default release storage rather than the storage previously selected by that variable.
+
+**Helm's path variables are no longer read.** `HELM_CACHE_HOME`, `HELM_CONFIG_HOME` and `HELM_DATA_HOME` are ignored: the chart repository list and the chart cache are located via `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`, by default `~/.config/helm` and `~/.cache/helm` on Linux. These XDG variables specify parent directories: for example, with `XDG_CONFIG_HOME=/custom/config`, werf reads `/custom/config/helm/repositories.yaml`, not `/custom/config/repositories.yaml`. To reuse repositories added in v2 under a custom `HELM_CONFIG_HOME`, copy their `repositories.yaml` into the new `helm` directory, or add the repositories again. Setting `XDG_CONFIG_HOME` to the old `HELM_CONFIG_HOME` alone does not preserve the location.
 
 ### Charts and bundles
 
-**Starting with v3.6.0, `.helmignore` applies when reading the chart.** In v3.5.0 and earlier v3 versions, werf's own chart loader did not apply it. Excluded files disappear from the rendered manifests and the published bundle **without a warning**.
+**In v3, `.helmignore` applies when reading the chart.** Excluded files disappear from the rendered manifests and the published bundle **without a warning**.
 
 - Even without `.helmignore`, Helm's default rules exclude dot-prefixed files and directories directly under `templates/`. Directories are excluded with their contents.
 - `**` now causes an error, although it previously had no effect.
@@ -400,15 +447,20 @@ If your scripts read the JSON build report:
 
 When reusing a completed image, the JSON build report may now contain `StagesSkipped: true` without a `Stages` field. In v2, `Stages` was present, although it could be `null`. Parsers must tolerate the missing field and not treat it as an error or as an indication that the image is not ready.
 
+### Deploy report format
+
+If your scripts read the JSON report saved by `--save-deploy-report`, `--save-rollback-report` or `--save-uninstall-report`:
+
+The format identifier changed: the `"version": 3` number is replaced with the `"apiVersion": "v3"` string, and `version` is gone. The other fields — `release`, `namespace`, `revision`, `status`, `completedOperations`, `canceledOperations`, `failedOperations` — are unchanged. Update scripts that read or validate `version` to check `apiVersion == "v3"` instead.
+
 ### Removed flags and modes
 
 Check scripts that pass old options: a removed flag causes an argument parsing error even if it previously did nothing.
 
 - `--virtual-merge` / `WERF_VIRTUAL_MERGE`, `--skip-image-spec-stage` / `WERF_SKIP_IMAGE_SPEC_STAGE`, `--set-runtime-json` and `--show-verbose-diffs` are removed.
-- `--synchronization` / `-S` / `WERF_SYNCHRONIZATION` and the `werf synchronization` command group are removed — see [Synchronization server](#synchronization-server).
+- `--force-adoption` is removed from `werf render` and `werf bundle render`, where it had no effect. Other deploy commands keep it.
 - Helm mode via `WERF_HELM3_MODE` and invoking the werf binary under the name `helm` are removed; use supported werf commands or the standalone Helm CLI.
 - Positional image names in `converge` and `plan` now take effect without `WERF_CONVERGE_ENABLE_IMAGES_PARAMS`. Check that stray arguments have not become image selectors; selecting images does not by itself limit which Kubernetes resources are deployed.
-- `cleanup --kube-scan-namespaces`, available in v2.79.1, was absent in v3.5.0 but is available again starting with v3.6.0. If your script uses it, upgrade to v3.6.0 or later rather than dropping the namespace restriction without checking access permissions and image protection.
 
 ## Registry cleanup
 

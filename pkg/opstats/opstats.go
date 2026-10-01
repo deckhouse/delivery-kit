@@ -26,16 +26,26 @@ const (
 	OperationGitChecksum             Operation = "git checksum"
 	OperationStageDigestLockWait     Operation = "stage lock wait (parallel tasks)"
 	OperationContextAddFiles         Operation = "context add files"
+	OperationConfigRender            Operation = "config render"
+	OperationGiterminismInit         Operation = "giterminism init"
 )
 
 type Event string
 
 const (
-	EventStageCacheHitLocal     Event = "found in local stages storage"
-	EventStageCacheHitRepo      Event = "found in repo stages storage"
-	EventStageCacheHitSecondary Event = "copied from secondary storage"
-	EventStageBuilt             Event = "built"
+	EventStageCacheHitLocal       Event = "found in local stages storage"
+	EventStageCacheHitRepo        Event = "found in repo stages storage"
+	EventStageCacheHitSecondary   Event = "copied from secondary storage"
+	EventStageBuilt               Event = "built"
+	EventRegistryTagsCacheHit     Event = "registry tags cache hit"
+	EventRegistryTagsSharedResult Event = "registry tags shared result"
 )
+
+// IsRegistryEvent reports whether the event counts registry API requests rather
+// than stages; the build report and the console summary keep the two apart.
+func IsRegistryEvent(ctx context.Context, event Event) bool {
+	return event == EventRegistryTagsCacheHit || event == EventRegistryTagsSharedResult
+}
 
 type ctxKeyType struct{}
 
@@ -110,9 +120,11 @@ func NewObservedReadCloser(rc io.ReadCloser, done func()) io.ReadCloser {
 }
 
 type Collector struct {
-	mu        sync.Mutex
-	intervals map[Operation][]interval
-	events    map[Event]int
+	mu            sync.Mutex
+	intervals     map[Operation][]interval
+	events        map[Event]int
+	flushedOps    map[Operation]int
+	flushedEvents map[Event]int
 }
 
 type interval struct {
@@ -150,8 +162,29 @@ func (c *Collector) Summary() []OperationSummary {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	res := make([]OperationSummary, 0, len(c.intervals))
-	for op, intervals := range c.intervals {
+	return summarizeOperations(c.intervals, nil)
+}
+
+// PendingSummary returns the same stats as Summary but only for the intervals
+// recorded since the last CommitFlush, without advancing the flush mark. The
+// build report uses the pending/commit pair so that a report covers only the
+// build that wrote it (e.g. across --follow iterations) and a failed report
+// write does not lose the pending observations.
+func (c *Collector) PendingSummary(ctx context.Context) []OperationSummary {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return summarizeOperations(c.intervals, c.flushedOps)
+}
+
+func summarizeOperations(intervalsByOp map[Operation][]interval, skipByOp map[Operation]int) []OperationSummary {
+	res := make([]OperationSummary, 0, len(intervalsByOp))
+	for op, intervals := range intervalsByOp {
+		intervals = intervals[skipByOp[op]:]
+		if len(intervals) == 0 {
+			continue
+		}
+
 		var total, max time.Duration
 		for _, iv := range intervals {
 			d := iv.end.Sub(iv.start)
@@ -191,8 +224,47 @@ func (c *Collector) EventSummary() []EventSummary {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	res := make([]EventSummary, 0, len(c.events))
+	return summarizeEvents(c.events, nil)
+}
+
+// PendingEventSummary returns the counters accumulated since the last
+// CommitFlush without advancing the flush mark, mirroring PendingSummary.
+func (c *Collector) PendingEventSummary(ctx context.Context) []EventSummary {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return summarizeEvents(c.events, c.flushedEvents)
+}
+
+// CommitFlush advances the flush mark past everything recorded so far, so the
+// next Pending* calls return only later observations. Call it after the report
+// consuming the pending summaries has been successfully delivered.
+func (c *Collector) CommitFlush(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.flushedOps == nil {
+		c.flushedOps = make(map[Operation]int)
+	}
+	for op, intervals := range c.intervals {
+		c.flushedOps[op] = len(intervals)
+	}
+
+	if c.flushedEvents == nil {
+		c.flushedEvents = make(map[Event]int)
+	}
 	for event, count := range c.events {
+		c.flushedEvents[event] = count
+	}
+}
+
+func summarizeEvents(counts, skipCounts map[Event]int) []EventSummary {
+	res := make([]EventSummary, 0, len(counts))
+	for event, count := range counts {
+		count -= skipCounts[event]
+		if count == 0 {
+			continue
+		}
 		res = append(res, EventSummary{Event: event, Count: count})
 	}
 

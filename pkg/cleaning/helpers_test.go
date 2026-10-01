@@ -82,10 +82,6 @@ func (f *fakeStorageManager) ForEachGetStageCustomTagMetadata(_ context.Context,
 	return nil
 }
 
-func (f *fakeStorageManager) GetFinalStagesStorage() storage.StagesStorage {
-	return nil
-}
-
 func (f *fakePrimaryStagesStorage) GetAllAndGroupImageMetadataByImageName(_ context.Context, _ string, _ []string, _ ...storage.Option) (map[string]map[string][]string, map[string]map[string][]string, error) {
 	return nil, nil, nil
 }

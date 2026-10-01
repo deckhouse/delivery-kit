@@ -49,7 +49,10 @@ func writeBuildReport(records ...ReportImageRecord) string {
 }
 
 func newReportPhase(reportPath string) *BuildPhase {
-	return NewBuildPhase(nil, BuildPhaseOptions{BuildOptions: BuildOptions{ReportPath: reportPath, ReportFormat: ReportJSON}})
+	return &BuildPhase{
+		BuildPhaseOptions: BuildPhaseOptions{BuildOptions: BuildOptions{ReportPath: reportPath, ReportFormat: ReportJSON}},
+		ImagesReport:      NewImagesReport(),
+	}
 }
 
 type operationsReport struct {

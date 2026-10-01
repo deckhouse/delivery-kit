@@ -1,8 +1,8 @@
 package docker
 
 import (
-	"github.com/docker/docker/api/types"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	dockerImage "github.com/moby/moby/api/types/image"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -10,8 +10,8 @@ import (
 var _ = Describe("NewInfoFromInspect", func() {
 	const digest = "sha256:55f867c1fdc3df868f2954f1e294c1ed2d4d3048d772b4a3d312b6f94e95d739"
 
-	newInspect := func(repoDigests ...string) *types.ImageInspect {
-		return &types.ImageInspect{
+	newInspect := func(repoDigests ...string) *dockerImage.InspectResponse {
+		return &dockerImage.InspectResponse{
 			ID:          "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			RepoDigests: repoDigests,
 			Created:     "2026-01-01T00:00:00Z",

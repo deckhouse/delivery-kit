@@ -16,7 +16,7 @@ var _ = Describe("WerfConfig", func() {
 	Describe("import validation independent of base image", func() {
 		for _, from := range []string{"scratch", "alpine:3.20", "source"} {
 			Context(fmt.Sprintf("base %q", from), func() {
-				DescribeTable("validates import references", func(importFrom string, expectedErr types.GomegaMatcher) {
+				DescribeTable("validates import references", func(ctx SpecContext, importFrom string, expectedErr types.GomegaMatcher) {
 					var rawImages []*rawStapelImage
 					for _, content := range []string{
 						fmt.Sprintf("image: app\nfrom: %q\nimport:\n- from: %q\n  after: install\n  add: /src\n  to: /app\n", from, importFrom),
@@ -28,7 +28,7 @@ var _ = Describe("WerfConfig", func() {
 						rawImages = append(rawImages, rawImage)
 					}
 
-					_, err := prepareWerfConfig(newTestGiterminismManager(), rawImages, nil, &Meta{ConfigVersion: 1, Project: "test"})
+					_, err := prepareWerfConfig(ctx, newTestGiterminismManager(), rawImages, nil, &Meta{ConfigVersion: 1, Project: "test"})
 					Expect(err).To(expectedErr)
 				},
 					Entry("rejects an untagged external image", "alpine", MatchError(ContainSubstring("external image reference \"alpine\" in import `from` must include a tag"))),

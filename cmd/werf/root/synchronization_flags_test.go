@@ -35,5 +35,6 @@ var _ = ginkgo.DescribeTable("Kubernetes synchronization flags", func(commandPat
 	ginkgo.Entry("managed-images rm", "managed-images rm"),
 	ginkgo.Entry("purge", "purge"),
 	ginkgo.Entry("run", "run"),
+	ginkgo.Entry("sbom get", "sbom get"),
 	ginkgo.Entry("stage image", "stage image"),
 )

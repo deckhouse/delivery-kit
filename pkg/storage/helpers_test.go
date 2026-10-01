@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
@@ -181,6 +183,7 @@ type localImageListBackendStub struct {
 	images  image.ImagesList
 	err     error
 	options container_backend.ImagesOptions
+	onList  func()
 	mu      sync.Mutex
 	calls   int
 }
@@ -190,5 +193,75 @@ func (backend *localImageListBackendStub) Images(_ context.Context, options cont
 	defer backend.mu.Unlock()
 	backend.calls++
 	backend.options = options
+	if backend.onList != nil {
+		backend.onList()
+	}
 	return backend.images, backend.err
 }
+
+var (
+	_ container_backend.ContainerBackend    = (*localPublishBackendStub)(nil)
+	_ container_backend.NativeConfigMutator = (*localPublishBackendStub)(nil)
+)
+
+type localPublishBackendStub struct {
+	*localImageListBackendStub
+	tagImageErr error
+	nativeErr   error
+	tagErr      error
+	onTag       func()
+	tagged      []string
+}
+
+func newLocalPublishBackendStub(images image.ImagesList) *localPublishBackendStub {
+	return &localPublishBackendStub{localImageListBackendStub: &localImageListBackendStub{images: images}}
+}
+
+func (backend *localPublishBackendStub) TagImageByName(_ context.Context, img container_backend.LegacyImageInterface) error {
+	if backend.onTag != nil {
+		backend.onTag()
+	}
+	if backend.tagImageErr != nil {
+		return backend.tagImageErr
+	}
+	backend.tagged = append(backend.tagged, img.Name())
+	return nil
+}
+
+func (backend *localPublishBackendStub) MutateAndPushImageNative(_ context.Context, _, dest string, _ image.SpecConfig, _ string) error {
+	if backend.nativeErr != nil {
+		return backend.nativeErr
+	}
+	backend.tagged = append(backend.tagged, dest)
+	return nil
+}
+
+func (backend *localPublishBackendStub) GetImageConfigFile(_ context.Context, _ string) (*v1.ConfigFile, error) {
+	return &v1.ConfigFile{}, nil
+}
+
+func (backend *localPublishBackendStub) LoadImageFromStream(_ context.Context, input io.Reader) (string, error) {
+	if _, err := io.Copy(io.Discard, input); err != nil {
+		return "", err
+	}
+	return "sha256:mutated", nil
+}
+
+func (backend *localPublishBackendStub) Tag(_ context.Context, _, dest string, _ container_backend.TagOpts) error {
+	if backend.tagErr != nil {
+		return backend.tagErr
+	}
+	backend.tagged = append(backend.tagged, dest)
+	return nil
+}
+
+var _ container_backend.LegacyImageInterface = (*localStageImageStub)(nil)
+
+type localStageImageStub struct {
+	container_backend.LegacyImageInterface
+	name string
+}
+
+func (img *localStageImageStub) Name() string { return img.name }
+
+func (img *localStageImageStub) GetTargetPlatform() string { return "" }

@@ -115,40 +115,34 @@ func (storage *LocalStagesStorage) GetStagesIDs(ctx context.Context, projectName
 
 func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, projectName, digest string, parentStageCreationTs int64, opts ...Option) ([]image.StageID, error) {
 	withCache := makeOptions(opts...).withCache
-	reference := fmt.Sprintf(FilterReferenceLocalStageByDigestFormat, projectName, digest)
+	prefix := fmt.Sprintf(LocalStage_ImageFormat, projectName, digest)
+
 	var images image.ImagesList
-	var cached bool
 	if withCache {
 		storage.imagesCacheMutex.Lock()
 		defer storage.imagesCacheMutex.Unlock()
-		images, cached = storage.imagesCache[projectName]
-		reference = fmt.Sprintf(LocalStage_ImageRepoFormat, projectName)
-	}
 
-	if !cached {
-		var err error
-		images, err = storage.ContainerBackend.Images(ctx, container_backend.ImagesOptions{
-			Filters: []util.Pair[string, string]{util.NewPair("reference", reference)},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("unable to get docker images: %w", err)
-		}
-		if withCache {
+		cached, isCached := storage.imagesCache[projectName]
+		if !isCached {
+			var err error
+			cached, err = storage.listImages(ctx, fmt.Sprintf(LocalStage_ImageRepoFormat, projectName))
+			if err != nil {
+				return nil, err
+			}
 			if storage.imagesCache == nil {
 				storage.imagesCache = make(map[string]image.ImagesList)
 			}
-			storage.imagesCache[projectName] = images
+			storage.imagesCache[projectName] = cached
 		}
-	}
 
-	if withCache {
-		prefix := projectName + ":" + digest
-		images = lo.FilterMap(images, func(summary image.Summary, _ int) (image.Summary, bool) {
-			summary.RepoTags = lo.Filter(summary.RepoTags, func(tag string, _ int) bool {
-				return strings.HasPrefix(strings.TrimPrefix(tag, "localhost/"), prefix)
-			})
-			return summary, len(summary.RepoTags) > 0
-		})
+		images = selectImagesByPrefix(cached, prefix)
+	} else {
+		var err error
+		images, err = storage.listImages(ctx, fmt.Sprintf(FilterReferenceLocalStageByDigestFormat, projectName, digest))
+		if err != nil {
+			return nil, err
+		}
+		storage.refreshCachedDigest(projectName, prefix, images)
 	}
 
 	stagesIDs, err := images.ConvertToStages()
@@ -167,6 +161,73 @@ func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, pro
 	}
 
 	return resultStageIDs, nil
+}
+
+func (storage *LocalStagesStorage) listImages(ctx context.Context, reference string) (image.ImagesList, error) {
+	images, err := storage.ContainerBackend.Images(ctx, container_backend.ImagesOptions{
+		Filters: []util.Pair[string, string]{util.NewPair("reference", reference)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to get docker images: %w", err)
+	}
+	return images, nil
+}
+
+func selectImagesByPrefix(images image.ImagesList, prefix string) image.ImagesList {
+	return lo.FilterMap(images, func(summary image.Summary, _ int) (image.Summary, bool) {
+		summary.RepoTags = lo.Filter(summary.RepoTags, func(tag string, _ int) bool {
+			return strings.HasPrefix(trimLocalhostPrefix(tag), prefix)
+		})
+		return summary, len(summary.RepoTags) > 0
+	})
+}
+
+func trimLocalhostPrefix(reference string) string {
+	return strings.TrimPrefix(reference, "localhost/")
+}
+
+// refreshCachedDigest replaces the tags of the given digest in an already initialized project
+// snapshot with the result of a fresh listing of that digest, leaving tags of other digests — even
+// aliases of the same image — in place. A digest-filtered listing says nothing about the rest of
+// the project, so it never initializes the snapshot.
+func (storage *LocalStagesStorage) refreshCachedDigest(projectName, prefix string, fresh image.ImagesList) {
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
+	cached, isCached := storage.imagesCache[projectName]
+	if !isCached {
+		return
+	}
+
+	kept := lo.FilterMap(cached, func(summary image.Summary, _ int) (image.Summary, bool) {
+		if len(summary.RepoTags) == 0 {
+			return summary, true
+		}
+		summary.RepoTags = lo.Filter(summary.RepoTags, func(tag string, _ int) bool {
+			return !strings.HasPrefix(trimLocalhostPrefix(tag), prefix)
+		})
+		return summary, len(summary.RepoTags) > 0
+	})
+
+	storage.imagesCache[projectName] = append(kept, selectImagesByPrefix(fresh, prefix)...)
+}
+
+// rememberPublishedStage makes a stage image this process has just tagged visible to the cached
+// lookups of the same project, which otherwise would not see it until the snapshot is dropped.
+func (storage *LocalStagesStorage) rememberPublishedStage(reference string) {
+	projectName, tag := image.ParseRepositoryAndTag(trimLocalhostPrefix(reference))
+	if projectName == "" || tag == "" {
+		return
+	}
+
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
+	cached, isCached := storage.imagesCache[projectName]
+	if !isCached {
+		return
+	}
+	storage.imagesCache[projectName] = append(cached, image.Summary{RepoTags: []string{reference}})
 }
 
 func (storage *LocalStagesStorage) GetStageDesc(ctx context.Context, projectName string, stageID image.StageID) (*image.StageDesc, error) {
@@ -264,7 +325,11 @@ func (storage *LocalStagesStorage) FetchImage(ctx context.Context, img container
 }
 
 func (storage *LocalStagesStorage) StoreImage(ctx context.Context, img container_backend.LegacyImageInterface) error {
-	return storage.ContainerBackend.TagImageByName(ctx, img)
+	if err := storage.ContainerBackend.TagImageByName(ctx, img); err != nil {
+		return err
+	}
+	storage.rememberPublishedStage(img.Name())
+	return nil
 }
 
 func (storage *LocalStagesStorage) ShouldFetchImage(ctx context.Context, img container_backend.LegacyImageInterface) (bool, error) {
@@ -397,6 +462,7 @@ func (storage *LocalStagesStorage) MutateAndPushImage(ctx context.Context, src, 
 	if mutator, ok := storage.ContainerBackend.(container_backend.NativeConfigMutator); ok {
 		err := mutator.MutateAndPushImageNative(ctx, src, dest, newConfig, stageImage.GetTargetPlatform())
 		if err == nil {
+			storage.rememberPublishedStage(dest)
 			return nil
 		}
 		if !container_backend.IsNativeMutationUnsupported(err) {
@@ -413,6 +479,7 @@ func (storage *LocalStagesStorage) MutateAndPushImage(ctx context.Context, src, 
 	if err := storage.ContainerBackend.Tag(ctx, newId, dest, container_backend.TagOpts{}); err != nil {
 		return fmt.Errorf("unable to tag image %q as %q: %w", newId, dest, err)
 	}
+	storage.rememberPublishedStage(dest)
 
 	return nil
 }

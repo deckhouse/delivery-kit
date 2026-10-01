@@ -9,6 +9,7 @@ import (
 	"github.com/onsi/gomega"
 
 	"github.com/werf/common-go/pkg/util"
+	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/image"
 )
 
@@ -215,6 +216,169 @@ var _ = ginkgo.Describe("Local stage lookup cache", func() {
 		for err := range results {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+		gomega.Expect(backend.calls).To(gomega.Equal(1))
+	})
+})
+
+var _ = ginkgo.Describe("Local stage lookup cache maintenance", func() {
+	warmSnapshot := image.ImagesList{{RepoTags: []string{"project:" + cachedTagA, "project:" + cachedTagB}}}
+
+	warmedStorage := func(ctx ginkgo.SpecContext, backend container_backend.ContainerBackend) *LocalStagesStorage {
+		storage := NewLocalStagesStorage(backend)
+		stages, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0, WithCache())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(stageStrings(stages)).To(gomega.ConsistOf(cachedTagA))
+		return storage
+	}
+
+	cachedStages := func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, digest string) []string {
+		stages, err := storage.GetStagesIDsByDigest(ctx, "project", digest, 0, WithCache())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		return stageStrings(stages)
+	}
+
+	ginkgo.DescribeTable("refreshes the cached tags of the listed digest only",
+		func(ctx ginkgo.SpecContext, freshListing image.ImagesList, expectedA, expectedB []string) {
+			backend := &localImageListBackendStub{images: warmSnapshot}
+			storage := warmedStorage(ctx, backend)
+
+			backend.images = freshListing
+			_, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.ConsistOf(expectedA))
+			gomega.Expect(cachedStages(ctx, storage, cachedDigestB)).To(gomega.ConsistOf(expectedB))
+			gomega.Expect(backend.calls).To(gomega.Equal(2))
+		},
+		ginkgo.Entry("a new tag of the digest becomes visible", image.ImagesList{
+			{RepoTags: []string{"project:" + cachedTagA}},
+			{RepoTags: []string{"project:" + cachedTagA2}},
+		}, []string{cachedTagA, cachedTagA2}, []string{cachedTagB}),
+		ginkgo.Entry("a replaced tag of the digest drops the old one", image.ImagesList{
+			{RepoTags: []string{"project:" + cachedTagA2}},
+		}, []string{cachedTagA2}, []string{cachedTagB}),
+		ginkgo.Entry("an empty listing clears the digest only", image.ImagesList{},
+			[]string{}, []string{cachedTagB}),
+		ginkgo.Entry("an alias of another digest is not duplicated", image.ImagesList{
+			{RepoTags: []string{"project:" + cachedTagA2, "project:" + cachedTagB}},
+		}, []string{cachedTagA2}, []string{cachedTagB}),
+		ginkgo.Entry("a Buildah reference refreshes the same digest", image.ImagesList{
+			{RepoTags: []string{"localhost/project:" + cachedTagA2}},
+		}, []string{cachedTagA2}, []string{cachedTagB}),
+	)
+
+	ginkgo.It("keeps the cached tags when a fresh listing fails", func(ctx ginkgo.SpecContext) {
+		listErr := errors.New("list failed")
+		backend := &localImageListBackendStub{images: warmSnapshot}
+		storage := warmedStorage(ctx, backend)
+
+		backend.images, backend.err = nil, listErr
+		_, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0)
+		gomega.Expect(err).To(gomega.MatchError(listErr))
+
+		backend.err = nil
+		gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.ConsistOf(cachedTagA))
+	})
+
+	ginkgo.It("does not initialize the snapshot from a digest-filtered listing", func(ctx ginkgo.SpecContext) {
+		backend := &localImageListBackendStub{images: image.ImagesList{{RepoTags: []string{"project:" + cachedTagA}}}}
+		storage := NewLocalStagesStorage(backend)
+
+		fresh, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(stageStrings(fresh)).To(gomega.ConsistOf(cachedTagA))
+
+		backend.images = warmSnapshot
+		gomega.Expect(cachedStages(ctx, storage, cachedDigestB)).To(gomega.ConsistOf(cachedTagB))
+		gomega.Expect(backend.calls).To(gomega.Equal(2))
+		gomega.Expect(backend.options.Filters).To(gomega.Equal([]util.Pair[string, string]{util.NewPair("reference", "project")}))
+	})
+
+	ginkgo.It("caches the fresh listing before the parent timestamp filter", func(ctx ginkgo.SpecContext) {
+		backend := &localImageListBackendStub{images: warmSnapshot}
+		storage := warmedStorage(ctx, backend)
+
+		backend.images = image.ImagesList{
+			{RepoTags: []string{"project:" + cachedTagA}},
+			{RepoTags: []string{"project:" + cachedTagA2}},
+		}
+		filtered, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 1700000000002)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(stageStrings(filtered)).To(gomega.ConsistOf(cachedTagA2))
+
+		gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.ConsistOf(cachedTagA, cachedTagA2))
+	})
+
+	ginkgo.DescribeTable("makes a stage published by this process visible to cached lookups",
+		func(ctx ginkgo.SpecContext, publish func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, backend *localPublishBackendStub) error, expectedTags []string) {
+			backend := newLocalPublishBackendStub(image.ImagesList{{RepoTags: []string{"project:" + cachedTagB}}})
+			storage := NewLocalStagesStorage(backend)
+			gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.BeEmpty())
+
+			err := publish(ctx, storage, backend)
+			if len(expectedTags) == 0 {
+				gomega.Expect(err).To(gomega.HaveOccurred())
+			} else {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.ConsistOf(expectedTags))
+			gomega.Expect(cachedStages(ctx, storage, cachedDigestB)).To(gomega.ConsistOf(cachedTagB))
+			gomega.Expect(backend.calls).To(gomega.Equal(1))
+		},
+		ginkgo.Entry("a tagged stage image", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, _ *localPublishBackendStub) error {
+			return storage.StoreImage(ctx, &localStageImageStub{name: "project:" + cachedTagA})
+		}, []string{cachedTagA}),
+		ginkgo.Entry("a stage image that could not be tagged", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, backend *localPublishBackendStub) error {
+			backend.tagImageErr = errors.New("tag failed")
+			return storage.StoreImage(ctx, &localStageImageStub{name: "project:" + cachedTagA})
+		}, nil),
+		ginkgo.Entry("a natively mutated stage image", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, _ *localPublishBackendStub) error {
+			return storage.MutateAndPushImage(ctx, "project:"+cachedTagB, "project:"+cachedTagA, image.SpecConfig{}, &localStageImageStub{name: "project:" + cachedTagB})
+		}, []string{cachedTagA}),
+		ginkgo.Entry("a stage image mutated through the save/load fallback", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, backend *localPublishBackendStub) error {
+			backend.nativeErr = container_backend.ErrNativeMutationUnsupported
+			return storage.MutateAndPushImage(ctx, "project:"+cachedTagB, "project:"+cachedTagA, image.SpecConfig{}, &localStageImageStub{name: "project:" + cachedTagB})
+		}, []string{cachedTagA}),
+		ginkgo.Entry("a stage image whose native mutation failed", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, backend *localPublishBackendStub) error {
+			backend.nativeErr = errors.New("mutation failed")
+			return storage.MutateAndPushImage(ctx, "project:"+cachedTagB, "project:"+cachedTagA, image.SpecConfig{}, &localStageImageStub{name: "project:" + cachedTagB})
+		}, nil),
+		ginkgo.Entry("a Buildah stage image", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, _ *localPublishBackendStub) error {
+			return storage.StoreImage(ctx, &localStageImageStub{name: "localhost/project:" + cachedTagA})
+		}, []string{cachedTagA}),
+	)
+
+	ginkgo.It("does not lose a stage published while the project listing is in flight", func(ctx ginkgo.SpecContext) {
+		listing, release, tagging := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		backend := newLocalPublishBackendStub(nil)
+		backend.onList = func() {
+			close(listing)
+			<-release
+		}
+		backend.onTag = func() { close(tagging) }
+		storage := NewLocalStagesStorage(backend)
+
+		lookup := make(chan []string, 1)
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			stages, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0, WithCache())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			lookup <- stageStrings(stages)
+		}()
+		<-listing
+
+		stored := make(chan error, 1)
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			stored <- storage.StoreImage(ctx, &localStageImageStub{name: "project:" + cachedTagA})
+		}()
+		<-tagging
+		close(release)
+
+		gomega.Expect(<-stored).To(gomega.Succeed())
+		gomega.Expect(<-lookup).To(gomega.BeEmpty())
+		gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.ConsistOf(cachedTagA))
 		gomega.Expect(backend.calls).To(gomega.Equal(1))
 	})
 })

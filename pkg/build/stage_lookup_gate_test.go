@@ -41,9 +41,10 @@ var _ = ginkgo.Describe("Stage lookup strictness gate", func() {
 		return phase, storageManager
 	}
 
-	ginkgo.It("uses the recent-cache primary lookup in normal build mode", func() {
+	ginkgo.It("uses only the cached primary lookup in normal build mode", func() {
 		_, storageManager := newPhaseWithImage(false)
-		gomega.Expect(storageManager.recentPrimaryLookups).To(gomega.BeNumerically(">", 0))
+		gomega.Expect(storageManager.cachedPrimaryLookups).To(gomega.BeNumerically(">", 0))
+		gomega.Expect(storageManager.recentPrimaryLookups).To(gomega.BeZero())
 		gomega.Expect(storageManager.strictPrimaryLookups).To(gomega.BeZero())
 	})
 

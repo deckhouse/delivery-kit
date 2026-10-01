@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.80.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.79.2-dk.1...v2.80.2-dk.1) (2026-10-01)
+
+
+### Features
+
+* **build:** collect operations statistics for the whole command run ([#7856](https://github.com/deckhouse/delivery-kit/issues/7856)) ([51c0d31](https://github.com/deckhouse/delivery-kit/commit/51c0d31ea28e48c0b8553a531579859b835e9ae0))
+
+
+### Bug Fixes
+
+* **build:** reduce repeated registry token requests ([#7955](https://github.com/deckhouse/delivery-kit/issues/7955)) ([08dd45b](https://github.com/deckhouse/delivery-kit/commit/08dd45b36bc3bae719663a1e4aa70009443ad0de))
+* **build:** report invalid .dockerignore patterns without panicking ([#7993](https://github.com/deckhouse/delivery-kit/issues/7993)) ([1e6268e](https://github.com/deckhouse/delivery-kit/commit/1e6268e27f972819db54f89a2c8b268ef89d9438))
+* **deploy:** recreate StatefulSet and other custom-validated kinds on immutable field change ([#7990](https://github.com/deckhouse/delivery-kit/issues/7990)) ([1a7e9b3](https://github.com/deckhouse/delivery-kit/commit/1a7e9b3061859ea29f45cdd736b553fba866e1c0))
+* **sbom:** collect statistics across the whole get command ([96e4e8d](https://github.com/deckhouse/delivery-kit/commit/96e4e8dc3f7bb3c48a3699cff28b8ffee8876f67))
+
+
+### Miscellaneous Chores
+
+* force release 2.80.2-dk.1 ([09825de](https://github.com/deckhouse/delivery-kit/commit/09825dedea715d7ba91aa74556e3c926619a4005))
+
 ## [2.79.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.79.1-dk.1...v2.79.2-dk.1) (2026-09-25)
 
 

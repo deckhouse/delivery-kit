@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.6.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.2...v3.6.2-dk.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **build:** prevent duplicate images from concurrent builders ([#7989](https://github.com/deckhouse/delivery-kit/issues/7989)) ([bfaad77](https://github.com/deckhouse/delivery-kit/commit/bfaad7793c99f408d2b1f700035cd9ebf7158e86))
+* **deploy:** recreate StatefulSet and other custom-validated kinds on immutable field change ([#7994](https://github.com/deckhouse/delivery-kit/issues/7994)) ([a0128c4](https://github.com/deckhouse/delivery-kit/commit/a0128c4a10c76d8c98ffe0d966f1920d2ba40003))
+* **sbom:** collect statistics across the whole get command ([7a9a7f5](https://github.com/deckhouse/delivery-kit/commit/7a9a7f58fb2eff11c1b0d2711eb8cfa4a2d12fd7))
+
+
+### Miscellaneous Chores
+
+* force release 3.6.2-dk.1 ([be6deca](https://github.com/deckhouse/delivery-kit/commit/be6deca0de01cd1e79fd0b9b52f4b281d04b93ec))
+
 ## [3.6.1-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.1...v3.6.1-dk.2) (2026-10-01)
 
 

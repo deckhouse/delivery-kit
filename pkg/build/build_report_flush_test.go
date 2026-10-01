@@ -20,20 +20,26 @@ var _ = Describe("createBuildReport operations flush", func() {
 		opstats.Observe(ctx, opstats.OperationStageBuild)()
 		opstats.CountEvent(ctx, opstats.EventStageBuilt)
 
-		failPhase := NewBuildPhase(nil, BuildPhaseOptions{BuildOptions: BuildOptions{
-			ReportPath:   filepath.Join(GinkgoT().TempDir(), "missing-dir", "report.json"),
-			ReportFormat: ReportJSON,
-		}})
+		failPhase := &BuildPhase{
+			ImagesReport: NewImagesReport(),
+			BuildPhaseOptions: BuildPhaseOptions{BuildOptions: BuildOptions{
+				ReportPath:   filepath.Join(GinkgoT().TempDir(), "missing-dir", "report.json"),
+				ReportFormat: ReportJSON,
+			}},
+		}
 		Expect(createBuildReport(ctx, failPhase, nil)).To(HaveOccurred())
 
 		opstats.Observe(ctx, opstats.OperationStageBuild)()
 		opstats.CountEvent(ctx, opstats.EventStageBuilt)
 
 		reportPath := filepath.Join(GinkgoT().TempDir(), "report.json")
-		okPhase := NewBuildPhase(nil, BuildPhaseOptions{BuildOptions: BuildOptions{
-			ReportPath:   reportPath,
-			ReportFormat: ReportJSON,
-		}})
+		okPhase := &BuildPhase{
+			ImagesReport: NewImagesReport(),
+			BuildPhaseOptions: BuildPhaseOptions{BuildOptions: BuildOptions{
+				ReportPath:   reportPath,
+				ReportFormat: ReportJSON,
+			}},
+		}
 		Expect(createBuildReport(ctx, okPhase, nil)).To(Succeed())
 
 		data, err := os.ReadFile(reportPath)

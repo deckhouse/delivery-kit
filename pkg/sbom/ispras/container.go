@@ -24,7 +24,7 @@ type ContainerAssembler struct{}
 // container replaces the image's root component, taking over every reference to
 // it and the document properties of the image, which describe that image and
 // not the product.
-func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
+func (a *ContainerAssembler) Assemble(ctx context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
 	if err := validateImages(images); err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		}
 
 		imgComponents := append(slices.Clone(lo.FromPtr(container.Components)), lo.FromPtr(imgBOM.Components)...)
-		setMissingGOSTOnComponent(&container, aggregateGOST(imgComponents))
+		applyGOSTToContainer(ctx, &container, aggregateGOST(ctx, imgComponents))
 		if len(imgComponents) > 0 {
 			container.Components = &imgComponents
 		}
@@ -69,7 +69,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		wrapped = append(wrapped, imgBOM)
 	}
 
-	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
+	result, err := cyclonedxutil.MergeBOMs(ctx, nil, cyclonedxutil.MergeOpts{
 		ImportBOMs:        wrapped,
 		PreserveBOMRefs:   true,
 		IsolateComponents: true,
@@ -78,7 +78,7 @@ func (a *ContainerAssembler) Assemble(_ context.Context, images []*ImageSBOM, me
 		return nil, fmt.Errorf("merge image BOMs: %w", err)
 	}
 
-	result.Metadata = buildProductMetadata(meta)
+	result.Metadata = buildProductMetadata(ctx, meta, aggregateSourceLangs(ctx, images))
 
 	return result, nil
 }

@@ -79,19 +79,19 @@ var _ = Describe("dedupPtrSlice", func() {
 })
 
 var _ = Describe("Canonicalize", func() {
-	It("handles nil BOM", func() {
-		Expect(func() { Canonicalize(nil) }).ToNot(Panic())
+	It("handles nil BOM", func(ctx SpecContext) {
+		Expect(func() { Canonicalize(ctx, nil) }).ToNot(Panic())
 	})
 
-	It("handles BOM with nil sections", func() {
+	It("handles BOM with nil sections", func(ctx SpecContext) {
 		bom := &cdx.BOM{}
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 		Expect(bom.Components).To(BeNil())
 		Expect(bom.Services).To(BeNil())
 		Expect(bom.Dependencies).To(BeNil())
 	})
 
-	It("merges components sharing a purl and ignores the package-id qualifier", func() {
+	It("merges components sharing a purl and ignores the package-id qualifier", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -114,7 +114,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Components).To(HaveLen(1))
 		comp := (*bom.Components)[0]
@@ -123,7 +123,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*comp.Properties).To(HaveLen(2))
 	})
 
-	It("merges components without a purl by their coordinates", func() {
+	It("merges components without a purl by their coordinates", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "os-1", Type: cdx.ComponentTypeOS, Name: "alpine", Version: "3.20"},
@@ -132,14 +132,14 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Components).To(HaveLen(2))
 		Expect((*bom.Components)[0].BOMRef).To(Equal("os-1"))
 		Expect((*bom.Components)[1].BOMRef).To(Equal("os-3"))
 	})
 
-	It("unions the licenses and hashes of merged components", func() {
+	It("unions the licenses and hashes of merged components", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -156,7 +156,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Components).To(HaveLen(1))
 		comp := (*bom.Components)[0]
@@ -165,7 +165,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(comp.CPE).To(Equal("cpe:2.3:a:vendor:bin:1:*:*:*:*:*:*:*"))
 	})
 
-	It("takes every field the survivor lacks from the merged duplicate", func() {
+	It("takes every field the survivor lacks from the merged duplicate", func(ctx SpecContext) {
 		dup := cdx.Component{
 			BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1", PackageURL: "pkg:generic/bin@1",
 			MIMEType: "application/octet-stream", Group: "grp", Author: "someone", Publisher: "pub", Copyright: "(c)",
@@ -184,14 +184,14 @@ var _ = Describe("Canonicalize", func() {
 			dup,
 		}}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		want := dup
 		want.BOMRef = "a"
 		Expect(*bom.Components).To(Equal([]cdx.Component{want}))
 	})
 
-	It("gives a survivor without a bom-ref the ref of its duplicate so the graph stays attached", func() {
+	It("gives a survivor without a bom-ref the ref of its duplicate so the graph stays attached", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{Name: "libc", PackageURL: "pkg:deb/debian/libc@2.36?package-id=aaa"},
@@ -201,14 +201,14 @@ var _ = Describe("Canonicalize", func() {
 			Dependencies: &[]cdx.Dependency{{Ref: "curl", Dependencies: &[]string{"libc-b"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Components).To(HaveLen(2))
 		Expect((*bom.Components)[0].BOMRef).To(Equal("libc-b"))
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"libc-b"}))
 	})
 
-	It("merges files by content, never by name alone", func() {
+	It("merges files by content, never by name alone", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "f1", Type: cdx.ComponentTypeFile, Name: "bin", Hashes: &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: "aaa"}}},
@@ -220,14 +220,14 @@ var _ = Describe("Canonicalize", func() {
 			Dependencies: &[]cdx.Dependency{{Ref: "f3", Dependencies: &[]string{"f2"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		refs := lo.Map(*bom.Components, func(c cdx.Component, _ int) string { return c.BOMRef })
 		Expect(refs).To(Equal([]string{"f1", "f2", "f4", "f5"}))
 		Expect((*bom.Dependencies)[0].Ref).To(Equal("f1"))
 	})
 
-	It("keeps only license expressions when a merged duplicate carries one", func() {
+	It("keeps only license expressions when a merged duplicate carries one", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -241,12 +241,12 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*(*bom.Components)[0].Licenses).To(Equal(cdx.Licenses{{Expression: "MIT OR Apache-2.0"}}))
 	})
 
-	It("is idempotent", func() {
+	It("is idempotent", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Metadata: &cdx.Metadata{Component: &cdx.Component{BOMRef: "root", Type: cdx.ComponentTypeContainer, Name: "img"}},
 			Components: &[]cdx.Component{
@@ -276,18 +276,18 @@ var _ = Describe("Canonicalize", func() {
 			Compositions: &[]cdx.Composition{{Aggregate: cdx.CompositionAggregateComplete, Dependencies: &[]cdx.BOMReference{"lib-b", "os-b"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 		once, err := json.Marshal(bom)
 		Expect(err).NotTo(HaveOccurred())
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 		twice, err := json.Marshal(bom)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(string(twice)).To(Equal(string(once)))
 	})
 
-	It("rewrites every ref of a merged duplicate to the surviving component", func() {
+	It("rewrites every ref of a merged duplicate to the surviving component", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "keep", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
@@ -309,7 +309,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Components).To(HaveLen(2))
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"keep"}))
@@ -318,7 +318,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"keep"}))
 	})
 
-	It("merges dependency entries sharing a ref and keeps dependsOn unique", func() {
+	It("merges dependency entries sharing a ref and keeps dependsOn unique", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "keep", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0"},
@@ -331,7 +331,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Dependencies).To(HaveLen(1))
 		dep := (*bom.Dependencies)[0]
@@ -339,7 +339,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*dep.Provides).To(Equal([]string{"keep"}))
 	})
 
-	It("drops dependency refs that no entity declares", func() {
+	It("drops dependency refs that no entity declares", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "root", Type: cdx.ComponentTypeOS, Name: "alpine", Version: "3.20"},
@@ -350,27 +350,27 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Dependencies).To(HaveLen(1))
 		Expect((*bom.Dependencies)[0].Ref).To(Equal("root"))
 		Expect((*bom.Dependencies)[0].Dependencies).To(BeNil())
 	})
 
-	It("keeps a dependency graph of a BOM that declares no entity", func() {
+	It("keeps a dependency graph of a BOM that declares no entity", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Dependencies: &[]cdx.Dependency{
 				{Ref: "ref-1", Dependencies: &[]string{"ref-2"}},
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Dependencies).To(HaveLen(1))
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"ref-2"}))
 	})
 
-	It("merges nested components", func() {
+	It("merges nested components", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -386,7 +386,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		nested := *(*bom.Components)[0].Components
 		Expect(nested).To(HaveLen(1))
@@ -394,7 +394,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Dependencies)[0].Dependencies).To(Equal([]string{"nested-a"}))
 	})
 
-	It("leaves a ref alone when a merged duplicate shared it with a component that survives", func() {
+	It("leaves a ref alone when a merged duplicate shared it with a component that survives", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "r", Type: cdx.ComponentTypeLibrary, Name: "a", PackageURL: "pkg:golang/p1@1"},
@@ -404,13 +404,13 @@ var _ = Describe("Canonicalize", func() {
 			Dependencies: &[]cdx.Dependency{{Ref: "r", Dependencies: &[]string{"r2"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(lo.Map(*bom.Components, func(c cdx.Component, _ int) string { return c.Name })).To(Equal([]string{"a", "c"}))
 		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "r", Dependencies: &[]string{"r2"}}}))
 	})
 
-	It("canonicalizes the components nested under the metadata component", func() {
+	It("canonicalizes the components nested under the metadata component", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Metadata: &cdx.Metadata{Component: &cdx.Component{
 				BOMRef: "root", Type: cdx.ComponentTypeContainer, Name: "img",
@@ -423,13 +423,13 @@ var _ = Describe("Canonicalize", func() {
 			Dependencies: &[]cdx.Dependency{{Ref: "top", Dependencies: &[]string{"nested-b"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Metadata.Component.Components).To(HaveLen(1))
 		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "top", Dependencies: &[]string{"nested-a"}}}))
 	})
 
-	It("keeps components with the same purl in different containers apart", func() {
+	It("keeps components with the same purl in different containers apart", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -443,14 +443,14 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Components).To(HaveLen(2))
 		Expect(*(*bom.Components)[0].Components).To(HaveLen(1))
 		Expect(*(*bom.Components)[1].Components).To(HaveLen(1))
 	})
 
-	It("redirects a ref through a chain of merges onto the component that survives", func() {
+	It("redirects a ref through a chain of merges onto the component that survives", func(ctx SpecContext) {
 		kid := func(ref string) cdx.Component {
 			return cdx.Component{BOMRef: ref, Type: cdx.ComponentTypeLibrary, Name: "kid", Version: "1"}
 		}
@@ -469,7 +469,7 @@ var _ = Describe("Canonicalize", func() {
 			Vulnerabilities: &[]cdx.Vulnerability{{ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "child-c"}}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*(*bom.Components)[0].Components).To(HaveLen(1))
 		Expect((*(*bom.Components)[0].Components)[0].BOMRef).To(Equal("child-a"))
@@ -477,7 +477,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Vulnerabilities)[0].Affects).To(Equal([]cdx.Affects{{Ref: "child-a"}}))
 	})
 
-	It("prefers the vcs reference reported by the package source over a resolved one", func() {
+	It("prefers the vcs reference reported by the package source over a resolved one", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -497,14 +497,14 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "git://git.savannah.gnu.org/make.git", Type: cdx.ERTypeVCS}}))
 		Expect(*(*bom.Components)[1].ExternalReferences).To(HaveLen(1))
 		Expect((*(*bom.Components)[1].ExternalReferences)[0].URL).To(Equal("https://a.example/bash.git"))
 	})
 
-	It("deduplicates external references and keeps a single vcs reference", func() {
+	It("deduplicates external references and keeps a single vcs reference", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -524,7 +524,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		refs := *(*bom.Components)[0].ExternalReferences
 		Expect(refs).To(HaveLen(2))
@@ -533,7 +533,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.ExternalReferences).To(HaveLen(1))
 	})
 
-	It("keeps every vcs reference of the document and of a service", func() {
+	It("keeps every vcs reference of the document and of a service", func(ctx SpecContext) {
 		vcs := []cdx.ExternalReference{
 			{URL: "https://github.com/madler/zlib", Type: cdx.ERTypeVCS},
 			{URL: "https://github.com/openssl/openssl", Type: cdx.ERTypeVCS},
@@ -544,13 +544,13 @@ var _ = Describe("Canonicalize", func() {
 			Services:           &[]cdx.Service{{BOMRef: "svc", Name: "api", ExternalReferences: lo.ToPtr(slices.Clone(vcs))}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.ExternalReferences).To(Equal(vcs[:2]))
 		Expect(*(*bom.Services)[0].ExternalReferences).To(Equal(vcs[:2]))
 	})
 
-	It("deduplicates properties and keeps the strongest value per GOST property", func() {
+	It("deduplicates properties and keeps the strongest value per GOST property", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -569,7 +569,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		props := *(*bom.Components)[0].Properties
 		Expect(props).To(HaveLen(2))
@@ -577,7 +577,81 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.Properties).To(HaveLen(1))
 	})
 
-	It("merges vulnerabilities sharing an id and source", func() {
+	DescribeTable("unions GOST:source_langs of same-purl components into a single property",
+		func(ctx SpecContext, firstLangs, secondLangs string) {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{
+						BOMRef: "curl-a", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
+						Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: firstLangs}},
+					},
+					{
+						BOMRef: "curl-b", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
+						Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: secondLangs}},
+					},
+				},
+			}
+
+			Canonicalize(ctx, bom)
+
+			Expect(*bom.Components).To(HaveLen(1))
+			Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Assembly,C"}}))
+		},
+		Entry("C then Assembly", "C", "Assembly"),
+		Entry("Assembly then C", "Assembly", "C"),
+	)
+
+	DescribeTable("drops empty GOST:source_langs without losing other properties",
+		func(ctx SpecContext, values []string, expectedLangs string) {
+			props := []cdx.Property{{Name: "before", Value: "keep"}}
+			for _, value := range values {
+				props = append(props, cdx.Property{Name: gost.PropertySourceLangs, Value: value})
+			}
+			props = append(props, cdx.Property{Name: "after", Value: "keep"})
+			bom := &cdx.BOM{Components: &[]cdx.Component{{Name: "lib", Properties: &props}}}
+			expected := []cdx.Property{{Name: "before", Value: "keep"}}
+			if expectedLangs != "" {
+				expected = append(expected, cdx.Property{Name: gost.PropertySourceLangs, Value: expectedLangs})
+			}
+			expected = append(expected, cdx.Property{Name: "after", Value: "keep"})
+
+			Canonicalize(ctx, bom)
+			Expect(*(*bom.Components)[0].Properties).To(Equal(expected))
+			Canonicalize(ctx, bom)
+			Expect(*(*bom.Components)[0].Properties).To(Equal(expected))
+		},
+		Entry("empty string", []string{""}, ""),
+		Entry("only separators and spaces", []string{" , "}, ""),
+		Entry("repeated empty values", []string{" , ", ""}, ""),
+		Entry("empty before a language", []string{" , ", "Go"}, "Go"),
+		Entry("empty after a language", []string{"Go", " , "}, "Go"),
+		Entry("empty between disjoint languages", []string{"Python", " , ", "Go"}, "Go,Python"),
+	)
+
+	It("removes a sole empty GOST:source_langs property", func(ctx SpecContext) {
+		bom := &cdx.BOM{Components: &[]cdx.Component{{Name: "lib", Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: " , "}}}}}
+
+		Canonicalize(ctx, bom)
+
+		Expect((*bom.Components)[0].Properties).To(BeNil())
+	})
+
+	It("normalizes a lone GOST:source_langs value of an imported component", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0", PackageURL: "pkg:golang/lib@1.0",
+					Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Python, Go,Go"}},
+				},
+			},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Go,Python"}}))
+	})
+
+	It("merges vulnerabilities sharing an id and source", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "a"},
@@ -594,7 +668,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Vulnerabilities).To(HaveLen(2))
 		merged := (*bom.Vulnerabilities)[0]
@@ -603,7 +677,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*merged.Ratings).To(HaveLen(1))
 	})
 
-	It("takes every field of a merged vulnerability that the survivor lacks", func() {
+	It("takes every field of a merged vulnerability that the survivor lacks", func(ctx SpecContext) {
 		dup := cdx.Vulnerability{
 			BOMRef: "v2", ID: "CVE-1", Source: &cdx.Source{Name: "nvd"},
 			Description: "desc", Detail: "detail", Recommendation: "upgrade", Workaround: "none",
@@ -622,14 +696,14 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		want := dup
 		want.BOMRef = "v1"
 		Expect(*bom.Vulnerabilities).To(Equal([]cdx.Vulnerability{want}))
 	})
 
-	It("rewrites the refs pointing at a merged vulnerability to the survivor", func() {
+	It("rewrites the refs pointing at a merged vulnerability to the survivor", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "a", Version: "1"}},
 			Vulnerabilities: &[]cdx.Vulnerability{
@@ -640,25 +714,25 @@ var _ = Describe("Canonicalize", func() {
 			Annotations:  &[]cdx.Annotation{{BOMRef: "an", Subjects: &[]cdx.BOMReference{"v2"}, Text: "x"}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Vulnerabilities).To(HaveLen(1))
 		Expect(*(*bom.Compositions)[0].Vulnerabilities).To(Equal([]cdx.BOMReference{"v1"}))
 		Expect(*(*bom.Annotations)[0].Subjects).To(Equal([]cdx.BOMReference{"v1"}))
 	})
 
-	It("keeps a dependency on an entity of another document", func() {
+	It("keeps a dependency on an entity of another document", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components:   &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
 			Dependencies: &[]cdx.Dependency{{Ref: "c1", Dependencies: &[]string{"urn:cdx:11111111-1111-1111-1111-111111111111/1#lib", "gone"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "c1", Dependencies: &[]string{"urn:cdx:11111111-1111-1111-1111-111111111111/1#lib"}}}))
 	})
 
-	It("drops the composition and annotation refs that point at nothing", func() {
+	It("drops the composition and annotation refs that point at nothing", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			SerialNumber:    "urn:uuid:22222222-2222-2222-2222-222222222222",
 			Components:      &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
@@ -676,7 +750,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Compositions).To(Equal([]cdx.Composition{
 			{Aggregate: cdx.CompositionAggregateComplete, Assemblies: &[]cdx.BOMReference{"c1"}, Vulnerabilities: &[]cdx.BOMReference{"v1"}},
@@ -689,7 +763,7 @@ var _ = Describe("Canonicalize", func() {
 		}))
 	})
 
-	It("keeps an annotation about a formula or a composition the document declares", func() {
+	It("keeps an annotation about a formula or a composition the document declares", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components:  &[]cdx.Component{{BOMRef: "c1", Type: cdx.ComponentTypeLibrary, Name: "c", Version: "1"}},
 			Formulation: &[]cdx.Formula{{BOMRef: "formula"}},
@@ -703,7 +777,7 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Annotations).To(Equal([]cdx.Annotation{
 			{BOMRef: "a1", Subjects: &[]cdx.BOMReference{"formula"}, Text: "about the formula"},
@@ -711,7 +785,7 @@ var _ = Describe("Canonicalize", func() {
 		}))
 	})
 
-	It("merges duplicate services", func() {
+	It("merges duplicate services", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Services: &[]cdx.Service{
 				{BOMRef: "svc-1", Name: "api", Version: "1.0"},
@@ -722,14 +796,14 @@ var _ = Describe("Canonicalize", func() {
 			},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Services).To(HaveLen(1))
 		Expect(*(*bom.Services)[0].ExternalReferences).To(HaveLen(1))
 		Expect((*bom.Dependencies)[0].Dependencies).To(BeNil())
 	})
 
-	It("folds a duplicate service into the survivor, nested services included", func() {
+	It("folds a duplicate service into the survivor, nested services included", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Services: &[]cdx.Service{
 				{BOMRef: "svc-1", Name: "api", Version: "1.0", Endpoints: &[]string{"https://a.example"}, Tags: &[]string{"a"}},
@@ -745,7 +819,7 @@ var _ = Describe("Canonicalize", func() {
 			Dependencies: &[]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner", "svc-2"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*bom.Services).To(Equal([]cdx.Service{{
 			BOMRef: "svc-1", Name: "api", Version: "1.0", Description: "the api", TrustZone: "dmz",
@@ -757,7 +831,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner", "svc-1"}}}))
 	})
 
-	It("redirects a ref to the nested service of a merged duplicate onto the surviving nested service", func() {
+	It("redirects a ref to the nested service of a merged duplicate onto the surviving nested service", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Services: &[]cdx.Service{
 				{BOMRef: "svc-1", Name: "api", Services: &[]cdx.Service{{BOMRef: "inner-1", Name: "sub"}}},
@@ -767,7 +841,7 @@ var _ = Describe("Canonicalize", func() {
 			Dependencies: &[]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner-2"}}},
 		}
 
-		Canonicalize(bom)
+		Canonicalize(ctx, bom)
 
 		Expect(*(*bom.Services)[0].Services).To(Equal([]cdx.Service{{BOMRef: "inner-1", Name: "sub"}}))
 		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "c", Dependencies: &[]string{"inner-1"}}}))

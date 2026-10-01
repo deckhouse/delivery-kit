@@ -59,8 +59,8 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod"}, OptionalSourcePaths: []string{"/app/api/go.sum"}, Enrichment: goModCacheEnrichment("/app/api/go.sum")},
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/cli/go.mod"}, OptionalSourcePaths: []string{"/app/cli/go.sum"}, Enrichment: goModCacheEnrichment("/app/cli/go.sum")},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/api/go.mod"}, OptionalSourcePaths: []string{"/app/api/go.sum"}, SourceLang: "Go", Enrichment: goModCacheEnrichment("/app/api/go.sum")},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/cli/go.mod"}, OptionalSourcePaths: []string{"/app/cli/go.sum"}, SourceLang: "Go", Enrichment: goModCacheEnrichment("/app/cli/go.sum")},
 			},
 		),
 
@@ -72,7 +72,7 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "python-package-cataloger", SourcePaths: []string{"/app/requirements.txt"}},
+				{Name: "python-package-cataloger", SourcePaths: []string{"/app/requirements.txt"}, SourceLang: "Python"},
 			},
 		),
 
@@ -92,9 +92,9 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/app/package.json"}, OptionalSourcePaths: []string{"/app/yarn.lock"}, Enrichment: nodeModulesEnrichment("/app/node_modules")},
-				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/svc/package.json"}, OptionalSourcePaths: []string{"/svc/package-lock.json"}, Enrichment: nodeModulesEnrichment("/svc/node_modules")},
-				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/web/package.json"}, OptionalSourcePaths: []string{"/web/pnpm-lock.yaml"}, Enrichment: nodeModulesEnrichment("/web/node_modules")},
+				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/app/package.json"}, OptionalSourcePaths: []string{"/app/yarn.lock"}, SourceLang: "JavaScript", Enrichment: nodeModulesEnrichment("/app/node_modules")},
+				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/svc/package.json"}, OptionalSourcePaths: []string{"/svc/package-lock.json"}, SourceLang: "JavaScript", Enrichment: nodeModulesEnrichment("/svc/node_modules")},
+				{Name: "javascript-lock-cataloger", SourcePaths: []string{"/web/package.json"}, OptionalSourcePaths: []string{"/web/pnpm-lock.yaml"}, SourceLang: "JavaScript", Enrichment: nodeModulesEnrichment("/web/node_modules")},
 			},
 		),
 
@@ -106,7 +106,7 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, SourceLang: "Go"},
 			},
 		),
 
@@ -119,7 +119,7 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, OptionalSourcePaths: []string{"/app/go.sum"}, Enrichment: goModCacheEnrichment("/app/go.sum", map[string]string{"GOPATH": "/opt/build/go"})},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, OptionalSourcePaths: []string{"/app/go.sum"}, SourceLang: "Go", Enrichment: goModCacheEnrichment("/app/go.sum", map[string]string{"GOPATH": "/opt/build/go"})},
 			},
 		),
 
@@ -155,7 +155,7 @@ var _ = Describe("ToCatalogers", func() {
 				},
 			},
 			[]scanner.Cataloger{
-				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, OptionalSourcePaths: []string{"/app/go.sum"}, Enrichment: goModCacheEnrichment("/app/go.sum")},
+				{Name: "go-module-file-cataloger", SourcePaths: []string{"/app/go.mod"}, OptionalSourcePaths: []string{"/app/go.sum"}, SourceLang: "Go", Enrichment: goModCacheEnrichment("/app/go.sum")},
 			},
 		),
 

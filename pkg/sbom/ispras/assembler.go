@@ -25,7 +25,7 @@ func NewAssembler(format Format) (Assembler, error) {
 	}
 }
 
-func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
+func buildProductMetadata(ctx context.Context, meta ProductMeta, sourceLangs []string) *cdx.Metadata {
 	metaComponent := &cdx.Component{
 		Type:    cdx.ComponentTypeApplication,
 		Name:    meta.AppName,
@@ -34,6 +34,8 @@ func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
 			Name: meta.Manufacturer,
 		},
 	}
+
+	gost.SetComponentSourceLangs(ctx, metaComponent, sourceLangs)
 
 	return &cdx.Metadata{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),

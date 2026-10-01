@@ -1,6 +1,7 @@
 package sbom
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"sort"
@@ -385,6 +386,16 @@ func AssertGostPropertyOnContainers(bom *cdx.BOM, propertyName string, expected 
 
 	ExpectWithOffset(1, checked).To(BeNumerically(">", 0),
 		"BOM has no container components to assert GOST property on")
+}
+
+// AssertSourceLangsOnComponent asserts the GOST:source_langs property of a single
+// component, identified by name and version.
+func AssertSourceLangsOnComponent(ctx context.Context, bom *cdx.BOM, name, version string, expected []string) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found in BOM", name, version)
+	ExpectWithOffset(1, gost.GetComponentSourceLangs(ctx, comp)).To(Equal(expected),
+		"component %s@%s GOST source languages", name, version)
 }
 
 func AssertSpecVersion(bom *cdx.BOM, expected cdx.SpecVersion) {

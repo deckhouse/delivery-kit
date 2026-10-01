@@ -191,16 +191,16 @@ var _ = Describe("ConvertToCycloneDX", func() {
 		Entry("libunistring", "libunistring"),
 	)
 
-	It("should set source languages only for packages that declare them", func() {
+	It("should set source languages only for packages that declare them", func(ctx SpecContext) {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())
 
 		bom := ConvertToCycloneDX(pkgs, testContainerFactoryVersion)
 
 		curl := goldenComponent(bom, "curl")
-		Expect(gost.GetComponentSourceLangs(&curl)).To(Equal([]string{"C"}))
+		Expect(gost.GetComponentSourceLangs(ctx, &curl)).To(Equal([]string{"C"}))
 		brotli := goldenComponent(bom, "brotli")
-		Expect(gost.GetComponentSourceLangs(&brotli)).To(BeNil())
+		Expect(gost.GetComponentSourceLangs(ctx, &brotli)).To(BeNil())
 	})
 
 	It("should set licenses from package info", func() {

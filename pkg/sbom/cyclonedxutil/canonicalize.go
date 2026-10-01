@@ -1,6 +1,7 @@
 package cyclonedxutil
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -705,11 +706,11 @@ func dedupProperties(properties *[]cdx.Property) *[]cdx.Property {
 			continue
 		case gost.PropertySourceLangs:
 			if pos, exists := gostPos[prop.Name]; exists {
-				result[pos].Value = gost.MergeSourceLangsValues(result[pos].Value, prop.Value)
+				result[pos].Value = gost.MergeSourceLangsValues(context.Background(), result[pos].Value, prop.Value)
 				continue
 			}
 			gostPos[prop.Name] = len(result)
-			result = append(result, cdx.Property{Name: prop.Name, Value: gost.NormalizeSourceLangsValue(prop.Value)})
+			result = append(result, cdx.Property{Name: prop.Name, Value: gost.NormalizeSourceLangsValue(context.Background(), prop.Value)})
 			continue
 		}
 

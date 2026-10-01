@@ -1,6 +1,7 @@
 package os_pm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -80,7 +81,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion s
 
 		comp.Hashes = digestToHashes(pkg.Digest)
 		comp.Properties = packageProperties(pkg, containerFactoryVersion)
-		gost.SetComponentSourceLangs(&comp, pkg.SrcLanguages)
+		gost.SetComponentSourceLangs(context.Background(), &comp, pkg.SrcLanguages)
 		setCPEEvidence(&comp, pkg)
 
 		if pkg.OriginalRepo != "" {

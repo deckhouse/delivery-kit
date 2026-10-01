@@ -199,7 +199,7 @@ var _ = Describe("SbomStep", func() {
 			langsByName := map[string][]string{}
 			for i := range *bom.Components {
 				comp := &(*bom.Components)[i]
-				langsByName[comp.Name] = gost.GetComponentSourceLangs(comp)
+				langsByName[comp.Name] = gost.GetComponentSourceLangs(ctx, comp)
 			}
 			Expect(langsByName).To(Equal(map[string][]string{
 				"github.com/samber/lo": {"Go"},

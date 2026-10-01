@@ -104,7 +104,7 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 			})
 
 			bom := sbomtest.MustParseSBOMOutput(sbomOut)
-			sbomtest.AssertSourceLangsOnComponent(bom, componentName, componentVersion, []string{expectedLang})
+			sbomtest.AssertSourceLangsOnComponent(ctx, bom, componentName, componentVersion, []string{expectedLang})
 		},
 		Entry("go-mod", "gomod", "inject/gomod_license", "github.com/pkg/errors", "v0.9.1", "Go"),
 		Entry("python-pip", "pip", "inject/pip_simple", "requests", "2.32.3", "Python"),

@@ -13,7 +13,7 @@ var _ Assembler = (*OSSAssembler)(nil)
 
 type OSSAssembler struct{}
 
-func (a *OSSAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
+func (a *OSSAssembler) Assemble(ctx context.Context, images []*ImageSBOM, meta ProductMeta) (*cdx.BOM, error) {
 	if err := validateImages(images); err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func (a *OSSAssembler) Assemble(_ context.Context, images []*ImageSBOM, meta Pro
 		return nil, fmt.Errorf("merge image BOMs: %w", err)
 	}
 
-	result.Metadata = buildProductMetadata(meta, aggregateSourceLangs(images))
+	result.Metadata = buildProductMetadata(ctx, meta, aggregateSourceLangs(ctx, images))
 
 	return result, nil
 }

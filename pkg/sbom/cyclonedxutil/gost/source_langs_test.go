@@ -9,8 +9,8 @@ import (
 
 var _ = Describe("Gost source languages", func() {
 	DescribeTable("SetComponentSourceLangs",
-		func(comp *cdx.Component, langs []string, expectedProperties []cdx.Property) {
-			SetComponentSourceLangs(comp, langs)
+		func(ctx SpecContext, comp *cdx.Component, langs []string, expectedProperties []cdx.Property) {
+			SetComponentSourceLangs(ctx, comp, langs)
 			Expect(lo.FromPtr(comp.Properties)).To(Equal(expectedProperties))
 		},
 		Entry("should add a single property with the languages joined",
@@ -51,8 +51,8 @@ var _ = Describe("Gost source languages", func() {
 	)
 
 	DescribeTable("GetComponentSourceLangs",
-		func(comp *cdx.Component, expected []string) {
-			Expect(GetComponentSourceLangs(comp)).To(Equal(expected))
+		func(ctx SpecContext, comp *cdx.Component, expected []string) {
+			Expect(GetComponentSourceLangs(ctx, comp)).To(Equal(expected))
 		},
 		Entry("should return nil when the property is missing",
 			&cdx.Component{Name: "test"}, nil),
@@ -77,8 +77,8 @@ var _ = Describe("Gost source languages", func() {
 	)
 
 	DescribeTable("CollectSourceLangs",
-		func(components []cdx.Component, expected []string) {
-			Expect(CollectSourceLangs(components)).To(Equal(expected))
+		func(ctx SpecContext, components []cdx.Component, expected []string) {
+			Expect(CollectSourceLangs(ctx, components)).To(Equal(expected))
 		},
 		Entry("should return nil for components without languages",
 			[]cdx.Component{{Name: "test"}}, nil),
@@ -102,10 +102,10 @@ var _ = Describe("Gost source languages", func() {
 	)
 
 	DescribeTable("CollectBOMSourceLangs",
-		func(bom *cdx.BOM, expected []string) {
-			Expect(CollectBOMSourceLangs(bom)).To(Equal(expected))
+		func(ctx SpecContext, bom *cdx.BOM, expected []string) {
+			Expect(CollectBOMSourceLangs(ctx, bom)).To(Equal(expected))
 		},
-		Entry("should return nil for a nil BOM", nil, nil),
+		Entry("should return nil for an empty BOM", &cdx.BOM{}, nil),
 		Entry("should union document properties, the root component and the component tree",
 			&cdx.BOM{
 				Properties: &[]cdx.Property{{Name: PropertySourceLangs, Value: "Rust"}},
@@ -130,8 +130,8 @@ var _ = Describe("Gost source languages", func() {
 	)
 
 	DescribeTable("NormalizeSourceLangsValue",
-		func(raw, expected string) {
-			Expect(NormalizeSourceLangsValue(raw)).To(Equal(expected))
+		func(ctx SpecContext, raw, expected string) {
+			Expect(NormalizeSourceLangsValue(ctx, raw)).To(Equal(expected))
 		},
 		Entry("should sort, deduplicate and trim", "Python, Go,Go", "Go,Python"),
 		Entry("should keep a canonical value as is", "Go,Python", "Go,Python"),
@@ -139,21 +139,21 @@ var _ = Describe("Gost source languages", func() {
 	)
 
 	DescribeTable("MergeSourceLangsValues",
-		func(a, b, expected string) {
-			Expect(MergeSourceLangsValues(a, b)).To(Equal(expected))
+		func(ctx SpecContext, a, b, expected string) {
+			Expect(MergeSourceLangsValues(ctx, a, b)).To(Equal(expected))
 		},
 		Entry("should union two disjoint values", "C", "Assembly", "Assembly,C"),
 		Entry("should drop duplicates across the two values", "C", "Assembly,C", "Assembly,C"),
 		Entry("should tolerate an empty side", "", "Go", "Go"),
 	)
 
-	It("should not be affected by an Upsert of the other GOST properties", func() {
+	It("should not be affected by an Upsert of the other GOST properties", func(ctx SpecContext) {
 		comp := cdx.Component{Name: "test"}
-		SetComponentSourceLangs(&comp, []string{"Go"})
+		SetComponentSourceLangs(ctx, &comp, []string{"Go"})
 
 		bom := &cdx.BOM{Components: &[]cdx.Component{comp}}
 		Expect(Upsert(bom, Config{AttackSurface: GostValueYes, SecurityFunction: GostValueNo})).To(Succeed())
 
-		Expect(GetComponentSourceLangs(&(*bom.Components)[0])).To(Equal([]string{"Go"}))
+		Expect(GetComponentSourceLangs(ctx, &(*bom.Components)[0])).To(Equal([]string{"Go"}))
 	})
 })

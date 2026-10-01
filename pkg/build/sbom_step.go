@@ -242,10 +242,8 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 		return cyclonedxutil.NewBOM(), nil
 	}
 
-	// MergeBOMs unions components and dedups by normalized PURL; on a cross-directive PURL
-	// collision the components are folded into the first directive's one (mergeOrder appends
-	// the target last, dedup is first-occurrence-wins), their properties — GOST:source_langs
-	// included — unioned. Harmless for component identity.
+	// On a cross-directive PURL collision, MergeBOMs keeps the first component in merge
+	// order (imports before the target), but unions GOST:source_langs from all of them.
 	merged, err := cyclonedxutil.MergeBOMs(scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
 	if err != nil {
 		return nil, fmt.Errorf("union per-directive BOMs: %w", err)
@@ -279,7 +277,7 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 	cyclonedxutil.DropSyftSourceFileComponents(bom)
 
 	for i := range lo.FromPtr(bom.Components) {
-		gost.SetComponentSourceLangs(&(*bom.Components)[i], []string{cataloger.SourceLang})
+		gost.SetComponentSourceLangs(ctx, &(*bom.Components)[i], []string{cataloger.SourceLang})
 	}
 
 	return bom, nil

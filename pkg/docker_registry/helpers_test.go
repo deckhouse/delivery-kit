@@ -15,6 +15,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"golang.org/x/sync/singleflight"
+
+	registry_api "github.com/werf/werf/v3/pkg/docker_registry/api"
 )
 
 type bearerRegistryFixture struct {
@@ -281,6 +283,77 @@ func startBlockedListing(ctx context.Context, r *DockerRegistryWithCache, inner 
 
 	gomega.Eventually(inner.started).Should(gomega.BeClosed())
 	return listedTags, func() { close(inner.release) }
+}
+
+type gatedListing struct {
+	tags    []string
+	started chan struct{}
+	release chan struct{}
+}
+
+func newGatedListing(tags ...string) *gatedListing {
+	return &gatedListing{tags: tags, started: make(chan struct{}), release: make(chan struct{})}
+}
+
+// gatedListingRegistry answers every Tags call with its own prepared listing, blocked until the
+// test releases it, so that overlapping listings complete in an order the test chooses.
+type gatedListingRegistry struct {
+	Interface
+
+	mu       sync.Mutex
+	listings []*gatedListing
+	calls    int
+}
+
+var _ Interface = (*gatedListingRegistry)(nil)
+
+func (r *gatedListingRegistry) Tags(_ context.Context, _ string, _ ...Option) ([]string, error) {
+	r.mu.Lock()
+	if r.calls >= len(r.listings) {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("unexpected listing call %d", r.calls+1)
+	}
+	listing := r.listings[r.calls]
+	r.calls++
+	r.mu.Unlock()
+
+	close(listing.started)
+	<-listing.release
+	return append([]string(nil), listing.tags...), nil
+}
+
+func (r *gatedListingRegistry) parseReferenceParts(reference string) (referenceParts, error) {
+	return (&api{}).parseReferenceParts(reference)
+}
+
+func startFreshListing(ctx context.Context, r *DockerRegistryWithCache, reference string) chan []string {
+	listedTags := make(chan []string, 1)
+	go func() {
+		defer ginkgo.GinkgoRecover()
+		tags, err := r.Tags(ctx, reference, WithTagsMaxAge(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		listedTags <- tags
+	}()
+	return listedTags
+}
+
+var _ Interface = (*mutatingRegistryStub)(nil)
+
+type mutatingRegistryStub struct {
+	*listingRegistryStub
+
+	mutateErr    error
+	destinations []string
+}
+
+func (r *mutatingRegistryStub) MutateAndPushImage(_ context.Context, _, destinationReference string, _ ...registry_api.MutateOption) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.mutateErr != nil {
+		return r.mutateErr
+	}
+	r.destinations = append(r.destinations, destinationReference)
+	return nil
 }
 
 type snapshotListingRegistry struct {

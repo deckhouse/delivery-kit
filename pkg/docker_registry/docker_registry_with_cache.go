@@ -84,7 +84,7 @@ func AddCachedTag(ctx context.Context, registry Interface, reference string) {
 	pushedTags[referenceParts.tag] = time.Now()
 
 	// updatedAt is left untouched: the listing itself is no fresher than it was.
-	r.cachedTagsMap.Store(cachedTagsID, tagsCacheEntry{tags: tags, updatedAt: entry.updatedAt, pushedTags: pushedTags})
+	r.cachedTagsMap.Store(cachedTagsID, tagsCacheEntry{tags: tags, updatedAt: entry.updatedAt, listingStartedAt: entry.listingStartedAt, pushedTags: pushedTags})
 
 	logboek.Context(ctx).Debug().LogF("Added published tag %q to the tags cache of %q\n", referenceParts.tag, cachedTagsID)
 }
@@ -182,8 +182,10 @@ func (r *DockerRegistryWithCache) storeTagsToCache(cachedTagsID string, tags []s
 	defer r.cacheWriteMu.Unlock()
 
 	pushedTags := map[string]time.Time{}
+	supersededByLaterListing := false
 	if value, ok := r.cachedTagsMap.Load(cachedTagsID); ok {
-		if entry, err := castTagsEntry(value); err == nil && len(entry.pushedTags) > 0 {
+		if entry, err := castTagsEntry(value); err == nil {
+			supersededByLaterListing = entry.listingStartedAt.After(listingStartedAt)
 			cloned := false
 			for tag, pushedAt := range entry.pushedTags {
 				// A listing started after the publication is authoritative and drops the tag,
@@ -200,13 +202,20 @@ func (r *DockerRegistryWithCache) storeTagsToCache(cachedTagsID string, tags []s
 		}
 	}
 
-	r.cachedTagsMap.Store(cachedTagsID, tagsCacheEntry{tags: tags, updatedAt: time.Now(), pushedTags: pushedTags})
+	// A listing that started earlier carries an older snapshot of the repo, whatever the order
+	// of completion: it must not drop tags a later listing already confirmed.
+	if supersededByLaterListing {
+		return tags
+	}
+
+	r.cachedTagsMap.Store(cachedTagsID, tagsCacheEntry{tags: tags, updatedAt: time.Now(), listingStartedAt: listingStartedAt, pushedTags: pushedTags})
 	return tags
 }
 
 type tagsCacheEntry struct {
-	tags      []string
-	updatedAt time.Time
+	tags             []string
+	updatedAt        time.Time
+	listingStartedAt time.Time
 	// pushedTags holds tags published locally but not yet confirmed by a registry listing.
 	pushedTags map[string]time.Time
 }
@@ -264,7 +273,12 @@ func (r *DockerRegistryWithCache) PushImage(ctx context.Context, reference strin
 }
 
 func (r *DockerRegistryWithCache) MutateAndPushImage(ctx context.Context, sourceReference, destinationReference string, opts ...registry_api.MutateOption) error {
-	return r.Interface.MutateAndPushImage(ctx, sourceReference, destinationReference, opts...)
+	if err := r.Interface.MutateAndPushImage(ctx, sourceReference, destinationReference, opts...); err != nil {
+		return err
+	}
+
+	AddCachedTag(ctx, r, destinationReference)
+	return nil
 }
 
 func (r *DockerRegistryWithCache) DeleteRepoImage(ctx context.Context, repoImage *image.Info) error {

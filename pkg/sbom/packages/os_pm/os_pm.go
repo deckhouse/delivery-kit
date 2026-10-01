@@ -48,7 +48,7 @@ func ParsePmInstalledJSON(data []byte) (map[string]PmPackageInfo, error) {
 	return pkgs, nil
 }
 
-func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion string) *cdx.BOM {
+func ConvertToCycloneDX(ctx context.Context, pkgs map[string]PmPackageInfo, containerFactoryVersion string) *cdx.BOM {
 	if len(pkgs) == 0 {
 		return nil
 	}
@@ -81,7 +81,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion s
 
 		comp.Hashes = digestToHashes(pkg.Digest)
 		comp.Properties = packageProperties(pkg, containerFactoryVersion)
-		gost.SetComponentSourceLangs(context.Background(), &comp, pkg.SrcLanguages)
+		gost.SetComponentSourceLangs(ctx, &comp, pkg.SrcLanguages)
 		setCPEEvidence(&comp, pkg)
 
 		if pkg.OriginalRepo != "" {

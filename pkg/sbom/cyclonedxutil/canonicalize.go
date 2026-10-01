@@ -27,7 +27,7 @@ import (
 // the external references and properties of its duplicates, and every ref that
 // pointed at a duplicate is rewritten to the survivor. Refs that point at
 // nothing are removed.
-func Canonicalize(bom *cdx.BOM) {
+func Canonicalize(ctx context.Context, bom *cdx.BOM) {
 	if bom == nil {
 		return
 	}
@@ -35,15 +35,15 @@ func Canonicalize(bom *cdx.BOM) {
 	refMap := map[string]string{}
 
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		bom.Metadata.Component.Components = canonicalizeComponents(bom.Metadata.Component.Components, refMap)
+		bom.Metadata.Component.Components = canonicalizeComponents(ctx, bom.Metadata.Component.Components, refMap)
 	}
-	bom.Components = canonicalizeComponents(bom.Components, refMap)
-	bom.Services = canonicalizeServices(bom.Services, refMap)
-	bom.Vulnerabilities = canonicalizeVulnerabilities(bom.Vulnerabilities, refMap)
+	bom.Components = canonicalizeComponents(ctx, bom.Components, refMap)
+	bom.Services = canonicalizeServices(ctx, bom.Services, refMap)
+	bom.Vulnerabilities = canonicalizeVulnerabilities(ctx, bom.Vulnerabilities, refMap)
 
 	RewriteRefs(bom, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(bom))))
 
-	CanonicalizeDocument(bom)
+	CanonicalizeDocument(ctx, bom)
 }
 
 // dropSurvivingRefs removes from refMap the refs that an entity of the BOM
@@ -62,21 +62,21 @@ func dropSurvivingRefs(refMap map[string]string, knownRefs map[string]struct{}) 
 // established which entities are the same — merging several SBOMs that must
 // keep their components apart, for instance — and only the document-level
 // sections still need collapsing and ref checking.
-func CanonicalizeDocument(bom *cdx.BOM) {
+func CanonicalizeDocument(ctx context.Context, bom *cdx.BOM) {
 	if bom == nil {
 		return
 	}
 
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		canonicalizeComponent(bom.Metadata.Component)
+		canonicalizeComponent(ctx, bom.Metadata.Component)
 	}
 
 	bom.ExternalReferences = dedupExternalReferences(bom.ExternalReferences)
-	bom.Properties = dedupProperties(bom.Properties)
+	bom.Properties = dedupProperties(ctx, bom.Properties)
 	for i := range lo.FromPtr(bom.Vulnerabilities) {
 		vuln := &(*bom.Vulnerabilities)[i]
 		vuln.Affects = dedupPtrSlice(vuln.Affects)
-		vuln.Properties = dedupProperties(vuln.Properties)
+		vuln.Properties = dedupProperties(ctx, vuln.Properties)
 	}
 	knownRefs := collectKnownRefs(bom)
 	bom.Dependencies = canonicalizeDependencies(bom.Dependencies, knownRefs)
@@ -129,7 +129,7 @@ func flattenRefMap(refMap map[string]string) map[string]string {
 	return flat
 }
 
-func canonicalizeComponents(components *[]cdx.Component, refMap map[string]string) *[]cdx.Component {
+func canonicalizeComponents(ctx context.Context, components *[]cdx.Component, refMap map[string]string) *[]cdx.Component {
 	if components == nil {
 		return nil
 	}
@@ -138,7 +138,7 @@ func canonicalizeComponents(components *[]cdx.Component, refMap map[string]strin
 	result := make([]cdx.Component, 0, len(*components))
 
 	for i, comp := range *components {
-		comp.Components = canonicalizeComponents(comp.Components, refMap)
+		comp.Components = canonicalizeComponents(ctx, comp.Components, refMap)
 
 		key := componentKey(comp, i)
 		if pos, exists := index[key]; exists {
@@ -149,11 +149,11 @@ func canonicalizeComponents(components *[]cdx.Component, refMap map[string]strin
 			case comp.BOMRef != "" && comp.BOMRef != survivor.BOMRef:
 				refMap[comp.BOMRef] = survivor.BOMRef
 			}
-			mergeComponentInto(survivor, comp, refMap)
+			mergeComponentInto(ctx, survivor, comp, refMap)
 			continue
 		}
 
-		canonicalizeComponent(&comp)
+		canonicalizeComponent(ctx, &comp)
 		index[key] = len(result)
 		result = append(result, comp)
 	}
@@ -168,7 +168,7 @@ func canonicalizeComponents(components *[]cdx.Component, refMap map[string]strin
 // mergeComponentInto folds a duplicate into the component that survives it:
 // list-valued data is unioned, scalar data the survivor lacks is taken from
 // the duplicate, and scalar data both carry stays as the survivor has it.
-func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[string]string) {
+func mergeComponentInto(ctx context.Context, survivor *cdx.Component, dup cdx.Component, refMap map[string]string) {
 	survivor.ExternalReferences = appendPtrSlice(survivor.ExternalReferences, dup.ExternalReferences)
 	survivor.Properties = appendPtrSlice(survivor.Properties, dup.Properties)
 	survivor.Hashes = dedupPtrSlice(appendPtrSlice(survivor.Hashes, dup.Hashes))
@@ -204,10 +204,10 @@ func mergeComponentInto(survivor *cdx.Component, dup cdx.Component, refMap map[s
 
 	if dup.Components != nil {
 		merged := append(lo.FromPtr(survivor.Components), *dup.Components...)
-		survivor.Components = canonicalizeComponents(&merged, refMap)
+		survivor.Components = canonicalizeComponents(ctx, &merged, refMap)
 	}
 
-	canonicalizeComponent(survivor)
+	canonicalizeComponent(ctx, survivor)
 }
 
 func takeString(dest *string, src string) {
@@ -239,9 +239,9 @@ func mergeLicenses(dest, src *cdx.Licenses) *cdx.Licenses {
 	return lo.ToPtr(cdx.Licenses(merged))
 }
 
-func canonicalizeComponent(comp *cdx.Component) {
+func canonicalizeComponent(ctx context.Context, comp *cdx.Component) {
 	comp.ExternalReferences = dedupComponentExternalReferences(comp.ExternalReferences)
-	comp.Properties = dedupProperties(comp.Properties)
+	comp.Properties = dedupProperties(ctx, comp.Properties)
 }
 
 // componentKey identifies a component by its purl or, without one, by its
@@ -266,7 +266,7 @@ func componentKey(comp cdx.Component, index int) string {
 	return strings.Join([]string{"coords", string(comp.Type), comp.Group, comp.Name, comp.Version}, "|")
 }
 
-func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]cdx.Service {
+func canonicalizeServices(ctx context.Context, services *[]cdx.Service, refMap map[string]string) *[]cdx.Service {
 	if services == nil {
 		return nil
 	}
@@ -275,7 +275,7 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 	result := make([]cdx.Service, 0, len(*services))
 
 	for _, svc := range *services {
-		svc.Services = canonicalizeServices(svc.Services, refMap)
+		svc.Services = canonicalizeServices(ctx, svc.Services, refMap)
 
 		key := strings.Join([]string{svc.Group, svc.Name, svc.Version}, "|")
 		if pos, exists := index[key]; exists {
@@ -286,11 +286,11 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 			case svc.BOMRef != "" && svc.BOMRef != survivor.BOMRef:
 				refMap[svc.BOMRef] = survivor.BOMRef
 			}
-			mergeServiceInto(survivor, svc, refMap)
+			mergeServiceInto(ctx, survivor, svc, refMap)
 			continue
 		}
 
-		canonicalizeService(&svc)
+		canonicalizeService(ctx, &svc)
 		index[key] = len(result)
 		result = append(result, svc)
 	}
@@ -304,7 +304,7 @@ func canonicalizeServices(services *[]cdx.Service, refMap map[string]string) *[]
 
 // mergeServiceInto folds a duplicate into the service that survives it, the
 // same way mergeComponentInto does for components.
-func mergeServiceInto(survivor *cdx.Service, dup cdx.Service, refMap map[string]string) {
+func mergeServiceInto(ctx context.Context, survivor *cdx.Service, dup cdx.Service, refMap map[string]string) {
 	survivor.ExternalReferences = appendPtrSlice(survivor.ExternalReferences, dup.ExternalReferences)
 	survivor.Properties = appendPtrSlice(survivor.Properties, dup.Properties)
 	survivor.Endpoints = dedupStringSlice(appendPtrSlice(survivor.Endpoints, dup.Endpoints))
@@ -321,15 +321,15 @@ func mergeServiceInto(survivor *cdx.Service, dup cdx.Service, refMap map[string]
 
 	if dup.Services != nil {
 		merged := append(lo.FromPtr(survivor.Services), *dup.Services...)
-		survivor.Services = canonicalizeServices(&merged, refMap)
+		survivor.Services = canonicalizeServices(ctx, &merged, refMap)
 	}
 
-	canonicalizeService(survivor)
+	canonicalizeService(ctx, survivor)
 }
 
-func canonicalizeService(svc *cdx.Service) {
+func canonicalizeService(ctx context.Context, svc *cdx.Service) {
 	svc.ExternalReferences = dedupExternalReferences(svc.ExternalReferences)
-	svc.Properties = dedupProperties(svc.Properties)
+	svc.Properties = dedupProperties(ctx, svc.Properties)
 }
 
 // canonicalizeDependencies merges dependency entries sharing a ref, since a
@@ -374,7 +374,7 @@ func canonicalizeDependencies(deps *[]cdx.Dependency, knownRefs map[string]struc
 	return &result
 }
 
-func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability, refMap map[string]string) *[]cdx.Vulnerability {
+func canonicalizeVulnerabilities(ctx context.Context, vulns *[]cdx.Vulnerability, refMap map[string]string) *[]cdx.Vulnerability {
 	if vulns == nil {
 		return nil
 	}
@@ -384,7 +384,7 @@ func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability, refMap map[string]s
 
 	for _, vuln := range *vulns {
 		vuln.Affects = dedupPtrSlice(vuln.Affects)
-		vuln.Properties = dedupProperties(vuln.Properties)
+		vuln.Properties = dedupProperties(ctx, vuln.Properties)
 
 		key := vuln.ID
 		if vuln.Source != nil {
@@ -399,7 +399,7 @@ func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability, refMap map[string]s
 			case vuln.BOMRef != "" && vuln.BOMRef != survivor.BOMRef:
 				refMap[vuln.BOMRef] = survivor.BOMRef
 			}
-			mergeVulnerabilityInto(survivor, vuln)
+			mergeVulnerabilityInto(ctx, survivor, vuln)
 			continue
 		}
 
@@ -414,7 +414,7 @@ func canonicalizeVulnerabilities(vulns *[]cdx.Vulnerability, refMap map[string]s
 	return &result
 }
 
-func mergeVulnerabilityInto(survivor *cdx.Vulnerability, dup cdx.Vulnerability) {
+func mergeVulnerabilityInto(ctx context.Context, survivor *cdx.Vulnerability, dup cdx.Vulnerability) {
 	takeString(&survivor.Description, dup.Description)
 	takeString(&survivor.Detail, dup.Detail)
 	takeString(&survivor.Recommendation, dup.Recommendation)
@@ -434,7 +434,7 @@ func mergeVulnerabilityInto(survivor *cdx.Vulnerability, dup cdx.Vulnerability) 
 	survivor.Advisories = dedupPtrSlice(appendPtrSlice(survivor.Advisories, dup.Advisories))
 	survivor.CWEs = dedupPtrSlice(appendPtrSlice(survivor.CWEs, dup.CWEs))
 	survivor.References = dedupPtrSlice(appendPtrSlice(survivor.References, dup.References))
-	survivor.Properties = dedupProperties(appendPtrSlice(survivor.Properties, dup.Properties))
+	survivor.Properties = dedupProperties(ctx, appendPtrSlice(survivor.Properties, dup.Properties))
 }
 
 // canonicalizeCompositions keeps the refs of entities the BOM declares and
@@ -685,7 +685,7 @@ func dedupExternalReferences(refs *[]cdx.ExternalReference) *[]cdx.ExternalRefer
 // allows a component to carry each of them at most once and its exporters read only
 // the first: attack_surface and security_function keep the strongest value so a
 // weaker duplicate does not hide a stronger one, source_langs keeps the union.
-func dedupProperties(properties *[]cdx.Property) *[]cdx.Property {
+func dedupProperties(ctx context.Context, properties *[]cdx.Property) *[]cdx.Property {
 	if properties == nil {
 		return nil
 	}
@@ -706,11 +706,11 @@ func dedupProperties(properties *[]cdx.Property) *[]cdx.Property {
 			continue
 		case gost.PropertySourceLangs:
 			if pos, exists := gostPos[prop.Name]; exists {
-				result[pos].Value = gost.MergeSourceLangsValues(context.Background(), result[pos].Value, prop.Value)
+				result[pos].Value = gost.MergeSourceLangsValues(ctx, result[pos].Value, prop.Value)
 				continue
 			}
 			gostPos[prop.Name] = len(result)
-			result = append(result, cdx.Property{Name: prop.Name, Value: gost.NormalizeSourceLangsValue(context.Background(), prop.Value)})
+			result = append(result, cdx.Property{Name: prop.Name, Value: gost.NormalizeSourceLangsValue(ctx, prop.Value)})
 			continue
 		}
 

@@ -1,6 +1,7 @@
 package cyclonedxutil
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -78,7 +79,7 @@ func CloneBOM(bom *cdx.BOM) (*cdx.BOM, error) {
 	return &clone, nil
 }
 
-func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
+func MergeBOMs(ctx context.Context, target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	if err := validateBOMSpecVersions(target, opts); err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 		}
 
 		if opts.IsolateComponents {
-			Canonicalize(boms[i])
+			Canonicalize(ctx, boms[i])
 		}
 	}
 
@@ -121,12 +122,12 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 	if opts.IsolateComponents {
 		refMap := map[string]string{}
-		result.Services = canonicalizeServices(result.Services, refMap)
-		result.Vulnerabilities = canonicalizeVulnerabilities(result.Vulnerabilities, refMap)
+		result.Services = canonicalizeServices(ctx, result.Services, refMap)
+		result.Vulnerabilities = canonicalizeVulnerabilities(ctx, result.Vulnerabilities, refMap)
 		RewriteRefs(result, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(result))))
-		CanonicalizeDocument(result)
+		CanonicalizeDocument(ctx, result)
 	} else {
-		Canonicalize(result)
+		Canonicalize(ctx, result)
 	}
 
 	if !opts.PreserveBOMRefs {

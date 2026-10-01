@@ -69,7 +69,7 @@ func (a *ContainerAssembler) Assemble(ctx context.Context, images []*ImageSBOM, 
 		wrapped = append(wrapped, imgBOM)
 	}
 
-	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
+	result, err := cyclonedxutil.MergeBOMs(ctx, nil, cyclonedxutil.MergeOpts{
 		ImportBOMs:        wrapped,
 		PreserveBOMRefs:   true,
 		IsolateComponents: true,

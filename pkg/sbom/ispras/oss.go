@@ -18,7 +18,7 @@ func (a *OSSAssembler) Assemble(ctx context.Context, images []*ImageSBOM, meta P
 		return nil, err
 	}
 
-	result, err := cyclonedxutil.MergeBOMs(nil, cyclonedxutil.MergeOpts{
+	result, err := cyclonedxutil.MergeBOMs(ctx, nil, cyclonedxutil.MergeOpts{
 		ImportBOMs: imageBOMs(images),
 	})
 	if err != nil {

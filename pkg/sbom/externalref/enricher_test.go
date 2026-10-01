@@ -185,7 +185,7 @@ var _ = Describe("Enricher", func() {
 			fromPackageManager := cdx.ExternalReference{URL: "https://git.example.com/lodash.git", Type: cdx.ERTypeVCS}
 			(*bom.Components)[0].ExternalReferences = lo.ToPtr(append(*(*bom.Components)[0].ExternalReferences, fromPackageManager))
 
-			cyclonedxutil.Canonicalize(bom)
+			cyclonedxutil.Canonicalize(ctx, bom)
 
 			Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{fromPackageManager}))
 		})

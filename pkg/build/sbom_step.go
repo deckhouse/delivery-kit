@@ -123,7 +123,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		resultBOM := targetBOM
 		if !mergeOpts.IsEmpty() {
 			var err error
-			resultBOM, err = cyclonedxutil.MergeBOMs(targetBOM, mergeOpts)
+			resultBOM, err = cyclonedxutil.MergeBOMs(ctx, targetBOM, mergeOpts)
 			if err != nil {
 				return fmt.Errorf("merge BOMs: %w", err)
 			}
@@ -135,7 +135,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 				return fmt.Errorf("collect os-pm BOM: %w", err)
 			}
 			if pmBOM != nil {
-				resultBOM, err = cyclonedxutil.MergeBOMs(resultBOM, cyclonedxutil.MergeOpts{
+				resultBOM, err = cyclonedxutil.MergeBOMs(ctx, resultBOM, cyclonedxutil.MergeOpts{
 					ImportBOMs: []*cdx.BOM{pmBOM},
 				})
 				if err != nil {
@@ -174,7 +174,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
 
-		cyclonedxutil.Canonicalize(resultBOM)
+		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -244,7 +244,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 
 	// On a cross-directive PURL collision, MergeBOMs keeps the first component in merge
 	// order (imports before the target), but unions GOST:source_langs from all of them.
-	merged, err := cyclonedxutil.MergeBOMs(scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
+	merged, err := cyclonedxutil.MergeBOMs(ctx, scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
 	if err != nil {
 		return nil, fmt.Errorf("union per-directive BOMs: %w", err)
 	}

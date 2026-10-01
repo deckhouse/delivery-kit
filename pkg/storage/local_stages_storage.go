@@ -114,14 +114,15 @@ func (storage *LocalStagesStorage) GetStagesIDs(ctx context.Context, projectName
 }
 
 func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, projectName, digest string, parentStageCreationTs int64, opts ...Option) ([]image.StageID, error) {
+	// ponytail: local listings serialize cache updates; use per-project locks if this limits parallel builds.
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
 	withCache := makeOptions(opts...).withCache
 	prefix := fmt.Sprintf(LocalStage_ImageFormat, projectName, digest)
 
 	var images image.ImagesList
 	if withCache {
-		storage.imagesCacheMutex.Lock()
-		defer storage.imagesCacheMutex.Unlock()
-
 		cached, isCached := storage.imagesCache[projectName]
 		if !isCached {
 			var err error
@@ -176,24 +177,13 @@ func (storage *LocalStagesStorage) listImages(ctx context.Context, reference str
 func selectImagesByPrefix(images image.ImagesList, prefix string) image.ImagesList {
 	return lo.FilterMap(images, func(summary image.Summary, _ int) (image.Summary, bool) {
 		summary.RepoTags = lo.Filter(summary.RepoTags, func(tag string, _ int) bool {
-			return strings.HasPrefix(trimLocalhostPrefix(tag), prefix)
+			return strings.HasPrefix(strings.TrimPrefix(tag, "localhost/"), prefix)
 		})
 		return summary, len(summary.RepoTags) > 0
 	})
 }
 
-func trimLocalhostPrefix(reference string) string {
-	return strings.TrimPrefix(reference, "localhost/")
-}
-
-// refreshCachedDigest replaces the tags of the given digest in an already initialized project
-// snapshot with the result of a fresh listing of that digest, leaving tags of other digests — even
-// aliases of the same image — in place. A digest-filtered listing says nothing about the rest of
-// the project, so it never initializes the snapshot.
 func (storage *LocalStagesStorage) refreshCachedDigest(projectName, prefix string, fresh image.ImagesList) {
-	storage.imagesCacheMutex.Lock()
-	defer storage.imagesCacheMutex.Unlock()
-
 	cached, isCached := storage.imagesCache[projectName]
 	if !isCached {
 		return
@@ -204,7 +194,7 @@ func (storage *LocalStagesStorage) refreshCachedDigest(projectName, prefix strin
 			return summary, true
 		}
 		summary.RepoTags = lo.Filter(summary.RepoTags, func(tag string, _ int) bool {
-			return !strings.HasPrefix(trimLocalhostPrefix(tag), prefix)
+			return !strings.HasPrefix(strings.TrimPrefix(tag, "localhost/"), prefix)
 		})
 		return summary, len(summary.RepoTags) > 0
 	})
@@ -212,10 +202,8 @@ func (storage *LocalStagesStorage) refreshCachedDigest(projectName, prefix strin
 	storage.imagesCache[projectName] = append(kept, selectImagesByPrefix(fresh, prefix)...)
 }
 
-// rememberPublishedStage makes a stage image this process has just tagged visible to the cached
-// lookups of the same project, which otherwise would not see it until the snapshot is dropped.
 func (storage *LocalStagesStorage) rememberPublishedStage(reference string) {
-	projectName, tag := image.ParseRepositoryAndTag(trimLocalhostPrefix(reference))
+	projectName, tag := image.ParseRepositoryAndTag(strings.TrimPrefix(reference, "localhost/"))
 	if projectName == "" || tag == "" {
 		return
 	}

@@ -349,20 +349,34 @@ var _ = ginkgo.Describe("Local stage lookup cache maintenance", func() {
 		}, []string{cachedTagA}),
 	)
 
-	ginkgo.It("does not lose a stage published while the project listing is in flight", func(ctx ginkgo.SpecContext) {
+	ginkgo.DescribeTable("does not lose a stage published while a listing is in flight", func(ctx ginkgo.SpecContext, fresh bool) {
 		listing, release, tagging := make(chan struct{}), make(chan struct{}), make(chan struct{})
 		backend := newLocalPublishBackendStub(nil)
+		storage := NewLocalStagesStorage(backend)
+		if fresh {
+			gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.BeEmpty())
+		}
 		backend.onList = func() {
 			close(listing)
 			<-release
 		}
 		backend.onTag = func() { close(tagging) }
-		storage := NewLocalStagesStorage(backend)
+		ginkgo.DeferCleanup(func() {
+			select {
+			case <-release:
+			default:
+				close(release)
+			}
+		})
 
 		lookup := make(chan []string, 1)
 		go func() {
 			defer ginkgo.GinkgoRecover()
-			stages, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0, WithCache())
+			var opts []Option
+			if !fresh {
+				opts = append(opts, WithCache())
+			}
+			stages, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0, opts...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			lookup <- stageStrings(stages)
 		}()
@@ -374,11 +388,19 @@ var _ = ginkgo.Describe("Local stage lookup cache maintenance", func() {
 			stored <- storage.StoreImage(ctx, &localStageImageStub{name: "project:" + cachedTagA})
 		}()
 		<-tagging
+		gomega.Consistently(stored).ShouldNot(gomega.Receive())
 		close(release)
 
 		gomega.Expect(<-stored).To(gomega.Succeed())
 		gomega.Expect(<-lookup).To(gomega.BeEmpty())
 		gomega.Expect(cachedStages(ctx, storage, cachedDigestA)).To(gomega.ConsistOf(cachedTagA))
-		gomega.Expect(backend.calls).To(gomega.Equal(1))
-	})
+		expectedCalls := 1
+		if fresh {
+			expectedCalls++
+		}
+		gomega.Expect(backend.calls).To(gomega.Equal(expectedCalls))
+	},
+		ginkgo.Entry("project warm-up", false),
+		ginkgo.Entry("digest refresh", true),
+	)
 })

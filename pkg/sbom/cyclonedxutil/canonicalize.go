@@ -705,12 +705,16 @@ func dedupProperties(ctx context.Context, properties *[]cdx.Property) *[]cdx.Pro
 			result = append(result, prop)
 			continue
 		case gost.PropertySourceLangs:
+			prop.Value = gost.NormalizeSourceLangsValue(ctx, prop.Value)
+			if prop.Value == "" {
+				continue
+			}
 			if pos, exists := gostPos[prop.Name]; exists {
 				result[pos].Value = gost.MergeSourceLangsValues(ctx, result[pos].Value, prop.Value)
 				continue
 			}
 			gostPos[prop.Name] = len(result)
-			result = append(result, cdx.Property{Name: prop.Name, Value: gost.NormalizeSourceLangsValue(ctx, prop.Value)})
+			result = append(result, prop)
 			continue
 		}
 

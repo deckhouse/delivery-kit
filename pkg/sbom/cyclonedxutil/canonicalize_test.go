@@ -601,6 +601,41 @@ var _ = Describe("Canonicalize", func() {
 		Entry("Assembly then C", "Assembly", "C"),
 	)
 
+	DescribeTable("drops empty GOST:source_langs without losing other properties",
+		func(ctx SpecContext, values []string, expectedLangs string) {
+			props := []cdx.Property{{Name: "before", Value: "keep"}}
+			for _, value := range values {
+				props = append(props, cdx.Property{Name: gost.PropertySourceLangs, Value: value})
+			}
+			props = append(props, cdx.Property{Name: "after", Value: "keep"})
+			bom := &cdx.BOM{Components: &[]cdx.Component{{Name: "lib", Properties: &props}}}
+			expected := []cdx.Property{{Name: "before", Value: "keep"}}
+			if expectedLangs != "" {
+				expected = append(expected, cdx.Property{Name: gost.PropertySourceLangs, Value: expectedLangs})
+			}
+			expected = append(expected, cdx.Property{Name: "after", Value: "keep"})
+
+			Canonicalize(ctx, bom)
+			Expect(*(*bom.Components)[0].Properties).To(Equal(expected))
+			Canonicalize(ctx, bom)
+			Expect(*(*bom.Components)[0].Properties).To(Equal(expected))
+		},
+		Entry("empty string", []string{""}, ""),
+		Entry("only separators and spaces", []string{" , "}, ""),
+		Entry("repeated empty values", []string{" , ", ""}, ""),
+		Entry("empty before a language", []string{" , ", "Go"}, "Go"),
+		Entry("empty after a language", []string{"Go", " , "}, "Go"),
+		Entry("empty between disjoint languages", []string{"Python", " , ", "Go"}, "Go,Python"),
+	)
+
+	It("removes a sole empty GOST:source_langs property", func(ctx SpecContext) {
+		bom := &cdx.BOM{Components: &[]cdx.Component{{Name: "lib", Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: " , "}}}}}
+
+		Canonicalize(ctx, bom)
+
+		Expect((*bom.Components)[0].Properties).To(BeNil())
+	})
+
 	It("normalizes a lone GOST:source_langs value of an imported component", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{

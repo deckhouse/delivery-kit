@@ -231,6 +231,7 @@ var _ = Describe("MergeBOMs", func() {
 		Entry("concatenates in merge order (base → imports → target)",
 			&cdx.BOM{
 				SpecVersion: cdx.SpecVersion1_6,
+				Components:  &[]cdx.Component{{BOMRef: "target-ref", Name: "target"}},
 				Dependencies: &[]cdx.Dependency{
 					{Ref: "target-ref", Dependencies: &[]string{"dep-e"}},
 				},
@@ -238,22 +239,20 @@ var _ = Describe("MergeBOMs", func() {
 			MergeOpts{
 				BaseBOM: &cdx.BOM{
 					SpecVersion: cdx.SpecVersion1_6,
+					Components:  &[]cdx.Component{{BOMRef: "base-ref-1", Name: "base-1"}, {BOMRef: "base-ref-2", Name: "base-2"}},
 					Dependencies: &[]cdx.Dependency{
 						{Ref: "base-ref-1", Dependencies: &[]string{"dep-a"}},
 						{Ref: "base-ref-2"},
 					},
 				},
 				ImportBOMs: []*cdx.BOM{
-					{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "import1-ref"}}},
-					{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "import2-ref"}}},
+					{SpecVersion: cdx.SpecVersion1_6, Components: &[]cdx.Component{{BOMRef: "import1-ref", Name: "import-1"}}, Dependencies: &[]cdx.Dependency{{Ref: "import1-ref"}}},
+					{SpecVersion: cdx.SpecVersion1_6, Components: &[]cdx.Component{{BOMRef: "import2-ref", Name: "import-2"}}, Dependencies: &[]cdx.Dependency{{Ref: "import2-ref"}}},
 				},
 			},
 			func(result *cdx.BOM) {
-				Expect(dependencyRefs(result)).To(Equal([]string{
-					"base-ref-1", "base-ref-2",
-					"import1-ref", "import2-ref",
-					"target-ref",
-				}))
+				Expect(dependencyRefs(result)).To(Equal(lo.Map(*result.Components, func(comp cdx.Component, _ int) string { return comp.BOMRef })))
+				Expect(componentNames(result)).To(Equal([]string{"base-1", "base-2", "import-1", "import-2", "target"}))
 			},
 		),
 
@@ -266,22 +265,35 @@ var _ = Describe("MergeBOMs", func() {
 		),
 
 		Entry("deduplicates identical dependencies",
-			&cdx.BOM{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "dup", Dependencies: &[]string{"dep-a"}}}},
-			MergeOpts{BaseBOM: &cdx.BOM{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "dup", Dependencies: &[]string{"dep-a"}}}}},
+			&cdx.BOM{
+				SpecVersion:  cdx.SpecVersion1_6,
+				Components:   &[]cdx.Component{{BOMRef: "dup", Name: "dup", PackageURL: "pkg:generic/dup@1"}},
+				Dependencies: &[]cdx.Dependency{{Ref: "dup", Dependencies: &[]string{"dep-a"}}},
+			},
+			MergeOpts{BaseBOM: &cdx.BOM{
+				SpecVersion:  cdx.SpecVersion1_6,
+				Components:   &[]cdx.Component{{BOMRef: "dup", Name: "dup", PackageURL: "pkg:generic/dup@1"}},
+				Dependencies: &[]cdx.Dependency{{Ref: "dup", Dependencies: &[]string{"dep-a"}}},
+			}},
 			func(result *cdx.BOM) {
+				Expect(*result.Components).To(HaveLen(1))
 				Expect(result.Dependencies).ToNot(BeNil())
 				Expect(*result.Dependencies).To(HaveLen(1))
-				Expect((*result.Dependencies)[0].Ref).To(Equal("dup"))
+				Expect((*result.Dependencies)[0].Ref).To(Equal((*result.Components)[0].BOMRef))
 			},
 		),
 
 		Entry("handles nil target",
 			nil,
-			MergeOpts{BaseBOM: &cdx.BOM{SpecVersion: cdx.SpecVersion1_6, Dependencies: &[]cdx.Dependency{{Ref: "base-ref", Dependencies: &[]string{"dep-a"}}}}},
+			MergeOpts{BaseBOM: &cdx.BOM{
+				SpecVersion:  cdx.SpecVersion1_6,
+				Components:   &[]cdx.Component{{BOMRef: "base-ref", Name: "base"}},
+				Dependencies: &[]cdx.Dependency{{Ref: "base-ref", Dependencies: &[]string{"dep-a"}}},
+			}},
 			func(result *cdx.BOM) {
 				Expect(result.Dependencies).ToNot(BeNil())
 				Expect(*result.Dependencies).To(HaveLen(1))
-				Expect((*result.Dependencies)[0].Ref).To(Equal("base-ref"))
+				Expect((*result.Dependencies)[0].Ref).To(Equal((*result.Components)[0].BOMRef))
 			},
 		),
 
@@ -289,15 +301,17 @@ var _ = Describe("MergeBOMs", func() {
 			&cdx.BOM{SpecVersion: cdx.SpecVersion1_6},
 			MergeOpts{BaseBOM: &cdx.BOM{
 				SpecVersion:  cdx.SpecVersion1_6,
+				Components:   &[]cdx.Component{{BOMRef: "ref-1", Name: "one"}, {BOMRef: "dep-a", Name: "a"}, {BOMRef: "prov-a", Name: "p"}},
 				Dependencies: &[]cdx.Dependency{{Ref: "ref-1", Dependencies: &[]string{"dep-a"}, Provides: &[]string{"prov-a"}}},
 			}},
 			func(result *cdx.BOM) {
 				Expect(result.Dependencies).ToNot(BeNil())
 				Expect(*result.Dependencies).To(HaveLen(1))
+				refs := lo.Map(*result.Components, func(comp cdx.Component, _ int) string { return comp.BOMRef })
 				dep := (*result.Dependencies)[0]
-				Expect(dep.Ref).To(Equal("ref-1"))
-				Expect(*dep.Dependencies).To(Equal([]string{"dep-a"}))
-				Expect(*dep.Provides).To(Equal([]string{"prov-a"}))
+				Expect(dep.Ref).To(Equal(refs[0]))
+				Expect(*dep.Dependencies).To(Equal([]string{refs[1]}))
+				Expect(*dep.Provides).To(Equal([]string{refs[2]}))
 			},
 		),
 	)
@@ -833,5 +847,57 @@ var _ = Describe("MergeBOMs input isolation", func() {
 			Metadata:    &cdx.Metadata{Tools: &cdx.ToolsChoice{}},
 		}}})
 		Expect(err).To(MatchError(ContainSubstring("clone BOM for merge")))
+	})
+})
+
+var _ = Describe("MergeBOMs ref collisions", func() {
+	It("keeps the graphs of inputs apart when they reuse one ref for different packages", func() {
+		baseBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "app", Type: cdx.ComponentTypeApplication, Name: "app", PackageURL: "pkg:generic/app@1"},
+				{BOMRef: "shared", Type: cdx.ComponentTypeLibrary, Name: "library", PackageURL: "pkg:generic/library@1"},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "app", Dependencies: &[]string{"shared"}}},
+		}
+		importBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "shared", Type: cdx.ComponentTypeLibrary, Name: "unrelated", PackageURL: "pkg:generic/unrelated@1"},
+			},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{BaseBOM: baseBOM, ImportBOMs: []*cdx.BOM{importBOM}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(gost.Upsert(result, gost.DefaultConfig())).To(Succeed())
+
+		actual := map[string]gost.GostValue{}
+		for _, comp := range *result.Components {
+			actual[comp.Name] = gost.GetComponent(&comp).AttackSurface
+		}
+		Expect(actual).To(Equal(map[string]gost.GostValue{
+			"app":       gost.GostValueYes,
+			"library":   gost.GostValueIndirect,
+			"unrelated": gost.GostValueYes,
+		}))
+	})
+
+	It("drops a vulnerability's reference to a package no input declares instead of leaking the input prefix", func() {
+		baseBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", PackageURL: "pkg:generic/lib@1"},
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{BOMRef: "vuln-1", ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib"}, {Ref: "ghost"}, {Ref: "urn:cdx:other/1#ghost"}}},
+			},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{BaseBOM: baseBOM})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Vulnerabilities).To(HaveLen(1))
+		affected := lo.Map(*(*result.Vulnerabilities)[0].Affects, func(a cdx.Affects, _ int) string { return a.Ref })
+		Expect(affected).To(ConsistOf((*result.Components)[0].BOMRef, "urn:cdx:other/1#ghost"))
 	})
 })

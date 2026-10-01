@@ -70,7 +70,8 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			mappingPath := filepath.Join(SuiteData.TmpDir, "lifecycle_multi_mapping_"+isprasFormat+".json")
 			writeMappingFile(mappingPath, mapping)
 
-			mergeOut := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			mergedJSONPath := filepath.Join(SuiteData.TmpDir, "lifecycle_multi_merged_"+isprasFormat+".json")
+			werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{
 						"--input", mappingPath,
@@ -78,11 +79,18 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 						"--app-name", "lifecycle-product",
 						"--app-version", "1.0.0",
 						"--manufacturer", "e2e-test",
+						"--output", mergedJSONPath,
 					},
 				},
 			})
 
-			merged := sbomtest.MustParseSBOMOutput(mergeOut)
+			mergedJSON, err := os.ReadFile(mergedJSONPath)
+			Expect(err).NotTo(HaveOccurred())
+
+			merged := sbomtest.MustParseSBOMOutput(string(mergedJSON))
+			sbomtest.AssertSpecVersion(merged, cdx.SpecVersion1_6)
+			sbomtest.AssertProductMetadata(merged, "lifecycle-product", "1.0.0", "e2e-test")
+			sbomtest.AssertUniqueBOMRefs(merged)
 			sbomtest.AssertHasComponent(merged, "jq", "1.8.1")
 			sbomtest.AssertHasComponent(merged, "yq", "4.53.6")
 
@@ -96,8 +104,20 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name
 			// and does NOT carry GOST — hence AssertGostPropertyOnComponents (not AssertGostProperty).
-			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
+			// The default attack surface `yes` lands on the roots of the dependency tree; openssl is
+			// pulled in by curl and is demoted to `indirect`.
+			sbomtest.AssertGostPropertyOnComponent(merged, "curl", "8.12.1", gost.PropertyAttackSurface, gost.GostValueYes)
+			sbomtest.AssertGostPropertyOnComponent(merged, "openssl", "3.6.2", gost.PropertyAttackSurface, gost.GostValueIndirect)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
+
+			if isprasFormat == "container" {
+				sbomtest.AssertContainerComponents(merged, "frontend", "backend")
+				sbomtest.AssertGostPropertyOnContainers(merged, gost.PropertyAttackSurface, gost.GostValueYes)
+				sbomtest.AssertGostPropertyOnContainers(merged, gost.PropertySecurityFunction, gost.GostValueYes)
+			} else {
+				sbomtest.AssertFlatComponents(merged)
+				sbomtest.AssertNoDuplicateComponents(merged)
+			}
 
 			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")
 			sbomtest.AssertDependsOn(merged,
@@ -112,6 +132,22 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 					}
 					return lo.Ternary(isprasFormat == "container", name+"/"+ref, ref)
 				})
+			}
+
+			// The product assembled from two images with a split attack surface must
+			// still satisfy the ISPRAS checker, which requires a container to report
+			// exactly the maximum over the packages it holds. The oss schema is not
+			// run: the builder SBOM carries an `operating-system` component without
+			// a vcs reference that this schema rejects — see the pending oss entry
+			// of the single-image lifecycle below for when it comes back.
+			if isprasFormat == "container" {
+				validateOut := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
+					CommonOptions: werf.CommonOptions{
+						ExtraArgs: []string{"--path", mergedJSONPath, "--ispras-format", isprasFormat},
+					},
+				})
+				Expect(validateOut).To(ContainSubstring("OK"),
+					"merged product SBOM did not pass %q validation; output:\n%s", isprasFormat, validateOut)
 			}
 		},
 		Entry("container format", "container"),

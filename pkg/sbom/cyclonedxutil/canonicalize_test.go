@@ -579,6 +579,10 @@ var _ = Describe("Canonicalize", func() {
 
 	It("merges vulnerabilities sharing an id and source", func() {
 		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "a"},
+				{BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "b"},
+			},
 			Vulnerabilities: &[]cdx.Vulnerability{
 				{ID: "CVE-1", Source: &cdx.Source{Name: "nvd"}, Affects: &[]cdx.Affects{{Ref: "a"}}, CWEs: &[]int{79}},
 				{

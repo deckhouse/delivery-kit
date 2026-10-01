@@ -113,10 +113,12 @@ When building a multi-platform image, werf generates a separate SBOM artifact fo
 
 ## GOST security properties (`sbom.gost`)
 
-To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into all direct components of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.
+To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into the whole component tree of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.
 
 1. `attackSurface`: The attack surface property (`yes` | `no` | `indirect`).
-2. `securityFunction`: The security function property (`yes` | `no` | `indirect`).
+2. `securityFunction`: The security function property (`yes` | `no`).
+
+`attackSurface: yes` follows the dependency tree recorded in the SBOM `dependencies` section: it lands on the components nothing else depends on, and every component pulled in by another one is recorded as `indirect`. When the catalogers of an ecosystem report no dependency tree at all, every component is a root and receives `yes`. `no` and `indirect`, and `securityFunction` in all cases, apply unchanged to the whole tree.
 
 You can define these globally in `build.sbom.gost` or per-image in `image.sbom.gost`. Image-level configuration overrides global configuration.
 
@@ -175,6 +177,6 @@ Changing GOST properties (`sbom.gost`) does not affect stage digests. Cached sta
 
 [`werf sbom get`]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) retrieves the SBOM for an image described in `werf.yaml` and prints it to stdout. The SBOM is read as an OCI artifact from the container registry, so `--repo` is required. When invoked with an image name, the command runs the standard werf build conveyor: missing stages and SBOM artifacts are created, just like with `werf build` (with the `--require-built-images` flag the command fails instead). You can select a specific version with `--tag` or `--digest` (mutually exclusive) — in this mode the command only downloads the ready-made SBOM and fails if it is not found.
 
-[`werf sbom merge`]({{ "/reference/cli/werf_sbom_merge.html" | true_relative_url }}) assembles a product-level SBOM from several per-image SBOMs. It takes a JSON file that maps image names to sha256 digests, pulls the individual SBOMs from the registry, and merges them into a single CycloneDX document with dependency graphs preserved. Two ISPRAS output formats are available: `container` (hierarchical, each image becomes a top-level component with nested packages) and `oss` (flat, all packages deduplicated into one list). GOST `attack_surface` and `security_function` properties are aggregated bottom-up with the precedence `yes > indirect > no`.
+[`werf sbom merge`]({{ "/reference/cli/werf_sbom_merge.html" | true_relative_url }}) assembles a product-level SBOM from several per-image SBOMs. It takes a JSON file that maps image names to sha256 digests, pulls the individual SBOMs from the registry, and merges them into a single CycloneDX document with dependency graphs preserved. Two ISPRAS output formats are available: `container` (hierarchical, each image becomes a top-level component with nested packages) and `oss` (flat, all packages deduplicated into one list). GOST properties are aggregated bottom-up: `attack_surface` with the precedence `yes > indirect > no`, `security_function` with `yes > no`. An image SBOM carrying a GOST value outside these domains — `security_function: indirect` written by an older werf, for instance — is rejected; rebuild the image first.
 
 [`werf sbom validate`]({{ "/reference/cli/werf_sbom_validate.html" | true_relative_url }}) checks a CycloneDX JSON file against ISPRAS schemas. It runs sbom-checker inside a Docker container and reports any violations, split into errors and warnings, with both counts shown in the summary. By default any error or warning fails the validation; pass `--warnings-non-fatal` to keep warnings informational (printed on stderr) so that only errors set a non-zero exit code. Both `oss` and `container` SBOM types are supported.

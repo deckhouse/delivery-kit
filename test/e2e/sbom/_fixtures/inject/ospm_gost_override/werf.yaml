@@ -13,7 +13,7 @@ from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9
 sbom:
   gost:
     attackSurface: no
-    securityFunction: indirect
+    securityFunction: no
 git:
   - add: /
     to: /

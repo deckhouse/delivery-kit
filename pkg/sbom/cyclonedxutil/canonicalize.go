@@ -79,6 +79,10 @@ func CanonicalizeDocument(bom *cdx.BOM) {
 	}
 	knownRefs := collectKnownRefs(bom)
 	bom.Dependencies = canonicalizeDependencies(bom.Dependencies, knownRefs)
+	for i := range lo.FromPtr(bom.Vulnerabilities) {
+		vuln := &(*bom.Vulnerabilities)[i]
+		vuln.Affects = filterKnownAffects(vuln.Affects, knownRefs)
+	}
 	if bom.SerialNumber != "" {
 		knownRefs[bom.SerialNumber] = struct{}{}
 	}
@@ -489,6 +493,23 @@ func filterKnownBOMReferences(refs *[]cdx.BOMReference, knownRefs map[string]str
 			result = append(result, ref)
 		}
 	}
+
+	return dedupPtrSlice(&result)
+}
+
+// filterKnownAffects drops the references of a vulnerability to entities the
+// BOM does not declare, as canonicalizeDependencies does for edges. A
+// vulnerability may only affect a component or a service, so unlike the
+// dependency graph it has nothing to say in a BOM that declares none.
+func filterKnownAffects(affects *[]cdx.Affects, knownRefs map[string]struct{}) *[]cdx.Affects {
+	if affects == nil {
+		return nil
+	}
+
+	result := lo.Filter(*affects, func(a cdx.Affects, _ int) bool {
+		_, known := knownRefs[a.Ref]
+		return known || isBOMLink(a.Ref)
+	})
 
 	return dedupPtrSlice(&result)
 }

@@ -41,8 +41,15 @@ func (c Config) Merge(other Config) Config {
 	return res
 }
 
-func IsValidGostValue(v string) bool {
+func IsValidAttackSurfaceValue(v string) bool {
 	return v == GostValueYes.String() || v == GostValueNo.String() || v == GostValueIndirect.String()
+}
+
+// IsValidSecurityFunctionValue rejects `indirect`: a component either implements
+// a security function or does not, there is nothing for it to implement one
+// through.
+func IsValidSecurityFunctionValue(v string) bool {
+	return v == GostValueYes.String() || v == GostValueNo.String()
 }
 
 func (v GostValue) IsUndefined() bool {

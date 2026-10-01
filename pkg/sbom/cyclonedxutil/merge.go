@@ -12,6 +12,9 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
+// MergeOpts names the BOMs merged into the target. Every base and import BOM
+// is a closed document: a BOM ref is local to the document that declares it,
+// so a reference from one BOM into another names nothing and is dropped.
 type MergeOpts struct {
 	BaseBOM    *cdx.BOM
 	ImportBOMs []*cdx.BOM
@@ -91,6 +94,10 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 		boms[i] = clone
 
 		linkSelfReferences(boms[i])
+
+		if !opts.PreserveBOMRefs && boms[i] != nil && i < len(boms)-1 {
+			NamespaceBOMRefs(boms[i], fmt.Sprintf("merge-input-%d", i))
+		}
 
 		if opts.IsolateComponents {
 			Canonicalize(boms[i])

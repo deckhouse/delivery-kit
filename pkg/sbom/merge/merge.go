@@ -209,7 +209,7 @@ func PullAndParseImages(ctx context.Context, repo string, mapping map[string]str
 					return fmt.Errorf("pull SBOM for %q: %w", imageName, err)
 				}
 
-				ispras.NamespaceBOMRefs(bom, imageName)
+				cyclonedxutil.NamespaceBOMRefs(bom, imageName)
 				images = append(images, ispras.NewImageSBOM(imageName, bom))
 				return nil
 			})

@@ -279,7 +279,7 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 	return bom, nil
 }
 
-const sbomArtifactFormatVersion = "5"
+const sbomArtifactFormatVersion = "6"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only
@@ -397,7 +397,7 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 		})
 	}
 
-	// Skip GOST validation and upsert for base/import BOMs when GOST is not configured.
+	// Skip GOST validation for base/import BOMs when GOST is not configured.
 	// Without this guard, components from patchers (e.g. PM BOMPatcher) that lack GOST
 	// properties would fail validation even though GOST is not in use.
 	if mergeOpts.Gost.AttackSurface.IsUndefined() && mergeOpts.Gost.SecurityFunction.IsUndefined() {
@@ -406,19 +406,13 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 
 	if mergeOpts.BaseBOM != nil {
 		if err := gost.Validate(mergeOpts.BaseBOM); err != nil {
-			return fmt.Errorf("base SBOM validation failed: %w", err)
-		}
-		if err := gost.Upsert(mergeOpts.BaseBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties for base SBOM: %w", err)
+			return fmt.Errorf("base SBOM validation failed (rebuild the base image with the current werf if its SBOM was built by an older one): %w", err)
 		}
 	}
 
 	for i, externalBOM := range mergeOpts.ImportBOMs {
 		if err := gost.Validate(externalBOM); err != nil {
-			return fmt.Errorf("external SBOM [%d] validation failed: %w", i, err)
-		}
-		if err := gost.Upsert(externalBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties for external SBOM [%d]: %w", i, err)
+			return fmt.Errorf("external SBOM [%d] validation failed (rebuild the imported image with the current werf if its SBOM was built by an older one): %w", i, err)
 		}
 	}
 

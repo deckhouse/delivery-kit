@@ -83,8 +83,8 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		// Image-level GOST override for an os-pm image must land on both
 		// metadata.component and every collected pm component.
 		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertyAttackSurface, gost.GostValueNo)
-		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueNo)
 		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertyAttackSurface, gost.GostValueNo)
-		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueNo)
 	})
 })

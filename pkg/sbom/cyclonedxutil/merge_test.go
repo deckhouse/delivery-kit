@@ -881,4 +881,23 @@ var _ = Describe("MergeBOMs ref collisions", func() {
 			"unrelated": gost.GostValueYes,
 		}))
 	})
+
+	It("drops a vulnerability's reference to a package no input declares instead of leaking the input prefix", func() {
+		baseBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "lib", Type: cdx.ComponentTypeLibrary, Name: "lib", PackageURL: "pkg:generic/lib@1"},
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{BOMRef: "vuln-1", ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "lib"}, {Ref: "ghost"}, {Ref: "urn:cdx:other/1#ghost"}}},
+			},
+		}
+
+		result, err := MergeBOMs(nil, MergeOpts{BaseBOM: baseBOM})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Vulnerabilities).To(HaveLen(1))
+		affected := lo.Map(*(*result.Vulnerabilities)[0].Affects, func(a cdx.Affects, _ int) string { return a.Ref })
+		Expect(affected).To(ConsistOf((*result.Components)[0].BOMRef, "urn:cdx:other/1#ghost"))
+	})
 })

@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.6.1-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.1...v3.6.1-dk.2) (2026-10-01)
+
+
+### Features
+
+* **sbom:** add --warnings-non-fatal flag to sbom validate ([#331](https://github.com/deckhouse/delivery-kit/issues/331)) ([91e1a30](https://github.com/deckhouse/delivery-kit/commit/91e1a30b78ed17c90d254faa10c8cf3b1053c378))
+* **sbom:** carry STREEBOG source-distribution digests through the CycloneDX 1.6 SBOM ([#383](https://github.com/deckhouse/delivery-kit/issues/383)) ([1065a95](https://github.com/deckhouse/delivery-kit/commit/1065a95fcce0fb1e15f427966941636d42884fa0))
+* **sbom:** generate file-based package SBOMs without docker.sock ([#307](https://github.com/deckhouse/delivery-kit/issues/307)) ([6681160](https://github.com/deckhouse/delivery-kit/commit/66811602987aa8329b0c2fe365167f1a31971251))
+* **sbom:** mark only entry-point packages as directly attackable ([#332](https://github.com/deckhouse/delivery-kit/issues/332)) ([a0b171e](https://github.com/deckhouse/delivery-kit/commit/a0b171eea3a74c18f3ecedcbef8b6d8f9694483f))
+* **sbom:** report the source language of cataloged packages ([#328](https://github.com/deckhouse/delivery-kit/issues/328)) ([df4ba44](https://github.com/deckhouse/delivery-kit/commit/df4ba446d88de93c5fe6f003ab52604accd32e74))
+
+
+### Bug Fixes
+
+* **ci:** honor cancellation of build and test workflows ([#381](https://github.com/deckhouse/delivery-kit/issues/381)) ([63f7581](https://github.com/deckhouse/delivery-kit/commit/63f75816b4549aa7e15eb1a988bdc667f3bb136c))
+* **sbom, vex, build:** keep artifacts with the image in every repository ([#282](https://github.com/deckhouse/delivery-kit/issues/282)) ([5544c87](https://github.com/deckhouse/delivery-kit/commit/5544c8755adb27164d838c11dd1616b668925926))
+* **sbom:** restore the build after the file-based SBOM scan merge ([#380](https://github.com/deckhouse/delivery-kit/issues/380)) ([4d67f69](https://github.com/deckhouse/delivery-kit/commit/4d67f691a7a86b3026de52cee5aad3af5a640168))
+* **sbom:** stop ispras validation failing on containers without a description ([#382](https://github.com/deckhouse/delivery-kit/issues/382)) ([c3c9abd](https://github.com/deckhouse/delivery-kit/commit/c3c9abd0240252d19d42647242da682f66470d46))
+* **sbom:** stop printing every validation finding twice in sbom validate ([#350](https://github.com/deckhouse/delivery-kit/issues/350)) ([6f0af68](https://github.com/deckhouse/delivery-kit/commit/6f0af68e441d3a7e1edd092ed738373d2827cc88))
+
 ## [3.6.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.0-dk.1...v3.6.1-dk.1) (2026-09-28)
 
 

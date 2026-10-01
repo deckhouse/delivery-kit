@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -396,6 +397,15 @@ getPathsLoop:
 	return commands, nil
 }
 
+func parentDirs(name string) []string {
+	var dirs []string
+	for dir := path.Dir(name); dir != "." && dir != "/"; dir = path.Dir(dir) {
+		dirs = append(dirs, dir)
+	}
+	slices.Reverse(dirs)
+	return dirs
+}
+
 func quoteShellArg(arg string) string {
 	if len(arg) == 0 {
 		return "''"
@@ -422,6 +432,61 @@ func (gm *GitMapping) applyArchiveCommand(archiveFile *ContainerFileDescriptor, 
 		return nil, fmt.Errorf("unknown archive type `%s`", archiveType)
 	}
 
+	archive, err := os.Open(archiveFile.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("open git archive: %w", err)
+	}
+	defer archive.Close()
+
+	var paths strings.Builder
+	written := make(map[string]bool)
+	writePath := func(name string) {
+		fullPath := path.Join(unpackArchiveDirectory, name)
+		if written[fullPath] {
+			return
+		}
+		written[fullPath] = true
+		paths.WriteString(fullPath)
+		paths.WriteByte(0)
+	}
+
+	reader := tar.NewReader(archive)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read git archive: %w", err)
+		}
+		name := path.Clean(header.Name)
+		if path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+			return nil, fmt.Errorf("git archive entry %q is not a local path", header.Name)
+		}
+		for _, parent := range parentDirs(name) {
+			writePath(parent)
+		}
+		writePath(name)
+	}
+
+	if err := os.MkdirAll(gm.ScriptsDir, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("create git scripts directory: %w", err)
+	}
+	pathsFile, err := os.CreateTemp(gm.ScriptsDir, "ownership-*.paths")
+	if err != nil {
+		return nil, fmt.Errorf("create git archive paths file: %w", err)
+	}
+	defer pathsFile.Close()
+	if err := pathsFile.Chmod(0o644); err != nil {
+		return nil, fmt.Errorf("set git archive paths file permissions: %w", err)
+	}
+	if _, err := pathsFile.WriteString(paths.String()); err != nil {
+		return nil, fmt.Errorf("write git archive paths file: %w", err)
+	}
+	if err := pathsFile.Close(); err != nil {
+		return nil, fmt.Errorf("close git archive paths file: %w", err)
+	}
+
 	commands = append(commands, fmt.Sprintf(
 		"%s %s -d \"%s\"",
 		stapel.InstallBinPath(),
@@ -430,13 +495,28 @@ func (gm *GitMapping) applyArchiveCommand(archiveFile *ContainerFileDescriptor, 
 	))
 
 	tarCommand := fmt.Sprintf(
-		"%s -xf %s -C \"%s\"",
+		"%s --no-same-owner -xf %s -C \"%s\"",
 		stapel.TarBinPath(),
-		archiveFile.ContainerFilePath,
+		quoteShellArg(archiveFile.ContainerFilePath),
 		unpackArchiveDirectory,
 	)
 
 	commands = append(commands, strings.TrimLeft(tarCommand, " "))
+
+	owner, group := gm.Owner, gm.Group
+	if owner == "" {
+		owner = "0"
+	}
+	if group == "" {
+		group = "0"
+	}
+	commands = append(commands, fmt.Sprintf(
+		"%s --null --no-run-if-empty --arg-file=%s %s --no-dereference -- %s",
+		stapel.XargsBinPath(),
+		quoteShellArg(path.Join(gm.ContainerScriptsDir, filepath.Base(pathsFile.Name()))),
+		stapel.ChownBinPath(),
+		quoteShellArg(owner+":"+group),
+	))
 
 	return commands, nil
 }

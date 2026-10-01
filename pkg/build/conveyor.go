@@ -36,6 +36,7 @@ import (
 	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
+	"github.com/werf/werf/v3/pkg/storage/synchronization/lock_manager"
 	"github.com/werf/werf/v3/pkg/telemetry"
 	"github.com/werf/werf/v3/pkg/util/parallel"
 )
@@ -62,7 +63,8 @@ type Conveyor struct {
 
 	ContainerBackend container_backend.ContainerBackend
 
-	StorageManager manager.StorageManagerInterface
+	StorageLockManager lock_manager.Interface
+	StorageManager     manager.StorageManagerInterface
 
 	onTerminateFuncs []ConveyorCleanupFunc
 	importServers    map[string]import_server.ImportServer
@@ -94,7 +96,7 @@ type ConveyorOptions struct {
 	BuildReportPath         string
 }
 
-func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_manager.Interface, projectDir, baseTmpDir string, containerBackend container_backend.ContainerBackend, storageManager manager.StorageManagerInterface, opts ConveyorOptions) *Conveyor {
+func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_manager.Interface, projectDir, baseTmpDir string, containerBackend container_backend.ContainerBackend, storageManager manager.StorageManagerInterface, storageLockManager lock_manager.Interface, opts ConveyorOptions) *Conveyor {
 	c := &Conveyor{
 		werfConfig: werfConfig,
 
@@ -111,8 +113,9 @@ func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_m
 		tmpDir:                 filepath.Join(baseTmpDir, util.GenerateConsistentRandomString(10)),
 		importServers:          make(map[string]import_server.ImportServer),
 
-		ContainerBackend: containerBackend,
-		StorageManager:   storageManager,
+		ContainerBackend:   containerBackend,
+		StorageLockManager: storageLockManager,
+		StorageManager:     storageManager,
 
 		ConveyorOptions: opts,
 
@@ -451,7 +454,7 @@ func (c *Conveyor) ShouldBeBuilt(ctx context.Context, opts ShouldBeBuiltOptions)
 		c.printDeferredBuildLog(ctx, buf)
 	}
 
-	c.logOperationsSummary(ctx, opsCollector, time.Since(buildStartedAt))
+	opstats.LogSummary(ctx, opsCollector, "build time", time.Since(buildStartedAt))
 
 	reports := lo.Map(phases, func(phase Phase, _ int) *ImagesReport {
 		return phase.Report()
@@ -580,7 +583,7 @@ func (c *Conveyor) GetExportedImages() (res []*image.Image) {
 		}
 		res = append(res, img)
 	}
-	return
+	return res
 }
 
 func (c *Conveyor) GetImagesEnvArray() []string {
@@ -683,7 +686,7 @@ Please use Docker backend instead by unsetting WERF_BUILDAH_MODE environment var
 		c.printDeferredBuildLog(ctx, buf)
 	}
 
-	c.logOperationsSummary(ctx, opsCollector, time.Since(buildStartedAt))
+	opstats.LogSummary(ctx, opsCollector, "build time", time.Since(buildStartedAt))
 
 	reports := lo.Map(phases, func(phase Phase, _ int) *ImagesReport {
 		return phase.Report()
@@ -738,58 +741,20 @@ func disableUnlessDebugConveyorPhases(logProcess types.LogProcessInterface) type
 	return logProcess
 }
 
+// newOperationsCollector installs a collector for the conveyor run scope. When a collector is
+// already bound to ctx (command-scoped statistics), it is reused and nil is returned: the
+// context owner prints the summary, not the conveyor.
 func (c *Conveyor) newOperationsCollector(ctx context.Context, forceEnabled bool) (context.Context, *opstats.Collector, time.Time) {
+	if opstats.FromContext(ctx) != nil {
+		return ctx, nil, time.Time{}
+	}
+
 	if !forceEnabled && !logboek.Context(ctx).IsAcceptedLevel(level.Debug) {
 		return ctx, nil, time.Time{}
 	}
 
 	collector := opstats.NewCollector()
 	return opstats.NewContext(ctx, collector), collector, time.Now()
-}
-
-func (c *Conveyor) logOperationsSummary(ctx context.Context, collector *opstats.Collector, buildTime time.Duration) {
-	if collector == nil {
-		return
-	}
-
-	summary := collector.Summary()
-	if len(summary) > 0 {
-		logboek.Context(ctx).LogBlock("Operations summary").
-			Options(func(options types.LogBlockOptionsInterface) {
-				options.Style(stylePkg.Highlight())
-			}).
-			Do(func() {
-				for _, s := range summary {
-					var parallelism string
-					if s.WallTime > 0 && s.TotalTime > s.WallTime {
-						parallelism = fmt.Sprintf("   ×%.1f", float64(s.TotalTime)/float64(s.WallTime))
-					}
-					logboek.Context(ctx).LogFHighlight("- %-32s %5d op   total %9.2fs   wall %9.2fs   avg %8.3fs   max %8.3fs%s\n",
-						s.Operation, s.Count, s.TotalTime.Seconds(), s.WallTime.Seconds(), s.AvgTime.Seconds(), s.MaxTime.Seconds(), parallelism)
-				}
-				logboek.Context(ctx).LogFHighlight("build time: %.2fs (wall must not exceed it; total may)\n", buildTime.Seconds())
-			})
-	}
-
-	events := collector.EventSummary()
-	if len(events) == 0 {
-		return
-	}
-
-	logboek.Context(ctx).LogBlock("Stage cache summary").
-		Options(func(options types.LogBlockOptionsInterface) {
-			options.Style(stylePkg.Highlight())
-		}).
-		Do(func() {
-			var total int
-			for _, e := range events {
-				total += e.Count
-			}
-			for _, e := range events {
-				logboek.Context(ctx).LogFHighlight("- %-30s %5d stage(s)\n", e.Event, e.Count)
-			}
-			logboek.Context(ctx).LogFHighlight("total: %d stage(s)\n", total)
-		})
 }
 
 func (c *Conveyor) runPhases(ctx context.Context, phases []Phase, logImages bool) error {

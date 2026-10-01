@@ -38,6 +38,7 @@ const (
 
 type CommonImageOptions struct {
 	prepareLocalGitRepo func() error
+	loggedGitCommits    map[[2]string]struct{}
 
 	Conveyor           Conveyor
 	GiterminismManager *giterminism_manager.Manager
@@ -380,7 +381,7 @@ func (i *Image) GetStage(name stage.StageName) stage.Interface {
 }
 
 func (i *Image) GetStageID() string {
-	return i.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc().Info.Tag
+	return i.GetContentTagDesc().Info.Tag
 }
 
 func (i *Image) UsesBuildContext() bool {

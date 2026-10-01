@@ -100,6 +100,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupMetaRepo(&commonCmdData, cmd)
 	common.SetupStubTags(&commonCmdData, cmd)
 
+	common.SetupSynchronization(&commonCmdData, cmd)
+
 	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to read, pull and push images into the specified repo and to pull base images")
 	common.SetupInsecureRegistry(&commonCmdData, cmd)
 	common.SetupSkipTlsVerifyRegistry(&commonCmdData, cmd)
@@ -160,6 +162,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runRender(ctx context.Context, imageNameListFromArgs []string) error {
+	ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+	defer logOperationsSummaryFn()
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd: &commonCmdData,
 		InitTrueGitWithOptions: &common.InitTrueGitOptions{
@@ -233,7 +237,7 @@ func runRender(ctx context.Context, imageNameListFromArgs []string) error {
 		isStub = true
 		stubImageNameList = append(stubImageNameList, imagesToProcess.FinalImageNameList...)
 	default:
-		containerBackend, newCtx, err := commonManager.EnsureContainerBackend(ctx, &commonCmdData, false)
+		containerBackend, newCtx, err := commonManager.EnsureContainerBackend(ctx, &commonCmdData, common.EnsureContainerBackendOptions{RequireDockerDaemon: true})
 		if err != nil {
 			return fmt.Errorf("container backend initialization error: %w", err)
 		}
@@ -272,7 +276,7 @@ func runRender(ctx context.Context, imageNameListFromArgs []string) error {
 		isVerbose := logboek.Context(ctx).IsAcceptedLevel(level.Default)
 		conveyorOptions.DeferBuildLog = !isVerbose
 
-		conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
+		conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
 		defer conveyorWithRetry.Terminate()
 
 		if err := conveyorWithRetry.WithRetryBlock(ctx, func(c *build.Conveyor) error {

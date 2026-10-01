@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/docker/cli/cli"
-	dockercontainer "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
 
 	"github.com/werf/common-go/pkg/graceful"
@@ -153,6 +153,11 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupLogOptions(&commonCmdData, cmd)
 	common.SetupLogProjectDir(&commonCmdData, cmd)
 
+	common.SetupSynchronization(&commonCmdData, cmd)
+	common.SetupKubeConfigBase64(&commonCmdData, cmd)
+	common.SetupLegacyKubeConfigPath(&commonCmdData, cmd)
+	common.SetupKubeContextCurrent(&commonCmdData, cmd)
+
 	common.SetupDryRun(&commonCmdData, cmd)
 
 	commonCmdData.SetupPlatform(cmd)
@@ -231,6 +236,7 @@ func runMain(ctx context.Context) error {
 		},
 		InitDockerRegistry:          true,
 		InitProcessContainerBackend: true,
+		RequireDockerDaemon:         true,
 		InitWerf:                    true,
 		InitGitDataManager:          true,
 		InitManifestCache:           true,
@@ -287,7 +293,7 @@ func runMain(ctx context.Context) error {
 				time.Sleep(500 * time.Millisecond)
 				fmt.Printf("Attaching to container %s ...\n", containerName)
 
-				resp, err := docker.ContainerAttach(ctx, containerName, dockercontainer.AttachOptions{
+				resp, err := docker.ContainerAttach(ctx, containerName, client.ContainerAttachOptions{
 					Stream: true,
 					Stdout: true,
 					Stderr: true,
@@ -360,7 +366,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 		return err
 	}
 
-	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
+	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
 	defer conveyorWithRetry.Terminate()
 
 	var dockerImageName string

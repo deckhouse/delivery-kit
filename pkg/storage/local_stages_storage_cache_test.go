@@ -344,6 +344,11 @@ var _ = ginkgo.Describe("Local stage lookup cache maintenance", func() {
 			backend.nativeErr = errors.New("mutation failed")
 			return storage.MutateAndPushImage(ctx, "project:"+cachedTagB, "project:"+cachedTagA, image.SpecConfig{}, &localStageImageStub{name: "project:" + cachedTagB})
 		}, nil),
+		ginkgo.Entry("a stage image whose fallback tag failed", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, backend *localPublishBackendStub) error {
+			backend.nativeErr = container_backend.ErrNativeMutationUnsupported
+			backend.tagErr = errors.New("tag failed")
+			return storage.MutateAndPushImage(ctx, "project:"+cachedTagB, "project:"+cachedTagA, image.SpecConfig{}, &localStageImageStub{name: "project:" + cachedTagB})
+		}, nil),
 		ginkgo.Entry("a Buildah stage image", func(ctx ginkgo.SpecContext, storage *LocalStagesStorage, _ *localPublishBackendStub) error {
 			return storage.StoreImage(ctx, &localStageImageStub{name: "localhost/project:" + cachedTagA})
 		}, []string{cachedTagA}),

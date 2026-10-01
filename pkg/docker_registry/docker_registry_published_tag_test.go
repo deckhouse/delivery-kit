@@ -237,11 +237,12 @@ var _ = ginkgo.Describe("AddCachedTag concurrent with a tags listing", func() {
 		close(inner.listings[1].release)
 		gomega.Expect(<-laterListing).To(gomega.ConsistOf("stage-a", "stage-b"))
 		gomega.Expect(cachedEntry(r, repo).pushedTags).To(gomega.BeEmpty())
+		AddCachedTag(ctx, r, repo+":stage-c")
 
 		close(inner.listings[0].release)
-		gomega.Expect(<-earlierListing).To(gomega.ConsistOf("stage-a"))
+		gomega.Expect(<-earlierListing).To(gomega.ConsistOf("stage-a", "stage-c"))
 
-		gomega.Expect(cachedEntry(r, repo).tags).To(gomega.ConsistOf("stage-a", "stage-b"))
+		gomega.Expect(cachedEntry(r, repo).tags).To(gomega.ConsistOf("stage-a", "stage-b", "stage-c"))
 	})
 
 	ginkgo.It("leaves the cache untouched when the listing fails", func(ctx ginkgo.SpecContext) {

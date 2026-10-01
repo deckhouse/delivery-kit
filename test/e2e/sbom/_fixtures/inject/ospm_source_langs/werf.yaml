@@ -1,0 +1,32 @@
+project: werf-test-e2e-sbom-ospm-source-langs
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: carrier
+from: registry.deckhouse.io/container-factory@sha256:002c52a107a3583cd9d7745018a6ba66df2c89baccaa46fd8e3feaec2ee743a2
+---
+image: app
+from: scratch
+git:
+  - add: /
+    to: /
+import:
+  - image: carrier
+    add: /usr/local/bin/pm
+    to: /usr/local/bin/pm
+    before: install
+  - image: carrier
+    add: /etc/ssl
+    to: /etc/ssl
+    before: install
+packages:
+  - type: os-pm
+    env:
+      PACKAGES_VERSION: sha256:ebf151229dec1d4253f68c73b0892b7eed5fed487ff54258a1efcb121ecea1e5
+      REGISTRY: registry.deckhouse.io/container-factory
+    spec:
+      - curl==8.12.1
+      - jq==1.8.1

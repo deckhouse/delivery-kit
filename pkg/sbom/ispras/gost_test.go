@@ -69,6 +69,26 @@ var _ = Describe("Gost source languages aggregation", func() {
 		Expect(gost.GetComponentSourceLangs(ctx, &containers[0])).To(Equal([]string{"Go", "Python"}))
 	})
 
+	It("includes nested component languages in the container union", func(ctx SpecContext) {
+		parentComp := componentWithLangs("parent", "Go")
+		parentComp.Components = &[]cdx.Component{componentWithLangs("grandchild", "Lua")}
+		img := imageSBOM("backend", parentComp)
+
+		bom, err := (&ContainerAssembler{}).Assemble(
+			ctx,
+			[]*ImageSBOM{img},
+			ProductMeta{AppName: "product", AppVersion: "1.0"},
+		)
+		Expect(err).To(Succeed())
+
+		containers := *bom.Components
+		Expect(containers).To(HaveLen(1))
+		langProps := lo.Filter(lo.FromPtr(containers[0].Properties), func(p cdx.Property, _ int) bool {
+			return p.Name == gost.PropertySourceLangs
+		})
+		Expect(langProps).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Go,Lua"}}))
+	})
+
 	It("unions the image languages with the ones already set on the container component", func(ctx SpecContext) {
 		img := imageSBOM("backend", componentWithLangs("a", "Go"))
 		img.BOM.Properties = &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Rust"}}

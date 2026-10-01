@@ -577,25 +577,29 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*bom.Properties).To(HaveLen(1))
 	})
 
-	It("unions GOST:source_langs of same-purl components into a single property", func() {
-		bom := &cdx.BOM{
-			Components: &[]cdx.Component{
-				{
-					BOMRef: "curl-a", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
-					Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "C"}},
+	DescribeTable("unions GOST:source_langs of same-purl components into a single property",
+		func(firstLangs, secondLangs string) {
+			bom := &cdx.BOM{
+				Components: &[]cdx.Component{
+					{
+						BOMRef: "curl-a", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
+						Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: firstLangs}},
+					},
+					{
+						BOMRef: "curl-b", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
+						Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: secondLangs}},
+					},
 				},
-				{
-					BOMRef: "curl-b", Type: cdx.ComponentTypeLibrary, Name: "curl", Version: "8.12.1", PackageURL: "pkg:generic/curl@8.12.1",
-					Properties: &[]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Assembly,C"}},
-				},
-			},
-		}
+			}
 
-		Canonicalize(bom)
+			Canonicalize(bom)
 
-		Expect(*bom.Components).To(HaveLen(1))
-		Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Assembly,C"}}))
-	})
+			Expect(*bom.Components).To(HaveLen(1))
+			Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: "Assembly,C"}}))
+		},
+		Entry("C then Assembly", "C", "Assembly"),
+		Entry("Assembly then C", "Assembly", "C"),
+	)
 
 	It("normalizes a lone GOST:source_langs value of an imported component", func() {
 		bom := &cdx.BOM{

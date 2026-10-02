@@ -295,8 +295,8 @@ func (api *api) list(ctx context.Context, reference string, extraListOptions ...
 
 	listOptions := func(pageSize int) []remote.Option {
 		return append(
-			append(api.defaultRemoteOptionsForHost(ctx, reference), remote.WithPageSize(pageSize)),
-			extraListOptions...,
+			append(api.defaultRemoteOptionsForHost(ctx, reference), extraListOptions...),
+			remote.WithPageSize(pageSize),
 		)
 	}
 

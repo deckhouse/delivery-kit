@@ -1,6 +1,7 @@
 package sbom
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"sort"
@@ -207,11 +208,114 @@ func AssertNoComponent(bom *cdx.BOM, name string) {
 	})
 }
 
+// AssertProductMetadata asserts the synthetic product identity a merged BOM
+// carries in `metadata`, built from the --app-name, --app-version and
+// --manufacturer flags of `werf sbom merge`.
+func AssertProductMetadata(bom *cdx.BOM, name, version, manufacturer string) {
+	ExpectWithOffset(1, bom.Metadata).NotTo(BeNil(), "merged BOM has no metadata")
+	ExpectWithOffset(1, bom.Metadata.Timestamp).NotTo(BeEmpty(), "merged BOM metadata has no timestamp")
+
+	comp := bom.Metadata.Component
+	ExpectWithOffset(1, comp).NotTo(BeNil(), "merged BOM has no metadata component")
+	ExpectWithOffset(1, comp.Type).To(Equal(cdx.ComponentTypeApplication),
+		"product component type: expected %q, got %q", cdx.ComponentTypeApplication, comp.Type)
+	ExpectWithOffset(1, comp.Name).To(Equal(name))
+	ExpectWithOffset(1, comp.Version).To(Equal(version))
+	ExpectWithOffset(1, comp.Manufacturer).NotTo(BeNil(), "product component has no manufacturer")
+	ExpectWithOffset(1, comp.Manufacturer.Name).To(Equal(manufacturer))
+}
+
+// AssertContainerComponents asserts that the top level of an ISPRAS `container`
+// product SBOM consists of exactly the given images, each holding packages.
+func AssertContainerComponents(bom *cdx.BOM, names ...string) {
+	var got []string
+	for _, c := range lo.FromPtr(bom.Components) {
+		ExpectWithOffset(1, c.Type).To(Equal(cdx.ComponentTypeContainer),
+			"top-level component %q of a container SBOM is %q, expected a container", c.Name, c.Type)
+		ExpectWithOffset(1, lo.FromPtr(c.Components)).NotTo(BeEmpty(),
+			"container %q holds no packages", c.Name)
+		got = append(got, c.Name)
+	}
+
+	ExpectWithOffset(1, got).To(ConsistOf(names))
+}
+
+// AssertFlatComponents asserts that an ISPRAS `oss` product SBOM is flat: no
+// containers, no nesting, every package on the top level.
+func AssertFlatComponents(bom *cdx.BOM) {
+	ExpectWithOffset(1, lo.FromPtr(bom.Components)).NotTo(BeEmpty(), "BOM has no components")
+
+	for _, c := range lo.FromPtr(bom.Components) {
+		ExpectWithOffset(1, c.Type).NotTo(Equal(cdx.ComponentTypeContainer),
+			"component %q is a container, but an oss SBOM must be flat", c.Name)
+		ExpectWithOffset(1, lo.FromPtr(c.Components)).To(BeEmpty(),
+			"component %q has nested components, but an oss SBOM must be flat", c.Name)
+	}
+}
+
+// AssertUniqueBOMRefs asserts that no two components of the BOM share a bom-ref.
+// Merging rewrites the refs of components coming from different images, and a
+// collision there silently redirects dependency edges to the wrong component.
+func AssertUniqueBOMRefs(bom *cdx.BOM) {
+	seen := map[string][]string{}
+	walkComponents(bom.Components, func(c *cdx.Component) {
+		if c.BOMRef == "" {
+			ExpectWithOffset(1, c.BOMRef).NotTo(BeEmpty(),
+				"component %s@%s has no bom-ref", c.Name, c.Version)
+			return
+		}
+		seen[c.BOMRef] = append(seen[c.BOMRef], c.Name+"@"+c.Version)
+	})
+
+	for ref, owners := range seen {
+		ExpectWithOffset(1, owners).To(HaveLen(1),
+			"bom-ref %q is shared by %v", ref, owners)
+	}
+}
+
+// AssertNoDuplicateComponents asserts that no package identity appears twice,
+// which is what the flat `oss` format promises after deduplication. Identity
+// includes the purl without the per-document `package-id` qualifier — the key
+// the merge deduplicates by — so the same name and version reported by two
+// catalogers under different purls (pm's `containerfactoryversion` against
+// syft's bare binary match) count as two packages, as they do in the product.
+func AssertNoDuplicateComponents(bom *cdx.BOM) {
+	counts := map[string]int{}
+	walkComponents(bom.Components, func(c *cdx.Component) {
+		counts[componentIdentity(c)]++
+	})
+
+	for key, n := range counts {
+		ExpectWithOffset(1, n).To(Equal(1), "component %s appears %d times", key, n)
+	}
+}
+
+// AssertGostPropertyOnComponent asserts the GOST property on a single component.
+// Use it where the value differs across the tree: an attack surface of `yes`
+// lands on the roots of the dependency tree only, while everything another
+// component depends on is demoted to `indirect` — see gost.Upsert.
+func AssertGostPropertyOnComponent(bom *cdx.BOM, name, version, propertyName string, expected gost.GostValue) {
+	ExpectWithOffset(1, propertyName).To(BeElementOf(gost.PropertyAttackSurface, gost.PropertySecurityFunction),
+		"unknown GOST property name %q", propertyName)
+
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found", name, version)
+
+	val, found := findProperty(comp.Properties, propertyName)
+	ExpectWithOffset(1, found).To(BeTrue(),
+		"component %s@%s missing GOST property %q", name, version, propertyName)
+	ExpectWithOffset(1, val).To(Equal(expected.String()),
+		"component %s@%s GOST property %q: expected %q, got %q",
+		name, version, propertyName, expected.String(), val)
+}
+
 // AssertGostPropertyOnMetadata asserts the GOST property on `bom.Metadata.Component`
 // only. Use it together with AssertGostPropertyOnComponents when a test needs to
-// verify that both surfaces carry the same value (single-image builds, where werf
-// applies the resolved image-level GOST config uniformly to metadata and to every
-// component — see gost.Upsert in pkg/sbom/cyclonedxutil/gost/upsert.go).
+// verify that both surfaces carry the same value — which holds for `no` and
+// `indirect`, and for the security function in all cases, since those apply
+// unchanged to the whole tree (see gost.Upsert in
+// pkg/sbom/cyclonedxutil/gost/upsert.go).
 // Splitting the two checks documents the intent explicitly and produces a targeted
 // error message when only one of the surfaces regresses.
 func AssertGostPropertyOnMetadata(bom *cdx.BOM, propertyName string, expected gost.GostValue) {
@@ -253,6 +357,45 @@ func AssertGostPropertyOnComponents(bom *cdx.BOM, propertyName string, expected 
 
 	ExpectWithOffset(1, checked).To(BeNumerically(">", 0),
 		"BOM has no components to assert GOST property on")
+}
+
+// AssertGostPropertyOnContainers asserts the GOST property on every
+// `container`-typed component of an ISPRAS `container` product SBOM. The value
+// there is not injected from the config but computed as the maximum over the
+// packages the container holds, which the ISPRAS checker requires to match
+// exactly — so a container whose packages are split across attack surface
+// values must still report the highest of them.
+func AssertGostPropertyOnContainers(bom *cdx.BOM, propertyName string, expected gost.GostValue) {
+	ExpectWithOffset(1, propertyName).To(BeElementOf(gost.PropertyAttackSurface, gost.PropertySecurityFunction),
+		"unknown GOST property name %q", propertyName)
+
+	checked := 0
+	walkComponents(bom.Components, func(c *cdx.Component) {
+		if c.Type != cdx.ComponentTypeContainer {
+			return
+		}
+
+		val, found := findProperty(c.Properties, propertyName)
+		ExpectWithOffset(1, found).To(BeTrue(),
+			"container %s missing GOST property %q", c.Name, propertyName)
+		ExpectWithOffset(1, val).To(Equal(expected.String()),
+			"container %s GOST property %q: expected %q, got %q",
+			c.Name, propertyName, expected.String(), val)
+		checked++
+	})
+
+	ExpectWithOffset(1, checked).To(BeNumerically(">", 0),
+		"BOM has no container components to assert GOST property on")
+}
+
+// AssertSourceLangsOnComponent asserts the GOST:source_langs property of a single
+// component, identified by name and version.
+func AssertSourceLangsOnComponent(ctx context.Context, bom *cdx.BOM, name, version string, expected []string) {
+	comp := FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(),
+		"component %s@%s not found in BOM", name, version)
+	ExpectWithOffset(1, gost.GetComponentSourceLangs(ctx, comp)).To(Equal(expected),
+		"component %s@%s GOST source languages", name, version)
 }
 
 func AssertSpecVersion(bom *cdx.BOM, expected cdx.SpecVersion) {

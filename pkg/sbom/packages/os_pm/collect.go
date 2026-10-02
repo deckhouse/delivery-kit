@@ -54,5 +54,5 @@ func CollectBOM(ctx context.Context, containerBackend container_backend.Containe
 
 	logboek.Context(ctx).Debug().LogF("read %s from image %q: %s\n", ContainerFactoryVersionPath, imageRef, version)
 
-	return ConvertToCycloneDX(pkgs, version), nil
+	return ConvertToCycloneDX(ctx, pkgs, version), nil
 }

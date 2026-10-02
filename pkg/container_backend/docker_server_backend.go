@@ -1,7 +1,6 @@
 package container_backend
 
 import (
-	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
@@ -13,13 +12,13 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/platforms"
-	dockercontainer "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	dockerImage "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
+	cerrdefs "github.com/containerd/errdefs"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/uuid"
+	dockercontainer "github.com/moby/moby/api/types/container"
+	dockerImage "github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/werf/common-go/pkg/util"
@@ -164,9 +163,9 @@ func (backend *DockerServerBackend) BuildDockerfile(ctx context.Context, dockerf
 		fmt.Printf("[DOCKER BUILD] docker build %+v\n", buildOpts)
 	}
 
-	contextReader, err := os.Open(opts.BuildContextArchive.Path())
+	contextReader, err := opts.BuildContextArchive.Open(ctx)
 	if err != nil {
-		return "", fmt.Errorf("unable to open context archive %q: %w", opts.BuildContextArchive.Path(), err)
+		return "", fmt.Errorf("open build context: %w", err)
 	}
 	defer contextReader.Close()
 
@@ -195,7 +194,7 @@ func (backend *DockerServerBackend) BuildDockerfileStage(ctx context.Context, ba
 func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string, opts GetImageInfoOpts) (*image.Info, error) {
 	defer opstats.Observe(ctx, opstats.OperationImageInspect)()
 	inspect, err := docker.ImageInspect(ctx, ref)
-	if client.IsErrNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		return nil, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("unable to inspect docker image: %w", err)
@@ -203,56 +202,10 @@ func (backend *DockerServerBackend) GetImageInfo(ctx context.Context, ref string
 	return docker.NewInfoFromInspect(ref, inspect), nil
 }
 
-func (backend *DockerServerBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
-	containerName := fmt.Sprintf("werf.read_file.%s", uuid.New().String())
-
-	args := []string{"--name", containerName, "--entrypoint", ""}
-	if opts.TargetPlatform != "" {
-		args = append(args, "--platform", opts.TargetPlatform)
-	}
-	args = append(args, imageRef, "werf-read-file-from-image-placeholder")
-
-	if err := docker.CliCreate(ctx, args...); err != nil {
-		return nil, fmt.Errorf("create container from image %q: %w", imageRef, err)
-	}
-	defer func() {
-		if err := docker.CliRm(ctx, "--force", containerName); err != nil {
-			logboek.Context(ctx).Warn().LogF("WARNING: unable to remove container %q: %s\n", containerName, err)
-		}
-	}()
-
-	reader, err := docker.ContainerCopyFrom(ctx, containerName, path)
-	if err != nil {
-		return nil, fmt.Errorf("copy %s from image %q: %w", path, imageRef, err)
-	}
-	defer reader.Close()
-
-	tr := tar.NewReader(reader)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read %s tar stream from image %q: %w", path, imageRef, err)
-		}
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-		data, err := io.ReadAll(tr)
-		if err != nil {
-			return nil, fmt.Errorf("read %s content from image %q: %w", path, imageRef, err)
-		}
-		return data, nil
-	}
-
-	return nil, fmt.Errorf("no regular file at %s in image %q", path, imageRef)
-}
-
 // GetImageInspect only available for DockerServerBackend
 func (backend *DockerServerBackend) GetImageInspect(ctx context.Context, ref string) (*dockerImage.InspectResponse, error) {
 	inspect, err := docker.ImageInspect(ctx, ref)
-	if client.IsErrNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		return nil, nil
 	}
 	return inspect, err
@@ -363,7 +316,7 @@ func (backend *DockerServerBackend) Rmi(ctx context.Context, ref string, opts Rm
 }
 
 func (backend *DockerServerBackend) Rm(ctx context.Context, ref string, opts RmOpts) error {
-	err := docker.ContainerRemove(ctx, ref, dockercontainer.RemoveOptions{Force: opts.Force})
+	err := docker.ContainerRemove(ctx, ref, client.ContainerRemoveOptions{Force: opts.Force})
 	switch {
 	case docker.IsErrContainerPaused(err):
 		return errors.Join(ErrCannotRemovePausedContainer, err)
@@ -419,11 +372,11 @@ func (backend *DockerServerBackend) RemoveHostDirs(ctx context.Context, mountDir
 }
 
 func (backend *DockerServerBackend) Images(ctx context.Context, opts ImagesOptions) (image.ImagesList, error) {
-	filterSet := filters.NewArgs()
+	filterSet := make(client.Filters)
 	for _, item := range opts.Filters {
 		filterSet.Add(item.First, item.Second)
 	}
-	images, err := docker.Images(ctx, dockerImage.ListOptions{Filters: filterSet})
+	images, err := docker.Images(ctx, client.ImageListOptions{Filters: filterSet})
 	if err != nil {
 		return nil, fmt.Errorf("unable to get docker images: %w", err)
 	}
@@ -443,7 +396,7 @@ func (backend *DockerServerBackend) Images(ctx context.Context, opts ImagesOptio
 }
 
 func (backend *DockerServerBackend) Containers(ctx context.Context, opts ContainersOptions) (image.ContainerList, error) {
-	filterSet := filters.NewArgs()
+	filterSet := make(client.Filters)
 	for _, filter := range opts.Filters {
 		if filter.ID != "" {
 			filterSet.Add("id", filter.ID)
@@ -456,7 +409,7 @@ func (backend *DockerServerBackend) Containers(ctx context.Context, opts Contain
 		}
 	}
 
-	containersOptions := dockercontainer.ListOptions{}
+	containersOptions := client.ContainerListOptions{}
 	containersOptions.All = true
 	containersOptions.Filters = filterSet
 
@@ -533,6 +486,11 @@ func (backend *DockerServerBackend) MutateAndPushImageNative(ctx context.Context
 		return ErrNativeMutationUnsupported
 	}
 
+	exposedPorts, err := toPortSet(newConfig.ExposedPorts)
+	if err != nil {
+		return fmt.Errorf("unable to parse exposed ports of image %q: %w", dest, err)
+	}
+
 	containerConfig := &dockercontainer.Config{
 		Image:        src,
 		User:         newConfig.User,
@@ -543,13 +501,14 @@ func (backend *DockerServerBackend) MutateAndPushImageNative(ctx context.Context
 		Volumes:      newConfig.Volumes,
 		WorkingDir:   newConfig.WorkingDir,
 		StopSignal:   newConfig.StopSignal,
-		ExposedPorts: toPortSet(newConfig.ExposedPorts),
+		ExposedPorts: exposedPorts,
 		// Shell and OnBuild are not part of image.SpecConfig and are never mutated by werf; carry
 		// over the base image's values explicitly since docker commit only preserves what's set on
 		// containerConfig, unlike the tarball-based mutation path which starts from the base config.
 		Shell:   baseConfig.Config.Shell,
 		OnBuild: baseConfig.Config.OnBuild,
 	}
+
 	if newConfig.HealthConfig != nil {
 		containerConfig.Healthcheck = &dockercontainer.HealthConfig{
 			Test:        newConfig.HealthConfig.Test,
@@ -574,7 +533,7 @@ func (backend *DockerServerBackend) MutateAndPushImageNative(ctx context.Context
 		return fmt.Errorf("unable to create container from image %q: %w", src, err)
 	}
 	defer func() {
-		if err := docker.ContainerRemove(ctx, containerID, dockercontainer.RemoveOptions{Force: true}); err != nil {
+		if err := docker.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
 			logboek.Context(ctx).Error().LogF("ERROR: unable to remove temporary mutation container %q: %s\n", containerID, err)
 		}
 	}()
@@ -586,7 +545,8 @@ func (backend *DockerServerBackend) MutateAndPushImageNative(ctx context.Context
 		author = baseConfig.Author
 	}
 
-	if _, err := docker.ContainerCommit(ctx, containerID, dockercontainer.CommitOptions{
+	if _, err := docker.ContainerCommit(ctx, containerID, client.ContainerCommitOptions{
+		NoPause:   true,
 		Reference: dest,
 		Author:    author,
 		Config:    containerConfig,
@@ -597,15 +557,19 @@ func (backend *DockerServerBackend) MutateAndPushImageNative(ctx context.Context
 	return nil
 }
 
-func toPortSet(ports map[string]struct{}) nat.PortSet {
+func toPortSet(ports map[string]struct{}) (network.PortSet, error) {
 	if len(ports) == 0 {
-		return nil
+		return nil, nil
 	}
-	set := make(nat.PortSet, len(ports))
+	set := make(network.PortSet, len(ports))
 	for port := range ports {
-		set[nat.Port(port)] = struct{}{}
+		parsed, err := network.ParsePort(port)
+		if err != nil {
+			return nil, fmt.Errorf("parse port %q: %w", port, err)
+		}
+		set[parsed] = struct{}{}
 	}
-	return set
+	return set, nil
 }
 
 func (backend *DockerServerBackend) GetImageConfigFile(ctx context.Context, imageName string) (*v1.ConfigFile, error) {
@@ -658,7 +622,7 @@ func (backend *DockerServerBackend) GetImageConfigFile(ctx context.Context, imag
 		if len(ic.ExposedPorts) > 0 {
 			cfg.Config.ExposedPorts = make(map[string]struct{}, len(ic.ExposedPorts))
 			for k := range ic.ExposedPorts {
-				cfg.Config.ExposedPorts[string(k)] = struct{}{}
+				cfg.Config.ExposedPorts[k] = struct{}{}
 			}
 		}
 	}
@@ -705,6 +669,8 @@ func (backend *DockerServerBackend) GenerateSBOM(ctx context.Context, scanOpts s
 	return bomJSON, err
 }
 
+const sbomScanDirContainerMountPath = "/scan"
+
 func scannerRunErr(err error, output string) error {
 	err = namedContainerExitErr(err)
 	if output = strings.TrimSpace(output); output == "" {
@@ -720,23 +686,38 @@ func mapSbomScanOptionsToDockerRunCommand(workingTreeDir, billsDir string, billN
 		"--name", fmt.Sprintf("%s%s", image.SBOMScannerContainerNamePrefix, uuid.New().String()),
 		"--pull", scanOpts.PullPolicy.String(),
 		"--entrypoint", "", // clear default image entrypoint
-		"--volume", "/var/run/docker.sock:/var/run/docker.sock", // TODO: return error on non Unix systems
 	}
 
-	// TODO (zaytsev): the code support only single command at this moment
+	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands
+
+	switch scanCmd.SourceType {
+	case scanner.SourceTypeDir:
+		// Scan only the spec/lock files materialized on the host; the scanner reads them
+		// directly from a bind mount, so no docker.sock access to the image is needed.
+		args = append(args, "--volume", fmt.Sprintf("%s:%s:ro", scanCmd.SourcePath, sbomScanDirContainerMountPath))
+		scanCmd.SourcePath = sbomScanDirContainerMountPath
+	default:
+		scanCmd.SourceType = scanner.SourceTypeDocker
+		args = append(args, "--volume", "/var/run/docker.sock:/var/run/docker.sock") // TODO: return error on non Unix systems
+	}
+
 	billHostPath := filepath.Join(workingTreeDir, billsDir, billNames[0])
 	billContainerPath := filepath.Join("/tmp", billsDir, billNames[0])
 	args = append(args, "--volume", fmt.Sprintf("%s:%s", billHostPath, billContainerPath))
 
 	args = append(args,
 		"-e", "SYFT_GOLANG_MAIN_MODULE_VERSION_FROM_CONTENTS=false",
+		// SYFT_FILE_METADATA_SELECTION=none is load-bearing for a directory source: without it
+		// syft emits an extra PURL-less type=file component per scanned manifest, which dedup
+		// (it keeps PURL-less components) would not remove. Do not drop this env var (contrary
+		// to the task note claiming it is unknown to syft v1.45.1 — it is honored); the
+		// directory-scan path additionally strips such components defensively in
+		// cyclonedxutil.DropSyftSourceFileComponents.
 		"-e", "SYFT_FILE_METADATA_SELECTION=none",
 	)
 
 	args = append(args, scanOpts.Image)
 
-	scanCmd := scanOpts.Commands[0] // TODO (zaytsev): support multiple commands
-	scanCmd.SourceType = scanner.SourceTypeDocker
 	scanCmd.OutputPath = billContainerPath
 
 	args = append(args, strings.Split(scanCmd.String(), " ")...)

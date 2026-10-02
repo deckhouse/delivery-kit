@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/docker/cli/cli"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
+	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/sbom/ispras"
 )
 
@@ -24,9 +26,12 @@ const (
 )
 
 type RunOptions struct {
+	Errors                  int
+	Verbose                 bool
 	CheckVCS                bool
 	CheckVCSLeafOnly        bool
 	CheckSourceDistribution bool
+	WarningsNonFatal        bool
 }
 
 // Validate rejects option combinations the checker image does not honor.
@@ -35,6 +40,10 @@ type RunOptions struct {
 // the archives of every non-leaf component go unchecked while the run reports
 // success.
 func (opts RunOptions) Validate() error {
+	if opts.Errors < 0 {
+		return fmt.Errorf("--errors cannot be negative: got %d; use 0 for unlimited", opts.Errors)
+	}
+
 	if opts.CheckVCSLeafOnly && opts.CheckSourceDistribution {
 		return fmt.Errorf("--check-vcs-leaf-only cannot be combined with --check-source-distribution: the checker would skip source distributions of non-leaf components; use --check-vcs instead")
 	}
@@ -63,9 +72,14 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 			return err
 		}
 
-		var failures []string
+		var failed []string
+		var errCount, warningCount int
 		total := len(paths)
 
+		// Files are checked one at a time because parseResult prints the checker
+		// output with line wrapping of the shared stream suspended. Checking them
+		// concurrently would race that mode between goroutines; buffer the output of
+		// every file and print it under a single suspension instead.
 		for i, p := range paths {
 			args, err := buildDockerArgs(p, format, opts)
 			if err != nil {
@@ -79,16 +93,27 @@ func Run(ctx context.Context, paths []string, format ispras.Format, opts RunOpti
 				return fmt.Errorf("run sbom-checker container for %s: %w", fileName, err)
 			}
 
-			if err := parseResult(ctx, out, runErr, fileName, i+1, total); err != nil {
-				failures = append(failures, err.Error())
+			// On a non-zero exit parseResult already echoes the raw output, so
+			// print the verbose block only when it would otherwise stay hidden.
+			if opts.Verbose && runErr == nil {
+				logboek.Context(ctx).Default().LogBlock("Checker output for %s", fileName).Do(func() {
+					logboek.Context(ctx).Default().LogLn(strings.TrimRight(out, "\n"))
+				})
+			}
+
+			res := parseResult(ctx, out, runErr, fileName, i+1, total, opts.WarningsNonFatal)
+			errCount += res.errCount
+			warningCount += res.warningCount
+			if res.failed {
+				failed = append(failed, fileName)
 			}
 		}
 
-		passed := total - len(failures)
-		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed\n", passed, len(failures))
+		passed := total - len(failed)
+		logboek.Context(ctx).Default().LogF("Result: %d passed, %d failed; %d error(s), %d warning(s)\n", passed, len(failed), errCount, warningCount)
 
-		if len(failures) > 0 {
-			return fmt.Errorf("%s", strings.Join(failures, "\n"))
+		if len(failed) > 0 {
+			return fmt.Errorf("validation failed for %d of %d SBOM file(s): %s", len(failed), total, strings.Join(failed, ", "))
 		}
 
 		return nil
@@ -133,7 +158,11 @@ func buildDockerArgs(path string, format ispras.Format, opts RunOptions) ([]stri
 		"-v", absPath + ":" + containerPath + ":ro",
 		Image,
 		"--format", format.String(),
-		"--errors", "0",
+		"--errors", strconv.Itoa(opts.Errors),
+	}
+
+	if opts.Verbose {
+		args = append(args, "--verbose")
 	}
 
 	if opts.CheckVCS {
@@ -168,35 +197,56 @@ func enabledChecks(opts RunOptions) []string {
 	return checks
 }
 
-// parseResult combines two independent failure signals: the checker reports
+type fileResult struct {
+	errCount     int
+	warningCount int
+	failed       bool
+}
+
+// parseResult combines independent failure signals: the checker reports
 // findings as ERROR:/WARNING: lines and still exits 0, while a non-zero exit
 // means it did not finish the check at all (crash, usage error, unreadable
 // input). A run without findings is trusted only when the process exited
-// cleanly and said something.
-func parseResult(ctx context.Context, out string, runErr error, fileName string, index, total int) error {
-	findings := extractPrefixedLines(out, errorPrefix)
-	findings = append(findings, extractPrefixedLines(out, warningPrefix)...)
+// cleanly and said something. Warnings fail the file unless warningsNonFatal
+// is set; errors, a crash and an empty output fail it regardless.
+func parseResult(ctx context.Context, out string, runErr error, fileName string, index, total int, warningsNonFatal bool) fileResult {
+	errs := extractPrefixedLines(out, errorPrefix)
+	warnings := extractPrefixedLines(out, warningPrefix)
 
-	details := findings
+	fatal := errs
 	switch {
 	case runErr != nil:
-		details = append(details, fmt.Sprintf("checker exited with error: %s", describeRunErr(runErr)))
-		details = append(details, unprefixedLines(out)...)
+		fatal = append(fatal, fmt.Sprintf("checker exited with error: %s", describeRunErr(runErr)))
+		fatal = append(fatal, unprefixedLines(out)...)
 	case strings.TrimSpace(out) == "":
-		details = append(details, "checker produced no output")
+		fatal = append(fatal, "checker produced no output")
 	}
 
-	if len(details) == 0 {
+	res := fileResult{
+		errCount:     len(errs),
+		warningCount: len(warnings),
+		failed:       len(fatal) > 0 || (!warningsNonFatal && len(warnings) > 0),
+	}
+
+	switch {
+	case res.failed:
+		logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
+	case len(warnings) > 0:
+		logboek.Context(ctx).Default().LogF("(%d/%d) %s... OK (%d warning(s))\n", index, total, fileName, len(warnings))
+	default:
 		logboek.Context(ctx).Default().LogF("(%d/%d) %s... OK\n", index, total, fileName)
-		return nil
 	}
 
-	logboek.Context(ctx).Default().LogF("(%d/%d) %s... FAILED\n", index, total, fileName)
-	for _, d := range details {
-		logboek.Context(ctx).Default().LogF("  %s\n", d)
-	}
+	logging.DoWithoutLineWrapping(ctx, func() {
+		for _, d := range fatal {
+			logboek.Context(ctx).Default().LogF("  %s\n", d)
+		}
+		for _, w := range warnings {
+			logboek.Context(ctx).Warn().LogF("  %s\n", w)
+		}
+	})
 
-	return fmt.Errorf("validation failed for %s:\n%s", fileName, strings.Join(details, "\n"))
+	return res
 }
 
 // docker/cli reports a non-zero container exit as a cli.StatusError with an

@@ -63,9 +63,10 @@ werf stages copy [options]
             storage volume usage while performing garbage collection of local backend images        
             (detect local backend storage path by default or use $WERF_BACKEND_STORAGE_PATH)
       --build-report-operations=false
-            Collect low-level operations statistics: add Operations and StageCache sections to the  
-            build report and print operations summary after the build (by default                   
-            $WERF_BUILD_REPORT_OPERATIONS or false). Also enabled by --log-debug
+            Collect low-level operations statistics for the whole command run: add Operations,      
+            StageCache and RegistryCache sections to the build report and print operations summary  
+            before the command exits (by default $WERF_BUILD_REPORT_OPERATIONS or false). Also      
+            enabled by --log-debug
       --build-report-path=""
             Change build report path and format (by default $WERF_BUILD_REPORT_PATH or              
             ".werf-build-report.json" if not set). Extension must be either .json for JSON format   
@@ -236,6 +237,16 @@ werf stages copy [options]
       --skip-tls-verify-registry=false
             Skip TLS certificate validation when accessing a registry (default                      
             $WERF_SKIP_TLS_VERIFY_REGISTRY)
+  -S, --synchronization=""
+            Address of synchronizer for multiple werf processes to work with a single repo.
+            
+            Default:
+             - $WERF_SYNCHRONIZATION, or
+             - :local if --repo is not specified, or
+             - https://synchronization.werf.io if --repo has been specified.
+            
+            The same address should be specified for all werf processes that work with a single     
+            repo. :local address allows execution of werf processes from a single host only
       --tmp-dir=""
             Use specified dir to store tmp files and dirs (default $WERF_TMP_DIR or system tmp dir)
       --to=""

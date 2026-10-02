@@ -6,7 +6,7 @@ build:
     standard: cyclonedx@1.6
 ---
 image: app
-from: {{ env "BUILDER_BASE_IMAGE" }}
+from: registry.deckhouse.io/container-factory@sha256:ef3bd2afef793bbaf31ce020550e577c7190cc7cb4cd9b3b3e9188587e3612cd
 git:
   - add: /
     to: /app

@@ -8,6 +8,12 @@ package cyclonedxutil
 //
 // NOTE: This schema has been manually extended by adding an "enum" constraint to "specVersion"
 // to strictly enforce only version 1.6 during validation.
+//
+// NOTE: "hash-alg" has been manually extended with STREEBOG-256 and STREEBOG-512.
+// CycloneDX accepted GOST R 34.11-2012 only in 1.7 and spells it "Streebog-256",
+// while the ISPRAS SBOM schema we are validated against requires the upper-case
+// spelling on a source-distribution reference. Without the extension this schema
+// rejects the very SBOMs werf produces.
 
 const (
 	bom_1_6_SchemaId    = "http://cyclonedx.org/schema/bom-1.6.schema.json"
@@ -1359,7 +1365,9 @@ const (
         "BLAKE2b-256",
         "BLAKE2b-384",
         "BLAKE2b-512",
-        "BLAKE3"
+        "BLAKE3",
+        "STREEBOG-256",
+        "STREEBOG-512"
       ]
     },
     "hash-content": {

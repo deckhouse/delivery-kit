@@ -1,12 +1,18 @@
 package e2e_build_test
 
 import (
+	"encoding/json"
+	"strings"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/test/pkg/report"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
+	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
@@ -69,15 +75,12 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_gost_override")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-gost-ospm-override-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{"app"},
-				Envs:      builderEnv,
 			},
 		})
 
@@ -86,8 +89,86 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		// Image-level GOST override for an os-pm image must land on both
 		// metadata.component and every collected pm component.
 		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertyAttackSurface, gost.GostValueNo)
-		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertySecurityFunction, gost.GostValueNo)
 		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertyAttackSurface, gost.GostValueNo)
-		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueNo)
 	})
+
+	It("preserves source languages from real installed os-pm packages in the SBOM", Label("ospm-source-langs"), func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_ospm_source_langs"
+		SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_source_langs")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		_, buildReport := report.NewProjectWithReport(werfProject).BuildWithReport(ctx,
+			SuiteData.GetBuildReportPath("ospm_source_langs.json"), &werf.WithReportOptions{},
+		)
+		Expect(buildReport.Images).To(HaveKey("app"))
+		imageRef := buildReport.Images["app"].DockerImageName
+		Expect(imageRef).NotTo(BeEmpty())
+
+		installedJSON, stderr, err := utils.RunCommandWithSeparateStreams(ctx, testRepoPath, "docker",
+			[]string{"run", "--rm", "--network=none", "--entrypoint", "/usr/local/bin/pm", imageRef, "info", "--installed", "--json"},
+			utils.RunCommandOptions{},
+		)
+		Expect(err).NotTo(HaveOccurred(), "read installed pm index: %s", stderr)
+		var installed map[string]struct {
+			Name         string   `json:"name"`
+			Version      string   `json:"version"`
+			SrcLanguages []string `json:"srcLanguages"`
+		}
+		Expect(json.Unmarshal(installedJSON, &installed)).To(Succeed())
+
+		bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+		}))
+		for _, expected := range []struct {
+			name    string
+			version string
+			langs   []string
+		}{
+			{"curl", "8.12.1", []string{"C", "Perl"}},
+			{"jq", "1.8.1", []string{"C", "YAML"}},
+		} {
+			Expect(installed).To(HaveKey(expected.name))
+			pkg := installed[expected.name]
+			Expect(pkg.Name).To(Equal(expected.name))
+			Expect(pkg.Version).To(Equal(expected.version))
+			Expect(pkg.SrcLanguages).To(ConsistOf(expected.langs))
+
+			comp := sbomtest.FindComponent(bom, expected.name, expected.version)
+			Expect(comp).NotTo(BeNil())
+			langProps := lo.Filter(lo.FromPtr(comp.Properties), func(prop cdx.Property, _ int) bool {
+				return prop.Name == gost.PropertySourceLangs
+			})
+			Expect(langProps).To(Equal([]cdx.Property{{Name: gost.PropertySourceLangs, Value: strings.Join(expected.langs, ",")}}))
+		}
+	})
+
+	DescribeTable("the source language of the packages directive lands on its components",
+		func(ctx SpecContext, ecosystem, fixture, componentName, componentVersion, expectedLang string) {
+			setupSbomBuildEnv()
+
+			repoDirname := "repo_sbom_gost_source_langs_" + ecosystem
+			SuiteData.InitTestRepo(ctx, repoDirname, fixture)
+			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+			werfProject.Build(ctx, nil)
+
+			sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+				CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+			})
+
+			bom := sbomtest.MustParseSBOMOutput(sbomOut)
+			sbomtest.AssertSourceLangsOnComponent(ctx, bom, componentName, componentVersion, []string{expectedLang})
+		},
+		Entry("go-mod", "gomod", "inject/gomod_license", "github.com/pkg/errors", "v0.9.1", "Go"),
+		Entry("python-pip", "pip", "inject/pip_simple", "requests", "2.32.3", "Python"),
+		Entry("rust-cargo", "cargo", "inject/cargo_simple", "anyhow", "1.0.86", "Rust"),
+		Entry("javascript-npm", "npm", "inject/npm_simple", "lodash", "4.17.21", "JavaScript"),
+		Entry("lua-rock", "lua", "inject/lua_simple", "werf-sbom-lua-app", "0.1-1", "Lua"),
+	)
 })

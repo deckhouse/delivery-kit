@@ -6,6 +6,8 @@ import (
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
 type Assembler interface {
@@ -23,7 +25,7 @@ func NewAssembler(format Format) (Assembler, error) {
 	}
 }
 
-func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
+func buildProductMetadata(ctx context.Context, meta ProductMeta, sourceLangs []string) *cdx.Metadata {
 	metaComponent := &cdx.Component{
 		Type:    cdx.ComponentTypeApplication,
 		Name:    meta.AppName,
@@ -32,6 +34,8 @@ func buildProductMetadata(meta ProductMeta) *cdx.Metadata {
 			Name: meta.Manufacturer,
 		},
 	}
+
+	gost.SetComponentSourceLangs(ctx, metaComponent, sourceLangs)
 
 	return &cdx.Metadata{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -45,4 +49,18 @@ func imageBOMs(images []*ImageSBOM) []*cdx.BOM {
 		boms[i] = img.BOM
 	}
 	return boms
+}
+
+// validateImages rejects an image SBOM carrying a GOST value outside the
+// accepted domain. Images built before the domain shrank still hold
+// `security_function: indirect` in the registry, and a product must not
+// inherit it.
+func validateImages(images []*ImageSBOM) error {
+	for _, img := range images {
+		if err := gost.ValidateValues(img.BOM); err != nil {
+			return fmt.Errorf("image %q: %w", img.Name, err)
+		}
+	}
+
+	return nil
 }

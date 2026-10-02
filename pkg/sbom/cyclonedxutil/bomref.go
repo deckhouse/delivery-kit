@@ -54,37 +54,62 @@ func ensureUniqueBOMRefs(bom *cdx.BOM) {
 		return
 	}
 
-	refMap := map[string]string{}
-	serial := bom.SerialNumber
-	index := 0
+	d := &refDeriver{serial: bom.SerialNumber, refMap: map[string]string{}}
 
-	var walkComponents func(components *[]cdx.Component)
-	walkComponents = func(components *[]cdx.Component) {
-		for i := range lo.FromPtr(components) {
-			comp := &(*components)[i]
-			if comp.BOMRef != "" {
-				comp.BOMRef = assignNewRef(comp.BOMRef, comp.PackageURL, serial, index, refMap)
-			}
-			index++
-			walkComponents(comp.Components)
-		}
+	d.components(bom.Components)
+	d.services(bom.Services)
+	if bom.Metadata != nil && bom.Metadata.Tools != nil {
+		d.components(bom.Metadata.Tools.Components)
+		d.services(bom.Metadata.Tools.Services)
 	}
-	walkComponents(bom.Components)
-
-	var walkServices func(services *[]cdx.Service)
-	walkServices = func(services *[]cdx.Service) {
-		for i := range lo.FromPtr(services) {
-			svc := &(*services)[i]
-			if svc.BOMRef != "" {
-				svc.BOMRef = assignNewRef(svc.BOMRef, "", serial, index, refMap)
-			}
-			index++
-			walkServices(svc.Services)
-		}
+	for i := range lo.FromPtr(bom.Formulation) {
+		formula := &(*bom.Formulation)[i]
+		d.derive(&formula.BOMRef, "")
+		d.components(formula.Components)
+		d.services(formula.Services)
 	}
-	walkServices(bom.Services)
+	for i := range lo.FromPtr(bom.Vulnerabilities) {
+		d.derive(&(*bom.Vulnerabilities)[i].BOMRef, "")
+	}
+	for i := range lo.FromPtr(bom.Compositions) {
+		d.derive(&(*bom.Compositions)[i].BOMRef, "")
+	}
+	for i := range lo.FromPtr(bom.Annotations) {
+		d.derive(&(*bom.Annotations)[i].BOMRef, "")
+	}
 
-	RewriteRefs(bom, refMap)
+	RewriteRefs(bom, d.refMap)
+}
+
+// refDeriver assigns every declared ref of one BOM a value derived from the
+// document serial and the position of the entity, recording the renames.
+type refDeriver struct {
+	serial string
+	index  int
+	refMap map[string]string
+}
+
+func (d *refDeriver) derive(ref *string, purl string) {
+	if *ref != "" {
+		*ref = assignNewRef(*ref, purl, d.serial, d.index, d.refMap)
+	}
+	d.index++
+}
+
+func (d *refDeriver) components(components *[]cdx.Component) {
+	for i := range lo.FromPtr(components) {
+		comp := &(*components)[i]
+		d.derive(&comp.BOMRef, comp.PackageURL)
+		d.components(comp.Components)
+	}
+}
+
+func (d *refDeriver) services(services *[]cdx.Service) {
+	for i := range lo.FromPtr(services) {
+		svc := &(*services)[i]
+		d.derive(&svc.BOMRef, "")
+		d.services(svc.Services)
+	}
 }
 
 // remapRef replaces a ref exactly once. The mapping describes a simultaneous

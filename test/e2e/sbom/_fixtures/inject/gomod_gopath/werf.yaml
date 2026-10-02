@@ -1,0 +1,27 @@
+project: werf-test-e2e-sbom-inject-gomod-gopath
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.deckhouse.io/container-factory@sha256:ef3bd2afef793bbaf31ce020550e577c7190cc7cb4cd9b3b3e9188587e3612cd
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+shell:
+  install:
+    - cd /app && CGO_ENABLED=0 GOPATH=/opt/build/go go build -o /bin/app .
+packages:
+  - type: go-mod
+    workdir: /app
+    # GOPATH is overridden here, so `go mod download` writes the module cache to
+    # /opt/build/go/pkg/mod, not the image's default /go/pkg/mod. Enrichment must read
+    # licenses from the overridden path; the image GOPATH env still says /go.
+    env:
+      GOPATH: /opt/build/go

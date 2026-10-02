@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -18,6 +19,7 @@ import (
 	"github.com/werf/werf/v3/pkg/git_repo"
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/util/parallel"
 )
 
 type ImagesTree struct {
@@ -35,7 +37,8 @@ type ImagesTree struct {
 type ImagesTreeOptions struct {
 	CommonImageOptions
 
-	ImagesToProcess config.ImagesToProcess
+	ImagesToProcess     config.ImagesToProcess
+	RemoteGitTasksLimit int
 }
 
 func NewImagesTree(werfConfig *config.WerfConfig, opts ImagesTreeOptions) *ImagesTree {
@@ -61,7 +64,15 @@ func (tree *ImagesTree) Calculate(ctx context.Context) error {
 		commonTargetPlatforms = []string{tree.ContainerBackend.GetDefaultPlatform()}
 	}
 
+	if err := tree.prepareRemoteGitRepos(ctx, imagesToProcess); err != nil {
+		return err
+	}
+
 	commonImageOpts := tree.CommonImageOptions
+	commonImageOpts.loggedGitCommits = make(map[[2]string]struct{})
+	commonImageOpts.prepareLocalGitRepo = sync.OnceValue(func() error {
+		return prepareLocalGitRepo(ctx, tree.werfConfig.Meta, tree.GiterminismManager.LocalGitRepo())
+	})
 
 	var allImages []*Image
 
@@ -148,6 +159,58 @@ func (tree *ImagesTree) Calculate(ctx context.Context) error {
 	return nil
 }
 
+func (tree *ImagesTree) prepareRemoteGitRepos(ctx context.Context, images []config.ImageInterface) error {
+	if tree.RemoteGitTasksLimit <= 1 {
+		return nil
+	}
+
+	var mirrors [][]*config.GitRemote
+	mirrorIndexes := make(map[string]int)
+	seenKeys := make(map[string]bool)
+	for _, imageConfig := range images {
+		stapelConfig, ok := imageConfig.(config.StapelImageInterface)
+		if !ok {
+			continue
+		}
+		for _, remote := range stapelConfig.ImageBaseConfig().Git.Remote {
+			if seenKeys[remote.RepoCacheKey] || tree.Conveyor.GetRemoteGitRepo(remote.RepoCacheKey) != nil {
+				continue
+			}
+			seenKeys[remote.RepoCacheKey] = true
+			repo, err := git_repo.OpenRemoteRepo(remote.Name, remote.Url, remote.BasicAuth)
+			if err != nil {
+				return fmt.Errorf("open remote git repo %s: %w", remote.Name, err)
+			}
+			// Before fetching, GetClonePath identifies the shared full mirror, including
+			// URLs that differ only in credentials.
+			mirrorPath := repo.GetClonePath()
+			index, ok := mirrorIndexes[mirrorPath]
+			if !ok {
+				index = len(mirrors)
+				mirrorIndexes[mirrorPath] = index
+				mirrors = append(mirrors, nil)
+			}
+			mirrors[index] = append(mirrors[index], remote)
+		}
+	}
+	if len(mirrors) == 0 {
+		return nil
+	}
+
+	var nextMirror atomic.Int64
+	return parallel.DoTasksDynamic(ctx, parallel.DoTasksOptions{MaxNumberOfWorkers: tree.RemoteGitTasksLimit}, func(context.Context) (int, bool, error) {
+		taskID := int(nextMirror.Add(1)) - 1
+		return taskID, taskID < len(mirrors), nil
+	}, func(ctx context.Context, taskID int) error {
+		for _, remote := range mirrors[taskID] {
+			if _, err := prepareRemoteGitRepo(ctx, remote, tree.Conveyor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 type GetImagesByNameOption func(*getImagesByNameConfig)
 
 type getImagesByNameConfig struct {
@@ -227,7 +290,7 @@ func (tree *ImagesTree) GetImagesNames() (res []string) {
 	for _, img := range tree.images {
 		res = util.UniqAppendString(res, img.Name)
 	}
-	return
+	return res
 }
 
 func (tree *ImagesTree) GetImages() []*Image {
@@ -279,7 +342,7 @@ func (tree *ImagesTree) GetMultiplatformImages() []*MultiplatformImage {
 	return tree.multiplatformImages
 }
 
-func filterAndLogGitMappings(ctx context.Context, gitMappings []*stage.GitMapping, conveyor Conveyor) ([]*stage.GitMapping, error) {
+func filterAndLogGitMappings(ctx context.Context, gitMappings []*stage.GitMapping, opts CommonImageOptions) ([]*stage.GitMapping, error) {
 	var res []*stage.GitMapping
 
 	for ind, gitMapping := range gitMappings {
@@ -341,12 +404,25 @@ func filterAndLogGitMappings(ctx context.Context, gitMappings []*stage.GitMappin
 
 			logboek.Context(ctx).Info().LogLn()
 
-			commitInfo, err := gitMapping.GetLatestCommitInfo(ctx, conveyor)
+			commitInfo, err := gitMapping.GetLatestCommitInfo(ctx, opts.Conveyor)
 			if err != nil {
 				return fmt.Errorf("unable to get commit of repo %q: %w", gitMapping.GitRepo().GetName(), err)
 			}
 
-			logboek.Context(ctx).Info().LogFDetails("Commit %s will be used\n", commitInfo.Commit)
+			repo := gitMapping.GitRepo()
+			var repoID string
+			if remote, ok := repo.(*git_repo.Remote); ok {
+				repoID = remote.Url
+			} else {
+				repoID = repo.GetWorkTreeDir()
+			}
+			key := [2]string{repoID, commitInfo.Commit}
+			if _, logged := opts.loggedGitCommits[key]; !logged {
+				logboek.Context(ctx).Info().LogFDetails("Commit %s will be used for %s repository\n", commitInfo.Commit, repo.GetName())
+				if opts.loggedGitCommits != nil {
+					opts.loggedGitCommits[key] = struct{}{}
+				}
+			}
 
 			res = append(res, gitMapping)
 

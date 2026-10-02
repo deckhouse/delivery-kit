@@ -16,15 +16,12 @@ var _ = Describe("SBOM javascript-pnpm packages", Label("e2e", "sbom", "pnpm", "
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/pnpm_simple")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-pnpm-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{"app"},
-				Envs:      builderEnv,
 			},
 		})
 
@@ -32,5 +29,10 @@ var _ = Describe("SBOM javascript-pnpm packages", Label("e2e", "sbom", "pnpm", "
 		lodash := sbomtest.FindComponent(bom, "lodash", "4.17.21")
 		Expect(lodash).NotTo(BeNil(),
 			"expected lodash@4.17.21 (from pnpm-lock.yaml) not found in BOM")
+
+		// The lock carries no license; syft reads it from the installed package's own
+		// manifest under node_modules. pnpm exposes packages there only as symlinks into
+		// its .pnpm store, so this also proves the link is resolved during extraction.
+		sbomtest.AssertHasLicense(bom, "lodash", "4.17.21", "MIT")
 	})
 })

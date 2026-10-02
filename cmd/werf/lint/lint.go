@@ -92,6 +92,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupMetaRepo(&commonCmdData, cmd)
 	common.SetupStubTags(&commonCmdData, cmd)
 
+	common.SetupSynchronization(&commonCmdData, cmd)
+
 	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to read, pull and push images into the specified repo and to pull base images")
 	common.SetupInsecureRegistry(&commonCmdData, cmd)
 	common.SetupSkipTlsVerifyRegistry(&commonCmdData, cmd)
@@ -152,23 +154,27 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runLint(ctx context.Context, imageNameListFromArgs []string) error {
+	ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+	defer logOperationsSummaryFn()
+
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd: &commonCmdData,
 		InitTrueGitWithOptions: &common.InitTrueGitOptions{
 			Options: true_git.Options{LiveGitOutput: *commonCmdData.LogDebug},
 		},
-		InitProcessContainerBackend: true,
-		InitWerf:                    true,
-		InitGitDataManager:          true,
-		InitManifestCache:           true,
-		InitLRUImagesCache:          true,
-		InitSSHAgent:                true,
+		InitWerf:           true,
+		InitGitDataManager: true,
+		InitManifestCache:  true,
+		InitLRUImagesCache: true,
+		InitSSHAgent:       true,
 	})
 	if err != nil {
 		return fmt.Errorf("component init error: %w", err)
 	}
 
-	containerBackend := commonManager.ContainerBackend()
+	if err := docker.InitDockerConfig(docker.InitOptions{DockerConfigDir: *commonCmdData.DockerConfig}); err != nil {
+		return fmt.Errorf("init docker config: %w", err)
+	}
 
 	defer func() {
 		commonManager.TerminateSSHAgent()
@@ -222,6 +228,11 @@ func runLint(ctx context.Context, imageNameListFromArgs []string) error {
 		isStub = true
 		stubImageNameList = append(stubImageNameList, imagesToProcess.FinalImageNameList...)
 	default:
+		containerBackend, newCtx, err := commonManager.EnsureContainerBackend(ctx, &commonCmdData, common.EnsureContainerBackendOptions{RequireDockerDaemon: true})
+		if err != nil {
+			return fmt.Errorf("container backend initialization error: %w", err)
+		}
+		ctx = newCtx
 		if err := common.DockerRegistryInit(ctx, &commonCmdData, commonManager.RegistryMirrors(), commonManager.BuildahMode()); err != nil {
 			return err
 		}
@@ -249,7 +260,7 @@ func runLint(ctx context.Context, imageNameListFromArgs []string) error {
 			return err
 		}
 
-		conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
+		conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
 		defer conveyorWithRetry.Terminate()
 
 		if err := conveyorWithRetry.WithRetryBlock(ctx, func(c *build.Conveyor) error {

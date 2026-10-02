@@ -11,6 +11,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/test/pkg/externalrefmock"
 	"github.com/werf/werf/v3/test/pkg/report"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
 	"github.com/werf/werf/v3/test/pkg/werf"
@@ -24,15 +25,12 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-single-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{"app"},
-				Envs:      builderEnv,
 			},
 		})
 
@@ -50,13 +48,11 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			SuiteData.InitTestRepo(ctx, repoDirname, "lifecycle/multi_image")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-multi-builder-"+isprasFormat)
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("lifecycle_multi_"+isprasFormat+".json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 			)
 
 			mapping := map[string]string{}
@@ -66,7 +62,7 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 					"image %q has no digest in build report", name)
 				mapping[name] = rec.DockerImageDigest
 				imageBOMs[name] = sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
-					CommonOptions: werf.CommonOptions{ExtraArgs: []string{name}, Envs: builderEnv},
+					CommonOptions: werf.CommonOptions{ExtraArgs: []string{name}},
 				}))
 			}
 			Expect(mapping).To(HaveLen(2), "expected exactly 2 images in build report")
@@ -74,7 +70,8 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			mappingPath := filepath.Join(SuiteData.TmpDir, "lifecycle_multi_mapping_"+isprasFormat+".json")
 			writeMappingFile(mappingPath, mapping)
 
-			mergeOut := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			mergedJSONPath := filepath.Join(SuiteData.TmpDir, "lifecycle_multi_merged_"+isprasFormat+".json")
+			werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{
 						"--input", mappingPath,
@@ -82,32 +79,50 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 						"--app-name", "lifecycle-product",
 						"--app-version", "1.0.0",
 						"--manufacturer", "e2e-test",
+						"--output", mergedJSONPath,
 					},
-					Envs: builderEnv,
 				},
 			})
 
-			merged := sbomtest.MustParseSBOMOutput(mergeOut)
+			mergedJSON, err := os.ReadFile(mergedJSONPath)
+			Expect(err).NotTo(HaveOccurred())
+
+			merged := sbomtest.MustParseSBOMOutput(string(mergedJSON))
+			sbomtest.AssertSpecVersion(merged, cdx.SpecVersion1_6)
+			sbomtest.AssertProductMetadata(merged, "lifecycle-product", "1.0.0", "e2e-test")
+			sbomtest.AssertUniqueBOMRefs(merged)
 			sbomtest.AssertHasComponent(merged, "jq", "1.8.1")
-			sbomtest.AssertHasComponent(merged, "yq", "4.48.1")
+			sbomtest.AssertHasComponent(merged, "yq", "4.53.6")
 
 			sbomtest.AssertHasLicense(merged, "jq", "1.8.1", "MIT")
-			sbomtest.AssertHasLicense(merged, "yq", "4.48.1", "MIT")
+			sbomtest.AssertHasLicense(merged, "yq", "4.53.6", "MIT")
 			sbomtest.AssertHasHash(merged, "jq", "1.8.1", cdx.HashAlgoSHA256,
-				"c8336383b9a8de6393af6254acd305823a3db4dbb091a7ea865bbbf95e8cc899")
-			sbomtest.AssertHasHash(merged, "yq", "4.48.1", cdx.HashAlgoSHA256,
-				"2ce3f5219fb99420eb3396da2d6d6f13e75e5f5ed0abcf038db17c2920ec426c")
+				"99f0d20ba2e7084999a592d6db575ff3b734c960f9b9f61fee88f0e2e4430164")
+			sbomtest.AssertHasHash(merged, "yq", "4.53.6", cdx.HashAlgoSHA256,
+				"a5e7736e6248f0068b4a258876ba54ef4e251f6357e1654bfb541bd2d09766e0")
 
 			// GOST properties from build.sbom.gost must be preserved through merge on every component.
 			// NOTE: metadata.component of a merged BOM is a synthetic product identity from --app-name
 			// and does NOT carry GOST — hence AssertGostPropertyOnComponents (not AssertGostProperty).
-			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertyAttackSurface, gost.GostValueYes)
+			// The default attack surface `yes` lands on the roots of the dependency tree; openssl is
+			// pulled in by curl and is demoted to `indirect`.
+			sbomtest.AssertGostPropertyOnComponent(merged, "curl", "8.12.1", gost.PropertyAttackSurface, gost.GostValueYes)
+			sbomtest.AssertGostPropertyOnComponent(merged, "openssl", "3.6.2", gost.PropertyAttackSurface, gost.GostValueIndirect)
 			sbomtest.AssertGostPropertyOnComponents(merged, gost.PropertySecurityFunction, gost.GostValueYes)
+
+			if isprasFormat == "container" {
+				sbomtest.AssertContainerComponents(merged, "frontend", "backend")
+				sbomtest.AssertGostPropertyOnContainers(merged, gost.PropertyAttackSurface, gost.GostValueYes)
+				sbomtest.AssertGostPropertyOnContainers(merged, gost.PropertySecurityFunction, gost.GostValueYes)
+			} else {
+				sbomtest.AssertFlatComponents(merged)
+				sbomtest.AssertNoDuplicateComponents(merged)
+			}
 
 			depRefPrefix := lo.Ternary(isprasFormat == "container", "backend/", "")
 			sbomtest.AssertDependsOn(merged,
-				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v1.3.6",
-				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v1.3.6")
+				depRefPrefix+"pkg:generic/curl@8.12.1?containerfactoryversion=v3.0.2",
+				depRefPrefix+"pkg:generic/openssl@3.6.2?containerfactoryversion=v3.0.2")
 			sbomtest.AssertDependencyGraphResolves(merged)
 			for name, imageBOM := range imageBOMs {
 				rootRef := imageBOM.Metadata.Component.BOMRef
@@ -117,6 +132,22 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 					}
 					return lo.Ternary(isprasFormat == "container", name+"/"+ref, ref)
 				})
+			}
+
+			// The product assembled from two images with a split attack surface must
+			// still satisfy the ISPRAS checker, which requires a container to report
+			// exactly the maximum over the packages it holds. The oss schema is not
+			// run: the builder SBOM carries an `operating-system` component without
+			// a vcs reference that this schema rejects — see the pending oss entry
+			// of the single-image lifecycle below for when it comes back.
+			if isprasFormat == "container" {
+				validateOut := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
+					CommonOptions: werf.CommonOptions{
+						ExtraArgs: []string{"--path", mergedJSONPath, "--ispras-format", isprasFormat},
+					},
+				})
+				Expect(validateOut).To(ContainSubstring("OK"),
+					"merged product SBOM did not pass %q validation; output:\n%s", isprasFormat, validateOut)
 			}
 		},
 		Entry("container format", "container"),
@@ -131,13 +162,11 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			SuiteData.InitTestRepo(ctx, repoDirname, "inject/ospm_basic")
 			testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-			builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lifecycle-validate-builder-"+isprasFormat)
-
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 			reportProject := report.NewProjectWithReport(werfProject)
 			_, buildReport := reportProject.BuildWithReport(ctx,
 				SuiteData.GetBuildReportPath("lifecycle_validate_"+isprasFormat+".json"),
-				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+				&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 			)
 
 			mapping := map[string]string{}
@@ -160,22 +189,92 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 						"--manufacturer", "e2e-test",
 						"--output", mergedJSONPath,
 					},
-					Envs: builderEnv,
 				},
 			})
 
 			validateOut := werfProject.SbomValidate(ctx, &werf.SbomValidateOptions{
 				CommonOptions: werf.CommonOptions{
 					ExtraArgs: []string{"--path", mergedJSONPath, "--ispras-format", isprasFormat},
-					Envs:      builderEnv,
 				},
 			})
 			Expect(validateOut).To(ContainSubstring("OK"),
 				"merged SBOM did not pass %q validation; output:\n%s", isprasFormat, validateOut)
 		},
 		Entry("container format", "container"),
-		Entry("oss format", "oss"),
+		// The SBOM attached to the base-images v3.0.2 builders was generated by a
+		// delivery-kit that still ran syft over the whole stapel image, so it carries
+		// syft's os-release `operating-system` component without a vcs reference,
+		// which the ISPRAS oss schema rejects. Re-enable once base-images is rebuilt
+		// with a delivery-kit that no longer scans stapel images and the digests are
+		// re-pinned.
+		XEntry("oss format", "oss"),
 	)
+
+	It("source distributions: build → merge → validate keeps the STREEBOG digest", func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_lifecycle_src_dist"
+		SuiteData.InitTestRepo(ctx, repoDirname, "lifecycle/source_distribution")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		reportProject := report.NewProjectWithReport(werfProject)
+		_, buildReport := reportProject.BuildWithReport(ctx,
+			SuiteData.GetBuildReportPath("lifecycle_src_dist.json"),
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
+		)
+
+		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{"app"},
+			},
+		})
+
+		// The resolver answers an npm purl with the published archive, so lodash
+		// carries a source distribution as its only link — the case the ISPRAS
+		// schema requires a digest for.
+		lodashArchive := externalrefmock.SourceDistributionURL("pkg:npm/lodash@4.17.21")
+		bom := sbomtest.MustParseSBOMOutput(sbomOut)
+		assertSourceDistributionDigest(bom, "lodash", "4.17.21", lodashArchive)
+
+		mapping := map[string]string{}
+		for name, rec := range buildReport.Images {
+			mapping[name] = rec.DockerImageDigest
+		}
+		Expect(mapping).To(HaveLen(1), "expected exactly 1 image in build report")
+
+		mappingPath := filepath.Join(SuiteData.TmpDir, "lifecycle_src_dist_mapping.json")
+		writeMappingFile(mappingPath, mapping)
+
+		mergedJSONPath := filepath.Join(SuiteData.TmpDir, "lifecycle_src_dist_merged.json")
+		mergeOut := werfProject.SbomMerge(ctx, &werf.SbomMergeOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{
+					"--input", mappingPath,
+					"--ispras-format", "oss",
+					"--app-name", "lifecycle-src-dist",
+					"--app-version", "1.0.0",
+					"--manufacturer", "e2e-test",
+					"--output", mergedJSONPath,
+				},
+			},
+		})
+		Expect(mergeOut).NotTo(BeEmpty())
+
+		mergedJSON, err := os.ReadFile(mergedJSONPath)
+		Expect(err).NotTo(HaveOccurred())
+		merged := &cdx.BOM{}
+		Expect(json.Unmarshal(mergedJSON, merged)).To(Succeed())
+		assertSourceDistributionDigest(merged, "lodash", "4.17.21", lodashArchive)
+
+		// The merged document is not run through "sbom validate --ispras-format oss"
+		// here for the reason the oss entry of the table above is disabled: the SBOM
+		// of the base-images builder carries a component with neither a vcs nor a
+		// source-distribution link, and the oss schema rejects it before it gets to
+		// any digest. That the schema accepts the shape asserted above is covered by
+		// the "valid OSS with a source distribution digest" fixture in
+		// test/e2e/sbom-validate.
+	})
 
 	It("sbom get fails when SBOM is not enabled in werf.yaml", func(ctx SpecContext) {
 		setupSbomBuildEnv()
@@ -188,11 +287,13 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 		out := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ShouldFail: true,
-				ExtraArgs:  []string{"app"},
+				ExtraArgs:  []string{"app", "--build-report-operations", "--log-quiet=false"},
 			},
 		})
 		Expect(out).To(ContainSubstring("SBOM should be enabled"),
 			"expected explicit error about disabled SBOM; got:\n%s", out)
+		Expect(out).To(ContainSubstring("config render"))
+		Expect(out).To(ContainSubstring("command time:"))
 	})
 
 	It("sbom merge fails when --input file does not exist", func(ctx SpecContext) {
@@ -289,6 +390,34 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			"expected error mentioning missing --app-name flag; got:\n%s", out)
 	})
 })
+
+// assertSourceDistributionDigest checks the shape the ISPRAS oss schema demands
+// of a leaf component whose only link is a source distribution: the archive URL
+// and a STREEBOG digest of it, both carried by the same reference.
+func assertSourceDistributionDigest(bom *cdx.BOM, name, version, archiveURL string) {
+	comp := sbomtest.FindComponent(bom, name, version)
+	ExpectWithOffset(1, comp).NotTo(BeNil(), "component %s@%s not found", name, version)
+	ExpectWithOffset(1, comp.ExternalReferences).NotTo(BeNil(),
+		"component %s@%s has no external references", name, version)
+
+	// A vcs link next to it would take the component out of the schema branch
+	// that demands the digest, and the assertions below would prove nothing.
+	ExpectWithOffset(1, *comp.ExternalReferences).NotTo(ContainElement(HaveField("Type", cdx.ERTypeVCS)),
+		"component %s@%s also carries a vcs link, the digest requirement would not apply", name, version)
+
+	refs := lo.Filter(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
+		return ref.Type == cdx.ERTypeSourceDistribution
+	})
+	ExpectWithOffset(1, refs).To(HaveLen(1),
+		"component %s@%s: expected exactly one source distribution, got %v", name, version, *comp.ExternalReferences)
+	ExpectWithOffset(1, refs[0].URL).To(Equal(archiveURL))
+	ExpectWithOffset(1, refs[0].Hashes).NotTo(BeNil(),
+		"component %s@%s: source distribution %s carries no digest", name, version, refs[0].URL)
+	ExpectWithOffset(1, *refs[0].Hashes).To(ContainElement(cdx.Hash{
+		Algorithm: cdx.HashAlgorithm(externalrefmock.SourceDistributionHash.Algorithm),
+		Value:     externalrefmock.SourceDistributionHash.Content,
+	}))
+}
 
 func writeMappingFile(path string, mapping map[string]string) {
 	data, err := json.Marshal(mapping)

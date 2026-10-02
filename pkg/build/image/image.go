@@ -37,6 +37,9 @@ const (
 )
 
 type CommonImageOptions struct {
+	prepareLocalGitRepo func() error
+	loggedGitCommits    map[[2]string]struct{}
+
 	Conveyor           Conveyor
 	GiterminismManager *giterminism_manager.Manager
 	ContainerBackend   container_backend.ContainerBackend
@@ -138,8 +141,11 @@ type Image struct {
 	stageDurations    map[stage.StageName]time.Duration
 	lastNonEmptyStage stage.Interface
 	contentTagDesc    *image.StageDesc
-	rebuilt           bool
-	useCustomTag      bool
+	// finalContentTagDesc is the content tag descriptor of the image as copied into
+	// the final repo; contentTagDesc keeps describing the image in the stages repo.
+	finalContentTagDesc *image.StageDesc
+	rebuilt             bool
+	useCustomTag        bool
 
 	baseImageType             BaseImageType
 	baseImageReference        string
@@ -344,6 +350,26 @@ func (i *Image) GetContentTagDesc() *image.StageDesc {
 	return i.contentTagDesc
 }
 
+func (i *Image) SetFinalContentTagDesc(desc *image.StageDesc) {
+	i.finalContentTagDesc = desc
+}
+
+func (i *Image) GetFinalContentTagDesc() *image.StageDesc {
+	return i.finalContentTagDesc
+}
+
+// GetPublishedContentTagDesc returns the descriptor of the image as published for
+// consumers: the final repo one when the image was copied there, the stages repo
+// one otherwise. Build-internal consumers — artifact convergence, base and import
+// SBOM lookups — must keep using GetContentTagDesc, which always describes the
+// image in the repository it was built in.
+func (i *Image) GetPublishedContentTagDesc() *image.StageDesc {
+	if i.finalContentTagDesc != nil {
+		return i.finalContentTagDesc
+	}
+	return i.contentTagDesc
+}
+
 func (i *Image) GetStage(name stage.StageName) stage.Interface {
 	for _, s := range i.stages {
 		if s.Name() == name {
@@ -355,7 +381,7 @@ func (i *Image) GetStage(name stage.StageName) stage.Interface {
 }
 
 func (i *Image) GetStageID() string {
-	return i.GetLastNonEmptyStage().GetStageImage().Image.GetStageDesc().Info.Tag
+	return i.GetContentTagDesc().Info.Tag
 }
 
 func (i *Image) UsesBuildContext() bool {

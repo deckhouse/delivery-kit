@@ -14,6 +14,7 @@ type ImageSBOM struct {
 type GOSTValues struct {
 	AttackSurface    gost.GostValue
 	SecurityFunction gost.GostValue
+	SourceLangs      []string
 }
 
 type ProductMeta struct {

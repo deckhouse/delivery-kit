@@ -108,6 +108,8 @@ werf converge --repo registry.mydomain.com/web --env production`,
 	common.SetupLogOptions(&commonCmdData, cmd)
 	common.SetupLogProjectDir(&commonCmdData, cmd)
 
+	common.SetupSynchronization(&commonCmdData, cmd)
+
 	commonCmdData.SetupWithoutImages(cmd)
 	commonCmdData.SetupFinalImagesOnly(cmd, true)
 
@@ -191,6 +193,8 @@ werf converge --repo registry.mydomain.com/web --env production`,
 }
 
 func runMain(ctx context.Context, imageNameListFromArgs []string) error {
+	ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+	defer logOperationsSummaryFn()
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd: &commonCmdData,
 		InitTrueGitWithOptions: &common.InitTrueGitOptions{
@@ -295,7 +299,7 @@ func run(
 		if !imagesToProcess.WithoutImages {
 			logboek.LogOptionalLn()
 
-			containerBackend, newCtx, err := commonManager.EnsureContainerBackend(ctx, &commonCmdData, true)
+			containerBackend, newCtx, err := commonManager.EnsureContainerBackend(ctx, &commonCmdData, common.EnsureContainerBackendOptions{InitDockerRegistry: true, RequireDockerDaemon: true})
 			if err != nil {
 				return ctx, fmt.Errorf("container backend initialization error: %w", err)
 			}
@@ -324,7 +328,7 @@ func run(
 				return ctx, err
 			}
 
-			conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
+			conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
 			defer conveyorWithRetry.Terminate()
 
 			if err := conveyorWithRetry.WithRetryBlock(ctx, func(c *build.Conveyor) error {
@@ -430,7 +434,7 @@ func run(
 			return ctx, fmt.Errorf("get HEAD commit time: %w", err)
 		}
 
-		registryCredentialsPath := docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
+		registryCredentialsPath = docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
 
 		serviceValues, err = deploy.GetServiceValues(ctx, werfConfig.Meta.Project, imagesRepo, imagesInfoGetters, deploy.ServiceValuesOptions{
 			Namespace:                releaseNamespace,

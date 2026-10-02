@@ -32,15 +32,17 @@ func NewGitCmd(ctx context.Context, opts *GitCmdOptions, cliArgs ...string) GitC
 
 	gitCmd.Dir = opts.RepoDir
 
-	if len(opts.Env) > 0 {
-		gitCmd.Cmd.Env = append(os.Environ(), opts.Env...)
+	if len(sshMultiplexingEnv) > 0 || len(opts.Env) > 0 {
+		gitCmd.Cmd.Env = append(append(os.Environ(), sshMultiplexingEnv...), opts.Env...)
 	}
 
 	stdoutBuffs := []io.Writer{gitCmd.OutBuf, gitCmd.OutErrBuf}
 	stderrBuffs := []io.Writer{gitCmd.ErrBuf, gitCmd.OutErrBuf}
 
 	if liveGitOutput {
-		stdoutBuffs = append(stdoutBuffs, logboek.Context(ctx).OutStream())
+		if debug() || (cliArgs[0] != "show-ref" && cliArgs[0] != "ls-remote") {
+			stdoutBuffs = append(stdoutBuffs, logboek.Context(ctx).OutStream())
+		}
 		stderrBuffs = append(stderrBuffs, logboek.Context(ctx).ErrStream())
 	}
 

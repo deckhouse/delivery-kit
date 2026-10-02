@@ -131,7 +131,7 @@ build:
     standard: cyclonedx@1.6
     gost:
       attackSurface: "yes"
-      securityFunction: indirect
+      securityFunction: no
 deploy:
   helmChartDir: .helm
   helmChartConfig:
@@ -396,6 +396,16 @@ project: app
 build:
   sbom:
     standard: cyclonedx@1.6
+`),
+		Entry("indirect security function", `
+configVersion: 1
+project: app
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+    gost:
+      securityFunction: indirect
 `),
 		Entry("os-pm packages with workdir", `
 image: app

@@ -265,6 +265,7 @@ func (*nonLocalStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
 
 type anchorLookupStorageManager struct {
 	manager.StorageManagerInterface
+	mutex                  sync.Mutex
 	primaryStagesStorage   storage.PrimaryStagesStorage
 	secondaryStagesStorage storage.StagesStorage
 	inPrimary              imagePkg.StageDescSet
@@ -272,11 +273,23 @@ type anchorLookupStorageManager struct {
 	cachedPrimaryLookups   int
 	cachedSecondaryLookups int
 	primaryLookups         int
+	strictPrimaryLookups   int
+	recentPrimaryLookups   int
 	secondaryLookups       int
 }
 
 func (m *anchorLookupStorageManager) GetStageDescSetByDigestWithCache(_ context.Context, _, _ string, _ int64) (imagePkg.StageDescSet, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	m.primaryLookups++
+	m.strictPrimaryLookups++
+	return m.inPrimary, nil
+}
+
+func (m *anchorLookupStorageManager) GetStageDescSetByDigestWithRecentCache(_ context.Context, _, _ string, _ int64) (imagePkg.StageDescSet, error) {
+	m.primaryLookups++
+	m.recentPrimaryLookups++
 	return m.inPrimary, nil
 }
 
@@ -285,6 +298,9 @@ func (m *anchorLookupStorageManager) GetSecondaryStagesStorageList() []storage.S
 }
 
 func (m *anchorLookupStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(_ context.Context, _, _ string, _ int64, stagesStorage storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if stagesStorage == m.secondaryStagesStorage {
 		m.secondaryLookups++
 		return m.inSecondary, nil

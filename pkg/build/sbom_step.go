@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
@@ -69,6 +71,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	parentDigest := stageDesc.Info.GetDigest()
 
 	scanOpts.Commands[0].SourcePath = stageDesc.Info.Name
+	catalogers := scanOpts.Commands[0].Catalogers
 
 	if err := step.prepareGostComponents(ctx, &mergeOpts); err != nil {
 		return err
@@ -94,16 +97,18 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if !syftScanRequired(isStapel, scanOpts.Commands[0].Catalogers) {
+		switch {
+		case !syftScanRequired(isStapel, catalogers):
 			targetBOM = cyclonedxutil.NewBOM()
-			targetBOM.Metadata = &cdx.Metadata{
-				Component: &cdx.Component{
-					Type:    cdx.ComponentTypeContainer,
-					Name:    stageDesc.Info.Repository,
-					Version: stageDesc.Info.Tag,
-				},
+			restoreImageMetadata(targetBOM, stageDesc)
+		case isStapel:
+			var err error
+			targetBOM, err = step.scanFileBasedPackages(ctx, stageDesc.Info, scanOpts, catalogers, targetPlatform)
+			if err != nil {
+				return err
 			}
-		} else {
+			restoreImageMetadata(targetBOM, stageDesc)
+		default:
 			bomJSON, err := step.containerBackend.GenerateSBOM(ctx, scanOpts)
 			if err != nil {
 				return fmt.Errorf("generate SBOM: %w", err)
@@ -113,14 +118,12 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if err != nil {
 				return fmt.Errorf("parse scanned BOM: %w", err)
 			}
-
-			managedinput.FilterBOMBySourcePaths(targetBOM, scanOpts.Commands[0].Catalogers)
 		}
 
 		resultBOM := targetBOM
 		if !mergeOpts.IsEmpty() {
 			var err error
-			resultBOM, err = cyclonedxutil.MergeBOMs(targetBOM, mergeOpts)
+			resultBOM, err = cyclonedxutil.MergeBOMs(ctx, targetBOM, mergeOpts)
 			if err != nil {
 				return fmt.Errorf("merge BOMs: %w", err)
 			}
@@ -132,7 +135,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 				return fmt.Errorf("collect os-pm BOM: %w", err)
 			}
 			if pmBOM != nil {
-				resultBOM, err = cyclonedxutil.MergeBOMs(resultBOM, cyclonedxutil.MergeOpts{
+				resultBOM, err = cyclonedxutil.MergeBOMs(ctx, resultBOM, cyclonedxutil.MergeOpts{
 					ImportBOMs: []*cdx.BOM{pmBOM},
 				})
 				if err != nil {
@@ -171,7 +174,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
 
-		cyclonedxutil.Canonicalize(resultBOM)
+		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -188,7 +191,99 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-const sbomArtifactFormatVersion = "5"
+// restoreImageMetadata sets the BOM's top-level component to the scanned image while
+// keeping any syft-provided metadata (tools, timestamp). A directory source reports the
+// temporary scan directory as its component, so it must be replaced. When no timestamp is
+// present — the skip-scan path builds a fresh BOM — one is stamped, since a per-image SBOM
+// without a timestamp is rejected by downstream validators.
+func restoreImageMetadata(bom *cdx.BOM, stageDesc *image.StageDesc) {
+	if bom.Metadata == nil {
+		bom.Metadata = &cdx.Metadata{}
+	}
+	bom.Metadata.Component = containerComponent(stageDesc)
+	if bom.Metadata.Timestamp == "" {
+		bom.Metadata.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	}
+}
+
+// containerComponent builds the top-level container component of an image BOM.
+func containerComponent(stageDesc *image.StageDesc) *cdx.Component {
+	return &cdx.Component{
+		Type:    cdx.ComponentTypeContainer,
+		Name:    stageDesc.Info.Repository,
+		Version: stageDesc.Info.Tag,
+	}
+}
+
+// scanFileBasedPackages catalogs the file-based packages of a stapel image by scanning,
+// per directive, only the spec/lock files extracted from the built image (a directory
+// source), then unions the per-directive BOMs. This avoids walking the whole image
+// filesystem and needs no docker.sock in the scanner container.
+func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *image.Info, scanOpts scanner.ScanOptions, catalogers []scanner.Cataloger, targetPlatform string) (*cdx.BOM, error) {
+	scannedBOMs := make([]*cdx.BOM, 0, len(catalogers))
+	for _, cataloger := range catalogers {
+		dir, cleanup, err := managedinput.MaterializeCatalogerInputs(ctx, step.containerBackend, imageInfo.Name, cataloger, targetPlatform, imageInfo.Env)
+		if err != nil {
+			return nil, fmt.Errorf("materialize inputs for cataloger %q: %w", cataloger.Name, err)
+		}
+
+		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir)
+		cleanup(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		scannedBOMs = append(scannedBOMs, bom)
+	}
+
+	// Guarded against an empty catalogers slice, even though the isStapel switch arm only
+	// runs when syftScanRequired already established len(catalogers) > 0.
+	if len(scannedBOMs) == 0 {
+		return cyclonedxutil.NewBOM(), nil
+	}
+
+	// On a cross-directive PURL collision, MergeBOMs keeps the first component in merge
+	// order (imports before the target), but unions GOST:source_langs from all of them.
+	merged, err := cyclonedxutil.MergeBOMs(ctx, scannedBOMs[0], cyclonedxutil.MergeOpts{ImportBOMs: scannedBOMs[1:]})
+	if err != nil {
+		return nil, fmt.Errorf("union per-directive BOMs: %w", err)
+	}
+
+	return merged, nil
+}
+
+func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir string) (*cdx.BOM, error) {
+	cmd := scanOpts.Commands[0]
+	cmd.Catalogers = []scanner.Cataloger{cataloger}
+	cmd.SourceType = scanner.SourceTypeDir
+	cmd.SourcePath = dir
+
+	perDirectiveOpts := scanOpts
+	perDirectiveOpts.Commands = []scanner.ScanCommand{cmd}
+
+	bomJSON, err := step.containerBackend.GenerateSBOM(ctx, perDirectiveOpts)
+	if err != nil {
+		return nil, fmt.Errorf("generate SBOM for cataloger %q: %w", cataloger.Name, err)
+	}
+
+	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse scanned BOM for cataloger %q: %w", cataloger.Name, err)
+	}
+
+	// A directory source makes syft emit a PURL-less type=file component for each scanned
+	// manifest file; drop them so only real packages remain. This is what makes omitting the
+	// post-scan source-path filter safe (see SYFT_FILE_METADATA_SELECTION in the docker backend).
+	cyclonedxutil.DropSyftSourceFileComponents(bom)
+
+	for i := range lo.FromPtr(bom.Components) {
+		gost.SetComponentSourceLangs(ctx, &(*bom.Components)[i], []string{cataloger.SourceLang})
+	}
+
+	return bom, nil
+}
+
+const sbomArtifactFormatVersion = "7"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only
@@ -212,26 +307,35 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 	)
 }
 
-// PropagateArtifacts copies the artifacts attached to the image stage (e.g. its SBOM)
-// into the final repo and the cache repos. Stages themselves are copied there before
-// SBOM generation runs, so the artifacts have to catch up separately.
-func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName string, stageDesc, finalStageDesc *image.StageDesc, cacheStagesStorageList []storage.StagesStorage) error {
-	srcRepo := stageDesc.Info.Repository
-	srcDigest := stageDesc.Info.GetDigest()
+// PropagateArtifactsOptions carries the destinations of a propagation: the final repo
+// descriptor of the same image when the build published one, and the cache stages
+// storages the stage was placed in.
+type PropagateArtifactsOptions struct {
+	FinalRepo              string
+	FinalDigest            string
+	CacheStagesStorageList []storage.StagesStorage
+}
 
-	if finalStageDesc != nil && finalStageDesc.Info.Repository != srcRepo {
-		if err := logboek.Context(ctx).Default().LogProcess("image %s: Copy SBOM artifacts into the final repo %s", werfImgName, finalStageDesc.Info.Repository).DoError(func() error {
-			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, finalStageDesc.Info.Repository, finalStageDesc.Info.GetDigest())
+// PropagateArtifacts copies the artifacts attached to the image in the repository it
+// was built in — its SBOM, VEX and any other attached kind — into the final repo and
+// the cache repos. Stages are copied there before the artifacts exist, so the
+// artifacts have to catch up separately. The copy runs on every build and is
+// idempotent, so a destination holding the image without its artifacts is repaired
+// by the next run.
+func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName, srcRepo, srcDigest string, opts PropagateArtifactsOptions) error {
+	if opts.FinalRepo != "" && opts.FinalRepo != srcRepo {
+		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into the final repo %s", werfImgName, opts.FinalRepo).DoError(func() error {
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, opts.FinalRepo, opts.FinalDigest)
 		}); err != nil {
-			return fmt.Errorf("copy attached artifacts into final repo %s: %w", finalStageDesc.Info.Repository, err)
+			return fmt.Errorf("copy attached artifacts into final repo %s: %w", opts.FinalRepo, err)
 		}
 	}
 
-	for _, cache := range cacheStagesStorageList {
+	for _, cache := range opts.CacheStagesStorageList {
 		if cache.Address() == storage.LocalStorageAddress || cache.Address() == srcRepo {
 			continue
 		}
-		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy SBOM artifacts into cache %s", werfImgName, cache.String()).DoError(func() error {
+		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into cache %s", werfImgName, cache.String()).DoError(func() error {
 			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, cache.Address(), srcDigest)
 		}); err != nil {
 			logboek.Context(ctx).Warn().LogF("Warning: unable to copy attached artifacts into cache stages storage %s: %s\n", cache.String(), err)
@@ -297,7 +401,7 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 		})
 	}
 
-	// Skip GOST validation and upsert for base/import BOMs when GOST is not configured.
+	// Skip GOST validation for base/import BOMs when GOST is not configured.
 	// Without this guard, components from patchers (e.g. PM BOMPatcher) that lack GOST
 	// properties would fail validation even though GOST is not in use.
 	if mergeOpts.Gost.AttackSurface.IsUndefined() && mergeOpts.Gost.SecurityFunction.IsUndefined() {
@@ -306,19 +410,13 @@ func (step *sbomStep) prepareGostComponents(ctx context.Context, mergeOpts *cycl
 
 	if mergeOpts.BaseBOM != nil {
 		if err := gost.Validate(mergeOpts.BaseBOM); err != nil {
-			return fmt.Errorf("base SBOM validation failed: %w", err)
-		}
-		if err := gost.Upsert(mergeOpts.BaseBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties for base SBOM: %w", err)
+			return fmt.Errorf("base SBOM validation failed (rebuild the base image with the current werf if its SBOM was built by an older one): %w", err)
 		}
 	}
 
 	for i, externalBOM := range mergeOpts.ImportBOMs {
 		if err := gost.Validate(externalBOM); err != nil {
-			return fmt.Errorf("external SBOM [%d] validation failed: %w", i, err)
-		}
-		if err := gost.Upsert(externalBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties for external SBOM [%d]: %w", i, err)
+			return fmt.Errorf("external SBOM [%d] validation failed (rebuild the imported image with the current werf if its SBOM was built by an older one): %w", i, err)
 		}
 	}
 

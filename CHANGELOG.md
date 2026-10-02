@@ -1,5 +1,111 @@
 # Changelog
 
+## [3.6.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.2...v3.6.2-dk.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **build:** prevent duplicate images from concurrent builders ([#7989](https://github.com/deckhouse/delivery-kit/issues/7989)) ([bfaad77](https://github.com/deckhouse/delivery-kit/commit/bfaad7793c99f408d2b1f700035cd9ebf7158e86))
+* **deploy:** recreate StatefulSet and other custom-validated kinds on immutable field change ([#7994](https://github.com/deckhouse/delivery-kit/issues/7994)) ([a0128c4](https://github.com/deckhouse/delivery-kit/commit/a0128c4a10c76d8c98ffe0d966f1920d2ba40003))
+* **sbom:** collect statistics across the whole get command ([7a9a7f5](https://github.com/deckhouse/delivery-kit/commit/7a9a7f58fb2eff11c1b0d2711eb8cfa4a2d12fd7))
+
+
+### Miscellaneous Chores
+
+* force release 3.6.2-dk.1 ([be6deca](https://github.com/deckhouse/delivery-kit/commit/be6deca0de01cd1e79fd0b9b52f4b281d04b93ec))
+
+## [3.6.1-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.1...v3.6.1-dk.2) (2026-10-01)
+
+
+### Features
+
+* **sbom:** add --warnings-non-fatal flag to sbom validate ([#331](https://github.com/deckhouse/delivery-kit/issues/331)) ([91e1a30](https://github.com/deckhouse/delivery-kit/commit/91e1a30b78ed17c90d254faa10c8cf3b1053c378))
+* **sbom:** carry STREEBOG source-distribution digests through the CycloneDX 1.6 SBOM ([#383](https://github.com/deckhouse/delivery-kit/issues/383)) ([1065a95](https://github.com/deckhouse/delivery-kit/commit/1065a95fcce0fb1e15f427966941636d42884fa0))
+* **sbom:** generate file-based package SBOMs without docker.sock ([#307](https://github.com/deckhouse/delivery-kit/issues/307)) ([6681160](https://github.com/deckhouse/delivery-kit/commit/66811602987aa8329b0c2fe365167f1a31971251))
+* **sbom:** mark only entry-point packages as directly attackable ([#332](https://github.com/deckhouse/delivery-kit/issues/332)) ([a0b171e](https://github.com/deckhouse/delivery-kit/commit/a0b171eea3a74c18f3ecedcbef8b6d8f9694483f))
+* **sbom:** report the source language of cataloged packages ([#328](https://github.com/deckhouse/delivery-kit/issues/328)) ([df4ba44](https://github.com/deckhouse/delivery-kit/commit/df4ba446d88de93c5fe6f003ab52604accd32e74))
+
+
+### Bug Fixes
+
+* **ci:** honor cancellation of build and test workflows ([#381](https://github.com/deckhouse/delivery-kit/issues/381)) ([63f7581](https://github.com/deckhouse/delivery-kit/commit/63f75816b4549aa7e15eb1a988bdc667f3bb136c))
+* **sbom, vex, build:** keep artifacts with the image in every repository ([#282](https://github.com/deckhouse/delivery-kit/issues/282)) ([5544c87](https://github.com/deckhouse/delivery-kit/commit/5544c8755adb27164d838c11dd1616b668925926))
+* **sbom:** restore the build after the file-based SBOM scan merge ([#380](https://github.com/deckhouse/delivery-kit/issues/380)) ([4d67f69](https://github.com/deckhouse/delivery-kit/commit/4d67f691a7a86b3026de52cee5aad3af5a640168))
+* **sbom:** stop ispras validation failing on containers without a description ([#382](https://github.com/deckhouse/delivery-kit/issues/382)) ([c3c9abd](https://github.com/deckhouse/delivery-kit/commit/c3c9abd0240252d19d42647242da682f66470d46))
+* **sbom:** stop printing every validation finding twice in sbom validate ([#350](https://github.com/deckhouse/delivery-kit/issues/350)) ([6f0af68](https://github.com/deckhouse/delivery-kit/commit/6f0af68e441d3a7e1edd092ed738373d2827cc88))
+
+## [3.6.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.0-dk.1...v3.6.1-dk.1) (2026-09-28)
+
+
+### Features
+
+* **sbom:** expose the ISPRAS checker options in sbom validate ([#375](https://github.com/deckhouse/delivery-kit/issues/375)) ([8fe11f0](https://github.com/deckhouse/delivery-kit/commit/8fe11f09337801972e927f63806695b0245513eb))
+
+
+### Bug Fixes
+
+* **build, git:** reuse one ssh connection for git requests ([#368](https://github.com/deckhouse/delivery-kit/issues/368)) ([708a660](https://github.com/deckhouse/delivery-kit/commit/708a6600f33ef7a851344c45b121d03522da62d3))
+* **build, git:** reuse one ssh connection for git requests ([#7930](https://github.com/deckhouse/delivery-kit/issues/7930)) ([6bf8313](https://github.com/deckhouse/delivery-kit/commit/6bf8313121c1df70f26c2a6d51507b8ea70a12b3))
+* **build:** resolve content anchors concurrently in parallel builds ([#369](https://github.com/deckhouse/delivery-kit/issues/369)) ([26d9ae6](https://github.com/deckhouse/delivery-kit/commit/26d9ae63a0fb5ee318c2f5a85022d126e2923ed9))
+* **build:** resolve content anchors concurrently in parallel builds ([#7931](https://github.com/deckhouse/delivery-kit/issues/7931)) ([39f664f](https://github.com/deckhouse/delivery-kit/commit/39f664ffdbf9154f4424c5cf42bd2f75c3053c4f))
+* **build:** speed up build preparation before workers start ([#367](https://github.com/deckhouse/delivery-kit/issues/367)) ([4e39f88](https://github.com/deckhouse/delivery-kit/commit/4e39f8823aa855fe2294684f5d8f3b85655a35d7))
+* **build:** speed up build preparation before workers start ([#7928](https://github.com/deckhouse/delivery-kit/issues/7928)) ([7a188c2](https://github.com/deckhouse/delivery-kit/commit/7a188c2897bc6778ceed0290f99141ca45aea072))
+* **build:** stop per-digest local image scans before image workers start ([#7929](https://github.com/deckhouse/delivery-kit/issues/7929)) ([20d74b6](https://github.com/deckhouse/delivery-kit/commit/20d74b624a0f062b0668418d09012f4f78b788e2))
+* **git:** keep a healthy cached worktree on canceled builds ([#374](https://github.com/deckhouse/delivery-kit/issues/374)) ([ed3e5fa](https://github.com/deckhouse/delivery-kit/commit/ed3e5fadaa11473ed0d9b59a793dc5d9d55aaa35))
+* **git:** keep a healthy cached worktree on canceled builds ([#7935](https://github.com/deckhouse/delivery-kit/issues/7935)) ([ad187a4](https://github.com/deckhouse/delivery-kit/commit/ad187a492c487dee18f6e1646985df89d5be3d31))
+* **git:** keep local submodule reuse for nested submodule names ([#371](https://github.com/deckhouse/delivery-kit/issues/371)) ([0e82710](https://github.com/deckhouse/delivery-kit/commit/0e827105e44cfd7092cfaa04b61905c8422b63f2))
+* **git:** keep local submodule reuse for nested submodule names ([#7933](https://github.com/deckhouse/delivery-kit/issues/7933)) ([196df14](https://github.com/deckhouse/delivery-kit/commit/196df14db49a7d52b181ef83cdaa80b3ef48faff))
+* **git:** rebuild a broken cached worktree instead of failing ([#370](https://github.com/deckhouse/delivery-kit/issues/370)) ([967c83d](https://github.com/deckhouse/delivery-kit/commit/967c83dff4f976a012e64cb7ab296b3bb15231b2))
+* **git:** rebuild a broken cached worktree instead of failing ([#7932](https://github.com/deckhouse/delivery-kit/issues/7932)) ([c89fdb6](https://github.com/deckhouse/delivery-kit/commit/c89fdb68af6a137d37053afc8c327266ada66a07))
+* **sbom:** keep long sbom validate checker messages on one line ([#376](https://github.com/deckhouse/delivery-kit/issues/376)) ([5ec87d4](https://github.com/deckhouse/delivery-kit/commit/5ec87d48aef01826da01ffc8f02d589f4576beea))
+* **storage:** avoid repeated local image scans before builds ([#366](https://github.com/deckhouse/delivery-kit/issues/366)) ([88bf86f](https://github.com/deckhouse/delivery-kit/commit/88bf86f498486d340c39d9e0a6c1d2d80cd26024))
+* **storage:** reuse recent tags listings for stage lookups on cache misses ([#372](https://github.com/deckhouse/delivery-kit/issues/372)) ([fad4fea](https://github.com/deckhouse/delivery-kit/commit/fad4fea59211237e8add204cf769d9a25d7df110))
+* **storage:** reuse recent tags listings for stage lookups on cache misses ([#7934](https://github.com/deckhouse/delivery-kit/issues/7934)) ([d3d0c41](https://github.com/deckhouse/delivery-kit/commit/d3d0c41fa515ebd2c234d90bf87aa832186fcfd0))
+
+
+### Miscellaneous Chores
+
+* force release 3.6.1-dk.1 ([30bdf77](https://github.com/deckhouse/delivery-kit/commit/30bdf77534305a2da8e2b05474288fe6f04cf3ac))
+
+## [3.6.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.4...v3.6.0-dk.1) (2026-09-25)
+
+
+### Features
+
+* **cleanup:** scan several kubernetes namespaces for used images ([59efb22](https://github.com/deckhouse/delivery-kit/commit/59efb22c87f05b86b0cbdcaeb7e9e862788d1f7d))
+* **sbom:** show checker image pull progress in sbom validate ([#356](https://github.com/deckhouse/delivery-kit/issues/356)) ([4021a63](https://github.com/deckhouse/delivery-kit/commit/4021a639003cbbfa34ec2001fd1a5b6caa45e567))
+
+
+### Bug Fixes
+
+* **build, ci:** preserve embedded image tags and test embedded assets ([#7898](https://github.com/deckhouse/delivery-kit/issues/7898)) ([86eb31b](https://github.com/deckhouse/delivery-kit/commit/86eb31b68be08ddfb1f046e4c2c40a0f8088d54e))
+* **build, deploy:** fix stage reuse and release history regressions ([#7897](https://github.com/deckhouse/delivery-kit/issues/7897)) ([2411186](https://github.com/deckhouse/delivery-kit/commit/24111869737f4a64c1e506a95f1aff5e555032a7))
+* **build:** avoid panics on missing or rejected stages ([bbb08ad](https://github.com/deckhouse/delivery-kit/commit/bbb08adf43c3ec5aedc9d556739a7122b6c84d16))
+* **build:** avoid redundant registry listings when publishing metadata ([8d5fb5a](https://github.com/deckhouse/delivery-kit/commit/8d5fb5a33f5afc8bae5e07879303d49babce0a3d))
+* **build:** avoid slow startup on image cache misses ([1ba2e9f](https://github.com/deckhouse/delivery-kit/commit/1ba2e9ff02be840589174060b94eeec6dedd6257))
+* **build:** avoid slow startup on image cache misses ([#7903](https://github.com/deckhouse/delivery-kit/issues/7903)) ([905c0a5](https://github.com/deckhouse/delivery-kit/commit/905c0a5731e469ced1e0b35a0dd03ebda459ca5d))
+* **build:** honor empty and partial git stage dependencies ([5a83a7a](https://github.com/deckhouse/delivery-kit/commit/5a83a7a1cf9eedf3e07f49ff0cd890bbaea22041))
+* **build:** honor empty and partial git stage dependencies ([#7906](https://github.com/deckhouse/delivery-kit/issues/7906)) ([dc9f5f6](https://github.com/deckhouse/delivery-kit/commit/dc9f5f6e60bef14109ae7c84c035f7a5c6b722ba))
+* **build:** keep embedded stapel tags independent of runtime overrides ([8194eed](https://github.com/deckhouse/delivery-kit/commit/8194eed2dc07f433d896e2355c15112e3655e3cf))
+* **build:** repair broken destination stages during registry copies ([dfa8b3e](https://github.com/deckhouse/delivery-kit/commit/dfa8b3e46298ec7e71ebccbd94f633683aaa91da))
+* **build:** validate internal base image cycles when reading config ([d57b2fc](https://github.com/deckhouse/delivery-kit/commit/d57b2fccd34c9e0da7d92d68971c98c5b8a5d785))
+* **cleanup:** restore explicit namespace selection for Kubernetes scans ([#7900](https://github.com/deckhouse/delivery-kit/issues/7900)) ([2532c65](https://github.com/deckhouse/delivery-kit/commit/2532c6514e508fcf5b47b6a2bd3cd40fd2ea36ea))
+* **cleanup:** stop import metadata cleanup leaking goroutines ([#7864](https://github.com/deckhouse/delivery-kit/issues/7864)) ([5b7332f](https://github.com/deckhouse/delivery-kit/commit/5b7332f09b36f20f30f5f336ec11ec03b7ec7113)), closes [#7862](https://github.com/deckhouse/delivery-kit/issues/7862)
+* **deploy:** apply .helmignore when reading the chart ([#7830](https://github.com/deckhouse/delivery-kit/issues/7830)) ([faf0672](https://github.com/deckhouse/delivery-kit/commit/faf0672559893878c047656ed0753a35cff2487c))
+* **deploy:** honor the release history limit environment variable ([76a3c51](https://github.com/deckhouse/delivery-kit/commit/76a3c5184319f3292ac5a08f628fccbbb883bb8d))
+* **host-cleanup:** speed up project stage discovery ([#7907](https://github.com/deckhouse/delivery-kit/issues/7907)) ([b6c4a38](https://github.com/deckhouse/delivery-kit/commit/b6c4a38e5d4c41977c60702b497e3cf3c56485a9))
+* **release:** relabel only merged releases of the current branch ([12c5004](https://github.com/deckhouse/delivery-kit/commit/12c500418d6e21206388491aa7e058dd3c965506))
+* **sbom:** stop duplicating components and links across merged SBOMs ([#329](https://github.com/deckhouse/delivery-kit/issues/329)) ([73f09f0](https://github.com/deckhouse/delivery-kit/commit/73f09f06a12a398a6c806b1f6239207d5d45df47))
+* **sbom:** stop importing a Docker Hub image twice when its prefix is written both ways ([#362](https://github.com/deckhouse/delivery-kit/issues/362)) ([0c5a005](https://github.com/deckhouse/delivery-kit/commit/0c5a0051e108255dd11eb8f101535cce9f83c0a2))
+* **sbom:** stop sbom validate passing a file the checker could not check ([#359](https://github.com/deckhouse/delivery-kit/issues/359)) ([47d6b22](https://github.com/deckhouse/delivery-kit/commit/47d6b22a2d9d0b79f8f5c21933cd931ebbf4ccfa))
+* **sbom:** stop sbom validation failing on duplicate component links ([#326](https://github.com/deckhouse/delivery-kit/issues/326)) ([9f3a584](https://github.com/deckhouse/delivery-kit/commit/9f3a584ee081a887cfa8eb1b6fd802b98e932dfb))
+
+
+### Miscellaneous Chores
+
+* force release 3.6.0-dk.1 ([3d06ae0](https://github.com/deckhouse/delivery-kit/commit/3d06ae0b8c03a2b719def53e8fa51eaf19790ca2))
+* force release 3.6.0-dk.1 ([#364](https://github.com/deckhouse/delivery-kit/issues/364)) ([7f04875](https://github.com/deckhouse/delivery-kit/commit/7f0487597dcfc9ffd7917081f5d9c321185d7a20))
+
 ## [3.4.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v3.4.0-dk.3...v3.4.0-dk.4) (2026-09-23)
 
 

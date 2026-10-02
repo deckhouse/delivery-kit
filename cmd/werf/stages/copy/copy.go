@@ -119,6 +119,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupBuildReportOperations(&commonCmdData, cmd)
 	common.SetupUseBuildReport(&commonCmdData, cmd)
 
+	common.SetupSynchronization(&commonCmdData, cmd)
+
 	common.SetupLogOptions(&commonCmdData, cmd)
 	common.SetupLogProjectDir(&commonCmdData, cmd)
 
@@ -140,12 +142,15 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runCopy(ctx context.Context, cmdData copyCmdData) error {
+	ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+	defer logOperationsSummaryFn()
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                         &commonCmdData,
 		InitWerf:                    true,
 		InitGitDataManager:          true,
 		InitDockerRegistry:          true,
 		InitProcessContainerBackend: true,
+		RequireDockerDaemon:         true,
 		InitManifestCache:           true,
 		InitLRUImagesCache:          true,
 		InitTrueGitWithOptions: &common.InitTrueGitOptions{
@@ -261,7 +266,7 @@ func initConveyorComponents(ctx context.Context, werfConfig *config.WerfConfig, 
 		return nil, build.BuildOptions{}, fmt.Errorf("unable to get conveyor options: %w", err)
 	}
 
-	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
+	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
 
 	return conveyorWithRetry, buildOptions, nil
 }

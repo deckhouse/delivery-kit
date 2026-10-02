@@ -94,6 +94,11 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupLogOptions(&commonCmdData, cmd)
 	common.SetupLogProjectDir(&commonCmdData, cmd)
 
+	common.SetupSynchronization(&commonCmdData, cmd)
+	common.SetupKubeConfigBase64(&commonCmdData, cmd)
+	common.SetupLegacyKubeConfigPath(&commonCmdData, cmd)
+	common.SetupKubeContextCurrent(&commonCmdData, cmd)
+
 	common.SetupSaveBuildReport(&commonCmdData, cmd)
 	common.SetupBuildReportPath(&commonCmdData, cmd)
 	common.SetupBuildReportOperations(&commonCmdData, cmd)
@@ -124,6 +129,9 @@ func NewCmd(ctx context.Context) *cobra.Command {
 }
 
 func runMain(ctx context.Context, imageNameListFromArgs []string) error {
+	ctx, logOperationsSummaryFn := common.InitOperationsStatistics(ctx, &commonCmdData)
+	defer logOperationsSummaryFn()
+
 	commonManager, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
 		InitWerf:           true,
@@ -135,6 +143,7 @@ func runMain(ctx context.Context, imageNameListFromArgs []string) error {
 		},
 		InitDockerRegistry:          true,
 		InitProcessContainerBackend: true,
+		RequireDockerDaemon:         true,
 		InitSSHAgent:                true,
 	})
 	if err != nil {
@@ -217,7 +226,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 
 	logboek.LogOptionalLn()
 
-	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, conveyorOptions)
+	conveyorWithRetry := build.NewConveyorWithRetryWrapper(werfConfig, giterminismManager, giterminismManager.ProjectDir(), projectTmpDir, containerBackend, storageManager, storageManager.StorageLockManager, conveyorOptions)
 	defer conveyorWithRetry.Terminate()
 
 	if err := conveyorWithRetry.WithRetryBlock(ctx, func(c *build.Conveyor) error {

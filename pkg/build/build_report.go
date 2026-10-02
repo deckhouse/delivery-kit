@@ -89,6 +89,7 @@ type ImagesReport struct {
 	ImagesByPlatform map[string]map[string]ReportImageRecord
 	Operations       map[string]ReportOperationRecord `json:"Operations,omitempty"`
 	StageCache       map[string]int                   `json:"StageCache,omitempty"`
+	RegistryCache    map[string]int                   `json:"RegistryCache,omitempty"`
 }
 
 func NewImagesReport() *ImagesReport {
@@ -104,7 +105,7 @@ func (report *ImagesReport) SetImageRecord(name string, imageRecord ReportImageR
 	report.Images[name] = imageRecord
 }
 
-func (report *ImagesReport) SetOperationsSummary(operations []opstats.OperationSummary, events []opstats.EventSummary) {
+func (report *ImagesReport) SetOperationsSummary(ctx context.Context, operations []opstats.OperationSummary, events []opstats.EventSummary) {
 	report.mux.Lock()
 	defer report.mux.Unlock()
 
@@ -119,8 +120,13 @@ func (report *ImagesReport) SetOperationsSummary(operations []opstats.OperationS
 		}
 	}
 
-	report.StageCache = make(map[string]int, len(events))
+	report.StageCache = make(map[string]int)
+	report.RegistryCache = make(map[string]int)
 	for _, e := range events {
+		if opstats.IsRegistryEvent(ctx, e.Event) {
+			report.RegistryCache[string(e.Event)] = e.Count
+			continue
+		}
 		report.StageCache[string(e.Event)] = e.Count
 	}
 }
@@ -242,7 +248,7 @@ func createBuildReport(ctx context.Context, phase *BuildPhase, imagePairs []util
 		targetPlatforms := util.MapFuncToSlice(images, func(img *image.Image) string { return img.TargetPlatform })
 
 		for _, img := range images {
-			imageDesc := img.GetContentTagDesc()
+			imageDesc := img.GetPublishedContentTagDesc()
 			var stages []ReportStageRecord
 			if !img.AnchorReused {
 				stages = getStagesReport(img, false)
@@ -330,8 +336,9 @@ func createBuildReport(ctx context.Context, phase *BuildPhase, imagePairs []util
 
 	phase.ImagesReport.sendTelemetry(ctx)
 
-	if collector := opstats.FromContext(ctx); collector != nil {
-		phase.ImagesReport.SetOperationsSummary(collector.Summary(), collector.EventSummary())
+	collector := opstats.FromContext(ctx)
+	if collector != nil {
+		phase.ImagesReport.SetOperationsSummary(ctx, collector.PendingSummary(ctx), collector.PendingEventSummary(ctx))
 	}
 
 	if phase.ReportPath != "" {
@@ -353,6 +360,10 @@ func createBuildReport(ctx context.Context, phase *BuildPhase, imagePairs []util
 		if err := os.WriteFile(phase.ReportPath, data, 0o644); err != nil {
 			return fmt.Errorf("unable to write report to %s: %w", phase.ReportPath, err)
 		}
+	}
+
+	if collector != nil {
+		collector.CommitFlush(ctx)
 	}
 
 	return nil

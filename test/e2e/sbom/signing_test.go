@@ -22,13 +22,11 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-signing-builder")
-
 		signKeys := generateSigningKeyPairWithCert(SuiteData.TmpDir)
-		signEnv := append(builderEnv,
-			"WERF_SIGN_KEY="+signKeys.KeyPath,
-			"WERF_SIGN_CERT="+signKeys.CertPath,
-		)
+		signEnv := []string{
+			"WERF_SIGN_KEY=" + signKeys.KeyPath,
+			"WERF_SIGN_CERT=" + signKeys.CertPath,
+		}
 
 		By("building with --sign-key/--sign-cert")
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
@@ -103,13 +101,11 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 		SuiteData.InitTestRepo(ctx, repoDirname, "signing")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-unsigned-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		reportProject := report.NewProjectWithReport(werfProject)
 		_, buildReport := reportProject.BuildWithReport(ctx,
 			SuiteData.GetBuildReportPath("sbom_unsigned.json"),
-			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}},
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 		)
 
 		digest := buildReport.Images["app"].DockerImageDigest
@@ -141,7 +137,6 @@ var _ = Describe("SBOM signing", Label("e2e", "sbom", "sbom-signing", "simple"),
 			CommonOptions: werf.CommonOptions{
 				ShouldFail: true,
 				Envs: []string{
-					"BUILDER_BASE_IMAGE=registry.invalid/builder-base:stub",
 					"WERF_SIGN_KEY=" + signKeys.KeyPath,
 				},
 			},

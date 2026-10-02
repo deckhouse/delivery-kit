@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
+	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"go.podman.io/storage"
 
@@ -872,8 +874,10 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 	}
 
 	imageID := ""
-	if inspect.Docker.ID != "" {
-		imageID = fmt.Sprintf("sha256:%x", inspect.Docker.ID)
+	if inspect.FromImageID != "" {
+		// FromImageID is the authoritative local image ID from the container storage,
+		// an unprefixed hex digest; inspect.Docker.ID is empty for OCI images.
+		imageID = digest.NewDigestFromEncoded(digest.SHA256, strings.TrimPrefix(inspect.FromImageID, "sha256:")).String()
 	}
 
 	return &image.Info{
@@ -889,35 +893,6 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 		Size:              inspect.Docker.Size,
 		Volumes:           inspect.Docker.Config.Volumes,
 	}, nil
-}
-
-func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, path string, opts ReadFileFromImageOpts) ([]byte, error) {
-	containers, err := backend.createContainers(ctx, []string{imageRef}, CommonOpts(opts))
-	if err != nil {
-		return nil, err
-	}
-	container := containers[0]
-	defer func() {
-		if err := backend.removeContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
-			logboek.Context(ctx).Error().LogF("ERROR: unable to remove temporal container %q: %s\n", container.Name, err)
-		}
-	}()
-
-	if err := backend.mountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
-		return nil, fmt.Errorf("mount container %q: %w", container.Name, err)
-	}
-	defer func() {
-		if err := backend.unmountContainers(ctx, []*containerDesc{container}, CommonOpts(opts)); err != nil {
-			logboek.Context(ctx).Error().LogF("ERROR: unable to unmount container %q: %s\n", container.Name, err)
-		}
-	}()
-
-	data, err := os.ReadFile(filepath.Join(container.RootMount, path))
-	if err != nil {
-		return nil, fmt.Errorf("read %s from image %q: %w", path, imageRef, err)
-	}
-
-	return data, nil
 }
 
 func (backend *BuildahBackend) Rmi(ctx context.Context, ref string, opts RmiOpts) error {
@@ -1586,7 +1561,21 @@ func lchownIfSet(path string, uid, gid *uint32) error {
 	return nil
 }
 
+// parentDirsWithin returns the ancestors of path located strictly inside root,
+// outermost first. Incremental patch archives carry no tar.TypeDir entries, so
+// directories created implicitly while extracting a file have to be chowned too.
+func parentDirsWithin(root, path string) []string {
+	var dirs []string
+	for dir := filepath.Dir(path); strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
+		dirs = append(dirs, dir)
+	}
+	slices.Reverse(dirs)
+	return dirs
+}
+
 func extractTarWithChown(tarFileReader io.Reader, dstDir string, uid, gid *uint32) error {
+	dstDir = filepath.Clean(dstDir)
+
 	if err := os.MkdirAll(dstDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create dir %q: %w", dstDir, err)
 	}
@@ -1594,6 +1583,8 @@ func extractTarWithChown(tarFileReader io.Reader, dstDir string, uid, gid *uint3
 	if err := lchownIfSet(dstDir, uid, gid); err != nil {
 		return err
 	}
+
+	chownedDirs := make(map[string]bool)
 
 	tarReader := tar.NewReader(tarFileReader)
 	for {
@@ -1642,6 +1633,17 @@ func extractTarWithChown(tarFileReader io.Reader, dstDir string, uid, gid *uint3
 			}
 		default:
 			return fmt.Errorf("tar entry %q has unexpected type %d", hdr.Name, hdr.Typeflag)
+		}
+
+		for _, dir := range parentDirsWithin(dstDir, entryPath) {
+			if chownedDirs[dir] {
+				continue
+			}
+			chownedDirs[dir] = true
+
+			if err := lchownIfSet(dir, uid, gid); err != nil {
+				return err
+			}
 		}
 
 		if err := lchownIfSet(entryPath, uid, gid); err != nil {

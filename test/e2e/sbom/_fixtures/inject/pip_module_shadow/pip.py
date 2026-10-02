@@ -1,0 +1,1 @@
+print("PROJECT_MODULE_EXECUTED")

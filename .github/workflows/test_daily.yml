@@ -60,7 +60,7 @@ jobs:
         run: task --yes test:unit:embedded
 
   build_test_binary:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' }}
     needs:
       - lint
       - unit
@@ -99,7 +99,7 @@ jobs:
           overwrite: true
 
   integration_main:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success' }}
     needs:
       - lint
       - unit
@@ -161,7 +161,7 @@ jobs:
           coverage: true
 
   integration_git:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success' }}
     needs:
       - lint
       - unit
@@ -223,7 +223,7 @@ jobs:
           coverage: true
 
   integration_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success' }}
     needs:
       - lint
       - unit
@@ -285,7 +285,7 @@ jobs:
           coverage: true
 
   e2e_simple_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success' }}
     needs:
       - lint
       - unit
@@ -347,7 +347,7 @@ jobs:
           coverage: true
 
   e2e_complex_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success' }}
     needs:
       - lint
       - unit
@@ -409,7 +409,7 @@ jobs:
           coverage: true
 
   e2e_extra_per_k8s:
-    if: always() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success'
+    if: ${{ !cancelled() && needs.lint.result == 'success' && needs.unit.result == 'success' && needs.build_test_binary.result == 'success' }}
     needs:
       - lint
       - unit

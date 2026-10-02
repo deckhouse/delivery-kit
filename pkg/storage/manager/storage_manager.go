@@ -23,13 +23,33 @@ import (
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/lrumeta"
+	"github.com/werf/werf/v3/pkg/storage/synchronization/lock_manager"
 	"github.com/werf/werf/v3/pkg/util/parallel"
 	"github.com/werf/werf/v3/pkg/werf"
 )
 
 var ErrUnexpectedStagesStorageState = errors.New("unexpected stages storage state")
 
-const maxRetryAttemptsOnUnexpectedStagesStorageState = 4
+const (
+	maxRetryAttemptsOnUnexpectedStagesStorageState = 4
+
+	stagesTagListMaxAgeEnvVar  = "WERF_STAGES_TAG_LIST_MAX_AGE"
+	stagesTagListMaxAgeDefault = 1 * time.Minute
+)
+
+func getStagesTagListMaxAge() time.Duration {
+	value := strings.TrimSpace(os.Getenv(stagesTagListMaxAgeEnvVar))
+	if value == "" {
+		return stagesTagListMaxAgeDefault
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed < 0 {
+		return stagesTagListMaxAgeDefault
+	}
+
+	return parsed
+}
 
 func IsErrUnexpectedStagesStorageState(err error) bool {
 	if err != nil {
@@ -66,6 +86,7 @@ type StorageManagerInterface interface {
 	LockStageImage(ctx context.Context, imageName string) error
 	GetStageDescSetByDigest(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64) (image.StageDescSet, error)
 	GetStageDescSetByDigestWithCache(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64) (image.StageDescSet, error)
+	GetStageDescSetByDigestWithRecentCache(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64) (image.StageDescSet, error)
 	GetStageDescSetByDigestFromStagesStorage(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64, stagesStorage storage.StagesStorage) (image.StageDescSet, error)
 	GetStageDescSetByDigestFromStagesStorageWithCache(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64, stagesStorage storage.StagesStorage) (image.StageDescSet, error)
 	GetStageDescSetByDigestFromStagesStorageCached(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64, stagesStorage storage.StagesStorage) (image.StageDescSet, error)
@@ -182,6 +203,8 @@ type StorageManager struct {
 	parallelTasksLimit int
 
 	ProjectName string
+
+	StorageLockManager lock_manager.Interface
 
 	StagesStorage              storage.PrimaryStagesStorage
 	MetaStorage                storage.PrimaryStagesStorage
@@ -762,7 +785,7 @@ func (m *StorageManager) GetStageDescSetByDigestWithCache(ctx context.Context, s
 }
 
 func (m *StorageManager) GetStageDescSetByDigest(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64) (image.StageDescSet, error) {
-	return m.GetStageDescSetByDigestFromStagesStorage(ctx, stageName, stageDigest, parentStageCreationTs, m.StagesStorage)
+	return m.getStageDescSetByDigestFromStagesStorage(ctx, stageName, stageDigest, parentStageCreationTs, m.StagesStorage, storage.WithCacheMaxAge(0))
 }
 
 // GetStageDescSetByDigestFromStagesStorageCached populates the tags cache on first use,
@@ -782,6 +805,26 @@ func (m *StorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(ctx c
 	}
 
 	return m.getStageDescSetByDigestFromStagesStorage(ctx, stageName, stageDigest, parentStageCreationTs, stagesStorage)
+}
+
+// GetStageDescSetByDigestWithRecentCache is GetStageDescSetByDigestWithCache with a relaxed miss
+// fallback: it accepts a tags listing fetched recently instead of requiring a fresh one. A cache
+// miss almost always means the stage simply is not built yet, and re-listing the whole repo on
+// every miss serializes into the dominant cost of large builds. Only callers that reconcile
+// against a fresh listing after building a stage may use it: a stage pushed by a concurrent
+// process within the window is caught by that check, so a stale miss costs at most one duplicated
+// stage build. Secondary storage promotion must also reconcile under the publication lock.
+func (m *StorageManager) GetStageDescSetByDigestWithRecentCache(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64) (image.StageDescSet, error) {
+	cachedStageDescSet, err := m.GetStageDescSetByDigestFromStagesStorageCached(ctx, stageName, stageDigest, parentStageCreationTs, m.StagesStorage)
+	if err != nil {
+		return nil, err
+	}
+
+	if !cachedStageDescSet.IsEmpty() {
+		return cachedStageDescSet, nil
+	}
+
+	return m.getStageDescSetByDigestFromStagesStorage(ctx, stageName, stageDigest, parentStageCreationTs, m.StagesStorage, storage.WithCacheMaxAge(getStagesTagListMaxAge()))
 }
 
 func (m *StorageManager) GetStageDescSetByDigestFromStagesStorage(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64, stagesStorage storage.StagesStorage) (image.StageDescSet, error) {
@@ -825,8 +868,24 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 		return nil, fmt.Errorf("unable to get stage %s description from %s: %w", stageDesc.StageID.String(), destinationStagesStorage.String(), err)
 	} else {
 		if sourceStagesStorage.Address() != storage.LocalStorageAddress && destinationStagesStorage.Address() != storage.LocalStorageAddress {
-			if err := artifact.CopyAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
-				return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
+			// The backend-mediated copy does not guarantee digest preservation. Artifacts
+			// describe the source digest; when it changed, werf regenerates its own by
+			// convergence and only what it cannot regenerate is worth reporting.
+			if destinationStageDesc.Info.GetDigest() == stageDesc.Info.GetDigest() {
+				if err := artifact.CopyAllAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
+					return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
+				}
+			} else {
+				// The stage is already in the destination at this point, and this listing
+				// only feeds a warning, so a source that cannot answer must not undo it.
+				leftBehind, err := artifact.ListUnregenerableArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest())
+				if err != nil {
+					logboek.Context(ctx).Warn().LogF("WARNING: unable to list artifacts attached to stage %s in %s: %s\n", stageDesc.StageID.String(), sourceStagesStorage.String(), err)
+				}
+				if len(leftBehind) > 0 {
+					logboek.Context(ctx).Warn().LogF("WARNING: attestations [%s] of stage %s stay in %s: the copy changed the image digest, re-issue them against %s\n",
+						strings.Join(leftBehind, ", "), stageDesc.StageID.String(), sourceStagesStorage.String(), destinationStageDesc.Info.GetDigest())
+				}
 			}
 		}
 		return destinationStageDesc, nil

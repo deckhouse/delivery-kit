@@ -44,11 +44,13 @@ Currently, this option uses the following _defaults_:
 | **Scanner**                       | syft                                                                                   |
 | **Scanner Image**                 | anchore/syft:v1.45.1                                                           |
 | **Image Pull Policy**             | `PullIfMissing`                                                                        |
-| **Data Source Connection Method** | daemon + socket via volume (for Docker) |
-| **Path in Source Image**          | OS root                                                                                |
+| **Data Source Connection Method** | Directory scan of the spec/lock files extracted from the built image, without the Docker socket           |
+| **Path in Source Image**          | The declared `packages` spec/lock files                                                |
 | **Scan Settings**                 | [link](https://github.com/anchore/syft/wiki/Configuration#list-of-configurable-values) |
 | **Output Standard**               | `CycloneDX@1.6`                                                                        |
 | **Output Format**                 | `JSON`                                                                                 |
+
+For stapel images with file-based `packages`, each declared spec file (for example `go.mod` or `requirements.txt`) is read from the built image and scanned directly as a directory source, without mounting the Docker socket. A declared lock file (for example `go.sum`) is included when present but is optional — a module with no dependencies has none, and its absence is tolerated with a warning, since without the lock transitive dependencies may be missing from the SBOM. If a required spec file is not present as a regular file in the built image — for example removed by a later stage, or present only as a symlink — the build fails with an error naming the directive and the missing path.
 
 ## Base image requirements
 
@@ -111,10 +113,12 @@ When building a multi-platform image, werf generates a separate SBOM artifact fo
 
 ## GOST security properties (`sbom.gost`)
 
-To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into all direct components of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.
+To comply with GOST safety standards, you can configure mandatory security properties for all components in the SBOM. These properties will be injected into the whole component tree of the final SBOM. By default, both generated and user-defined SBOMs are enriched with `attackSurface=yes` and `securityFunction=yes`, unless specified otherwise at the project (meta) or image level.
 
 1. `attackSurface`: The attack surface property (`yes` | `no` | `indirect`).
-2. `securityFunction`: The security function property (`yes` | `no` | `indirect`).
+2. `securityFunction`: The security function property (`yes` | `no`).
+
+`attackSurface: yes` follows the dependency tree recorded in the SBOM `dependencies` section: it lands on the components nothing else depends on, and every component pulled in by another one is recorded as `indirect`. When the catalogers of an ecosystem report no dependency tree at all, every component is a root and receives `yes`. `no` and `indirect`, and `securityFunction` in all cases, apply unchanged to the whole tree.
 
 You can define these globally in `build.sbom.gost` or per-image in `image.sbom.gost`. Image-level configuration overrides global configuration.
 
@@ -130,6 +134,14 @@ build:
       attackSurface: yes
       securityFunction: no
 ```
+
+### Source languages (`GOST:source_langs`)
+
+The `GOST:source_langs` property is filled in automatically and needs no configuration: every component cataloged through a `packages` directive gets the source language of that directive's ecosystem (`go-mod` — `Go`, `python-pip`/`python-poetry`/`python-uv` — `Python`, `rust-cargo` — `Rust`, `javascript-npm`/`javascript-yarn`/`javascript-pnpm` — `JavaScript`, `lua-rock` — `Lua`).
+
+Packages installed by `os-pm` are prebuilt binaries, so their languages cannot be derived from the directive: they carry the languages declared for the package in the pm catalogue (the `srcLanguages` field), and packages without that declaration carry no property. Recording this field in the installed-package index requires pm v0.1.7 or newer and a catalogue that declares `srcLanguages`. Updating only the pm binary does not populate existing index entries: rebuild the image with packages freshly installed using a compatible pm and catalogue. Until then, os-pm components whose installed entries lack the field have no `GOST:source_langs` property.
+
+When SBOMs are merged with `werf sbom merge`, the languages of all images are collected on the product component, and in the `container` format the languages of an image's components are additionally collected on that image's container component.
 
 ## VCS external references enrichment
 
@@ -173,6 +185,6 @@ Changing GOST properties (`sbom.gost`) does not affect stage digests. Cached sta
 
 [`werf sbom get`]({{ "/reference/cli/werf_sbom_get.html" | true_relative_url }}) retrieves the SBOM for an image described in `werf.yaml` and prints it to stdout. The SBOM is read as an OCI artifact from the container registry, so `--repo` is required. When invoked with an image name, the command runs the standard werf build conveyor: missing stages and SBOM artifacts are created, just like with `werf build` (with the `--require-built-images` flag the command fails instead). You can select a specific version with `--tag` or `--digest` (mutually exclusive) — in this mode the command only downloads the ready-made SBOM and fails if it is not found.
 
-[`werf sbom merge`]({{ "/reference/cli/werf_sbom_merge.html" | true_relative_url }}) assembles a product-level SBOM from several per-image SBOMs. It takes a JSON file that maps image names to sha256 digests, pulls the individual SBOMs from the registry, and merges them into a single CycloneDX document with dependency graphs preserved. Two ISPRAS output formats are available: `container` (hierarchical, each image becomes a top-level component with nested packages) and `oss` (flat, all packages deduplicated into one list). GOST `attack_surface` and `security_function` properties are aggregated bottom-up with the precedence `yes > indirect > no`.
+[`werf sbom merge`]({{ "/reference/cli/werf_sbom_merge.html" | true_relative_url }}) assembles a product-level SBOM from several per-image SBOMs. It takes a JSON file that maps image names to sha256 digests, pulls the individual SBOMs from the registry, and merges them into a single CycloneDX document with dependency graphs preserved. Two ISPRAS output formats are available: `container` (hierarchical, each image becomes a top-level component with nested packages) and `oss` (flat, all packages deduplicated into one list). GOST properties are aggregated bottom-up: `attack_surface` with the precedence `yes > indirect > no`, `security_function` with `yes > no`. An image SBOM carrying a GOST value outside these domains — `security_function: indirect` written by an older werf, for instance — is rejected; rebuild the image first.
 
-[`werf sbom validate`]({{ "/reference/cli/werf_sbom_validate.html" | true_relative_url }}) checks a CycloneDX JSON file against ISPRAS schemas. It runs sbom-checker inside a Docker container and reports any violations. Both `oss` and `container` SBOM types are supported.
+[`werf sbom validate`]({{ "/reference/cli/werf_sbom_validate.html" | true_relative_url }}) checks a CycloneDX JSON file against ISPRAS schemas. It runs sbom-checker inside a Docker container and reports any violations, split into errors and warnings, with both counts shown in the summary. By default any error or warning fails the validation; pass `--warnings-non-fatal` to keep warnings informational (printed on stderr) so that only errors set a non-zero exit code. Both `oss` and `container` SBOM types are supported.

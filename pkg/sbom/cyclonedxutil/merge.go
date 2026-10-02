@@ -1,6 +1,7 @@
 package cyclonedxutil
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,6 +13,9 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
+// MergeOpts names the BOMs merged into the target. Every base and import BOM
+// is a closed document: a BOM ref is local to the document that declares it,
+// so a reference from one BOM into another names nothing and is dropped.
 type MergeOpts struct {
 	BaseBOM    *cdx.BOM
 	ImportBOMs []*cdx.BOM
@@ -75,7 +79,7 @@ func CloneBOM(bom *cdx.BOM) (*cdx.BOM, error) {
 	return &clone, nil
 }
 
-func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
+func MergeBOMs(ctx context.Context, target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 	if err := validateBOMSpecVersions(target, opts); err != nil {
 		return nil, err
 	}
@@ -92,8 +96,12 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 		linkSelfReferences(boms[i])
 
+		if !opts.PreserveBOMRefs && boms[i] != nil && i < len(boms)-1 {
+			NamespaceBOMRefs(boms[i], fmt.Sprintf("merge-input-%d", i))
+		}
+
 		if opts.IsolateComponents {
-			Canonicalize(boms[i])
+			Canonicalize(ctx, boms[i])
 		}
 	}
 
@@ -114,12 +122,12 @@ func MergeBOMs(target *cdx.BOM, opts MergeOpts) (*cdx.BOM, error) {
 
 	if opts.IsolateComponents {
 		refMap := map[string]string{}
-		result.Services = canonicalizeServices(result.Services, refMap)
-		result.Vulnerabilities = canonicalizeVulnerabilities(result.Vulnerabilities, refMap)
+		result.Services = canonicalizeServices(ctx, result.Services, refMap)
+		result.Vulnerabilities = canonicalizeVulnerabilities(ctx, result.Vulnerabilities, refMap)
 		RewriteRefs(result, flattenRefMap(dropSurvivingRefs(refMap, collectKnownRefs(result))))
-		CanonicalizeDocument(result)
+		CanonicalizeDocument(ctx, result)
 	} else {
-		Canonicalize(result)
+		Canonicalize(ctx, result)
 	}
 
 	if !opts.PreserveBOMRefs {

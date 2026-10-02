@@ -98,11 +98,25 @@ var _ = Describe("Gost SBOM validator", func() {
 						Name: "test-comp",
 						Properties: &[]cdx.Property{
 							{Name: PropertyAttackSurface, Value: "indirect"},
-							{Name: PropertySecurityFunction, Value: "indirect"},
+							{Name: PropertySecurityFunction, Value: "no"},
 						},
 					},
 				},
 			},
 			Succeed()),
+		Entry("should fail if the security function is 'indirect'",
+			&cdx.BOM{
+				SpecVersion: cdx.SpecVersion1_6,
+				Components: &[]cdx.Component{
+					{
+						Name: "test-comp",
+						Properties: &[]cdx.Property{
+							{Name: PropertyAttackSurface, Value: "yes"},
+							{Name: PropertySecurityFunction, Value: "indirect"},
+						},
+					},
+				},
+			},
+			MatchError(ContainSubstring("expected 'yes' or 'no'"))),
 	)
 })

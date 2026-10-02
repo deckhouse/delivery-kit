@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
 // Digests as the resolver reports them for a source distribution: STREEBOG
@@ -14,8 +15,8 @@ const (
 	streebog512Content = "8e945da209aa869f0455928529bcae4679e9873ab707b55315f56ceb98bef0a7362f715528356ee83cda5f2aac4c6ad2ba3a715c1bcd81cb8e9f90bf4c1c1a8a"
 )
 
-func mockResolver() (http.Handler, *int) {
-	calls := new(int)
+func mockResolver() (http.Handler, *atomic.Int64) {
+	calls := new(atomic.Int64)
 
 	type respDef struct {
 		status int
@@ -62,7 +63,7 @@ func mockResolver() (http.Handler, *int) {
 	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*calls++
+		calls.Add(1)
 
 		if r.URL.Path != "/api/v1/resolve" {
 			w.WriteHeader(http.StatusNotFound)

@@ -528,8 +528,7 @@
           "type": "string",
           "enum": [
             "yes",
-            "no",
-            "indirect"
+            "no"
           ]
         }
       }

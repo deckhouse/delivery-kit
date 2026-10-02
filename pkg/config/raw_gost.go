@@ -35,11 +35,11 @@ func (g *rawGost) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 func (g *rawGost) validate() error {
-	if g.AttackSurface != nil && !gost.IsValidGostValue(*g.AttackSurface) {
+	if g.AttackSurface != nil && !gost.IsValidAttackSurfaceValue(*g.AttackSurface) {
 		return newDetailedConfigError(fmt.Sprintf("invalid 'attackSurface' value %q: expected 'yes', 'no' or 'indirect'", *g.AttackSurface), nil, g.doc)
 	}
-	if g.SecurityFunction != nil && !gost.IsValidGostValue(*g.SecurityFunction) {
-		return newDetailedConfigError(fmt.Sprintf("invalid 'securityFunction' value %q: expected 'yes', 'no' or 'indirect'", *g.SecurityFunction), nil, g.doc)
+	if g.SecurityFunction != nil && !gost.IsValidSecurityFunctionValue(*g.SecurityFunction) {
+		return newDetailedConfigError(fmt.Sprintf("invalid 'securityFunction' value %q: expected 'yes' or 'no'", *g.SecurityFunction), nil, g.doc)
 	}
 	return nil
 }

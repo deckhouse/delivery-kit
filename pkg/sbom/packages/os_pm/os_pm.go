@@ -1,6 +1,7 @@
 package os_pm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	packageurl "github.com/package-url/packageurl-go"
 
 	"github.com/werf/werf/v3/pkg/sbom/cpe"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
 )
 
@@ -30,6 +32,7 @@ type PmPackageInfo struct {
 	License      string   `json:"license"`
 	OriginalRepo string   `json:"originalRepo"`
 	Repo         string   `json:"repo"`
+	SrcLanguages []string `json:"srcLanguages"`
 	Type         string   `json:"type"`
 	Version      string   `json:"version"`
 	Digest       string   `json:"digest"`
@@ -45,7 +48,7 @@ func ParsePmInstalledJSON(data []byte) (map[string]PmPackageInfo, error) {
 	return pkgs, nil
 }
 
-func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion string) *cdx.BOM {
+func ConvertToCycloneDX(ctx context.Context, pkgs map[string]PmPackageInfo, containerFactoryVersion string) *cdx.BOM {
 	if len(pkgs) == 0 {
 		return nil
 	}
@@ -78,6 +81,7 @@ func ConvertToCycloneDX(pkgs map[string]PmPackageInfo, containerFactoryVersion s
 
 		comp.Hashes = digestToHashes(pkg.Digest)
 		comp.Properties = packageProperties(pkg, containerFactoryVersion)
+		gost.SetComponentSourceLangs(ctx, &comp, pkg.SrcLanguages)
 		setCPEEvidence(&comp, pkg)
 
 		if pkg.OriginalRepo != "" {

@@ -220,7 +220,7 @@ packages:
     workdir: /app
 ```
 
-Runs `pip install --no-cache-dir -r requirements.txt`. Default spec: `requirements.txt`. No lock file (pip has no lock semantics; the `lock` field is rejected).
+Runs `python3 -P -m pip install --no-cache-dir -r requirements.txt`. Default spec: `requirements.txt`. No lock file (pip has no lock semantics; the `lock` field is rejected). `-P` keeps the workdir out of the module search path, so a project file named `pip.py` cannot replace the installer; it requires Python 3.11 or newer in the image — on an older interpreter, point `manager` at a pip executable instead.
 
 **Python — poetry** (`python-poetry`):
 

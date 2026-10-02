@@ -48,22 +48,68 @@ func ValidateComponent(comp *cdx.Component) error {
 	a := newAccessor(comp)
 	var missing []string
 
-	as, asOk := a.GetAttackSurface()
-	if !asOk {
+	if _, ok := a.GetAttackSurface(); !ok {
 		missing = append(missing, PropertyAttackSurface)
-	} else if !IsValidGostValue(as.String()) {
-		return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'indirect')", PropertyAttackSurface, as)
+	}
+	if _, ok := a.GetSecurityFunction(); !ok {
+		missing = append(missing, PropertySecurityFunction)
 	}
 
-	sf, sfOk := a.GetSecurityFunction()
-	if !sfOk {
-		missing = append(missing, PropertySecurityFunction)
-	} else if !IsValidGostValue(sf.String()) {
-		return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'indirect')", PropertySecurityFunction, sf)
+	if err := ValidateComponentValues(comp); err != nil {
+		return err
 	}
 
 	if len(missing) > 0 {
 		return fmt.Errorf("missing mandatory GOST properties: %v", missing)
+	}
+
+	return nil
+}
+
+// ValidateValues checks that every GOST property present on the metadata
+// component or on any component, nested ones included, carries a valid value.
+// A component without the properties passes: the caller fills them in later.
+func ValidateValues(bom *cdx.BOM) error {
+	if bom == nil {
+		return fmt.Errorf("BOM is required")
+	}
+
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		if err := ValidateComponentValues(bom.Metadata.Component); err != nil {
+			return fmt.Errorf("metadata component %q: %w", bom.Metadata.Component.Name, err)
+		}
+		if err := validateComponentsValues(lo.FromPtr(bom.Metadata.Component.Components)); err != nil {
+			return err
+		}
+	}
+
+	return validateComponentsValues(lo.FromPtr(bom.Components))
+}
+
+func validateComponentsValues(components []cdx.Component) error {
+	for i := range components {
+		if err := ValidateComponentValues(&components[i]); err != nil {
+			return fmt.Errorf("component %q: %w", components[i].Name, err)
+		}
+		if err := validateComponentsValues(lo.FromPtr(components[i].Components)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ValidateComponentValues checks the GOST properties a single component
+// carries, ignoring the ones it lacks.
+func ValidateComponentValues(comp *cdx.Component) error {
+	a := newAccessor(comp)
+
+	if as, ok := a.GetAttackSurface(); ok && !IsValidAttackSurfaceValue(as.String()) {
+		return fmt.Errorf("invalid value for %s: %q (expected 'yes', 'no' or 'indirect')", PropertyAttackSurface, as)
+	}
+
+	if sf, ok := a.GetSecurityFunction(); ok && !IsValidSecurityFunctionValue(sf.String()) {
+		return fmt.Errorf("invalid value for %s: %q (expected 'yes' or 'no')", PropertySecurityFunction, sf)
 	}
 
 	return nil

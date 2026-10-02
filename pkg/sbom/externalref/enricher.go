@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -43,28 +44,57 @@ var hashContentRe = map[string]*regexp.Regexp{
 }
 
 // validateRefHashes rejects a source distribution the SBOM could not be
-// validated with: no digest at all, or a digest in an algorithm or an encoding
-// the schema does not accept.
+// validated with: one carrying no STREEBOG digest at all, one whose STREEBOG
+// digest is malformed, or one whose non-STREEBOG digest is in an algorithm the
+// CycloneDX 1.6 schema does not define. A well-formed digest in an accepted
+// algorithm travels along untouched — the schema asks for a STREEBOG one among
+// the hashes, not instead of them, and a resolver that also reports the SHA-256
+// of the archive must not fail a build.
 func validateRefHashes(kind string, hashes []Hash) error {
 	if cdx.ExternalReferenceType(kind) != cdx.ERTypeSourceDistribution {
 		return nil
 	}
 
-	if len(hashes) == 0 {
-		return fmt.Errorf("enrich: source distribution has no hashes, expected %q or %q", hashAlgStreebog256, hashAlgStreebog512)
-	}
-
+	var streebogHashes int
 	for _, hash := range hashes {
 		contentRe, ok := hashContentRe[hash.Algorithm]
 		if !ok {
-			return fmt.Errorf("enrich: source distribution hash algorithm %q is not allowed, expected %q or %q", hash.Algorithm, hashAlgStreebog256, hashAlgStreebog512)
+			// A non-STREEBOG digest travels along, but only if its algorithm is a
+			// member of the schema enum: with build-time schema validation off,
+			// nothing else stops an unknown algorithm from reaching the registry.
+			allowed, err := cyclonedxutil.HashAlgorithmAllowed(hash.Algorithm)
+			if err != nil {
+				return fmt.Errorf("enrich: check hash algorithm %q: %w", hash.Algorithm, err)
+			}
+			if !allowed {
+				return fmt.Errorf("enrich: source distribution hash algorithm %q is not in the CycloneDX 1.6 schema", hash.Algorithm)
+			}
+			continue
 		}
 		if !contentRe.MatchString(hash.Content) {
 			return fmt.Errorf("enrich: source distribution hash %q has invalid content %q, expected %s", hash.Algorithm, hash.Content, hashContentDescription(hash.Algorithm))
 		}
+		streebogHashes++
+	}
+
+	if streebogHashes == 0 {
+		return fmt.Errorf("enrich: source distribution has no %q or %q hash, got %s", hashAlgStreebog256, hashAlgStreebog512, hashAlgorithms(hashes))
 	}
 
 	return nil
+}
+
+// hashAlgorithms renders the algorithms the resolver reported, for the error
+// raised when a source distribution carries schema-valid hashes (a lone SHA-256,
+// say) but no STREEBOG digest among them.
+func hashAlgorithms(hashes []Hash) string {
+	if len(hashes) == 0 {
+		return "no hashes"
+	}
+
+	return strings.Join(lo.Map(hashes, func(hash Hash, _ int) string {
+		return strconv.Quote(hash.Algorithm)
+	}), ", ")
 }
 
 func purlNotExpected(ct cdx.ComponentType) bool {

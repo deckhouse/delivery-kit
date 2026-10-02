@@ -16,15 +16,12 @@ var _ = Describe("SBOM lua-rock packages", Label("e2e", "sbom", "lua", "simple")
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/lua_simple")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lua-rock-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{"app"},
-				Envs:      builderEnv,
 			},
 		})
 
@@ -41,13 +38,10 @@ var _ = Describe("SBOM lua-rock packages", Label("e2e", "sbom", "lua", "simple")
 		SuiteData.InitTestRepo(ctx, repoDirname, "negative/lua_missing_rockspec")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-lua-rock-missing-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
 		out := werfProject.Build(ctx, &werf.BuildOptions{
 			CommonOptions: werf.CommonOptions{
 				ShouldFail: true,
-				Envs:       builderEnv,
 			},
 		})
 		Expect(out).To(SatisfyAny(

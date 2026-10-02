@@ -16,15 +16,12 @@ var _ = Describe("SBOM javascript-yarn packages with an explicit manager", Label
 		SuiteData.InitTestRepo(ctx, repoDirname, "inject/yarn_manager")
 		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
 
-		builderEnv := buildTrustedBuilderBase(ctx, testRepoPath, "sbom-yarn-manager-builder")
-
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
-		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: builderEnv}})
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
 
 		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{"app"},
-				Envs:      builderEnv,
 			},
 		})
 
@@ -33,5 +30,9 @@ var _ = Describe("SBOM javascript-yarn packages with an explicit manager", Label
 			"expected lodash@4.17.21 (from yarn.lock) not found in BOM")
 		Expect(sbomtest.FindComponent(bom, "yarn", "1.22.22")).NotTo(BeNil(),
 			"expected the bootstrapped yarn@1.22.22 not found in BOM")
+
+		// The lock carries no license; syft reads it from the installed package's own
+		// manifest under node_modules. The targeted scan must keep that enrichment.
+		sbomtest.AssertHasLicense(bom, "lodash", "4.17.21", "MIT")
 	})
 })

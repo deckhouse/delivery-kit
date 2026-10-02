@@ -36,6 +36,7 @@ var _ = Describe("Simple export", Label("e2e", "export", "simple"), func() {
 				By("running export")
 				werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath(repoDirname))
 				imageName := suite_init.TestRepo(fmt.Sprintf("werf-export-%s", utils.GetRandomString(10)))
+				SuiteData.CleanupRepositories = append(SuiteData.CleanupRepositories, imageName)
 				exportArgs := getExportArgs(imageName, commonTestOptions{
 					Platforms:    opts.Platforms,
 					CustomLabels: opts.CustomLabels,

@@ -1,6 +1,8 @@
 package e2e_build_test
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -35,6 +37,18 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 			werfProject := newWerfProject(repoDirname)
 
 			var extraArgs []string
+			if strings.HasPrefix(fixtureRelPath, "network/dockerfile") {
+				probeURL := startBuildHTTPFixture(ctx, []byte("network available\n"))
+				if testOpts.ExpectError {
+					By("checking connectivity with network enabled before testing isolation")
+					SuiteData.Stubs.SetEnv("WERF_TEST_NETWORK_PROBE_URL", probeURL+"/control")
+					controlOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{
+						ExtraArgs: []string{"--backend-network=default"},
+					}})
+					Expect(controlOut).To(ContainSubstring("network probe succeeded"))
+				}
+				SuiteData.Stubs.SetEnv("WERF_TEST_NETWORK_PROBE_URL", probeURL+"/isolated")
+			}
 			if testOpts.NetworkNone {
 				extraArgs = append(extraArgs, "--backend-network", "none")
 			}
@@ -47,6 +61,13 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 				},
 			}
 			buildOut := werfProject.Build(ctx, opts)
+			if strings.HasPrefix(fixtureRelPath, "network/dockerfile") {
+				if testOpts.ExpectError {
+					Expect(buildOut).To(MatchRegexp(`(?m)^.*wget: (can't connect|download timed out|bad address)`))
+				} else {
+					Expect(buildOut).To(ContainSubstring("network probe succeeded"))
+				}
+			}
 
 			if !testOpts.ExpectError {
 				Expect(buildOut).To(ContainSubstring("Building stage"))

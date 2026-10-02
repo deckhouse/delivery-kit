@@ -88,6 +88,27 @@ You can also check the existing [issues](https://github.com/werf/werf/issues), [
 
 ### CI runner pool
 
+Image-building suites register `SuiteData.SetupProjectCleanup()` after project,
+environment and temporary-directory setup. Cleanup runs before those resources
+are reset, removes local Docker and native Buildah image references owned by the
+test, and fails if selected references remain. The image label must match the
+exact test project; repositories must match the project or be registered in
+`SuiteData.CleanupRepositories` before use, including command-line repo overrides.
+Foreign aliases and shared base images are retained; cleanup does not force image
+deletion or prune ancestors. A missing backend CLI is skipped, but a broken
+installed backend is an error.
+
+Register container teardown before creating containers. Content-check containers
+and Compose services are removed with fresh cleanup contexts before project
+images. Image cleanup has a two-minute deadline; native Buildah runs in a separate
+process group so cancellation also stops a blocked storage worker. Only temporary
+image-in-use errors from concurrent Buildah builds are retried, within that
+deadline. Permanent failures are reported, not converted into successful cleanup.
+
+This teardown does not remove remote registry data, shared build caches, or
+resources from previous runs. Runner termination or SIGKILL can bypass it;
+abandoned-job recovery remains a separate runner-infrastructure concern.
+
 The PR and daily test workflows run each integration/e2e group with its own
 registry, kind cluster and kubeconfig. Jobs may run on different VMs or share a VM;
 they do not exchange local paths or registry endpoints. Resource names include the
@@ -151,6 +172,50 @@ When rolling out, run two groups concurrently on one host, then on different hos
 verify registry push/pull, Kubernetes access, failure cleanup and rerunning a failed
 job without rerunning setup elsewhere. Keep the existing test groups and selectors;
 splitting or reducing test coverage is a separate change.
+
+### Test profiling
+
+The diagnostic PR workflow wraps its five heavy test groups with
+`bash scripts/ci/profile-tests.sh task ... -- ...`. Test selectors, concurrency,
+and timeouts are unchanged by the wrapper. PR and daily workflows do not retry
+failed specs automatically. Each job uploads a
+`test-profile-<job>-<attempt>` artifact after environment cleanup, retained for
+seven days, including when tests fail.
+
+Artifacts contain per-suite Ginkgo JSON reports (including successful-spec output,
+events, durations and attempts), verbose console output, the test exit code,
+checkout SHA, run/attempt/runner identity, and before/after host snapshots.
+`vmstat` samples CPU, memory and disk counters every ten seconds; `iostat` and
+`pidstat` add disk latency and per-process CPU/memory/I/O when sysstat is already
+installed. Missing tools are explicitly reported; profiling installs nothing.
+GNU `time`, when available, records aggregate command resource usage, excluding
+Docker-daemon-managed containers. Linux requires `setsid` to isolate the test
+process group. Cancellation sends TERM, allows five seconds for graceful exit,
+then sends KILL to the group even if the immediate child has already exited.
+This adds no time limit to a normally running test command.
+
+These are shared-host measurements, not proof that a test caused host saturation.
+Separate compile/setup time from suite/spec time, ignore the initial since-boot
+samples when comparing load, and compare several runs with their runner identities.
+Only completed suites have JSON reports; verbose logs and already-written reports
+may survive cancellation, but a runner crash or forced kill can prevent upload.
+Reports contain raw test output and are not GitHub-log-secret-masked: use only
+synthetic fixture credentials, never pass real secrets to a diagnostic test.
+The collector does not dump environment variables or process command lines.
+
+### Build HTTP fixtures
+
+The network-isolation and complex-build tests serve a small HTTP fixture for the
+duration of each spec. On Linux they bind to the local Docker bridge gateway,
+not the primary host address that rootless `pasta` copies into its namespace.
+On macOS they use the local address selected by the default IPv4 route.
+Set `WERF_TEST_HTTP_HOST_IP` to override this with a local, non-loopback IPv4
+address reachable by both the build backend and the test process. For rootless
+Buildah, choose an address other than the primary interface address. A remote
+Docker daemon needs routing back to that address; a localhost-only listener is
+not sufficient. The listener exposes only synthetic fixture content and closes
+after the spec. Negative network cases first verify access with networking
+enabled, then use a different build argument to avoid reusing the control layer.
 
 ### Commit message
 

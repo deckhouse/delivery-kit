@@ -19,6 +19,7 @@ type SuiteData struct {
 	*TmpDirData
 	*WerfInitData
 	*ContainerRegistryPerImplementationData
+	CleanupRepositories []string
 }
 
 func (data *SuiteData) SetupStubs(setupData *StubsData) bool {

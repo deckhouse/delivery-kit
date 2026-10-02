@@ -24,6 +24,8 @@ import (
 )
 
 const (
+	FilterReferenceLocalStageByDigestFormat = "%s:%s*"
+
 	LocalStage_ImageRepoFormat           = "%s"
 	LocalStage_ImageFormatWithCreationTs = "%s:%s-%d"
 	LocalStage_ImageFormat               = "%s:%s"
@@ -204,6 +206,10 @@ func (storage *LocalStagesStorage) refreshProjectSnapshot(ctx context.Context, p
 
 func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, projectName string) (localProjectListing, error) {
 	defer opstats.Observe(ctx, localStageCacheRefreshWaitOperation)()
+
+	if err := ctx.Err(); err != nil {
+		return localProjectListing{}, err
+	}
 
 	resultChan := storage.listingGroup.DoChan(projectName, func() (interface{}, error) {
 		listingStartedAt := time.Now()

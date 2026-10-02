@@ -272,6 +272,8 @@ type anchorLookupStorageManager struct {
 	inSecondary            imagePkg.StageDescSet
 	cachedPrimaryLookups   int
 	cachedSecondaryLookups int
+	freshPrimaryLookups    int
+	copiedFromSecondary    int
 	primaryLookups         int
 	strictPrimaryLookups   int
 	recentPrimaryLookups   int
@@ -441,3 +443,5 @@ var _ storage.StagesStorage = (*fakeStagesStorage)(nil)
 type fakeStagesStorage struct {
 	storage.StagesStorage
 }
+
+func (s *fakeStagesStorage) String() string { return "secondary-test" }

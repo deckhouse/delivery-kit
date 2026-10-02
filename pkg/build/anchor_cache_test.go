@@ -44,7 +44,8 @@ var _ = ginkgo.Describe("Content anchor cache prepass", func() {
 			gomega.Expect(phase.resolveContentAnchor(ctx, images[0], true)).To(gomega.Succeed())
 			gomega.Expect(storageManager.primaryLookups).To(gomega.BeZero())
 			gomega.Expect(storageManager.cachedPrimaryLookups).To(gomega.Equal(imageCount + 1))
-			gomega.Expect(storageManager.secondaryLookups).To(gomega.Equal(1))
+			gomega.Expect(storageManager.secondaryLookups).To(gomega.BeZero())
+			gomega.Expect(storageManager.cachedSecondaryLookups).To(gomega.Equal(imageCount + 1))
 			gomega.Expect(images[0].GetContentTagDesc()).To(gomega.BeNil())
 
 			published := &imagePkg.StageDesc{
@@ -59,6 +60,7 @@ var _ = ginkgo.Describe("Content anchor cache prepass", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(storageManager.primaryLookups).To(gomega.BeZero())
 			gomega.Expect(storageManager.cachedPrimaryLookups).To(gomega.Equal(imageCount + 2))
+			gomega.Expect(storageManager.cachedSecondaryLookups).To(gomega.Equal(imageCount + 1))
 			gomega.Expect(images[0].GetContentTagDesc()).To(gomega.Equal(published))
 			gomega.Expect(images[0].AnchorReused).To(gomega.BeTrue())
 		},

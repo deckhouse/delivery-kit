@@ -1551,10 +1551,12 @@ ScanSecondaryStagesStorageList:
 	for _, secondaryStagesStorage := range storageManager.GetSecondaryStagesStorageList() {
 		var secondaryStages imagePkg.StageDescSet
 		var err error
-		if phase.anchorPrepass {
-			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
-		} else {
+		if phase.ShouldBeBuiltMode && !phase.anchorPrepass {
+			// A stale miss here would fail the build instead of reporting an existing stage, so the
+			// lookup must stay strictly fresh.
 			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageWithCache(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
+		} else {
+			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
 		}
 		if err != nil {
 			return false, err

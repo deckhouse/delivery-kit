@@ -226,6 +226,28 @@ func (m *anchorLookupStorageManager) GetStageDescSetByDigestFromStagesStorageCac
 	return m.inPrimary, nil
 }
 
+func (m *anchorLookupStorageManager) GetStageDescSetByDigest(_ context.Context, _, _ string, _ int64) (imagePkg.StageDescSet, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.freshPrimaryLookups++
+	return m.inPrimary, nil
+}
+
+func (m *anchorLookupStorageManager) CopySuitableStageDescByDigest(_ context.Context, stageDesc *imagePkg.StageDesc, _, _ storage.StagesStorage, _ container_backend.ContainerBackend, _ string) (*imagePkg.StageDesc, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.copiedFromSecondary++
+	return stageDesc, nil
+}
+
+func (m *anchorLookupStorageManager) GetCacheStagesStorageList() []storage.StagesStorage { return nil }
+
+func (m *anchorLookupStorageManager) CopyStageIntoCacheStorages(_ context.Context, _ imagePkg.StageID, _ []storage.StagesStorage, _ manager.CopyStageIntoStorageOptions) error {
+	return nil
+}
+
 type publicationStorage struct {
 	storage.PrimaryStagesStorage
 	mutex          sync.Mutex
@@ -359,7 +381,11 @@ func (m *publicationStorageManager) GetSecondaryStagesStorageList() []storage.St
 	return []storage.StagesStorage{m.secondary}
 }
 
-func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(_ context.Context, _, _ string, _ int64, _ storage.StagesStorage) (imagePkg.StageDescSet, error) {
+func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(ctx context.Context, stageName, stageDigest string, parentStageCreationTs int64, stagesStorage storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	return m.GetStageDescSetByDigestFromStagesStorageCached(ctx, stageName, stageDigest, parentStageCreationTs, stagesStorage)
+}
+
+func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageCached(_ context.Context, _, _ string, _ int64, _ storage.StagesStorage) (imagePkg.StageDescSet, error) {
 	return imagePkg.NewStageDescSet(m.secondaryDesc), nil
 }
 

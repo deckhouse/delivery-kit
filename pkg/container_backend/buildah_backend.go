@@ -61,6 +61,17 @@ func NewBuildahBackend(buildah buildah.Buildah, opts BuildahBackendOptions) *Bui
 	}
 }
 
+// lockPull serializes pulls of ref and returns the unlock function, measuring the time
+// spent waiting for a concurrent pull of the same ref to finish.
+func (backend *BuildahBackend) lockPull(ctx context.Context, ref string) func() {
+	waited := opstats.Observe(ctx, "buildah: image pull lock wait")
+	mu := backend.getPullMutex(ref)
+	mu.Lock()
+	waited()
+
+	return mu.Unlock
+}
+
 func (backend *BuildahBackend) getPullMutex(ref string) *sync.Mutex {
 	backend.pullMutexesGuard.Lock()
 	defer backend.pullMutexesGuard.Unlock()
@@ -188,9 +199,7 @@ func (backend *BuildahBackend) createContainers(ctx context.Context, images []st
 			logboek.Context(ctx).Debug().LogF("Cached imageID %q for %q not found locally, pulling by ref and retrying\n", resolvedImg, img)
 
 			pulledImageID, pullErr := func() (string, error) {
-				mu := backend.getPullMutex(img)
-				mu.Lock()
-				defer mu.Unlock()
+				defer backend.lockPull(ctx, img)()
 
 				pulledImageID, pullErr := backend.buildah.Pull(ctx, img, buildah.PullOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform)))
 				if pullErr == nil && pulledImageID != "" {
@@ -638,9 +647,7 @@ func (backend *BuildahBackend) ensureImageLocally(ctx context.Context, ref strin
 
 	logboek.Context(ctx).Debug().LogF("Image %q not found locally, pulling\n", ref)
 
-	mu := backend.getPullMutex(ref)
-	mu.Lock()
-	defer mu.Unlock()
+	defer backend.lockPull(ctx, ref)()
 
 	// A concurrent caller holding the lock may have pulled the image already.
 	if found, err := checkLocal(); err != nil || found {
@@ -923,9 +930,7 @@ func (backend *BuildahBackend) Pull(ctx context.Context, ref string, opts PullOp
 	// The lock key is intentionally ref only (not ref+platform): the race is on the
 	// storage name, which is derived from ref, so pulls of the same ref for different
 	// platforms must still be serialized.
-	mu := backend.getPullMutex(ref)
-	mu.Lock()
-	defer mu.Unlock()
+	defer backend.lockPull(ctx, ref)()
 
 	defer opstats.Observe(ctx, opstats.OperationImagePull)()
 	var logWriter io.Writer

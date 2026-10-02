@@ -94,6 +94,25 @@ var _ = Describe("BuildahBackend operation stats", func() {
 		Expect(collector.Summary()).To(BeEmpty())
 	})
 
+	It("measures waiting for a concurrent pull of the same image", func() {
+		backend := NewBuildahBackend(&buildahstub.BuildahStub{}, BuildahBackendOptions{})
+
+		unlock := backend.lockPull(ctx, "image")
+		waiterDone := make(chan struct{})
+		go func() {
+			defer close(waiterDone)
+			backend.lockPull(ctx, "image")()
+		}()
+		Consistently(waiterDone, 100*time.Millisecond).ShouldNot(BeClosed())
+		unlock()
+		Eventually(waiterDone).Should(BeClosed())
+
+		wait := observed("buildah: image pull lock wait")
+		Expect(wait).ToNot(BeNil())
+		Expect(wait.Count).To(Equal(2))
+		Expect(wait.MaxTime).To(BeNumerically(">=", 100*time.Millisecond))
+	})
+
 	It("measures unpacking data archives into the container root", func() {
 		container := &containerDesc{Name: "container", RootMount: GinkgoT().TempDir()}
 

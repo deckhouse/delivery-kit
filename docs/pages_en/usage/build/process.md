@@ -95,7 +95,7 @@ The algorithm of stage selection in werf works as follows:
 3. For the Stapel builder, if the current stage involves Git (a Git archive stage, a custom stage with Git patches, or a `git latest patch` stage), then only those stages associated with commits that are ancestral to the current commit are selected. Thus, commits from neighboring branches will be discarded.
 4. Then the oldest `TIMESTAMP_MILLISEC` is selected.
 
-If you run a build with storing images in the repository, werf will first check if the required stages exist in the local repository and copy the suitable stages from there, so that no rebuilding of those stages is necessary.
+If you run a build with storing images in the repository, werf does not look up the required stages in the local repository. To reuse locally cached stages, pass `--secondary-repo=:local` explicitly: werf will then check the local repository and copy the suitable stages from there, so that no rebuilding of those stages is necessary. The same applies to `--check-built-images`: without `--secondary-repo=:local`, images that exist only locally do not satisfy the check.
 
 </div>
 </div>
@@ -434,7 +434,7 @@ There are a number of additional repositories on top of the main repository:
 
 - `--final-repo` to store the final images in a dedicated repository;
 - `--meta-repo` to store werf service metadata (used for cleanup based on Git history) in a dedicated repository;
-- `--secondary-repo` to use the repository in `read-only` mode (e.g. to use a container registry CI that you cannot push into, but you can reuse the build cache);
+- `--secondary-repo` to use the repository in `read-only` mode (e.g. to use a container registry CI that you cannot push into, but you can reuse the build cache); use `--secondary-repo=:local` to reuse the local image cache;
 - `--cache-repo` to set the repository containing the build cache alongside the builders.
 
 > **Caution!** For werf to operate properly, the container registry must be persistent, and cleaning should only be done with the `werf cleanup` special command.

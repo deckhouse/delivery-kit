@@ -1048,10 +1048,6 @@ func GetCacheStagesStorageList(ctx context.Context, stagesStorage storage.Stages
 func GetSecondaryStagesStorageList(ctx context.Context, stagesStorage storage.StagesStorage, containerBackend container_backend.ContainerBackend, cmdData *CmdData) ([]storage.StagesStorage, error) {
 	var res []storage.StagesStorage
 
-	if stagesStorage.Address() != storage.LocalStorageAddress {
-		res = append(res, storage.NewLocalStagesStorage(containerBackend))
-	}
-
 	buildahMode, _, err := GetBuildahMode()
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine buildah mode: %w", err)
@@ -1063,7 +1059,12 @@ func GetSecondaryStagesStorageList(ctx context.Context, stagesStorage storage.St
 	}
 
 	for _, address := range GetSecondaryStagesStorage(cmdData) {
-		repoData := NewRepoData("secondary-repo", RepoDataOptions{OnlyAddress: true})
+		if address == storage.LocalStorageAddress && stagesStorage.Address() == storage.LocalStorageAddress {
+			logboek.Context(ctx).Warn().LogF("WARNING: Ignoring secondary repo %s: same address as the primary repo.\n", address)
+			continue
+		}
+
+		repoData := NewRepoData("secondary-repo", RepoDataOptions{OnlyAddress: true, OptionalRepo: address == storage.LocalStorageAddress})
 		repoData.Address = &address
 
 		secondaryStorage, err := repoData.CreateStagesStorage(ctx, &CreateStagesStorageOptions{

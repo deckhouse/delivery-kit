@@ -439,7 +439,7 @@ There are a number of additional repositories on top of the main repository:
 
 > **Caution!** For werf to operate properly, the container registry must be persistent, and cleaning should only be done with the `werf cleanup` special command.
 
-When listing tags, werf requests up to 1 000 000 tags per page, so listing even a large repository usually takes a single request. Amazon ECR (including `public.ecr.aws`) limits pages to 1000 tags, so werf uses that page size for ECR hosts right away. If any other registry explicitly rejects the requested page size, werf repeats that listing with 1000 tags per page and keeps using this page size for that registry host until the werf command ends.
+When listing tags, werf requests up to 1 000 000 tags per page, so listing even a large repository usually takes a single request. Amazon ECR (including `public.ecr.aws`) limits pages to 1000 tags, so werf uses that page size for ECR hosts right away. If any other registry answers a listing with a recognized page size rejection, werf repeats that listing with 1000 tags per page and keeps using this page size for that registry host until the werf command ends. Any other error is returned as is.
 
 ### Extra repository for final images
 

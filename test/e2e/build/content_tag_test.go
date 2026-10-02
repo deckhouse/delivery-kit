@@ -25,6 +25,7 @@ var _ = Describe("Content tag reuse", Label("e2e", "build", "content-tag", suite
 
 		repoAddr := suite_init.TestRepo(fmt.Sprintf("%s-%s", SuiteData.ProjectName, utils.GetRandomString(6)))
 		finalRepoAddr := suite_init.TestRepo(fmt.Sprintf("%s-%s-final", SuiteData.ProjectName, utils.GetRandomString(6)))
+		SuiteData.CleanupRepositories = append(SuiteData.CleanupRepositories, repoAddr, finalRepoAddr)
 
 		By("[1, :local] building all stages from scratch")
 		buildOut := werfProject.Build(ctx, &werf.BuildOptions{})
@@ -88,6 +89,7 @@ var _ = Describe("Content tag reuse", Label("e2e", "build", "content-tag", suite
 		repoAddr := suite_init.TestRepo(fmt.Sprintf("%s-%s", SuiteData.ProjectName, utils.GetRandomString(6)))
 
 		By("[1, :local] building all stages from scratch")
+		SuiteData.CleanupRepositories = append(SuiteData.CleanupRepositories, repoAddr)
 		buildOut := werfProject.Build(ctx, &werf.BuildOptions{})
 		Expect(buildOut).To(ContainSubstring("Building stage app/from"))
 		Expect(buildOut).To(ContainSubstring("Building stage app/install"))

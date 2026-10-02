@@ -200,7 +200,7 @@ jobs:
       - name: Integration tests (main)
         timeout-minutes: 60
         run: |
-          bash scripts/ci/profile-tests.sh task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=3 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going --skip-package 'test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
+          bash scripts/ci/profile-tests.sh task --yes test:integration paths="test/legacy_e2e/suites" -- --procs=3 --compilers=1 --timeout=55m --keep-going --skip-package 'test/legacy_e2e/suites/cleanup_after_converge,test/legacy_e2e/suites/build/stapel_image/git,test/legacy_e2e/suites/docs'
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -476,7 +476,7 @@ jobs:
       - name: Integration tests (git)
         timeout-minutes: 60
         run: |
-          bash scripts/ci/profile-tests.sh task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=3 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going
+          bash scripts/ci/profile-tests.sh task --yes test:integration paths="test/legacy_e2e/suites/build/stapel_image/git" -- --procs=3 --compilers=1 --timeout=55m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment
@@ -576,7 +576,7 @@ jobs:
       - name: Doc integration tests
         timeout-minutes: 60
         run: |
-          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=3 --compilers=1 --timeout=55m --flake-attempts=3 --keep-going
+          task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=3 --compilers=1 --timeout=55m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
       - name: Cleanup environment

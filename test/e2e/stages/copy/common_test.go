@@ -28,6 +28,7 @@ func setupEnv() {
 
 	SuiteData.WerfFromAddr = suite_init.TestRepo(fmt.Sprintf("%s-%s", SuiteData.ProjectName, utils.GetRandomString(6)))
 	SuiteData.WerfToAddr = suite_init.TestRepo(fmt.Sprintf("%s-%s", SuiteData.ProjectName, utils.GetRandomString(6)))
+	SuiteData.CleanupRepositories = append(SuiteData.CleanupRepositories, SuiteData.WerfFromAddr, SuiteData.WerfToAddr)
 
 	SuiteData.WerfArchiveAddr = archiveAddr
 }

@@ -35,6 +35,7 @@ var _ = ginkgo.Describe("Export with a final repo", ginkgo.Label("e2e", "export"
 			SuiteData.InitTestRepo(ctx, "repo", "simple")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo"))
 			exportRepo := suite_init.TestRepo(fmt.Sprintf("werf-export-%s", utils.GetRandomString(10)))
+			SuiteData.CleanupRepositories = append(SuiteData.CleanupRepositories, finalRepo, exportRepo)
 
 			coldOut := werfProject.Export(ctx, &werf.ExportOptions{
 				CommonOptions: werf.CommonOptions{ExtraArgs: getExportArgs(exportRepo+":cold", commonTestOptions{})},
@@ -102,6 +103,7 @@ var _ = ginkgo.Describe("Export with a final repo", ginkgo.Label("e2e", "export"
 			SuiteData.InitTestRepo(ctx, "repo", "simple")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo"))
 			exportRepo := suite_init.TestRepo(fmt.Sprintf("werf-export-%s", utils.GetRandomString(10)))
+			SuiteData.CleanupRepositories = append(SuiteData.CleanupRepositories, finalRepo, exportRepo)
 
 			ginkgo.By("building with a saved build report")
 			buildReportPath := SuiteData.GetBuildReportPath(fmt.Sprintf("final-repo-report-%s.json", utils.GetRandomString(5)))

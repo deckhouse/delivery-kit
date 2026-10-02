@@ -8,6 +8,7 @@ dockerfile: Dockerfile
 target: result
 network: default
 args:
+  ARCHIVE_URL: {{ env "WERF_TEST_ARCHIVE_URL" | quote }}
   CHANGED_ARG: "was_changed"
   USERNAME: "test-username"
   PASSWORD: "test-password"

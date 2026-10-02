@@ -2,12 +2,15 @@ package docker
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/docker/cli/cli/connhelper/commandconn"
 	"github.com/moby/moby/client"
@@ -47,6 +50,32 @@ func sshDaemonContext(diagnostic string) context.Context {
 	ginkgo.DeferCleanup(api.Close)
 	ctx := context.WithValue(context.Background(), ctxDockerCliKey, true)
 	return context.WithValue(ctx, ctxAPIClientKey, api)
+}
+
+// newDelayedCreateServer returns the address of a daemon which stalls the container create
+// request and then rejects it, so that a run which never reaches container start still takes
+// at least delay.
+func newDelayedCreateServer(delay time.Duration) string {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_ping"):
+			w.Header().Set("API-Version", "1.47")
+			w.Header().Set("OSType", "linux")
+			return
+		case strings.HasSuffix(r.URL.Path, "/containers/create"):
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if _, err := io.WriteString(w, `{"message":"No such image: img"}`); err != nil {
+			panic(err)
+		}
+	}))
+	ginkgo.DeferCleanup(server.Close)
+	return server.Listener.Addr().String()
 }
 
 func daemonSettingsContext(handler http.Handler) context.Context {

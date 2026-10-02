@@ -16,6 +16,7 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/stapel"
 )
 
@@ -322,6 +323,9 @@ func (c *LegacyStageImageContainer) run(ctx context.Context) error {
 		panic(fmt.Sprintf("runtime error: FromImage should be (%s)", c.image.name))
 	}
 
+	prepareDone := opstats.Observe(ctx, "docker: stage prepare")
+	defer prepareDone()
+
 	inheritedCommitOptions, err := c.prepareInheritedCommitOptions(ctx, c.imageRef(c.image.fromImage))
 	if err != nil {
 		return err
@@ -332,6 +336,7 @@ func (c *LegacyStageImageContainer) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prepareDone()
 
 	RegisterRunningContainer(c.name, ctx)
 	err = docker.CliRunWithInput_LiveOutput(ctx, c.prepareRunCommand(ctx), runArgs...)

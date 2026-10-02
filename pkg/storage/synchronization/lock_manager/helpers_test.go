@@ -4,8 +4,25 @@ import (
 	"context"
 	"sync"
 
+	"github.com/werf/lockgate"
 	"github.com/werf/werf/v3/pkg/storage"
 )
+
+type observedTestLocker struct {
+	onAcquire func()
+	err       error
+}
+
+var _ lockgate.Locker = (*observedTestLocker)(nil)
+
+func (l *observedTestLocker) Acquire(name string, _ lockgate.AcquireOptions) (bool, lockgate.LockHandle, error) {
+	l.onAcquire()
+	return l.err == nil, lockgate.LockHandle{LockName: name}, l.err
+}
+
+func (l *observedTestLocker) Release(_ lockgate.LockHandle) error {
+	return nil
+}
 
 type clientRecordStorage struct {
 	storage.StagesStorage

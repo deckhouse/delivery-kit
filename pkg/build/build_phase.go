@@ -1134,7 +1134,6 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 			}
 		}).
 		Do(func() {
-			defer opstats.Observe(ctx, opstats.OperationStageDigestLockWait)()
 			phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Lock()
 		})
 

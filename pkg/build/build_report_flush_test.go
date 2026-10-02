@@ -17,7 +17,7 @@ var _ = Describe("createBuildReport operations flush", func() {
 		collector := opstats.NewCollector()
 		ctx := opstats.NewContext(context.Background(), collector)
 
-		opstats.Observe(ctx, opstats.OperationStageBuild)()
+		opstats.Observe(ctx, opstats.Operation("docker: image build"))()
 		opstats.CountEvent(ctx, opstats.EventStageBuilt)
 
 		failPhase := &BuildPhase{
@@ -29,7 +29,7 @@ var _ = Describe("createBuildReport operations flush", func() {
 		}
 		Expect(createBuildReport(ctx, failPhase, nil)).To(HaveOccurred())
 
-		opstats.Observe(ctx, opstats.OperationStageBuild)()
+		opstats.Observe(ctx, opstats.Operation("docker: image build"))()
 		opstats.CountEvent(ctx, opstats.EventStageBuilt)
 
 		reportPath := filepath.Join(GinkgoT().TempDir(), "report.json")
@@ -50,7 +50,7 @@ var _ = Describe("createBuildReport operations flush", func() {
 			StageCache map[string]int
 		}
 		Expect(json.Unmarshal(data, &decoded)).To(Succeed())
-		Expect(decoded.Operations[string(opstats.OperationStageBuild)].Count).To(Equal(2))
+		Expect(decoded.Operations[string(opstats.Operation("docker: image build"))].Count).To(Equal(2))
 		Expect(decoded.StageCache[string(opstats.EventStageBuilt)]).To(Equal(2))
 
 		Expect(collector.PendingSummary(ctx)).To(BeEmpty())

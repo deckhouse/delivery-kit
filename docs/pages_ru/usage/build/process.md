@@ -605,7 +605,9 @@ JSON-отчёт содержит расширенную информацию о 
 
 * **ImagesByPlatform** — разрез по платформам для multiarch-сборок. Поле включается только если установлена переменная окружения `WERF_ENABLE_REPORT_BY_PLATFORM=1`. Структура записей та же, что и у `Images`, но данные сгруппированы по имени образа и платформе.
 
-* **Operations** — агрегированные тайминги низкоуровневых операций за весь запуск команды (сборка стадий, pull/push образов, запросы к registry, git-операции, рендер werf-конфига, инициализация гитерминизма, ожидание блокировок стадий и т.д.). Поле заполняется только при установленном флаге `--build-report-operations` (`$WERF_BUILD_REPORT_OPERATIONS`) или при включённом отладочном логировании (`--log-debug`). Для каждой операции: количество вызовов (`Count`), суммарная длительность по всем параллельным воркерам (`TotalTimeSeconds`), реальная длительность с учётом параллельного выполнения — объединение возможно пересекающихся интервалов (`WallTimeSeconds`), средняя (`AvgTimeSeconds`) и максимальная (`MaxTimeSeconds`) длительности. Консольный блок покрывает весь запуск команды, а сохранённый отчёт — операции с момента предыдущего отчёта той же команды: при `--follow` в отчёт попадает всё, что произошло после предыдущего — включая ожидание изменений между сборками и неудачные retry-попытки.
+* **Operations** — агрегированные тайминги низкоуровневых операций за весь запуск команды (build, run, commit, list, inspect и передача образов Docker и Buildah, запросы к registry, git-операции и ожидание блокировок синхронизации). Поле заполняется только при установленном флаге `--build-report-operations` (`$WERF_BUILD_REPORT_OPERATIONS`) или при включённом отладочном логировании (`--log-debug`). Для каждой операции: количество вызовов (`Count`), суммарная длительность по всем параллельным воркерам (`TotalTimeSeconds`), реальная длительность с учётом параллельного выполнения — объединение возможно пересекающихся интервалов (`WallTimeSeconds`), средняя (`AvgTimeSeconds`) и максимальная (`MaxTimeSeconds`) длительности. Консольный блок покрывает весь запуск команды, а сохранённый отчёт — операции с момента предыдущего отчёта той же команды: при `--follow` в отчёт попадает всё, что произошло после предыдущего — включая ожидание изменений между сборками и неудачные retry-попытки.
+
+Операции Docker и Buildah имеют префиксы `docker:` и `buildah:`. Время build и запуска контейнера в attached-режиме включает завершение сборки или команды контейнера; потоки save и copy измеряются до EOF, ошибки чтения или закрытия. `sync: lock acquire` учитывает получение блокировки синхронизации (HTTP, Kubernetes или локальной), включая повторные попытки, но не время её удержания. Вложенные и параллельные операции перекрываются: их wall-времена нельзя складывать для вычисления длительности команды.
 
 * **StageCache** — счётчики того, как стадии были получены при сборке, по источникам: найдены в локальном хранилище или в repo, скопированы из secondary-хранилища или собраны. Поле заполняется только при установленном флаге `--build-report-operations` (`$WERF_BUILD_REPORT_OPERATIONS`) или при включённом отладочном логировании (`--log-debug`).
 
@@ -666,49 +668,35 @@ JSON-отчёт содержит расширенную информацию о 
   },
   "ImagesByPlatform": {},
   "Operations": {
-    "config render": {
-      "Count": 1,
-      "TotalTimeSeconds": 0.213458291,
-      "WallTimeSeconds": 0.213458291,
-      "AvgTimeSeconds": 0.213458291,
-      "MaxTimeSeconds": 0.213458291
-    },
-    "docker daemon API": {
-      "Count": 31,
-      "TotalTimeSeconds": 0.61870432,
-      "WallTimeSeconds": 0.549330501,
-      "AvgTimeSeconds": 0.019958204,
-      "MaxTimeSeconds": 0.112832542
-    },
-    "giterminism init": {
-      "Count": 1,
-      "TotalTimeSeconds": 0.122435459,
-      "WallTimeSeconds": 0.122435459,
-      "AvgTimeSeconds": 0.122435459,
-      "MaxTimeSeconds": 0.122435459
-    },
-    "local image inspect": {
-      "Count": 5,
-      "TotalTimeSeconds": 0.110243333,
-      "WallTimeSeconds": 0.110243333,
-      "AvgTimeSeconds": 0.022048667,
-      "MaxTimeSeconds": 0.048555458
-    },
-    "registry: GetRepoImage": {
-      "Count": 1,
-      "TotalTimeSeconds": 2.905423333,
-      "WallTimeSeconds": 2.905423333,
-      "AvgTimeSeconds": 2.905423333,
-      "MaxTimeSeconds": 2.905423333
-    },
-    "stage build": {
+    "docker: image build": {
       "Count": 2,
       "TotalTimeSeconds": 0.831474958,
       "WallTimeSeconds": 0.831474958,
       "AvgTimeSeconds": 0.415737479,
       "MaxTimeSeconds": 0.421835292
     },
-    "stage lock wait (storage)": {
+    "docker: image inspect": {
+      "Count": 5,
+      "TotalTimeSeconds": 0.110243333,
+      "WallTimeSeconds": 0.110243333,
+      "AvgTimeSeconds": 0.022048667,
+      "MaxTimeSeconds": 0.048555458
+    },
+    "git: fetch": {
+      "Count": 1,
+      "TotalTimeSeconds": 0.213458291,
+      "WallTimeSeconds": 0.213458291,
+      "AvgTimeSeconds": 0.213458291,
+      "MaxTimeSeconds": 0.213458291
+    },
+    "registry: image get": {
+      "Count": 1,
+      "TotalTimeSeconds": 2.905423333,
+      "WallTimeSeconds": 2.905423333,
+      "AvgTimeSeconds": 2.905423333,
+      "MaxTimeSeconds": 2.905423333
+    },
+    "sync: lock acquire": {
       "Count": 2,
       "TotalTimeSeconds": 0.001153668,
       "WallTimeSeconds": 0.001153668,

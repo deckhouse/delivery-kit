@@ -11,6 +11,19 @@ import (
 type Operation string
 
 const (
+	OperationGitClone      Operation = "git: clone"
+	OperationGitFetch      Operation = "git: fetch"
+	OperationGitLsRemote   Operation = "git: ls-remote"
+	OperationGitPatch      Operation = "git: patch"
+	OperationGitArchive    Operation = "git: archive"
+	OperationGitChecksum   Operation = "git: checksum"
+	OperationStageLockWait Operation = "sync: lock acquire"
+)
+
+// Operations below are no longer observed anywhere: the backend leaf operations
+// under the "docker: " and "buildah: " prefixes replaced them. They are kept so
+// that code outside this repository referencing them keeps compiling.
+const (
 	OperationImagePull               Operation = "image pull"
 	OperationImagePush               Operation = "image push"
 	OperationStageBuild              Operation = "stage build"
@@ -19,14 +32,7 @@ const (
 	OperationImportChecksum          Operation = "import checksum"
 	OperationStapelContainer         Operation = "stapel container prepare"
 	OperationStapelContainerLockWait Operation = "stapel container lock wait"
-	OperationGitClone                Operation = "git clone"
-	OperationGitFetch                Operation = "git fetch"
-	OperationGitLsRemote             Operation = "git ls-remote"
-	OperationGitPatch                Operation = "git patch"
-	OperationGitArchive              Operation = "git archive"
-	OperationGitChecksum             Operation = "git checksum"
 	OperationDockerDaemon            Operation = "docker daemon API"
-	OperationStageLockWait           Operation = "stage lock wait (storage)"
 	OperationStageDigestLockWait     Operation = "stage lock wait (parallel tasks)"
 	OperationContextAddFiles         Operation = "context add files"
 	OperationConfigRender            Operation = "config render"
@@ -58,7 +64,7 @@ func FromContext(ctx context.Context) *Collector {
 // Observe starts measuring an operation and returns a function that records the
 // measurement into the collector bound to ctx. The returned function records at
 // most once, so it is safe to both call it early and defer it. When no
-// collector is bound, it is a no-op. Usage: defer opstats.Observe(ctx, opstats.OperationImagePull)()
+// collector is bound, it is a no-op. Usage: defer opstats.Observe(ctx, opstats.OperationGitFetch)()
 func Observe(ctx context.Context, op Operation) func() {
 	collector := FromContext(ctx)
 	if collector == nil {

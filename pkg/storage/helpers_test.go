@@ -22,6 +22,7 @@ import (
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 func startLocalRegistry(ctx context.Context) string {
@@ -183,7 +184,7 @@ type localImageListBackendStub struct {
 	images  image.ImagesList
 	err     error
 	options container_backend.ImagesOptions
-	onList  func()
+	onList  func(listing int)
 	mu      sync.Mutex
 	calls   int
 }
@@ -194,9 +195,42 @@ func (backend *localImageListBackendStub) Images(_ context.Context, options cont
 	backend.calls++
 	backend.options = options
 	if backend.onList != nil {
-		backend.onList()
+		backend.onList(backend.calls)
 	}
 	return backend.images, backend.err
+}
+
+// blockedCallTimeout bounds the wait for a call that must not be blocked by a listing in flight,
+// so that a regression fails the spec instead of hanging it.
+const blockedCallTimeout = "10s"
+
+// blockNextListing makes the next image listing report that it started and then hold until the
+// returned release channel is closed.
+func blockNextListing(backend *localImageListBackendStub) (chan struct{}, chan struct{}) {
+	listing, release := make(chan struct{}), make(chan struct{})
+	backend.onList = func(_ int) {
+		closeIfOpen(listing)
+		<-release
+	}
+	ginkgo.DeferCleanup(func() { closeIfOpen(release) })
+	return listing, release
+}
+
+func closeIfOpen(ch chan struct{}) {
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
+func operationCount(collector *opstats.Collector, operation opstats.Operation) int {
+	for _, summary := range collector.Summary() {
+		if summary.Operation == operation {
+			return summary.Count
+		}
+	}
+	return 0
 }
 
 var (
@@ -209,7 +243,6 @@ type localPublishBackendStub struct {
 	tagImageErr error
 	nativeErr   error
 	tagErr      error
-	onTag       func()
 	tagged      []string
 }
 
@@ -218,9 +251,6 @@ func newLocalPublishBackendStub(images image.ImagesList) *localPublishBackendStu
 }
 
 func (backend *localPublishBackendStub) TagImageByName(_ context.Context, img container_backend.LegacyImageInterface) error {
-	if backend.onTag != nil {
-		backend.onTag()
-	}
 	if backend.tagImageErr != nil {
 		return backend.tagImageErr
 	}

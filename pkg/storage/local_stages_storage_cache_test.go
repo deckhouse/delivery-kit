@@ -11,6 +11,7 @@ import (
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 var (
@@ -24,6 +25,25 @@ var (
 )
 
 var _ = ginkgo.Describe("Local stage lookup cache", func() {
+	ginkgo.It("finishes recording the cache lock wait before listing images", func(ctx ginkgo.SpecContext) {
+		collector := opstats.NewCollector()
+		observedCtx := opstats.NewContext(ctx, collector)
+		backend := newLocalPublishBackendStub(nil)
+		backend.onList = func() {
+			summary := collector.Summary()
+			gomega.Expect(summary).To(gomega.HaveLen(1))
+			gomega.Expect(summary[0].Operation).To(gomega.Equal(opstats.Operation("local stage cache lock wait")))
+			gomega.Expect(summary[0].Count).To(gomega.Equal(1))
+		}
+
+		storage := NewLocalStagesStorage(backend)
+		_, err := storage.GetStagesIDsByDigest(observedCtx, "project", cachedDigestA, 0, WithCache())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(storage.StoreImage(observedCtx, &localStageImageStub{name: "project:" + cachedTagA})).To(gomega.Succeed())
+		gomega.Expect(collector.Summary()).To(gomega.HaveLen(1))
+		gomega.Expect(collector.Summary()[0].Count).To(gomega.Equal(2))
+	})
+
 	ginkgo.It("reuses one project image list for different missing digests", func(ctx ginkgo.SpecContext) {
 		backend := &localImageListBackendStub{}
 		storage := NewLocalStagesStorage(backend)

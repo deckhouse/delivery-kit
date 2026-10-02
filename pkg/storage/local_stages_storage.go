@@ -16,6 +16,7 @@ import (
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/docker_registry/api"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 const (
@@ -115,7 +116,7 @@ func (storage *LocalStagesStorage) GetStagesIDs(ctx context.Context, projectName
 
 func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, projectName, digest string, parentStageCreationTs int64, opts ...Option) ([]image.StageID, error) {
 	// ponytail: local listings serialize cache updates; use per-project locks if this limits parallel builds.
-	storage.imagesCacheMutex.Lock()
+	storage.lockImagesCache(ctx)
 	defer storage.imagesCacheMutex.Unlock()
 
 	withCache := makeOptions(opts...).withCache
@@ -202,13 +203,19 @@ func (storage *LocalStagesStorage) refreshCachedDigest(projectName, prefix strin
 	storage.imagesCache[projectName] = append(kept, selectImagesByPrefix(fresh, prefix)...)
 }
 
-func (storage *LocalStagesStorage) rememberPublishedStage(reference string) {
+func (storage *LocalStagesStorage) lockImagesCache(ctx context.Context) {
+	done := opstats.Observe(ctx, "local stage cache lock wait")
+	storage.imagesCacheMutex.Lock()
+	done()
+}
+
+func (storage *LocalStagesStorage) rememberPublishedStage(ctx context.Context, reference string) {
 	projectName, tag := image.ParseRepositoryAndTag(strings.TrimPrefix(reference, "localhost/"))
 	if projectName == "" || tag == "" {
 		return
 	}
 
-	storage.imagesCacheMutex.Lock()
+	storage.lockImagesCache(ctx)
 	defer storage.imagesCacheMutex.Unlock()
 
 	cached, isCached := storage.imagesCache[projectName]
@@ -316,7 +323,7 @@ func (storage *LocalStagesStorage) StoreImage(ctx context.Context, img container
 	if err := storage.ContainerBackend.TagImageByName(ctx, img); err != nil {
 		return err
 	}
-	storage.rememberPublishedStage(img.Name())
+	storage.rememberPublishedStage(ctx, img.Name())
 	return nil
 }
 
@@ -450,7 +457,7 @@ func (storage *LocalStagesStorage) MutateAndPushImage(ctx context.Context, src, 
 	if mutator, ok := storage.ContainerBackend.(container_backend.NativeConfigMutator); ok {
 		err := mutator.MutateAndPushImageNative(ctx, src, dest, newConfig, stageImage.GetTargetPlatform())
 		if err == nil {
-			storage.rememberPublishedStage(dest)
+			storage.rememberPublishedStage(ctx, dest)
 			return nil
 		}
 		if !container_backend.IsNativeMutationUnsupported(err) {
@@ -467,7 +474,7 @@ func (storage *LocalStagesStorage) MutateAndPushImage(ctx context.Context, src, 
 	if err := storage.ContainerBackend.Tag(ctx, newId, dest, container_backend.TagOpts{}); err != nil {
 		return fmt.Errorf("unable to tag image %q as %q: %w", newId, dest, err)
 	}
-	storage.rememberPublishedStage(dest)
+	storage.rememberPublishedStage(ctx, dest)
 
 	return nil
 }

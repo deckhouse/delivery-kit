@@ -419,22 +419,44 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			DeferCleanup(func() { cleanup(ctx) })
 		})
 
-		It("skips a module missing from the cache with a warning and keeps going", func() {
+		It("skips modules missing from the cache, keeps going and warns once per image", func() {
 			var output strings.Builder
 			ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))
 
-			expectSpecAndLock()
+			goSum := goSum + "golang.org/x/mod v0.21.0/go.mod h1:jkl=\n"
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("module example.com/app\n"), nil)
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.sum").Return([]byte(goSum), nil)
 			mockReader.EXPECT().
 				ReadDir(gomock.Any(), "/go/pkg/mod/github.com/samber/lo@v1.47.0", gomock.Any(), gomock.Any()).
 				Return(fmt.Errorf("copy: %w", fs.ErrNotExist))
 			mockReader.EXPECT().
 				ReadDir(gomock.Any(), "/go/pkg/mod/github.com/!azure/go-autorest@v14.2.0+incompatible", gomock.Any(), gomock.Any()).
 				Return(nil)
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/go/pkg/mod/golang.org/x/mod@v0.21.0", gomock.Any(), gomock.Any()).
+				Return(fmt.Errorf("copy: %w", fs.ErrNotExist))
 
 			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, goCataloger, "", []string{"GOPATH=/go"})
 			Expect(err).To(Succeed())
 			DeferCleanup(func() { cleanup(ctx) })
-			Expect(output.String()).To(ContainSubstring("WARNING: /go/pkg/mod/github.com/samber/lo@v1.47.0 not found in image"))
+
+			Expect(output.String()).To(ContainSubstring("WARNING: 2 of 3 modules listed in /app/go.sum are missing from the module cache /go/pkg/mod"))
+			Expect(strings.Count(output.String(), "WARNING:")).To(Equal(1))
+			Expect(output.String()).NotTo(ContainSubstring("samber/lo@v1.47.0"))
+		})
+
+		It("does not warn when every module listed in go.sum is in the cache", func() {
+			var output strings.Builder
+			ctx := logboek.NewContext(ctx, logboek.NewLogger(&output, &output))
+
+			expectSpecAndLock()
+			mockReader.EXPECT().ReadDir(gomock.Any(), "/go/pkg/mod/github.com/samber/lo@v1.47.0", gomock.Any(), gomock.Any()).Return(nil)
+			mockReader.EXPECT().ReadDir(gomock.Any(), "/go/pkg/mod/github.com/!azure/go-autorest@v14.2.0+incompatible", gomock.Any(), gomock.Any()).Return(nil)
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, goCataloger, "", []string{"GOPATH=/go"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+			Expect(output.String()).NotTo(ContainSubstring("WARNING:"))
 		})
 
 		It("does not touch the module cache when go.sum is absent", func() {

@@ -4,22 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	packageurl "github.com/package-url/packageurl-go"
 	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
+	"github.com/werf/werf/v3/pkg/sbom/declared"
 	"github.com/werf/werf/v3/pkg/sbom/externalref"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
@@ -66,7 +73,10 @@ func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 	return !isStapel || len(catalogers) > 0
 }
 
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmEnabled, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+// ConvergeWithMerge produces, caches and pushes the SBOM of one built image. osPmPackages
+// is the union of the os-pm directive specs of the image (`name==version` entries); when
+// non-empty, the pm index of the image is read and the declared packages recorded.
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -129,7 +139,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
-		if osPmEnabled {
+		if len(osPmPackages) > 0 {
 			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
 			if err != nil {
 				return fmt.Errorf("collect os-pm BOM: %w", err)
@@ -142,6 +152,10 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 					return fmt.Errorf("merge os-pm BOM: %w", err)
 				}
 			}
+			// The pm index lists everything installed, the base image's packages included, so
+			// the declared ones are picked out of the merged BOM by the directive spec.
+			declaredPkgs := declared.FromOSPMSpec(osPmPackages)
+			declared.AddRootEdge(resultBOM, declared.MatchComponents(ctx, resultBOM, config.PackagesDirectiveTypeOSPM, declaredPkgs))
 		}
 
 		for _, patcher := range patchers {
@@ -193,26 +207,53 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 // restoreImageMetadata sets the BOM's top-level component to the scanned image while
 // keeping any syft-provided metadata (tools, timestamp). A directory source reports the
-// temporary scan directory as its component, so it must be replaced. When no timestamp is
-// present — the skip-scan path builds a fresh BOM — one is stamped, since a per-image SBOM
-// without a timestamp is rejected by downstream validators.
+// temporary scan directory as its component, so it must be replaced; the dependency edges
+// sourced at it — the packages the image declares — are moved onto the image. When no
+// timestamp is present — the skip-scan path builds a fresh BOM — one is stamped, since a
+// per-image SBOM without a timestamp is rejected by downstream validators.
 func restoreImageMetadata(bom *cdx.BOM, stageDesc *image.StageDesc) {
 	if bom.Metadata == nil {
 		bom.Metadata = &cdx.Metadata{}
 	}
-	bom.Metadata.Component = containerComponent(stageDesc)
+	container := containerComponent(stageDesc)
+	if previous := bom.Metadata.Component; previous != nil && previous.BOMRef != "" && previous.BOMRef != container.BOMRef {
+		cyclonedxutil.RewriteRefs(bom, map[string]string{previous.BOMRef: container.BOMRef})
+	}
+	bom.Metadata.Component = container
 	if bom.Metadata.Timestamp == "" {
 		bom.Metadata.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 }
 
-// containerComponent builds the top-level container component of an image BOM.
+// containerComponent builds the top-level container component of an image BOM. Its
+// bom-ref is the OCI purl of the image, so that the edges sourced at it survive a merge
+// into another image's BOM under a ref that still names this image.
 func containerComponent(stageDesc *image.StageDesc) *cdx.Component {
-	return &cdx.Component{
+	comp := &cdx.Component{
 		Type:    cdx.ComponentTypeContainer,
 		Name:    stageDesc.Info.Repository,
 		Version: stageDesc.Info.Tag,
 	}
+	if digest := stageDesc.Info.GetDigest(); digest != "" {
+		comp.PackageURL = imagePURL(stageDesc.Info, digest)
+		comp.BOMRef = comp.PackageURL
+	}
+	return comp
+}
+
+// imagePURL builds the pkg:oci purl of an image: the last path segment of the repository
+// is the name and the manifest digest the version, as the purl spec prescribes for OCI
+// images; the repository and tag go into qualifiers.
+func imagePURL(info *image.Info, digest string) string {
+	name := info.Repository
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	qualifiers := packageurl.Qualifiers{{Key: "repository_url", Value: info.Repository}}
+	if info.Tag != "" {
+		qualifiers = append(qualifiers, packageurl.Qualifier{Key: "tag", Value: info.Tag})
+	}
+	return packageurl.NewPackageURL(packageurl.TypeOCI, "", strings.ToLower(name), digest, qualifiers, "").ToString()
 }
 
 // scanFileBasedPackages catalogs the file-based packages of a stapel image by scanning,
@@ -227,7 +268,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 			return nil, fmt.Errorf("materialize inputs for cataloger %q: %w", cataloger.Name, err)
 		}
 
-		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir)
+		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir, imageInfo.Name, targetPlatform)
 		cleanup(ctx)
 		if err != nil {
 			return nil, err
@@ -252,7 +293,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 	return merged, nil
 }
 
-func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir string) (*cdx.BOM, error) {
+func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir, imageRef, targetPlatform string) (*cdx.BOM, error) {
 	cmd := scanOpts.Commands[0]
 	cmd.Catalogers = []scanner.Cataloger{cataloger}
 	cmd.SourceType = scanner.SourceTypeDir
@@ -280,10 +321,87 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 		gost.SetComponentSourceLangs(ctx, &(*bom.Components)[i], []string{cataloger.SourceLang})
 	}
 
+	if err := step.recordDeclaredPackages(ctx, bom, cataloger, dir); err != nil {
+		return nil, err
+	}
+
+	if config.PackagesDirectiveType(cataloger.Ecosystem) == config.PackagesDirectiveTypeGoMod {
+		step.recordGoModuleGraph(ctx, bom, imageRef, cataloger, targetPlatform)
+	}
+
 	return bom, nil
 }
 
-const sbomArtifactFormatVersion = "7"
+// recordGoModuleGraph adds the edges between the Go modules of the directive to the
+// BOM. syft's go.mod cataloger reports no relationships, so the graph is read from
+// `go mod graph` run inside the built image, where the toolchain and the module cache
+// are present by construction: the install command of the directive is `go mod
+// download`. The run is offline. A failure — a toolchain or module cache the recipe
+// removed after installing — costs the edges only, not the build: without them every
+// module not declared in go.mod is still recorded as indirect.
+func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, imageRef string, cataloger scanner.Cataloger, targetPlatform string) {
+	// The directive environment comes first so that the offline settings win over a
+	// GOPROXY or GOFLAGS it sets: there is no network in the container to honor them.
+	var env []string
+	for _, name := range slices.Sorted(maps.Keys(cataloger.Env)) {
+		env = append(env, name+"="+cataloger.Env[name])
+	}
+	env = append(env, "GOFLAGS=-mod=mod", "GOPROXY=off", "GOTOOLCHAIN=local")
+
+	goBin := "go"
+	if cataloger.Manager != "" {
+		goBin = cataloger.Manager
+	}
+
+	graph, err := step.containerBackend.RunCommandInImage(ctx, imageRef, container_backend.RunCommandInImageOpts{
+		CommonOpts: container_backend.CommonOpts{TargetPlatform: targetPlatform},
+		Command:    []string{goBin, "mod", "graph"},
+		Workdir:    cataloger.Workdir,
+		Env:        env,
+	})
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the Go module graph of %s in image %q; the SBOM records no dependencies between its modules: %s\n", cataloger.Workdir, imageRef, err)
+		return
+	}
+
+	edges, err := declared.GoModGraphEdges(bom, graph)
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the Go module graph of %s in image %q; the SBOM records no dependencies between its modules: %s\n", cataloger.Workdir, imageRef, err)
+		return
+	}
+	if len(edges) == 0 {
+		return
+	}
+
+	bom.Dependencies = lo.ToPtr(append(lo.FromPtr(bom.Dependencies), edges...))
+}
+
+// recordDeclaredPackages reads the spec file of the directive out of the scan directory
+// and records the packages it declares as direct dependencies of the BOM root, which at
+// this point is the scan directory syft reported and later becomes the image.
+func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, cataloger scanner.Cataloger, dir string) error {
+	ecosystem := config.PackagesDirectiveType(cataloger.Ecosystem)
+	if len(cataloger.SourcePaths) == 0 || ecosystem == "" {
+		return nil
+	}
+	specPath := filepath.Join(dir, filepath.Clean("/"+cataloger.SourcePaths[0]))
+
+	spec, err := os.ReadFile(specPath)
+	if err != nil {
+		return fmt.Errorf("read spec %s of cataloger %q: %w", cataloger.SourcePaths[0], cataloger.Name, err)
+	}
+
+	pkgs, err := declared.ParseSpec(ecosystem, spec)
+	if err != nil {
+		return fmt.Errorf("read declared packages of cataloger %q: %w", cataloger.Name, err)
+	}
+
+	declared.AddRootEdge(bom, declared.MatchComponents(ctx, bom, ecosystem, pkgs))
+
+	return nil
+}
+
+const sbomArtifactFormatVersion = "8"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

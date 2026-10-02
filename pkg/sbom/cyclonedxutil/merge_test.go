@@ -850,6 +850,83 @@ var _ = Describe("MergeBOMs input isolation", func() {
 	})
 })
 
+var _ = Describe("MergeBOMs root edges", func() {
+	bomWithRoot := func(root, pkgRef, purl string) *cdx.BOM {
+		return &cdx.BOM{
+			SpecVersion:  cdx.SpecVersion1_6,
+			Metadata:     &cdx.Metadata{Component: &cdx.Component{BOMRef: root, Type: cdx.ComponentTypeContainer, Name: root}},
+			Components:   &[]cdx.Component{{BOMRef: pkgRef, Type: cdx.ComponentTypeLibrary, Name: pkgRef, PackageURL: purl}},
+			Dependencies: &[]cdx.Dependency{{Ref: root, Dependencies: &[]string{pkgRef}}},
+		}
+	}
+
+	It("unions the root edges of the base and the imports under the target root", func(ctx SpecContext) {
+		base := bomWithRoot("base-image", "jq", "pkg:generic/jq@1")
+		imported := bomWithRoot("artifact-image", "errors", "pkg:golang/github.com/pkg/errors@v0.9.1")
+		target := bomWithRoot("app-image", "curl", "pkg:generic/curl@8")
+
+		result, err := MergeBOMs(ctx, target, MergeOpts{BaseBOM: base, ImportBOMs: []*cdx.BOM{imported}})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(result.Metadata.Component.BOMRef).To(Equal("app-image"))
+		Expect(dependencyRefs(result)).To(Equal([]string{"app-image"}))
+		refs := lo.Map(*result.Components, func(comp cdx.Component, _ int) string { return comp.BOMRef })
+		Expect(*(*result.Dependencies)[0].Dependencies).To(ConsistOf(refs))
+		Expect(componentNames(result)).To(Equal([]string{"jq", "errors", "curl"}))
+	})
+
+	It("gives an image without declarations of its own the declarations of its base", func(ctx SpecContext) {
+		base := bomWithRoot("base-image", "jq", "pkg:generic/jq@1")
+		target := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Metadata:    &cdx.Metadata{Component: &cdx.Component{BOMRef: "app-image", Type: cdx.ComponentTypeContainer, Name: "app"}},
+		}
+
+		result, err := MergeBOMs(ctx, target, MergeOpts{BaseBOM: base})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(gost.Upsert(result, gost.DefaultConfig())).To(Succeed())
+
+		Expect(dependencyRefs(result)).To(Equal([]string{"app-image"}))
+		Expect(*(*result.Dependencies)[0].Dependencies).To(Equal([]string{(*result.Components)[0].BOMRef}))
+		Expect(gost.GetComponent(&(*result.Components)[0]).AttackSurface).To(Equal(gost.GostValueYes))
+	})
+
+	It("keeps a package the base declares a root when the target's own package depends on it", func(ctx SpecContext) {
+		base := bomWithRoot("base-image", "libssl", "pkg:generic/libssl@3")
+		target := bomWithRoot("app-image", "curl", "pkg:generic/curl@8")
+		*target.Dependencies = append(*target.Dependencies, cdx.Dependency{Ref: "curl", Dependencies: &[]string{"pkg:generic/libssl@3"}})
+
+		result, err := MergeBOMs(ctx, target, MergeOpts{BaseBOM: base})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(gost.Upsert(result, gost.DefaultConfig())).To(Succeed())
+
+		for _, comp := range *result.Components {
+			Expect(gost.GetComponent(&comp).AttackSurface).To(Equal(gost.GostValueYes), comp.Name)
+		}
+	})
+
+	It("drops the root edges of the inputs when the merged document has no root", func(ctx SpecContext) {
+		base := bomWithRoot("base-image", "jq", "pkg:generic/jq@1")
+
+		result, err := MergeBOMs(ctx, nil, MergeOpts{BaseBOM: base})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(result.Dependencies).To(BeNil())
+	})
+
+	It("leaves a vulnerability about the imported image on that image", func(ctx SpecContext) {
+		base := bomWithRoot("base-image", "jq", "pkg:generic/jq@1")
+		base.Vulnerabilities = &[]cdx.Vulnerability{{BOMRef: "vuln-1", ID: "CVE-1", Affects: &[]cdx.Affects{{Ref: "base-image"}}}}
+		target := bomWithRoot("app-image", "curl", "pkg:generic/curl@8")
+
+		result, err := MergeBOMs(ctx, target, MergeOpts{BaseBOM: base})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(*result.Vulnerabilities).To(HaveLen(1))
+		Expect((*result.Vulnerabilities)[0].Affects).To(BeNil())
+	})
+})
+
 var _ = Describe("MergeBOMs ref collisions", func() {
 	It("keeps the graphs of inputs apart when they reuse one ref for different packages", func(ctx SpecContext) {
 		baseBOM := &cdx.BOM{

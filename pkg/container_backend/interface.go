@@ -29,6 +29,16 @@ type RmOpts struct {
 	Force bool
 }
 
+// RunCommandInImageOpts describes one command run inside an image: Command is the
+// executable and its arguments, Workdir the working directory inside the container
+// and Env extra KEY=VALUE entries overlaying the image environment.
+type RunCommandInImageOpts struct {
+	CommonOpts
+	Command []string
+	Workdir string
+	Env     []string
+}
+
 type ReadDirOpts struct {
 	// FileNamePatterns, when set, keeps only regular files whose base name matches one
 	// of the shell patterns (filepath.Match semantics, case-insensitive); everything else
@@ -125,6 +135,12 @@ type ContainerBackend interface {
 	// OpenImageReader creates the container that backs an ImageReader for imageRef,
 	// without executing anything from the image.
 	OpenImageReader(ctx context.Context, imageRef string, opts ReadFileFromImageOpts) (ImageReader, error)
+
+	// RunCommandInImage runs opts.Command in a throwaway container of imageRef with
+	// no network and returns its stdout. The command is executed as the container
+	// entrypoint, so the image needs no shell. A non-zero exit is an error carrying
+	// the command's stderr.
+	RunCommandInImage(ctx context.Context, imageRef string, opts RunCommandInImageOpts) ([]byte, error)
 
 	BuildDockerfile(ctx context.Context, dockerfile []byte, opts BuildDockerfileOpts) (string, error)
 	BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error)

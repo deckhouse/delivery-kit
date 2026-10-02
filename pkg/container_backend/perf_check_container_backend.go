@@ -51,6 +51,14 @@ func (runtime *PerfCheckContainerBackend) ReadFileFromImage(ctx context.Context,
 	return
 }
 
+func (runtime *PerfCheckContainerBackend) RunCommandInImage(ctx context.Context, imageRef string, opts RunCommandInImageOpts) (resOut []byte, resErr error) {
+	logboek.Context(ctx).Default().LogProcess("ContainerBackend.RunCommandInImage %q", imageRef).
+		Do(func() {
+			resOut, resErr = runtime.ContainerBackend.RunCommandInImage(ctx, imageRef, opts)
+		})
+	return
+}
+
 func (runtime *PerfCheckContainerBackend) OpenImageReader(ctx context.Context, imageRef string, opts ReadFileFromImageOpts) (resReader ImageReader, resErr error) {
 	logboek.Context(ctx).Default().LogProcess("ContainerBackend.OpenImageReader %q", imageRef).
 		Do(func() {

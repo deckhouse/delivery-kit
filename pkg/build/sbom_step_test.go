@@ -14,6 +14,7 @@ import (
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/config"
+	"github.com/werf/werf/v3/pkg/container_backend"
 	werfImage "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
@@ -254,6 +255,15 @@ var _ = Describe("SbomStep", func() {
 					return pipBOM, nil
 				}).
 				Times(2)
+			mockBackend.EXPECT().
+				RunCommandInImage(gomock.Any(), imageRef, gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ string, opts container_backend.RunCommandInImageOpts) ([]byte, error) {
+					Expect(opts.Command).To(Equal([]string{"go", "mod", "graph"}))
+					Expect(opts.Workdir).To(Equal("/app"))
+					Expect(opts.Env).To(ContainElements("GOPROXY=off", "GOFLAGS=-mod=mod"))
+					return []byte("example.com/app github.com/samber/lo@v1.47.0\ngithub.com/samber/lo@v1.47.0 golang.org/x/text@v0.3.0\n"), nil
+				}).
+				Times(1)
 
 			step := &sbomStep{containerBackend: mockBackend}
 			bom, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: imageRef}, scanner.DefaultSyftScanOptions(), catalogers, "")
@@ -269,9 +279,33 @@ var _ = Describe("SbomStep", func() {
 				Fail("no component " + name)
 				return ""
 			}
-			Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{
-				{Ref: "scan-go", Dependencies: &[]string{refOf("flask"), refOf("github.com/samber/lo")}},
-			}), "the declared packages of every directive hang off one root; the indirect module and the transitive pip package do not")
+			Expect(*bom.Dependencies).To(ConsistOf(
+				cdx.Dependency{Ref: "scan-go", Dependencies: &[]string{refOf("flask"), refOf("github.com/samber/lo")}},
+				cdx.Dependency{Ref: refOf("github.com/samber/lo"), Dependencies: &[]string{refOf("golang.org/x/text")}},
+			), "the declared packages of every directive hang off one root; the indirect module and the transitive pip package do not; Go modules carry their graph")
+		})
+
+		It("keeps the SBOM when the Go module graph cannot be read from the image", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			ctrl := gomock.NewController(GinkgoT())
+			mockBackend := mock.NewMockContainerBackend(ctrl)
+
+			mockReader := mock.NewMockImageReader(ctrl)
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("module example.com/app\n\nrequire github.com/samber/lo v1.47.0\n"), nil)
+			mockReader.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
+			mockBackend.EXPECT().OpenImageReader(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockReader, nil)
+			mockBackend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(makeBOMJSON("2026-01-01T00:00:00Z",
+				cdx.Component{BOMRef: "lo", Type: cdx.ComponentTypeLibrary, Name: "github.com/samber/lo", Version: "v1.47.0", PackageURL: "pkg:golang/github.com/samber/lo@v1.47.0"},
+			), nil)
+			mockBackend.EXPECT().RunCommandInImage(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("exec: go: not found"))
+
+			step := &sbomStep{containerBackend: mockBackend}
+			bom, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: "app:latest"}, scanner.DefaultSyftScanOptions(), []scanner.Cataloger{
+				{Name: "go-module-file-cataloger", Ecosystem: config.PackagesDirectiveTypeGoMod, Workdir: "/app", SourcePaths: []string{"/app/go.mod"}},
+			}, "")
+			Expect(err).To(Succeed())
+			Expect(*bom.Components).To(HaveLen(1))
+			Expect(bom.Dependencies).To(BeNil(), "the scan root of this fixture has no bom-ref, so no root edge and no module edges remain")
 		})
 
 		It("fails when the spec of a directive cannot be read as a declaration", func(specCtx SpecContext) {

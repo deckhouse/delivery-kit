@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -266,7 +268,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 			return nil, fmt.Errorf("materialize inputs for cataloger %q: %w", cataloger.Name, err)
 		}
 
-		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir)
+		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir, imageInfo.Name, targetPlatform)
 		cleanup(ctx)
 		if err != nil {
 			return nil, err
@@ -291,7 +293,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 	return merged, nil
 }
 
-func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir string) (*cdx.BOM, error) {
+func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir, imageRef, targetPlatform string) (*cdx.BOM, error) {
 	cmd := scanOpts.Commands[0]
 	cmd.Catalogers = []scanner.Cataloger{cataloger}
 	cmd.SourceType = scanner.SourceTypeDir
@@ -323,7 +325,47 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 		return nil, err
 	}
 
+	if cataloger.Ecosystem == config.PackagesDirectiveTypeGoMod {
+		step.recordGoModuleGraph(ctx, bom, imageRef, cataloger, targetPlatform)
+	}
+
 	return bom, nil
+}
+
+// recordGoModuleGraph adds the edges between the Go modules of the directive to the
+// BOM. syft's go.mod cataloger reports no relationships, so the graph is read from
+// `go mod graph` run inside the built image, where the toolchain and the module cache
+// are present by construction: the install command of the directive is `go mod
+// download`. The run is offline. A failure — a toolchain or module cache the recipe
+// removed after installing — costs the edges only, not the build: without them every
+// module not declared in go.mod is still recorded as indirect.
+func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, imageRef string, cataloger scanner.Cataloger, targetPlatform string) {
+	env := []string{"GOFLAGS=-mod=mod", "GOPROXY=off", "GOTOOLCHAIN=local"}
+	for _, name := range slices.Sorted(maps.Keys(cataloger.Env)) {
+		env = append(env, name+"="+cataloger.Env[name])
+	}
+
+	graph, err := step.containerBackend.RunCommandInImage(ctx, imageRef, container_backend.RunCommandInImageOpts{
+		CommonOpts: container_backend.CommonOpts{TargetPlatform: targetPlatform},
+		Command:    []string{"go", "mod", "graph"},
+		Workdir:    cataloger.Workdir,
+		Env:        env,
+	})
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the Go module graph of %s in image %q; the SBOM records no dependencies between its modules: %s\n", cataloger.Workdir, imageRef, err)
+		return
+	}
+
+	edges, err := declared.GoModGraphEdges(bom, graph)
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the Go module graph of %s in image %q; the SBOM records no dependencies between its modules: %s\n", cataloger.Workdir, imageRef, err)
+		return
+	}
+	if len(edges) == 0 {
+		return
+	}
+
+	bom.Dependencies = lo.ToPtr(append(lo.FromPtr(bom.Dependencies), edges...))
 }
 
 // recordDeclaredPackages reads the spec file of the directive out of the scan directory

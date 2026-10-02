@@ -186,16 +186,61 @@ var _ = Describe("Gost SBOM setter", func() {
 			},
 			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
 			map[string]GostValue{"curl": GostValueYes}),
-		Entry("an edge sourced at the image itself does not demote anything",
+		Entry("an edge sourced at the image names the roots and demotes the rest",
 			&cdx.BOM{
 				Metadata:   &cdx.Metadata{Component: &cdx.Component{BOMRef: "image"}},
+				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "openssl"}, {BOMRef: "jq"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "image", Dependencies: &[]string{"curl"}},
+					{Ref: "curl", Dependencies: &[]string{"openssl"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{"curl": GostValueYes, "openssl": GostValueIndirect, "jq": GostValueIndirect}),
+		Entry("a declared root stays a root even when another component depends on it",
+			&cdx.BOM{
+				Metadata:   &cdx.Metadata{Component: &cdx.Component{BOMRef: "image"}},
+				Components: &[]cdx.Component{{BOMRef: "cobra"}, {BOMRef: "pflag"}, {BOMRef: "viper"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "image", Dependencies: &[]string{"cobra", "pflag"}},
+					{Ref: "cobra", Dependencies: &[]string{"pflag"}},
+					{Ref: "viper", Dependencies: &[]string{"pflag"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{"cobra": GostValueYes, "pflag": GostValueYes, "viper": GostValueIndirect}),
+		Entry("an image edge naming no component falls back to the tree",
+			&cdx.BOM{
+				Metadata:   &cdx.Metadata{Component: &cdx.Component{BOMRef: "image"}},
+				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "openssl"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "image", Dependencies: &[]string{"gone"}},
+					{Ref: "curl", Dependencies: &[]string{"openssl"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{"curl": GostValueYes, "openssl": GostValueIndirect}),
+		Entry("an image without a bom-ref cannot declare roots",
+			&cdx.BOM{
+				Metadata:   &cdx.Metadata{Component: &cdx.Component{Name: "image"}},
 				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "jq"}},
 				Dependencies: &[]cdx.Dependency{
-					{Ref: "image", Dependencies: &[]string{"curl", "jq"}},
+					{Ref: "", Dependencies: &[]string{"curl"}},
 				},
 			},
 			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
 			map[string]GostValue{"curl": GostValueYes, "jq": GostValueYes}),
+		Entry("an image edge split across several entries is one declaration",
+			&cdx.BOM{
+				Metadata:   &cdx.Metadata{Component: &cdx.Component{BOMRef: "image"}},
+				Components: &[]cdx.Component{{BOMRef: "a"}, {BOMRef: "b"}, {BOMRef: "c"}},
+				Dependencies: &[]cdx.Dependency{
+					{Ref: "image", Dependencies: &[]string{"a"}},
+					{Ref: "image", Dependencies: &[]string{"b"}},
+				},
+			},
+			Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes},
+			map[string]GostValue{"a": GostValueYes, "b": GostValueYes, "c": GostValueIndirect}),
 		Entry("an edge sourced at a service does not demote anything",
 			&cdx.BOM{
 				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "jq"}},
@@ -305,6 +350,23 @@ var _ = Describe("Gost SBOM setter", func() {
 		nested := lo.FromPtr(bom.Metadata.Component.Components)
 		Expect(GetComponent(&nested[0]).AttackSurface).To(Equal(GostValueYes))
 		Expect(GetComponent(&nested[1]).AttackSurface).To(Equal(GostValueIndirect))
+	})
+
+	It("declares a root nested under the metadata component", func() {
+		bom := &cdx.BOM{
+			Metadata: &cdx.Metadata{Component: &cdx.Component{
+				BOMRef:     "image",
+				Components: &[]cdx.Component{{BOMRef: "curl"}, {BOMRef: "jq"}},
+			}},
+			Dependencies: &[]cdx.Dependency{{Ref: "image", Dependencies: &[]string{"jq"}}},
+		}
+
+		Expect(Upsert(bom, Config{AttackSurface: GostValueYes, SecurityFunction: GostValueYes})).To(Succeed())
+
+		nested := lo.FromPtr(bom.Metadata.Component.Components)
+		Expect(GetComponent(&nested[0]).AttackSurface).To(Equal(GostValueIndirect))
+		Expect(GetComponent(&nested[1]).AttackSurface).To(Equal(GostValueYes))
+		Expect(GetComponent(bom.Metadata.Component).AttackSurface).To(Equal(GostValueYes))
 	})
 
 	It("demotes a nested component the tree depends on", func() {

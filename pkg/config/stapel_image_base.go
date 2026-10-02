@@ -73,13 +73,15 @@ func (c *StapelImageBase) Vex() *Vex {
 	return c.vex
 }
 
-func (c *StapelImageBase) HasOSPMPackages() bool {
+// OSPMPackages returns the spec entries of every os-pm packages directive of the image.
+func (c *StapelImageBase) OSPMPackages() []string {
+	var pkgs []string
 	for _, p := range c.Packages {
-		if p.Type == PackagesDirectiveTypeOSPM && len(p.Spec.Packages) > 0 {
-			return true
+		if p.Type == PackagesDirectiveTypeOSPM {
+			pkgs = append(pkgs, p.Spec.Packages...)
 		}
 	}
-	return false
+	return pkgs
 }
 
 func (c *StapelImageBase) dependsOn() DependsOn {

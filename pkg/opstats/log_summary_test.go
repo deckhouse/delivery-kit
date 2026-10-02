@@ -19,6 +19,8 @@ var _ = ginkgo.DescribeTable("LogSummary cache blocks",
 		}
 
 		output := logSummaryOutput(collector)
+		gomega.Expect(output).NotTo(gomega.ContainSubstring("command time:"))
+		gomega.Expect(output).NotTo(gomega.ContainSubstring("wall must not exceed"))
 		for _, pattern := range expected {
 			gomega.Expect(output).To(gomega.MatchRegexp(pattern))
 		}

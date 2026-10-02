@@ -103,19 +103,19 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 		if err != nil || purl.Type != purlType {
 			return
 		}
-		candidates := byName[nameKey(purlType, fullName(purl))]
-		for _, pkg := range candidates {
+		key := nameKey(purlType, fullName(purl))
+		for _, pkg := range byName[key] {
 			if pkg.Version != "" && pkg.Version != purl.Version {
 				continue
 			}
 			refs = append(refs, comp.BOMRef)
-			matched[pkg.Name] = struct{}{}
+			matched[key] = struct{}{}
 			break
 		}
 	})
 
 	for _, pkg := range pkgs {
-		if _, ok := matched[pkg.Name]; !ok {
+		if _, ok := matched[nameKey(purlType, pkg.Name)]; !ok {
 			logboek.Context(ctx).Debug().LogF("declared %s package %q matches no component of the SBOM\n", ecosystem, pkg.Name)
 		}
 	}

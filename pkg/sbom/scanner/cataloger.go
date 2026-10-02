@@ -1,10 +1,10 @@
 package scanner
 
-import "github.com/werf/werf/v3/pkg/config"
-
 // Cataloger is a syft cataloger to enable for a scan, together with the in-image file
-// paths it targets. Ecosystem is the packages directive type the cataloger serves and
-// Workdir the in-image directory of that directive; the spec file (SourcePaths[0]) is
+// paths it targets. Ecosystem is the packages directive type the cataloger serves (a
+// config.PackagesDirectiveType, kept as a string so that this package does not depend
+// on the configuration), Workdir the in-image directory of that directive and Manager
+// the package manager executable the directive names, when it names one; the spec file (SourcePaths[0]) is
 // parsed after the scan to record which cataloged packages the directive declares, and a
 // Go module graph is read from the image in Workdir. Env is the directive environment,
 // applied when running a command in the image. SourcePaths are required inputs (the
@@ -20,8 +20,9 @@ import "github.com/werf/werf/v3/pkg/config"
 // All are materialized under their full in-image path for a targeted directory scan.
 type Cataloger struct {
 	Name                string
-	Ecosystem           config.PackagesDirectiveType
+	Ecosystem           string
 	Workdir             string
+	Manager             string
 	Env                 map[string]string
 	SourcePaths         []string
 	OptionalSourcePaths []string

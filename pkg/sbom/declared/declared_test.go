@@ -45,6 +45,7 @@ replace github.com/old/unpinned v0.9.0 => github.com/new/unpinned v2.0.0
 				{Name: "github.com/pkg/errors", Version: "v0.9.1"},
 				{Name: "github.com/werf/3p-cobra", Version: "v1.8.1-werf"},
 				{Name: "example.com/mylib"},
+				{Name: "./mylib"},
 				{Name: "github.com/new/pinned", Version: "v2.0.0"},
 				{Name: "github.com/old/unpinned", Version: "v1.0.0"},
 			}),

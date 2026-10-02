@@ -219,8 +219,8 @@ var _ = Describe("SbomStep", func() {
 
 			imageRef := "app:latest"
 			catalogers := []scanner.Cataloger{
-				{Name: "go-module-file-cataloger", Ecosystem: config.PackagesDirectiveTypeGoMod, Workdir: "/app", SourcePaths: []string{"/app/go.mod"}, SourceLang: "Go"},
-				{Name: "python-package-cataloger", Ecosystem: config.PackagesDirectiveTypePythonPip, Workdir: "/svc", SourcePaths: []string{"/svc/requirements.txt"}, SourceLang: "Python"},
+				{Name: "go-module-file-cataloger", Ecosystem: string(config.PackagesDirectiveTypeGoMod), Workdir: "/app", SourcePaths: []string{"/app/go.mod"}, SourceLang: "Go"},
+				{Name: "python-package-cataloger", Ecosystem: string(config.PackagesDirectiveTypePythonPip), Workdir: "/svc", SourcePaths: []string{"/svc/requirements.txt"}, SourceLang: "Python"},
 			}
 
 			mockReader := mock.NewMockImageReader(ctrl)
@@ -294,18 +294,30 @@ var _ = Describe("SbomStep", func() {
 			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("module example.com/app\n\nrequire github.com/samber/lo v1.47.0\n"), nil)
 			mockReader.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
 			mockBackend.EXPECT().OpenImageReader(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockReader, nil)
-			mockBackend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(makeBOMJSON("2026-01-01T00:00:00Z",
-				cdx.Component{BOMRef: "lo", Type: cdx.ComponentTypeLibrary, Name: "github.com/samber/lo", Version: "v1.47.0", PackageURL: "pkg:golang/github.com/samber/lo@v1.47.0"},
-			), nil)
-			mockBackend.EXPECT().RunCommandInImage(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("exec: go: not found"))
+			scanBOM := cyclonedxutil.NewBOM()
+			scanBOM.Metadata = &cdx.Metadata{Component: &cdx.Component{BOMRef: "scan-go", Type: cdx.ComponentTypeFile, Name: "/scan"}}
+			scanBOM.Components = &[]cdx.Component{
+				{BOMRef: "lo", Type: cdx.ComponentTypeLibrary, Name: "github.com/samber/lo", Version: "v1.47.0", PackageURL: "pkg:golang/github.com/samber/lo@v1.47.0"},
+			}
+			scanJSON, err := cyclonedxutil.ToJSON(scanBOM)
+			Expect(err).To(Succeed())
+			mockBackend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(scanJSON, nil)
+			mockBackend.EXPECT().
+				RunCommandInImage(gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ string, opts container_backend.RunCommandInImageOpts) ([]byte, error) {
+					Expect(opts.Command[0]).To(Equal("/usr/local/go/bin/go"), "the manager the directive names runs the graph")
+					Expect(opts.Env[len(opts.Env)-2:]).To(Equal([]string{"GOPROXY=off", "GOTOOLCHAIN=local"}), "the offline settings win over the directive environment")
+					Expect(opts.Env).To(ContainElement("GOPROXY=https://proxy.example.com"))
+					return nil, errors.New("exec: go: not found")
+				})
 
 			step := &sbomStep{containerBackend: mockBackend}
 			bom, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: "app:latest"}, scanner.DefaultSyftScanOptions(), []scanner.Cataloger{
-				{Name: "go-module-file-cataloger", Ecosystem: config.PackagesDirectiveTypeGoMod, Workdir: "/app", SourcePaths: []string{"/app/go.mod"}},
+				{Name: "go-module-file-cataloger", Ecosystem: string(config.PackagesDirectiveTypeGoMod), Workdir: "/app", Manager: "/usr/local/go/bin/go", Env: map[string]string{"GOPROXY": "https://proxy.example.com"}, SourcePaths: []string{"/app/go.mod"}},
 			}, "")
 			Expect(err).To(Succeed())
 			Expect(*bom.Components).To(HaveLen(1))
-			Expect(bom.Dependencies).To(BeNil(), "the scan root of this fixture has no bom-ref, so no root edge and no module edges remain")
+			Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "scan-go", Dependencies: &[]string{(*bom.Components)[0].BOMRef}}}), "the root edge stays; only the module graph is missing")
 		})
 
 		It("fails when the spec of a directive cannot be read as a declaration", func(specCtx SpecContext) {
@@ -321,7 +333,7 @@ var _ = Describe("SbomStep", func() {
 
 			step := &sbomStep{containerBackend: mockBackend}
 			_, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: "app:latest"}, scanner.DefaultSyftScanOptions(), []scanner.Cataloger{
-				{Name: "go-module-file-cataloger", Ecosystem: config.PackagesDirectiveTypeGoMod, Workdir: "/app", SourcePaths: []string{"/app/go.mod"}},
+				{Name: "go-module-file-cataloger", Ecosystem: string(config.PackagesDirectiveTypeGoMod), Workdir: "/app", SourcePaths: []string{"/app/go.mod"}},
 			}, "")
 			Expect(err).To(MatchError(ContainSubstring("read declared packages of cataloger")))
 		})

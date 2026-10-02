@@ -15,28 +15,24 @@ import (
 
 // parseGoMod declares the direct requirements: every `require` without the
 // `// indirect` marker. A module replaced by another one is declared under the
-// replacement's path and version, since that is the module syft catalogs; a
-// module replaced by a local directory keeps its path and is declared without
-// a version, which werf resolves from the git history afterwards.
+// replacement's path and version, since that is the module syft catalogs. A
+// module replaced by a local directory is declared without a version — werf
+// resolves it from the git history afterwards — under both its path and the
+// directory, because syft names the component after the directory until that
+// resolution renames it.
 func parseGoMod(spec []byte) ([]Package, error) {
 	mod, err := modfile.Parse("go.mod", spec, nil)
 	if err != nil {
 		return nil, fmt.Errorf("parse go.mod: %w", err)
 	}
 
-	replaces := make(map[string]Package, len(mod.Replace))
+	replaces := make(map[string][]Package, len(mod.Replace))
 	for _, replace := range mod.Replace {
+		key := replace.Old.Path
 		if replace.Old.Version != "" {
-			continue
+			key += "@" + replace.Old.Version
 		}
-		replaces[replace.Old.Path] = replaceTarget(replace)
-	}
-	versionedReplaces := make(map[string]Package, len(mod.Replace))
-	for _, replace := range mod.Replace {
-		if replace.Old.Version == "" {
-			continue
-		}
-		versionedReplaces[replace.Old.Path+"@"+replace.Old.Version] = replaceTarget(replace)
+		replaces[key] = replaceTargets(replace)
 	}
 
 	var pkgs []Package
@@ -44,12 +40,12 @@ func parseGoMod(spec []byte) ([]Package, error) {
 		if req.Indirect {
 			continue
 		}
-		if target, ok := versionedReplaces[req.Mod.Path+"@"+req.Mod.Version]; ok {
-			pkgs = append(pkgs, target)
+		if targets, ok := replaces[req.Mod.Path+"@"+req.Mod.Version]; ok {
+			pkgs = append(pkgs, targets...)
 			continue
 		}
-		if target, ok := replaces[req.Mod.Path]; ok {
-			pkgs = append(pkgs, target)
+		if targets, ok := replaces[req.Mod.Path]; ok {
+			pkgs = append(pkgs, targets...)
 			continue
 		}
 		pkgs = append(pkgs, Package{Name: req.Mod.Path, Version: req.Mod.Version})
@@ -58,11 +54,11 @@ func parseGoMod(spec []byte) ([]Package, error) {
 	return pkgs, nil
 }
 
-func replaceTarget(replace *modfile.Replace) Package {
+func replaceTargets(replace *modfile.Replace) []Package {
 	if modfile.IsDirectoryPath(replace.New.Path) {
-		return Package{Name: replace.Old.Path}
+		return []Package{{Name: replace.Old.Path}, {Name: replace.New.Path}}
 	}
-	return Package{Name: replace.New.Path, Version: replace.New.Version}
+	return []Package{{Name: replace.New.Path, Version: replace.New.Version}}
 }
 
 // parsePackageJSON declares `dependencies` and `devDependencies`. Versions in

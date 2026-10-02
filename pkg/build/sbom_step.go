@@ -325,7 +325,7 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 		return nil, err
 	}
 
-	if cataloger.Ecosystem == config.PackagesDirectiveTypeGoMod {
+	if config.PackagesDirectiveType(cataloger.Ecosystem) == config.PackagesDirectiveTypeGoMod {
 		step.recordGoModuleGraph(ctx, bom, imageRef, cataloger, targetPlatform)
 	}
 
@@ -340,14 +340,22 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 // removed after installing — costs the edges only, not the build: without them every
 // module not declared in go.mod is still recorded as indirect.
 func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, imageRef string, cataloger scanner.Cataloger, targetPlatform string) {
-	env := []string{"GOFLAGS=-mod=mod", "GOPROXY=off", "GOTOOLCHAIN=local"}
+	// The directive environment comes first so that the offline settings win over a
+	// GOPROXY or GOFLAGS it sets: there is no network in the container to honor them.
+	var env []string
 	for _, name := range slices.Sorted(maps.Keys(cataloger.Env)) {
 		env = append(env, name+"="+cataloger.Env[name])
+	}
+	env = append(env, "GOFLAGS=-mod=mod", "GOPROXY=off", "GOTOOLCHAIN=local")
+
+	goBin := "go"
+	if cataloger.Manager != "" {
+		goBin = cataloger.Manager
 	}
 
 	graph, err := step.containerBackend.RunCommandInImage(ctx, imageRef, container_backend.RunCommandInImageOpts{
 		CommonOpts: container_backend.CommonOpts{TargetPlatform: targetPlatform},
-		Command:    []string{"go", "mod", "graph"},
+		Command:    []string{goBin, "mod", "graph"},
 		Workdir:    cataloger.Workdir,
 		Env:        env,
 	})
@@ -372,7 +380,8 @@ func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, ima
 // and records the packages it declares as direct dependencies of the BOM root, which at
 // this point is the scan directory syft reported and later becomes the image.
 func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, cataloger scanner.Cataloger, dir string) error {
-	if len(cataloger.SourcePaths) == 0 || cataloger.Ecosystem == "" {
+	ecosystem := config.PackagesDirectiveType(cataloger.Ecosystem)
+	if len(cataloger.SourcePaths) == 0 || ecosystem == "" {
 		return nil
 	}
 	specPath := filepath.Join(dir, filepath.Clean("/"+cataloger.SourcePaths[0]))
@@ -382,12 +391,12 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 		return fmt.Errorf("read spec %s of cataloger %q: %w", cataloger.SourcePaths[0], cataloger.Name, err)
 	}
 
-	pkgs, err := declared.ParseSpec(cataloger.Ecosystem, spec)
+	pkgs, err := declared.ParseSpec(ecosystem, spec)
 	if err != nil {
 		return fmt.Errorf("read declared packages of cataloger %q: %w", cataloger.Name, err)
 	}
 
-	declared.AddRootEdge(bom, declared.MatchComponents(ctx, bom, cataloger.Ecosystem, pkgs))
+	declared.AddRootEdge(bom, declared.MatchComponents(ctx, bom, ecosystem, pkgs))
 
 	return nil
 }

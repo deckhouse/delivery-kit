@@ -61,8 +61,9 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		workdir := directive.FileBased.Workdir
 		cataloger := scanner.Cataloger{
 			Name:        res.catalogerName,
-			Ecosystem:   directive.Type,
+			Ecosystem:   string(directive.Type),
 			Workdir:     workdir,
+			Manager:     directive.FileBased.Manager,
 			Env:         directive.Env,
 			SourcePaths: []string{path.Join(workdir, directive.FileBased.Spec)},
 			SourceLang:  res.sourceLang,

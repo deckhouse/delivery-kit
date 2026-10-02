@@ -827,7 +827,6 @@ func (backend *BuildahBackend) BuildStapelStage(ctx context.Context, baseImage s
 
 // GetImageInfo returns nil, nil if image not found.
 func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opts GetImageInfoOpts) (*image.Info, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageInspect)()
 	inspectRef := ref
 	inspectedByCachedID := false
 	if opts.TargetPlatform != "" {
@@ -932,7 +931,6 @@ func (backend *BuildahBackend) Pull(ctx context.Context, ref string, opts PullOp
 	// platforms must still be serialized.
 	defer backend.lockPull(ctx, ref)()
 
-	defer opstats.Observe(ctx, opstats.OperationImagePull)()
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
 		logWriter = logboek.Context(ctx).OutStream()
@@ -966,7 +964,6 @@ func (backend *BuildahBackend) Tag(ctx context.Context, ref, newRef string, opts
 }
 
 func (backend *BuildahBackend) Push(ctx context.Context, ref string, opts PushOpts) error {
-	defer opstats.Observe(ctx, opstats.OperationImagePush)()
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
 		logWriter = logboek.Context(ctx).OutStream()
@@ -1451,17 +1448,14 @@ func (backend *BuildahBackend) PruneVolumes(_ context.Context, _ prune.Options) 
 }
 
 func (backend *BuildahBackend) SaveImageToStream(ctx context.Context, imageName string) (io.ReadCloser, error) {
-	done := opstats.Observe(ctx, opstats.OperationImageSaveLoad)
 	rc, err := backend.buildah.SaveImageToStream(ctx, imageName)
 	if err != nil {
-		done()
 		return nil, fmt.Errorf("unable to save image %q to stream: %w", imageName, err)
 	}
-	return opstats.NewObservedReadCloser(rc, done), nil
+	return rc, nil
 }
 
 func (backend *BuildahBackend) LoadImageFromStream(ctx context.Context, input io.Reader) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageSaveLoad)()
 	imageID, err := backend.buildah.LoadImageFromStream(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("unable to load image from stream: %w", err)

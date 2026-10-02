@@ -1,59 +1,26 @@
 package container_backend
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 
-	"github.com/werf/werf/v3/pkg/buildah"
 	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/test/pkg/buildahstub"
 )
 
-type stubBuildContextArchive struct {
-	BuildContextArchiver
-	dir string
-}
-
-func (a *stubBuildContextArchive) ExtractOrGetExtractedDir(_ context.Context) (string, error) {
-	return a.dir, nil
-}
-
-type slowDockerfileBuildStub struct {
-	buildah.Buildah
-	duration time.Duration
-}
-
-func (b *slowDockerfileBuildStub) BuildFromDockerfile(_ context.Context, _ string, _ buildah.BuildFromDockerfileOpts) (string, error) {
-	time.Sleep(b.duration)
-	return "sha256:built", nil
-}
-
-func newTarArchive(name, content string) io.ReadCloser {
-	var buf bytes.Buffer
-	writer := tar.NewWriter(&buf)
-	Expect(writer.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))})).To(Succeed())
-	_, err := writer.Write([]byte(content))
-	Expect(err).ToNot(HaveOccurred())
-	Expect(writer.Close()).To(Succeed())
-	return io.NopCloser(&buf)
-}
-
-var _ = Describe("BuildahBackend operation stats", func() {
+var _ = ginkgo.Describe("BuildahBackend operation stats", func() {
 	var (
 		collector *opstats.Collector
 		ctx       context.Context
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		collector = opstats.NewCollector()
 		ctx = opstats.NewContext(context.Background(), collector)
 	})
@@ -67,34 +34,39 @@ var _ = Describe("BuildahBackend operation stats", func() {
 		return nil
 	}
 
-	It("measures only the build context preparation around the Dockerfile build", func() {
-		Expect(werf.Init(GinkgoT().TempDir(), "")).To(Succeed())
+	ginkgo.It("closes the build context preparation before the Dockerfile build starts", func() {
+		gomega.Expect(werf.Init(ginkgo.GinkgoT().TempDir(), "")).To(gomega.Succeed())
 
-		backend := NewBuildahBackend(&slowDockerfileBuildStub{duration: 200 * time.Millisecond}, BuildahBackendOptions{})
+		var atBuild []opstats.OperationSummary
+		stub := &dockerfileBuildStub{onBuild: func(_ context.Context) {
+			atBuild = collector.Summary()
+		}}
+		backend := NewBuildahBackend(stub, BuildahBackendOptions{})
 
 		imageID, err := backend.BuildDockerfile(ctx, []byte("FROM scratch\n"), BuildDockerfileOpts{
-			BuildContextArchive: &stubBuildContextArchive{dir: GinkgoT().TempDir()},
+			BuildContextArchive: &stubBuildContextArchive{dir: ginkgo.GinkgoT().TempDir()},
 		})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(imageID).To(Equal("sha256:built"))
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		gomega.Expect(imageID).To(gomega.Equal("sha256:built"))
 
-		prepare := observed("buildah: stage prepare")
-		Expect(prepare).ToNot(BeNil())
-		Expect(prepare.Count).To(Equal(1))
-		Expect(prepare.TotalTime).To(BeNumerically("<", 100*time.Millisecond))
-		Expect(observed(opstats.OperationStageBuild)).To(BeNil())
+		gomega.Expect(atBuild).To(gomega.HaveLen(1), "the preparation must be recorded, and nothing else, by the time the build starts")
+		gomega.Expect(atBuild[0].Operation).To(gomega.Equal(opstats.Operation("buildah: stage prepare")))
+		gomega.Expect(atBuild[0].Count).To(gomega.Equal(1))
+
+		gomega.Expect(observed("buildah: stage prepare").Count).To(gomega.Equal(1), "the deferred call must not record the preparation a second time")
+		gomega.Expect(observed(opstats.OperationStageBuild)).To(gomega.BeNil())
 	})
 
-	It("does not aggregate the whole Stapel stage build", func() {
+	ginkgo.It("does not aggregate the whole Stapel stage build", func() {
 		stub := &buildahstub.BuildahStub{}
 		backend := NewBuildahBackend(stub, BuildahBackendOptions{})
 
 		_, err := backend.BuildStapelStage(ctx, "base-image", BuildStapelStageOptions{})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(collector.Summary()).To(BeEmpty())
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		gomega.Expect(collector.Summary()).To(gomega.BeEmpty())
 	})
 
-	It("measures waiting for a concurrent pull of the same image", func() {
+	ginkgo.It("measures waiting for a concurrent pull of the same image", func() {
 		backend := NewBuildahBackend(&buildahstub.BuildahStub{}, BuildahBackendOptions{})
 
 		unlock := backend.lockPull(ctx, "image")
@@ -103,44 +75,44 @@ var _ = Describe("BuildahBackend operation stats", func() {
 			defer close(waiterDone)
 			backend.lockPull(ctx, "image")()
 		}()
-		Consistently(waiterDone, 100*time.Millisecond).ShouldNot(BeClosed())
+		gomega.Consistently(waiterDone, 100*time.Millisecond).ShouldNot(gomega.BeClosed())
 		unlock()
-		Eventually(waiterDone).Should(BeClosed())
+		gomega.Eventually(waiterDone).Should(gomega.BeClosed())
 
 		wait := observed("buildah: image pull lock wait")
-		Expect(wait).ToNot(BeNil())
-		Expect(wait.Count).To(Equal(2))
-		Expect(wait.MaxTime).To(BeNumerically(">=", 100*time.Millisecond))
+		gomega.Expect(wait).ToNot(gomega.BeNil())
+		gomega.Expect(wait.Count).To(gomega.Equal(2))
+		gomega.Expect(wait.MaxTime).To(gomega.BeNumerically(">=", 100*time.Millisecond))
 	})
 
-	It("measures unpacking data archives into the container root", func() {
-		container := &containerDesc{Name: "container", RootMount: GinkgoT().TempDir()}
+	ginkgo.It("measures unpacking data archives into the container root", func() {
+		container := &containerDesc{Name: "container", RootMount: ginkgo.GinkgoT().TempDir()}
 
 		err := (&BuildahBackend{}).applyDataArchives(ctx, container, []DataArchiveSpec{
 			{Archive: newTarArchive("file.txt", "content"), Type: DirectoryArchive, To: "/app"},
 		})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(os.ReadFile(filepath.Join(container.RootMount, "app", "file.txt"))).To(Equal([]byte("content")))
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		gomega.Expect(os.ReadFile(filepath.Join(container.RootMount, "app", "file.txt"))).To(gomega.Equal([]byte("content")))
 
 		unpack := observed("buildah: unpack files")
-		Expect(unpack).ToNot(BeNil())
-		Expect(unpack.Count).To(Equal(1))
+		gomega.Expect(unpack).ToNot(gomega.BeNil())
+		gomega.Expect(unpack.Count).To(gomega.Equal(1))
 	})
 
-	It("measures removing data from the container root", func() {
-		rootMount := GinkgoT().TempDir()
+	ginkgo.It("measures removing data from the container root", func() {
+		rootMount := ginkgo.GinkgoT().TempDir()
 		removedPath := filepath.Join(rootMount, "app", "file.txt")
-		Expect(os.MkdirAll(filepath.Dir(removedPath), 0o755)).To(Succeed())
-		Expect(os.WriteFile(removedPath, []byte("content"), 0o644)).To(Succeed())
+		gomega.Expect(os.MkdirAll(filepath.Dir(removedPath), 0o755)).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(removedPath, []byte("content"), 0o644)).To(gomega.Succeed())
 
 		err := (&BuildahBackend{}).applyRemoveData(ctx, &containerDesc{Name: "container", RootMount: rootMount}, []RemoveDataSpec{
 			{Type: RemoveExactPath, Paths: []string{"/app/file.txt"}},
 		})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(removedPath).ToNot(BeAnExistingFile())
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		gomega.Expect(removedPath).ToNot(gomega.BeAnExistingFile())
 
 		remove := observed("buildah: remove files")
-		Expect(remove).ToNot(BeNil())
-		Expect(remove.Count).To(Equal(1))
+		gomega.Expect(remove).ToNot(gomega.BeNil())
+		gomega.Expect(remove.Count).To(gomega.Equal(1))
 	})
 })

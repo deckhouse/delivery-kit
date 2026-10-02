@@ -610,7 +610,9 @@ The JSON report contains detailed information about the build:
 
 * **ImagesByPlatform** — per-platform breakdown for multiarch builds. This field is populated only when the `WERF_ENABLE_REPORT_BY_PLATFORM=1` environment variable is set. The record structure is the same as in `Images`, but the data is grouped by image name and platform.
 
-* **Operations** — aggregated timings of low-level operations collected for the whole command run (stage build, image pull/push, registry API calls, git operations, werf config render, giterminism initialization, stage lock waits and so on). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
+* **Operations** — aggregated timings of low-level operations collected for the whole command run (Docker and Buildah build, run, commit, list, inspect and image transfer operations, registry API calls, git operations, preparation and lock waits). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
+
+Docker and Buildah operations use the `docker:` and `buildah:` prefixes. Build and attached container-run timings include completion of the build or container command; save and copy streams are measured until EOF, a read error, or close. `stage lock wait (storage)` measures synchronization lock acquisition (HTTP, Kubernetes, or local storage locks), including retries, but not the time the lock is held. `local stage cache lock wait` measures contention on the in-process image-list cache separately from the listing itself. Nested and parallel operations overlap: do not add their wall times to calculate command duration.
 
 * **StageCache** — per-source counters of how stages were satisfied during the build, counted in stages: found in the local or repo stages storage, copied from a secondary storage, or built. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`).
 
@@ -694,7 +696,7 @@ Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache
       "AvgTimeSeconds": 0.122435459,
       "MaxTimeSeconds": 0.122435459
     },
-    "local image inspect": {
+    "docker: image inspect": {
       "Count": 5,
       "TotalTimeSeconds": 0.110243333,
       "WallTimeSeconds": 0.110243333,
@@ -708,7 +710,7 @@ Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache
       "AvgTimeSeconds": 2.905423333,
       "MaxTimeSeconds": 2.905423333
     },
-    "stage build": {
+    "docker: build": {
       "Count": 2,
       "TotalTimeSeconds": 0.831474958,
       "WallTimeSeconds": 0.831474958,

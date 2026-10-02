@@ -164,6 +164,7 @@ func mapBackendFiltersToImagesPruneFilters(list filter.FilterList) client.Filter
 }
 
 func doCliPull(ctx context.Context, c command.Cli, args ...string) error {
+	defer opstats.Observe(ctx, "docker: image pull")()
 	cmd, err := lookupCliCommand(c, "pull")
 	if err != nil {
 		return err
@@ -241,6 +242,7 @@ func CliPullWithRetries(ctx context.Context, args ...string) error {
 }
 
 func doCliPush(ctx context.Context, c command.Cli, args ...string) error {
+	defer opstats.Observe(ctx, "docker: image push")()
 	cmd, err := lookupCliCommand(c, "push")
 	if err != nil {
 		return err

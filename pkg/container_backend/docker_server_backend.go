@@ -28,7 +28,6 @@ import (
 	"github.com/werf/werf/v3/pkg/container_backend/prune"
 	"github.com/werf/werf/v3/pkg/docker"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/ssh_agent"
 	"github.com/werf/werf/v3/pkg/tmp_manager"
@@ -89,7 +88,6 @@ func (backend *DockerServerBackend) BuildStapelStage(ctx context.Context, baseIm
 }
 
 func (backend *DockerServerBackend) BuildDockerfile(ctx context.Context, dockerfileContent []byte, opts BuildDockerfileOpts) (string, error) {
-	defer opstats.Observe(ctx, "docker: image build")()
 	switch {
 	case opts.BuildContextArchive == nil:
 		panic(fmt.Sprintf("BuildContextArchive can't be nil: %+v", opts))

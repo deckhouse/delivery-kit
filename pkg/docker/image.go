@@ -317,6 +317,7 @@ type CliBuildOptions struct {
 }
 
 func CliBuild_LiveOutputWithCustomIn(ctx context.Context, rc io.ReadCloser, cliOpts CliBuildOptions) (string, error) {
+	defer opstats.Observe(ctx, "docker: image build")()
 	buildOpts := &commands.BuildOptions{
 		ContextPath:            cliOpts.ContextPath,
 		ExportLoad:             true,

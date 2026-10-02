@@ -34,7 +34,7 @@ var _ = ginkgo.Describe("Legacy stage container instrumentation", func() {
 })
 
 var _ = ginkgo.Describe("DockerServerBackend Dockerfile build instrumentation", func() {
-	ginkgo.It("measures the build as a single docker image build operation", func() {
+	ginkgo.It("does not measure the build context preparation that precedes the build", func() {
 		collector := opstats.NewCollector()
 		ctx := opstats.NewContext(context.Background(), collector)
 
@@ -44,10 +44,7 @@ var _ = ginkgo.Describe("DockerServerBackend Dockerfile build instrumentation", 
 		})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("extraction failed")))
 
-		summary := collector.Summary()
-		gomega.Expect(summary).To(gomega.HaveLen(1))
-		gomega.Expect(summary[0].Operation).To(gomega.Equal(opstats.Operation("docker: image build")))
-		gomega.Expect(summary[0].Count).To(gomega.Equal(1))
+		gomega.Expect(collector.Summary()).To(gomega.BeEmpty(), "the build is measured by the docker CLI build handler, not by the backend preparation")
 	})
 })
 

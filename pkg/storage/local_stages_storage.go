@@ -234,14 +234,14 @@ func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, proje
 // registerProjectListing marks the project as being listed before the listing starts, so that a
 // stage published while it is in flight is preserved instead of being dropped by its result.
 func (storage *LocalStagesStorage) registerProjectListing(ctx context.Context, projectName string) {
-	storage.lockImagesCache()
+	storage.imagesCacheMutex.Lock()
 	defer storage.imagesCacheMutex.Unlock()
 
 	storage.putProjectSnapshot(projectName, storage.imagesCache[projectName])
 }
 
 func (storage *LocalStagesStorage) storeProjectSnapshot(ctx context.Context, projectName string, references []string, listingStartedAt time.Time) []string {
-	storage.lockImagesCache()
+	storage.imagesCacheMutex.Lock()
 	defer storage.imagesCacheMutex.Unlock()
 
 	entry := storage.imagesCache[projectName]
@@ -272,7 +272,7 @@ func (storage *LocalStagesStorage) storeProjectSnapshot(ctx context.Context, pro
 }
 
 func (storage *LocalStagesStorage) loadProjectSnapshot(ctx context.Context, projectName string) (localProjectSnapshot, bool) {
-	storage.lockImagesCache()
+	storage.imagesCacheMutex.Lock()
 	defer storage.imagesCacheMutex.Unlock()
 
 	entry, isCached := storage.imagesCache[projectName]
@@ -311,10 +311,6 @@ func trimLocalStageReference(reference string) string {
 	return strings.TrimPrefix(reference, "localhost/")
 }
 
-func (storage *LocalStagesStorage) lockImagesCache() {
-	storage.imagesCacheMutex.Lock()
-}
-
 func (storage *LocalStagesStorage) rememberPublishedStage(ctx context.Context, reference string) {
 	reference = trimLocalStageReference(reference)
 	projectName, tag := image.ParseRepositoryAndTag(reference)
@@ -322,7 +318,7 @@ func (storage *LocalStagesStorage) rememberPublishedStage(ctx context.Context, r
 		return
 	}
 
-	storage.lockImagesCache()
+	storage.imagesCacheMutex.Lock()
 	defer storage.imagesCacheMutex.Unlock()
 
 	entry, isCached := storage.imagesCache[projectName]

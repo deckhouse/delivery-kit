@@ -156,6 +156,24 @@ var _ = ginkgo.DescribeTable("docker cli registry transfers", func(ctx ginkgo.Sp
 	}),
 )
 
+var _ = ginkgo.Describe("docker cli build", func() {
+	ginkgo.It("measures the cli build itself", func(ctx ginkgo.SpecContext) {
+		cliCtx := cliDaemonContext(newMissingImageDaemonServer())
+
+		collector := opstats.NewCollector()
+		_, err := CliBuild_LiveOutputWithCustomIn(opstats.NewContext(cliCtx, collector), io.NopCloser(strings.NewReader("")), CliBuildOptions{
+			ContextPath:    "-",
+			DockerfileName: "Dockerfile",
+		})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		summary := collector.Summary()
+		gomega.Expect(summary).To(gomega.HaveLen(1))
+		gomega.Expect(summary[0].Operation).To(gomega.Equal(opstats.Operation("docker: image build")))
+		gomega.Expect(summary[0].Count).To(gomega.Equal(1))
+	})
+})
+
 var _ = ginkgo.Describe("docker cli run", func() {
 	const createDelay = 300 * time.Millisecond
 

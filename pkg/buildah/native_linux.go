@@ -337,7 +337,7 @@ func (b *NativeBuildah) GetDefaultPlatform() string {
 
 // Inspect returns nil, nil if image not found.
 func (b *NativeBuildah) Inspect(ctx context.Context, ref string) (*thirdparty.BuilderInfo, error) {
-	defer opstats.Observe(ctx, "buildah: inspect")()
+	defer opstats.Observe(ctx, "buildah: image inspect")()
 	builder, err := b.getBuilderFromImage(ctx, ref, CommonOpts{})
 	if err != nil {
 		return nil, fmt.Errorf("error doing inspect: %w", err)
@@ -397,7 +397,7 @@ func (b *NativeBuildah) Push(ctx context.Context, ref string, opts PushOpts) err
 }
 
 func (b *NativeBuildah) BuildFromDockerfile(ctx context.Context, dockerfile string, opts BuildFromDockerfileOpts) (string, error) {
-	defer opstats.Observe(ctx, "buildah: build")()
+	defer opstats.Observe(ctx, "buildah: image build")()
 	var targetPlatform string
 	var targetPlatforms []struct{ OS, Arch, Variant string }
 	if opts.TargetPlatform != "" {
@@ -973,7 +973,7 @@ func (b *NativeBuildah) MutateConfig(ctx context.Context, container string, newC
 }
 
 func (b *NativeBuildah) Copy(ctx context.Context, container, contextDir string, src []string, dst string, opts CopyOpts) error {
-	defer opstats.Observe(ctx, "buildah: copy")()
+	defer opstats.Observe(ctx, "buildah: container copy")()
 	builder, err := b.openContainerBuilder(ctx, container)
 	if err != nil {
 		return fmt.Errorf("unable to open container %q builder: %w", container, err)
@@ -1010,7 +1010,7 @@ func (b *NativeBuildah) Copy(ctx context.Context, container, contextDir string, 
 }
 
 func (b *NativeBuildah) Add(ctx context.Context, container string, src []string, dst string, opts AddOpts) error {
-	defer opstats.Observe(ctx, "buildah: add")()
+	defer opstats.Observe(ctx, "buildah: container add")()
 	builder, err := b.openContainerBuilder(ctx, container)
 	if err != nil {
 		return fmt.Errorf("unable to open container %q builder: %w", container, err)

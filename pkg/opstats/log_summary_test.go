@@ -11,7 +11,7 @@ var _ = ginkgo.DescribeTable("LogSummary cache blocks",
 	func(events map[Event]int, expected, forbidden []string) {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
-		Observe(ctx, OperationStageBuild)()
+		Observe(ctx, Operation("docker: image build"))()
 		for event, count := range events {
 			for range count {
 				CountEvent(ctx, event)

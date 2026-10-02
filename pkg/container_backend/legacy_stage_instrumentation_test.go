@@ -1,6 +1,8 @@
 package container_backend
 
 import (
+	"context"
+	"errors"
 	"net/http"
 
 	"github.com/onsi/ginkgo/v2"
@@ -10,7 +12,7 @@ import (
 )
 
 var _ = ginkgo.Describe("Legacy stage container instrumentation", func() {
-	ginkgo.It("records the stage preparation separately from the container run", func() {
+	ginkgo.It("measures the inspect of the base image without measuring werf-level preparation", func() {
 		ctx, collector := dockerDaemonContext(daemonHandler(http.StatusInternalServerError, `{"message":"daemon failure"}`))
 
 		backend := &DockerServerBackend{}
@@ -25,9 +27,27 @@ var _ = ginkgo.Describe("Legacy stage container instrumentation", func() {
 
 		gomega.Expect(container.run(ctx)).NotTo(gomega.Succeed())
 
-		gomega.Expect(operationCount(collector, "docker: stage prepare")).To(gomega.Equal(1))
 		gomega.Expect(operationCount(collector, "docker: image inspect")).To(gomega.Equal(1))
+		gomega.Expect(collector.Summary()).To(gomega.HaveLen(1), "the stage preparation must not be measured")
 		gomega.Expect(operationCount(collector, "docker: container run")).To(gomega.Equal(0), "the run must not be measured when the preparation fails")
+	})
+})
+
+var _ = ginkgo.Describe("DockerServerBackend Dockerfile build instrumentation", func() {
+	ginkgo.It("measures the build as a single docker image build operation", func() {
+		collector := opstats.NewCollector()
+		ctx := opstats.NewContext(context.Background(), collector)
+
+		_, err := (&DockerServerBackend{}).BuildDockerfile(ctx, []byte("FROM scratch\n"), BuildDockerfileOpts{
+			DockerfileCtxRelPath: "../Dockerfile",
+			BuildContextArchive:  &stubBuildContextArchive{err: errors.New("extraction failed")},
+		})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("extraction failed")))
+
+		summary := collector.Summary()
+		gomega.Expect(summary).To(gomega.HaveLen(1))
+		gomega.Expect(summary[0].Operation).To(gomega.Equal(opstats.Operation("docker: image build")))
+		gomega.Expect(summary[0].Count).To(gomega.Equal(1))
 	})
 })
 

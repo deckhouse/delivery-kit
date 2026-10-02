@@ -10,7 +10,6 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/werf"
 )
 
@@ -100,9 +99,7 @@ func (i *LegacyStageImage) Build(ctx context.Context, options BuildOptions) erro
 	}
 
 	containerLockName := ContainerLockName(i.container.Name())
-	lockWaitDone := opstats.Observe(ctx, "docker: container lock wait")
 	_, lock, err := werf.HostLocker().AcquireLock(ctx, containerLockName, lockgate.AcquireOptions{})
-	lockWaitDone()
 	if err != nil {
 		return fmt.Errorf("failed to lock %s: %w", containerLockName, err)
 	}

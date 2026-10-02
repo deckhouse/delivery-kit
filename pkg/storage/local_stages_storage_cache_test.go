@@ -25,23 +25,17 @@ var (
 )
 
 var _ = ginkgo.Describe("Local stage lookup cache", func() {
-	ginkgo.It("finishes recording every cache lock wait before listing images", func(ctx ginkgo.SpecContext) {
+	ginkgo.It("does not measure its own cache waits", func(ctx ginkgo.SpecContext) {
 		collector := opstats.NewCollector()
 		observedCtx := opstats.NewContext(ctx, collector)
 		backend := newLocalPublishBackendStub(nil)
-		backend.onList = func(_ int) {
-			defer ginkgo.GinkgoRecover()
-			gomega.Expect(operationCount(collector, "local stage cache lock wait")).To(gomega.Equal(2))
-			gomega.Expect(operationCount(collector, "local stage cache refresh wait")).To(gomega.BeZero())
-		}
 
 		storage := NewLocalStagesStorage(backend)
 		_, err := storage.GetStagesIDsByDigest(observedCtx, "project", cachedDigestA, 0, WithCache())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(storage.StoreImage(observedCtx, &localStageImageStub{name: "project:" + cachedTagA})).To(gomega.Succeed())
 
-		gomega.Expect(operationCount(collector, "local stage cache lock wait")).To(gomega.Equal(4))
-		gomega.Expect(operationCount(collector, "local stage cache refresh wait")).To(gomega.Equal(1))
+		gomega.Expect(collector.Summary()).To(gomega.BeEmpty(), "waiting for the in-process stage cache is a werf-level wait and must not be measured")
 	})
 
 	ginkgo.It("reuses one project image list for different missing digests", func(ctx ginkgo.SpecContext) {

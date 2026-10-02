@@ -27,7 +27,7 @@ var _ = ginkgo.Describe("NativeBuildah operation stats", func() {
 			gomega.Expect(summary[0].Operation).To(gomega.Equal(expectedOp))
 			gomega.Expect(summary[0].Count).To(gomega.Equal(1))
 		},
-		ginkgo.Entry("BuildFromDockerfile", opstats.Operation("buildah: build"), func(ctx context.Context, b *NativeBuildah) error {
+		ginkgo.Entry("BuildFromDockerfile", opstats.Operation("buildah: image build"), func(ctx context.Context, b *NativeBuildah) error {
 			_, err := b.BuildFromDockerfile(ctx, "Dockerfile", BuildFromDockerfileOpts{CommonOpts: CommonOpts{TargetPlatform: invalidPlatform}})
 			return err
 		}),

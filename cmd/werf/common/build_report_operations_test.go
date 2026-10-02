@@ -91,11 +91,11 @@ var _ = Describe("build report operations option", func() {
 			cmdData := &CmdData{BuildReportOperations: lo.ToPtr(true)}
 			ctx, finish := InitOperationsStatistics(newCtx(level.Default, &out), cmdData)
 
-			opstats.Observe(ctx, opstats.OperationConfigRender)()
+			opstats.Observe(ctx, opstats.OperationGitClone)()
 			finish()
 
 			Expect(out.String()).To(ContainSubstring("Operations summary"))
-			Expect(out.String()).To(ContainSubstring("config render"))
+			Expect(out.String()).To(ContainSubstring("git: clone"))
 			Expect(out.String()).To(ContainSubstring("command time:"))
 		})
 
@@ -104,7 +104,7 @@ var _ = Describe("build report operations option", func() {
 			cmdData := &CmdData{BuildReportOperations: lo.ToPtr(true)}
 			ctx, finish := InitOperationsStatistics(newCtx(level.Default, &out), cmdData)
 
-			opstats.Observe(ctx, opstats.OperationConfigRender)()
+			opstats.Observe(ctx, opstats.OperationGitClone)()
 			logboek.Context(ctx).SetAcceptedLevel(level.Error)
 			finish()
 
@@ -116,7 +116,7 @@ var _ = Describe("build report operations option", func() {
 			cmdData := &CmdData{BuildReportOperations: lo.ToPtr(true)}
 			ctx, finish := InitOperationsStatistics(newCtx(level.Error, &out), cmdData)
 
-			opstats.Observe(ctx, opstats.OperationConfigRender)()
+			opstats.Observe(ctx, opstats.OperationGitClone)()
 			logboek.Context(ctx).SetAcceptedLevel(level.Default)
 			finish()
 

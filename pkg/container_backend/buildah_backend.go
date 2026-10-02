@@ -35,7 +35,6 @@ import (
 	"github.com/werf/werf/v3/pkg/container_backend/info"
 	"github.com/werf/werf/v3/pkg/container_backend/prune"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/path_matcher"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/tmp_manager"
@@ -61,13 +60,10 @@ func NewBuildahBackend(buildah buildah.Buildah, opts BuildahBackendOptions) *Bui
 	}
 }
 
-// lockPull serializes pulls of ref and returns the unlock function, measuring the time
-// spent waiting for a concurrent pull of the same ref to finish.
-func (backend *BuildahBackend) lockPull(ctx context.Context, ref string) func() {
-	waited := opstats.Observe(ctx, "buildah: image pull lock wait")
+// lockPull serializes pulls of ref and returns the unlock function.
+func (backend *BuildahBackend) lockPull(ref string) func() {
 	mu := backend.getPullMutex(ref)
 	mu.Lock()
-	waited()
 
 	return mu.Unlock
 }
@@ -199,7 +195,7 @@ func (backend *BuildahBackend) createContainers(ctx context.Context, images []st
 			logboek.Context(ctx).Debug().LogF("Cached imageID %q for %q not found locally, pulling by ref and retrying\n", resolvedImg, img)
 
 			pulledImageID, pullErr := func() (string, error) {
-				defer backend.lockPull(ctx, img)()
+				defer backend.lockPull(img)()
 
 				pulledImageID, pullErr := backend.buildah.Pull(ctx, img, buildah.PullOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform)))
 				if pullErr == nil && pulledImageID != "" {
@@ -379,7 +375,6 @@ func (backend *BuildahBackend) applyCommands(ctx context.Context, container *con
 }
 
 func (backend *BuildahBackend) applyDataArchives(ctx context.Context, container *containerDesc, dataArchives []DataArchiveSpec) error {
-	defer opstats.Observe(ctx, "buildah: unpack files")()
 	for _, archive := range dataArchives {
 		destPath, err := resolveContainerRootPath(container.RootMount, archive.To)
 		if err != nil {
@@ -431,7 +426,6 @@ func (backend *BuildahBackend) applyDataArchives(ctx context.Context, container 
 }
 
 func (backend *BuildahBackend) applyRemoveData(ctx context.Context, container *containerDesc, removeData []RemoveDataSpec) error {
-	defer opstats.Observe(ctx, "buildah: remove files")()
 	for _, spec := range removeData {
 		switch spec.Type {
 		case RemoveExactPath:
@@ -482,7 +476,6 @@ func (backend *BuildahBackend) applyRemoveData(ctx context.Context, container *c
 }
 
 func (backend *BuildahBackend) applyDependenciesImports(ctx context.Context, container *containerDesc, depImports []DependencyImportSpec, opts CommonOpts) error {
-	defer opstats.Observe(ctx, "buildah: import files")()
 	var depImages []string
 	for _, imp := range depImports {
 		if util.IsStringsContainValue(depImages, imp.ImageName) {
@@ -647,7 +640,7 @@ func (backend *BuildahBackend) ensureImageLocally(ctx context.Context, ref strin
 
 	logboek.Context(ctx).Debug().LogF("Image %q not found locally, pulling\n", ref)
 
-	defer backend.lockPull(ctx, ref)()
+	defer backend.lockPull(ref)()
 
 	// A concurrent caller holding the lock may have pulled the image already.
 	if found, err := checkLocal(); err != nil || found {
@@ -929,7 +922,7 @@ func (backend *BuildahBackend) Pull(ctx context.Context, ref string, opts PullOp
 	// The lock key is intentionally ref only (not ref+platform): the race is on the
 	// storage name, which is derived from ref, so pulls of the same ref for different
 	// platforms must still be serialized.
-	defer backend.lockPull(ctx, ref)()
+	defer backend.lockPull(ref)()
 
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
@@ -991,9 +984,6 @@ func (backend *BuildahBackend) TagImageByName(ctx context.Context, img LegacyIma
 }
 
 func (backend *BuildahBackend) BuildDockerfile(ctx context.Context, dockerfileContent []byte, opts BuildDockerfileOpts) (string, error) {
-	prepared := opstats.Observe(ctx, "buildah: stage prepare")
-	defer prepared()
-
 	buildArgs := make(map[string]string)
 	for _, argStr := range opts.BuildArgs {
 		argParts := strings.SplitN(argStr, "=", 2)
@@ -1031,8 +1021,6 @@ func (backend *BuildahBackend) BuildDockerfile(ctx context.Context, dockerfileCo
 	if err := os.WriteFile(ignorePath, []byte("# the build context is already filtered by werf\n"), 0o600); err != nil {
 		return "", fmt.Errorf("error writing temporary dockerignore %s: %w", ignorePath, err)
 	}
-
-	prepared()
 
 	return backend.buildah.BuildFromDockerfile(ctx, dockerfilePath, buildah.BuildFromDockerfileOpts{
 		CommonOpts:  backend.getBuildahCommonOpts(ctx, false, nil, opts.TargetPlatform),

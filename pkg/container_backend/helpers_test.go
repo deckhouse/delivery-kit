@@ -22,9 +22,13 @@ var _ BuildContextArchiver = (*stubBuildContextArchive)(nil)
 type stubBuildContextArchive struct {
 	BuildContextArchiver
 	dir string
+	err error
 }
 
 func (a *stubBuildContextArchive) ExtractOrGetExtractedDir(_ context.Context) (string, error) {
+	if a.err != nil {
+		return "", a.err
+	}
 	return a.dir, nil
 }
 

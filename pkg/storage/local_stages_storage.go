@@ -20,7 +20,6 @@ import (
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/docker_registry/api"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 const (
@@ -31,11 +30,6 @@ const (
 	LocalStage_ImageFormat               = "%s:%s"
 
 	ImageDeletionFailedDueToUsedByContainerErrorTip = "Use --force option to remove all containers that are based on deleting werf docker images"
-)
-
-const (
-	localStageCacheLockWaitOperation    = "local stage cache lock wait"
-	localStageCacheRefreshWaitOperation = "local stage cache refresh wait"
 )
 
 func IsImageDeletionFailedDueToUsingByContainerErr(err error) bool {
@@ -205,8 +199,6 @@ func (storage *LocalStagesStorage) refreshProjectSnapshot(ctx context.Context, p
 }
 
 func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, projectName string) (localProjectListing, error) {
-	defer opstats.Observe(ctx, localStageCacheRefreshWaitOperation)()
-
 	if err := ctx.Err(); err != nil {
 		return localProjectListing{}, err
 	}
@@ -242,14 +234,14 @@ func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, proje
 // registerProjectListing marks the project as being listed before the listing starts, so that a
 // stage published while it is in flight is preserved instead of being dropped by its result.
 func (storage *LocalStagesStorage) registerProjectListing(ctx context.Context, projectName string) {
-	storage.lockImagesCache(ctx)
+	storage.lockImagesCache()
 	defer storage.imagesCacheMutex.Unlock()
 
 	storage.putProjectSnapshot(projectName, storage.imagesCache[projectName])
 }
 
 func (storage *LocalStagesStorage) storeProjectSnapshot(ctx context.Context, projectName string, references []string, listingStartedAt time.Time) []string {
-	storage.lockImagesCache(ctx)
+	storage.lockImagesCache()
 	defer storage.imagesCacheMutex.Unlock()
 
 	entry := storage.imagesCache[projectName]
@@ -280,7 +272,7 @@ func (storage *LocalStagesStorage) storeProjectSnapshot(ctx context.Context, pro
 }
 
 func (storage *LocalStagesStorage) loadProjectSnapshot(ctx context.Context, projectName string) (localProjectSnapshot, bool) {
-	storage.lockImagesCache(ctx)
+	storage.lockImagesCache()
 	defer storage.imagesCacheMutex.Unlock()
 
 	entry, isCached := storage.imagesCache[projectName]
@@ -319,10 +311,8 @@ func trimLocalStageReference(reference string) string {
 	return strings.TrimPrefix(reference, "localhost/")
 }
 
-func (storage *LocalStagesStorage) lockImagesCache(ctx context.Context) {
-	done := opstats.Observe(ctx, localStageCacheLockWaitOperation)
+func (storage *LocalStagesStorage) lockImagesCache() {
 	storage.imagesCacheMutex.Lock()
-	done()
 }
 
 func (storage *LocalStagesStorage) rememberPublishedStage(ctx context.Context, reference string) {
@@ -332,7 +322,7 @@ func (storage *LocalStagesStorage) rememberPublishedStage(ctx context.Context, r
 		return
 	}
 
-	storage.lockImagesCache(ctx)
+	storage.lockImagesCache()
 	defer storage.imagesCacheMutex.Unlock()
 
 	entry, isCached := storage.imagesCache[projectName]

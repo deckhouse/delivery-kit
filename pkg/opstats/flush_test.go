@@ -15,19 +15,19 @@ var _ = Describe("Collector pending/commit flush", func() {
 		c := NewCollector()
 		base := time.Now()
 
-		c.add(OperationStageBuild, base, base.Add(time.Second))
-		c.add(OperationImagePull, base, base.Add(2*time.Second))
+		c.add(Operation("docker: image build"), base, base.Add(time.Second))
+		c.add(Operation("docker: image pull"), base, base.Add(2*time.Second))
 		c.events[EventStageBuilt] = 2
 
 		Expect(c.PendingSummary(ctx)).To(HaveLen(2))
 		Expect(c.PendingEventSummary(ctx)).To(Equal([]EventSummary{{Event: EventStageBuilt, Count: 2}}))
 		c.CommitFlush(ctx)
 
-		c.add(OperationStageBuild, base.Add(3*time.Second), base.Add(5*time.Second))
+		c.add(Operation("docker: image build"), base.Add(3*time.Second), base.Add(5*time.Second))
 		c.events[EventStageBuilt] = 3
 
 		Expect(c.PendingSummary(ctx)).To(Equal([]OperationSummary{{
-			Operation: OperationStageBuild,
+			Operation: Operation("docker: image build"),
 			Count:     1,
 			TotalTime: 2 * time.Second,
 			WallTime:  2 * time.Second,
@@ -45,14 +45,14 @@ var _ = Describe("Collector pending/commit flush", func() {
 		c := NewCollector()
 		base := time.Now()
 
-		c.add(OperationStageBuild, base, base.Add(time.Second))
+		c.add(Operation("docker: image build"), base, base.Add(time.Second))
 		c.events[EventStageBuilt] = 1
 
 		Expect(c.PendingSummary(ctx)).To(HaveLen(1))
 		Expect(c.PendingSummary(ctx)).To(HaveLen(1))
 		Expect(c.PendingEventSummary(ctx)).To(HaveLen(1))
 
-		c.add(OperationImagePull, base.Add(time.Second), base.Add(2*time.Second))
+		c.add(Operation("docker: image pull"), base.Add(time.Second), base.Add(2*time.Second))
 		Expect(c.PendingSummary(ctx)).To(HaveLen(2))
 	})
 
@@ -60,10 +60,10 @@ var _ = Describe("Collector pending/commit flush", func() {
 		c := NewCollector()
 		base := time.Now()
 
-		c.add(OperationStageBuild, base, base.Add(time.Second))
+		c.add(Operation("docker: image build"), base, base.Add(time.Second))
 		c.events[EventStageBuilt] = 1
 		c.CommitFlush(ctx)
-		c.add(OperationStageBuild, base.Add(2*time.Second), base.Add(3*time.Second))
+		c.add(Operation("docker: image build"), base.Add(2*time.Second), base.Add(3*time.Second))
 		c.events[EventStageBuilt] = 3
 
 		summary := c.Summary()

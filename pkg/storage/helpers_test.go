@@ -22,7 +22,6 @@ import (
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 func startLocalRegistry(ctx context.Context) string {
@@ -270,15 +269,6 @@ func closeIfOpen(ch chan struct{}) {
 	default:
 		close(ch)
 	}
-}
-
-func operationCount(collector *opstats.Collector, operation opstats.Operation) int {
-	for _, summary := range collector.Summary() {
-		if summary.Operation == operation {
-			return summary.Count
-		}
-	}
-	return 0
 }
 
 var (

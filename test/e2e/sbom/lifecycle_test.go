@@ -292,8 +292,6 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 		})
 		Expect(out).To(ContainSubstring("SBOM should be enabled"),
 			"expected explicit error about disabled SBOM; got:\n%s", out)
-		Expect(out).To(ContainSubstring("config render"))
-		Expect(out).To(ContainSubstring("command time:"))
 	})
 
 	It("sbom merge fails when --input file does not exist", func(ctx SpecContext) {

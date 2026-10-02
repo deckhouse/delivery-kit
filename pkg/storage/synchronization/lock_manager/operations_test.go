@@ -34,7 +34,7 @@ var _ = ginkgo.DescribeTable("storage lock acquisition statistics",
 
 		summary := collector.Summary()
 		gomega.Expect(summary).To(gomega.HaveLen(1))
-		gomega.Expect(summary[0].Operation).To(gomega.Equal(opstats.Operation("stage lock wait (storage)")))
+		gomega.Expect(summary[0].Operation).To(gomega.Equal(opstats.Operation("sync: lock acquire")))
 		gomega.Expect(summary[0].Count).To(gomega.Equal(1))
 		if !fail {
 			gomega.Expect(manager.Unlock(observedCtx, handle)).To(gomega.Succeed())

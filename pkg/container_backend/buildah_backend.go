@@ -370,6 +370,7 @@ func (backend *BuildahBackend) applyCommands(ctx context.Context, container *con
 }
 
 func (backend *BuildahBackend) applyDataArchives(ctx context.Context, container *containerDesc, dataArchives []DataArchiveSpec) error {
+	defer opstats.Observe(ctx, "buildah: unpack files")()
 	for _, archive := range dataArchives {
 		destPath, err := resolveContainerRootPath(container.RootMount, archive.To)
 		if err != nil {
@@ -421,6 +422,7 @@ func (backend *BuildahBackend) applyDataArchives(ctx context.Context, container 
 }
 
 func (backend *BuildahBackend) applyRemoveData(ctx context.Context, container *containerDesc, removeData []RemoveDataSpec) error {
+	defer opstats.Observe(ctx, "buildah: remove files")()
 	for _, spec := range removeData {
 		switch spec.Type {
 		case RemoveExactPath:
@@ -471,6 +473,7 @@ func (backend *BuildahBackend) applyRemoveData(ctx context.Context, container *c
 }
 
 func (backend *BuildahBackend) applyDependenciesImports(ctx context.Context, container *containerDesc, depImports []DependencyImportSpec, opts CommonOpts) error {
+	defer opstats.Observe(ctx, "buildah: import files")()
 	var depImages []string
 	for _, imp := range depImports {
 		if util.IsStringsContainValue(depImages, imp.ImageName) {
@@ -677,8 +680,6 @@ func (backend *BuildahBackend) ensureRunMountImages(ctx context.Context, instrs 
 }
 
 func (backend *BuildahBackend) BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
-
 	if err := backend.ensureRunMountImages(ctx, instructions, opts.CommonOpts); err != nil {
 		return "", err
 	}
@@ -732,7 +733,6 @@ func (backend *BuildahBackend) BuildDockerfileStage(ctx context.Context, baseIma
 }
 
 func (backend *BuildahBackend) BuildStapelStage(ctx context.Context, baseImage string, opts BuildStapelStageOptions) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
 	commonOpts := CommonOpts{TargetPlatform: opts.TargetPlatform}
 
 	var container *containerDesc
@@ -989,7 +989,9 @@ func (backend *BuildahBackend) TagImageByName(ctx context.Context, img LegacyIma
 }
 
 func (backend *BuildahBackend) BuildDockerfile(ctx context.Context, dockerfileContent []byte, opts BuildDockerfileOpts) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
+	prepared := opstats.Observe(ctx, "buildah: stage prepare")
+	defer prepared()
+
 	buildArgs := make(map[string]string)
 	for _, argStr := range opts.BuildArgs {
 		argParts := strings.SplitN(argStr, "=", 2)
@@ -1027,6 +1029,8 @@ func (backend *BuildahBackend) BuildDockerfile(ctx context.Context, dockerfileCo
 	if err := os.WriteFile(ignorePath, []byte("# the build context is already filtered by werf\n"), 0o600); err != nil {
 		return "", fmt.Errorf("error writing temporary dockerignore %s: %w", ignorePath, err)
 	}
+
+	prepared()
 
 	return backend.buildah.BuildFromDockerfile(ctx, dockerfilePath, buildah.BuildFromDockerfileOpts{
 		CommonOpts:  backend.getBuildahCommonOpts(ctx, false, nil, opts.TargetPlatform),

@@ -111,6 +111,7 @@ type tagsPageSizeFixture struct {
 	rejectCode          string
 	rejectMessage       string
 	onReject            func()
+	onPage              func(*http.Request)
 }
 
 func newTagsPageSizeFixture(tags ...string) *tagsPageSizeFixture {
@@ -144,6 +145,7 @@ func newTagsPageSizeFixture(tags ...string) *tagsPageSizeFixture {
 			requestedPageSize > fixture.rejectAbove &&
 			len(fixture.queries) > fixture.rejectAfterRequests &&
 			(fixture.rejectLimit == 0 || fixture.rejections < fixture.rejectLimit)
+		rejectStatus, rejectCode, rejectMessage := fixture.rejectStatus, fixture.rejectCode, fixture.rejectMessage
 		if reject {
 			fixture.rejections++
 		}
@@ -154,15 +156,25 @@ func newTagsPageSizeFixture(tags ...string) *tagsPageSizeFixture {
 				fixture.onReject()
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(fixture.rejectStatus)
-			_, err := fmt.Fprintf(w, `{"errors":[{"code":%q,"message":%q}]}`, fixture.rejectCode, fixture.rejectMessage)
+			w.WriteHeader(rejectStatus)
+			_, err := fmt.Fprintf(w, `{"errors":[{"code":%q,"message":%q}]}`, rejectCode, rejectMessage)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			return
+		}
+
+		if fixture.onPage != nil {
+			fixture.onPage(r)
 		}
 
 		fixture.writePage(w, r)
 	}))
 	return fixture
+}
+
+func (fixture *tagsPageSizeFixture) stopRejecting() {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.rejectStatus = 0
 }
 
 func (fixture *tagsPageSizeFixture) writePage(w http.ResponseWriter, r *http.Request) {

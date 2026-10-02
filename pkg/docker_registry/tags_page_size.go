@@ -26,6 +26,9 @@ var awsEcrMaxResultsRejectionRegexp = regexp.MustCompile(`(?i)parameter at 'maxr
 
 var fallbackTagsPageSizeHosts sync.Map
 
+// tagsPageSizeForRegistryHost and isAwsEcrRegistryHost expect a registry host canonicalized with
+// strings.ToLower, since host names are case-insensitive while neither the ECR patterns nor the
+// remembered hosts are.
 func tagsPageSizeForRegistryHost(registryHost string) int {
 	if isAwsEcrRegistryHost(registryHost) {
 		return fallbackTagsPageSize

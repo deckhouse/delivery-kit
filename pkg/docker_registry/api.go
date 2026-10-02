@@ -309,7 +309,7 @@ func (api *api) list(ctx context.Context, reference string, extraListOptions ...
 		)
 	}
 
-	registryHost := repo.RegistryStr()
+	registryHost := strings.ToLower(repo.RegistryStr())
 	pageSize := tagsPageSizeForRegistryHost(registryHost)
 
 	tags, err := remote.List(repo, listOptions(pageSize)...)

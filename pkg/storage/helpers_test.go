@@ -200,9 +200,57 @@ func (backend *localImageListBackendStub) Images(_ context.Context, options cont
 	return backend.images, backend.err
 }
 
+func (backend *localImageListBackendStub) callCount() int {
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	return backend.calls
+}
+
 // blockedCallTimeout bounds the wait for a call that must not be blocked by a listing in flight,
 // so that a regression fails the spec instead of hanging it.
 const blockedCallTimeout = "10s"
+
+var _ context.Context = (*listingRegistrationContext)(nil)
+
+type listingRegistrationContext struct {
+	context.Context
+	registered chan struct{}
+}
+
+// Done reports every wait for the cancellation channel. waitProjectListing registers the caller in
+// the singleflight group before it selects on ctx.Done, so a report proves this caller joined the
+// listing that is in flight right now, which no absence of its result can prove.
+func (ctx *listingRegistrationContext) Done() <-chan struct{} {
+	ctx.registered <- struct{}{}
+	return ctx.Context.Done()
+}
+
+func listingRegistrations(ctx context.Context) (context.Context, chan struct{}) {
+	registered := make(chan struct{}, 8)
+	return &listingRegistrationContext{Context: ctx, registered: registered}, registered
+}
+
+// blockListings makes each of the next count listings report its number on the returned channel and
+// then hold until the matching release channel is closed.
+func blockListings(backend *localImageListBackendStub, count int) (chan int, []chan struct{}) {
+	started := make(chan int, count)
+	releases := make([]chan struct{}, count)
+	for i := range releases {
+		releases[i] = make(chan struct{})
+	}
+	backend.onList = func(listing int) {
+		started <- listing
+		if listing <= len(releases) {
+			<-releases[listing-1]
+		}
+	}
+	ginkgo.DeferCleanup(func() {
+		for _, release := range releases {
+			closeIfOpen(release)
+		}
+	})
+	return started, releases
+}
 
 // blockNextListing makes the next image listing report that it started and then hold until the
 // returned release channel is closed.

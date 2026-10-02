@@ -429,11 +429,13 @@ var _ = ginkgo.Describe("Local stage lookup cache maintenance", func() {
 		}()
 		<-listing
 
+		joiningCtx, joined := listingRegistrations(ctx)
 		second := make(chan []string, 1)
 		go func() {
 			defer ginkgo.GinkgoRecover()
-			second <- cachedStages(ctx, storage, cachedDigestB)
+			second <- cachedStages(joiningCtx, storage, cachedDigestB)
 		}()
+		gomega.Eventually(joined, blockedCallTimeout).Should(gomega.Receive())
 		gomega.Consistently(second).ShouldNot(gomega.Receive())
 		close(release)
 
@@ -470,26 +472,91 @@ var _ = ginkgo.Describe("Local stage lookup cache maintenance", func() {
 		gomega.Eventually(started, blockedCallTimeout).Should(gomega.Receive(gomega.Equal(1)))
 
 		fresh := make(chan []string, 2)
-		for range 2 {
+		registrations := make([]chan struct{}, 2)
+		for i := range registrations {
+			freshCtx, registered := listingRegistrations(ctx)
+			registrations[i] = registered
 			go func() {
 				defer ginkgo.GinkgoRecover()
-				stages, err := storage.GetStagesIDsByDigest(ctx, "project", cachedDigestA, 0)
+				stages, err := storage.GetStagesIDsByDigest(freshCtx, "project", cachedDigestA, 0)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				fresh <- stageStrings(stages)
 			}()
 		}
-		gomega.Consistently(fresh).ShouldNot(gomega.Receive())
+		for _, registered := range registrations {
+			gomega.Eventually(registered, blockedCallTimeout).Should(gomega.Receive())
+		}
 		close(releases[0])
+		gomega.Consistently(fresh).ShouldNot(gomega.Receive())
 
 		gomega.Eventually(warm, blockedCallTimeout).Should(gomega.Receive(gomega.ConsistOf(cachedTagA)))
 		gomega.Eventually(started, blockedCallTimeout).Should(gomega.Receive(gomega.Equal(2)))
-		gomega.Consistently(fresh).ShouldNot(gomega.Receive())
+		for _, registered := range registrations {
+			gomega.Eventually(registered, blockedCallTimeout).Should(gomega.Receive())
+		}
 		close(releases[1])
 
 		gomega.Eventually(fresh, blockedCallTimeout).Should(gomega.Receive(gomega.ConsistOf(cachedTagA, cachedTagA2)))
 		gomega.Eventually(fresh, blockedCallTimeout).Should(gomega.Receive(gomega.ConsistOf(cachedTagA, cachedTagA2)))
-		gomega.Expect(backend.calls).To(gomega.Equal(2))
+		gomega.Expect(backend.callCount()).To(gomega.Equal(2))
 	})
+
+	ginkgo.It("starts another listing for a fresh lookup that arrives during the second one", func(ctx ginkgo.SpecContext) {
+		backend := &localImageListBackendStub{images: warmSnapshot}
+		storage := NewLocalStagesStorage(backend)
+		started, releases := blockListings(backend, 3)
+
+		results := make(chan []string, 3)
+		freshLookup := func() chan struct{} {
+			freshCtx, registered := listingRegistrations(ctx)
+			go func() {
+				defer ginkgo.GinkgoRecover()
+				stages, err := storage.GetStagesIDsByDigest(freshCtx, "project", cachedDigestA, 0)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				results <- stageStrings(stages)
+			}()
+			return registered
+		}
+
+		freshLookup()
+		gomega.Eventually(started, blockedCallTimeout).Should(gomega.Receive(gomega.Equal(1)))
+
+		secondRegistered := freshLookup()
+		gomega.Eventually(secondRegistered, blockedCallTimeout).Should(gomega.Receive())
+		close(releases[0])
+		gomega.Eventually(results, blockedCallTimeout).Should(gomega.Receive(gomega.ConsistOf(cachedTagA)))
+		gomega.Consistently(results).ShouldNot(gomega.Receive())
+		gomega.Eventually(started, blockedCallTimeout).Should(gomega.Receive(gomega.Equal(2)))
+
+		thirdRegistered := freshLookup()
+		gomega.Eventually(thirdRegistered, blockedCallTimeout).Should(gomega.Receive())
+		close(releases[1])
+		gomega.Eventually(results, blockedCallTimeout).Should(gomega.Receive(gomega.ConsistOf(cachedTagA)))
+		gomega.Consistently(results).ShouldNot(gomega.Receive())
+		gomega.Eventually(started, blockedCallTimeout).Should(gomega.Receive(gomega.Equal(3)))
+		close(releases[2])
+
+		gomega.Eventually(results, blockedCallTimeout).Should(gomega.Receive(gomega.ConsistOf(cachedTagA)))
+		gomega.Expect(backend.callCount()).To(gomega.Equal(3))
+	})
+
+	ginkgo.DescribeTable("does not list images for a lookup canceled before it started", func(ctx ginkgo.SpecContext, fresh bool) {
+		backend := &localImageListBackendStub{images: warmSnapshot}
+		storage := NewLocalStagesStorage(backend)
+		canceledCtx, cancel := context.WithCancel(ctx)
+		cancel()
+
+		var opts []Option
+		if !fresh {
+			opts = append(opts, WithCache())
+		}
+		_, err := storage.GetStagesIDsByDigest(canceledCtx, "project", cachedDigestA, 0, opts...)
+		gomega.Expect(err).To(gomega.MatchError(context.Canceled))
+		gomega.Consistently(backend.callCount).Should(gomega.BeZero())
+	},
+		ginkgo.Entry("a fresh lookup", true),
+		ginkgo.Entry("a cold cached lookup", false),
+	)
 
 	ginkgo.It("releases a canceled lookup waiting for a listing", func(ctx ginkgo.SpecContext) {
 		backend := &localImageListBackendStub{images: warmSnapshot}

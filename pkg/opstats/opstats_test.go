@@ -13,6 +13,12 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const (
+	operationImagePull Operation = "docker: image pull"
+	operationImagePush Operation = "docker: image push"
+	operationImageSave Operation = "docker: image save"
+)
+
 var _ = Describe("Collector", func() {
 	base := time.Now()
 
@@ -40,15 +46,15 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 
 		for _, in := range []interval{iv(0, 10), iv(5, 15), iv(20, 22)} {
-			collector.add(OperationImagePush, in.start, in.end)
+			collector.add(operationImagePush, in.start, in.end)
 		}
-		collector.add(OperationImagePull, iv(0, 3).start, iv(0, 3).end)
+		collector.add(operationImagePull, iv(0, 3).start, iv(0, 3).end)
 
 		summary := collector.Summary()
 		Expect(summary).To(HaveLen(2))
 
 		push := summary[0]
-		Expect(push.Operation).To(Equal(OperationImagePush))
+		Expect(push.Operation).To(Equal(operationImagePush))
 		Expect(push.Count).To(Equal(3))
 		Expect(push.TotalTime).To(Equal(22 * time.Second))
 		Expect(push.WallTime).To(Equal(17 * time.Second))
@@ -56,7 +62,7 @@ var _ = Describe("Collector", func() {
 		Expect(push.MaxTime).To(Equal(10 * time.Second))
 
 		pull := summary[1]
-		Expect(pull.Operation).To(Equal(OperationImagePull))
+		Expect(pull.Operation).To(Equal(operationImagePull))
 		Expect(pull.TotalTime).To(Equal(3 * time.Second))
 	})
 
@@ -64,7 +70,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, OperationImagePull)
+		done := Observe(ctx, operationImagePull)
 		done()
 		done()
 
@@ -77,7 +83,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, OperationImageSaveLoad)
+		done := Observe(ctx, operationImageSave)
 		rc := NewObservedReadCloser(io.NopCloser(strings.NewReader("payload")), done)
 
 		Expect(collector.Summary()).To(BeEmpty())
@@ -87,7 +93,7 @@ var _ = Describe("Collector", func() {
 
 		summary := collector.Summary()
 		Expect(summary).To(HaveLen(1))
-		Expect(summary[0].Operation).To(Equal(OperationImageSaveLoad))
+		Expect(summary[0].Operation).To(Equal(operationImageSave))
 		Expect(summary[0].Count).To(Equal(1))
 
 		Expect(rc.Close()).To(Succeed())
@@ -98,7 +104,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, OperationImageSaveLoad)
+		done := Observe(ctx, operationImageSave)
 		rc := NewObservedReadCloser(io.NopCloser(strings.NewReader("payload")), done)
 
 		Expect(collector.Summary()).To(BeEmpty())
@@ -114,7 +120,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, OperationImageSaveLoad)
+		done := Observe(ctx, operationImageSave)
 		sentinel := errors.New("stream broken")
 		rc := NewObservedReadCloser(io.NopCloser(iotest.ErrReader(sentinel)), done)
 
@@ -135,7 +141,7 @@ var _ = Describe("Collector", func() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				done := Observe(ctx, OperationImagePull)
+				done := Observe(ctx, operationImagePull)
 				time.Sleep(10 * time.Millisecond)
 				done()
 			}()
@@ -144,7 +150,7 @@ var _ = Describe("Collector", func() {
 
 		summary := collector.Summary()
 		Expect(summary).To(HaveLen(1))
-		Expect(summary[0].Operation).To(Equal(OperationImagePull))
+		Expect(summary[0].Operation).To(Equal(operationImagePull))
 		Expect(summary[0].Count).To(Equal(10))
 		Expect(summary[0].WallTime).To(BeNumerically(">=", 10*time.Millisecond))
 		Expect(summary[0].WallTime).To(BeNumerically("<", 100*time.Millisecond))
@@ -166,7 +172,7 @@ var _ = Describe("Collector", func() {
 	})
 
 	It("is a no-op without collector in context", func() {
-		done := Observe(context.Background(), OperationImagePull)
+		done := Observe(context.Background(), operationImagePull)
 		Expect(done).NotTo(BeNil())
 		done()
 

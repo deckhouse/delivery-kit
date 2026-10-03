@@ -302,14 +302,30 @@ func (api *api) list(ctx context.Context, reference string, extraListOptions ...
 		return nil, fmt.Errorf("parsing repo %q: %w", reference, err)
 	}
 
-	listOptions := append(
-		api.defaultRemoteOptionsForHost(ctx, reference),
-		extraListOptions...,
-	)
+	listOptions := func(pageSize int) []remote.Option {
+		return append(
+			append(api.defaultRemoteOptionsForHost(ctx, reference), extraListOptions...),
+			remote.WithPageSize(pageSize),
+		)
+	}
 
-	tags, err := remote.List(repo, listOptions...)
-	if err != nil {
+	registryHost := strings.ToLower(repo.RegistryStr())
+	pageSize := tagsPageSizeForRegistryHost(registryHost)
+
+	tags, err := remote.List(repo, listOptions(pageSize)...)
+	if err == nil {
+		return tags, nil
+	}
+
+	if pageSize == fallbackTagsPageSize || !isTagsPageSizeRejectedErr(err) {
 		return nil, fmt.Errorf("reading tags for %q: %w", repo, err)
+	}
+
+	fallbackTagsPageSizeHosts.Store(registryHost, struct{}{})
+
+	tags, err = remote.List(repo, listOptions(fallbackTagsPageSize)...)
+	if err != nil {
+		return nil, fmt.Errorf("reading tags for %q with page size %d: %w", repo, fallbackTagsPageSize, err)
 	}
 
 	return tags, nil

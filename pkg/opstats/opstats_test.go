@@ -40,15 +40,15 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 
 		for _, in := range []interval{iv(0, 10), iv(5, 15), iv(20, 22)} {
-			collector.add(Operation("docker: image push"), in.start, in.end)
+			collector.add(OperationImagePush, in.start, in.end)
 		}
-		collector.add(Operation("docker: image pull"), iv(0, 3).start, iv(0, 3).end)
+		collector.add(OperationImagePull, iv(0, 3).start, iv(0, 3).end)
 
 		summary := collector.Summary()
 		Expect(summary).To(HaveLen(2))
 
 		push := summary[0]
-		Expect(push.Operation).To(Equal(Operation("docker: image push")))
+		Expect(push.Operation).To(Equal(OperationImagePush))
 		Expect(push.Count).To(Equal(3))
 		Expect(push.TotalTime).To(Equal(22 * time.Second))
 		Expect(push.WallTime).To(Equal(17 * time.Second))
@@ -56,7 +56,7 @@ var _ = Describe("Collector", func() {
 		Expect(push.MaxTime).To(Equal(10 * time.Second))
 
 		pull := summary[1]
-		Expect(pull.Operation).To(Equal(Operation("docker: image pull")))
+		Expect(pull.Operation).To(Equal(OperationImagePull))
 		Expect(pull.TotalTime).To(Equal(3 * time.Second))
 	})
 
@@ -64,7 +64,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, Operation("docker: image pull"))
+		done := Observe(ctx, OperationImagePull)
 		done()
 		done()
 
@@ -77,7 +77,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, Operation("docker: image save"))
+		done := Observe(ctx, OperationImageSaveLoad)
 		rc := NewObservedReadCloser(io.NopCloser(strings.NewReader("payload")), done)
 
 		Expect(collector.Summary()).To(BeEmpty())
@@ -87,7 +87,7 @@ var _ = Describe("Collector", func() {
 
 		summary := collector.Summary()
 		Expect(summary).To(HaveLen(1))
-		Expect(summary[0].Operation).To(Equal(Operation("docker: image save")))
+		Expect(summary[0].Operation).To(Equal(OperationImageSaveLoad))
 		Expect(summary[0].Count).To(Equal(1))
 
 		Expect(rc.Close()).To(Succeed())
@@ -98,7 +98,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, Operation("docker: image save"))
+		done := Observe(ctx, OperationImageSaveLoad)
 		rc := NewObservedReadCloser(io.NopCloser(strings.NewReader("payload")), done)
 
 		Expect(collector.Summary()).To(BeEmpty())
@@ -114,7 +114,7 @@ var _ = Describe("Collector", func() {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
 
-		done := Observe(ctx, Operation("docker: image save"))
+		done := Observe(ctx, OperationImageSaveLoad)
 		sentinel := errors.New("stream broken")
 		rc := NewObservedReadCloser(io.NopCloser(iotest.ErrReader(sentinel)), done)
 
@@ -135,7 +135,7 @@ var _ = Describe("Collector", func() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				done := Observe(ctx, Operation("docker: image pull"))
+				done := Observe(ctx, OperationImagePull)
 				time.Sleep(10 * time.Millisecond)
 				done()
 			}()
@@ -144,7 +144,7 @@ var _ = Describe("Collector", func() {
 
 		summary := collector.Summary()
 		Expect(summary).To(HaveLen(1))
-		Expect(summary[0].Operation).To(Equal(Operation("docker: image pull")))
+		Expect(summary[0].Operation).To(Equal(OperationImagePull))
 		Expect(summary[0].Count).To(Equal(10))
 		Expect(summary[0].WallTime).To(BeNumerically(">=", 10*time.Millisecond))
 		Expect(summary[0].WallTime).To(BeNumerically("<", 100*time.Millisecond))
@@ -165,8 +165,29 @@ var _ = Describe("Collector", func() {
 		}))
 	})
 
+	It("completes the observation only once a blocking Close has returned", func() {
+		collector := NewCollector()
+		ctx := NewContext(context.Background(), collector)
+
+		closer := &blockingCloser{Reader: strings.NewReader("payload"), entered: make(chan struct{}), release: make(chan struct{})}
+		rc := NewObservedReadCloser(closer, Observe(ctx, OperationImageSaveLoad))
+
+		closed := make(chan error, 1)
+		go func() { closed <- rc.Close() }()
+
+		Eventually(closer.entered).Should(BeClosed())
+		Expect(collector.Summary()).To(BeEmpty())
+
+		close(closer.release)
+		Eventually(closed).Should(Receive(BeNil()))
+
+		summary := collector.Summary()
+		Expect(summary).To(HaveLen(1))
+		Expect(summary[0].Count).To(Equal(1))
+	})
+
 	It("is a no-op without collector in context", func() {
-		done := Observe(context.Background(), Operation("docker: image pull"))
+		done := Observe(context.Background(), OperationImagePull)
 		Expect(done).NotTo(BeNil())
 		done()
 

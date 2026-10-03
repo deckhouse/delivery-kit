@@ -180,12 +180,22 @@ var _ container_backend.ContainerBackend = (*localImageListBackendStub)(nil)
 
 type localImageListBackendStub struct {
 	container_backend.ContainerBackend
+	name    string
 	images  image.ImagesList
 	err     error
 	options container_backend.ImagesOptions
 	onList  func(listing int)
 	mu      sync.Mutex
 	calls   int
+}
+
+// String reports the backend identity the real backends report, which is what names the local
+// cache row.
+func (backend *localImageListBackendStub) String() string {
+	if backend.name == "" {
+		return "docker-server-backend"
+	}
+	return backend.name
 }
 
 func (backend *localImageListBackendStub) Images(_ context.Context, options container_backend.ImagesOptions) (image.ImagesList, error) {

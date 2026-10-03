@@ -20,6 +20,7 @@ import (
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/docker_registry/api"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 const (
@@ -135,18 +136,52 @@ func (storage *LocalStagesStorage) GetStagesIDs(ctx context.Context, projectName
 	return images.ConvertToStages()
 }
 
+// localImagesCacheOperation names the cache rows of the local image listing by the backend that
+// actually serves them. An unrecognized backend names nothing, so no invented row is reported.
+func localImagesCacheOperation(backend container_backend.ContainerBackend) opstats.Operation {
+	if backend == nil {
+		return ""
+	}
+	switch backend.String() {
+	case "buildah-backend":
+		return opstats.OperationBuildahImageList
+	case "docker-server-backend":
+		return opstats.OperationDockerImageList
+	default:
+		return ""
+	}
+}
+
 func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, projectName, digest string, parentStageCreationTs int64, opts ...Option) ([]image.StageID, error) {
+	// One lookup per call of this method, classified where the decision is made and recorded when
+	// the call returns, so the outcome and its shared flag always land in the same report. A call
+	// cancelled before the listing it waited for produced an outcome records nothing: whether it
+	// had joined the in-flight listing is unknown, and reporting it as not shared would be a claim
+	// the code cannot make.
+	outcome, shared, classified := opstats.CacheOutcomeBypass, false, true
+	defer func() {
+		if !classified {
+			return
+		}
+		opstats.CountCacheLookup(ctx, localImagesCacheOperation(storage.ContainerBackend), opstats.CacheLayerMemory, outcome, shared)
+	}()
+
 	var cutoff time.Time
 	if !makeOptions(opts...).withCache {
 		// Recorded before anything else, so that a listing accepted by this call also covers every
 		// lock its caller already holds.
 		cutoff = time.Now()
 	} else if cached, isCached := storage.loadProjectSnapshot(ctx, projectName); isCached {
+		outcome = opstats.CacheOutcomeHit
 		return selectProjectStages(ctx, cached.references, projectName, digest, parentStageCreationTs)
+	} else {
+		outcome = opstats.CacheOutcomeMiss
 	}
 
-	references, err := storage.refreshProjectSnapshot(ctx, projectName, cutoff)
+	references, joined, err := storage.refreshProjectSnapshot(ctx, projectName, cutoff)
+	shared = joined
 	if err != nil {
+		classified = ctx.Err() == nil
 		return nil, err
 	}
 
@@ -181,12 +216,14 @@ func selectProjectStages(ctx context.Context, references []string, projectName, 
 
 // refreshProjectSnapshot returns the project references produced by a listing that started no
 // earlier than cutoff, joining the listing already in flight for this project when there is one. A
-// zero cutoff accepts any listing.
-func (storage *LocalStagesStorage) refreshProjectSnapshot(ctx context.Context, projectName string, cutoff time.Time) ([]string, error) {
+// zero cutoff accepts any listing. It also reports whether the accepted result came from a listing
+// this call joined instead of started; that flag is meaningless alongside an error, because a
+// cancelled wait never learned its membership.
+func (storage *LocalStagesStorage) refreshProjectSnapshot(ctx context.Context, projectName string, cutoff time.Time) ([]string, bool, error) {
 	for {
-		listing, err := storage.waitProjectListing(ctx, projectName)
+		listing, joined, err := storage.waitProjectListing(ctx, projectName)
 		if err != nil {
-			return nil, err
+			return nil, joined, err
 		}
 		// The listing this call joined had already snapshotted the daemon before the caller took the
 		// locks the result has to cover, so it is unusable. The same group starts the next listing
@@ -194,16 +231,22 @@ func (storage *LocalStagesStorage) refreshProjectSnapshot(ctx context.Context, p
 		if listing.listingStartedAt.Before(cutoff) {
 			continue
 		}
-		return listing.references, nil
+		return listing.references, joined, nil
 	}
 }
 
-func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, projectName string) (localProjectListing, error) {
+// waitProjectListing returns the project listing and whether this call joined a listing started by
+// someone else instead of running it itself. Only the caller whose callback singleflight runs sets
+// leader, and it is read after that callback's result has been received, so the send orders the
+// write before the read; the cancellation path never reads it.
+func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, projectName string) (localProjectListing, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return localProjectListing{}, err
+		return localProjectListing{}, false, err
 	}
 
+	var leader bool
 	resultChan := storage.listingGroup.DoChan(projectName, func() (interface{}, error) {
+		leader = true
 		listingStartedAt := time.Now()
 		storage.registerProjectListing(ctx, projectName)
 
@@ -218,16 +261,16 @@ func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, proje
 
 	select {
 	case <-ctx.Done():
-		return localProjectListing{}, ctx.Err()
+		return localProjectListing{}, false, ctx.Err()
 	case result := <-resultChan:
 		if result.Err != nil {
-			return localProjectListing{}, result.Err
+			return localProjectListing{}, !leader, result.Err
 		}
 		listing, ok := result.Val.(localProjectListing)
 		if !ok {
-			return localProjectListing{}, fmt.Errorf("unexpected type %T for project listing", result.Val)
+			return localProjectListing{}, !leader, fmt.Errorf("unexpected type %T for project listing", result.Val)
 		}
-		return listing, nil
+		return listing, !leader, nil
 	}
 }
 

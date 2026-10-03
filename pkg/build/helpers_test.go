@@ -408,3 +408,15 @@ func (m *publicationStorageManager) GetStageDescSetByDigestWithCache(_ context.C
 	}
 	return imagePkg.NewStageDescSet(), nil
 }
+
+var _ manager.StorageManagerInterface = (*checkArtifactsStorageManager)(nil)
+
+type checkArtifactsStorageManager struct {
+	manager.StorageManagerInterface
+	accesses int
+}
+
+func (m *checkArtifactsStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
+	m.accesses++
+	return &storage.LocalStagesStorage{}
+}

@@ -580,6 +580,10 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 }
 
 func (phase *BuildPhase) convergeSbomByImagesSets(ctx context.Context) error {
+	if phase.ShouldBeBuiltMode {
+		return nil
+	}
+
 	if !phase.Conveyor.EnableSbom() {
 		return nil
 	}
@@ -752,6 +756,10 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 // image-level artifacts (e.g. VEX) onto the index digest, which exists in the primary
 // stages storage and in the final repo but never in a cache repo.
 func (phase *BuildPhase) propagateArtifacts(ctx context.Context) error {
+	if phase.ShouldBeBuiltMode {
+		return nil
+	}
+
 	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
 		return nil
 	}
@@ -2206,6 +2214,10 @@ E.g.:
 // convergeVexByImagesSets publishes VEX artifacts for all images respecting dependency order.
 
 func (phase *BuildPhase) convergeVexByImagesSets(ctx context.Context) error {
+	if phase.ShouldBeBuiltMode {
+		return nil
+	}
+
 	if _, isLocal := phase.Conveyor.StorageManager.GetStagesStorage().(*storage.LocalStagesStorage); isLocal {
 		return nil
 	}

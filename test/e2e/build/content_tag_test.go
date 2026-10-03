@@ -36,11 +36,12 @@ var _ = Describe("Content tag reuse", Label("e2e", "build", "content-tag", suite
 		Expect(buildOut).To(ContainSubstring("Use previously built image for stapel-scratch by content-based tag"))
 		Expect(buildOut).NotTo(ContainSubstring("Building stage stapel-scratch/"))
 
-		By("[3, repo] building with --repo copies the content-based tag from the :local secondary")
+		By("[3, repo] building with --repo and an explicit :local secondary copies the content-based tag")
 		buildOut = werfProject.Build(ctx, &werf.BuildOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{
 					"--repo", repoAddr,
+					"--secondary-repo", ":local",
 					"--insecure-registry", "--skip-tls-verify-registry",
 				},
 			},
@@ -102,11 +103,12 @@ var _ = Describe("Content tag reuse", Label("e2e", "build", "content-tag", suite
 		Expect(buildOut).NotTo(ContainSubstring("Use previously built image for app/install"))
 		Expect(buildOut).NotTo(ContainSubstring("Use previously built image for app/setup"))
 
-		By("[3, repo] building with --repo copies only the content-based tag from the :local secondary")
+		By("[3, repo] building with --repo and an explicit :local secondary copies only the content-based tag")
 		buildOut = werfProject.Build(ctx, &werf.BuildOptions{
 			CommonOptions: werf.CommonOptions{
 				ExtraArgs: []string{
 					"--repo", repoAddr,
+					"--secondary-repo", ":local",
 					"--insecure-registry", "--skip-tls-verify-registry",
 				},
 			},

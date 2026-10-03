@@ -167,7 +167,7 @@ func localImagesCacheOperation(backend container_backend.ContainerBackend) opsta
 func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, projectName, digest string, parentStageCreationTs int64, opts ...Option) ([]image.StageID, error) {
 	// One lookup per call of this method, classified where the decision is made and recorded once,
 	// on every return of this method and with the caller's own context, so that the outcome and its
-	// shared flag always land in the same report. A failed or cancelled lookup is a lookup too: its
+	// shared flag always land in the same report. A failed or canceled lookup is a lookup too: its
 	// role was settled before it waited for anything, so it is reported like any other.
 	outcome, shared := opstats.CacheOutcomeBypass, false
 	defer func() {
@@ -246,7 +246,7 @@ func (storage *LocalStagesStorage) refreshProjectListing(ctx context.Context, pr
 
 // waitProjectListing returns the project listing and whether this call joined a listing that was
 // already in flight instead of starting one. The role is decided under the flight mutex, before any
-// waiting, so every return reports it, including a cancelled wait. A caller cancelled before it was
+// waiting, so every return reports it, including a canceled wait. A caller canceled before it was
 // admitted joined nothing and starts nothing.
 func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, projectName string) (localProjectListing, bool, error) {
 	if err := ctx.Err(); err != nil {
@@ -261,7 +261,7 @@ func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, proje
 			storage.listingFlights = make(map[string]*localProjectFlight)
 		}
 		storage.listingFlights[projectName] = flight
-		// The listing runs on the context of the caller that started it, so cancelling that caller
+		// The listing runs on the context of the caller that started it, so canceling that caller
 		// still aborts the backend call, while a joiner giving up leaves the listing running for
 		// everyone else waiting on it.
 		go storage.runProjectListing(ctx, projectName, flight)

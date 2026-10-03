@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("Local stage lookup cache counters", func() {
 		}}))
 	})
 
-	ginkgo.It("counts a lookup cancelled before the listing it started finished", func(specCtx ginkgo.SpecContext) {
+	ginkgo.It("counts a lookup canceled before the listing it started finished", func(specCtx ginkgo.SpecContext) {
 		ctx, collector := collectingContext(specCtx)
 		leaderCtx, cancel := context.WithCancel(ctx)
 		backend := &localImageListBackendStub{images: image.ImagesList{{RepoTags: []string{"project:" + cachedTagA}}}}
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("Local stage lookup cache counters", func() {
 		}}))
 	})
 
-	ginkgo.It("counts a lookup cancelled after it joined the listing as a shared miss", func(specCtx ginkgo.SpecContext) {
+	ginkgo.It("counts a lookup canceled after it joined the listing as a shared miss", func(specCtx ginkgo.SpecContext) {
 		backend := &localImageListBackendStub{images: image.ImagesList{{RepoTags: []string{"project:" + cachedTagA}}}}
 		storage := NewLocalStagesStorage(backend)
 		listing, _ := blockNextListing(backend)
@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Local stage lookup cache counters", func() {
 		gomega.Eventually(done, blockedCallTimeout).Should(gomega.Receive(gomega.MatchError(context.Canceled)))
 
 		// Giving up on a listing somebody else is running does not unmake the join: the role was
-		// settled when the caller was admitted, so a cancelled wait is still a shared miss.
+		// settled when the caller was admitted, so a canceled wait is still a shared miss.
 		gomega.Expect(joinerCollector.CacheSummary(joinerCtx)).To(gomega.Equal([]opstats.CacheSummary{{
 			Operation: opstats.OperationDockerImageList,
 			Layer:     opstats.CacheLayerMemory,

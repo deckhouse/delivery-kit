@@ -127,8 +127,8 @@ var _ = ginkgo.Describe("Local stage lookup cache counters", func() {
 		go lookup(ctx)
 		gomega.Eventually(listing).Should(gomega.BeClosed())
 
-		// Admit the joiners only once each of them has registered with the singleflight group, so
-		// that they provably joined the listing that is in flight rather than started their own.
+		// Admit the joiners only once each of them has been admitted to the flight, so that they
+		// provably joined the listing already running rather than started one of their own.
 		for range joiners {
 			wg.Add(1)
 			go lookup(registrationCtx)
@@ -150,6 +150,112 @@ var _ = ginkgo.Describe("Local stage lookup cache counters", func() {
 			Layer:     opstats.CacheLayerMemory,
 			Miss:      1 + joiners,
 			Shared:    joiners,
+		}}))
+	})
+
+	ginkgo.It("counts a lookup cancelled before the listing it started finished", func(specCtx ginkgo.SpecContext) {
+		ctx, collector := collectingContext(specCtx)
+		leaderCtx, cancel := context.WithCancel(ctx)
+		backend := &localImageListBackendStub{images: image.ImagesList{{RepoTags: []string{"project:" + cachedTagA}}}}
+		storage := NewLocalStagesStorage(backend)
+		listing, _ := blockNextListing(backend)
+
+		done := make(chan error, 1)
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			_, err := storage.GetStagesIDsByDigest(leaderCtx, "project", cachedDigestA, 0, WithCache())
+			done <- err
+		}()
+		gomega.Eventually(listing).Should(gomega.BeClosed())
+		cancel()
+
+		gomega.Eventually(done, blockedCallTimeout).Should(gomega.Receive(gomega.MatchError(context.Canceled)))
+
+		// The caller that started the listing is counted even though it never saw the result, and
+		// it is not shared: it joined nothing.
+		gomega.Expect(collector.CacheSummary(ctx)).To(gomega.Equal([]opstats.CacheSummary{{
+			Operation: opstats.OperationDockerImageList,
+			Layer:     opstats.CacheLayerMemory,
+			Miss:      1,
+		}}))
+	})
+
+	ginkgo.It("counts a lookup cancelled after it joined the listing as a shared miss", func(specCtx ginkgo.SpecContext) {
+		backend := &localImageListBackendStub{images: image.ImagesList{{RepoTags: []string{"project:" + cachedTagA}}}}
+		storage := NewLocalStagesStorage(backend)
+		listing, _ := blockNextListing(backend)
+
+		leaderCtx, _ := collectingContext(specCtx)
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			_, _ = storage.GetStagesIDsByDigest(leaderCtx, "project", cachedDigestA, 0, WithCache())
+		}()
+		gomega.Eventually(listing).Should(gomega.BeClosed())
+
+		joinerCtx, joinerCollector := collectingContext(specCtx)
+		joinerCtx, cancelJoiner := context.WithCancel(joinerCtx)
+		registrationCtx, registered := listingRegistrations(joinerCtx)
+		done := make(chan error, 1)
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			_, err := storage.GetStagesIDsByDigest(registrationCtx, "project", cachedDigestA, 0, WithCache())
+			done <- err
+		}()
+		gomega.Eventually(registered, blockedCallTimeout).Should(gomega.Receive())
+		cancelJoiner()
+
+		gomega.Eventually(done, blockedCallTimeout).Should(gomega.Receive(gomega.MatchError(context.Canceled)))
+
+		// Giving up on a listing somebody else is running does not unmake the join: the role was
+		// settled when the caller was admitted, so a cancelled wait is still a shared miss.
+		gomega.Expect(joinerCollector.CacheSummary(joinerCtx)).To(gomega.Equal([]opstats.CacheSummary{{
+			Operation: opstats.OperationDockerImageList,
+			Layer:     opstats.CacheLayerMemory,
+			Miss:      1,
+			Shared:    1,
+		}}))
+	})
+
+	ginkgo.It("keeps the shared flag of a lookup that joined a listing too old for it", func(specCtx ginkgo.SpecContext) {
+		backend := &localImageListBackendStub{images: image.ImagesList{{RepoTags: []string{"project:" + cachedTagA}}}}
+		storage := NewLocalStagesStorage(backend)
+		listing, release := blockNextListing(backend)
+
+		leaderCtx, _ := collectingContext(specCtx)
+		leaderDone := make(chan struct{})
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer close(leaderDone)
+			_, err := storage.GetStagesIDsByDigest(leaderCtx, "project", cachedDigestA, 0, WithCache())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		gomega.Eventually(listing).Should(gomega.BeClosed())
+
+		// This lookup must not accept a listing that started before it, so it joins the one in
+		// flight, rejects it and runs the next one itself.
+		freshCtx, freshCollector := collectingContext(specCtx)
+		registrationCtx, registered := listingRegistrations(freshCtx)
+		freshDone := make(chan struct{})
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer close(freshDone)
+			_, err := storage.GetStagesIDsByDigest(registrationCtx, "project", cachedDigestA, 0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		gomega.Eventually(registered, blockedCallTimeout).Should(gomega.Receive())
+
+		closeIfOpen(release)
+		gomega.Eventually(leaderDone, blockedCallTimeout).Should(gomega.BeClosed())
+		gomega.Eventually(freshDone, blockedCallTimeout).Should(gomega.BeClosed())
+
+		// Two listings ran, and the second one was run by this caller; it is still reported as
+		// shared, because it did join the first one before rejecting it.
+		gomega.Expect(backend.callCount()).To(gomega.Equal(2))
+		gomega.Expect(freshCollector.CacheSummary(freshCtx)).To(gomega.Equal([]opstats.CacheSummary{{
+			Operation: opstats.OperationDockerImageList,
+			Layer:     opstats.CacheLayerMemory,
+			Bypass:    1,
+			Shared:    1,
 		}}))
 	})
 })

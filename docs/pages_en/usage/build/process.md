@@ -95,7 +95,7 @@ The algorithm of stage selection in werf works as follows:
 3. For the Stapel builder, if the current stage involves Git (a Git archive stage, a custom stage with Git patches, or a `git latest patch` stage), then only those stages associated with commits that are ancestral to the current commit are selected. Thus, commits from neighboring branches will be discarded.
 4. Then the oldest `TIMESTAMP_MILLISEC` is selected.
 
-If you run a build with storing images in the repository, werf does not look up the required stages in the local repository. To reuse locally cached stages, pass `--secondary-repo=:local` explicitly: werf will then check the local repository and copy the suitable stages from there, so that no rebuilding of those stages is necessary. The same applies to `--check-built-images`: without `--secondary-repo=:local`, images that exist only locally do not satisfy the check.
+If you run a build with storing images in the repository, werf will first check if the required stages exist in the local repository and copy the suitable stages from there, so that no rebuilding of those stages is necessary.
 
 </div>
 </div>
@@ -434,7 +434,7 @@ There are a number of additional repositories on top of the main repository:
 
 - `--final-repo` to store the final images in a dedicated repository;
 - `--meta-repo` to store werf service metadata (used for cleanup based on Git history) in a dedicated repository;
-- `--secondary-repo` to use the repository in `read-only` mode (e.g. to use a container registry CI that you cannot push into, but you can reuse the build cache); use `--secondary-repo=:local` to reuse the local image cache;
+- `--secondary-repo` to use the repository in `read-only` mode (e.g. to use a container registry CI that you cannot push into, but you can reuse the build cache); the local image cache is read automatically and `--secondary-repo=:local` adds nothing;
 - `--cache-repo` to set the repository containing the build cache alongside the builders.
 
 > **Caution!** For werf to operate properly, the container registry must be persistent, and cleaning should only be done with the `werf cleanup` special command.
@@ -614,15 +614,17 @@ The JSON report contains detailed information about the build:
 
 * **ImagesByPlatform** — per-platform breakdown for multiarch builds. This field is populated only when the `WERF_ENABLE_REPORT_BY_PLATFORM=1` environment variable is set. The record structure is the same as in `Images`, but the data is grouped by image name and platform.
 
-* **Operations** — aggregated timings of low-level operations collected for the whole command run (Docker and Buildah image and container operations, registry client calls, git operations and synchronization lock acquisition). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
+* **Operations** — aggregated timings of low-level operations collected for the whole command run (backend image builds and inspections, registry API calls, git operations, lock acquisitions and so on). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). Operation keys are named `subsystem: operation`, for example `registry: tags list`, `docker: image build` or `git: clone`; they name backend calls, not individual HTTP requests. For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. `Operations` mostly counts the calls that actually reached the backend: where the timer sits inside the caching layer, a lookup answered from that cache adds no call here. This does not hold everywhere: the `git: patch` and `git: archive` timers start before the disk cache is probed, so a call served from the disk cache is still counted — `Operations` figures cannot in general be derived from the cache outcomes in `CacheOperations`. Some recorded calls internally make another recorded call — a Buildah image pull inspects the image it has just pulled — so the rows may overlap and nest; do not add them up into the duration of the command. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
 
-Every operation is named `subsystem: operation`, with the `docker:`, `buildah:`, `registry:`, `git:` and `sync:` prefixes. Build and attached container-run timings include completion of the build or container command; save and copy streams are measured until EOF, a read error, or close. `registry:` operations measure registry client calls, not individual HTTP requests. `sync: lock acquire` measures synchronization lock acquisition (HTTP, Kubernetes, or local storage locks), including retries, but not the time the lock is held. werf's own steps around these calls — config rendering, giterminism initialization, stage preparation, import and build context steps, and waiting for internal locks and caches — are not measured. Nested and parallel operations overlap: do not add their wall times to calculate command duration.
+* **CacheOperations** — per-layer counters of how the caches answered the lookups that went through them, keyed by the same operation names as `Operations` and then by the caching layer the lookup reached (`memory` or `disk`). Every call through a caching layer is classified exactly once and recorded when it completes: `Hit` (a usable cached result, an empty one included), `Miss` (the cache had no usable result — which does not by itself mean the underlying call ran, as a shared or canceled lookup may never reach the backend) or `Bypass` (the caller asked for a fresh result and never consulted the cache). `Lookups` is their sum. A layered cache counts one lookup per layer the call actually reached: a result found in memory leaves the `disk` record of that operation untouched, while a memory miss answered from disk is one lookup on each of the two layers. The records of one operation therefore must not be added up into the number of requests the application made — each of them describes its own layer. `Shared` counts the calls that joined an already in-flight request instead of starting one, and is therefore included in `Miss` or `Bypass`; the local image list has no such joining, so its `Shared` is always `0`. The hit rate is `Hit / (Hit + Miss)` per layer and is not serialized separately. A caching layer that received no lookup has no record at all rather than a row of zeros. Populated under the same conditions as `Operations`, and a saved report covers only the lookups recorded since the previous report of the same command.
 
-* **StageCache** — per-source counters of how stages were satisfied during the build, counted in stages: found in the local or repo stages storage, copied from a secondary storage, or built. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`).
+* **StageCache** — per-source counters of how stages were satisfied during the build, counted in stages: found in the local or repo stages storage, copied from a secondary storage, built, or `discarded`. A run that answered every image from the content-based fast path works with no stage at all, so the section and the console `Stages:` line are omitted rather than reporting zeros. `discarded` counts stages that were built locally and then thrown away because another builder had already published a suitable stage by the time this one finished: such a stage is also counted as found in the stages storage, so `discarded` is a subset of the reused stages and not an additional outcome. It says nothing about the published stage being broken or about old images being removed. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`).
 
-* **RegistryCache** — counters of tag-list requests using a cached or shared result: `registry tags cache hit` (the listing came from the in-memory tags cache) and `registry tags shared result` (the result was shared by concurrent requests for the same repository). A shared result is counted for every caller, including the one that initiated the registry request, so this is not a count of avoided network requests. These counters are kept apart from `StageCache` because they count requests, not stages. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`), and omitted when no such request was recorded. Both cache sections follow the same rules as `Operations`: the console summary covers the whole command run, while a saved report covers only the interval since the previous report of the same command.
+* **RegistryCache** — counters of tag-list requests using a cached or shared result: `registry tags cache hit` (the listing came from the in-memory tags cache) and `registry tags shared result` (the result was shared by concurrent requests for the same repository). A shared result is counted for every caller, including the one that initiated the registry request, so this is not a count of avoided network requests. These counters are kept apart from `StageCache` because they count requests, not stages. They are kept for compatibility and are superseded by `CacheOperations`, which classifies every lookup instead of counting two particular situations. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`), and omitted when no such request was recorded. Both cache sections follow the same rules as `Operations`: the console summary covers the whole command run, while a saved report covers only the interval since the previous report of the same command.
 
-Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache` sections are present because the report was generated with `--build-report-operations`):
+* **Recovery** — counters of recovering from a broken or conflicting storage state, kept apart from `StageCache` because they count failures, not how a stage was satisfied: `broken stage detections` (a stage read, fetch or mutation that the repo stages storage rejected as a broken image; a stage that is merely missing, rejected or unavailable is not broken, and every independent detection is counted again, including repeated lookups of the same stage) and `conveyor restarts` (conveyor attempts after the first one, caused by an unexpected stages storage state; a planned backoff or a cancellation before the next attempt adds nothing). The section and the console `Recovery:` line are omitted when nothing was detected. Populated under the same conditions as `Operations`.
+
+Example report in JSON format (the `Operations`, `CacheOperations`, `StageCache`, `RegistryCache` and `Recovery` sections are present because the report was generated with `--build-report-operations`). The operation names and the figures below are illustrative:
 
 ```json
 {
@@ -679,12 +681,12 @@ Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache
   },
   "ImagesByPlatform": {},
   "Operations": {
-    "registry: image get": {
-      "Count": 1,
+    "registry: tags list": {
+      "Count": 2,
       "TotalTimeSeconds": 2.905423333,
-      "WallTimeSeconds": 2.905423333,
-      "AvgTimeSeconds": 2.905423333,
-      "MaxTimeSeconds": 2.905423333
+      "WallTimeSeconds": 1.8,
+      "AvgTimeSeconds": 1.4527116665,
+      "MaxTimeSeconds": 1.611141611
     },
     "docker: image build": {
       "Count": 2,
@@ -693,19 +695,26 @@ Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache
       "AvgTimeSeconds": 0.415737479,
       "MaxTimeSeconds": 0.421835292
     },
-    "git: archive": {
-      "Count": 2,
-      "TotalTimeSeconds": 0.213458291,
-      "WallTimeSeconds": 0.189331042,
-      "AvgTimeSeconds": 0.106729145,
-      "MaxTimeSeconds": 0.142218375
-    },
-    "docker: image inspect": {
-      "Count": 5,
+    "docker: image list": {
+      "Count": 1,
       "TotalTimeSeconds": 0.110243333,
       "WallTimeSeconds": 0.110243333,
-      "AvgTimeSeconds": 0.022048667,
-      "MaxTimeSeconds": 0.048555458
+      "AvgTimeSeconds": 0.110243333,
+      "MaxTimeSeconds": 0.110243333
+    },
+    "git: clone": {
+      "Count": 1,
+      "TotalTimeSeconds": 0.213458291,
+      "WallTimeSeconds": 0.213458291,
+      "AvgTimeSeconds": 0.213458291,
+      "MaxTimeSeconds": 0.213458291
+    },
+    "git: patch": {
+      "Count": 1,
+      "TotalTimeSeconds": 0.042113250,
+      "WallTimeSeconds": 0.042113250,
+      "AvgTimeSeconds": 0.042113250,
+      "MaxTimeSeconds": 0.042113250
     },
     "sync: lock acquire": {
       "Count": 2,
@@ -715,12 +724,54 @@ Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache
       "MaxTimeSeconds": 0.000661667
     }
   },
+  "CacheOperations": {
+    "registry: tags list": {
+      "memory": {
+        "Lookups": 12,
+        "Hit": 9,
+        "Miss": 3,
+        "Bypass": 0,
+        "Shared": 1
+      }
+    },
+    "git: patch": {
+      "memory": {
+        "Lookups": 3,
+        "Hit": 2,
+        "Miss": 1,
+        "Bypass": 0,
+        "Shared": 0
+      },
+      "disk": {
+        "Lookups": 1,
+        "Hit": 0,
+        "Miss": 1,
+        "Bypass": 0,
+        "Shared": 0
+      }
+    },
+    "docker: image list": {
+      "memory": {
+        "Lookups": 5,
+        "Hit": 4,
+        "Miss": 1,
+        "Bypass": 0,
+        "Shared": 0
+      }
+    }
+  },
   "StageCache": {
-    "built": 2
+    "built": 2,
+    "found in repo stages storage": 1,
+    "discarded": 1
   },
   "RegistryCache": {
-    "registry tags cache hit": 3,
-    "registry tags shared result": 1
+    "registry tags cache hit": 9,
+    "registry tags shared result": 2
+  },
+  "Recovery": {
+    "broken stage detections": 1,
+    "conveyor restarts": 1
   }
 }
 ```

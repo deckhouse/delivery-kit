@@ -76,22 +76,25 @@ var _ = ginkgo.Describe("Stage lookup strictness gate", func() {
 		gomega.Expect(storageManager.secondaryLookups).To(gomega.BeZero())
 	})
 
-	ginkgo.It("uses the strict secondary lookup in should-be-built mode", func() {
+	ginkgo.It("looks up no secondary storage in should-be-built mode", func() {
+		// Promoting a secondary stage copies it into the primary storage, so a check that images
+		// are built must not read a secondary storage at all, strictly or otherwise.
 		_, storageManager := buildImageStages(true, imagePkg.NewStageDescSet(), imagePkg.NewStageDescSet())
-		gomega.Expect(storageManager.secondaryLookups).To(gomega.BeNumerically(">", 0))
+		gomega.Expect(storageManager.secondaryLookups).To(gomega.BeZero())
 		gomega.Expect(storageManager.cachedSecondaryLookups).To(gomega.BeZero())
 	})
 
-	ginkgo.It("keeps the anchor prepass on cached lookups even in should-be-built mode", func(ctx ginkgo.SpecContext) {
+	ginkgo.It("keeps the anchor prepass on cached primary lookups even in should-be-built mode", func(ctx ginkgo.SpecContext) {
 		phase, _, storageManager := newPhaseWithImage(true, imagePkg.NewStageDescSet(), imagePkg.NewStageDescSet())
 		storageManager.strictPrimaryLookups = 0
 		storageManager.secondaryLookups = 0
+		storageManager.cachedSecondaryLookups = 0
 
 		gomega.Expect(phase.resolveAvailableContentAnchors(ctx)).To(gomega.Succeed())
 		gomega.Expect(storageManager.strictPrimaryLookups).To(gomega.BeZero())
-		gomega.Expect(storageManager.secondaryLookups).To(gomega.BeZero())
 		gomega.Expect(storageManager.cachedPrimaryLookups).To(gomega.BeNumerically(">", 0))
-		gomega.Expect(storageManager.cachedSecondaryLookups).To(gomega.BeNumerically(">", 0))
+		gomega.Expect(storageManager.secondaryLookups).To(gomega.BeZero())
+		gomega.Expect(storageManager.cachedSecondaryLookups).To(gomega.BeZero())
 	})
 
 	ginkgo.It("promotes a cached secondary hit after reconciling against a fresh primary lookup", func() {

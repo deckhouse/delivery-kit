@@ -1047,6 +1047,14 @@ func GetCacheStagesStorageList(ctx context.Context, stagesStorage storage.Stages
 func GetSecondaryStagesStorageList(ctx context.Context, stagesStorage storage.StagesStorage, containerBackend container_backend.ContainerBackend, cmdData *CmdData) ([]storage.StagesStorage, error) {
 	var res []storage.StagesStorage
 
+	// A registry-backed build reuses the images already on this host automatically, copying a
+	// suitable stage instead of rebuilding it. The local storage comes first, being the cheapest
+	// source to read.
+	localSecondaryAdded := stagesStorage.Address() != storage.LocalStorageAddress
+	if localSecondaryAdded {
+		res = append(res, storage.NewLocalStagesStorage(containerBackend))
+	}
+
 	buildahMode, _, err := GetBuildahMode()
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine buildah mode: %w", err)
@@ -1058,12 +1066,16 @@ func GetSecondaryStagesStorageList(ctx context.Context, stagesStorage storage.St
 	}
 
 	for _, address := range GetSecondaryStagesStorage(cmdData) {
-		if address == storage.LocalStorageAddress && stagesStorage.Address() == storage.LocalStorageAddress {
-			logboek.Context(ctx).Warn().LogF("WARNING: Ignoring secondary repo %s: same address as the primary repo.\n", address)
+		// The local storage is already being read, either as the primary storage or as the
+		// automatic secondary one; querying it twice would only repeat the same lookups.
+		if address == storage.LocalStorageAddress {
+			if !localSecondaryAdded {
+				logboek.Context(ctx).Warn().LogF("WARNING: Ignoring secondary repo %s: same address as the primary repo.\n", address)
+			}
 			continue
 		}
 
-		repoData := NewRepoData("secondary-repo", RepoDataOptions{OnlyAddress: true, OptionalRepo: address == storage.LocalStorageAddress})
+		repoData := NewRepoData("secondary-repo", RepoDataOptions{OnlyAddress: true})
 		repoData.Address = &address
 
 		secondaryStorage, err := repoData.CreateStagesStorage(ctx, &CreateStagesStorageOptions{
@@ -1466,6 +1478,13 @@ func GetRequireBuiltImages(cmdData *CmdData) bool {
 
 func GetCheckBuiltImages(cmdData *CmdData) bool {
 	return option.PtrValueOrDefault(cmdData.CheckBuiltImages, false) || option.PtrValueOrDefault(cmdData.LegacyCheckBuiltImages, false)
+}
+
+func isImagesReadOnly(cmdData *CmdData) bool {
+	if cmdData == nil {
+		return false
+	}
+	return GetCheckBuiltImages(cmdData)
 }
 
 func GetAddLabels(cmdData *CmdData) []string {

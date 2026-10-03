@@ -10,7 +10,7 @@ import (
 	"github.com/werf/werf/v3/pkg/storage"
 )
 
-var _ = ginkgo.DescribeTable("GetSecondaryStagesStorageList looks up the local repo only when it is requested explicitly",
+var _ = ginkgo.DescribeTable("GetSecondaryStagesStorageList reads the local repo automatically for a registry primary",
 	func(primaryAddress string, secondaryRepos, expectedAddresses []string) {
 		cmdData := secondaryTestCmdData(secondaryRepos)
 		primaryStorage := &secondaryTestPrimaryStorage{address: primaryAddress}
@@ -20,16 +20,16 @@ var _ = ginkgo.DescribeTable("GetSecondaryStagesStorageList looks up the local r
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(secondaryTestStorageAddresses(list)).To(gomega.Equal(expectedAddresses))
 	},
-	ginkgo.Entry("registry primary without secondary repos gets no secondary storage", "registry.example.com/project", []string{}, []string{}),
+	ginkgo.Entry("registry primary gets the local storage without asking for it", "registry.example.com/project", []string{}, []string{storage.LocalStorageAddress}),
 	ginkgo.Entry("local primary without secondary repos gets no secondary storage", storage.LocalStorageAddress, []string{}, []string{}),
-	ginkgo.Entry("explicit :local with a registry primary gets the local storage", "registry.example.com/project", []string{storage.LocalStorageAddress}, []string{storage.LocalStorageAddress}),
-	ginkgo.Entry("explicit registry repos keep their order", "registry.example.com/project", []string{"registry.example.com/second", "registry.example.com/first"}, []string{"registry.example.com/second", "registry.example.com/first"}),
-	ginkgo.Entry("explicit :local keeps its place among registry repos", "registry.example.com/project", []string{"registry.example.com/second", storage.LocalStorageAddress, "registry.example.com/first"}, []string{"registry.example.com/second", storage.LocalStorageAddress, "registry.example.com/first"}),
+	ginkgo.Entry("explicit :local with a registry primary is not queried twice", "registry.example.com/project", []string{storage.LocalStorageAddress}, []string{storage.LocalStorageAddress}),
+	ginkgo.Entry("explicit registry repos keep their order after the local storage", "registry.example.com/project", []string{"registry.example.com/second", "registry.example.com/first"}, []string{storage.LocalStorageAddress, "registry.example.com/second", "registry.example.com/first"}),
+	ginkgo.Entry("explicit :local among registry repos stays the first one", "registry.example.com/project", []string{"registry.example.com/second", storage.LocalStorageAddress, "registry.example.com/first"}, []string{storage.LocalStorageAddress, "registry.example.com/second", "registry.example.com/first"}),
 	ginkgo.Entry("explicit :local with a local primary is ignored", storage.LocalStorageAddress, []string{storage.LocalStorageAddress}, []string{}),
 )
 
 var _ = ginkgo.Describe("GetSecondaryStagesStorageList", func() {
-	ginkgo.It("builds a local stages storage for an explicit :local repo", func() {
+	ginkgo.It("builds a local stages storage for a registry primary", func() {
 		cmdData := secondaryTestCmdData([]string{storage.LocalStorageAddress})
 
 		list, err := GetSecondaryStagesStorageList(context.Background(), &secondaryTestPrimaryStorage{address: "registry.example.com/project"}, &secondaryTestContainerBackend{}, cmdData)
@@ -39,7 +39,7 @@ var _ = ginkgo.Describe("GetSecondaryStagesStorageList", func() {
 		gomega.Expect(list[0]).To(gomega.BeAssignableToTypeOf(&storage.LocalStagesStorage{}))
 	})
 
-	ginkgo.It("accepts :local from WERF_SECONDARY_REPO_1", func() {
+	ginkgo.It("does not duplicate the local storage requested through WERF_SECONDARY_REPO_1", func() {
 		cmdData := secondaryTestCmdData(nil)
 		gomega.Expect(os.Setenv("WERF_SECONDARY_REPO_1", storage.LocalStorageAddress)).To(gomega.Succeed())
 		ginkgo.DeferCleanup(func() {

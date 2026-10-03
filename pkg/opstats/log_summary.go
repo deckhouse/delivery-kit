@@ -10,9 +10,8 @@ import (
 	"github.com/werf/logboek/pkg/types"
 )
 
-// LogSummary prints the operations and stage cache summary blocks. The timeLabel names the
-// elapsed scope (e.g. "build time", "command time"). No-op when the collector is nil.
-func LogSummary(ctx context.Context, collector *Collector, timeLabel string, elapsed time.Duration) {
+// LogSummary prints operation and cache summaries. The last two arguments are retained for compatibility.
+func LogSummary(ctx context.Context, collector *Collector, _ string, _ time.Duration) {
 	if collector == nil {
 		return
 	}
@@ -32,7 +31,6 @@ func LogSummary(ctx context.Context, collector *Collector, timeLabel string, ela
 					logboek.Context(ctx).LogFHighlight("- %-32s %5d op   total %9.2fs   wall %9.2fs   avg %8.3fs   max %8.3fs%s\n",
 						s.Operation, s.Count, s.TotalTime.Seconds(), s.WallTime.Seconds(), s.AvgTime.Seconds(), s.MaxTime.Seconds(), parallelism)
 				}
-				logboek.Context(ctx).LogFHighlight("%s: %.2fs (wall must not exceed it; total may)\n", timeLabel, elapsed.Seconds())
 			})
 	}
 

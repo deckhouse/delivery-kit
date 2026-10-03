@@ -26,6 +26,8 @@ var _ = ginkgo.Describe("LogSummary", func() {
 		LogSummary(logboek.NewContext(context.Background(), logger), collector, "command time", 5*time.Second)
 
 		rendered := out.String()
+		gomega.Expect(rendered).NotTo(gomega.ContainSubstring("command time:"))
+		gomega.Expect(rendered).NotTo(gomega.ContainSubstring("wall must not exceed"))
 		for _, expected := range []string{"docker: image build", "docker: container run", "registry: image get", "git: fetch", "sync: lock acquire", "built"} {
 			gomega.Expect(rendered).To(gomega.ContainSubstring(expected))
 		}

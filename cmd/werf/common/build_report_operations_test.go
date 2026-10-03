@@ -86,7 +86,7 @@ var _ = Describe("build report operations option", func() {
 			Expect(opstats.FromContext(ctx)).NotTo(BeNil())
 		})
 
-		It("prints the summary with the command time label on finish", func() {
+		It("prints the operations summary without an elapsed-time footer on finish", func() {
 			var out bytes.Buffer
 			cmdData := &CmdData{BuildReportOperations: lo.ToPtr(true)}
 			ctx, finish := InitOperationsStatistics(newCtx(level.Default, &out), cmdData)
@@ -96,7 +96,7 @@ var _ = Describe("build report operations option", func() {
 
 			Expect(out.String()).To(ContainSubstring("Operations summary"))
 			Expect(out.String()).To(ContainSubstring("git: clone"))
-			Expect(out.String()).To(ContainSubstring("command time:"))
+			Expect(out.String()).NotTo(ContainSubstring("command time:"))
 		})
 
 		It("prints the summary even when the accepted log level was lowered after installation", func() {
@@ -108,7 +108,9 @@ var _ = Describe("build report operations option", func() {
 			logboek.Context(ctx).SetAcceptedLevel(level.Error)
 			finish()
 
-			Expect(out.String()).To(ContainSubstring("command time:"))
+			Expect(out.String()).To(ContainSubstring("Operations summary"))
+			Expect(out.String()).To(ContainSubstring("git: clone"))
+			Expect(out.String()).NotTo(ContainSubstring("command time:"))
 		})
 
 		It("keeps the summary suppressed when the command started quiet", func() {

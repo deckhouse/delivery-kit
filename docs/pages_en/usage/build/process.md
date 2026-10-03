@@ -95,7 +95,7 @@ The algorithm of stage selection in werf works as follows:
 3. For the Stapel builder, if the current stage involves Git (a Git archive stage, a custom stage with Git patches, or a `git latest patch` stage), then only those stages associated with commits that are ancestral to the current commit are selected. Thus, commits from neighboring branches will be discarded.
 4. Then the oldest `TIMESTAMP_MILLISEC` is selected.
 
-If you run a build with storing images in the repository, werf will first check if the required stages exist in the local repository and copy the suitable stages from there, so that no rebuilding of those stages is necessary.
+If you run a build with storing images in the repository, werf does not look up the required stages in the local repository. To reuse locally cached stages, pass `--secondary-repo=:local` explicitly: werf will then check the local repository and copy the suitable stages from there, so that no rebuilding of those stages is necessary. The same applies to `--check-built-images`: without `--secondary-repo=:local`, images that exist only locally do not satisfy the check.
 
 </div>
 </div>
@@ -434,10 +434,12 @@ There are a number of additional repositories on top of the main repository:
 
 - `--final-repo` to store the final images in a dedicated repository;
 - `--meta-repo` to store werf service metadata (used for cleanup based on Git history) in a dedicated repository;
-- `--secondary-repo` to use the repository in `read-only` mode (e.g. to use a container registry CI that you cannot push into, but you can reuse the build cache);
+- `--secondary-repo` to use the repository in `read-only` mode (e.g. to use a container registry CI that you cannot push into, but you can reuse the build cache); use `--secondary-repo=:local` to reuse the local image cache;
 - `--cache-repo` to set the repository containing the build cache alongside the builders.
 
 > **Caution!** For werf to operate properly, the container registry must be persistent, and cleaning should only be done with the `werf cleanup` special command.
+
+When listing tags, werf requests up to 1 000 000 tags per page, so listing even a large repository usually takes a single request. Amazon ECR (including `public.ecr.aws`) limits pages to 1000 tags, so werf uses that page size for ECR hosts right away. If any other registry answers a listing with a recognized page size rejection, werf repeats that listing with 1000 tags per page and keeps using this page size for that registry host until the werf command ends. Any other error is returned as is.
 
 ### Extra repository for final images
 
@@ -610,7 +612,9 @@ The JSON report contains detailed information about the build:
 
 * **ImagesByPlatform** — per-platform breakdown for multiarch builds. This field is populated only when the `WERF_ENABLE_REPORT_BY_PLATFORM=1` environment variable is set. The record structure is the same as in `Images`, but the data is grouped by image name and platform.
 
-* **Operations** — aggregated timings of low-level operations collected for the whole command run (stage build, image pull/push, registry API calls, git operations, werf config render, giterminism initialization, stage lock waits and so on). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
+* **Operations** — aggregated timings of low-level operations collected for the whole command run (Docker and Buildah image and container operations, registry client calls, git operations and synchronization lock acquisition). Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`). For each operation: the number of calls (`Count`), summed duration across parallel workers (`TotalTimeSeconds`), wall-clock duration as the union of possibly overlapping intervals (`WallTimeSeconds`), average (`AvgTimeSeconds`) and maximum (`MaxTimeSeconds`) durations. The console summary covers the whole command run, while a saved report covers the operations recorded since the previous report of the same command: with `--follow` each report includes everything since the previous one — the polling between builds and failed retry attempts included.
+
+Every operation is named `subsystem: operation`, with the `docker:`, `buildah:`, `registry:`, `git:` and `sync:` prefixes. Build and attached container-run timings include completion of the build or container command; save and copy streams are measured until EOF, a read error, or close. `registry:` operations measure registry client calls, not individual HTTP requests. `sync: lock acquire` measures synchronization lock acquisition (HTTP, Kubernetes, or local storage locks), including retries, but not the time the lock is held. werf's own steps around these calls — config rendering, giterminism initialization, stage preparation, import and build context steps, and waiting for internal locks and caches — are not measured. Nested and parallel operations overlap: do not add their wall times to calculate command duration.
 
 * **StageCache** — per-source counters of how stages were satisfied during the build, counted in stages: found in the local or repo stages storage, copied from a secondary storage, or built. Populated only when the `--build-report-operations` flag (`$WERF_BUILD_REPORT_OPERATIONS`) is set or debug logging is enabled (`--log-debug`).
 
@@ -673,49 +677,35 @@ Example report in JSON format (the `Operations`, `StageCache` and `RegistryCache
   },
   "ImagesByPlatform": {},
   "Operations": {
-    "config render": {
-      "Count": 1,
-      "TotalTimeSeconds": 0.213458291,
-      "WallTimeSeconds": 0.213458291,
-      "AvgTimeSeconds": 0.213458291,
-      "MaxTimeSeconds": 0.213458291
-    },
-    "docker daemon API": {
-      "Count": 31,
-      "TotalTimeSeconds": 0.61870432,
-      "WallTimeSeconds": 0.549330501,
-      "AvgTimeSeconds": 0.019958204,
-      "MaxTimeSeconds": 0.112832542
-    },
-    "giterminism init": {
-      "Count": 1,
-      "TotalTimeSeconds": 0.122435459,
-      "WallTimeSeconds": 0.122435459,
-      "AvgTimeSeconds": 0.122435459,
-      "MaxTimeSeconds": 0.122435459
-    },
-    "local image inspect": {
-      "Count": 5,
-      "TotalTimeSeconds": 0.110243333,
-      "WallTimeSeconds": 0.110243333,
-      "AvgTimeSeconds": 0.022048667,
-      "MaxTimeSeconds": 0.048555458
-    },
-    "registry: GetRepoImage": {
+    "registry: image get": {
       "Count": 1,
       "TotalTimeSeconds": 2.905423333,
       "WallTimeSeconds": 2.905423333,
       "AvgTimeSeconds": 2.905423333,
       "MaxTimeSeconds": 2.905423333
     },
-    "stage build": {
+    "docker: image build": {
       "Count": 2,
       "TotalTimeSeconds": 0.831474958,
       "WallTimeSeconds": 0.831474958,
       "AvgTimeSeconds": 0.415737479,
       "MaxTimeSeconds": 0.421835292
     },
-    "stage lock wait (storage)": {
+    "git: archive": {
+      "Count": 2,
+      "TotalTimeSeconds": 0.213458291,
+      "WallTimeSeconds": 0.189331042,
+      "AvgTimeSeconds": 0.106729145,
+      "MaxTimeSeconds": 0.142218375
+    },
+    "docker: image inspect": {
+      "Count": 5,
+      "TotalTimeSeconds": 0.110243333,
+      "WallTimeSeconds": 0.110243333,
+      "AvgTimeSeconds": 0.022048667,
+      "MaxTimeSeconds": 0.048555458
+    },
+    "sync: lock acquire": {
       "Count": 2,
       "TotalTimeSeconds": 0.001153668,
       "WallTimeSeconds": 0.001153668,

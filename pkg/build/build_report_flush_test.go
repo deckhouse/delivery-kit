@@ -15,14 +15,14 @@ var _ = Describe("createBuildReport operations flush", func() {
 		collector := opstats.NewCollector()
 		ctx := opstats.NewContext(context.Background(), collector)
 
-		opstats.Observe(ctx, opstats.OperationStageBuild)()
+		opstats.Observe(ctx, opstats.Operation("docker: image build"))()
 		opstats.CountEvent(ctx, opstats.EventStageBuilt)
 		opstats.CountEvent(ctx, opstats.EventRegistryTagsCacheHit)
 
 		failPhase := newReportPhase(filepath.Join(GinkgoT().TempDir(), "missing-dir", "report.json"))
 		Expect(createBuildReport(ctx, failPhase, nil)).To(HaveOccurred())
 
-		opstats.Observe(ctx, opstats.OperationStageBuild)()
+		opstats.Observe(ctx, opstats.Operation("docker: image build"))()
 		opstats.CountEvent(ctx, opstats.EventStageBuilt)
 		opstats.CountEvent(ctx, opstats.EventRegistryTagsCacheHit)
 
@@ -30,7 +30,7 @@ var _ = Describe("createBuildReport operations flush", func() {
 		Expect(createBuildReport(ctx, newReportPhase(reportPath), nil)).To(Succeed())
 
 		decoded := readOperationsReport(reportPath)
-		Expect(decoded.Operations[string(opstats.OperationStageBuild)].Count).To(Equal(2))
+		Expect(decoded.Operations[string(opstats.Operation("docker: image build"))].Count).To(Equal(2))
 		Expect(decoded.StageCache).To(Equal(map[string]int{string(opstats.EventStageBuilt): 2}))
 		Expect(decoded.RegistryCache).To(Equal(map[string]int{string(opstats.EventRegistryTagsCacheHit): 2}))
 

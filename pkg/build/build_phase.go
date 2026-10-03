@@ -1551,10 +1551,12 @@ ScanSecondaryStagesStorageList:
 	for _, secondaryStagesStorage := range storageManager.GetSecondaryStagesStorageList() {
 		var secondaryStages imagePkg.StageDescSet
 		var err error
-		if phase.anchorPrepass {
-			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
-		} else {
+		if phase.ShouldBeBuiltMode && !phase.anchorPrepass {
+			// A stale miss here would fail the build instead of reporting an existing stage, so the
+			// lookup must stay strictly fresh.
 			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageWithCache(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
+		} else {
+			secondaryStages, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stg.GetDigest(), phase.getPrevNonEmptyStageCreationTsForStage(stg), secondaryStagesStorage)
 		}
 		if err != nil {
 			return false, err
@@ -1642,7 +1644,6 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 	stg.SetDigest(stageDigest)
 
 	func() {
-		defer opstats.Observe(ctx, opstats.OperationStageDigestLockWait)()
 		stageMutex := phase.Conveyor.GetStageDigestMutex(stg.GetDigest())
 		if stageMutex.TryLock() {
 			return
@@ -1660,15 +1661,12 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 	storageManager := phase.Conveyor.StorageManager
 	var stageDescSet imagePkg.StageDescSet
 	var err error
-	switch {
-	case phase.anchorPrepass:
-		stageDescSet, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg), storageManager.GetStagesStorage())
-	case phase.ShouldBeBuiltMode:
+	if phase.ShouldBeBuiltMode && !phase.anchorPrepass {
 		// A stale miss here would fail the build instead of reporting an existing stage, so the
 		// lookup must stay strictly fresh.
 		stageDescSet, err = storageManager.GetStageDescSetByDigestWithCache(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg))
-	default:
-		stageDescSet, err = storageManager.GetStageDescSetByDigestWithRecentCache(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg))
+	} else {
+		stageDescSet, err = storageManager.GetStageDescSetByDigestFromStagesStorageCached(ctx, stg.LogDetailedName(), stageDigest, phase.getPrevNonEmptyStageCreationTsForStage(stg), storageManager.GetStagesStorage())
 	}
 	if err != nil {
 		return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, err

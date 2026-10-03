@@ -2,11 +2,13 @@ package docker_registry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"golang.org/x/sync/singleflight"
+
+	registry_api "github.com/werf/werf/v3/pkg/docker_registry/api"
 )
 
 type bearerRegistryFixture struct {
@@ -91,6 +95,153 @@ func newWritableBearerRegistryFixtureWithTLS(useTLS bool) *bearerRegistryFixture
 	fixture := newBearerRegistryFixtureWithTLS(useTLS)
 	fixture.backend = registry.New()
 	return fixture
+}
+
+type tagsPageSizeFixture struct {
+	server *httptest.Server
+
+	mu      sync.Mutex
+	queries []url.Values
+
+	tags  []string
+	chunk int
+
+	rejectAbove         int
+	rejectAfterRequests int
+	rejectLimit         int
+	rejections          int
+	rejectStatus        int
+	rejectCode          string
+	rejectMessage       string
+	onReject            func()
+	onPage              func(*http.Request)
+}
+
+func newTagsPageSizeFixture(tags ...string) *tagsPageSizeFixture {
+	fixture := &tagsPageSizeFixture{tags: tags}
+	fixture.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer ginkgo.GinkgoRecover()
+
+		if r.URL.Path == "/v2/" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if !strings.HasSuffix(r.URL.Path, "/tags/list") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		query := r.URL.Query()
+		requestedPageSize := 0
+		if rawPageSize := query.Get("n"); rawPageSize != "" {
+			parsedPageSize, err := strconv.Atoi(rawPageSize)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid page size %q", rawPageSize), http.StatusBadRequest)
+				return
+			}
+			requestedPageSize = parsedPageSize
+		}
+
+		fixture.mu.Lock()
+		fixture.queries = append(fixture.queries, query)
+		reject := fixture.rejectStatus != 0 &&
+			requestedPageSize > fixture.rejectAbove &&
+			len(fixture.queries) > fixture.rejectAfterRequests &&
+			(fixture.rejectLimit == 0 || fixture.rejections < fixture.rejectLimit)
+		rejectStatus, rejectCode, rejectMessage := fixture.rejectStatus, fixture.rejectCode, fixture.rejectMessage
+		if reject {
+			fixture.rejections++
+		}
+		fixture.mu.Unlock()
+
+		if reject {
+			if fixture.onReject != nil {
+				fixture.onReject()
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(rejectStatus)
+			_, err := fmt.Fprintf(w, `{"errors":[{"code":%q,"message":%q}]}`, rejectCode, rejectMessage)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			return
+		}
+
+		if fixture.onPage != nil {
+			fixture.onPage(r)
+		}
+
+		fixture.writePage(w, r)
+	}))
+	return fixture
+}
+
+func (fixture *tagsPageSizeFixture) stopRejecting() {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.rejectStatus = 0
+}
+
+func (fixture *tagsPageSizeFixture) writePage(w http.ResponseWriter, r *http.Request) {
+	start := 0
+	if last := r.URL.Query().Get("last"); last != "" {
+		for i, tag := range fixture.tags {
+			if tag == last {
+				start = i + 1
+				break
+			}
+		}
+	}
+
+	end := len(fixture.tags)
+	if fixture.chunk > 0 && start+fixture.chunk < end {
+		end = start + fixture.chunk
+	}
+	page := fixture.tags[start:end]
+
+	w.Header().Set("Content-Type", "application/json")
+	if end < len(fixture.tags) {
+		w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?n=%d&last=%s>; rel="next"`, r.Host, r.URL.Path, fixture.chunk, page[len(page)-1]))
+	}
+	gomega.Expect(json.NewEncoder(w).Encode(map[string]any{"name": "repo", "tags": page})).To(gomega.Succeed())
+}
+
+func (fixture *tagsPageSizeFixture) requestedPageSizes() []string {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	sizes := make([]string, 0, len(fixture.queries))
+	for _, query := range fixture.queries {
+		sizes = append(sizes, query.Get("n"))
+	}
+	return sizes
+}
+
+type tagsPageSizeTransport struct {
+	serverHost string
+	inner      http.RoundTripper
+}
+
+var _ http.RoundTripper = (*tagsPageSizeTransport)(nil)
+
+func (t *tagsPageSizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	routed := req.Clone(req.Context())
+	routed.Host = req.URL.Host
+	routed.URL.Scheme = "http"
+	routed.URL.Host = t.serverHost
+	return t.inner.RoundTrip(routed)
+}
+
+var tagsPageSizeHosts atomic.Int64
+
+func nextTagsPageSizeHost() string {
+	return fmt.Sprintf("rejecting-%d.example.test", tagsPageSizeHosts.Add(1))
+}
+
+func newTagsPageSizeAPI(fixture *tagsPageSizeFixture) *api {
+	registryAPI := newAPI(apiOptions{InsecureRegistry: true})
+	registryAPI.httpTransport = &tagsPageSizeTransport{
+		serverHost: strings.TrimPrefix(fixture.server.URL, "http://"),
+		inner:      registryAPI.httpTransport,
+	}
+	return registryAPI
 }
 
 type oneShotTokenReadErrorTransport struct {
@@ -281,6 +432,77 @@ func startBlockedListing(ctx context.Context, r *DockerRegistryWithCache, inner 
 
 	gomega.Eventually(inner.started).Should(gomega.BeClosed())
 	return listedTags, func() { close(inner.release) }
+}
+
+type gatedListing struct {
+	tags    []string
+	started chan struct{}
+	release chan struct{}
+}
+
+func newGatedListing(tags ...string) *gatedListing {
+	return &gatedListing{tags: tags, started: make(chan struct{}), release: make(chan struct{})}
+}
+
+// gatedListingRegistry answers every Tags call with its own prepared listing, blocked until the
+// test releases it, so that overlapping listings complete in an order the test chooses.
+type gatedListingRegistry struct {
+	Interface
+
+	mu       sync.Mutex
+	listings []*gatedListing
+	calls    int
+}
+
+var _ Interface = (*gatedListingRegistry)(nil)
+
+func (r *gatedListingRegistry) Tags(_ context.Context, _ string, _ ...Option) ([]string, error) {
+	r.mu.Lock()
+	if r.calls >= len(r.listings) {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("unexpected listing call %d", r.calls+1)
+	}
+	listing := r.listings[r.calls]
+	r.calls++
+	r.mu.Unlock()
+
+	close(listing.started)
+	<-listing.release
+	return append([]string(nil), listing.tags...), nil
+}
+
+func (r *gatedListingRegistry) parseReferenceParts(reference string) (referenceParts, error) {
+	return (&api{}).parseReferenceParts(reference)
+}
+
+func startFreshListing(ctx context.Context, r *DockerRegistryWithCache, reference string) chan []string {
+	listedTags := make(chan []string, 1)
+	go func() {
+		defer ginkgo.GinkgoRecover()
+		tags, err := r.Tags(ctx, reference, WithTagsMaxAge(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		listedTags <- tags
+	}()
+	return listedTags
+}
+
+var _ Interface = (*mutatingRegistryStub)(nil)
+
+type mutatingRegistryStub struct {
+	*listingRegistryStub
+
+	mutateErr    error
+	destinations []string
+}
+
+func (r *mutatingRegistryStub) MutateAndPushImage(_ context.Context, _, destinationReference string, _ ...registry_api.MutateOption) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.mutateErr != nil {
+		return r.mutateErr
+	}
+	r.destinations = append(r.destinations, destinationReference)
+	return nil
 }
 
 type snapshotListingRegistry struct {

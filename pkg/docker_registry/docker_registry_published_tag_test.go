@@ -115,6 +115,40 @@ var _ = ginkgo.Describe("AddCachedTag", func() {
 	})
 })
 
+var _ = ginkgo.Describe("MutateAndPushImage", func() {
+	const repo = "registry.example/project"
+
+	ginkgo.It("makes the pushed destination tag visible in the cached listing", func(ctx ginkgo.SpecContext) {
+		inner := &mutatingRegistryStub{listingRegistryStub: newListingRegistryStub("stage-a")}
+		r := newCachedRegistryStub(inner)
+
+		_, err := r.Tags(ctx, repo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(r.MutateAndPushImage(ctx, repo+":stage-a", repo+":stage-b")).To(gomega.Succeed())
+
+		exists, err := r.IsTagExist(ctx, repo+":stage-b", WithCachedTags())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(exists).To(gomega.BeTrue())
+		gomega.Expect(inner.callCount()).To(gomega.Equal(1))
+	})
+
+	ginkgo.It("does not add the destination tag when the push fails", func(ctx ginkgo.SpecContext) {
+		inner := &mutatingRegistryStub{
+			listingRegistryStub: newListingRegistryStub("stage-a"),
+			mutateErr:           fmt.Errorf("registry is down"),
+		}
+		r := newCachedRegistryStub(inner)
+
+		_, err := r.Tags(ctx, repo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(r.MutateAndPushImage(ctx, repo+":stage-a", repo+":stage-b")).To(gomega.MatchError(gomega.ContainSubstring("registry is down")))
+
+		gomega.Expect(cachedEntry(r, repo).tags).To(gomega.ConsistOf("stage-a"))
+	})
+})
+
 var _ = ginkgo.Describe("AddCachedTag concurrent with a tags listing", func() {
 	const repo = "registry.example/project"
 
@@ -181,6 +215,34 @@ var _ = ginkgo.Describe("AddCachedTag concurrent with a tags listing", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(tags).To(gomega.Equal([]string{"stage-a", "stage-b"}))
 		gomega.Expect(cachedEntry(r, repo).pushedTags).To(gomega.BeEmpty())
+	})
+
+	ginkgo.It("keeps the snapshot of a later listing when an earlier one completes last", func(ctx ginkgo.SpecContext) {
+		inner := &gatedListingRegistry{listings: []*gatedListing{
+			newGatedListing("stage-a"),
+			newGatedListing("stage-a", "stage-b"),
+		}}
+		r := newCachedRegistryStub(inner)
+		r.cachedTagsMap.Store(repo, tagsCacheEntry{tags: []string{"stage-a"}, updatedAt: time.Now()})
+
+		earlierListing := startFreshListing(ctx, r, repo)
+		gomega.Eventually(inner.listings[0].started).Should(gomega.BeClosed())
+
+		// Published after the earlier listing snapshotted the repo without it, so the later
+		// listing already reports it and clears the publication record.
+		AddCachedTag(ctx, r, repo+":stage-b")
+
+		laterListing := startFreshListing(ctx, r, repo)
+		gomega.Eventually(inner.listings[1].started).Should(gomega.BeClosed())
+		close(inner.listings[1].release)
+		gomega.Expect(<-laterListing).To(gomega.ConsistOf("stage-a", "stage-b"))
+		gomega.Expect(cachedEntry(r, repo).pushedTags).To(gomega.BeEmpty())
+		AddCachedTag(ctx, r, repo+":stage-c")
+
+		close(inner.listings[0].release)
+		gomega.Expect(<-earlierListing).To(gomega.ConsistOf("stage-a", "stage-c"))
+
+		gomega.Expect(cachedEntry(r, repo).tags).To(gomega.ConsistOf("stage-a", "stage-b", "stage-c"))
 	})
 
 	ginkgo.It("leaves the cache untouched when the listing fails", func(ctx ginkgo.SpecContext) {

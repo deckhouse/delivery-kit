@@ -35,7 +35,6 @@ import (
 	"github.com/werf/werf/v3/pkg/git_repo"
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	"github.com/werf/werf/v3/pkg/logging"
-	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
 	"github.com/werf/werf/v3/pkg/true_git"
@@ -1048,10 +1047,6 @@ func GetCacheStagesStorageList(ctx context.Context, stagesStorage storage.Stages
 func GetSecondaryStagesStorageList(ctx context.Context, stagesStorage storage.StagesStorage, containerBackend container_backend.ContainerBackend, cmdData *CmdData) ([]storage.StagesStorage, error) {
 	var res []storage.StagesStorage
 
-	if stagesStorage.Address() != storage.LocalStorageAddress {
-		res = append(res, storage.NewLocalStagesStorage(containerBackend))
-	}
-
 	buildahMode, _, err := GetBuildahMode()
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine buildah mode: %w", err)
@@ -1063,7 +1058,12 @@ func GetSecondaryStagesStorageList(ctx context.Context, stagesStorage storage.St
 	}
 
 	for _, address := range GetSecondaryStagesStorage(cmdData) {
-		repoData := NewRepoData("secondary-repo", RepoDataOptions{OnlyAddress: true})
+		if address == storage.LocalStorageAddress && stagesStorage.Address() == storage.LocalStorageAddress {
+			logboek.Context(ctx).Warn().LogF("WARNING: Ignoring secondary repo %s: same address as the primary repo.\n", address)
+			continue
+		}
+
+		repoData := NewRepoData("secondary-repo", RepoDataOptions{OnlyAddress: true, OptionalRepo: address == storage.LocalStorageAddress})
 		repoData.Address = &address
 
 		secondaryStorage, err := repoData.CreateStagesStorage(ctx, &CreateStagesStorageOptions{
@@ -1529,7 +1529,6 @@ func GetIntrospectOptions(cmdData *CmdData, werfConfig *config.WerfConfig) (buil
 }
 
 func GetGiterminismManager(ctx context.Context, cmdData *CmdData) (*giterminism_manager.Manager, error) {
-	defer opstats.Observe(ctx, opstats.OperationGiterminismInit)()
 	printGlobalWarningIfDevInCI(ctx, cmdData)
 	manager := new(giterminism_manager.Manager)
 	if err := logboek.Context(ctx).Info().LogProcess("Initialize giterminism manager").

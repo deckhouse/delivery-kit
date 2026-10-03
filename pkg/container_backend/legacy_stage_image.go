@@ -10,7 +10,6 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/werf"
 )
 
@@ -73,7 +72,6 @@ func (i *LegacyStageImage) GetID() string {
 }
 
 func (i *LegacyStageImage) Build(ctx context.Context, options BuildOptions) error {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
 	if options.Network != "" {
 		i.container.runOptions.AddNetwork(options.Network)
 	}
@@ -101,11 +99,11 @@ func (i *LegacyStageImage) Build(ctx context.Context, options BuildOptions) erro
 	}
 
 	containerLockName := ContainerLockName(i.container.Name())
-	if _, lock, err := werf.HostLocker().AcquireLock(ctx, containerLockName, lockgate.AcquireOptions{}); err != nil {
+	_, lock, err := werf.HostLocker().AcquireLock(ctx, containerLockName, lockgate.AcquireOptions{})
+	if err != nil {
 		return fmt.Errorf("failed to lock %s: %w", containerLockName, err)
-	} else {
-		defer werf.HostLocker().ReleaseLock(lock)
 	}
+	defer werf.HostLocker().ReleaseLock(lock)
 
 	if debugDockerRunCommand() {
 		runArgs, err := i.container.prepareRunArgs(ctx)

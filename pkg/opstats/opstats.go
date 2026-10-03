@@ -10,6 +10,9 @@ import (
 
 type Operation string
 
+// The operations above OperationGitClone are no longer measured: only low-level backend, registry,
+// git and synchronization calls are. They are kept so that consumers of earlier report schemas
+// still compile.
 const (
 	OperationImagePull               Operation = "image pull"
 	OperationImagePush               Operation = "image push"
@@ -18,16 +21,17 @@ const (
 	OperationImageSaveLoad           Operation = "image save/load"
 	OperationStapelContainer         Operation = "stapel container prepare"
 	OperationStapelContainerLockWait Operation = "stapel container lock wait"
-	OperationGitClone                Operation = "git clone"
-	OperationGitFetch                Operation = "git fetch"
-	OperationGitLsRemote             Operation = "git ls-remote"
-	OperationGitPatch                Operation = "git patch"
-	OperationGitArchive              Operation = "git archive"
-	OperationGitChecksum             Operation = "git checksum"
 	OperationStageDigestLockWait     Operation = "stage lock wait (parallel tasks)"
 	OperationContextAddFiles         Operation = "context add files"
 	OperationConfigRender            Operation = "config render"
 	OperationGiterminismInit         Operation = "giterminism init"
+
+	OperationGitClone    Operation = "git: clone"
+	OperationGitFetch    Operation = "git: fetch"
+	OperationGitLsRemote Operation = "git: ls-remote"
+	OperationGitPatch    Operation = "git: patch"
+	OperationGitArchive  Operation = "git: archive"
+	OperationGitChecksum Operation = "git: checksum"
 )
 
 type Event string
@@ -63,7 +67,7 @@ func FromContext(ctx context.Context) *Collector {
 // Observe starts measuring an operation and returns a function that records the
 // measurement into the collector bound to ctx. The returned function records at
 // most once, so it is safe to both call it early and defer it. When no
-// collector is bound, it is a no-op. Usage: defer opstats.Observe(ctx, opstats.OperationImagePull)()
+// collector is bound, it is a no-op. Usage: defer opstats.Observe(ctx, opstats.OperationGitClone)()
 func Observe(ctx context.Context, op Operation) func() {
 	collector := FromContext(ctx)
 	if collector == nil {

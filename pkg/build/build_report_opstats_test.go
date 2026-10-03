@@ -19,7 +19,7 @@ var _ = Describe("ImagesReport operations summary", func() {
 		report.SetOperationsSummary(ctx,
 			[]opstats.OperationSummary{
 				{
-					Operation: opstats.OperationImagePush,
+					Operation: opstats.Operation("docker: image push"),
 					Count:     2,
 					TotalTime: 3 * time.Second,
 					WallTime:  2 * time.Second,
@@ -40,7 +40,7 @@ var _ = Describe("ImagesReport operations summary", func() {
 
 		decoded := decodeOperationsReport(data)
 		Expect(decoded.Operations).To(Equal(map[string]ReportOperationRecord{
-			"image push": {
+			"docker: image push": {
 				Count:            2,
 				TotalTimeSeconds: 3,
 				WallTimeSeconds:  2,

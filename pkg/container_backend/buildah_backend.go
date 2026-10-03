@@ -35,7 +35,6 @@ import (
 	"github.com/werf/werf/v3/pkg/container_backend/info"
 	"github.com/werf/werf/v3/pkg/container_backend/prune"
 	"github.com/werf/werf/v3/pkg/image"
-	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/path_matcher"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/tmp_manager"
@@ -59,6 +58,14 @@ func NewBuildahBackend(buildah buildah.Buildah, opts BuildahBackendOptions) *Bui
 		pullMutexes:           map[string]*sync.Mutex{},
 		BuildahBackendOptions: opts,
 	}
+}
+
+// lockPull serializes pulls of ref and returns the unlock function.
+func (backend *BuildahBackend) lockPull(ref string) func() {
+	mu := backend.getPullMutex(ref)
+	mu.Lock()
+
+	return mu.Unlock
 }
 
 func (backend *BuildahBackend) getPullMutex(ref string) *sync.Mutex {
@@ -188,9 +195,7 @@ func (backend *BuildahBackend) createContainers(ctx context.Context, images []st
 			logboek.Context(ctx).Debug().LogF("Cached imageID %q for %q not found locally, pulling by ref and retrying\n", resolvedImg, img)
 
 			pulledImageID, pullErr := func() (string, error) {
-				mu := backend.getPullMutex(img)
-				mu.Lock()
-				defer mu.Unlock()
+				defer backend.lockPull(img)()
 
 				pulledImageID, pullErr := backend.buildah.Pull(ctx, img, buildah.PullOpts(backend.getBuildahCommonOpts(ctx, true, nil, opts.TargetPlatform)))
 				if pullErr == nil && pulledImageID != "" {
@@ -635,9 +640,7 @@ func (backend *BuildahBackend) ensureImageLocally(ctx context.Context, ref strin
 
 	logboek.Context(ctx).Debug().LogF("Image %q not found locally, pulling\n", ref)
 
-	mu := backend.getPullMutex(ref)
-	mu.Lock()
-	defer mu.Unlock()
+	defer backend.lockPull(ref)()
 
 	// A concurrent caller holding the lock may have pulled the image already.
 	if found, err := checkLocal(); err != nil || found {
@@ -677,8 +680,6 @@ func (backend *BuildahBackend) ensureRunMountImages(ctx context.Context, instrs 
 }
 
 func (backend *BuildahBackend) BuildDockerfileStage(ctx context.Context, baseImage string, opts BuildDockerfileStageOptions, instructions ...InstructionInterface) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
-
 	if err := backend.ensureRunMountImages(ctx, instructions, opts.CommonOpts); err != nil {
 		return "", err
 	}
@@ -732,7 +733,6 @@ func (backend *BuildahBackend) BuildDockerfileStage(ctx context.Context, baseIma
 }
 
 func (backend *BuildahBackend) BuildStapelStage(ctx context.Context, baseImage string, opts BuildStapelStageOptions) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
 	commonOpts := CommonOpts{TargetPlatform: opts.TargetPlatform}
 
 	var container *containerDesc
@@ -820,7 +820,6 @@ func (backend *BuildahBackend) BuildStapelStage(ctx context.Context, baseImage s
 
 // GetImageInfo returns nil, nil if image not found.
 func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opts GetImageInfoOpts) (*image.Info, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageInspect)()
 	inspectRef := ref
 	inspectedByCachedID := false
 	if opts.TargetPlatform != "" {
@@ -923,11 +922,8 @@ func (backend *BuildahBackend) Pull(ctx context.Context, ref string, opts PullOp
 	// The lock key is intentionally ref only (not ref+platform): the race is on the
 	// storage name, which is derived from ref, so pulls of the same ref for different
 	// platforms must still be serialized.
-	mu := backend.getPullMutex(ref)
-	mu.Lock()
-	defer mu.Unlock()
+	defer backend.lockPull(ref)()
 
-	defer opstats.Observe(ctx, opstats.OperationImagePull)()
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
 		logWriter = logboek.Context(ctx).OutStream()
@@ -961,7 +957,6 @@ func (backend *BuildahBackend) Tag(ctx context.Context, ref, newRef string, opts
 }
 
 func (backend *BuildahBackend) Push(ctx context.Context, ref string, opts PushOpts) error {
-	defer opstats.Observe(ctx, opstats.OperationImagePush)()
 	var logWriter io.Writer
 	if logboek.Context(ctx).Info().IsAccepted() {
 		logWriter = logboek.Context(ctx).OutStream()
@@ -989,7 +984,6 @@ func (backend *BuildahBackend) TagImageByName(ctx context.Context, img LegacyIma
 }
 
 func (backend *BuildahBackend) BuildDockerfile(ctx context.Context, dockerfileContent []byte, opts BuildDockerfileOpts) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationStageBuild)()
 	buildArgs := make(map[string]string)
 	for _, argStr := range opts.BuildArgs {
 		argParts := strings.SplitN(argStr, "=", 2)
@@ -1442,17 +1436,14 @@ func (backend *BuildahBackend) PruneVolumes(_ context.Context, _ prune.Options) 
 }
 
 func (backend *BuildahBackend) SaveImageToStream(ctx context.Context, imageName string) (io.ReadCloser, error) {
-	done := opstats.Observe(ctx, opstats.OperationImageSaveLoad)
 	rc, err := backend.buildah.SaveImageToStream(ctx, imageName)
 	if err != nil {
-		done()
 		return nil, fmt.Errorf("unable to save image %q to stream: %w", imageName, err)
 	}
-	return opstats.NewObservedReadCloser(rc, done), nil
+	return rc, nil
 }
 
 func (backend *BuildahBackend) LoadImageFromStream(ctx context.Context, input io.Reader) (string, error) {
-	defer opstats.Observe(ctx, opstats.OperationImageSaveLoad)()
 	imageID, err := backend.buildah.LoadImageFromStream(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("unable to load image from stream: %w", err)

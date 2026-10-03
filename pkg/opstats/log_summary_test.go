@@ -11,7 +11,7 @@ var _ = ginkgo.DescribeTable("LogSummary cache blocks",
 	func(events map[Event]int, expected, forbidden []string) {
 		collector := NewCollector()
 		ctx := NewContext(context.Background(), collector)
-		Observe(ctx, OperationStageBuild)()
+		Observe(ctx, Operation("docker: image build"))()
 		for event, count := range events {
 			for range count {
 				CountEvent(ctx, event)
@@ -19,6 +19,8 @@ var _ = ginkgo.DescribeTable("LogSummary cache blocks",
 		}
 
 		output := logSummaryOutput(collector)
+		gomega.Expect(output).NotTo(gomega.ContainSubstring("command time:"))
+		gomega.Expect(output).NotTo(gomega.ContainSubstring("wall must not exceed"))
 		for _, pattern := range expected {
 			gomega.Expect(output).To(gomega.MatchRegexp(pattern))
 		}

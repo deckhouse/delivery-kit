@@ -13,6 +13,7 @@ import (
 	"github.com/werf/logboek"
 	registry_api "github.com/werf/werf/v2/pkg/docker_registry/api"
 	"github.com/werf/werf/v2/pkg/image"
+	"github.com/werf/werf/v2/pkg/opstats"
 )
 
 const (
@@ -27,7 +28,10 @@ const (
 
 type DockerRegistryWithCache struct {
 	Interface
-	cachedTagsMap *sync.Map
+	cachedTagsMap   *sync.Map
+	cacheWriteMu    sync.Mutex
+	listingSequence uint64
+	storedSequence  map[string]uint64
 
 	listTagsQueryGroup *singleflight.Group
 }
@@ -68,20 +72,47 @@ func (r *DockerRegistryWithCache) tryLoadTagsFromCache(cachedTagsID string, opts
 }
 
 func (r *DockerRegistryWithCache) getTagsListFromRegistry(ctx context.Context, reference string, opts ...Option) ([]string, error) {
+	outcome, sharedLookup := opstats.CacheOutcomeBypass, false
+	if makeOptions(opts...).cachedTags {
+		outcome = opstats.CacheOutcomeMiss
+	}
+	defer func() {
+		opstats.CountCacheLookup(ctx, opstats.OperationRegistryTagsList, opstats.CacheLayerMemory, outcome, sharedLookup)
+	}()
 	cachedTagsID := r.mustGetCachedTagsID(reference)
+	if makeOptions(opts...).freshTags {
+		outcome = opstats.CacheOutcomeBypass
+		sequence := r.nextListingSequence()
+		tags, err := r.Interface.Tags(ctx, reference, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("fetch fresh tags for repo %q: %w", reference, err)
+		}
+		r.storeTagsToCache(cachedTagsID, tags, sequence)
+		return tags, nil
+	}
 	if tags, ok := r.tryLoadTagsFromCache(cachedTagsID, opts...); ok {
+		outcome = opstats.CacheOutcomeHit
+		opstats.CountEvent(ctx, opstats.EventRegistryTagsCacheHit)
 		return tags, nil
 	}
 
 	// Use singleflight to avoid multiple concurrent calls to the registry for the same reference
 	// This is useful when multiple goroutines try to fetch tags for the same reference at the same time.
 	// Will perform only one call to the registry and share the result among all goroutines.
+	leader := false
 	newTagsResp, err, shared := r.listTagsQueryGroup.Do(cachedTagsID, func() (interface{}, error) {
+		leader = true
+		sequence := r.nextListingSequence()
 		tags, err := r.Interface.Tags(ctx, reference, opts...)
+		if err == nil {
+			r.storeTagsToCache(cachedTagsID, tags, sequence)
+		}
 		return tags, err
 	})
 
+	sharedLookup = !leader
 	if shared {
+		opstats.CountEvent(ctx, opstats.EventRegistryTagsSharedResult)
 		logboek.Context(ctx).Debug().LogF("Query list tags for %q was reused\n", cachedTagsID)
 	}
 
@@ -94,8 +125,28 @@ func (r *DockerRegistryWithCache) getTagsListFromRegistry(ctx context.Context, r
 		return nil, err
 	}
 
-	r.cachedTagsMap.Store(cachedTagsID, newTagsList)
 	return newTagsList, nil
+}
+
+func (r *DockerRegistryWithCache) nextListingSequence() uint64 {
+	r.cacheWriteMu.Lock()
+	defer r.cacheWriteMu.Unlock()
+	r.listingSequence++
+	return r.listingSequence
+}
+
+// A slow earlier listing must not replace a newer authoritative result in the cache.
+func (r *DockerRegistryWithCache) storeTagsToCache(id string, tags []string, sequence uint64) {
+	r.cacheWriteMu.Lock()
+	defer r.cacheWriteMu.Unlock()
+	if r.storedSequence[id] > sequence {
+		return
+	}
+	if r.storedSequence == nil {
+		r.storedSequence = make(map[string]uint64)
+	}
+	r.storedSequence[id] = sequence
+	r.cachedTagsMap.Store(id, tags)
 }
 
 func castTagsList(tagsList interface{}) ([]string, error) {
@@ -180,13 +231,12 @@ func (r *DockerRegistryWithCache) startBackgroundCacheUpdater(ctx context.Contex
 							ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
 							defer cancel()
 
-							tags, err := r.Tags(ctxWithTimeout, repo)
+							_, err := r.Tags(ctxWithTimeout, repo)
 							if err != nil {
 								logboek.Context(ctx).Debug().LogF("Failed to update tag cache for %q: %s\n", repo, err)
 								return err
 							}
 
-							r.cachedTagsMap.Store(repo, tags)
 							logboek.Context(ctx).Debug().LogF("Updated tag cache for %q\n", repo)
 							return nil
 						}); err != nil {

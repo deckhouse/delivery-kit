@@ -36,6 +36,12 @@ type Base struct {
 	commitRepoHandleMutex sync.Map
 
 	initRepoHandleBackedByWorkTreeFunc func(context.Context, string) (repo_handle.Handle, error)
+
+	// ensureRepoDataFunc makes the local cache data backing this repo usable
+	// again before a handle is opened, and reports whether it had to restore it
+	// (in which case cached handles point at deleted object files). Nil for
+	// repos with nothing to restore, like a user's own local repo.
+	ensureRepoDataFunc func(ctx context.Context, commit string) (bool, error)
 }
 
 func NewBase(name string, initRepoHandleBackedByWorkTreeFunc func(context.Context, string) (repo_handle.Handle, error)) *Base {
@@ -159,6 +165,13 @@ func (repo *Base) GetName() string {
 	return repo.Name
 }
 
+func cacheOutcome(hit bool) opstats.CacheOutcome {
+	if hit {
+		return opstats.CacheOutcomeHit
+	}
+	return opstats.CacheOutcomeMiss
+}
+
 func (repo *Base) getOrCreatePatch(ctx context.Context, repoPath, gitDir, repoID, workTreeCacheDir string, opts PatchOptions) (Patch, error) {
 	patchID := true_git.PatchOptions(opts).ID()
 
@@ -166,8 +179,23 @@ func (repo *Base) getOrCreatePatch(ctx context.Context, repoPath, gitDir, repoID
 	checksumMutex.Lock()
 	defer checksumMutex.Unlock()
 
+	cacheHit := false
+	defer func() {
+		opstats.CountCacheLookup(ctx, opstats.OperationGitPatch, opstats.CacheLayerMemory, cacheOutcome(cacheHit), false)
+	}()
 	if val, ok := repo.Cache.Patches.Load(patchID); ok {
-		return val.(Patch), nil
+		// GC may have evicted the file since we cached it: GetPatchFile re-checks
+		// it on disk and refreshes its last access timestamp under the GC lock.
+		patchFile, err := CommonGitDataManager.GetPatchFile(ctx, repoID, opts)
+		if err != nil {
+			return nil, err
+		}
+		if patchFile != nil {
+			cacheHit = true
+			return val.(Patch), nil
+		}
+
+		repo.Cache.Patches.Delete(patchID)
 	}
 
 	patch, err := repo.CreatePatch(ctx, repoPath, gitDir, repoID, workTreeCacheDir, opts)
@@ -217,10 +245,12 @@ func (repo *Base) createPatch(ctx context.Context, repoPath, gitDir, repoID, wor
 		defer werf.HostLocker().ReleaseLock(lock)
 	}
 
-	if patch, err := CommonGitDataManager.GetPatchFile(ctx, repoID, opts); err != nil {
+	cachedPatch, err := CommonGitDataManager.GetPatchFile(ctx, repoID, opts)
+	opstats.CountCacheLookup(ctx, opstats.OperationGitPatch, opstats.CacheLayerDisk, cacheOutcome(err == nil && cachedPatch != nil), false)
+	if err != nil {
 		return nil, err
-	} else if patch != nil {
-		return patch, err
+	} else if cachedPatch != nil {
+		return cachedPatch, nil
 	}
 
 	repository, err := repo.PlainOpen(repoPath)
@@ -375,8 +405,26 @@ func (repo *Base) getOrCreateArchive(ctx context.Context, repoPath, gitDir, repo
 	repo.Cache.archivesMutex.Lock()
 	defer repo.Cache.archivesMutex.Unlock()
 
+	cacheHit := false
+	defer func() {
+		opstats.CountCacheLookup(ctx, opstats.OperationGitArchive, opstats.CacheLayerMemory, cacheOutcome(cacheHit), false)
+	}()
 	archiveID := true_git.ArchiveOptions(opts).ID()
-	if _, hasKey := repo.Cache.Archives[archiveID]; !hasKey {
+	if _, hasKey := repo.Cache.Archives[archiveID]; hasKey {
+		// GC may have evicted the file since we cached it: GetArchiveFile
+		// re-checks it on disk and refreshes its last access timestamp under the
+		// GC lock.
+		archiveFile, err := CommonGitDataManager.GetArchiveFile(ctx, repoID, opts)
+		if err != nil {
+			return nil, err
+		}
+		if archiveFile == nil {
+			delete(repo.Cache.Archives, archiveID)
+		}
+	}
+
+	_, cacheHit = repo.Cache.Archives[archiveID]
+	if !cacheHit {
 		archive, err := repo.CreateArchive(ctx, repoPath, gitDir, repoID, workTreeCacheDir, opts)
 		if err != nil {
 			return nil, err
@@ -404,10 +452,12 @@ func (repo *Base) createArchive(ctx context.Context, repoPath, gitDir, repoID, w
 		defer werf.HostLocker().ReleaseLock(lock)
 	}
 
-	if archive, err := CommonGitDataManager.GetArchiveFile(ctx, repoID, opts); err != nil {
+	cachedArchive, err := CommonGitDataManager.GetArchiveFile(ctx, repoID, opts)
+	opstats.CountCacheLookup(ctx, opstats.OperationGitArchive, opstats.CacheLayerDisk, cacheOutcome(err == nil && cachedArchive != nil), false)
+	if err != nil {
 		return nil, err
-	} else if archive != nil {
-		return archive, nil
+	} else if cachedArchive != nil {
+		return cachedArchive, nil
 	}
 
 	repository, err := repo.PlainOpen(repoPath)
@@ -553,7 +603,9 @@ func (repo *Base) getOrCreateChecksum(ctx context.Context, repoHandle repo_handl
 	checksumMutex.Lock()
 	defer checksumMutex.Unlock()
 
-	if _, hasKey := repo.Cache.Checksums.Load(checksumID); !hasKey {
+	_, hasKey := repo.Cache.Checksums.Load(checksumID)
+	defer opstats.CountCacheLookup(ctx, opstats.OperationGitChecksum, opstats.CacheLayerMemory, cacheOutcome(hasKey), false)
+	if !hasKey {
 		checksum, err := repo.CreateChecksum(ctx, repoHandle, opts)
 		if err != nil {
 			return "", err
@@ -603,10 +655,29 @@ func (repo *Base) withRepoHandle(ctx context.Context, commit string, f func(hand
 	mutex.Lock()
 	defer mutex.Unlock()
 
+	// A handle keeps the mirror object files and the prepared worktree open, so
+	// the shared GC lock has to cover the callback too, not just the handle
+	// initialization. It is released on return: no build holds it as a whole.
+	if lock, err := CommonGitDataManager.LockGC(ctx, true); err != nil {
+		return err
+	} else {
+		defer werf.HostLocker().ReleaseLock(lock)
+	}
+
 	attempt := 0
 	retriesLimit := 1
 
 initCommitRepoHandle:
+	if repo.ensureRepoDataFunc != nil {
+		restored, err := repo.ensureRepoDataFunc(ctx, commit)
+		if err != nil {
+			return err
+		}
+		if restored {
+			repo.commitRepoHandle.Delete(commit)
+		}
+	}
+
 	if _, hasKey := repo.commitRepoHandle.Load(commit); !hasKey {
 		repoHandler, err := repo.initRepoHandleBackedByWorkTree(ctx, commit)
 		if err != nil {

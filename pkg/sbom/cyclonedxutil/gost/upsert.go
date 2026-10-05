@@ -12,7 +12,8 @@ import (
 // Upsert inserts or updates mandatory GOST properties in the BOM metadata component
 // and every component, nested ones included. An attack surface of `yes` describes
 // the components an attacker reaches directly, so it lands on the roots of the
-// dependency tree; everything pulled in by another component gets `indirect`.
+// dependency tree — the components the image declares it uses, see
+// dependencyTargets; everything else gets `indirect`.
 // Every other value, and the security function in all cases, applies unchanged.
 func Upsert(bom *cdx.BOM, config Config) error {
 	if bom == nil {
@@ -50,27 +51,39 @@ func setComponents(components []cdx.Component, rootConfig, dependencyConfig Conf
 	}
 }
 
-// dependencyTargets collects every bom-ref some root of the dependency tree
-// pulls in, directly or through other components. A component missing from the
-// set is a root: nothing else in the image depends on it. An empty
-// `dependencies` section therefore makes every component a root, which is what
-// the catalogers that report no tree at all produce.
+// dependencyTargets collects every bom-ref that receives the dependency value
+// of the attack surface rather than the root value.
 //
-// Roots are found per strongly connected component rather than per node: OS
-// package graphs contain mutual dependencies (libc and libgcc depend on each
-// other), and counting in-edges alone would leave such a cycle with no root
-// even when nothing outside of it depends on it.
+// An edge sourced at the metadata component is the image saying what it uses
+// directly: werf records the packages a `packages` directive declares that
+// way. When such an edge names at least one component, its targets are the
+// roots and every other component is a target — pulled in by something the
+// image uses, not used by the image itself.
 //
-// Only edges sourced at a component count. An edge from the scanned image's
-// own metadata component describes what the image contains, not what one
-// package pulls in, and honoring it would leave the tree without a single root;
-// an edge from a service describes what the service uses, and a package is not
-// pulled in by the service that calls it.
+// Without such an edge — a BOM built by an older werf, an imported document —
+// the roots are the components nothing else depends on, found per strongly
+// connected component rather than per node: OS package graphs contain mutual
+// dependencies (libc and libgcc depend on each other), and counting in-edges
+// alone would leave such a cycle with no root even when nothing outside of it
+// depends on it. An empty `dependencies` section makes every component a root,
+// which is what the catalogers that report no tree at all produce. An edge
+// from a service describes what the service uses, and a package is not pulled
+// in by the service that calls it, so only edges sourced at a component count.
 func dependencyTargets(bom *cdx.BOM) map[string]struct{} {
 	componentRefs := make(map[string]struct{})
 	collectComponentRefs(lo.FromPtr(bom.Components), componentRefs)
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
 		collectComponentRefs(lo.FromPtr(bom.Metadata.Component.Components), componentRefs)
+	}
+
+	if declared := declaredRoots(bom, componentRefs); len(declared) > 0 {
+		targets := make(map[string]struct{}, len(componentRefs))
+		for ref := range componentRefs {
+			if _, isRoot := declared[ref]; !isRoot {
+				targets[ref] = struct{}{}
+			}
+		}
+		return targets
 	}
 
 	edges := make(map[string][]string)
@@ -101,6 +114,29 @@ func dependencyTargets(bom *cdx.BOM) map[string]struct{} {
 	}
 
 	return targets
+}
+
+// declaredRoots returns the components the metadata component depends on
+// directly. A target that is not a component of the BOM is ignored.
+func declaredRoots(bom *cdx.BOM, componentRefs map[string]struct{}) map[string]struct{} {
+	if bom.Metadata == nil || bom.Metadata.Component == nil || bom.Metadata.Component.BOMRef == "" {
+		return nil
+	}
+	root := bom.Metadata.Component.BOMRef
+
+	declared := make(map[string]struct{})
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		if dep.Ref != root {
+			continue
+		}
+		for _, ref := range lo.FromPtr(dep.Dependencies) {
+			if _, ok := componentRefs[ref]; ok {
+				declared[ref] = struct{}{}
+			}
+		}
+	}
+
+	return declared
 }
 
 func collectComponentRefs(components []cdx.Component, refs map[string]struct{}) {

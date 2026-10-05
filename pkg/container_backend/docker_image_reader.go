@@ -2,6 +2,7 @@ package container_backend
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -332,4 +333,30 @@ func matchesAnyFileNamePattern(name string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+func (backend *DockerServerBackend) RunCommandInImage(ctx context.Context, imageRef string, opts RunCommandInImageOpts) ([]byte, error) {
+	if len(opts.Command) == 0 {
+		return nil, fmt.Errorf("run command in image %q: command is required", imageRef)
+	}
+
+	args := []string{"--rm", "--network=none", "--entrypoint", opts.Command[0]}
+	if opts.TargetPlatform != "" {
+		args = append(args, "--platform", opts.TargetPlatform)
+	}
+	if opts.Workdir != "" {
+		args = append(args, "--workdir", opts.Workdir)
+	}
+	for _, env := range opts.Env {
+		args = append(args, "--env", env)
+	}
+	args = append(args, imageRef)
+	args = append(args, opts.Command[1:]...)
+
+	var stdout, stderr bytes.Buffer
+	if err := docker.CliRun_ProvidedOutput(ctx, &stdout, &stderr, args...); err != nil {
+		return nil, fmt.Errorf("run %q in image %q: %w: %s", strings.Join(opts.Command, " "), imageRef, err, strings.TrimSpace(stderr.String()))
+	}
+
+	return stdout.Bytes(), nil
 }

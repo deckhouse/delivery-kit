@@ -1,7 +1,6 @@
 name: tests:all
 
 on:
-
   pull_request:
 
   push:
@@ -22,7 +21,6 @@ env:
   JOB_ID: ""
 
 jobs:
-
   detect-changes:
     if: ${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
     runs-on: delivery-github-runner

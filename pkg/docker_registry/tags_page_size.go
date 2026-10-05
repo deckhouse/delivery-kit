@@ -2,9 +2,12 @@ package docker_registry
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -12,8 +15,10 @@ import (
 )
 
 const (
-	defaultTagsPageSize  = 1_000_000
-	fallbackTagsPageSize = 1000
+	tagsPageSizeEnv = "WERF_DOCKER_REGISTRY_TAGS_PAGE_SIZE"
+
+	defaultTagsPageSize = 1_000_000
+	libraryTagsPageSize = 0
 
 	publicAwsEcrHost = "public.ecr.aws"
 
@@ -24,30 +29,48 @@ const (
 // pagination error code: https://github.com/google/go-containerregistry/issues/681
 var awsEcrMaxResultsRejectionRegexp = regexp.MustCompile(`(?i)parameter at 'maxresults'.*less than or equal to \d+`)
 
-var fallbackTagsPageSizeHosts sync.Map
+var libraryTagsPageSizeHosts sync.Map
 
-// tagsPageSizeForRegistryHost and isAwsEcrRegistryHost expect a registry host canonicalized with
-// strings.ToLower, since host names are case-insensitive while neither the ECR patterns nor the
-// remembered hosts are.
-func tagsPageSizeForRegistryHost(registryHost string) int {
-	if isAwsEcrRegistryHost(registryHost) {
-		return fallbackTagsPageSize
+func tagsPageSizeForRegistryHost(registryHost string, useLibraryTagsPageSize bool) (int, error) {
+	pageSize, err := tagsPageSizeFromEnv()
+	if err != nil {
+		return 0, err
 	}
 
-	if _, capped := fallbackTagsPageSizeHosts.Load(registryHost); capped {
-		return fallbackTagsPageSize
+	if useLibraryTagsPageSize || isPublicAwsEcrHost(registryHost) {
+		return libraryTagsPageSize, nil
 	}
 
-	return defaultTagsPageSize
+	if _, capped := libraryTagsPageSizeHosts.Load(registryHost); capped {
+		return libraryTagsPageSize, nil
+	}
+
+	return pageSize, nil
 }
 
-func isAwsEcrRegistryHost(registryHost string) bool {
-	hostname := registryHost
-	if host, _, err := net.SplitHostPort(registryHost); err == nil {
-		hostname = host
+func tagsPageSizeFromEnv() (int, error) {
+	value := strings.TrimSpace(os.Getenv(tagsPageSizeEnv))
+	if value == "" {
+		return defaultTagsPageSize, nil
 	}
 
-	return hostname == publicAwsEcrHost || awsEcrPatternRegexp.MatchString(hostname)
+	pageSize, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: expected a non-negative integer number of tags per request", tagsPageSizeEnv)
+	}
+	if pageSize < 0 {
+		return 0, fmt.Errorf("read %s: expected a non-negative integer number of tags per request, got %d", tagsPageSizeEnv, pageSize)
+	}
+
+	return pageSize, nil
+}
+
+func isPublicAwsEcrHost(registryHost string) bool {
+	if hostname, _, err := net.SplitHostPort(registryHost); err == nil {
+		return hostname == publicAwsEcrHost
+	}
+
+	return registryHost == publicAwsEcrHost
 }
 
 func isTagsPageSizeRejectedErr(err error) bool {

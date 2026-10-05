@@ -95,7 +95,8 @@ func newWritableBearerRegistryFixtureWithTLS(useTLS bool) *bearerRegistryFixture
 }
 
 type tagsPageSizeFixture struct {
-	server *httptest.Server
+	server       *httptest.Server
+	httpRequests atomic.Int64
 
 	mu      sync.Mutex
 	queries []url.Values
@@ -118,6 +119,7 @@ func newTagsPageSizeFixture(tags ...string) *tagsPageSizeFixture {
 	fixture := &tagsPageSizeFixture{tags: tags}
 	fixture.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer ginkgo.GinkgoRecover()
+		fixture.httpRequests.Add(1)
 
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
@@ -233,12 +235,17 @@ func nextTagsPageSizeHost() string {
 }
 
 func newTagsPageSizeAPI(fixture *tagsPageSizeFixture) *api {
-	registryAPI := newAPI(apiOptions{InsecureRegistry: true})
-	registryAPI.httpTransport = &tagsPageSizeTransport{
+	return newTagsPageSizeAPIForImplementation(fixture, DefaultImplementationName)
+}
+
+func newTagsPageSizeAPIForImplementation(fixture *tagsPageSizeFixture, implementation string) *api {
+	registryImplementation, err := newDefaultAPIForImplementation(implementation, defaultImplementationOptions{apiOptions{InsecureRegistry: true}})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	registryImplementation.api.httpTransport = &tagsPageSizeTransport{
 		serverHost: strings.TrimPrefix(fixture.server.URL, "http://"),
-		inner:      registryAPI.httpTransport,
+		inner:      registryImplementation.api.httpTransport,
 	}
-	return registryAPI
+	return registryImplementation.api
 }
 
 type oneShotTokenReadErrorTransport struct {

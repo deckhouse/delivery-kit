@@ -1,4 +1,5 @@
 name: Set up git config
+description: Configure the global git user name and email for the current job.
 runs:
   using: composite
   steps:

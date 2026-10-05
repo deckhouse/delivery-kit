@@ -123,37 +123,39 @@ func newTestGitRemote(eb *ExportBase) *GitRemote {
 	}
 }
 
-var _ = Describe("StapelImageBase OSPMLockPath", func() {
-	It("returns empty string when no packages are configured", func() {
+var _ = Describe("StapelImageBase OSPMPackages", func() {
+	It("returns nothing when no packages are configured", func() {
 		base := &StapelImageBase{}
-		Expect(base.HasOSPMPackages()).To(BeFalse())
+		Expect(base.OSPMPackages()).To(BeEmpty())
 	})
 
-	It("returns false when only non-os-pm packages are configured", func() {
+	It("returns nothing when only non-os-pm packages are configured", func() {
 		base := &StapelImageBase{
 			Packages: []*PackagesDirective{
 				{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum"}},
 			},
 		}
-		Expect(base.HasOSPMPackages()).To(BeFalse())
+		Expect(base.OSPMPackages()).To(BeEmpty())
 	})
 
-	It("returns false when multiple non-os-pm packages are configured", func() {
+	It("returns nothing when multiple non-os-pm packages are configured", func() {
 		base := &StapelImageBase{
 			Packages: []*PackagesDirective{
 				{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum"}},
 				{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/native", Spec: "Cargo.toml", Lock: "Cargo.lock"}},
 			},
 		}
-		Expect(base.HasOSPMPackages()).To(BeFalse())
+		Expect(base.OSPMPackages()).To(BeEmpty())
 	})
 
-	It("returns true when os-pm packages are configured", func() {
+	It("unions the specs of every os-pm directive", func() {
 		base := &StapelImageBase{
 			Packages: []*PackagesDirective{
 				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}},
+				{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod"}},
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"openssl==3.6.2"}}},
 			},
 		}
-		Expect(base.HasOSPMPackages()).To(BeTrue())
+		Expect(base.OSPMPackages()).To(Equal([]string{"curl", "jq", "openssl==3.6.2"}))
 	})
 })

@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.6.2-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.6.2-dk.1...v3.6.2-dk.2) (2026-10-05)
+
+
+### Features
+
+* **sbom:** mark the packages an image declares as its attack surface ([#393](https://github.com/deckhouse/delivery-kit/issues/393)) ([298de02](https://github.com/deckhouse/delivery-kit/commit/298de024d3d85a3bae417cab31b546752021a8e3))
+
+
+### Bug Fixes
+
+* **sbom:** stop flooding build logs with per-module go cache warnings ([#391](https://github.com/deckhouse/delivery-kit/issues/391)) ([46f12a9](https://github.com/deckhouse/delivery-kit/commit/46f12a9f03230beefcec3b3db3cbfd86d91bb9b8))
+
 ## [3.6.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.2...v3.6.2-dk.1) (2026-10-01)
 
 

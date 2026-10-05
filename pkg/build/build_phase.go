@@ -721,10 +721,9 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
 
-	var hasOsPmPackages bool
+	var osPmPackages []string
 	if img.StapelImageConfig != nil && img.StapelImageConfig.ImageBaseConfig() != nil {
-		imageBase := img.StapelImageConfig.ImageBaseConfig()
-		hasOsPmPackages = imageBase.HasOSPMPackages()
+		osPmPackages = img.StapelImageConfig.ImageBaseConfig().OSPMPackages()
 	}
 
 	isStapel := img.StapelImageConfig != nil
@@ -737,7 +736,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, hasOsPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}

@@ -44,3 +44,9 @@ func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, 
 func (backend *BuildahBackend) OpenImageReader(ctx context.Context, imageRef string, opts ReadFileFromImageOpts) (ImageReader, error) {
 	return nil, fmt.Errorf("OpenImageReader is not supported with the Buildah backend")
 }
+
+// RunCommandInImage is unsupported on the Buildah backend for the same reason as
+// OpenImageReader: its only caller is the SBOM flow, which rejects Buildah upfront.
+func (backend *BuildahBackend) RunCommandInImage(ctx context.Context, imageRef string, opts RunCommandInImageOpts) ([]byte, error) {
+	return nil, fmt.Errorf("RunCommandInImage is not supported with the Buildah backend")
+}

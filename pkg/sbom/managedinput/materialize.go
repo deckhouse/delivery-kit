@@ -135,7 +135,14 @@ func (m *materializer) enrich(ctx context.Context, imageEnv []string, lockData [
 
 	switch enrichment.Kind {
 	case scanner.EnrichmentKindDir:
-		return m.copyEnrichmentDir(ctx, enrichment.Root, enrichment.FileNamePatterns)
+		found, err := m.copyEnrichmentDir(ctx, enrichment.Root, enrichment.FileNamePatterns)
+		if err != nil {
+			return err
+		}
+		if !found {
+			logboek.Context(ctx).Warn().LogF("WARNING: %s not found in image %q for cataloger %q; component metadata such as licenses may be missing from the SBOM\n", enrichment.Root, m.imageRef, m.cataloger.Name)
+		}
+		return nil
 
 	case scanner.EnrichmentKindGoModCache:
 		// No go.sum in the image means no modules to look up.
@@ -146,10 +153,22 @@ func (m *materializer) enrich(ctx context.Context, imageEnv []string, lockData [
 		if err != nil {
 			return fmt.Errorf("list modules of %s for cataloger %q: %w", enrichment.LockPath, m.cataloger.Name, err)
 		}
+		// go.sum records the whole module graph while the cache holds only what the build
+		// downloaded, so a module missing from the cache is routine and reported once per image.
+		missing := 0
 		for _, moduleDir := range moduleDirs {
-			if err := m.copyEnrichmentDir(ctx, path.Join(enrichment.Root, moduleDir), enrichment.FileNamePatterns); err != nil {
+			dirPath := path.Join(enrichment.Root, moduleDir)
+			found, err := m.copyEnrichmentDir(ctx, dirPath, enrichment.FileNamePatterns)
+			if err != nil {
 				return err
 			}
+			if !found {
+				logboek.Context(ctx).Debug().LogF("%s not found in image %q for cataloger %q\n", dirPath, m.imageRef, m.cataloger.Name)
+				missing++
+			}
+		}
+		if missing > 0 {
+			logboek.Context(ctx).Warn().LogF("WARNING: %d of %d modules listed in %s are missing from the module cache %s of image %q for cataloger %q; component metadata such as licenses may be missing from the SBOM for them\n", missing, len(moduleDirs), enrichment.LockPath, enrichment.Root, m.imageRef, m.cataloger.Name)
 		}
 		return nil
 
@@ -158,17 +177,16 @@ func (m *materializer) enrich(ctx context.Context, imageEnv []string, lockData [
 	}
 }
 
-func (m *materializer) copyEnrichmentDir(ctx context.Context, dirPath string, patterns []string) error {
+func (m *materializer) copyEnrichmentDir(ctx context.Context, dirPath string, patterns []string) (bool, error) {
 	destDir := filepath.Join(m.scanDir, filepath.Clean("/"+dirPath))
 	err := m.reader.ReadDir(ctx, dirPath, destDir, container_backend.ReadDirOpts{FileNamePatterns: patterns})
 	if errors.Is(err, fs.ErrNotExist) {
-		logboek.Context(ctx).Warn().LogF("WARNING: %s not found in image %q for cataloger %q; component metadata such as licenses may be missing from the SBOM\n", dirPath, m.imageRef, m.cataloger.Name)
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return m.readErr(dirPath, err)
+		return false, m.readErr(dirPath, err)
 	}
-	return nil
+	return true, nil
 }
 
 func (m *materializer) readErr(inImagePath string, err error) error {

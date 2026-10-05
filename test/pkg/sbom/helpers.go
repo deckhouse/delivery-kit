@@ -550,9 +550,17 @@ func AssertDependsOn(bom *cdx.BOM, ref, dependsOnRef string) {
 }
 
 // AssertDependencyGraphResolves checks that every dependency subject and target
-// refers to a component present in the BOM (nested components included).
+// refers to a component present in the BOM (the metadata component and nested
+// components included).
 func AssertDependencyGraphResolves(bom *cdx.BOM) {
 	refs := map[string]struct{}{}
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		walkComponents(&[]cdx.Component{*bom.Metadata.Component}, func(c *cdx.Component) {
+			if c.BOMRef != "" {
+				refs[c.BOMRef] = struct{}{}
+			}
+		})
+	}
 	walkComponents(bom.Components, func(c *cdx.Component) {
 		if c.BOMRef != "" {
 			refs[c.BOMRef] = struct{}{}
@@ -567,6 +575,33 @@ func AssertDependencyGraphResolves(bom *cdx.BOM) {
 				"dependency target %q of %q has no component", target, dep.Ref)
 		}
 	}
+}
+
+// RootDependencies returns the names of the components the metadata component
+// of bom depends on directly: the packages the image declares.
+func RootDependencies(bom *cdx.BOM) []string {
+	ExpectWithOffset(1, bom.Metadata).NotTo(BeNil(), "BOM has no metadata")
+	ExpectWithOffset(1, bom.Metadata.Component).NotTo(BeNil(), "BOM has no metadata.component")
+	root := bom.Metadata.Component.BOMRef
+	ExpectWithOffset(1, root).NotTo(BeEmpty(), "metadata.component has no bom-ref")
+
+	byRef := map[string]string{}
+	walkComponents(bom.Components, func(c *cdx.Component) {
+		byRef[c.BOMRef] = c.Name
+	})
+
+	var names []string
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		if dep.Ref != root {
+			continue
+		}
+		for _, ref := range lo.FromPtr(dep.Dependencies) {
+			name, ok := byRef[ref]
+			ExpectWithOffset(1, ok).To(BeTrue(), "root depends on %q, which is not a component", ref)
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // AssertKeepsDependencyEdges checks that every dependency edge between two

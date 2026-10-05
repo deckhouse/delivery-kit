@@ -123,7 +123,7 @@ func cleanupDockerProjectImages(ctx context.Context, projectName string, repos [
 		slices.Sort(queue)
 		for index := 0; index < len(queue); index++ {
 			id := queue[index]
-			output, err := cleanupCommand(ctx, "docker", []string{"image", "inspect", id, "--format", "{{json .}}"})
+			output, err := cleanupDockerInspect(ctx, id)
 			if err != nil {
 				if strings.Contains(err.Error(), "No such image:") {
 					delete(candidates, id)
@@ -203,6 +203,22 @@ func cleanupCommand(ctx context.Context, backend string, args []string) ([]byte,
 	return output, nil
 }
 
+func cleanupDockerInspect(ctx context.Context, id string) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		output, err := cleanupCommand(ctx, "docker", []string{"image", "inspect", id, "--format", "{{json .}}"})
+		if err == nil || attempt == 2 || !strings.Contains(err.Error(), "Error response from daemon: consistency error: data changed during operation, retry") {
+			return output, err
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, errors.Join(err, ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
 func parseDockerCleanupImages(output []byte) ([]cleanupImage, error) {
 	var images []cleanupImage
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
@@ -254,12 +270,23 @@ func projectImageReferences(images []cleanupImage, projectName string, repos []s
 			}
 			continue
 		}
+		taggedRepos := make(map[string]bool)
+		for _, name := range img.Names {
+			if named, err := reference.ParseNormalizedNamed(name); err == nil {
+				if _, tagged := named.(reference.NamedTagged); tagged {
+					taggedRepos[reference.FamiliarName(named)] = true
+				}
+			}
+		}
 		for _, name := range img.Names {
 			named, err := reference.ParseNormalizedNamed(name)
 			if err != nil {
 				continue
 			}
 			repo := reference.FamiliarName(named)
+			if _, digestOnly := named.(reference.Canonical); digestOnly && taggedRepos[repo] {
+				continue
+			}
 			base := path.Base(reference.Path(named))
 			if base == projectName || base == projectName+"-final" || ownedRepos[repo] {
 				refs = append(refs, name)

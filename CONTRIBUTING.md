@@ -115,8 +115,12 @@ Register container teardown before creating containers. Content-check containers
 and Compose services are removed with fresh cleanup contexts before project
 images. Image cleanup has a two-minute deadline; native Buildah runs in a separate
 process group so cancellation also stops a blocked storage worker. Only temporary
-image-in-use errors from concurrent Buildah builds are retried, within that
-deadline. Permanent failures are reported, not converted into successful cleanup.
+image-in-use errors from concurrent Buildah builds are retried during removal,
+within that deadline. Docker inspect retries the daemon's concurrent-modification
+consistency error up to three total attempts with cancelable 100-ms waits;
+unrelated inspect errors fail immediately. For each image and repository, remove
+tags before digest aliases and rescan for any surviving digest-only reference.
+Permanent failures are reported, not converted into successful cleanup.
 
 This teardown does not remove remote registry data, shared build caches, or
 resources from previous runs. Runner termination or SIGKILL can bypass it;

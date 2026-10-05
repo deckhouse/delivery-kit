@@ -17,6 +17,49 @@ func TestCleanup(t *testing.T) {
 }
 
 var _ = ginkgo.Describe("Project image cleanup", func() {
+	ginkgo.It("rescans a surviving digest after removing its tag without deleting a foreign alias", func() {
+		dir := ginkgo.GinkgoT().TempDir()
+		executable, err := os.Executable()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.GinkgoT().Setenv("CLEANUP_HELPER_BINARY", executable)
+		script, err := os.ReadFile("testdata/cleanup-backend.sh")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), script, 0o700)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("PATH", dir)
+		inventoryPath := filepath.Join(dir, "inventory")
+		ginkgo.GinkgoT().Setenv("CLEANUP_INVENTORY", inventoryPath)
+		tag := "{\"ID\":\"owned\",\"Repository\":\"werf-test-one\",\"Tag\":\"stage\"}\n"
+		digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		ownDigest := "{\"ID\":\"owned\",\"Repository\":\"werf-test-one\",\"Tag\":\"<none>\",\"Digest\":\"" + digest + "\"}\n"
+		foreign := "{\"ID\":\"owned\",\"Repository\":\"foreign\",\"Tag\":\"keep\"}\n"
+		gomega.Expect(os.WriteFile(inventoryPath, []byte(tag+ownDigest+foreign), 0o600)).To(gomega.Succeed())
+		var removed []string
+		err = cleanupDockerProjectImages(context.Background(), "werf-test-one", nil, func(_ context.Context, ref string) error {
+			removed = append(removed, ref)
+			switch ref {
+			case "werf-test-one:stage":
+				return os.WriteFile(inventoryPath, []byte(ownDigest+foreign), 0o600)
+			case "werf-test-one@" + digest:
+				return os.WriteFile(inventoryPath, []byte(foreign), 0o600)
+			default:
+				return errors.New("attempted to delete a foreign alias")
+			}
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(removed).To(gomega.Equal([]string{"werf-test-one:stage", "werf-test-one@" + digest}))
+		remaining, err := os.ReadFile(inventoryPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(string(remaining)).To(gomega.Equal(foreign))
+	})
+	ginkgo.It("removes tags before digest aliases and keeps digest-only ownership checks", func() {
+		digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		image := cleanupImage{ID: "owned", Names: []string{"werf-test-one:stage", "docker.io/library/werf-test-one@" + digest, "foreign@" + digest}}
+		gomega.Expect(projectImageReferences([]cleanupImage{image}, "werf-test-one", nil)).To(gomega.Equal([]string{"werf-test-one:stage"}))
+		image.Names = image.Names[1:]
+		gomega.Expect(projectImageReferences([]cleanupImage{image}, "werf-test-one", nil)).To(gomega.Equal([]string{"docker.io/library/werf-test-one@" + digest}))
+		image.Names = image.Names[1:]
+		gomega.Expect(projectImageReferences([]cleanupImage{image}, "werf-test-one", nil)).To(gomega.BeEmpty())
+	})
 	ginkgo.It("checks exact project ownership from inspect and retains every alias", func() {
 		output := []byte(`{"Id":"owned","RepoTags":["werf-test-one:stage","foreign:keep"],"RepoDigests":["foreign@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"Config":{"Labels":{"werf":"werf-test-one"}}}`)
 		image, err := parseDockerCleanupInspect(output, "werf-test-one")

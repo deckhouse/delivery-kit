@@ -30,7 +30,7 @@ var _ = Describe("MarkWerfTool", func() {
 
 		Expect(bom.Metadata.Tools.Tools).To(BeNil())
 		Expect(*bom.Metadata.Tools.Components).To(Equal([]cdx.Component{
-			{Type: cdx.ComponentTypeApplication, Author: "anchore", Name: "syft", Version: "0.90.0", Hashes: hashes},
+			{Type: cdx.ComponentTypeApplication, Manufacturer: &cdx.OrganizationalEntity{Name: "anchore"}, Name: "syft", Version: "0.90.0", Hashes: hashes},
 			{Type: cdx.ComponentTypeApplication, Name: "werf", Version: "v2.0.0"},
 		}))
 		_, err := ToJSON(bom)

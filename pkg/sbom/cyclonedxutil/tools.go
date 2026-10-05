@@ -27,14 +27,17 @@ func MarkWerfTool(bom *cdx.BOM, version string) {
 
 	if tools.Tools != nil {
 		converted := lo.Map(*tools.Tools, func(tool cdx.Tool, _ int) cdx.Component {
-			return cdx.Component{
+			comp := cdx.Component{
 				Type:               cdx.ComponentTypeApplication,
-				Author:             tool.Vendor,
 				Name:               tool.Name,
 				Version:            tool.Version,
 				Hashes:             tool.Hashes,
 				ExternalReferences: tool.ExternalReferences,
 			}
+			if tool.Vendor != "" {
+				comp.Manufacturer = &cdx.OrganizationalEntity{Name: tool.Vendor}
+			}
+			return comp
 		})
 		tools.Components = lo.ToPtr(append(converted, lo.FromPtr(tools.Components)...))
 		tools.Tools = nil

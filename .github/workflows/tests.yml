@@ -222,6 +222,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
+      - integration_main
     runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
@@ -281,6 +282,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
+      - e2e_simple
     runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
@@ -340,6 +342,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
+      - integration_git
     runs-on: delivery-github-runner
     timeout-minutes: 180
     env:
@@ -399,6 +402,7 @@ jobs:
       - lint
       - unit
       - build_test_binary
+      - integration_main
     runs-on: delivery-github-runner
     timeout-minutes: 150
     env:

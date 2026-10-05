@@ -862,6 +862,18 @@ var _ = Describe("MergeBOMs root edges", func() {
 		return bom
 	}
 
+	It("adopts the root edges of a base marked in the legacy tools form", func(ctx SpecContext) {
+		base := bomWithRoot("base-image", "jq", "pkg:generic/jq@1")
+		base.Metadata.Tools = &cdx.ToolsChoice{Tools: &[]cdx.Tool{{Name: "werf", Version: "v1"}}}
+		target := bomWithRoot("app-image", "curl", "pkg:generic/curl@8")
+
+		result, err := MergeBOMs(ctx, target, MergeOpts{BaseBOM: base})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(dependencyRefs(result)).To(Equal([]string{"app-image"}))
+		Expect(*(*result.Dependencies)[0].Dependencies).To(HaveLen(2))
+	})
+
 	It("leaves the root edges of a base another producer made where they are", func(ctx SpecContext) {
 		base := bomWithRoot("pkg:oci/alpine@sha256:1", "busybox", "pkg:apk/alpine/busybox@1.36")
 		base.Metadata.Tools = &cdx.ToolsChoice{Components: &[]cdx.Component{{Type: cdx.ComponentTypeApplication, Group: "aquasecurity", Name: "trivy", Version: "0.55"}}}

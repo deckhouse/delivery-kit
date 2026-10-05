@@ -148,8 +148,13 @@ func MergeBOMs(ctx context.Context, target *cdx.BOM, opts MergeOpts) (*cdx.BOM, 
 // of everything it imports, so the edges of all merged roots end up unioned
 // under the one root the merged document keeps. Only the dependency graph
 // moves: a vulnerability or an annotation about the imported image is about
-// that image, not about the one importing it.
+// that image, not about the one importing it. Only a BOM werf produced is
+// read this way: other producers source edges at the root with another
+// meaning — Trivy lists there everything the image contains.
 func adoptRootEdges(input, target *cdx.BOM) {
+	if !HasWerfTool(input) {
+		return
+	}
 	inputRoot := rootRef(input)
 	targetRoot := rootRef(target)
 	if inputRoot == "" || targetRoot == "" || inputRoot == targetRoot {

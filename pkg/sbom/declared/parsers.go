@@ -19,9 +19,15 @@ import (
 // module replaced by a local directory is declared without a version — werf
 // resolves it from the git history afterwards — under both its path and the
 // directory, because syft names the component after the directory until that
-// resolution renames it.
+// resolution renames it. A go.mod with a directive this werf does not know —
+// which the newer toolchain inside the image accepted — is re-read with the lax
+// parser, which skips unknown directives but also `replace`, so the declarations
+// then name the original paths.
 func parseGoMod(spec []byte) ([]Package, error) {
 	mod, err := modfile.Parse("go.mod", spec, nil)
+	if err != nil {
+		mod, err = modfile.ParseLax("go.mod", spec, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("parse go.mod: %w", err)
 	}
@@ -61,87 +67,138 @@ func replaceTargets(replace *modfile.Replace) []Package {
 	return []Package{{Name: replace.New.Path, Version: replace.New.Version}}
 }
 
-// parsePackageJSON declares `dependencies` and `devDependencies`. Versions in
-// package.json are ranges, so none is declared.
+// parsePackageJSON declares `dependencies`, `devDependencies`,
+// `optionalDependencies` and `peerDependencies`: the install command of the
+// directive puts them all into the image. Versions in package.json are ranges,
+// so none is declared.
 func parsePackageJSON(spec []byte) ([]Package, error) {
 	var manifest struct {
-		Dependencies    map[string]json.RawMessage `json:"dependencies"`
-		DevDependencies map[string]json.RawMessage `json:"devDependencies"`
+		Dependencies         map[string]json.RawMessage `json:"dependencies"`
+		DevDependencies      map[string]json.RawMessage `json:"devDependencies"`
+		OptionalDependencies map[string]json.RawMessage `json:"optionalDependencies"`
+		PeerDependencies     map[string]json.RawMessage `json:"peerDependencies"`
 	}
 	if err := json.Unmarshal(spec, &manifest); err != nil {
 		return nil, fmt.Errorf("parse package.json: %w", err)
 	}
 
-	pkgs := make([]Package, 0, len(manifest.Dependencies)+len(manifest.DevDependencies))
-	for _, deps := range []map[string]json.RawMessage{manifest.Dependencies, manifest.DevDependencies} {
+	var pkgs []Package
+	for _, deps := range []map[string]json.RawMessage{manifest.Dependencies, manifest.DevDependencies, manifest.OptionalDependencies, manifest.PeerDependencies} {
 		for name := range deps {
 			pkgs = append(pkgs, Package{Name: name})
 		}
 	}
 
-	return sorted(pkgs), nil
+	return sortedUnique(pkgs), nil
 }
 
-// parseCargoToml declares `[dependencies]`. A dependency renamed with
-// `package = "..."` is declared under the crate name. Versions in Cargo.toml
-// are caret ranges, so none is declared.
+// parseCargoToml declares `[dependencies]`, `[dev-dependencies]`,
+// `[build-dependencies]` and the same three tables under every
+// `[target.<cfg>]`: `cargo fetch` puts them all into the image. A dependency
+// renamed with `package = "..."` is declared under the crate name. Versions in
+// Cargo.toml are caret ranges, so none is declared.
 func parseCargoToml(spec []byte) ([]Package, error) {
 	var manifest struct {
-		Dependencies map[string]toml.Primitive `toml:"dependencies"`
+		Dependencies      map[string]toml.Primitive `toml:"dependencies"`
+		DevDependencies   map[string]toml.Primitive `toml:"dev-dependencies"`
+		BuildDependencies map[string]toml.Primitive `toml:"build-dependencies"`
+		Target            map[string]struct {
+			Dependencies      map[string]toml.Primitive `toml:"dependencies"`
+			DevDependencies   map[string]toml.Primitive `toml:"dev-dependencies"`
+			BuildDependencies map[string]toml.Primitive `toml:"build-dependencies"`
+		} `toml:"target"`
 	}
 	md, err := toml.Decode(string(spec), &manifest)
 	if err != nil {
 		return nil, fmt.Errorf("parse Cargo.toml: %w", err)
 	}
 
-	pkgs := make([]Package, 0, len(manifest.Dependencies))
-	for name, prim := range manifest.Dependencies {
-		var detailed struct {
-			Package string `toml:"package"`
-		}
-		if err := md.PrimitiveDecode(prim, &detailed); err == nil && detailed.Package != "" {
-			name = detailed.Package
-		}
-		pkgs = append(pkgs, Package{Name: name})
-	}
-
-	return sorted(pkgs), nil
-}
-
-// parsePyprojectToml declares `[project].dependencies` (PEP 621 requirement
-// strings) and `[tool.poetry.dependencies]` (a name-to-constraint table, in
-// which `python` constrains the interpreter rather than naming a package).
-func parsePyprojectToml(spec []byte) ([]Package, error) {
-	var manifest struct {
-		Project struct {
-			Dependencies []string `toml:"dependencies"`
-		} `toml:"project"`
-		Tool struct {
-			Poetry struct {
-				Dependencies map[string]toml.Primitive `toml:"dependencies"`
-			} `toml:"poetry"`
-		} `toml:"tool"`
-	}
-	if _, err := toml.Decode(string(spec), &manifest); err != nil {
-		return nil, fmt.Errorf("parse pyproject.toml: %w", err)
+	tables := []map[string]toml.Primitive{manifest.Dependencies, manifest.DevDependencies, manifest.BuildDependencies}
+	for _, target := range manifest.Target {
+		tables = append(tables, target.Dependencies, target.DevDependencies, target.BuildDependencies)
 	}
 
 	var pkgs []Package
-	for _, requirement := range manifest.Project.Dependencies {
+	for _, table := range tables {
+		for name, prim := range table {
+			var detailed struct {
+				Package string `toml:"package"`
+			}
+			if err := md.PrimitiveDecode(prim, &detailed); err == nil && detailed.Package != "" {
+				name = detailed.Package
+			}
+			pkgs = append(pkgs, Package{Name: name})
+		}
+	}
+
+	return sortedUnique(pkgs), nil
+}
+
+// parsePyprojectToml declares the PEP 621 requirement strings of
+// `[project].dependencies`, `[project.optional-dependencies].*` and
+// `[dependency-groups].*`, and the name-to-constraint tables of
+// `[tool.poetry.dependencies]`, `[tool.poetry.dev-dependencies]` and
+// `[tool.poetry.group.*.dependencies]`, in which `python` constrains the
+// interpreter rather than naming a package. The install commands of the
+// directives put every group into the image.
+func parsePyprojectToml(spec []byte) ([]Package, error) {
+	var manifest struct {
+		Project struct {
+			Dependencies         []string            `toml:"dependencies"`
+			OptionalDependencies map[string][]string `toml:"optional-dependencies"`
+		} `toml:"project"`
+		DependencyGroups map[string][]toml.Primitive `toml:"dependency-groups"`
+		Tool             struct {
+			Poetry struct {
+				Dependencies    map[string]toml.Primitive `toml:"dependencies"`
+				DevDependencies map[string]toml.Primitive `toml:"dev-dependencies"`
+				Group           map[string]struct {
+					Dependencies map[string]toml.Primitive `toml:"dependencies"`
+				} `toml:"group"`
+			} `toml:"poetry"`
+		} `toml:"tool"`
+	}
+	md, err := toml.Decode(string(spec), &manifest)
+	if err != nil {
+		return nil, fmt.Errorf("parse pyproject.toml: %w", err)
+	}
+
+	requirements := slices.Clone(manifest.Project.Dependencies)
+	for _, extra := range manifest.Project.OptionalDependencies {
+		requirements = append(requirements, extra...)
+	}
+	for _, group := range manifest.DependencyGroups {
+		for _, prim := range group {
+			// A group entry is either a requirement string or an `{include-group = ...}`
+			// table; the latter names another group, which is read on its own.
+			var requirement string
+			if err := md.PrimitiveDecode(prim, &requirement); err == nil {
+				requirements = append(requirements, requirement)
+			}
+		}
+	}
+
+	var pkgs []Package
+	for _, requirement := range requirements {
 		if pkg, ok := parseRequirement(requirement); ok {
 			pkgs = append(pkgs, pkg)
 		}
 	}
 
-	var poetry []Package
-	for name := range manifest.Tool.Poetry.Dependencies {
-		if strings.EqualFold(name, "python") {
-			continue
+	poetryTables := []map[string]toml.Primitive{manifest.Tool.Poetry.Dependencies, manifest.Tool.Poetry.DevDependencies}
+	for _, group := range manifest.Tool.Poetry.Group {
+		poetryTables = append(poetryTables, group.Dependencies)
+	}
+	for _, table := range poetryTables {
+		for name := range table {
+			if strings.EqualFold(name, "python") {
+				continue
+			}
+			pkgs = append(pkgs, Package{Name: name})
 		}
-		poetry = append(poetry, Package{Name: name})
 	}
 
-	return append(pkgs, sorted(poetry)...), nil
+	return sortedUnique(pkgs), nil
 }
 
 // parseRequirementsTxt declares every requirement line of a requirements.txt.
@@ -209,18 +266,21 @@ func parseRequirement(requirement string) (Package, bool) {
 	return pkg, true
 }
 
-var rockspecFieldPattern = regexp.MustCompile(`(?m)^\s*(package|version)\s*=\s*"([^"]*)"`)
+// A rockspec is a Lua file; its `package` and `version` fields are string
+// literals in double quotes, single quotes or long brackets.
+var rockspecFieldPattern = regexp.MustCompile(`(?m)^\s*(package|version)\s*=\s*(?:"([^"]*)"|'([^']*)'|\[\[(.*?)\]\])`)
 
 // parseRockspec declares the rock the rockspec describes: syft catalogs the
 // rockspec itself as the only component, under its `package` and `version`.
 func parseRockspec(spec []byte) ([]Package, error) {
 	var pkg Package
 	for _, m := range rockspecFieldPattern.FindAllStringSubmatch(string(spec), -1) {
+		value := m[2] + m[3] + m[4]
 		switch m[1] {
 		case "package":
-			pkg.Name = m[2]
+			pkg.Name = value
 		case "version":
-			pkg.Version = m[2]
+			pkg.Version = value
 		}
 	}
 	if pkg.Name == "" {
@@ -230,9 +290,15 @@ func parseRockspec(spec []byte) ([]Package, error) {
 	return []Package{pkg}, nil
 }
 
-// sorted orders packages read out of a map, so the edge they produce does not
-// change from one build to the next.
-func sorted(pkgs []Package) []Package {
-	slices.SortFunc(pkgs, func(a, b Package) int { return strings.Compare(a.Name, b.Name) })
-	return pkgs
+// sortedUnique orders packages read out of maps and drops the repeats one name
+// listed in several tables produces, so the edge does not change from one build
+// to the next.
+func sortedUnique(pkgs []Package) []Package {
+	slices.SortFunc(pkgs, func(a, b Package) int {
+		if c := strings.Compare(a.Name, b.Name); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Version, b.Version)
+	})
+	return slices.Compact(pkgs)
 }

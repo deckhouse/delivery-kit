@@ -49,11 +49,11 @@ replace github.com/old/unpinned v0.9.0 => github.com/new/unpinned v2.0.0
 				{Name: "github.com/new/pinned", Version: "v2.0.0"},
 				{Name: "github.com/old/unpinned", Version: "v1.0.0"},
 			}),
-		Entry("package.json: dependencies and devDependencies, no versions",
+		Entry("package.json: every dependency table, deduplicated, no versions",
 			config.PackagesDirectiveTypeJavaScriptNpm,
-			`{"name":"app","dependencies":{"lodash":"^4.17.21","@scope/pkg":"1.0.0"},"devDependencies":{"jest":"29"}}`,
-			[]Package{{Name: "@scope/pkg"}, {Name: "jest"}, {Name: "lodash"}}),
-		Entry("Cargo.toml: [dependencies] with renamed crates, no versions",
+			`{"name":"app","dependencies":{"lodash":"^4.17.21","@scope/pkg":"1.0.0"},"devDependencies":{"jest":"29","lodash":"^4"},"optionalDependencies":{"fsevents":"2"},"peerDependencies":{"react":"18"}}`,
+			[]Package{{Name: "@scope/pkg"}, {Name: "fsevents"}, {Name: "jest"}, {Name: "lodash"}, {Name: "react"}}),
+		Entry("Cargo.toml: every dependency table incl. targets, renamed crates, no versions",
 			config.PackagesDirectiveTypeRustCargo,
 			`[package]
 name = "app"
@@ -66,9 +66,18 @@ my_tokio = { package = "tokio", version = "1" }
 
 [dev-dependencies]
 criterion = "0.5"
+
+[build-dependencies]
+cc = "1"
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3"
+
+[target.'cfg(unix)'.dev-dependencies]
+anyhow = "1"
 `,
-			[]Package{{Name: "anyhow"}, {Name: "serde"}, {Name: "tokio"}}),
-		Entry("pyproject.toml: PEP 621 dependencies keep an exact pin",
+			[]Package{{Name: "anyhow"}, {Name: "cc"}, {Name: "criterion"}, {Name: "serde"}, {Name: "tokio"}, {Name: "winapi"}}),
+		Entry("pyproject.toml: PEP 621 dependencies, extras and dependency groups keep an exact pin",
 			config.PackagesDirectiveTypePythonUV,
 			`[project]
 name = "app"
@@ -79,14 +88,24 @@ dependencies = [
   "pydantic (>=2,<3)",
   "mylib @ git+https://example.com/mylib.git",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[dependency-groups]
+dev = ["ruff==0.6.0", { include-group = "lint" }]
+lint = ["mypy"]
 `,
 			[]Package{
-				{Name: "requests", Version: "2.32.3"},
 				{Name: "Flask"},
-				{Name: "uvicorn", Version: "0.30.0"},
+				{Name: "mypy"},
 				{Name: "pydantic"},
+				{Name: "pytest"},
+				{Name: "requests", Version: "2.32.3"},
+				{Name: "ruff", Version: "0.6.0"},
+				{Name: "uvicorn", Version: "0.30.0"},
 			}),
-		Entry("pyproject.toml: poetry dependencies skip python, no versions",
+		Entry("pyproject.toml: poetry dependencies, legacy dev-dependencies and groups skip python, no versions",
 			config.PackagesDirectiveTypePythonPoetry,
 			`[tool.poetry]
 name = "app"
@@ -95,8 +114,14 @@ name = "app"
 python = "^3.12"
 requests = "2.32.3"
 httpx = { version = "^0.27", extras = ["http2"] }
+
+[tool.poetry.dev-dependencies]
+black = "^24"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8"
 `,
-			[]Package{{Name: "httpx"}, {Name: "requests"}}),
+			[]Package{{Name: "black"}, {Name: "httpx"}, {Name: "pytest"}, {Name: "requests"}}),
 		Entry("requirements.txt: pins kept, options and comments skipped",
 			config.PackagesDirectiveTypePythonPip,
 			`# deps
@@ -118,11 +143,30 @@ dependencies = {
 }
 `,
 			[]Package{{Name: "werf-sbom-lua-app", Version: "0.1-1"}}),
+		Entry("rockspec: single-quoted and long-bracket strings",
+			config.PackagesDirectiveTypeLuaRock,
+			`package = 'werf-sbom-lua-app'
+version = [[0.1-1]]
+`,
+			[]Package{{Name: "werf-sbom-lua-app", Version: "0.1-1"}}),
 	)
 
 	It("rejects an ecosystem without a spec file", func() {
 		_, err := ParseSpec(config.PackagesDirectiveTypeOSPM, nil)
 		Expect(err).To(MatchError(ContainSubstring("has no spec file")))
+	})
+
+	It("reads a go.mod with a directive it does not know, without its replaces", func() {
+		pkgs, err := ParseSpec(config.PackagesDirectiveTypeGoMod, []byte(`module example.com/app
+
+futuredirective example
+
+require github.com/spf13/cobra v1.8.0
+
+replace github.com/spf13/cobra => github.com/werf/3p-cobra v1.8.1-werf
+`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pkgs).To(Equal([]Package{{Name: "github.com/spf13/cobra", Version: "v1.8.0"}}))
 	})
 
 	It("reports a malformed go.mod", func() {
@@ -169,7 +213,7 @@ var _ = Describe("MatchComponents", func() {
 			[]cdx.Component{component("bb", "pkg:golang/github.com/burntsushi/toml@v1.6.0")},
 			[]Package{{Name: "github.com/BurntSushi/toml", Version: "v1.6.0"}},
 			[]string{"bb"}),
-		Entry("a declaration without a version matches every version",
+		Entry("a declaration without a version matches every version when no edges tell them apart",
 			config.PackagesDirectiveTypeRustCargo,
 			[]cdx.Component{
 				component("a1", "pkg:cargo/anyhow@1.0.86"),
@@ -209,6 +253,30 @@ var _ = Describe("MatchComponents", func() {
 			[]cdx.Component{{PackageURL: "pkg:golang/github.com/pkg/errors@v0.9.1"}, {BOMRef: "no-purl", Name: "github.com/pkg/errors"}},
 			[]Package{{Name: "github.com/pkg/errors", Version: "v0.9.1"}},
 			nil),
+	)
+
+	DescribeTable("a declaration without a version prefers the copies no other package depends on",
+		func(deps []cdx.Dependency, expected []string) {
+			bom := &cdx.BOM{
+				Metadata: &cdx.Metadata{Component: &cdx.Component{BOMRef: "image"}},
+				Components: &[]cdx.Component{
+					component("lodash4", "pkg:npm/lodash@4.17.21"),
+					component("lodash3", "pkg:npm/lodash@3.10.1"),
+					component("mixin", "pkg:npm/lodash-mixin@1.0.0"),
+				},
+				Dependencies: &deps,
+			}
+			Expect(MatchComponents(context.Background(), bom, config.PackagesDirectiveTypeJavaScriptNpm, []Package{{Name: "lodash"}})).To(Equal(expected))
+		},
+		Entry("the nested copy is dropped",
+			[]cdx.Dependency{{Ref: "mixin", Dependencies: &[]string{"lodash3"}}},
+			[]string{"lodash4"}),
+		Entry("an edge from the image root does not make a copy nested",
+			[]cdx.Dependency{{Ref: "image", Dependencies: &[]string{"lodash4"}}, {Ref: "mixin", Dependencies: &[]string{"lodash3"}}},
+			[]string{"lodash4"}),
+		Entry("every copy nested: all are taken",
+			[]cdx.Dependency{{Ref: "mixin", Dependencies: &[]string{"lodash3", "lodash4"}}},
+			[]string{"lodash4", "lodash3"}),
 	)
 
 	It("walks components nested under the metadata component and other components", func() {

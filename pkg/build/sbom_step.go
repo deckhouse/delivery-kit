@@ -33,6 +33,7 @@ import (
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
 
@@ -128,6 +129,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if err != nil {
 				return fmt.Errorf("parse scanned BOM: %w", err)
 			}
+			cyclonedxutil.MarkWerfTool(targetBOM, werf.Version)
 		}
 
 		resultBOM := targetBOM
@@ -216,13 +218,14 @@ func restoreImageMetadata(bom *cdx.BOM, stageDesc *image.StageDesc) {
 		bom.Metadata = &cdx.Metadata{}
 	}
 	container := containerComponent(stageDesc)
-	if previous := bom.Metadata.Component; previous != nil && previous.BOMRef != "" && previous.BOMRef != container.BOMRef {
+	if previous := bom.Metadata.Component; previous != nil && previous.BOMRef != "" && container.BOMRef != "" && previous.BOMRef != container.BOMRef {
 		cyclonedxutil.RewriteRefs(bom, map[string]string{previous.BOMRef: container.BOMRef})
 	}
 	bom.Metadata.Component = container
 	if bom.Metadata.Timestamp == "" {
 		bom.Metadata.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
+	cyclonedxutil.MarkWerfTool(bom, werf.Version)
 }
 
 // containerComponent builds the top-level container component of an image BOM. Its
@@ -321,6 +324,10 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 		gost.SetComponentSourceLangs(ctx, &(*bom.Components)[i], []string{cataloger.SourceLang})
 	}
 
+	// The per-directive BOMs are unioned by MergeBOMs, which carries a root edge over
+	// only from a BOM werf produced.
+	cyclonedxutil.MarkWerfTool(bom, werf.Version)
+
 	if err := step.recordDeclaredPackages(ctx, bom, cataloger, dir); err != nil {
 		return nil, err
 	}
@@ -337,8 +344,11 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 // `go mod graph` run inside the built image, where the toolchain and the module cache
 // are present by construction: the install command of the directive is `go mod
 // download`. The run is offline. A failure — a toolchain or module cache the recipe
-// removed after installing — costs the edges only, not the build: without them every
-// module not declared in go.mod is still recorded as indirect.
+// removed after installing, a run that does not finish in time, a foreign target
+// platform the host cannot emulate — costs the edges only, not the build: without them
+// every module not declared in go.mod is still recorded as indirect.
+const goModGraphTimeout = 5 * time.Minute
+
 func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, imageRef string, cataloger scanner.Cataloger, targetPlatform string) {
 	// The directive environment comes first so that the offline settings win over a
 	// GOPROXY or GOFLAGS it sets: there is no network in the container to honor them.
@@ -353,7 +363,10 @@ func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, ima
 		goBin = cataloger.Manager
 	}
 
-	graph, err := step.containerBackend.RunCommandInImage(ctx, imageRef, container_backend.RunCommandInImageOpts{
+	runCtx, cancel := context.WithTimeout(ctx, goModGraphTimeout)
+	defer cancel()
+
+	graph, err := step.containerBackend.RunCommandInImage(runCtx, imageRef, container_backend.RunCommandInImageOpts{
 		CommonOpts: container_backend.CommonOpts{TargetPlatform: targetPlatform},
 		Command:    []string{goBin, "mod", "graph"},
 		Workdir:    cataloger.Workdir,
@@ -378,7 +391,9 @@ func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, ima
 
 // recordDeclaredPackages reads the spec file of the directive out of the scan directory
 // and records the packages it declares as direct dependencies of the BOM root, which at
-// this point is the scan directory syft reported and later becomes the image.
+// this point is the scan directory syft reported and later becomes the image. A spec
+// werf cannot read — a manifest the manager inside the image accepted — costs the
+// declaration only, not the build.
 func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, cataloger scanner.Cataloger, dir string) error {
 	ecosystem := config.PackagesDirectiveType(cataloger.Ecosystem)
 	if len(cataloger.SourcePaths) == 0 || ecosystem == "" {
@@ -393,7 +408,8 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 
 	pkgs, err := declared.ParseSpec(ecosystem, spec)
 	if err != nil {
-		return fmt.Errorf("read declared packages of cataloger %q: %w", cataloger.Name, err)
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the packages %s declares; the SBOM records none of them as the attack surface of the image: %s\n", cataloger.SourcePaths[0], err)
+		return nil
 	}
 
 	declared.AddRootEdge(bom, declared.MatchComponents(ctx, bom, ecosystem, pkgs))

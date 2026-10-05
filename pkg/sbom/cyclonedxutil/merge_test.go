@@ -852,13 +852,33 @@ var _ = Describe("MergeBOMs input isolation", func() {
 
 var _ = Describe("MergeBOMs root edges", func() {
 	bomWithRoot := func(root, pkgRef, purl string) *cdx.BOM {
-		return &cdx.BOM{
+		bom := &cdx.BOM{
 			SpecVersion:  cdx.SpecVersion1_6,
 			Metadata:     &cdx.Metadata{Component: &cdx.Component{BOMRef: root, Type: cdx.ComponentTypeContainer, Name: root}},
 			Components:   &[]cdx.Component{{BOMRef: pkgRef, Type: cdx.ComponentTypeLibrary, Name: pkgRef, PackageURL: purl}},
 			Dependencies: &[]cdx.Dependency{{Ref: root, Dependencies: &[]string{pkgRef}}},
 		}
+		MarkWerfTool(bom, "test")
+		return bom
 	}
+
+	It("leaves the root edges of a base another producer made where they are", func(ctx SpecContext) {
+		base := bomWithRoot("pkg:oci/alpine@sha256:1", "busybox", "pkg:apk/alpine/busybox@1.36")
+		base.Metadata.Tools = &cdx.ToolsChoice{Components: &[]cdx.Component{{Type: cdx.ComponentTypeApplication, Group: "aquasecurity", Name: "trivy", Version: "0.55"}}}
+		target := bomWithRoot("app-image", "curl", "pkg:generic/curl@8")
+
+		result, err := MergeBOMs(ctx, target, MergeOpts{BaseBOM: base})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(gost.Upsert(result, gost.DefaultConfig())).To(Succeed())
+
+		Expect(dependencyRefs(result)).To(Equal([]string{"app-image"}))
+		Expect(*(*result.Dependencies)[0].Dependencies).To(HaveLen(1), "the base's root edge dangles and is dropped; only curl is declared")
+		for _, comp := range *result.Components {
+			if comp.Name == "busybox" {
+				Expect(gost.GetComponent(&comp).AttackSurface).To(Equal(gost.GostValueIndirect))
+			}
+		}
+	})
 
 	It("unions the root edges of the base and the imports under the target root", func(ctx SpecContext) {
 		base := bomWithRoot("base-image", "jq", "pkg:generic/jq@1")

@@ -74,9 +74,13 @@ func FromOSPMSpec(spec []string) []Package {
 }
 
 // MatchComponents returns the bom-refs of the components of bom that pkgs
-// declare, in the order the components are listed. A declaration without a
-// version matches every version of the package; a declaration with one
-// matches that version only.
+// declare, in the order the components are listed. A declaration with a
+// version matches that version only. A declaration without one matches the
+// package by name; when several versions of it are present, the ones no other
+// component depends on are taken — the lock-file catalogers record the edges
+// between packages, so a copy nested under another package has an incoming
+// edge and the top-level copy the manifest names does not. When every copy has
+// one, all of them are taken.
 func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.PackagesDirectiveType, pkgs []Package) []string {
 	if bom == nil || len(pkgs) == 0 {
 		return nil
@@ -93,8 +97,8 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 		byName[key] = append(byName[key], pkg)
 	}
 
-	matched := make(map[string]struct{}, len(pkgs))
-	var refs []string
+	var order []string
+	candidates := map[string][]string{}
 	walkComponents(bom, func(comp *cdx.Component) {
 		if comp.BOMRef == "" || comp.PackageURL == "" {
 			return
@@ -108,16 +112,23 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 			if pkg.Version != "" && pkg.Version != purl.Version {
 				continue
 			}
-			refs = append(refs, comp.BOMRef)
-			matched[key] = struct{}{}
+			if _, seen := candidates[key]; !seen {
+				order = append(order, key)
+			}
+			candidates[key] = append(candidates[key], comp.BOMRef)
 			break
 		}
 	})
 
 	for _, pkg := range pkgs {
-		if _, ok := matched[nameKey(purlType, pkg.Name)]; !ok {
+		if _, ok := candidates[nameKey(purlType, pkg.Name)]; !ok {
 			logboek.Context(ctx).Debug().LogF("declared %s package %q matches no component of the SBOM\n", ecosystem, pkg.Name)
 		}
+	}
+
+	var refs []string
+	for _, key := range order {
+		refs = append(refs, topLevelRefs(bom, candidates[key])...)
 	}
 
 	if len(refs) == 0 {
@@ -125,6 +136,36 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 	}
 
 	return lo.Uniq(refs)
+}
+
+func topLevelRefs(bom *cdx.BOM, refs []string) []string {
+	if len(refs) < 2 {
+		return refs
+	}
+
+	root := ""
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		root = bom.Metadata.Component.BOMRef
+	}
+	dependedOn := map[string]struct{}{}
+	for _, dep := range lo.FromPtr(bom.Dependencies) {
+		if dep.Ref == root {
+			continue
+		}
+		for _, target := range lo.FromPtr(dep.Dependencies) {
+			dependedOn[target] = struct{}{}
+		}
+	}
+
+	topLevel := lo.Filter(refs, func(ref string, _ int) bool {
+		_, ok := dependedOn[ref]
+		return !ok
+	})
+	if len(topLevel) == 0 {
+		return refs
+	}
+
+	return topLevel
 }
 
 // AddRootEdge records refs as direct dependencies of the metadata component of

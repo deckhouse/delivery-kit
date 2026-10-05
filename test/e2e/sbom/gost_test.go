@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/test/pkg/report"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
@@ -166,6 +167,7 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		sbomtest.AssertHasComponent(bom, "github.com/inconshreveable/mousetrap", "v1.1.0")
 
 		Expect(bom.Metadata.Component.BOMRef).To(HavePrefix("pkg:oci/"), "the image root carries its OCI purl as bom-ref")
+		Expect(cyclonedxutil.HasWerfTool(bom)).To(BeTrue(), "werf records itself among the tools of the SBOM")
 		Expect(sbomtest.RootDependencies(bom)).To(ConsistOf("github.com/spf13/cobra"), "only the direct go.mod requirement is declared")
 		sbomtest.AssertDependencyGraphResolves(bom)
 

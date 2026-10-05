@@ -320,7 +320,7 @@ var _ = Describe("SbomStep", func() {
 			Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "scan-go", Dependencies: &[]string{(*bom.Components)[0].BOMRef}}}), "the root edge stays; only the module graph is missing")
 		})
 
-		It("fails when the spec of a directive cannot be read as a declaration", func(specCtx SpecContext) {
+		It("keeps the SBOM without a declaration when the spec of a directive cannot be read", func(specCtx SpecContext) {
 			ctx := logging.WithLogger(specCtx)
 			ctrl := gomock.NewController(GinkgoT())
 			mockBackend := mock.NewMockContainerBackend(ctrl)
@@ -329,13 +329,23 @@ var _ = Describe("SbomStep", func() {
 			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/go.mod").Return([]byte("require (\n"), nil)
 			mockReader.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
 			mockBackend.EXPECT().OpenImageReader(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockReader, nil)
-			mockBackend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(makeBOMJSON("2026-01-01T00:00:00Z"), nil)
+			scanBOM := cyclonedxutil.NewBOM()
+			scanBOM.Metadata = &cdx.Metadata{Component: &cdx.Component{BOMRef: "scan-go", Type: cdx.ComponentTypeFile, Name: "/scan"}}
+			scanBOM.Components = &[]cdx.Component{
+				{BOMRef: "lo", Type: cdx.ComponentTypeLibrary, Name: "github.com/samber/lo", Version: "v1.47.0", PackageURL: "pkg:golang/github.com/samber/lo@v1.47.0"},
+			}
+			scanJSON, err := cyclonedxutil.ToJSON(scanBOM)
+			Expect(err).To(Succeed())
+			mockBackend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(scanJSON, nil)
+			mockBackend.EXPECT().RunCommandInImage(gomock.Any(), gomock.Any(), gomock.Any()).Return([]byte("example.com/app github.com/samber/lo@v1.47.0\n"), nil)
 
 			step := &sbomStep{containerBackend: mockBackend}
-			_, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: "app:latest"}, scanner.DefaultSyftScanOptions(), []scanner.Cataloger{
+			bom, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: "app:latest"}, scanner.DefaultSyftScanOptions(), []scanner.Cataloger{
 				{Name: "go-module-file-cataloger", Ecosystem: string(config.PackagesDirectiveTypeGoMod), Workdir: "/app", SourcePaths: []string{"/app/go.mod"}},
 			}, "")
-			Expect(err).To(MatchError(ContainSubstring("read declared packages of cataloger")))
+			Expect(err).To(Succeed())
+			Expect(*bom.Components).To(HaveLen(1))
+			Expect(bom.Dependencies).To(BeNil(), "no declaration and no module edges: the single module has no graph of its own")
 		})
 	})
 
@@ -377,8 +387,10 @@ var _ = Describe("SbomStep", func() {
 			Expect(bom.Metadata.Timestamp).To(Equal("2020-01-02T03:04:05Z"), "syft's own timestamp must survive")
 			Expect(bom.Metadata.Tools).ToNot(BeNil())
 			Expect(bom.Metadata.Tools.Components).ToNot(BeNil())
-			Expect(*bom.Metadata.Tools.Components).To(HaveLen(1))
+			Expect(*bom.Metadata.Tools.Components).To(HaveLen(2))
 			Expect((*bom.Metadata.Tools.Components)[0].Name).To(Equal("syft"), "syft tools provenance must survive")
+			Expect((*bom.Metadata.Tools.Components)[1].Name).To(Equal("werf"), "werf records itself next to the scanner")
+			Expect(cyclonedxutil.HasWerfTool(bom)).To(BeTrue())
 		})
 
 		It("moves the edges sourced at the scan directory onto the image", func() {
@@ -400,13 +412,18 @@ var _ = Describe("SbomStep", func() {
 			}))
 		})
 
-		It("leaves the root without a ref when the image has no digest yet", func() {
-			bom := &cdx.BOM{}
+		It("leaves the root without a ref and the edges untouched when the image has no digest yet", func() {
+			bom := &cdx.BOM{
+				Metadata:     &cdx.Metadata{Component: &cdx.Component{BOMRef: "scan", Type: cdx.ComponentTypeFile, Name: "/scan"}},
+				Components:   &[]cdx.Component{{BOMRef: "lo"}},
+				Dependencies: &[]cdx.Dependency{{Ref: "scan", Dependencies: &[]string{"lo"}}},
+			}
 
 			restoreImageMetadata(bom, &werfImage.StageDesc{Info: &werfImage.Info{Repository: "example.com/app", Tag: "v1"}})
 
 			Expect(bom.Metadata.Component.BOMRef).To(BeEmpty())
 			Expect(bom.Metadata.Component.PackageURL).To(BeEmpty())
+			Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "scan", Dependencies: &[]string{"lo"}}}), "no rewrite to an empty ref")
 		})
 	})
 

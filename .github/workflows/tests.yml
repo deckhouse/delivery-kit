@@ -26,7 +26,7 @@ jobs:
       pull-requests: read
     outputs:
       workflow_proceed: ${{ steps.changes.outputs.workflow_proceed || 'true' }}
-      docs_workflow_proceed: ${{ steps.changes.outputs.docs_workflow_proceed || 'true' }}
+      docs_workflow_proceed: ${{ steps.changes.outputs.docs_workflow_proceed || 'false' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -40,22 +40,18 @@ jobs:
             workflow_proceed:
               - 'go.mod'
               - 'Taskfile.dist.yaml'
-              - '.github/**'
               - 'cmd/werf/**'
               - 'pkg/**'
               - 'schemas/**'
               - 'scripts/**'
               - 'test/**'
             docs_workflow_proceed:
-              - '.github/**'
               - 'Taskfile.dist.yaml'
-              - 'cmd/werf/**'
+              - 'cmd/werf/docs/**'
               - 'docs/**'
-              - 'schemas/**'
-              - 'scripts/**'
+              - 'schemas/*.json'
+              - 'scripts/docs/**'
               - 'test/legacy_e2e/suites/docs/**'
-              - 'README.md'
-              - 'go.mod'
 
   lint:
     if: github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false'
@@ -499,7 +495,7 @@ jobs:
   docs_unit:
     if: |
       github.event_name == 'pull_request' &&
-      needs.detect-changes.outputs.docs_workflow_proceed != 'false'
+      needs.detect-changes.outputs.docs_workflow_proceed == 'true'
     needs:
       - detect-changes
     runs-on: delivery-github-runner
@@ -518,14 +514,6 @@ jobs:
       - name: Set up CI base
         uses: ./.github/actions/set-up-ci-base
 
-      - name: Set up prebuilt werf test binary
-        uses: ./.github/actions/set-up-prebuilt-werf-test-binary
-        with:
-          coverage: "false"
-
-      - name: Set up git config
-        uses: ./.github/actions/set-up-git-config
-
       - name: Doc unit tests
         run: |
           task --yes test:unit paths="cmd/werf/docs" -- --procs=3 --compilers=1 --keep-going
@@ -534,17 +522,14 @@ jobs:
   docs_integration:
     if: |
       github.event_name == 'pull_request' &&
-      needs.detect-changes.outputs.docs_workflow_proceed != 'false' &&
-      needs.build_test_binary.result == 'success'
+      needs.detect-changes.outputs.docs_workflow_proceed == 'true'
     needs:
       - detect-changes
-      - build_test_binary
     runs-on: delivery-github-runner
     timeout-minutes: 150
     env:
       DEBIAN_FRONTEND: noninteractive
       TASK_X_REMOTE_TASKFILES: 1
-      WERF_TEST_K8S_DOCKER_REGISTRY_INSECURE: "false"
     steps:
       - name: Checkout code
         timeout-minutes: 10
@@ -555,23 +540,16 @@ jobs:
       - name: Set up CI base
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
-        with:
-          prepareMultiarch: "true"
 
-      - name: Set up prebuilt werf test binary
-        timeout-minutes: 10
+      - name: Build werf test binary
+        timeout-minutes: 60
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
         with:
           coverage: "false"
-          artifact: werf-test-binary
 
       - name: Set up git config
         timeout-minutes: 10
         uses: ./.github/actions/set-up-git-config
-
-      - name: Set up test environment
-        uses: ./.github/actions/set-up-test-environment
-        timeout-minutes: 20
 
       - name: Doc integration tests
         timeout-minutes: 60
@@ -579,17 +557,10 @@ jobs:
           task --yes test:integration paths="test/legacy_e2e/suites/docs" -- --procs=3 --compilers=1 --timeout=55m --keep-going
           echo loadavg: $(cat /proc/loadavg)
 
-      - name: Cleanup environment
-        if: always() && env.JOB_ID != ''
-        timeout-minutes: 5
-        run: |
-          task --yes test:cleanup:environment
-          rm -f "$KUBECONFIG"
-
   docs_check_links:
     if: |
       github.event_name == 'pull_request' &&
-      needs.detect-changes.outputs.docs_workflow_proceed != 'false'
+      needs.detect-changes.outputs.docs_workflow_proceed == 'true'
     needs:
       - detect-changes
     runs-on: delivery-github-runner

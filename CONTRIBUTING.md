@@ -98,6 +98,19 @@ Foreign aliases and shared base images are retained; cleanup does not force imag
 deletion or prune ancestors. A missing backend CLI is skipped, but a broken
 installed backend is an error.
 
+Command helpers record the backend and repository overrides before invoking werf
+or an image-changing Docker command. Mixed specs clean both used backends;
+Buildah-only specs do not query Docker images. Docker candidates are listed by
+repository references without a server-side label filter, then inspected by ID
+to verify ownership and all aliases. Keep explicit `CleanupRepositories`
+registration for export names and other references not passed as repo options.
+Docker image events are collected while commands run, including failing commands,
+so cleanup can still inspect images that lost their last tag. A short event-history
+checkpoint runs once per second and at teardown; stream errors or a full 256-event
+history window fail the test rather than silently accepting incomplete tracking.
+This requires an intact Docker event history during the spec and does not reclaim
+unlabelled builder cache objects as project-owned images.
+
 Register container teardown before creating containers. Content-check containers
 and Compose services are removed with fresh cleanup contexts before project
 images. Image cleanup has a two-minute deadline; native Buildah runs in a separate
@@ -174,6 +187,16 @@ job without rerunning setup elsewhere. Keep the existing test groups and selecto
 splitting or reducing test coverage is a separate change.
 
 ### Test profiling
+
+The PR docs jobs run only when documentation or its tooling changes: `docs/`,
+`cmd/werf/docs/`, `scripts/docs/`, the docs integration fixtures, schema JSON,
+or `Taskfile.dist.yaml`.
+Changes elsewhere in `cmd/werf/`, `pkg/`, scripts, workflows or Go dependency
+files alone do not start these jobs. CLI changes must still regenerate their
+reference pages with `task doc:gen`, making the resulting documentation diff
+eligible for docs checks. Docs integration builds its own test binary and does
+not provision kind, a registry or multiarch support; the link checker still
+builds the Jekyll site when docs checks are selected.
 
 The diagnostic PR workflow wraps its five heavy test groups with
 `bash scripts/ci/profile-tests.sh task ... -- ...`. Test selectors, concurrency,

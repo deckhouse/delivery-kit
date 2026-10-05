@@ -16,6 +16,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	werfExec "github.com/werf/werf/v3/pkg/werf/exec"
+	"github.com/werf/werf/v3/test/pkg/testresource"
 )
 
 func RunCommand(ctx context.Context, dir, command string, args ...string) ([]byte, error) {
@@ -35,6 +36,7 @@ func RunCommandWithSeparateStreams(ctx context.Context, dir, command string, arg
 	}
 
 	cmd.Env = append(os.Environ(), options.ExtraEnv...)
+	Expect(testresource.ObserveCommand(ctx, command, args, cmd.Env)).To(Succeed())
 
 	if options.ToStdin != "" {
 		cmd.Stdin = bytes.NewReader([]byte(options.ToStdin))
@@ -83,6 +85,7 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 	}
 
 	cmd.Env = append(os.Environ(), options.ExtraEnv...)
+	Expect(testresource.ObserveCommand(ctx, command, args, cmd.Env)).To(Succeed())
 
 	if options.ToStdin != "" {
 		cmd.Stdin = bytes.NewReader([]byte(options.ToStdin))

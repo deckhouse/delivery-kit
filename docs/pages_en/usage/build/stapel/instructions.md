@@ -142,7 +142,7 @@ No limitations are imposed on assembly instructions. The suggested use of _user 
 
 ## Installing binary packages
 
-The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. When [SBOM generation]({{ "/usage/build/sbom.html" | true_relative_url }}) is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are recorded in the resulting image SBOM.
+The `packages` directive provides a declarative way to declare package dependencies. werf processes each entry in a dedicated `packagesInstall` stage that runs before the `install` stage. The directive does not depend on SBOM generation: packages are installed the same way whether `build.sbom.enable` is set or not. When [SBOM generation]({{ "/usage/build/sbom.html" | true_relative_url }}) is enabled (`build.sbom.enable: true`), the installed packages — including their transitive dependencies — are additionally recorded in the resulting image SBOM.
 
 When SBOM generation is enabled, network is disabled in shell stages, so installing dependencies with commands in any shell stage (`beforeInstall`, `install`, `beforeSetup`, `setup`) is impossible — the `packages` directive becomes the only channel for installing dependencies (see [SBOM technical limitations]({{ "/usage/build/sbom.html#technical-limitations" | true_relative_url }})).
 

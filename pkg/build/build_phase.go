@@ -558,16 +558,18 @@ func (phase *BuildPhase) AfterImages(ctx context.Context) error {
 		return err
 	}
 
-	if err := phase.convergeSbomByImagesSets(ctx); err != nil {
-		return err
-	}
+	if !phase.ShouldBeBuiltMode {
+		if err := phase.convergeSbomByImagesSets(ctx); err != nil {
+			return err
+		}
 
-	if err := phase.convergeVexByImagesSets(ctx); err != nil {
-		return err
-	}
+		if err := phase.convergeVexByImagesSets(ctx); err != nil {
+			return err
+		}
 
-	if err := phase.propagateArtifacts(ctx); err != nil {
-		return err
+		if err := phase.propagateArtifacts(ctx); err != nil {
+			return err
+		}
 	}
 
 	telemetry.GetTelemetryWerfIO().BuildFinished(ctx, true)

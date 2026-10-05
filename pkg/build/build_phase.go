@@ -2029,7 +2029,7 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 				return finalID, nil
 			})
 		}); err != nil {
-			return err
+			return false, err
 		}
 	}
 

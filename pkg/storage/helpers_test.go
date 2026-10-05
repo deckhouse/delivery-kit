@@ -253,7 +253,7 @@ func blockListings(backend *localImageListBackendStub, count int) (chan int, []c
 			<-releases[listing-1]
 		}
 	}
-	DeferCleanup(func() {
+	ginkgo.DeferCleanup(func() {
 		for _, release := range releases {
 			closeIfOpen(release)
 		}
@@ -269,7 +269,7 @@ func blockNextListing(backend *localImageListBackendStub) (chan struct{}, chan s
 		closeIfOpen(listing)
 		<-release
 	}
-	DeferCleanup(func() { closeIfOpen(release) })
+	ginkgo.DeferCleanup(func() { closeIfOpen(release) })
 	return listing, release
 }
 

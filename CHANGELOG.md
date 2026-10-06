@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.81.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.81.0-dk.1...v2.81.1-dk.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **build:** reduce repeated git work in v2 builds ([#8020](https://github.com/deckhouse/delivery-kit/issues/8020)) ([46f0294](https://github.com/deckhouse/delivery-kit/commit/46f0294ede06d43dc3554f6136b545c2e81e6b91))
+
+
+### Miscellaneous Chores
+
+* **release:** merge werf upstream 2.81.1 into delivery-kit ([83a6d02](https://github.com/deckhouse/delivery-kit/commit/83a6d02cafda55ed29e499fbfea4de9237f1d9a0))
+* **release:** merge werf upstream 2.81.1 into delivery-kit ([#402](https://github.com/deckhouse/delivery-kit/issues/402)) ([5812610](https://github.com/deckhouse/delivery-kit/commit/58126108a565b60779e9c7d99aac4a080ec865fa))
+
 ## [2.81.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.80.2-dk.1...v2.81.0-dk.1) (2026-10-06)
 
 

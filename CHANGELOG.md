@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.7.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.0-dk.1...v3.7.1-dk.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **build:** preserve repository-specific SSH commands ([#8021](https://github.com/deckhouse/delivery-kit/issues/8021)) ([9de53b9](https://github.com/deckhouse/delivery-kit/commit/9de53b9c48509113d9464b4c3f2db1b2cabc7a64))
+
+
+### Miscellaneous Chores
+
+* **release:** merge werf upstream 3.7.1 into delivery-kit ([c0bdd45](https://github.com/deckhouse/delivery-kit/commit/c0bdd45a44f7e4e40b55761cc6997979d4e38707))
+* **release:** merge werf upstream 3.7.1 into delivery-kit ([#404](https://github.com/deckhouse/delivery-kit/issues/404)) ([6354cd1](https://github.com/deckhouse/delivery-kit/commit/6354cd163ac6d24dfd93e023be5153991b1f06f0))
+
 ## [3.7.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.2-dk.2...v3.7.0-dk.1) (2026-10-06)
 
 ### Features

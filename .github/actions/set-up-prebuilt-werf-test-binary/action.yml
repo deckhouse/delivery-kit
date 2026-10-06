@@ -6,6 +6,42 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Ensure rootless networking helper
+      shell: bash
+      run: |
+        if command -v slirp4netns >/dev/null 2>&1 && slirp4netns --version; then
+          exit 0
+        fi
+        if ! command -v apt-get >/dev/null 2>&1 || ! command -v dpkg-deb >/dev/null 2>&1; then
+          echo "::error::Rootless Buildah requires working slirp4netns. Install it in the runner image or provide apt-get and dpkg-deb for job-local setup."
+          exit 1
+        fi
+        helper_dir="$(mktemp -d "$RUNNER_TEMP/slirp4netns.XXXXXX")"
+        mkdir -p "$helper_dir/packages" "$helper_dir/root" "$helper_dir/bin"
+        if ! (cd "$helper_dir/packages" && apt-get download slirp4netns libslirp0); then
+          echo "::error::Cannot download slirp4netns and libslirp0 from the runner's package indexes for job-local setup."
+          exit 1
+        fi
+        for package in "$helper_dir"/packages/*.deb; do
+          dpkg-deb --extract "$package" "$helper_dir/root"
+        done
+        slirp_library="$(find "$helper_dir/root/usr/lib" -name libslirp.so.0 -print -quit)"
+        if [[ -z "$slirp_library" ]]; then
+          echo "::error::Downloaded libslirp0 package does not contain libslirp.so.0."
+          exit 1
+        fi
+        {
+          echo '#!/usr/bin/env bash'
+          printf "export LD_LIBRARY_PATH=%q\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\n" "$(dirname "$slirp_library")"
+          printf "exec %q \"\$@\"\n" "$helper_dir/root/usr/bin/slirp4netns"
+        } > "$helper_dir/bin/slirp4netns"
+        chmod +x "$helper_dir/bin/slirp4netns"
+        if ! "$helper_dir/bin/slirp4netns" --version; then
+          echo "::error::Job-local slirp4netns cannot run. Ensure the runner supplies its libc, GLib and libseccomp dependencies."
+          exit 1
+        fi
+        echo "$helper_dir/bin" >> "$GITHUB_PATH"
+
     - name: Set WERF_TEST_* env vars
       run: |
         if ${{ inputs.coverage }}; then

@@ -33,7 +33,6 @@ import (
 	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
 	"github.com/werf/werf/v2/pkg/logging"
-	"github.com/werf/werf/v2/pkg/opstats"
 	"github.com/werf/werf/v2/pkg/storage"
 	"github.com/werf/werf/v2/pkg/storage/manager"
 	"github.com/werf/werf/v2/pkg/true_git"
@@ -1414,6 +1413,17 @@ func GetRequireBuiltImages(cmdData *CmdData) bool {
 	return option.PtrValueOrDefault(cmdData.RequireBuiltImages, false)
 }
 
+func GetCheckBuiltImages(cmdData *CmdData) bool {
+	return option.PtrValueOrDefault(cmdData.CheckBuiltImages, false) || option.PtrValueOrDefault(cmdData.LegacyCheckBuiltImages, false)
+}
+
+func isImagesReadOnly(cmdData *CmdData) bool {
+	if cmdData == nil {
+		return false
+	}
+	return GetCheckBuiltImages(cmdData)
+}
+
 func GetAddLabels(cmdData *CmdData) []string {
 	return append(util.PredefinedValuesByEnvNamePrefix("WERF_ADD_LABEL_"), cmdData.ExtraLabels...)
 }
@@ -1475,7 +1485,6 @@ func GetIntrospectOptions(cmdData *CmdData, werfConfig *config.WerfConfig) (buil
 }
 
 func GetGiterminismManager(ctx context.Context, cmdData *CmdData) (*giterminism_manager.Manager, error) {
-	defer opstats.Observe(ctx, opstats.OperationGiterminismInit)()
 	printGlobalWarningIfDevInCI(ctx, cmdData)
 	manager := new(giterminism_manager.Manager)
 	if err := logboek.Context(ctx).Info().LogProcess("Initialize giterminism manager").

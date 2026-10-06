@@ -1,0 +1,27 @@
+name: Set up test environment
+description: Create a registry and kind cluster owned by the current job.
+runs:
+  using: composite
+  steps:
+    - name: Set environment identity
+      shell: bash
+      run: |
+        JOB_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB//_/-}"
+        echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
+        echo "KUBECONFIG=$GITHUB_WORKSPACE/werf.kubeconfig-$JOB_ID" >> "$GITHUB_ENV"
+
+    - name: Set up environment
+      shell: bash
+      run: task --yes test:setup:environment
+
+    - name: Limit environment resources
+      shell: bash
+      run: |
+        docker update --cpus=2 --memory=4g --memory-swap=4g "${JOB_ID}-control-plane"
+        docker update --cpus=0.5 --memory=512m --memory-swap=512m "kind-registry-${JOB_ID}"
+
+    - name: Export registry address
+      shell: bash
+      run: |
+        REGISTRY_PORT="$(docker inspect "kind-registry-${JOB_ID}" --format '{{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}')"
+        echo "WERF_TEST_K8S_DOCKER_REGISTRY=localhost:$REGISTRY_PORT" >> "$GITHUB_ENV"

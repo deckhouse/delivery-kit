@@ -40,7 +40,7 @@ func setupSbomBuildEnv(opts setupEnvOptions) {
 }
 
 func buildTrustedBuilderBase(ctx SpecContext, testRepoPath, refSlug string) []string {
-	builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRegistry(), refSlug)
+	builderBaseRef := fmt.Sprintf("%s/%s:test", suite_init.TestRepo(SuiteData.ProjectName), refSlug)
 	utils.RunSucceedCommand(ctx, testRepoPath, "docker", "build", "-t", builderBaseRef, "-f", "Dockerfile.builder-base", ".")
 	utils.RunSucceedCommand(ctx, testRepoPath, "docker", "push", builderBaseRef)
 	return []string{

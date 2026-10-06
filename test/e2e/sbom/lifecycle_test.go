@@ -186,8 +186,8 @@ var _ = Describe("SBOM lifecycle", Label("e2e", "sbom", "lifecycle", "simple"), 
 			})
 			Expect(out).To(ContainSubstring("SBOM should be enabled"),
 				"expected explicit error about disabled SBOM; got:\n%s", out)
-			Expect(out).To(ContainSubstring("config render"))
-			Expect(out).To(ContainSubstring("command time:"))
+			Expect(out).To(MatchRegexp(`Running time [0-9]+\.[0-9]+ seconds`))
+			Expect(out).NotTo(ContainSubstring("command time:"))
 		},
 		Entry("with local repo using Vanilla Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "vanilla-docker"}}),
 		Entry("with local repo using BuildKit Docker", sbomTestOptions{setupEnvOptions{ContainerBackendMode: "buildkit-docker"}}),

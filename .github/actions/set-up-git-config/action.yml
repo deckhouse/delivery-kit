@@ -1,9 +1,26 @@
 name: Set up git config
+description: Configure job-local Git identity while inheriting existing global settings.
 runs:
   using: composite
   steps:
     - name: Set up git config
       run: |
+        job_git_config="$(mktemp "$RUNNER_TEMP/gitconfig.XXXXXX")"
+        if [[ -n "${GIT_CONFIG_GLOBAL+x}" ]]; then
+          inherited_configs=("$GIT_CONFIG_GLOBAL")
+        else
+          inherited_configs=("${XDG_CONFIG_HOME:-$HOME/.config}/git/config" "$HOME/.gitconfig")
+        fi
+        for inherited_config in "${inherited_configs[@]}"; do
+          if [[ -f "$inherited_config" ]]; then
+            if [[ "$inherited_config" != /* ]]; then
+              inherited_config="$PWD/$inherited_config"
+            fi
+            git config --file "$job_git_config" --add include.path "$inherited_config"
+          fi
+        done
+        export GIT_CONFIG_GLOBAL="$job_git_config"
+        echo "GIT_CONFIG_GLOBAL=$GIT_CONFIG_GLOBAL" >> "$GITHUB_ENV"
         git config --global user.name "borya"
         git config --global user.email "borya@flant.com"
       shell: bash

@@ -24,6 +24,7 @@ var _ = Describe("Simple ci-env", Label("e2e", "ci-env", "simple"), func() {
 
 			outputCiEnv := werfProject.CiEnv(ctx, &werf.CiEnvOptions{
 				CommonOptions: werf.CommonOptions{
+					Envs: []string{"WERF_HOME=" + filepath.Join(tmpDir, "home")},
 					ExtraArgs: slices.Concat(ciEnvArgs, []string{
 						"--tmp-dir", tmpDir,
 					}),
@@ -32,6 +33,7 @@ var _ = Describe("Simple ci-env", Label("e2e", "ci-env", "simple"), func() {
 
 			outputHostCleanup := werfProject.HostCleanup(ctx, &werf.HostCleanupOptions{
 				CommonOptions: werf.CommonOptions{
+					Envs: []string{"WERF_HOME=" + filepath.Join(tmpDir, "home")},
 					ExtraArgs: []string{
 						"--tmp-dir", tmpDir,
 					},
@@ -81,6 +83,7 @@ var _ = Describe("Simple ci-env", Label("e2e", "ci-env", "simple"), func() {
 
 			outputCiEnv := werfProject.CiEnv(ctx, &werf.CiEnvOptions{
 				CommonOptions: werf.CommonOptions{
+					Envs: []string{"WERF_HOME=" + filepath.Join(tmpDir, "home")},
 					ExtraArgs: slices.Concat(ciEnvArgs, []string{
 						"--tmp-dir", tmpDir,
 					}),

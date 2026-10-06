@@ -2,7 +2,9 @@ package image
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -16,8 +18,8 @@ import (
 	"github.com/werf/werf/v2/pkg/context_manager"
 	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
-	"github.com/werf/werf/v2/pkg/opstats"
 	"github.com/werf/werf/v2/pkg/path_matcher"
+	"github.com/werf/werf/v2/pkg/werf"
 )
 
 func NewBuildContextArchive(giterminismMgr giterminism_manager.Interface, extractionRootTmpDir string) *BuildContextArchive {
@@ -35,6 +37,12 @@ type BuildContextArchive struct {
 }
 
 func (a *BuildContextArchive) Create(ctx context.Context, opts container_backend.BuildContextArchiveCreateOptions) error {
+	lock, err := git_repo.CommonGitDataManager.LockGC(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer werf.HostLocker().ReleaseLock(lock)
+
 	contextPathRelativeToGitWorkTree := filepath.Join(a.giterminismMgr.RelativeToGitProjectDir(), opts.ContextGitSubDir)
 
 	dockerIgnorePathMatcher, err := createDockerIgnorePathMatcher(ctx, *a.giterminismMgr.(*giterminism_manager.Manager), opts.ContextGitSubDir, opts.DockerfileRelToContextPath)
@@ -54,7 +62,10 @@ func (a *BuildContextArchive) Create(ctx context.Context, opts container_backend
 		return fmt.Errorf("unable to get or create archive: %w", err)
 	}
 
-	a.path = archive.GetFilePath()
+	a.path, err = a.copyArchive(archive.GetFilePath())
+	if err != nil {
+		return err
+	}
 
 	addFilesFromMem := make(map[string][]byte)
 
@@ -70,7 +81,6 @@ func (a *BuildContextArchive) Create(ctx context.Context, opts container_backend
 
 	if len(opts.ContextAddFiles) > 0 || len(addFilesFromMem) > 0 {
 		if err := logboek.Context(ctx).Debug().LogProcess("Add contextAddFiles to build context archive %s", a.path).DoError(func() error {
-			defer opstats.Observe(ctx, opstats.OperationContextAddFiles)()
 			a.path, err = context_manager.AddContextAddFilesToContextArchive(ctx, &context_manager.AddContextAddFilesToContextArchiveOpts{
 				OriginalArchivePath:    a.path,
 				ProjectDir:             a.giterminismMgr.ProjectDir(),
@@ -200,4 +210,23 @@ func (a *BuildContextArchive) CalculatePathsChecksum(ctx context.Context, paths 
 
 func dockerfileStageDependenciesDebug() bool {
 	return os.Getenv("WERF_DEBUG_DOCKERFILE_STAGE_DEPENDENCIES") == "1"
+}
+
+func (a *BuildContextArchive) copyArchive(source string) (string, error) {
+	if err := os.MkdirAll(a.extractionRootTmpDir, 0o700); err != nil {
+		return "", fmt.Errorf("create context archive directory: %w", err)
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return "", fmt.Errorf("open context archive: %w", err)
+	}
+	out, err := os.CreateTemp(a.extractionRootTmpDir, "context-*.tar")
+	if err != nil {
+		return "", fmt.Errorf("create private context archive: %w", errors.Join(err, in.Close()))
+	}
+	_, copyErr := io.Copy(out, in)
+	if err := errors.Join(copyErr, out.Close(), in.Close()); err != nil {
+		return "", fmt.Errorf("copy context archive: %w", err)
+	}
+	return out.Name(), nil
 }

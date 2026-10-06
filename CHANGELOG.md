@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.81.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.80.2-dk.1...v2.81.0-dk.1) (2026-10-06)
+
+
+### Miscellaneous Chores
+
+* **release:** merge werf upstream into delivery-kit (2.81.0-dk.1) ([8b3b448](https://github.com/deckhouse/delivery-kit/commit/8b3b4482dcd17885c5b8d381a3a3aeb84f634f85))
+
 ## [2.80.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.79.2-dk.1...v2.80.2-dk.1) (2026-10-01)
 
 

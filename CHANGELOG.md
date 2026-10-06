@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.7.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.2-dk.2...v3.7.0-dk.1) (2026-10-06)
+
+
+### Features
+
+* **build:** install packages without enabling SBOM generation ([#395](https://github.com/deckhouse/delivery-kit/issues/395)) ([c65fe4d](https://github.com/deckhouse/delivery-kit/commit/c65fe4d4c144f51c53aba9094a57216d2d375ea8))
+
+
+### Miscellaneous Chores
+
+* **release:** merge werf upstream into delivery-kit (3.7.0-dk.1) ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+
 ## [3.6.2-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.6.2-dk.1...v3.6.2-dk.2) (2026-10-05)
 
 

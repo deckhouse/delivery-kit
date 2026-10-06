@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"testing"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -17,11 +16,6 @@ import (
 	"github.com/werf/werf/v2/pkg/werf"
 	"github.com/werf/werf/v2/test/pkg/utils"
 )
-
-func TestBuildContextArchive(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "Build context archive")
-}
 
 var _ = ginkgo.Describe("private context archive", func() {
 	ginkgo.It("creates a Dockerfile context that survives removal of shared Git archives", func(ctx ginkgo.SpecContext) {

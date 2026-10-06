@@ -18,6 +18,7 @@ import (
 	"github.com/werf/werf/v2/pkg/config"
 	"github.com/werf/werf/v2/pkg/container_backend"
 	"github.com/werf/werf/v2/pkg/container_backend/stage_builder"
+	"github.com/werf/werf/v2/pkg/git_repo"
 	"github.com/werf/werf/v2/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v2/pkg/image"
 	"github.com/werf/werf/v2/pkg/opstats"
@@ -224,7 +225,7 @@ func (s *importMetadataStorageStub) PutImportMetadata(context.Context, string, *
 }
 
 func newReportPhase(reportPath string) *BuildPhase {
-	return NewBuildPhase(&Conveyor{}, BuildPhaseOptions{BuildOptions: BuildOptions{ReportPath: reportPath, ReportFormat: ReportJSON}})
+	return &BuildPhase{ImagesReport: NewImagesReport(), BuildPhaseOptions: BuildPhaseOptions{BuildOptions: BuildOptions{ReportPath: reportPath, ReportFormat: ReportJSON}}}
 }
 
 type operationsReport struct {
@@ -418,4 +419,61 @@ func (m *publicationStorageManager) FetchStage(context.Context, container_backen
 
 func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageCached(context.Context, string, string, int64, storage.StagesStorage) (imagePkg.StageDescSet, error) {
 	return imagePkg.NewStageDescSet(), nil
+}
+
+var _ manager.StorageManagerInterface = (*artifactPhaseStorageManager)(nil)
+
+type artifactPhaseStorageManager struct {
+	manager.StorageManagerInterface
+	primary     storage.PrimaryStagesStorage
+	final       storage.StagesStorage
+	caches      []storage.StagesStorage
+	finalDesc   *imagePkg.StageDesc
+	copyOptions manager.CopyStageIntoStorageOptions
+}
+
+func (m *artifactPhaseStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
+	return m.primary
+}
+func (m *artifactPhaseStorageManager) GetFinalStagesStorage() storage.StagesStorage { return m.final }
+func (m *artifactPhaseStorageManager) GetCacheStagesStorageList() []storage.StagesStorage {
+	return m.caches
+}
+func (m *artifactPhaseStorageManager) CopyStageIntoFinalStorage(_ context.Context, _ imagePkg.StageID, _ storage.StagesStorage, opts manager.CopyStageIntoStorageOptions) (*imagePkg.StageDesc, error) {
+	m.copyOptions = opts
+	return m.finalDesc, nil
+}
+
+var _ storage.PrimaryStagesStorage = (*artifactPhasePrimary)(nil)
+
+type artifactPhasePrimary struct {
+	storage.PrimaryStagesStorage
+	address string
+}
+
+func (s *artifactPhasePrimary) Address() string { return s.address }
+func (s *artifactPhasePrimary) String() string  { return s.address }
+
+var (
+	_ giterminism_manager.Interface  = (*artifactPhaseGiterminism)(nil)
+	_ giterminism_manager.FileReader = (*artifactPhaseFileReader)(nil)
+)
+
+type artifactPhaseGiterminism struct {
+	giterminism_manager.Interface
+	reader *artifactPhaseFileReader
+}
+
+func (m *artifactPhaseGiterminism) LocalGitRepo() git_repo.GitRepo             { return nil }
+func (m *artifactPhaseGiterminism) HeadCommit(context.Context) string          { return "" }
+func (m *artifactPhaseGiterminism) FileReader() giterminism_manager.FileReader { return m.reader }
+
+type artifactPhaseFileReader struct {
+	giterminism_manager.FileReader
+	reads int
+}
+
+func (r *artifactPhaseFileReader) ReadVEXFile(context.Context, string) ([]byte, error) {
+	r.reads++
+	return []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","@id":"https://example.com/vex","author":"test","timestamp":"2026-01-01T00:00:00Z","version":1,"statements":[]}`), nil
 }

@@ -96,7 +96,7 @@ jobs:
 
   integration_main:
     if: |
-      always() &&
+      !cancelled() &&
       (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false') &&
       needs.lint.result == 'success' &&
       needs.unit.result == 'success'
@@ -154,7 +154,7 @@ jobs:
 
   e2e_simple:
     if: |
-      always() &&
+      !cancelled() &&
       (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false') &&
       needs.lint.result == 'success' &&
       needs.unit.result == 'success'
@@ -212,7 +212,7 @@ jobs:
 
   e2e_complex:
     if: |
-      always() &&
+      !cancelled() &&
       (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false') &&
       needs.lint.result == 'success' &&
       needs.unit.result == 'success'
@@ -270,7 +270,7 @@ jobs:
 
   e2e_extra:
     if: |
-      always() &&
+      !cancelled() &&
       (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false') &&
       needs.lint.result == 'success' &&
       needs.unit.result == 'success'
@@ -328,7 +328,7 @@ jobs:
 
   integration_git:
     if: |
-      always() &&
+      !cancelled() &&
       (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.workflow_proceed != 'false') &&
       needs.lint.result == 'success' &&
       needs.unit.result == 'success'

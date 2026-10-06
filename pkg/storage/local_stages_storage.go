@@ -3,8 +3,11 @@ package storage
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
@@ -16,6 +19,7 @@ import (
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/docker_registry/api"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 )
 
 const (
@@ -34,8 +38,46 @@ func IsImageDeletionFailedDueToUsingByContainerErr(err error) bool {
 type LocalStagesStorage struct {
 	ContainerBackend container_backend.ContainerBackend
 
+	sequence atomic.Uint64
+
 	imagesCacheMutex sync.Mutex
-	imagesCache      map[string]image.ImagesList
+	imagesCache      map[string]localProjectSnapshot
+
+	listingFlightMutex sync.Mutex
+	listingFlights     map[string]*localProjectFlight
+}
+
+// localProjectSnapshot is an immutable record of the stage references of a single project: the
+// listing that produced them and the references published by this process that no listing has
+// confirmed yet. Only the references are kept, not the image summaries, so the listing payload of
+// a daemon full of labeled images does not stay resident.
+type localProjectSnapshot struct {
+	initialized       bool
+	references        []string
+	listingStartedSeq uint64
+	pushedReferences  map[string]uint64
+}
+
+type localProjectListing struct {
+	references        []string
+	listingStartedSeq uint64
+}
+
+// nextSequence orders requests, listings and publications of this process against each other
+// without relying on the wall clock, whose resolution lets two of them share an instant.
+func (storage *LocalStagesStorage) nextSequence() uint64 {
+	return storage.sequence.Add(1)
+}
+
+// localProjectFlight is the listing of one project that is running right now. Which caller leads it
+// and which ones join it is decided by whether this entry was found, under the flight mutex, so the
+// roles are never inferred afterwards from a result a cancellation may have hidden. The entry is
+// removed and done is closed in the same critical section, so a caller either joins a listing that
+// will still answer it or starts the next one.
+type localProjectFlight struct {
+	done    chan struct{}
+	listing localProjectListing
+	err     error
 }
 
 func NewLocalStagesStorage(containerBackend container_backend.ContainerBackend) *LocalStagesStorage {
@@ -113,45 +155,57 @@ func (storage *LocalStagesStorage) GetStagesIDs(ctx context.Context, projectName
 	return images.ConvertToStages()
 }
 
+func localImagesCacheOperation(backend container_backend.ContainerBackend) opstats.Operation {
+	if backend == nil {
+		return ""
+	}
+	switch backend.String() {
+	case "buildah-backend":
+		return opstats.OperationBuildahImageList
+	case "docker-server-backend":
+		return opstats.OperationDockerImageList
+	default:
+		return ""
+	}
+}
+
 func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, projectName, digest string, parentStageCreationTs int64, opts ...Option) ([]image.StageID, error) {
+	var requestSeq uint64
 	withCache := makeOptions(opts...).withCache
-	reference := fmt.Sprintf(FilterReferenceLocalStageByDigestFormat, projectName, digest)
-	var images image.ImagesList
-	var cached bool
+	if !withCache {
+		// Recorded before anything else, so the accepted listing covers locks the caller already holds.
+		// A listing already in flight carries this very value, so it is rejected as started too early.
+		requestSeq = storage.sequence.Load()
+	}
+	outcome := opstats.CacheOutcomeBypass
+	var shared bool
+	defer func() {
+		opstats.CountCacheLookup(ctx, localImagesCacheOperation(storage.ContainerBackend), opstats.CacheLayerMemory, outcome, shared)
+	}()
 	if withCache {
-		storage.imagesCacheMutex.Lock()
-		defer storage.imagesCacheMutex.Unlock()
-		images, cached = storage.imagesCache[projectName]
-		reference = fmt.Sprintf(LocalStage_ImageRepoFormat, projectName)
-	}
-
-	if !cached {
-		var err error
-		images, err = storage.ContainerBackend.Images(ctx, container_backend.ImagesOptions{
-			Filters: []util.Pair[string, string]{util.NewPair("reference", reference)},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("unable to get docker images: %w", err)
+		if cached, isCached := storage.loadProjectSnapshot(projectName); isCached {
+			outcome = opstats.CacheOutcomeHit
+			return selectProjectStages(ctx, cached.references, projectName, digest, parentStageCreationTs)
 		}
-		if withCache {
-			if storage.imagesCache == nil {
-				storage.imagesCache = make(map[string]image.ImagesList)
-			}
-			storage.imagesCache[projectName] = images
-		}
+		outcome = opstats.CacheOutcomeMiss
+	}
+	listing, joined, err := storage.refreshProjectListing(ctx, projectName, requestSeq)
+	shared = joined
+	if err != nil {
+		return nil, err
+	}
+	return selectProjectStages(ctx, listing.references, projectName, digest, parentStageCreationTs)
+}
+
+func selectProjectStages(ctx context.Context, references []string, projectName, digest string, parentStageCreationTs int64) ([]image.StageID, error) {
+	matched := lo.Filter(references, func(reference string, _ int) bool {
+		return strings.HasPrefix(reference, fmt.Sprintf(LocalStage_ImageFormat, projectName, digest))
+	})
+	if len(matched) == 0 {
+		return nil, nil
 	}
 
-	if withCache {
-		prefix := projectName + ":" + digest
-		images = lo.FilterMap(images, func(summary image.Summary, _ int) (image.Summary, bool) {
-			summary.RepoTags = lo.Filter(summary.RepoTags, func(tag string, _ int) bool {
-				return strings.HasPrefix(strings.TrimPrefix(tag, "localhost/"), prefix)
-			})
-			return summary, len(summary.RepoTags) > 0
-		})
-	}
-
-	stagesIDs, err := images.ConvertToStages()
+	stagesIDs, err := image.ImagesList{{RepoTags: matched}}.ConvertToStages()
 	if err != nil {
 		return nil, fmt.Errorf("unable to convert images to stages: %w", err)
 	}
@@ -167,6 +221,181 @@ func (storage *LocalStagesStorage) GetStagesIDsByDigest(ctx context.Context, pro
 	}
 
 	return resultStageIDs, nil
+}
+
+func (storage *LocalStagesStorage) refreshProjectListing(ctx context.Context, projectName string, requestSeq uint64) (localProjectListing, bool, error) {
+	var joined bool
+	for {
+		listing, joinedNow, err := storage.waitProjectListing(ctx, projectName)
+		joined = joined || joinedNow
+		if err != nil {
+			return localProjectListing{}, joined, err
+		}
+		// The listing this call joined had already snapshotted the daemon before the caller took the
+		// locks the result has to cover, so it is unusable. The next listing can only start after
+		// this one finished, so waiting for it never runs two listings in parallel.
+		if listing.listingStartedSeq <= requestSeq {
+			continue
+		}
+		return listing, joined, nil
+	}
+}
+
+func (storage *LocalStagesStorage) waitProjectListing(ctx context.Context, projectName string) (localProjectListing, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return localProjectListing{}, false, err
+	}
+
+	storage.listingFlightMutex.Lock()
+	flight, joined := storage.listingFlights[projectName]
+	if !joined {
+		flight = &localProjectFlight{done: make(chan struct{})}
+		if storage.listingFlights == nil {
+			storage.listingFlights = make(map[string]*localProjectFlight)
+		}
+		storage.listingFlights[projectName] = flight
+		// The listing runs on the context of the caller that started it, so canceling that caller
+		// still aborts the backend call, while a joiner giving up leaves the listing running for
+		// everyone else waiting on it.
+		go storage.runProjectListing(ctx, projectName, flight)
+	}
+	storage.listingFlightMutex.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return localProjectListing{}, joined, ctx.Err()
+	case <-flight.done:
+		return flight.listing, joined, flight.err
+	}
+}
+
+func (storage *LocalStagesStorage) runProjectListing(ctx context.Context, projectName string, flight *localProjectFlight) {
+	listingStartedSeq := storage.nextSequence()
+	storage.registerProjectListing(projectName)
+
+	var listing localProjectListing
+	images, err := storage.listImages(ctx, fmt.Sprintf(LocalStage_ImageRepoFormat, projectName))
+	if err == nil {
+		listing = localProjectListing{
+			references:        storage.storeProjectSnapshot(projectName, localStageReferences(images), listingStartedSeq),
+			listingStartedSeq: listingStartedSeq,
+		}
+	}
+
+	storage.listingFlightMutex.Lock()
+	flight.listing, flight.err = listing, err
+	delete(storage.listingFlights, projectName)
+	close(flight.done)
+	storage.listingFlightMutex.Unlock()
+}
+
+func (storage *LocalStagesStorage) registerProjectListing(projectName string) {
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
+	storage.putProjectSnapshot(projectName, storage.imagesCache[projectName])
+}
+
+func (storage *LocalStagesStorage) storeProjectSnapshot(projectName string, references []string, listingStartedSeq uint64) []string {
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
+	entry := storage.imagesCache[projectName]
+	pushedReferences := map[string]uint64{}
+	for reference, pushedSeq := range entry.pushedReferences {
+		// A listing started after the publication is authoritative and drops the reference, so a
+		// stage removed from the daemon cannot stay cached forever.
+		if pushedSeq <= listingStartedSeq || slices.Contains(references, reference) {
+			continue
+		}
+		references = append(references, reference)
+		pushedReferences[reference] = pushedSeq
+	}
+
+	// A listing that started earlier carries an older snapshot of the daemon, whatever the order of
+	// completion: it must not drop references a later listing already confirmed.
+	if entry.initialized && entry.listingStartedSeq > listingStartedSeq {
+		return references
+	}
+
+	storage.putProjectSnapshot(projectName, localProjectSnapshot{
+		initialized:       true,
+		references:        references,
+		listingStartedSeq: listingStartedSeq,
+		pushedReferences:  pushedReferences,
+	})
+	return references
+}
+
+func (storage *LocalStagesStorage) loadProjectSnapshot(projectName string) (localProjectSnapshot, bool) {
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
+	entry, isCached := storage.imagesCache[projectName]
+	return entry, isCached && entry.initialized
+}
+
+func (storage *LocalStagesStorage) putProjectSnapshot(projectName string, entry localProjectSnapshot) {
+	if storage.imagesCache == nil {
+		storage.imagesCache = make(map[string]localProjectSnapshot)
+	}
+	storage.imagesCache[projectName] = entry
+}
+
+func (storage *LocalStagesStorage) listImages(ctx context.Context, reference string) (image.ImagesList, error) {
+	images, err := storage.ContainerBackend.Images(ctx, container_backend.ImagesOptions{
+		Filters: []util.Pair[string, string]{util.NewPair("reference", reference)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to get docker images: %w", err)
+	}
+	return images, nil
+}
+
+// localStageReferences flattens an image listing into the references ConvertToStages needs,
+// dropping the "localhost/" prefix Buildah reports so that a reference is comparable whichever
+// backend produced it.
+func localStageReferences(images image.ImagesList) []string {
+	return lo.FlatMap(images, func(summary image.Summary, _ int) []string {
+		return lo.Map(summary.RepoTags, func(repoTag string, _ int) string {
+			return trimLocalStageReference(repoTag)
+		})
+	})
+}
+
+func trimLocalStageReference(reference string) string {
+	return strings.TrimPrefix(reference, "localhost/")
+}
+
+func (storage *LocalStagesStorage) rememberPublishedStage(reference string) {
+	reference = trimLocalStageReference(reference)
+	projectName, tag := image.ParseRepositoryAndTag(reference)
+	if projectName == "" || tag == "" {
+		return
+	}
+
+	storage.imagesCacheMutex.Lock()
+	defer storage.imagesCacheMutex.Unlock()
+
+	entry, isCached := storage.imagesCache[projectName]
+	if !isCached {
+		return
+	}
+
+	pushedReferences := maps.Clone(entry.pushedReferences)
+	if pushedReferences == nil {
+		pushedReferences = map[string]uint64{}
+	}
+	// Recorded even when the reference is already listed: a listing in flight may have snapshotted
+	// the daemon without it.
+	pushedReferences[reference] = storage.nextSequence()
+	entry.pushedReferences = pushedReferences
+
+	if entry.initialized && !slices.Contains(entry.references, reference) {
+		entry.references = append(slices.Clone(entry.references), reference)
+	}
+
+	storage.putProjectSnapshot(projectName, entry)
 }
 
 func (storage *LocalStagesStorage) GetStageDesc(ctx context.Context, projectName string, stageID image.StageID) (*image.StageDesc, error) {
@@ -264,7 +493,11 @@ func (storage *LocalStagesStorage) FetchImage(ctx context.Context, img container
 }
 
 func (storage *LocalStagesStorage) StoreImage(ctx context.Context, img container_backend.LegacyImageInterface) error {
-	return storage.ContainerBackend.TagImageByName(ctx, img)
+	if err := storage.ContainerBackend.TagImageByName(ctx, img); err != nil {
+		return err
+	}
+	storage.rememberPublishedStage(img.Name())
+	return nil
 }
 
 func (storage *LocalStagesStorage) ShouldFetchImage(ctx context.Context, img container_backend.LegacyImageInterface) (bool, error) {
@@ -397,6 +630,7 @@ func (storage *LocalStagesStorage) MutateAndPushImage(ctx context.Context, src, 
 	if mutator, ok := storage.ContainerBackend.(container_backend.NativeConfigMutator); ok {
 		err := mutator.MutateAndPushImageNative(ctx, src, dest, newConfig, stageImage.GetTargetPlatform())
 		if err == nil {
+			storage.rememberPublishedStage(dest)
 			return nil
 		}
 		if !container_backend.IsNativeMutationUnsupported(err) {
@@ -413,6 +647,7 @@ func (storage *LocalStagesStorage) MutateAndPushImage(ctx context.Context, src, 
 	if err := storage.ContainerBackend.Tag(ctx, newId, dest, container_backend.TagOpts{}); err != nil {
 		return fmt.Errorf("unable to tag image %q as %q: %w", newId, dest, err)
 	}
+	storage.rememberPublishedStage(dest)
 
 	return nil
 }

@@ -84,7 +84,7 @@ func (repo *Remote) cloneAndFetchShallow(ctx context.Context) error {
 
 		logboek.Context(ctx).Info().LogF("Falling back to full mirror for repo %q: %s\n", repo.String(), shallowErr)
 
-		if err := repo.downgradeToFull(ctx, persistMarker); err != nil {
+		if err := repo.downgradeToFull(ctx, persistMarker, true); err != nil {
 			return fmt.Errorf("shallow fetch failed and full mirror fallback also failed: %w; underlying shallow error: %v", err, shallowErr)
 		}
 
@@ -284,6 +284,18 @@ func (repo *Remote) lsRemoteTag(ctx context.Context, fresh bool) (string, error)
 	defer entry.mu.Unlock()
 
 	tags := entry.tags
+	// A ready tag dictionary answers the lookup even when it lacks repo.Tag: the
+	// listing itself is the cached value. An explicit fresh request skips the
+	// cache whatever it holds, which is a bypass and never a miss.
+	outcome := opstats.CacheOutcomeHit
+	switch {
+	case fresh:
+		outcome = opstats.CacheOutcomeBypass
+	case tags == nil:
+		outcome = opstats.CacheOutcomeMiss
+	}
+	defer opstats.CountCacheLookup(ctx, opstats.OperationGitLsRemote, opstats.CacheLayerMemory, outcome, false)
+
 	if tags == nil || fresh {
 		done := opstats.Observe(ctx, opstats.OperationGitLsRemote)
 		defer done()
@@ -402,7 +414,7 @@ func (repo *Remote) ensureShallowMirror(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (repo *Remote) downgradeToFull(ctx context.Context, persistMarker bool) error {
+func (repo *Remote) downgradeToFull(ctx context.Context, persistMarker, verifyTarget bool) error {
 	return repo.withMirrorKindLock(ctx, mirrorKindFull, func() error {
 		exists, err := repo.isCloneExistsForKind(mirrorKindFull)
 		if err != nil {
@@ -430,8 +442,10 @@ func (repo *Remote) downgradeToFull(ctx context.Context, persistMarker bool) err
 			}
 		}
 
-		if err := repo.verifyTargetInFullMirror(ctx, repo.clonePathForKind(mirrorKindFull)); err != nil {
-			return err
+		if verifyTarget {
+			if err := repo.verifyTargetInFullMirror(ctx, repo.clonePathForKind(mirrorKindFull)); err != nil {
+				return err
+			}
 		}
 
 		if persistMarker {

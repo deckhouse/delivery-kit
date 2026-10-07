@@ -14,6 +14,21 @@ func nodeModulesEnrichment(root string) *scanner.Enrichment {
 	}
 }
 
+// gemHomeEnrichment is the unresolved plan ToCatalogers emits: the gem directory depends
+// on the image environment and is filled in at materialization time.
+func gemHomeEnrichment(workdir, lockPath string, directiveEnv ...map[string]string) *scanner.Enrichment {
+	e := &scanner.Enrichment{
+		Kind:             scanner.EnrichmentKindGemHome,
+		FileNamePatterns: []string{"*.gemspec"},
+		LockPath:         lockPath,
+		Workdir:          workdir,
+	}
+	if len(directiveEnv) > 0 {
+		e.DirectiveEnv = directiveEnv[0]
+	}
+	return e
+}
+
 // goModCacheEnrichment is the unresolved plan ToCatalogers emits: the module cache root
 // depends on the image environment and is filled in at materialization time.
 func goModCacheEnrichment(lockPath string, directiveEnv ...map[string]string) *scanner.Enrichment {

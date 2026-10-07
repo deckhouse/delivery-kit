@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/logboek"
@@ -20,6 +22,7 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/pkg/sbom/gomod"
+	"github.com/werf/werf/v3/pkg/sbom/managedinput"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/test/mock"
 )
@@ -210,6 +213,78 @@ var _ = Describe("SbomStep", func() {
 
 			Expect(bom.Metadata).ToNot(BeNil())
 			Expect(bom.Metadata.Timestamp).To(Equal("2026-01-01T00:00:00Z"), "syft metadata (timestamp) from the first directive is preserved, not discarded")
+		})
+
+		It("cuts the lock scan of a bundler directive down to the platform variants installed, aligned with the gemspec scan", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			ctrl := gomock.NewController(GinkgoT())
+			mockBackend := mock.NewMockContainerBackend(ctrl)
+
+			imageRef := "app:latest"
+			gemfile := "source \"https://rubygems.org\"\ngem \"ffi\", \"1.17.2\"\n"
+			gemfileLock := "GEM\n  remote: https://rubygems.org/\n  specs:\n    ffi (1.17.2)\n    ffi (1.17.2-aarch64-linux-gnu)\n    ffi (1.17.2-x86_64-linux-gnu)\n\nPLATFORMS\n  aarch64-linux\n  ruby\n  x86_64-linux\n\nDEPENDENCIES\n  ffi (= 1.17.2)\n"
+			catalogers := managedinput.ToCatalogers([]*config.PackagesDirective{{
+				Type:      config.PackagesDirectiveTypeRubyBundler,
+				FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"},
+			}})
+			Expect(catalogers).To(HaveLen(2))
+
+			mockReader := mock.NewMockImageReader(ctrl)
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/Gemfile").Return([]byte(gemfile), nil).Times(2)
+			mockReader.EXPECT().ReadFile(gomock.Any(), "/app/Gemfile.lock").Return([]byte(gemfileLock), nil).Times(2)
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/usr/lib/ruby/gems", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, destDir string, _ container_backend.ReadDirOpts) error {
+					specsDir := filepath.Join(destDir, "3.4.0", "specifications")
+					Expect(os.MkdirAll(specsDir, 0o755)).To(Succeed())
+					return os.WriteFile(filepath.Join(specsDir, "ffi-1.17.2-x86_64-linux-gnu.gemspec"), []byte("s.licenses = [\"BSD-3-Clause\".freeze]\n"), 0o644)
+				})
+			mockReader.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
+			mockBackend.EXPECT().OpenImageReader(gomock.Any(), imageRef, gomock.Any()).Return(mockReader, nil).AnyTimes()
+
+			scanRoot := func(ref string, comps ...cdx.Component) []byte {
+				bom := cyclonedxutil.NewBOM()
+				bom.Metadata = &cdx.Metadata{Component: &cdx.Component{BOMRef: ref, Type: cdx.ComponentTypeFile, Name: "/scan"}}
+				bom.Components = &comps
+				data, err := cyclonedxutil.ToJSON(bom)
+				Expect(err).To(Succeed())
+				return data
+			}
+			lockBOM := scanRoot("scan-lock",
+				cdx.Component{BOMRef: "ffi-ruby", Type: cdx.ComponentTypeLibrary, Name: "ffi", Version: "1.17.2", PackageURL: "pkg:gem/ffi@1.17.2"},
+				cdx.Component{BOMRef: "ffi-arm", Type: cdx.ComponentTypeLibrary, Name: "ffi", Version: "1.17.2-aarch64-linux-gnu", PackageURL: "pkg:gem/ffi@1.17.2-aarch64-linux-gnu"},
+				cdx.Component{BOMRef: "ffi-x86", Type: cdx.ComponentTypeLibrary, Name: "ffi", Version: "1.17.2-x86_64-linux-gnu", PackageURL: "pkg:gem/ffi@1.17.2-x86_64-linux-gnu"},
+			)
+			licenses := cdx.Licenses{{License: &cdx.License{ID: "BSD-3-Clause"}}}
+			gemspecBOM := scanRoot("scan-gemspec",
+				cdx.Component{BOMRef: "ffi-installed", Type: cdx.ComponentTypeLibrary, Name: "ffi", Version: "1.17.2", PackageURL: "pkg:gem/ffi@1.17.2", Licenses: &licenses},
+			)
+
+			mockBackend.EXPECT().
+				GenerateSBOM(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, opts scanner.ScanOptions) ([]byte, error) {
+					switch opts.Commands[0].Catalogers[0].Name {
+					case "ruby-gemfile-cataloger":
+						return lockBOM, nil
+					case "ruby-installed-gemspec-cataloger":
+						return gemspecBOM, nil
+					default:
+						return nil, errors.New("unexpected cataloger: " + opts.Commands[0].Catalogers[0].Name)
+					}
+				}).
+				Times(2)
+
+			step := &sbomStep{containerBackend: mockBackend}
+			bom, err := step.scanFileBasedPackages(ctx, &werfImage.Info{Name: imageRef}, scanner.DefaultSyftScanOptions(), catalogers, "")
+			Expect(err).To(Succeed())
+
+			Expect(*bom.Components).To(HaveLen(1), "only the installed platform variant of the native gem remains")
+			comp := (*bom.Components)[0]
+			Expect(comp.PackageURL).To(Equal("pkg:gem/ffi@1.17.2-x86_64-linux-gnu"))
+			Expect(comp.Licenses).ToNot(BeNil(), "the installed variant carries the gemspec's license")
+			Expect(bom.Dependencies).ToNot(BeNil())
+			rootRefs := lo.Flatten(lo.Map(*bom.Dependencies, func(d cdx.Dependency, _ int) []string { return lo.FromPtr(d.Dependencies) }))
+			Expect(rootRefs).To(ConsistOf(comp.BOMRef), "the gem pinned by version in the Gemfile declares the installed variant and nothing else")
 		})
 
 		It("records the packages each directive declares as dependencies of the scan root", func(specCtx SpecContext) {

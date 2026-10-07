@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -68,12 +70,27 @@ func joinDirective(assignments, commands []string) string {
 // `cd` stays in the parent shell: a later directive may use a relative workdir that
 // counts on it, as it did when every command ran there.
 func formatWorkdirCommand(workdir, command string, env map[string]string) string {
+	return formatWorkdirCommands(workdir, []string{command}, env)
+}
+
+// The environment prefix goes on the last command, the one that installs: a prefix
+// applies to the simple command it precedes and nothing else.
+func formatWorkdirCommands(workdir string, commands []string, env map[string]string) string {
 	assignments, prefix := formatEnvVars(env, nil)
+	commands = slices.Clone(commands)
 	if prefix != "" {
-		command = fmt.Sprintf("%s %s", prefix, command)
+		last := len(commands) - 1
+		commands[last] = fmt.Sprintf("%s %s", prefix, commands[last])
 	}
 
-	return fmt.Sprintf("cd %q && %s", workdir, joinDirective(assignments, []string{command}))
+	return fmt.Sprintf("cd %q && %s", workdir, joinDirective(assignments, []string{strings.Join(commands, " && ")}))
+}
+
+func withDefaultEnv(env, defaults map[string]string) map[string]string {
+	merged := maps.Clone(defaults)
+	maps.Copy(merged, env)
+
+	return merged
 }
 
 func formatMkdirCommand() string {

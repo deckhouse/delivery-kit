@@ -54,6 +54,10 @@ func ParseSpec(ecosystem config.PackagesDirectiveType, spec []byte) ([]Package, 
 		return parseRequirementsTxt(spec)
 	case config.PackagesDirectiveTypeLuaRock:
 		return parseRockspec(spec)
+	case config.PackagesDirectiveTypeRubyBundler:
+		return parseGemfile(spec)
+	case config.PackagesDirectiveTypeRubyGemspec:
+		return parseGemspec(spec)
 	default:
 		return nil, fmt.Errorf("packages type %q has no spec file to declare packages from", ecosystem)
 	}
@@ -109,7 +113,7 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 		}
 		key := nameKey(purlType, fullName(purl))
 		for _, pkg := range byName[key] {
-			if pkg.Version != "" && pkg.Version != purl.Version {
+			if pkg.Version != "" && !versionMatches(purlType, pkg.Version, purl.Version) {
 				continue
 			}
 			if _, seen := candidates[key]; !seen {
@@ -201,6 +205,8 @@ var purlTypes = map[config.PackagesDirectiveType]string{
 	config.PackagesDirectiveTypePythonUV:       packageurl.TypePyPi,
 	config.PackagesDirectiveTypePythonPip:      packageurl.TypePyPi,
 	config.PackagesDirectiveTypeLuaRock:        "luarocks",
+	config.PackagesDirectiveTypeRubyBundler:    packageurl.TypeGem,
+	config.PackagesDirectiveTypeRubyGemspec:    packageurl.TypeGem,
 	config.PackagesDirectiveTypeOSPM:           packageurl.TypeGeneric,
 }
 
@@ -209,6 +215,16 @@ var pypiSeparatorPattern = regexp.MustCompile(`[-_.]+`)
 // nameKey canonicalizes a package name the way the purl of its type does, so a
 // declaration and a component spell the same package the same way: Go and npm
 // names are case-insensitive, PyPI names fold `_`, `-` and `.` runs.
+// versionMatches tells whether a component version is the declared one. A native gem is
+// pinned by its version alone while the lock, and the component, carry the platform as
+// well: 1.16.0 declares 1.16.0-x86_64-linux.
+func versionMatches(purlType, declared, actual string) bool {
+	if declared == actual {
+		return true
+	}
+	return purlType == packageurl.TypeGem && strings.HasPrefix(actual, declared+"-")
+}
+
 func nameKey(purlType, name string) string {
 	switch purlType {
 	case packageurl.TypeGolang, packageurl.TypeNPM:

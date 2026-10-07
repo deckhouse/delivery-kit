@@ -39,6 +39,10 @@ const (
 	// EnrichmentKindGoModCache copies, per module listed in the go.sum at LockPath, the
 	// module's directory under Root (the Go module cache), filtered by FileNamePatterns.
 	EnrichmentKindGoModCache EnrichmentKind = "go-mod-cache"
+	// EnrichmentKindGemHome copies the gemspecs of the gems the spec at the first source
+	// path, or the lock at LockPath when set, names out of Root (the RubyGems installation
+	// directory, resolved from the image environment).
+	EnrichmentKindGemHome EnrichmentKind = "gem-home"
 )
 
 // Enrichment is a resolved, image-specific plan: Root is an absolute in-image directory.
@@ -46,8 +50,13 @@ type Enrichment struct {
 	Kind             EnrichmentKind
 	Root             string
 	FileNamePatterns []string
-	// LockPath is the in-image go.sum for EnrichmentKindGoModCache.
+	// LockPath is the in-image lock the enrichment is driven by: go.sum for
+	// EnrichmentKindGoModCache, Gemfile.lock for EnrichmentKindGemHome when the directive
+	// has one.
 	LockPath string
+	// Workdir is the directive workdir, against which a relative BUNDLE_PATH is resolved
+	// for EnrichmentKindGemHome.
+	Workdir string
 	// DirectiveEnv is the packages directive environment. It overlays the image environment
 	// when resolving an image-specific root (EnrichmentKindGoModCache), so that a
 	// packages.env.GOPATH override — which also redirects where the install command writes

@@ -149,6 +149,41 @@ dependencies = {
 version = [[0.1-1]]
 `,
 			[]Package{{Name: "werf-sbom-lua-app", Version: "0.1-1"}}),
+		Entry("Gemfile: every group, pins kept, ranges and comments dropped",
+			config.PackagesDirectiveTypeRubyBundler,
+			`source "https://rubygems.org"
+
+gem "colorize", "1.1.0"
+gem('thor', '= 1.3.2')
+gem "rails", "~> 7.1", require: false
+gem "nokogiri", git: "https://github.com/sparklemotion/nokogiri.git"
+# gem "pry"
+
+group :test do
+  gem "rspec", ">= 3.0"
+end
+`,
+			[]Package{{Name: "colorize", Version: "1.1.0"}, {Name: "nokogiri"}, {Name: "rails"}, {Name: "rspec"}, {Name: "thor", Version: "1.3.2"}}),
+		Entry("gemspec: the gem itself and its runtime dependencies",
+			config.PackagesDirectiveTypeRubyGemspec,
+			`Gem::Specification.new do |s|
+  s.name = "werf-sbom-ruby-app"
+  s.version = "0.1.0"
+  s.add_dependency "colorize", "1.1.0"
+  s.add_runtime_dependency("thor", "~> 1.3")
+  s.add_development_dependency "rake"
+end
+`,
+			[]Package{{Name: "colorize", Version: "1.1.0"}, {Name: "thor"}, {Name: "werf-sbom-ruby-app", Version: "0.1.0"}}),
+		Entry("gemspec: a gem versioned through a constant is not declared",
+			config.PackagesDirectiveTypeRubyGemspec,
+			`Gem::Specification.new do |spec|
+  spec.name = App::NAME
+  spec.version = App::VERSION
+  spec.add_dependency "colorize"
+end
+`,
+			[]Package{{Name: "colorize"}}),
 	)
 
 	It("rejects an ecosystem without a spec file", func() {
@@ -243,6 +278,22 @@ var _ = Describe("MatchComponents", func() {
 			},
 			[]Package{{Name: "jq", Version: "1.8.1"}, {Name: "curl", Version: "8.0.0"}},
 			[]string{"jq"}),
+		Entry("gem names are matched as written, case included",
+			config.PackagesDirectiveTypeRubyBundler,
+			[]cdx.Component{
+				component("colorize", "pkg:gem/colorize@1.1.0"),
+				component("rack", "pkg:gem/Rack@3.1.8"),
+			},
+			[]Package{{Name: "colorize", Version: "1.1.0"}, {Name: "rack"}},
+			[]string{"colorize"}),
+		Entry("a gem pinned by version declares its platform variant too",
+			config.PackagesDirectiveTypeRubyBundler,
+			[]cdx.Component{
+				component("native", "pkg:gem/nokogiri@1.16.0-x86_64-linux"),
+				component("other", "pkg:gem/nokogiri@1.16.1"),
+			},
+			[]Package{{Name: "nokogiri", Version: "1.16.0"}},
+			[]string{"native"}),
 		Entry("a component of another type is never matched",
 			config.PackagesDirectiveTypeGoMod,
 			[]cdx.Component{component("x", "pkg:npm/github.com/pkg/errors@v0.9.1")},

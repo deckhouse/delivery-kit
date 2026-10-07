@@ -63,6 +63,47 @@ var _ = Describe("CycloneDX Schema Validation", func() {
 				}`,
 				MatchError(ContainSubstring("Must validate one and only one schema"))),
 
+			Entry("SPDX expression in license.id",
+				`{
+					"bomFormat": "CycloneDX",
+					"specVersion": "1.6",
+					"version": 1,
+					"components": [
+						{
+							"type": "library",
+							"name": "rust",
+							"licenses": [
+								{ "license": { "id": "Apache-2.0 OR MIT" } }
+							]
+						}
+					]
+				}`,
+				MatchError(ContainSubstring("components.0.licenses.0.license.id"))),
+
+			Entry("SPDX id and expression in their own fields",
+				`{
+					"bomFormat": "CycloneDX",
+					"specVersion": "1.6",
+					"version": 1,
+					"components": [
+						{
+							"type": "library",
+							"name": "curl",
+							"licenses": [
+								{ "license": { "id": "curl" } }
+							]
+						},
+						{
+							"type": "library",
+							"name": "rust",
+							"licenses": [
+								{ "expression": "Apache-2.0 OR MIT" }
+							]
+						}
+					]
+				}`,
+				Succeed()),
+
 			Entry("STREEBOG digest on a source distribution",
 				`{
 					"bomFormat": "CycloneDX",
@@ -108,6 +149,22 @@ var _ = Describe("CycloneDX Schema Validation", func() {
 					]
 				}`,
 				MatchError(ContainSubstring("alg"))),
+		)
+	})
+
+	Describe("SPDXLicenseIDKnown", func() {
+		DescribeTable("reports membership in the embedded SPDX license list",
+			func(id string, expected bool) {
+				known, err := SPDXLicenseIDKnown(id)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(known).To(Equal(expected))
+			},
+			Entry("a license id", "MIT", true),
+			Entry("a deprecated license id", "GPL-2.0+", true),
+			Entry("an exception id", "LLVM-exception", true),
+			Entry("an expression is not an id", "MIT OR Apache-2.0", false),
+			Entry("free text", "GPLv3", false),
+			Entry("the list is case-sensitive", "mit", false),
 		)
 	})
 

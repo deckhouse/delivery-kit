@@ -18,6 +18,10 @@ var (
 	hashAlgorithms     map[string]struct{}
 	hashAlgorithmsOnce sync.Once
 	errHashAlgorithms  error
+
+	spdxLicenseIDs     map[string]struct{}
+	spdxLicenseIDsOnce sync.Once
+	errSPDXLicenseIDs  error
 )
 
 // HashAlgorithmAllowed reports whether alg is a member of the "hash-alg" enum of
@@ -58,15 +62,51 @@ func loadHashAlgorithms() (map[string]struct{}, error) {
 	return algs, nil
 }
 
+// SPDXLicenseIDKnown reports whether id is a member of the SPDX license list
+// embedded with the CycloneDX 1.6 schema — the enum ValidateCycloneDX16Schema
+// checks license.id against, so callers stay in sync with it. The match is
+// case-sensitive like the schema's. It returns an error only if the embedded
+// schema cannot be parsed.
+func SPDXLicenseIDKnown(id string) (bool, error) {
+	spdxLicenseIDsOnce.Do(func() {
+		spdxLicenseIDs, errSPDXLicenseIDs = loadSPDXLicenseIDs()
+	})
+	if errSPDXLicenseIDs != nil {
+		return false, errSPDXLicenseIDs
+	}
+
+	_, ok := spdxLicenseIDs[id]
+	return ok, nil
+}
+
+func loadSPDXLicenseIDs() (map[string]struct{}, error) {
+	var schema struct {
+		Enum []string `json:"enum"`
+	}
+	if err := json.Unmarshal([]byte(spdx_SchemaValue), &schema); err != nil {
+		return nil, fmt.Errorf("parse embedded SPDX schema: %w", err)
+	}
+	if len(schema.Enum) == 0 {
+		return nil, fmt.Errorf("embedded SPDX schema has no enum")
+	}
+
+	ids := make(map[string]struct{}, len(schema.Enum))
+	for _, id := range schema.Enum {
+		ids[id] = struct{}{}
+	}
+	return ids, nil
+}
+
 // preloadCycloneDX16Schema ensures offline usage because of the network restrictions.
 func preloadCycloneDX16Schema() (*gojsonschema.Schema, error) {
 	sl := gojsonschema.NewSchemaLoader()
 
-	// Add JSF schema to the loader to avoid network requests.
-	// CycloneDX 1.6 schema $refs this schema.
-	jsfLoader := gojsonschema.NewStringLoader(jsf_0_82_SchemaValue)
-	if err := sl.AddSchemas(jsfLoader); err != nil {
-		return nil, fmt.Errorf("failed to add JSF schema: %w", err)
+	// The CycloneDX 1.6 schema $refs the JSF and SPDX schemas; both are added to
+	// the loader up front so it never fetches them over the network.
+	for name, value := range map[string]string{"JSF": jsf_0_82_SchemaValue, "SPDX": spdx_SchemaValue} {
+		if err := sl.AddSchemas(gojsonschema.NewStringLoader(value)); err != nil {
+			return nil, fmt.Errorf("failed to add %s schema: %w", name, err)
+		}
 	}
 
 	loader := gojsonschema.NewStringLoader(bom_1_6_SchemaValue)

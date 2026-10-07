@@ -403,7 +403,9 @@ func AssertSpecVersion(bom *cdx.BOM, expected cdx.SpecVersion) {
 		"expected spec version %q, got %q", expected, bom.SpecVersion)
 }
 
-func AssertHasLicense(bom *cdx.BOM, name, version, licenseID string) {
+// AssertHasLicense passes when the component declares license as either an SPDX
+// id of its license list or the SPDX expression of the list.
+func AssertHasLicense(bom *cdx.BOM, name, version, license string) {
 	comp := FindComponent(bom, name, version)
 	ExpectWithOffset(1, comp).NotTo(BeNil(),
 		"component %s@%s not found", name, version)
@@ -413,17 +415,23 @@ func AssertHasLicense(bom *cdx.BOM, name, version, licenseID string) {
 	found := false
 	var actual []string
 	for _, lc := range *comp.Licenses {
-		if lc.License == nil {
+		var value string
+		switch {
+		case lc.Expression != "":
+			value = lc.Expression
+		case lc.License != nil:
+			value = lc.License.ID
+		default:
 			continue
 		}
-		actual = append(actual, lc.License.ID)
-		if lc.License.ID == licenseID {
+		actual = append(actual, value)
+		if value == license {
 			found = true
 			break
 		}
 	}
 	ExpectWithOffset(1, found).To(BeTrue(),
-		"component %s@%s: expected license %q, got %v", name, version, licenseID, actual)
+		"component %s@%s: expected license %q, got %v", name, version, license, actual)
 }
 
 func AssertHasHash(bom *cdx.BOM, name, version string, algorithm cdx.HashAlgorithm, value string) {

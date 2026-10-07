@@ -230,5 +230,6 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		Entry("rust-cargo", "cargo", "inject/cargo_simple", "anyhow", "1.0.86", "Rust"),
 		Entry("javascript-npm", "npm", "inject/npm_simple", "lodash", "4.17.21", "JavaScript"),
 		Entry("lua-rock", "lua", "inject/lua_simple", "werf-sbom-lua-app", "0.1-1", "Lua"),
+		Entry("ruby-bundler", "ruby", "inject/ruby_bundler", "colorize", "1.1.0", "Ruby"),
 	)
 })

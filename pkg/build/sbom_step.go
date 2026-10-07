@@ -197,6 +197,10 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("serialize BOM: %w", err)
 		}
 
+		if err := cyclonedxutil.ValidateCycloneDX16Schema(resultJSON); err != nil {
+			return fmt.Errorf("validate BOM: %w", err)
+		}
+
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
 			return sbomImage.PushSBOM(ctx, resultJSON, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
 		}); err != nil {

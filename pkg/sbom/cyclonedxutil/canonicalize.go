@@ -222,26 +222,20 @@ func takePtr[T any](dest **T, src *T) {
 	}
 }
 
-// mergeLicenses unions two license lists. CycloneDX forbids mixing SPDX
-// expressions with individual licenses in one list, so when either side is an
-// expression only the expressions survive.
+// mergeLicenses unions two license lists; normalizeLicenses, run on the
+// survivor afterwards, brings the union back into the shape the schema allows.
 func mergeLicenses(dest, src *cdx.Licenses) *cdx.Licenses {
 	if src == nil {
 		return dest
 	}
 
-	merged := dedupJSONSlice(append(lo.FromPtr(dest), *src...))
-	expressions := lo.Filter(merged, func(l cdx.LicenseChoice, _ int) bool { return l.Expression != "" })
-	if len(expressions) > 0 {
-		merged = expressions
-	}
-
-	return lo.ToPtr(cdx.Licenses(merged))
+	return lo.ToPtr(cdx.Licenses(dedupJSONSlice(append(lo.FromPtr(dest), *src...))))
 }
 
 func canonicalizeComponent(ctx context.Context, comp *cdx.Component) {
 	comp.ExternalReferences = dedupComponentExternalReferences(comp.ExternalReferences)
 	comp.Properties = dedupProperties(ctx, comp.Properties)
+	comp.Licenses = normalizeLicenses(comp.Licenses)
 }
 
 // componentKey identifies a component by its purl or, without one, by its
@@ -330,6 +324,7 @@ func mergeServiceInto(ctx context.Context, survivor *cdx.Service, dup cdx.Servic
 func canonicalizeService(ctx context.Context, svc *cdx.Service) {
 	svc.ExternalReferences = dedupExternalReferences(svc.ExternalReferences)
 	svc.Properties = dedupProperties(ctx, svc.Properties)
+	svc.Licenses = normalizeLicenses(svc.Licenses)
 }
 
 // canonicalizeDependencies merges dependency entries sharing a ref, since a

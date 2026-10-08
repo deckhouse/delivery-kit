@@ -144,7 +144,7 @@ func (p *spdxExpressionParser) parseTerm() bool {
 		if p.peek() == "WITH" {
 			p.pos++
 			exception := p.peek()
-			if !spdxLicenseIDKnown(exception) && !spdxLicenseRef(exception) {
+			if _, known := spdxExceptionIDs[exception]; !known && !spdxLicenseRef(exception) {
 				return false
 			}
 			p.pos++
@@ -155,10 +155,14 @@ func (p *spdxExpressionParser) parseTerm() bool {
 	}
 }
 
-// spdxSimpleExpression accepts an SPDX identifier, with or without the "+"
-// suffix meaning "or later", or a license reference.
+// spdxSimpleExpression accepts an SPDX license identifier, with or without the
+// "+" suffix meaning "or later", or a license reference. An exception
+// identifier is not a license, even though the embedded list holds both.
 func spdxSimpleExpression(token string) bool {
 	if token == "" {
+		return false
+	}
+	if _, exception := spdxExceptionIDs[token]; exception {
 		return false
 	}
 	if spdxLicenseIDKnown(token) || spdxLicenseIDKnown(strings.TrimSuffix(token, "+")) {

@@ -38,4 +38,4 @@ linters:
         text: "non-wrapping format verb for fmt.Errorf"
       - linters:
           - misspell
-        path: pkg/sbom/cyclonedxutil/spdx\.schema\.go
+        path: pkg/sbom/cyclonedxutil/spdx.*\.go

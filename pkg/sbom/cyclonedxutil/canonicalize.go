@@ -67,8 +67,11 @@ func CanonicalizeDocument(ctx context.Context, bom *cdx.BOM) {
 		return
 	}
 
-	if bom.Metadata != nil && bom.Metadata.Component != nil {
-		canonicalizeComponent(ctx, bom.Metadata.Component)
+	if bom.Metadata != nil {
+		if bom.Metadata.Component != nil {
+			canonicalizeComponent(ctx, bom.Metadata.Component)
+		}
+		bom.Metadata.Licenses = normalizeLicenses(bom.Metadata.Licenses)
 	}
 
 	bom.ExternalReferences = dedupExternalReferences(bom.ExternalReferences)
@@ -236,6 +239,9 @@ func canonicalizeComponent(ctx context.Context, comp *cdx.Component) {
 	comp.ExternalReferences = dedupComponentExternalReferences(comp.ExternalReferences)
 	comp.Properties = dedupProperties(ctx, comp.Properties)
 	comp.Licenses = normalizeLicenses(comp.Licenses)
+	if comp.Evidence != nil {
+		comp.Evidence.Licenses = normalizeLicenses(comp.Evidence.Licenses)
+	}
 }
 
 // componentKey identifies a component by its purl or, without one, by its

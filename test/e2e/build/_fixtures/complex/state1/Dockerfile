@@ -24,11 +24,10 @@ WORKDIR /
 
 COPY --from=builder /app /app
 
-RUN touch /created-by-run-state1
-
-RUN echo ${BASE_STAPEL_SHELL_IMAGE_NAME} >> base_image_data.txt
-RUN echo ${BASE_STAPEL_SHELL_IMAGE_REPO} >> base_image_data.txt
-RUN echo ${BASE_STAPEL_SHELL_IMAGE_TAG} >> base_image_data.txt
+RUN touch /created-by-run-state1 && \
+    echo ${BASE_STAPEL_SHELL_IMAGE_NAME} >> base_image_data.txt && \
+    echo ${BASE_STAPEL_SHELL_IMAGE_REPO} >> base_image_data.txt && \
+    echo ${BASE_STAPEL_SHELL_IMAGE_TAG} >> base_image_data.txt
 
 # Complex ARG and ENV usage
 ENV TEST_ENV=$PATH:test-env1
@@ -37,10 +36,10 @@ ARG TEST_ARG=${TEST_ENV}:${PATH}
 ARG TEST_ARG2=${TEST_ARG}:test-arg-2
 ARG ANOTHER_ARG=$PATH
 ENV PATH=$PATH:/opt/bin
-RUN echo ${PATH} > /PATH
-RUN echo ${ANOTHER_ARG} > /ANOTHER_ARG
-RUN echo ${TEST_ARG} > /TEST_ARG
-RUN echo ${TEST_ARG2} > /TEST_ARG2
+RUN echo ${PATH} > /PATH && \
+    echo ${ANOTHER_ARG} > /ANOTHER_ARG && \
+    echo ${TEST_ARG} > /TEST_ARG && \
+    echo ${TEST_ARG2} > /TEST_ARG2
 
 COPY script.sh /app/
 ARG USERNAME

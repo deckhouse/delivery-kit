@@ -227,7 +227,7 @@ var _ = Describe("Canonicalize", func() {
 		Expect((*bom.Dependencies)[0].Ref).To(Equal("f1"))
 	})
 
-	It("keeps only license expressions when a merged duplicate carries one", func(ctx SpecContext) {
+	It("joins the licenses of merged duplicates into one expression", func(ctx SpecContext) {
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
 				{
@@ -243,7 +243,7 @@ var _ = Describe("Canonicalize", func() {
 
 		Canonicalize(ctx, bom)
 
-		Expect(*(*bom.Components)[0].Licenses).To(Equal(cdx.Licenses{{Expression: "MIT OR Apache-2.0"}}))
+		Expect(*(*bom.Components)[0].Licenses).To(Equal(cdx.Licenses{{Expression: "MIT AND (MIT OR Apache-2.0)"}}))
 	})
 
 	It("is idempotent", func(ctx SpecContext) {

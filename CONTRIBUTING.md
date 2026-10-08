@@ -230,6 +230,13 @@ Reports contain raw test output and are not GitHub-log-secret-masked: use only
 synthetic fixture credentials, never pass real secrets to a diagnostic test.
 The collector does not dump environment variables or process command lines.
 
+Set `WERF_CPU_PROFILE_DIR` to an absolute directory to opt into per-process Go CPU
+profiles. Each command writes a private `werf-<pid>-*.pprof` file after backend
+re-exec, including the native rootless build process. Profiles are flushed before
+normal or error shutdown; SIGKILL can leave an incomplete file. Backend startup
+hooks and internal re-exec helpers are not profiled. Inspect profiles with
+`go tool pprof -top <matching-werf-binary> <profile>`.
+
 ### Build HTTP fixtures
 
 The network-isolation and complex-build tests serve a small HTTP fixture for the

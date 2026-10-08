@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/pprof"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/spf13/cobra"
@@ -43,6 +44,19 @@ func main() {
 		return
 	} else if shouldTerminate {
 		return
+	}
+
+	if profileDir := os.Getenv("WERF_CPU_PROFILE_DIR"); profileDir != "" {
+		stopProfile, err := startCPUProfile(profileDir)
+		if err != nil {
+			graceful.Terminate(ctx, err, 1)
+			return
+		}
+		defer func() {
+			if err := stopProfile(); err != nil {
+				logging.Error(err.Error())
+			}
+		}()
 	}
 
 	if err := process_exterminator.Init(); err != nil {
@@ -88,6 +102,26 @@ func main() {
 	}
 
 	common.ShutdownTelemetry(ctx, 0)
+}
+
+func startCPUProfile(dir string) (func() error, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create CPU profile directory: %w", err)
+	}
+	profile, err := os.CreateTemp(dir, fmt.Sprintf("werf-%d-*.pprof", os.Getpid()))
+	if err != nil {
+		return nil, fmt.Errorf("create CPU profile: %w", err)
+	}
+	if err := pprof.StartCPUProfile(profile); err != nil {
+		return nil, fmt.Errorf("start CPU profile: %w", errors.Join(err, profile.Close()))
+	}
+	return func() error {
+		pprof.StopCPUProfile()
+		if err := profile.Close(); err != nil {
+			return fmt.Errorf("close CPU profile: %w", err)
+		}
+		return nil
+	}, nil
 }
 
 func onShutdown(_ context.Context, desc graceful.TerminationDescriptor) {

@@ -290,6 +290,72 @@ func parseRockspec(spec []byte) ([]Package, error) {
 	return []Package{pkg}, nil
 }
 
+// A Gemfile is a Ruby file; a dependency is a `gem` call whose first argument is the
+// name and whose second, when it is a string, is the requirement.
+var gemfileEntryPattern = regexp.MustCompile(`(?m)^\s*gem[\s(]+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?`)
+
+// parseGemfile declares every gem the Gemfile asks for, groups included: `bundle
+// install` puts them all into the image. Requirements are usually ranges, so a version
+// is declared only for an exact one.
+func parseGemfile(spec []byte) ([]Package, error) {
+	var pkgs []Package
+	for _, m := range gemfileEntryPattern.FindAllStringSubmatch(string(spec), -1) {
+		pkgs = append(pkgs, Package{Name: m[1], Version: exactGemVersion(m[2])})
+	}
+
+	return sortedUnique(pkgs), nil
+}
+
+// A gemspec is a Ruby file; a dependency is an `add_dependency` call, or one of its
+// runtime and development aliases, with the same argument shape as a Gemfile `gem` call.
+var (
+	gemspecDependencyPattern = regexp.MustCompile(`(?m)^\s*\w+\.add(_runtime|_development)?_dependency[\s(]+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?`)
+	gemspecFieldPattern      = regexp.MustCompile(`(?m)^\s*\w+\.(name|version)\s*=\s*['"]([^'"]+)['"]`)
+)
+
+// parseGemspec declares the runtime dependencies of a gemspec and the gem it describes,
+// which `gem install` puts into the image along with them. Development dependencies are
+// not installed, so they are not declared. A gem naming itself through a constant rather
+// than a literal is not declared, and not cataloged either: syft reads the name the same
+// way.
+func parseGemspec(spec []byte) ([]Package, error) {
+	var pkgs []Package
+	for _, m := range gemspecDependencyPattern.FindAllStringSubmatch(string(spec), -1) {
+		if m[1] == "_development" {
+			continue
+		}
+		pkgs = append(pkgs, Package{Name: m[2], Version: exactGemVersion(m[3])})
+	}
+
+	var self Package
+	for _, m := range gemspecFieldPattern.FindAllStringSubmatch(string(spec), -1) {
+		switch m[1] {
+		case "name":
+			self.Name = m[2]
+		case "version":
+			self.Version = m[2]
+		}
+	}
+	if self.Name != "" {
+		pkgs = append(pkgs, self)
+	}
+
+	return sortedUnique(pkgs), nil
+}
+
+var exactGemVersionPattern = regexp.MustCompile(`^=?\s*([0-9][A-Za-z0-9.]*)$`)
+
+// exactGemVersion keeps a RubyGems requirement that pins one version, dropping the
+// ranges `~>`, `>=` and the like.
+func exactGemVersion(requirement string) string {
+	m := exactGemVersionPattern.FindStringSubmatch(strings.TrimSpace(requirement))
+	if m == nil {
+		return ""
+	}
+
+	return m[1]
+}
+
 // sortedUnique orders packages read out of maps and drops the repeats one name
 // listed in several tables produces, so the edge does not change from one build
 // to the next.

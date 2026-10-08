@@ -142,6 +142,10 @@ func (r *rawPackagesDirective) fillFileBasedSpec(d *PackagesDirective) error {
 			return fmt.Errorf("unsupported packages spec type %T for type %q; spec must be a string", r.Spec, d.Type)
 		}
 		d.FileBased.Spec = specStr
+		// Bundler keeps the lock of a Gemfile named otherwise next to it as <spec>.lock.
+		if d.Type == PackagesDirectiveTypeRubyBundler {
+			d.FileBased.Lock = specStr + ".lock"
+		}
 	}
 
 	if r.Lock != "" {

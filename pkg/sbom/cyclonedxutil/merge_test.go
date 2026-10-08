@@ -36,6 +36,40 @@ func dependencyRefs(bom *cdx.BOM) []string {
 }
 
 var _ = Describe("MergeBOMs", func() {
+	// Two catalogers of one packages directive report the same package: the lock one
+	// knows every gem of the bundle, the installed-gemspec one knows their licenses.
+	It("unions the licenses two scans report for the same package", func(ctx SpecContext) {
+		lockBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{BOMRef: "lock-colorize", PackageURL: "pkg:gem/colorize@1.1.0", Name: "colorize", Version: "1.1.0"},
+				{BOMRef: "lock-thor", PackageURL: "pkg:gem/thor@1.3.2", Name: "thor", Version: "1.3.2"},
+			},
+		}
+		gemspecBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{
+					BOMRef:     "gemspec-colorize",
+					PackageURL: "pkg:gem/colorize@1.1.0",
+					Name:       "colorize",
+					Version:    "1.1.0",
+					Licenses:   lo.ToPtr(cdx.Licenses{{License: &cdx.License{ID: "MIT"}}}),
+				},
+			},
+		}
+
+		merged, err := MergeBOMs(ctx, lockBOM, MergeOpts{ImportBOMs: []*cdx.BOM{gemspecBOM}})
+		Expect(err).To(Succeed())
+
+		components := lo.FromPtr(merged.Components)
+		Expect(components).To(HaveLen(2))
+
+		colorize, found := lo.Find(components, func(c cdx.Component) bool { return c.Name == "colorize" })
+		Expect(found).To(BeTrue())
+		Expect(lo.FromPtr(colorize.Licenses)).To(Equal(cdx.Licenses{{License: &cdx.License{ID: "MIT"}}}))
+	})
+
 	It("concatenates components in merge order (base → imports → target)", func(ctx SpecContext) {
 		baseBOM := &cdx.BOM{
 			SpecVersion: cdx.SpecVersion1_6,

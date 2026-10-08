@@ -98,6 +98,39 @@ var _ = Describe("ToCatalogers", func() {
 			},
 		),
 
+		Entry("ruby entries add an installed-gemspec cataloger for the licenses the lock lacks",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeRubyBundler,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"},
+				},
+				{
+					Type:      config.PackagesDirectiveTypeRubyGemspec,
+					FileBased: config.FileBasedSpec{Workdir: "/lib", Spec: "app.gemspec"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "ruby-gemfile-cataloger", Ecosystem: string(config.PackagesDirectiveTypeRubyBundler), Workdir: "/app", SourcePaths: []string{"/app/Gemfile"}, OptionalSourcePaths: []string{"/app/Gemfile.lock"}, SourceLang: "Ruby"},
+				{Name: "ruby-installed-gemspec-cataloger", Ecosystem: string(config.PackagesDirectiveTypeRubyBundler), Workdir: "/app", SourcePaths: []string{"/app/Gemfile"}, OptionalSourcePaths: []string{"/app/Gemfile.lock"}, SourceLang: "Ruby", Enrichment: gemHomeEnrichment("/app", "/app/Gemfile.lock")},
+				{Name: "ruby-gemspec-cataloger", Ecosystem: string(config.PackagesDirectiveTypeRubyGemspec), Workdir: "/lib", SourcePaths: []string{"/lib/app.gemspec"}, SourceLang: "Ruby"},
+				{Name: "ruby-installed-gemspec-cataloger", Ecosystem: string(config.PackagesDirectiveTypeRubyGemspec), Workdir: "/lib", SourcePaths: []string{"/lib/app.gemspec"}, SourceLang: "Ruby", Enrichment: gemHomeEnrichment("/lib", "")},
+			},
+		),
+
+		Entry("a ruby entry carries its packages.env into the gem directory enrichment plan",
+			[]*config.PackagesDirective{
+				{
+					Type:      config.PackagesDirectiveTypeRubyBundler,
+					FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"},
+					Env:       map[string]string{"BUNDLE_PATH": "vendor/bundle"},
+				},
+			},
+			[]scanner.Cataloger{
+				{Name: "ruby-gemfile-cataloger", Ecosystem: string(config.PackagesDirectiveTypeRubyBundler), Workdir: "/app", Env: map[string]string{"BUNDLE_PATH": "vendor/bundle"}, SourcePaths: []string{"/app/Gemfile"}, OptionalSourcePaths: []string{"/app/Gemfile.lock"}, SourceLang: "Ruby"},
+				{Name: "ruby-installed-gemspec-cataloger", Ecosystem: string(config.PackagesDirectiveTypeRubyBundler), Workdir: "/app", Env: map[string]string{"BUNDLE_PATH": "vendor/bundle"}, SourcePaths: []string{"/app/Gemfile"}, OptionalSourcePaths: []string{"/app/Gemfile.lock"}, SourceLang: "Ruby", Enrichment: gemHomeEnrichment("/app", "/app/Gemfile.lock", map[string]string{"BUNDLE_PATH": "vendor/bundle"})},
+			},
+		),
+
 		Entry("a go-mod entry without a lock has no module cache enrichment to drive",
 			[]*config.PackagesDirective{
 				{

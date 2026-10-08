@@ -16,6 +16,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/test/mock"
@@ -351,6 +352,168 @@ var _ = Describe("MaterializeCatalogerInputs", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, io.ErrUnexpectedEOF)).To(BeTrue())
 			Expect(err.Error()).To(ContainSubstring("/app/node_modules"))
+		})
+	})
+
+	Describe("gem directory enrichment", func() {
+		gemfileLock := "GEM\n  remote: https://rubygems.org/\n  specs:\n    colorize (1.1.0)\n    thor (1.3.2)\n\nPLATFORMS\n  ruby\n\nDEPENDENCIES\n  colorize (= 1.1.0)\n  thor (= 1.3.2)\n"
+		bundlerCataloger := scanner.Cataloger{
+			Name:                "ruby-installed-gemspec-cataloger",
+			SourcePaths:         []string{"/app/Gemfile"},
+			OptionalSourcePaths: []string{"/app/Gemfile.lock"},
+			Enrichment:          gemHomeEnrichment("/app", "/app/Gemfile.lock"),
+		}
+		gemspecCataloger := scanner.Cataloger{
+			Name:        "ruby-installed-gemspec-cataloger",
+			SourcePaths: []string{"/app/app.gemspec"},
+			Enrichment:  gemHomeEnrichment("/app", ""),
+		}
+
+		expectGemfileAndLock := func() {
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/Gemfile").
+				Return([]byte("source \"https://rubygems.org\"\ngem \"colorize\"\ngem \"thor\"\n"), nil)
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/Gemfile.lock").
+				Return([]byte(gemfileLock), nil)
+		}
+
+		writeGemspec := func(dir, name string) {
+			Expect(os.MkdirAll(dir, 0o755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(dir, name), []byte("s.licenses = [\"MIT\".freeze]\n"), 0o644)).To(Succeed())
+		}
+
+		It("materializes the gemspecs of the gems in the lock and nothing else from a shared gem directory", func() {
+			expectGemfileAndLock()
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/usr/bundle", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, destDir string, opts container_backend.ReadDirOpts) error {
+					Expect(opts.FileNamePatterns).To(Equal([]string{"*.gemspec"}), "only gemspecs are copied, not installed code")
+					specsDir := filepath.Join(destDir, "specifications")
+					writeGemspec(specsDir, "colorize-1.1.0.gemspec")
+					writeGemspec(specsDir, "thor-1.3.2.gemspec")
+					writeGemspec(specsDir, "rake-13.2.1.gemspec")
+					writeGemspec(specsDir, "net-http-0.6.0.gemspec")
+					writeGemspec(filepath.Join(specsDir, "default"), "json-2.9.1.gemspec")
+					writeGemspec(filepath.Join(destDir, "gems", "colorize-1.1.0"), "colorize.gemspec")
+					return nil
+				})
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, bundlerCataloger, "", []string{"GEM_HOME=/usr/bundle"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			// The gemspecs land at their in-image paths, under a specifications directory,
+			// which is what syft's ruby-installed-gemspec-cataloger globs for.
+			specsDir := filepath.Join(dir, "usr", "bundle", "specifications")
+			gemspec, err := os.ReadFile(filepath.Join(specsDir, "colorize-1.1.0.gemspec"))
+			Expect(err).To(Succeed())
+			Expect(string(gemspec)).To(ContainSubstring("MIT"))
+			_, err = os.Stat(filepath.Join(specsDir, "thor-1.3.2.gemspec"))
+			Expect(err).To(Succeed())
+
+			// The gems that ship with the interpreter, default and bundled alike, share
+			// the directory; they belong to the interpreter package, not to the bundle.
+			for _, pruned := range []string{"rake-13.2.1.gemspec", "net-http-0.6.0.gemspec", "default"} {
+				_, err = os.Stat(filepath.Join(specsDir, pruned))
+				Expect(errors.Is(err, fs.ErrNotExist)).To(BeTrue(), "%s must be pruned", pruned)
+			}
+			// The gem's own gemspec in its source tree is not what the cataloger reads.
+			_, err = os.Stat(filepath.Join(dir, "usr", "bundle", "gems", "colorize-1.1.0", "colorize.gemspec"))
+			Expect(err).To(Succeed())
+		})
+
+		It("keeps the gem of a gemspec and its runtime dependencies, dropping its development ones", func() {
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/app.gemspec").
+				Return([]byte("Gem::Specification.new do |s|\n  s.name = \"app\"\n  s.version = \"0.1.0\"\n  s.add_dependency \"colorize\", \"= 1.1.0\"\n  s.add_development_dependency \"rake\"\nend\n"), nil)
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/usr/bundle", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, destDir string, _ container_backend.ReadDirOpts) error {
+					specsDir := filepath.Join(destDir, "specifications")
+					writeGemspec(specsDir, "app-0.1.0.gemspec")
+					writeGemspec(specsDir, "colorize-1.1.0.gemspec")
+					writeGemspec(specsDir, "rake-13.2.1.gemspec")
+					return nil
+				})
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, gemspecCataloger, "", []string{"GEM_HOME=/usr/bundle"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			specsDir := filepath.Join(dir, "usr", "bundle", "specifications")
+			for _, kept := range []string{"app-0.1.0.gemspec", "colorize-1.1.0.gemspec"} {
+				_, err = os.Stat(filepath.Join(specsDir, kept))
+				Expect(err).To(Succeed(), "%s must be kept", kept)
+			}
+			_, err = os.Stat(filepath.Join(specsDir, "rake-13.2.1.gemspec"))
+			Expect(errors.Is(err, fs.ErrNotExist)).To(BeTrue(), "a development dependency is not installed")
+		})
+
+		It("writes the lock of a Gemfile named otherwise under the name the lock cataloger looks for as well", func() {
+			cataloger := scanner.Cataloger{
+				Name:                "ruby-gemfile-cataloger",
+				Ecosystem:           string(config.PackagesDirectiveTypeRubyBundler),
+				SourcePaths:         []string{"/app/gemfiles/rails7.gemfile"},
+				OptionalSourcePaths: []string{"/app/gemfiles/rails7.gemfile.lock"},
+			}
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/gemfiles/rails7.gemfile").
+				Return([]byte("source \"https://rubygems.org\"\n"), nil)
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/gemfiles/rails7.gemfile.lock").
+				Return([]byte(gemfileLock), nil)
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, cataloger, "", nil)
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			for _, name := range []string{"rails7.gemfile.lock", "Gemfile.lock"} {
+				lock, err := os.ReadFile(filepath.Join(dir, "app", "gemfiles", name))
+				Expect(err).To(Succeed(), name)
+				Expect(string(lock)).To(Equal(gemfileLock))
+			}
+		})
+
+		It("tolerates a gem directory without a single gemspec", func() {
+			expectGemfileAndLock()
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/usr/bundle", gomock.Any(), gomock.Any()).
+				Return(nil)
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, bundlerCataloger, "", []string{"GEM_HOME=/usr/bundle"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+		})
+
+		It("leaves the gem directory alone when the lock is missing", func() {
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/Gemfile").
+				Return([]byte("source \"https://rubygems.org\"\n"), nil)
+			mockReader.EXPECT().
+				ReadFile(gomock.Any(), "/app/Gemfile.lock").
+				Return(nil, fmt.Errorf("read: %w", fs.ErrNotExist))
+
+			_, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, bundlerCataloger, "", []string{"GEM_HOME=/usr/bundle"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+		})
+
+		It("reads the gemspecs from the interpreter default directory when the image sets no gem directory", func() {
+			expectGemfileAndLock()
+			mockReader.EXPECT().
+				ReadDir(gomock.Any(), "/usr/lib/ruby/gems", gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _, destDir string, _ container_backend.ReadDirOpts) error {
+					writeGemspec(filepath.Join(destDir, "3.4.0", "specifications"), "colorize-1.1.0.gemspec")
+					return nil
+				})
+
+			dir, cleanup, err := MaterializeCatalogerInputs(ctx, mockBackend, imageRef, bundlerCataloger, "", []string{"PATH=/usr/bin"})
+			Expect(err).To(Succeed())
+			DeferCleanup(func() { cleanup(ctx) })
+
+			_, err = os.Stat(filepath.Join(dir, "usr", "lib", "ruby", "gems", "3.4.0", "specifications", "colorize-1.1.0.gemspec"))
+			Expect(err).To(Succeed())
 		})
 	})
 

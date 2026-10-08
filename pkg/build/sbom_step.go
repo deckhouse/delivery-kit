@@ -275,10 +275,17 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 			return nil, fmt.Errorf("materialize inputs for cataloger %q: %w", cataloger.Name, err)
 		}
 
-		bom, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir, imageInfo.Name, targetPlatform)
+		bom, installedGems, err := step.scanCatalogerDir(ctx, scanOpts, cataloger, dir, imageInfo.Name, targetPlatform)
 		cleanup(ctx)
 		if err != nil {
 			return nil, err
+		}
+
+		// The installed-gemspec cataloger of a directive follows its lock cataloger
+		// (see managedinput.ToCatalogers); the lock scan is cut down to the platform
+		// variants the image holds.
+		if len(installedGems) > 0 && len(scannedBOMs) > 0 {
+			managedinput.DropUninstalledGemVariants(scannedBOMs[len(scannedBOMs)-1], installedGems)
 		}
 
 		scannedBOMs = append(scannedBOMs, bom)
@@ -300,7 +307,7 @@ func (step *sbomStep) scanFileBasedPackages(ctx context.Context, imageInfo *imag
 	return merged, nil
 }
 
-func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir, imageRef, targetPlatform string) (*cdx.BOM, error) {
+func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.ScanOptions, cataloger scanner.Cataloger, dir, imageRef, targetPlatform string) (*cdx.BOM, map[string]string, error) {
 	cmd := scanOpts.Commands[0]
 	cmd.Catalogers = []scanner.Cataloger{cataloger}
 	cmd.SourceType = scanner.SourceTypeDir
@@ -311,12 +318,12 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 
 	bomJSON, err := step.containerBackend.GenerateSBOM(ctx, perDirectiveOpts)
 	if err != nil {
-		return nil, fmt.Errorf("generate SBOM for cataloger %q: %w", cataloger.Name, err)
+		return nil, nil, fmt.Errorf("generate SBOM for cataloger %q: %w", cataloger.Name, err)
 	}
 
 	bom, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(bomJSON)
 	if err != nil {
-		return nil, fmt.Errorf("parse scanned BOM for cataloger %q: %w", cataloger.Name, err)
+		return nil, nil, fmt.Errorf("parse scanned BOM for cataloger %q: %w", cataloger.Name, err)
 	}
 
 	// A directory source makes syft emit a PURL-less type=file component for each scanned
@@ -332,15 +339,36 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 	// only from a BOM werf produced.
 	cyclonedxutil.MarkWerfTool(bom, werf.Version)
 
+	installedGems, err := alignInstalledGemVersions(bom, cataloger, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if err := step.recordDeclaredPackages(ctx, bom, cataloger, dir); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if config.PackagesDirectiveType(cataloger.Ecosystem) == config.PackagesDirectiveTypeGoMod {
 		step.recordGoModuleGraph(ctx, bom, imageRef, cataloger, targetPlatform)
 	}
 
-	return bom, nil
+	return bom, installedGems, nil
+}
+
+// alignInstalledGemVersions makes the installed-gemspec scan of a ruby directive meet
+// the lock scan on the purl: the installed gemspec of a native gem keeps the platform
+// apart from the version, the lock writes them as one. The installed versions come
+// back so the lock scan can be cut down to them.
+func alignInstalledGemVersions(bom *cdx.BOM, cataloger scanner.Cataloger, dir string) (map[string]string, error) {
+	if cataloger.Enrichment == nil || cataloger.Enrichment.Kind != scanner.EnrichmentKindGemHome {
+		return nil, nil
+	}
+	installed, err := managedinput.InstalledGemVersions(filepath.Join(dir, filepath.Clean("/"+cataloger.Enrichment.Root)))
+	if err != nil {
+		return nil, fmt.Errorf("cataloger %q: %w", cataloger.Name, err)
+	}
+	managedinput.AlignGemVersions(bom, installed)
+	return installed, nil
 }
 
 // recordGoModuleGraph adds the edges between the Go modules of the directive to the
@@ -421,7 +449,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "8"
+const sbomArtifactFormatVersion = "9"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

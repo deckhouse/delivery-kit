@@ -32,5 +32,7 @@ var _ = Describe("package ecosystem registration", func() {
 		Entry("javascript-yarn", PackagesDirectiveTypeJavaScriptYarn, "JavaScript"),
 		Entry("javascript-pnpm", PackagesDirectiveTypeJavaScriptPnpm, "JavaScript"),
 		Entry("lua-rock", PackagesDirectiveTypeLuaRock, "Lua"),
+		Entry("ruby-bundler", PackagesDirectiveTypeRubyBundler, "Ruby"),
+		Entry("ruby-gemspec", PackagesDirectiveTypeRubyGemspec, "Ruby"),
 	)
 })

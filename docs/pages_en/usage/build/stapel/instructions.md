@@ -149,7 +149,7 @@ When SBOM generation is enabled, network is disabled in shell stages, so install
 Two kinds of package sources are supported:
 
 - **OS-level package managers**: `os-pm`;
-- **Language package managers** (file-based): `go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`, `javascript-npm`, `javascript-yarn`, `javascript-pnpm`.
+- **Language package managers** (file-based): `go-mod`, `python-uv`, `python-pip`, `python-poetry`, `rust-cargo`, `lua-rock`, `ruby-bundler`, `ruby-gemspec`, `javascript-npm`, `javascript-yarn`, `javascript-pnpm`.
 
 ### OS packages
 
@@ -253,6 +253,29 @@ packages:
 
 Runs `luarocks install --only-deps <spec>`. Unlike the other ecosystems, `lua-rock` has no default spec: `spec` is required and must point to the `.rockspec` file (rockspec filenames follow the `<name>-<version>-<revision>.rockspec` convention). LuaRocks has no lock file, so the `lock` field is rejected. syft uses the `lua-rock-cataloger` to scan the rockspec.
 
+**Ruby — Bundler** (`ruby-bundler`):
+
+```yaml
+packages:
+  - type: ruby-bundler
+    workdir: /app
+```
+
+Runs `bundle install`. Default files: `Gemfile` (spec) and `Gemfile.lock` (lock). werf passes `BUNDLE_FROZEN=true`, so the lock must be committed and must match the `Gemfile` — otherwise the build fails instead of silently resolving a different set of gems. A lock written on a machine with another platform has to list the build platform as well (`bundle lock --add-platform x86_64-linux`). Set `env: {BUNDLE_FROZEN: "false"}` to opt out. A `spec` other than `Gemfile` is passed to bundler as `BUNDLE_GEMFILE`, and `lock` then defaults to `<spec>.lock`, the name bundler uses next to such a Gemfile.
+
+**Ruby — RubyGems** (`ruby-gemspec`):
+
+```yaml
+packages:
+  - type: ruby-gemspec
+    workdir: /app
+    spec: app.gemspec
+```
+
+Runs `gem build <spec>` followed by `gem install` of the built gem, which installs the gem itself together with its runtime dependencies; development dependencies are not installed. Like `lua-rock`, this type has no default spec: `spec` is required and must point to the `.gemspec` file. RubyGems has no lock file, so the `lock` field is rejected.
+
+Both Ruby types take the licenses of the installed gems from the gemspecs RubyGems writes under the gem directory: `$BUNDLE_PATH` (for `ruby-bundler`), else `$GEM_HOME`, read from the image environment with `env` of the entry layered on top; an image that sets neither variable is read under `/usr/lib/ruby/gems`, where an interpreter built with the `/usr` prefix installs by default; an interpreter that installs elsewhere (a distribution package, for instance) needs `GEM_HOME` set in the image or in `env`. The gem directory is shared with the gems that ship with the interpreter, so only the gems the entry installed are read from it: for `ruby-bundler` the gems the lock pins, for `ruby-gemspec` the gem itself and its direct runtime dependencies — the dependencies of those are installed, but stay without a license in the SBOM. A native gem is listed in the lock once per platform (`nokogiri (1.16.0)`, `nokogiri (1.16.0-x86_64-linux)`); only the variant RubyGems installed for the image is a component, under that version and with the gem's license. A bundler path configured in a `.bundle/config` file rather than the environment is not seen, and yields an SBOM without Ruby licenses. Gems installed from a `git:` or `path:` source are recorded from the lock, which carries no licenses for them; installing a gem from `git:` also requires `git` in the image.
+
 **JavaScript — npm** (`javascript-npm`):
 
 ```yaml
@@ -294,6 +317,8 @@ packages:
   - type: lua-rock
     workdir: /app/scripts
     spec: app-0.1-1.rockspec
+  - type: ruby-bundler
+    workdir: /app/tools
   - type: os-pm
     spec:
       - libssl-dev

@@ -696,7 +696,10 @@
               ],
               "properties": {
                 "type": {
-                  "const": "lua-rock"
+                  "enum": [
+                    "lua-rock",
+                    "ruby-gemspec"
+                  ]
                 }
               }
             },
@@ -715,7 +718,8 @@
                 "type": {
                   "enum": [
                     "python-pip",
-                    "lua-rock"
+                    "lua-rock",
+                    "ruby-gemspec"
                   ]
                 }
               }
@@ -742,7 +746,9 @@
               "javascript-npm",
               "javascript-yarn",
               "javascript-pnpm",
-              "lua-rock"
+              "lua-rock",
+              "ruby-bundler",
+              "ruby-gemspec"
             ]
           },
           "spec": {

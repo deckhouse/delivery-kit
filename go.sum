@@ -1197,6 +1197,8 @@ github.com/werf/3p-buildx v0.0.0-20260921140347-f09c144ec33b h1:6kP2w50pGmyzMoz2
 github.com/werf/3p-buildx v0.0.0-20260921140347-f09c144ec33b/go.mod h1:caF6XsZtJ9OAE22LVRsl2OUz5eL+P0+cS2YrnKhuryA=
 github.com/werf/3p-cobra v0.0.0-20260403075225-552c82797324 h1:aqEM5aboMpBfsILjaxxRKhGFv9rGtNcd5YzMUDyVX+U=
 github.com/werf/3p-cobra v0.0.0-20260403075225-552c82797324/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiTUUS4=
+github.com/werf/3p-container-libs/storage v1.63.1-0.20261008114302-204b1b85b362 h1:m/EDLJSfSt+JX563gZyGE/uSZKu3qnItZUy8FYxM9VM=
+github.com/werf/3p-container-libs/storage v1.63.1-0.20261008114302-204b1b85b362/go.mod h1:z4Z9K+7GhKjWL/Y1O17+4f8a1KGijVeC9hr3tymhSOs=
 github.com/werf/3p-oras v0.9.1-0.20260408144000-3b8c77eb09e8 h1:QwXLtEoLw/d1Vj2Lk0KXUZA0dOE3h1n6OgONl4S6TKU=
 github.com/werf/3p-oras v0.9.1-0.20260408144000-3b8c77eb09e8/go.mod h1:XTePf8biMMCkqbuuWBZ24xOwo3hZej+BBM0uvd8aGqk=
 github.com/werf/common-go v0.0.0-20260831162604-46c3b45163be h1:r5zI64fcwZJfELi/uGgLV2YWOWx1QY9YW1yVkRba2do=
@@ -1211,6 +1213,10 @@ github.com/werf/logboek v0.7.2-0.20260810094044-236a5f8ae9dd h1:uthhfJInu4JbBhOS
 github.com/werf/logboek v0.7.2-0.20260810094044-236a5f8ae9dd/go.mod h1:Gez5J4bxekyr6MxTmIJyId1F61rpO+0/V4vjCIEIZmk=
 github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261001110220-387f78685e1a h1:tJIv47jsTlQvCINwbb546VuTuVGSKI+YFZNNPhtc+50=
 github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261001110220-387f78685e1a/go.mod h1:r+UgPm/bmkIM6CbEsVpPFIa0VN7snJCDEjhyakhvzC0=
+github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261007160745-8a091b36a85c h1:Z+rT0bdcGKaHVky/Z1ioiiJckqyLsxPsV4vPUpw0MoM=
+github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261007160745-8a091b36a85c/go.mod h1:r+UgPm/bmkIM6CbEsVpPFIa0VN7snJCDEjhyakhvzC0=
+github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261007183832-476d20183e9c h1:gu7eeHSbzR+mTR3hMT2H1gc9mOtadBX2AOc0IY6pHBE=
+github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261007183832-476d20183e9c/go.mod h1:r+UgPm/bmkIM6CbEsVpPFIa0VN7snJCDEjhyakhvzC0=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=

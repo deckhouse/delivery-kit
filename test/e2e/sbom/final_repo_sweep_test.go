@@ -30,6 +30,7 @@ var _ = Describe("SBOM and VEX across every repository of a build", Label("e2e",
 		stagesRepo := suite_init.TestRepo(SuiteData.ProjectName + "-stages")
 		finalRepo := suite_init.TestRepo(SuiteData.ProjectName + "-final")
 		cacheRepo := suite_init.TestRepo(SuiteData.ProjectName + "-cache")
+		SuiteData.CleanupRepositories = []string{secondaryRepo, stagesRepo, finalRepo, cacheRepo}
 
 		By("seeding a secondary repo with a full build")
 		SuiteData.Stubs.SetEnv("WERF_REPO", secondaryRepo)

@@ -63,6 +63,7 @@ var _ = Describe("mutateImage", func() {
 		Entry("config mutation + layer mutation preserves labels",
 			[]MutateOption{
 				WithConfigFileMutation(func(_ context.Context, cf *v1.ConfigFile) (*v1.ConfigFile, error) {
+					cf = cf.DeepCopy()
 					cf.Config.Labels["service-label"] = "parent-stage-id"
 					return cf, nil
 				}),

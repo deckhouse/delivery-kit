@@ -13,6 +13,7 @@ import (
 var _ = ginkgo.DescribeTable("read reused nested submodules",
 	func(ctx ginkgo.SpecContext, legacyCache bool) {
 		isolateGitConfig()
+		gomega.Expect(Init(ctx, Options{})).To(gomega.Succeed())
 		baseDir := SuiteData.TestDirPath
 		setEnvForSpec("WERF_TMP_DIR", baseDir)
 		setEnvForSpec("WERF_HOME", filepath.Join(baseDir, "werf-home"))

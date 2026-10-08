@@ -333,6 +333,8 @@ jobs:
 
       - name: E2E tests (complex)
         timeout-minutes: 90
+        env:
+          WERF_CPU_PROFILE_DIR: ${{ runner.temp }}/test-profile/${{ github.job }}/cpu
         run: |
           bash scripts/ci/profile-tests.sh task --yes test:e2e:complex -- --procs=3 --compilers=1 --keep-going --timeout=85m --poll-progress-after=10m --poll-progress-interval=2m
           echo loadavg: $(cat /proc/loadavg)

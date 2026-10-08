@@ -29,5 +29,7 @@ var _ = Describe("SBOM rust-cargo packages", Label("e2e", "sbom", "cargo", "simp
 		anyhow := sbomtest.FindComponent(bom, "anyhow", "1.0.86")
 		Expect(anyhow).NotTo(BeNil(),
 			"expected anyhow@1.0.86 (from Cargo.lock) not found in BOM")
+
+		sbomtest.AssertHasLicense(bom, "rust", "1.96.0", "Apache-2.0 OR MIT")
 	})
 })

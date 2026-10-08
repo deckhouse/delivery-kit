@@ -11,10 +11,11 @@ import (
 )
 
 type inputResolver struct {
-	inputType     config.PackagesDirectiveType
-	catalogerName string
-	sourceLang    string
-	enrichment    *config.EnrichmentSource
+	inputType          config.PackagesDirectiveType
+	catalogerName      string
+	sourceLang         string
+	enrichment         *config.EnrichmentSource
+	installedCataloger *config.InstalledCataloger
 }
 
 var resolvers = buildResolvers()
@@ -38,10 +39,11 @@ func buildResolvers() []inputResolver {
 			continue
 		}
 		built = append(built, inputResolver{
-			inputType:     eco.Type,
-			catalogerName: eco.CatalogerName,
-			sourceLang:    eco.SourceLang,
-			enrichment:    eco.Enrichment,
+			inputType:          eco.Type,
+			catalogerName:      eco.CatalogerName,
+			sourceLang:         eco.SourceLang,
+			enrichment:         eco.Enrichment,
+			installedCataloger: eco.InstalledCataloger,
 		})
 	}
 	return built
@@ -61,6 +63,10 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		workdir := directive.FileBased.Workdir
 		cataloger := scanner.Cataloger{
 			Name:        res.catalogerName,
+			Ecosystem:   string(directive.Type),
+			Workdir:     workdir,
+			Manager:     directive.FileBased.Manager,
+			Env:         directive.Env,
 			SourcePaths: []string{path.Join(workdir, directive.FileBased.Spec)},
 			SourceLang:  res.sourceLang,
 		}
@@ -76,6 +82,19 @@ func ToCatalogers(packages []*config.PackagesDirective) []scanner.Cataloger {
 		cataloger.Enrichment = toEnrichment(res.enrichment, workdir, lockPath, directive.Env)
 
 		catalogers = append(catalogers, cataloger)
+
+		if res.installedCataloger == nil {
+			continue
+		}
+
+		// The installed cataloger scans the manifests of the installed packages. It reads
+		// the spec and the lock as well: not to catalog them, but to tell the packages the
+		// directive installed from everything else in the installation directory.
+		installed := cataloger
+		installed.Name = res.installedCataloger.Name
+		installed.Enrichment = toEnrichment(&res.installedCataloger.Source, workdir, lockPath, directive.Env)
+
+		catalogers = append(catalogers, installed)
 	}
 
 	return catalogers
@@ -108,6 +127,14 @@ func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string, direct
 			LockPath:         lockPath,
 			DirectiveEnv:     directiveEnv,
 		}
+	case config.EnrichmentRootGemHome:
+		return &scanner.Enrichment{
+			Kind:             scanner.EnrichmentKindGemHome,
+			FileNamePatterns: src.FileNamePatterns,
+			LockPath:         lockPath,
+			Workdir:          workdir,
+			DirectiveEnv:     directiveEnv,
+		}
 	default:
 		panic("unsupported enrichment root " + string(src.Root))
 	}
@@ -117,8 +144,14 @@ func toEnrichment(src *config.EnrichmentSource, workdir, lockPath string, direct
 // environment. imageEnv is the image config environment (KEY=VALUE entries); the
 // directive environment carried on the plan overlays it.
 func ResolveEnrichmentRoot(enrichment *scanner.Enrichment, imageEnv []string) {
-	if enrichment == nil || enrichment.Kind != scanner.EnrichmentKindGoModCache {
+	if enrichment == nil {
 		return
 	}
-	enrichment.Root = GoModCacheDir(imageEnv, enrichment.DirectiveEnv)
+
+	switch enrichment.Kind {
+	case scanner.EnrichmentKindGoModCache:
+		enrichment.Root = GoModCacheDir(imageEnv, enrichment.DirectiveEnv)
+	case scanner.EnrichmentKindGemHome:
+		enrichment.Root = GemHomeDir(imageEnv, enrichment.DirectiveEnv, enrichment.Workdir, enrichment.LockPath != "")
+	}
 }

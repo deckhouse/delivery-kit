@@ -341,6 +341,18 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/lib", Spec: "lib-2.0-1.rockspec"}},
 		}, []string{"cd \"/app\" && luarocks install --only-deps \"app-0.1-1.rockspec\"", "cd \"/lib\" && luarocks install --only-deps \"lib-2.0-1.rockspec\""}),
 
+		Entry("ruby-bundler /app produces a frozen bundle install", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRubyBundler, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"}},
+		}, []string{"cd \"/app\" && BUNDLE_FROZEN=true bundle install"}),
+
+		Entry("ruby-bundler with a non-default Gemfile passes it as BUNDLE_GEMFILE", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRubyBundler, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "gemfiles/rails7.gemfile", Lock: "gemfiles/rails7.gemfile.lock"}},
+		}, []string{"cd \"/app\" && BUNDLE_FROZEN=true BUNDLE_GEMFILE=gemfiles/rails7.gemfile bundle install"}),
+
+		Entry("ruby-gemspec /app produces gem build and gem install", []*config.PackagesDirective{
+			{Type: config.PackagesDirectiveTypeRubyGemspec, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app.gemspec"}},
+		}, []string{"cd \"/app\" && gem build \"app.gemspec\" -o \"/tmp/app.gem\" && gem install --no-document \"/tmp/app.gem\""}),
+
 		Entry("mixed: lua-rock + rust-cargo + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeLuaRock, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app-0.1-1.rockspec"}},
 			{Type: config.PackagesDirectiveTypeRustCargo, FileBased: config.FileBasedSpec{Workdir: "/native"}},

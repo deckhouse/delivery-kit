@@ -21,7 +21,11 @@ import (
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/container_backend/stage_builder"
+	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
 	"github.com/werf/werf/v3/pkg/storage/synchronization/lock_manager"
@@ -56,9 +60,11 @@ func newReportPhase(reportPath string) *BuildPhase {
 }
 
 type operationsReport struct {
-	Operations    map[string]ReportOperationRecord
-	StageCache    map[string]int
-	RegistryCache map[string]int
+	Operations      map[string]ReportOperationRecord
+	CacheOperations map[string]map[string]ReportCacheOperationRecord
+	StageCache      map[string]int
+	RegistryCache   map[string]int
+	Recovery        map[string]int
 }
 
 func decodeOperationsReport(data []byte) operationsReport {
@@ -267,6 +273,7 @@ type publicationStorageManager struct {
 	parentTs       int64
 	secondary      *publicationStorage
 	secondaryDesc  *imagePkg.StageDesc
+	fetchErr       error
 	copies         atomic.Int32
 }
 
@@ -359,8 +366,15 @@ func (m *publicationStorageManager) GetSecondaryStagesStorageList() []storage.St
 	return []storage.StagesStorage{m.secondary}
 }
 
-func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(_ context.Context, _, _ string, _ int64, _ storage.StagesStorage) (imagePkg.StageDescSet, error) {
+func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageCached(_ context.Context, _, _ string, _ int64, _ storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	if m.secondaryDesc == nil {
+		return imagePkg.NewStageDescSet(), nil
+	}
 	return imagePkg.NewStageDescSet(m.secondaryDesc), nil
+}
+
+func (m *publicationStorageManager) FetchStage(_ context.Context, _ container_backend.ContainerBackend, _ stage.Interface) (manager.FetchStageInfo, error) {
+	return manager.FetchStageInfo{BaseImageSource: BaseImageSourceTypeRepo}, m.fetchErr
 }
 
 func (m *publicationStorageManager) CopySuitableStageDescByDigest(_ context.Context, desc *imagePkg.StageDesc, _, _ storage.StagesStorage, _ container_backend.ContainerBackend, _ string) (*imagePkg.StageDesc, error) {
@@ -379,4 +393,181 @@ func (m *publicationStorageManager) GetStageDescSetByDigestWithCache(_ context.C
 		<-m.continueLookup
 	}
 	return imagePkg.NewStageDescSet(), nil
+}
+
+var _ giterminism_manager.Interface = (*checkModeGiterminismManager)(nil)
+
+type checkModeGiterminismManager struct {
+	giterminism_manager.Interface
+}
+
+func (m *checkModeGiterminismManager) HeadCommit(_ context.Context) string { return "headcommit" }
+
+var _ manager.StorageManagerInterface = (*checkModeStorageManager)(nil)
+
+type checkModeStorageManager struct {
+	manager.StorageManagerInterface
+	stagesStorage *checkModeStorage
+}
+
+func (m *checkModeStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
+	return m.stagesStorage
+}
+
+func (m *checkModeStorageManager) GetMetaStorage() storage.PrimaryStagesStorage {
+	return m.stagesStorage
+}
+
+func (m *checkModeStorageManager) GetFinalStagesStorage() storage.StagesStorage { return nil }
+
+var _ storage.PrimaryStagesStorage = (*checkModeStorage)(nil)
+
+type checkModeStorage struct {
+	storage.PrimaryStagesStorage
+	desc         *imagePkg.StageDesc
+	writes       []string
+	customTagErr error
+}
+
+func (s *checkModeStorage) String() string { return "check-mode-test" }
+
+func (s *checkModeStorage) ConstructStageImageName(projectName, digest string, creationTs int64) string {
+	return projectName + ":" + digest
+}
+
+func (s *checkModeStorage) GetStageDesc(_ context.Context, _ string, _ imagePkg.StageID) (*imagePkg.StageDesc, error) {
+	if s.desc == nil {
+		return nil, storage.ErrStageNotFound
+	}
+	return s.desc, nil
+}
+
+func (s *checkModeStorage) IsManagedImageExist(_ context.Context, _, _ string, _ ...storage.Option) (bool, error) {
+	return false, nil
+}
+
+func (s *checkModeStorage) IsImageMetadataExist(_ context.Context, _, _, _, _ string, _ ...storage.Option) (bool, error) {
+	return false, nil
+}
+
+func (s *checkModeStorage) CheckStageCustomTag(_ context.Context, _ *imagePkg.StageDesc, _ string) error {
+	return s.customTagErr
+}
+
+func (s *checkModeStorage) AddManagedImage(_ context.Context, _, _ string) error {
+	s.writes = append(s.writes, "AddManagedImage")
+	return nil
+}
+
+func (s *checkModeStorage) PutImageMetadata(_ context.Context, _, _, _, _ string) error {
+	s.writes = append(s.writes, "PutImageMetadata")
+	return nil
+}
+
+func (s *checkModeStorage) PostMultiplatformImage(_ context.Context, _, _ string, _ []*imagePkg.Info, _ []string) error {
+	s.writes = append(s.writes, "PostMultiplatformImage")
+	return nil
+}
+
+func (s *checkModeStorage) AddStageCustomTag(_ context.Context, _ *imagePkg.StageDesc, _ string) error {
+	s.writes = append(s.writes, "AddStageCustomTag")
+	return nil
+}
+
+func (s *checkModeStorage) RegisterStageCustomTag(_ context.Context, _ string, _ *imagePkg.StageDesc, _ string) error {
+	s.writes = append(s.writes, "RegisterStageCustomTag")
+	return nil
+}
+
+type buildableStage struct{ *publicationStage }
+
+var _ stage.Interface = (*buildableStage)(nil)
+
+func (s *buildableStage) IsBuildable() bool { return true }
+
+// reportedStage goes through the whole onImageStage path: it is buildable, needs no stapel
+// machinery and installs a builder stub on every stage image the phase creates for it.
+type reportedStage struct {
+	*buildableStage
+	buildErr error
+}
+
+var _ stage.Interface = (*reportedStage)(nil)
+
+func (s *reportedStage) IsStapelStage() bool { return false }
+
+func (s *reportedStage) HasPrevStage() bool { return false }
+
+func (s *reportedStage) GetDependencies(_ context.Context, _ stage.Conveyor, _ container_backend.ContainerBackend, _, _ *stage.StageImage, _ container_backend.BuildContextArchiver) (string, error) {
+	return "stage-dependencies", nil
+}
+
+func (s *reportedStage) PrepareImage(_ context.Context, _ stage.Conveyor, _ container_backend.ContainerBackend, _, _ *stage.StageImage, _ container_backend.BuildContextArchiver) error {
+	return nil
+}
+
+func (s *reportedStage) SetStageImage(stageImage *stage.StageImage) {
+	stageImage.Builder = &stageBuilderStub{
+		StageBuilder: stage_builder.NewStageBuilder(nil, "base", stageImage.Image),
+		buildErr:     s.buildErr,
+	}
+	s.buildableStage.SetStageImage(stageImage)
+}
+
+type stageBuilderStub struct {
+	*stage_builder.StageBuilder
+	builds   int
+	buildErr error
+}
+
+var _ stage_builder.StageBuilderInterface = (*stageBuilderStub)(nil)
+
+func (b *stageBuilderStub) Build(_ context.Context, _ container_backend.BuildOptions) error {
+	b.builds++
+	return b.buildErr
+}
+
+func errorOf(_ bool, err error) error { return err }
+
+func eventCounts(collector *opstats.Collector) map[opstats.Event]int {
+	counts := make(map[opstats.Event]int)
+	for _, e := range collector.EventSummary() {
+		counts[e.Event] = e.Count
+	}
+	return counts
+}
+
+var _ manager.StorageManagerInterface = (*artifactPhaseStorageManager)(nil)
+
+type artifactPhaseStorageManager struct {
+	*exportStorageManager
+	caches []storage.StagesStorage
+}
+
+func (m *artifactPhaseStorageManager) GetCacheStagesStorageList() []storage.StagesStorage {
+	return m.caches
+}
+
+var (
+	_ giterminism_manager.Interface  = (*artifactPhaseGiterminism)(nil)
+	_ giterminism_manager.FileReader = (*artifactPhaseFileReader)(nil)
+)
+
+type artifactPhaseGiterminism struct {
+	giterminism_manager.Interface
+	reader *artifactPhaseFileReader
+}
+
+func (m *artifactPhaseGiterminism) LocalGitRepo() git_repo.GitRepo             { return nil }
+func (m *artifactPhaseGiterminism) HeadCommit(context.Context) string          { return "" }
+func (m *artifactPhaseGiterminism) FileReader() giterminism_manager.FileReader { return m.reader }
+
+type artifactPhaseFileReader struct {
+	giterminism_manager.FileReader
+	reads int
+}
+
+func (r *artifactPhaseFileReader) ReadVEXFile(context.Context, string) ([]byte, error) {
+	r.reads++
+	return []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","@id":"https://example.com/vex","author":"test","timestamp":"2026-01-01T00:00:00Z","version":1,"statements":[]}`), nil
 }

@@ -24,6 +24,8 @@ const (
 	PackagesDirectiveTypeJavaScriptYarn PackagesDirectiveType = "javascript-yarn"
 	PackagesDirectiveTypeJavaScriptPnpm PackagesDirectiveType = "javascript-pnpm"
 	PackagesDirectiveTypeLuaRock        PackagesDirectiveType = "lua-rock"
+	PackagesDirectiveTypeRubyBundler    PackagesDirectiveType = "ruby-bundler"
+	PackagesDirectiveTypeRubyGemspec    PackagesDirectiveType = "ruby-gemspec"
 )
 
 type PackagesSpec struct {
@@ -50,6 +52,19 @@ type PackageEcosystem struct {
 	// Enrichment describes where the syft cataloger reads metadata the lock lacks (e.g.
 	// licenses) from the installed packages. Nil when the cataloger has no such source.
 	Enrichment *EnrichmentSource
+	// InstalledCataloger is a second syft cataloger of the ecosystem, scanning the
+	// manifests the install command left in the image instead of the lock. Nil unless the
+	// lock cataloger alone cannot describe the ecosystem: the Ruby one reports no
+	// licenses, and only the installed gemspecs carry them. The two scans are unioned per
+	// purl, which merges the licenses of one into the components of the other.
+	InstalledCataloger *InstalledCataloger
+}
+
+// InstalledCataloger names a syft cataloger together with the directory of installed
+// package manifests it scans.
+type InstalledCataloger struct {
+	Name   string
+	Source EnrichmentSource
 }
 
 // EnrichmentRoot tells how the enrichment root is located in the image.
@@ -64,6 +79,10 @@ const (
 	// listed in go.sum are copied, since the whole cache is the image's entire dependency
 	// source tree.
 	EnrichmentRootGoModCache EnrichmentRoot = "go-mod-cache"
+	// EnrichmentRootGemHome: the directory RubyGems installs into, $BUNDLE_PATH or
+	// $GEM_HOME resolved from the image environment, else the interpreter default;
+	// Path is unused.
+	EnrichmentRootGemHome EnrichmentRoot = "gem-home"
 )
 
 // EnrichmentSource is what a syft cataloger reads, next to the lock it parsed, to enrich
@@ -90,6 +109,17 @@ var javascriptEnrichment = EnrichmentSource{
 	Root:             EnrichmentRootWorkdir,
 	Path:             "node_modules",
 	FileNamePatterns: []string{"package.json"},
+}
+
+// rubyInstalledGemspecs: syft's ruby-installed-gemspec-cataloger reads the gemspec
+// RubyGems writes under specifications/ for every installed gem, which is the only place
+// the licenses of a bundle are recorded.
+var rubyInstalledGemspecs = InstalledCataloger{
+	Name: "ruby-installed-gemspec-cataloger",
+	Source: EnrichmentSource{
+		Root:             EnrichmentRootGemHome,
+		FileNamePatterns: []string{"*.gemspec"},
+	},
 }
 
 var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
@@ -189,6 +219,37 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		},
 		CatalogerName: "lua-rock-cataloger",
 		SourceLang:    "Lua",
+	},
+	PackagesDirectiveTypeRubyBundler: {
+		Type:            PackagesDirectiveTypeRubyBundler,
+		DefaultSpecFile: "Gemfile",
+		DefaultLockFile: "Gemfile.lock",
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			defaults := map[string]string{"BUNDLE_FROZEN": "true"}
+			if files.Spec != "Gemfile" {
+				defaults["BUNDLE_GEMFILE"] = files.Spec
+			}
+			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install", managerBin(files, "bundle")), withDefaultEnv(env, defaults))
+		},
+		CatalogerName:      "ruby-gemfile-cataloger",
+		SourceLang:         "Ruby",
+		InstalledCataloger: &rubyInstalledGemspecs,
+	},
+	PackagesDirectiveTypeRubyGemspec: {
+		Type:            PackagesDirectiveTypeRubyGemspec,
+		DefaultSpecFile: "",
+		DefaultLockFile: "",
+		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+			gem := managerBin(files, "gem")
+			artifact := path.Join("/tmp", strings.TrimSuffix(path.Base(files.Spec), ".gemspec")+".gem")
+			return formatWorkdirCommands(workdir, []string{
+				fmt.Sprintf("%s build %q -o %q", gem, files.Spec, artifact),
+				fmt.Sprintf("%s install --no-document %q", gem, artifact),
+			}, env)
+		},
+		CatalogerName:      "ruby-gemspec-cataloger",
+		SourceLang:         "Ruby",
+		InstalledCataloger: &rubyInstalledGemspecs,
 	},
 	PackagesDirectiveTypeOSPM: {
 		Type:            PackagesDirectiveTypeOSPM,

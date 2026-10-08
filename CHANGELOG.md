@@ -1,5 +1,53 @@
 # Changelog
 
+## [3.7.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.0-dk.1...v3.7.1-dk.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **build:** preserve repository-specific SSH commands ([#8021](https://github.com/deckhouse/delivery-kit/issues/8021)) ([9de53b9](https://github.com/deckhouse/delivery-kit/commit/9de53b9c48509113d9464b4c3f2db1b2cabc7a64))
+
+
+### Miscellaneous Chores
+
+* **release:** merge werf upstream 3.7.1 into delivery-kit ([c0bdd45](https://github.com/deckhouse/delivery-kit/commit/c0bdd45a44f7e4e40b55761cc6997979d4e38707))
+* **release:** merge werf upstream 3.7.1 into delivery-kit ([#404](https://github.com/deckhouse/delivery-kit/issues/404)) ([6354cd1](https://github.com/deckhouse/delivery-kit/commit/6354cd163ac6d24dfd93e023be5153991b1f06f0))
+
+## [3.7.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.2-dk.2...v3.7.0-dk.1) (2026-10-06)
+
+### Features
+
+* **build:** install packages without enabling SBOM generation ([#395](https://github.com/deckhouse/delivery-kit/issues/395)) ([c65fe4d](https://github.com/deckhouse/delivery-kit/commit/c65fe4d4c144f51c53aba9094a57216d2d375ea8))
+* **build:** expand operation reporting with backend timings, per-layer cache hit/miss/bypass/shared counters (`CacheOperations`) and storage recovery counters (`Recovery`), enabled by `--build-report-operations`, `WERF_BUILD_REPORT_OPERATIONS` or debug logging ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **build:** reduce repeated stage listings by reusing cached results throughout an ordinary build, while checking for stages published by concurrent builders again before publication ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **registry:** list up to 1,000,000 tags per page by default; configure the page size with `WERF_DOCKER_REGISTRY_TAGS_PAGE_SIZE` (`0` uses the client default of 1,000), with fallback for ECR and registries rejecting the larger page size ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+
+### Bug Fixes
+
+* **build:** make `--check-built-images` / `--require-built-images` / `-Z` checks validate existing outputs without publishing stages, custom tags, metadata or final-repository copies; skip SBOM/VEX generation and attached-artifact propagation in check mode. Stages available only in secondary storage must be published by an ordinary build first ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **build:** recover from a failed local stage build when a suitable stage has already been published by another builder ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **build:** keep console operation statistics command-scoped and saved reports interval-scoped across retries and follow iterations; count discarded duplicate stages as reused ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **git:** recover evicted archives, patches, worktrees and includes data when the source is still available ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **host-cleanup:** evict cheaper Git cache data before repository mirrors; keep dry-runs non-mutating, preserve inaccessible entries and skip immediate mount points and avoid following foreign symlinks when sweeping temporary project directories ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **registry:** retry refused TCP connections within the existing transport retry budget ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+* **ci:** isolate Go tool installation and Git identity configuration between concurrent jobs to avoid shared-file write conflicts ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+
+### Miscellaneous Chores
+
+* **release:** sync with werf 3.7.0 while retaining delivery-kit SBOM, VEX, ELF signing and attached-artifact support ([e74e766](https://github.com/deckhouse/delivery-kit/commit/e74e766006760e2977a341aab06237532d0c9731))
+
+## [3.6.2-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.6.2-dk.1...v3.6.2-dk.2) (2026-10-05)
+
+
+### Features
+
+* **sbom:** mark the packages an image declares as its attack surface ([#393](https://github.com/deckhouse/delivery-kit/issues/393)) ([298de02](https://github.com/deckhouse/delivery-kit/commit/298de024d3d85a3bae417cab31b546752021a8e3))
+
+
+### Bug Fixes
+
+* **sbom:** stop flooding build logs with per-module go cache warnings ([#391](https://github.com/deckhouse/delivery-kit/issues/391)) ([46f12a9](https://github.com/deckhouse/delivery-kit/commit/46f12a9f03230beefcec3b3db3cbfd86d91bb9b8))
+
 ## [3.6.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.6.1-dk.2...v3.6.2-dk.1) (2026-10-01)
 
 

@@ -89,3 +89,38 @@ var _ = Describe("rawStapelImage packages os-pm cardinality", func() {
 		}),
 	)
 })
+
+var _ = Describe("rawStapelImage packages stage commands", func() {
+	var giterminismManager *GiterminismManagerStub
+
+	BeforeEach(func() {
+		parentStack = util.NewStack()
+		giterminismManager = NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"))
+	})
+
+	DescribeTable("are generated regardless of build.sbom.enable",
+		func(meta *Meta) {
+			rawYAML, err := yaml.Marshal(map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"packages": []map[string]interface{}{
+					{"type": "go-mod", "workdir": "/app"},
+					{"type": "os-pm", "spec": []string{"curl"}},
+				},
+			})
+			Expect(err).To(Succeed())
+
+			rawImage := &rawStapelImage{doc: &doc{Content: rawYAML}}
+			Expect(yaml.UnmarshalStrict(rawYAML, rawImage)).To(Succeed())
+
+			stapelImage, err := rawImage.toStapelImageDirective(context.Background(), giterminismManager, meta, "image1")
+			Expect(err).To(Succeed())
+			Expect(stapelImage.Shell).NotTo(BeNil())
+			Expect(stapelImage.Shell.Packages).To(Equal(GeneratePackagesCommands(stapelImage.Packages)))
+			Expect(stapelImage.Shell.Packages).To(HaveLen(2))
+		},
+		Entry("build.sbom absent", &Meta{}),
+		Entry("build.sbom.enable false", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: false}}}),
+		Entry("build.sbom.enable true", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: true}}}),
+	)
+})

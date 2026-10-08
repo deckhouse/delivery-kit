@@ -242,14 +242,11 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 		return nil, newDetailedConfigError(err.Error(), nil, c.doc)
 	}
 
-	if len(imageBase.Packages) > 0 && meta.Build.Sbom != nil && meta.Build.Sbom.Enable {
-		packagesCommands := GeneratePackagesCommands(imageBase.Packages)
-		if len(packagesCommands) > 0 {
-			if imageBase.Shell == nil {
-				imageBase.Shell = &Shell{}
-			}
-			imageBase.Shell.Packages = packagesCommands
+	if packagesCommands := GeneratePackagesCommands(imageBase.Packages); len(packagesCommands) > 0 {
+		if imageBase.Shell == nil {
+			imageBase.Shell = &Shell{}
 		}
+		imageBase.Shell.Packages = packagesCommands
 	}
 
 	if imageBase.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {

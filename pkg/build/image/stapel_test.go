@@ -1,6 +1,9 @@
 package image
 
 import (
+	"context"
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -64,5 +67,47 @@ var _ = Describe("hasFileBasedPackagesWithoutStageDependencies", func() {
 			nil,
 			false,
 		),
+	)
+})
+
+var _ = Describe("packages stage without build.sbom", func() {
+	werfYaml := func(sbomBlock string) string {
+		return fmt.Sprintf(`project: test
+configVersion: 1
+%s
+---
+image: app
+from: golang:1.24
+git:
+- add: /src
+  to: /app
+  stageDependencies:
+    packages: ["go.mod", "go.sum"]
+packages:
+- type: go-mod
+  workdir: /app
+`, sbomBlock)
+	}
+
+	newRepo := func(ctx context.Context, sbomBlock string) string {
+		return newProjectRepo(ctx, map[string]string{
+			"werf.yaml":  werfYaml(sbomBlock),
+			"src/go.mod": "module example.com/app\n",
+			"src/go.sum": "",
+		})
+	}
+
+	DescribeTable("generates the packages stage regardless of build.sbom.enable",
+		func(sbomBlock string) {
+			ctx := context.Background()
+			projectDir := newRepo(ctx, sbomBlock)
+
+			image, err := stapelImage(ctx, projectDir)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stageNames(image)).To(ContainElement(stage.Packages))
+		},
+		Entry("build.sbom absent", ""),
+		Entry("build.sbom.enable false", "build:\n  sbom:\n    enable: false"),
+		Entry("build.sbom.enable true", "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6"),
 	)
 })

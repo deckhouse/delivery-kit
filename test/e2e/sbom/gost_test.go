@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/test/pkg/report"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
@@ -147,6 +148,65 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		}
 	})
 
+	It("go-mod image: declared modules are the attack surface, transitive ones are indirect", Label("declared-roots"), func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_gost_gomod_transitive"
+		SuiteData.InitTestRepo(ctx, repoDirname, "inject/gomod_transitive")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		werfProject.Build(ctx, nil)
+
+		bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+		}))
+
+		sbomtest.AssertHasComponent(bom, "github.com/spf13/cobra", "v1.8.0")
+		sbomtest.AssertHasComponent(bom, "github.com/spf13/pflag", "v1.0.5")
+		sbomtest.AssertHasComponent(bom, "github.com/inconshreveable/mousetrap", "v1.1.0")
+
+		Expect(bom.Metadata.Component.BOMRef).To(HavePrefix("pkg:oci/"), "the image root carries its OCI purl as bom-ref")
+		Expect(cyclonedxutil.HasWerfTool(bom)).To(BeTrue(), "werf records itself among the tools of the SBOM")
+		Expect(sbomtest.RootDependencies(bom)).To(ConsistOf("github.com/spf13/cobra"), "only the direct go.mod requirement is declared")
+		sbomtest.AssertDependencyGraphResolves(bom)
+
+		sbomtest.AssertGostPropertyOnMetadata(bom, gost.PropertyAttackSurface, gost.GostValueYes)
+		sbomtest.AssertGostPropertyOnComponent(bom, "github.com/spf13/cobra", "v1.8.0", gost.PropertyAttackSurface, gost.GostValueYes)
+		sbomtest.AssertGostPropertyOnComponent(bom, "github.com/spf13/pflag", "v1.0.5", gost.PropertyAttackSurface, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnComponent(bom, "github.com/inconshreveable/mousetrap", "v1.1.0", gost.PropertyAttackSurface, gost.GostValueIndirect)
+		sbomtest.AssertGostPropertyOnComponents(bom, gost.PropertySecurityFunction, gost.GostValueYes)
+
+		cobra := sbomtest.FindComponent(bom, "github.com/spf13/cobra", "v1.8.0")
+		pflag := sbomtest.FindComponent(bom, "github.com/spf13/pflag", "v1.0.5")
+		sbomtest.AssertDependsOn(bom, cobra.BOMRef, pflag.BOMRef)
+	})
+
+	It("os-pm image without a packages directive inherits the declarations of its parent", Label("declared-roots"), func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_gost_inherited_roots"
+		SuiteData.InitTestRepo(ctx, repoDirname, "packages_merge/parent_propagation")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		werfProject.Build(ctx, nil)
+
+		bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+		}))
+
+		Expect(sbomtest.RootDependencies(bom)).To(ConsistOf("jq"), "the child declares nothing itself and inherits jq from the parent")
+		sbomtest.AssertDependencyGraphResolves(bom)
+		sbomtest.AssertGostPropertyOnComponent(bom, "jq", "1.8.1", gost.PropertyAttackSurface, gost.GostValueYes)
+		for _, comp := range lo.FromPtr(bom.Components) {
+			if comp.Name == "jq" {
+				continue
+			}
+			Expect(gost.GetComponent(&comp).AttackSurface).To(Equal(gost.GostValueIndirect), "%s is pulled in by jq", comp.Name)
+		}
+	})
+
 	DescribeTable("the source language of the packages directive lands on its components",
 		func(ctx SpecContext, ecosystem, fixture, componentName, componentVersion, expectedLang string) {
 			setupSbomBuildEnv()
@@ -170,5 +230,6 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		Entry("rust-cargo", "cargo", "inject/cargo_simple", "anyhow", "1.0.86", "Rust"),
 		Entry("javascript-npm", "npm", "inject/npm_simple", "lodash", "4.17.21", "JavaScript"),
 		Entry("lua-rock", "lua", "inject/lua_simple", "werf-sbom-lua-app", "0.1-1", "Lua"),
+		Entry("ruby-bundler", "ruby", "inject/ruby_bundler", "colorize", "1.1.0", "Ruby"),
 	)
 })

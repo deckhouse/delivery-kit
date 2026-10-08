@@ -8,6 +8,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
@@ -100,6 +101,10 @@ func MergeBOMs(ctx context.Context, target *cdx.BOM, opts MergeOpts) (*cdx.BOM, 
 			NamespaceBOMRefs(boms[i], fmt.Sprintf("merge-input-%d", i))
 		}
 
+		if i < len(boms)-1 {
+			adoptRootEdges(boms[i], target)
+		}
+
 		if opts.IsolateComponents {
 			Canonicalize(ctx, boms[i])
 		}
@@ -135,6 +140,40 @@ func MergeBOMs(ctx context.Context, target *cdx.BOM, opts MergeOpts) (*cdx.BOM, 
 	}
 
 	return result, nil
+}
+
+// adoptRootEdges moves the dependency edges sourced at the root component of
+// input onto the root component of target. The edge from a root names what the
+// image declares it uses; an image inherits the declarations of its base and
+// of everything it imports, so the edges of all merged roots end up unioned
+// under the one root the merged document keeps. Only the dependency graph
+// moves: a vulnerability or an annotation about the imported image is about
+// that image, not about the one importing it. Only a BOM werf produced is
+// read this way: other producers source edges at the root with another
+// meaning — Trivy lists there everything the image contains.
+func adoptRootEdges(input, target *cdx.BOM) {
+	if !HasWerfTool(input) {
+		return
+	}
+	inputRoot := rootRef(input)
+	targetRoot := rootRef(target)
+	if inputRoot == "" || targetRoot == "" || inputRoot == targetRoot {
+		return
+	}
+
+	for i := range lo.FromPtr(input.Dependencies) {
+		dep := &(*input.Dependencies)[i]
+		if dep.Ref == inputRoot {
+			dep.Ref = targetRoot
+		}
+	}
+}
+
+func rootRef(bom *cdx.BOM) string {
+	if bom == nil || bom.Metadata == nil || bom.Metadata.Component == nil {
+		return ""
+	}
+	return bom.Metadata.Component.BOMRef
 }
 
 // linkSelfReferences turns a reference to the serial number of bom into a

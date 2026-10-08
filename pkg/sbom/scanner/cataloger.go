@@ -1,19 +1,29 @@
 package scanner
 
 // Cataloger is a syft cataloger to enable for a scan, together with the in-image file
-// paths it targets. SourcePaths are required inputs (the spec, e.g. go.mod): a directive
-// scan fails if any is absent from the image. OptionalSourcePaths are best-effort inputs
-// (the lock, e.g. go.sum): absent ones are skipped, matching the previous full-image scan
-// which simply did not catalog a file that was not there. Enrichment, when set, names the
-// installed-package files the cataloger reads next to the lock to enrich lock-derived
-// components with metadata the lock lacks (licenses); it is best-effort like the lock.
-// SourceLang is the source language of the packages the cataloger finds, stamped on every
-// component as GOST:source_langs; it is empty for ecosystems that install prebuilt
-// binaries of an arbitrary language (os-pm), which carry their languages from the pm
-// catalog instead. All are materialized under their full in-image path for a targeted
-// directory scan.
+// paths it targets. Ecosystem is the packages directive type the cataloger serves (a
+// config.PackagesDirectiveType, kept as a string so that this package does not depend
+// on the configuration), Workdir the in-image directory of that directive and Manager
+// the package manager executable the directive names, when it names one; the spec file (SourcePaths[0]) is
+// parsed after the scan to record which cataloged packages the directive declares, and a
+// Go module graph is read from the image in Workdir. Env is the directive environment,
+// applied when running a command in the image. SourcePaths are required inputs (the
+// spec, e.g. go.mod): a directive scan fails if any is absent from the image.
+// OptionalSourcePaths are best-effort inputs (the lock, e.g. go.sum): absent ones are
+// skipped, matching the previous full-image scan which simply did not catalog a file
+// that was not there. Enrichment, when set, names the installed-package files the
+// cataloger reads next to the lock to enrich lock-derived components with metadata the
+// lock lacks (licenses); it is best-effort like the lock. SourceLang is the source
+// language of the packages the cataloger finds, stamped on every component as
+// GOST:source_langs; it is empty for ecosystems that install prebuilt binaries of an
+// arbitrary language (os-pm), which carry their languages from the pm catalog instead.
+// All are materialized under their full in-image path for a targeted directory scan.
 type Cataloger struct {
 	Name                string
+	Ecosystem           string
+	Workdir             string
+	Manager             string
+	Env                 map[string]string
 	SourcePaths         []string
 	OptionalSourcePaths []string
 	SourceLang          string
@@ -29,6 +39,10 @@ const (
 	// EnrichmentKindGoModCache copies, per module listed in the go.sum at LockPath, the
 	// module's directory under Root (the Go module cache), filtered by FileNamePatterns.
 	EnrichmentKindGoModCache EnrichmentKind = "go-mod-cache"
+	// EnrichmentKindGemHome copies the gemspecs of the gems the spec at the first source
+	// path, or the lock at LockPath when set, names out of Root (the RubyGems installation
+	// directory, resolved from the image environment).
+	EnrichmentKindGemHome EnrichmentKind = "gem-home"
 )
 
 // Enrichment is a resolved, image-specific plan: Root is an absolute in-image directory.
@@ -36,8 +50,13 @@ type Enrichment struct {
 	Kind             EnrichmentKind
 	Root             string
 	FileNamePatterns []string
-	// LockPath is the in-image go.sum for EnrichmentKindGoModCache.
+	// LockPath is the in-image lock the enrichment is driven by: go.sum for
+	// EnrichmentKindGoModCache, Gemfile.lock for EnrichmentKindGemHome when the directive
+	// has one.
 	LockPath string
+	// Workdir is the directive workdir, against which a relative BUNDLE_PATH is resolved
+	// for EnrichmentKindGemHome.
+	Workdir string
 	// DirectiveEnv is the packages directive environment. It overlays the image environment
 	// when resolving an image-specific root (EnrichmentKindGoModCache), so that a
 	// packages.env.GOPATH override — which also redirects where the install command writes

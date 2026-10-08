@@ -22,6 +22,7 @@ description: Миграция сборочных конфигов модуля �
 | `npm ci`, `yarn install`, `pnpm install` | `packages:` type `javascript-npm` / `javascript-yarn` / `javascript-pnpm` |
 | `cargo fetch/build` (скачивание crates) | `packages:` type `rust-cargo` |
 | `luarocks install` | `packages:` type `lua-rock` |
+| `bundle install`, `gem build`/`gem install` | `packages:` type `ruby-bundler` / `ruby-gemspec` |
 | `curl/wget <url>` для скачивания артефактов | запрещено; артефакт должен приходить через pm (см. стоп-условие) |
 | `import:` бинарей/библиотек из базовых образов (coreutils, bash, jq, tini…) | `packages:` type `os-pm` (в финальный distroless — через `-runtime-artifact`, см. §3) |
 | `npm install -g yarn` / `pip install uv` — менеджер, которого нет в базовом образе | предыдущая `packages`-запись ставит менеджер, следующая ссылается на него через `manager:` (см. §3) |
@@ -183,6 +184,8 @@ git:
 | `javascript-yarn` | `package.json` | `yarn.lock` | yarn install (frozen) |
 | `javascript-pnpm` | `package.json` | `pnpm-lock.yaml` | pnpm install (frozen) |
 | `lua-rock` | rockspec | — | luarocks |
+| `ruby-bundler` | `Gemfile` | `Gemfile.lock` | `BUNDLE_FROZEN=true bundle install` |
+| `ruby-gemspec` | gemspec | — | `gem build <spec>` + `gem install` |
 
 Общие поля: `workdir` (путь внутри контекста, где лежат spec/lock; для `os-pm` указывать **нельзя** — ошибка валидации), `spec` (для файловых типов — путь к манифесту; для `os-pm` — **только inline-список** имён пакетов, путь к файлу — ошибка валидации `use inline package list instead of file path`), `lock` (путь к lock-файлу; для `os-pm` не поддерживается), `manager` (только файловые типы — путь к исполняемому файлу менеджера внутри `workdir` предыдущей `packages`-записи, см. ниже), `env` (map переменных для команды установки; shell-конструкции `$(...)`/`$VAR` не вычисляются — вместо них ссылки на секреты, см. ниже).
 

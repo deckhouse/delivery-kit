@@ -3,15 +3,18 @@
 package contback
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
 
+	"github.com/onsi/ginkgo/v2"
 	"go.podman.io/common/libimage"
 	"go.podman.io/storage"
 	"go.podman.io/storage/pkg/unshare"
@@ -69,9 +72,14 @@ func cleanupBuildahProject(ctx context.Context, projectName string, repos []stri
 		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 	}
 	command.WaitDelay = 5 * time.Second
-	output, err := command.CombinedOutput()
+	var output bytes.Buffer
+	writer := io.MultiWriter(&output, ginkgo.GinkgoWriter)
+	command.Stdout, command.Stderr = writer, writer
+	done := traceBuildahCleanupPhase(ginkgo.GinkgoWriter, projectName, "worker process")
+	err = command.Run()
+	done(err)
 	if err != nil {
-		return fmt.Errorf("clean buildah project images: %w: %s", err, output)
+		return fmt.Errorf("clean buildah project images: %w: %s", err, output.String())
 	}
 	return nil
 }
@@ -80,20 +88,30 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 	if request.ProjectName == "" {
 		return fmt.Errorf("empty test project")
 	}
+	done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, "storage options")
 	options, err := buildah.NewNativeStoreOptions(unshare.GetRootlessUID(), buildah.DefaultStorageDriver)
+	done(err)
 	if err != nil {
 		return fmt.Errorf("get test storage options: %w", err)
 	}
+	done = traceBuildahCleanupPhase(os.Stderr, request.ProjectName, "open storage")
 	store, err := storage.GetStore(storage.StoreOptions(*options))
+	done(err)
 	if err != nil {
 		return fmt.Errorf("open test image storage: %w", err)
 	}
+	done = traceBuildahCleanupPhase(os.Stderr, request.ProjectName, "open image runtime")
 	imageRuntime, err := libimage.RuntimeFromStore(store, &libimage.RuntimeOptions{})
+	done(err)
 	if err != nil {
 		return fmt.Errorf("open test image runtime: %w", err)
 	}
+	pass := 0
 	list := func() ([]string, error) {
+		pass++
+		done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("list pass=%d", pass))
 		images, err := imageRuntime.ListImages(ctx, &libimage.ListImagesOptions{Filters: []string{"label=werf=" + request.ProjectName}})
+		done(err)
 		if err != nil {
 			return nil, fmt.Errorf("list native test images: %w", err)
 		}
@@ -101,11 +119,15 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 		for _, img := range images {
 			selected = append(selected, cleanupImage{ID: img.ID(), Names: img.Names()})
 		}
-		return projectImageReferences(selected, request.ProjectName, request.Repositories), nil
+		references := projectImageReferences(selected, request.ProjectName, request.Repositories)
+		fmt.Fprintf(os.Stderr, "[buildah cleanup] project=%q pass=%d images=%d references=%d\n", request.ProjectName, pass, len(images), len(references))
+		return references, nil
 	}
 	removeImage := func(ctx context.Context, ref string) error {
+		done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("remove pass=%d ref=%q", pass, ref))
 		_, removeErrors := imageRuntime.RemoveImages(ctx, []string{ref}, &libimage.RemoveImagesOptions{NoPrune: true})
 		err := errors.Join(removeErrors...)
+		done(err)
 		onlyInUseErrors := err != nil
 		for _, removeErr := range removeErrors {
 			if removeErr != nil && !errors.Is(removeErr, storage.ErrImageUsedByContainer) {
@@ -118,4 +140,12 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 		return err
 	}
 	return cleanupImageReferences(ctx, "buildah", list, removeImage)
+}
+
+func traceBuildahCleanupPhase(writer io.Writer, projectName, phase string) func(error) {
+	started := time.Now()
+	fmt.Fprintf(writer, "[buildah cleanup] time=%s project=%q pid=%d phase=%q event=start\n", started.UTC().Format(time.RFC3339Nano), projectName, os.Getpid(), phase)
+	return func(err error) {
+		fmt.Fprintf(writer, "[buildah cleanup] time=%s project=%q pid=%d phase=%q event=done elapsed=%s error=%v\n", time.Now().UTC().Format(time.RFC3339Nano), projectName, os.Getpid(), phase, time.Since(started).Round(time.Millisecond), err)
+	}
 }

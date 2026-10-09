@@ -19,6 +19,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/werf/werf/v3/test/pkg/testresource"
 )
 
 var (
@@ -165,6 +167,9 @@ func CliRmi(ctx context.Context, args ...string) error {
 }
 
 func cmdExecute(ctx context.Context, cmd *cobra.Command, args []string) error {
+	if err := testresource.ObserveCommand(ctx, "docker", append([]string{cmd.Name()}, args...), os.Environ()); err != nil {
+		return fmt.Errorf("track Docker command resources: %w", err)
+	}
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
 	cmd.SetArgs(args)

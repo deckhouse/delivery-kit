@@ -85,42 +85,65 @@ You can also check the existing [issues](https://github.com/werf/werf/issues), [
 
 ### Test resource cleanup
 
-Image-building suites register `SuiteData.SetupProjectCleanup()` after their
-project, stubs and temporary-directory setup. It defers local Docker and available
-Buildah image cleanup until content-check containers have been removed, while the
-test environment and temporary directory still exist. Cleanup has its own bounded
-Ginkgo context; failures to remove selected references fail the spec.
-
-Selection requires the exact `werf` project label and a project repository,
-`WERF_REPO`, `WERF_FINAL_REPO`, or a repository explicitly recorded in
-`SuiteData.CleanupRepositories`. Suites using command-line repository overrides
-must record those exact repositories. Foreign aliases are retained; removal does
-not force-delete containers or prune unselected image ancestors.
-
-On Linux, the test executable is re-executed as a cleanup worker before Ginkgo
-starts, with a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. The worker opens the
-native storage once for listing, removal and verification. Non-root callers use
-`buildah unshare`; the parent owns its process group and kills it on cancellation.
-Docker cleanup is skipped only when its CLI is absent from PATH. Buildah cleanup
-is skipped outside Linux or when its CLI is absent from PATH. An installed runtime
-that fails to initialize rootless execution, list images or remove them is an
-error, not a successful cleanup.
-
-This cleanup does not delete remote registry data, shared base images, BuildKit
-cache, or shared werf caches. In particular, project build-dir mounts under
-`$WERF_HOME/shared_context/mounts/projects/<project>` and manifest cache under
-`$WERF_HOME/local_cache/manifests` are not removed by this helper. They require
-separate retention and ownership handling on persistent runners.
-Runner shutdown or SIGKILL can prevent all test and
-workflow cleanup from running. Persistent-runner operators must separately manage
-cache retention and reconcile abandoned job environments only after confirming
-their owning jobs have finished. Do not run global image or volume prune alongside
-active tests on a shared host.
-
+See [CI runner pool](#ci-runner-pool) for test resource ownership, teardown order
+and the separate retention responsibilities of persistent-runner operators.
 
 ## Conventions
 
 ### CI runner pool
+
+Image-building suites register `SuiteData.SetupProjectCleanup()` after project,
+environment and temporary-directory setup. Cleanup runs before those resources
+are reset, removes local Docker and native Buildah image references owned by the
+test, and fails if selected references remain. The image label must match the
+exact test project; repositories must match the project or be registered in
+`SuiteData.CleanupRepositories` before use, including command-line repo overrides.
+Foreign aliases and shared base images are retained; cleanup does not force image
+deletion or prune ancestors. A missing backend CLI is skipped, but a broken
+installed backend is an error.
+
+On Linux, native cleanup re-executes the test executable before Ginkgo starts,
+passing a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. Non-root callers use
+`buildah unshare`; listing, removal and verification share one native storage
+instance. Native cleanup is skipped outside Linux.
+
+Native cleanup emits `[buildah cleanup]` start/done records for storage options,
+storage/runtime opening, every inventory pass and every image removal. Records
+include UTC timestamps, project, PID, elapsed time and errors; inventory summaries
+include image/reference counts. Worker output streams into Ginkgo output and is
+retained in errors, so a killed worker leaves its last started phase visible.
+
+Command helpers record the backend and repository overrides before invoking werf
+or an image-changing Docker command. Mixed specs clean both used backends;
+Buildah-only specs do not query Docker images. Docker candidates are listed by
+repository references without a server-side label filter, then inspected by ID
+to verify ownership and all aliases. Keep explicit `CleanupRepositories`
+registration for export names and other references not passed as repo options.
+Docker image events are collected while commands run, including failing commands,
+so cleanup can still inspect images that lost their last tag. A short event-history
+checkpoint runs once per second and at teardown; stream errors or a full 256-event
+history window fail the test rather than silently accepting incomplete tracking.
+This requires an intact Docker event history during the spec and does not reclaim
+unlabelled builder cache objects as project-owned images.
+
+Register container teardown before creating containers. Content-check containers
+and Compose services are removed with fresh cleanup contexts before project
+images. Image cleanup has a two-minute deadline; native Buildah runs in a separate
+process group so cancellation also stops a blocked storage worker. Only temporary
+image-in-use errors from concurrent Buildah builds are retried during removal,
+within that deadline. Docker inspect retries the daemon's concurrent-modification
+consistency error up to three total attempts with cancelable 100-ms waits;
+unrelated inspect errors fail immediately. For each image and repository, remove
+tags before digest aliases and rescan for any surviving digest-only reference.
+Permanent failures are reported, not converted into successful cleanup.
+
+This teardown does not remove remote registry data, shared build caches, or
+resources from previous runs. Project build-dir mounts under
+`$WERF_HOME/shared_context/mounts/projects/<project>` and manifest cache under
+`$WERF_HOME/local_cache/manifests` require separate retention and ownership
+handling. Runner termination or SIGKILL can bypass teardown; reconcile abandoned
+job environments only after confirming their owning jobs have finished. Do not
+run global image or volume prune alongside active tests on a shared host.
 
 The PR and daily test workflows run each integration/e2e group with its own
 registry, kind cluster and kubeconfig. Jobs may run on different VMs or share a VM;
@@ -185,6 +208,67 @@ When rolling out, run two groups concurrently on one host, then on different hos
 verify registry push/pull, Kubernetes access, failure cleanup and rerunning a failed
 job without rerunning setup elsewhere. Keep the existing test groups and selectors;
 splitting or reducing test coverage is a separate change.
+
+### Test profiling
+
+The PR docs jobs run only when documentation or its tooling changes: `docs/`,
+`cmd/werf/docs/`, `scripts/docs/`, the docs integration fixtures, schema JSON,
+or `Taskfile.dist.yaml`.
+Changes elsewhere in `cmd/werf/`, `pkg/`, scripts, workflows or Go dependency
+files alone do not start these jobs. CLI changes must still regenerate their
+reference pages with `task doc:gen`, making the resulting documentation diff
+eligible for docs checks. Docs integration builds its own test binary and does
+not provision kind, a registry or multiarch support; the link checker still
+builds the Jekyll site when docs checks are selected.
+
+The diagnostic PR workflow wraps its five heavy test groups with
+`bash scripts/ci/profile-tests.sh task ... -- ...`. Test selectors, concurrency,
+and timeouts are unchanged by the wrapper. PR and daily workflows do not retry
+failed specs automatically. Each job uploads a
+`test-profile-<job>-<attempt>` artifact after environment cleanup, retained for
+seven days, including when tests fail.
+
+Artifacts contain per-suite Ginkgo JSON reports (including successful-spec output,
+events, durations and attempts), verbose console output, the test exit code,
+checkout SHA, run/attempt/runner identity, and before/after host snapshots.
+`vmstat` samples CPU, memory and disk counters every ten seconds; `iostat` and
+`pidstat` add disk latency and per-process CPU/memory/I/O when sysstat is already
+installed. Missing tools are explicitly reported; profiling installs nothing.
+GNU `time`, when available, records aggregate command resource usage, excluding
+Docker-daemon-managed containers. Linux requires `setsid` to isolate the test
+process group. Cancellation sends TERM, allows five seconds for graceful exit,
+then sends KILL to the group even if the immediate child has already exited.
+This adds no time limit to a normally running test command.
+
+These are shared-host measurements, not proof that a test caused host saturation.
+Separate compile/setup time from suite/spec time, ignore the initial since-boot
+samples when comparing load, and compare several runs with their runner identities.
+Only completed suites have JSON reports; verbose logs and already-written reports
+may survive cancellation, but a runner crash or forced kill can prevent upload.
+Reports contain raw test output and are not GitHub-log-secret-masked: use only
+synthetic fixture credentials, never pass real secrets to a diagnostic test.
+The collector does not dump environment variables or process command lines.
+
+Set `WERF_CPU_PROFILE_DIR` to an absolute directory to opt into per-process Go CPU
+profiles. Each command writes a private `werf-<pid>-*.pprof` file after backend
+re-exec, including the native rootless build process. Profiles are flushed before
+normal or error shutdown; SIGKILL can leave an incomplete file. Backend startup
+hooks and internal re-exec helpers are not profiled. Inspect profiles with
+`go tool pprof -top <matching-werf-binary> <profile>`.
+
+### Build HTTP fixtures
+
+The network-isolation and complex-build tests serve a small HTTP fixture for the
+duration of each spec. On Linux they bind to the local Docker bridge gateway,
+not the primary host address that rootless `pasta` copies into its namespace.
+On macOS they use the local address selected by the default IPv4 route.
+Set `WERF_TEST_HTTP_HOST_IP` to override this with a local, non-loopback IPv4
+address reachable by both the build backend and the test process. For rootless
+Buildah, choose an address other than the primary interface address. A remote
+Docker daemon needs routing back to that address; a localhost-only listener is
+not sufficient. The listener exposes only synthetic fixture content and closes
+after the spec. Negative network cases first verify access with networking
+enabled, then use a different build argument to avoid reusing the control layer.
 
 ### Commit message
 

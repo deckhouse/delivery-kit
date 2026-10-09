@@ -29,6 +29,7 @@ var (
 	_ = SuiteData.SetupWerfBinary(suite_init.NewWerfBinaryData(SuiteData.SynchronizedSuiteCallbacksData))
 	_ = SuiteData.SetupProjectName(suite_init.NewProjectNameData(SuiteData.StubsData))
 	_ = SuiteData.SetupTmp(suite_init.NewTmpDirData())
+	_ = SuiteData.SetupProjectCleanup()
 
 	_ = SuiteData.AppendSynchronizedBeforeSuiteAllNodesFunc(func(ctx context.Context, _ []byte) {
 		SuiteData.TempFiles = append([]string{}, utils.CreateTmpFileInHome("secret_file_in_home", "secret"))
@@ -37,6 +38,4 @@ var (
 	_ = SuiteData.AppendSynchronizedAfterSuiteAllNodesFunc(func(_ context.Context) {
 		externalrefmock.Stop()
 	})
-
-	_ = SuiteData.SetupProjectCleanup()
 )

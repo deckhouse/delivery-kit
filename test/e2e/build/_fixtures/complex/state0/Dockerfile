@@ -3,8 +3,9 @@ ARG STAPEL_SHELL_IMAGE_NAME="no_such_image"
 
 FROM ${STAPEL_SHELL_IMAGE_NAME} AS builder
 
+ARG ARCHIVE_URL
 ADD src/file* /app/added/
-ADD "https://codeload.github.com/werf/werf/tar.gz/refs/tags/v1.2.210" /helloworld.tgz
+ADD ${ARCHIVE_URL} /helloworld.tgz
 COPY src/file* /app/copied/
 
 

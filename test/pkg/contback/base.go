@@ -17,9 +17,9 @@ type BaseContainerBackend struct {
 
 func expectCmdsToSucceed(ctx context.Context, r ContainerBackend, image string, cmds ...string) {
 	containerName := uuid.New().String()
-	r.RunSleepingContainer(ctx, containerName, image)
 	ginkgo.DeferCleanup(func(cleanupCtx ginkgo.SpecContext) {
 		r.Rm(cleanupCtx, containerName)
 	}, ginkgo.NodeTimeout(time.Minute))
+	r.RunSleepingContainer(ctx, containerName, image)
 	r.Exec(ctx, containerName, cmds...)
 }

@@ -7,18 +7,71 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"go.podman.io/buildah/define"
+	"go.podman.io/common/libimage"
+	"go.podman.io/storage"
 
 	"github.com/werf/common-go/pkg/util"
 )
 
 var _ = Describe("buildah", func() {
+	It("avoids repeated storage lookups for tagged project and image ID filters", func() {
+		dir := GinkgoT().TempDir()
+		store, err := storage.GetStore(storage.StoreOptions{
+			RunRoot: filepath.Join(dir, "run"), GraphRoot: filepath.Join(dir, "graph"), GraphDriverName: "vfs",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_, err := store.Shutdown(false)
+			Expect(err).NotTo(HaveOccurred())
+		})
+		wantedID := fmt.Sprintf("%064x", 1)
+		otherID := fmt.Sprintf("%064x", 2)
+		for index := 1; index <= 64; index++ {
+			names := []string{fmt.Sprintf("localhost/other-%d:stage", index)}
+			if index <= 2 {
+				names = []string{fmt.Sprintf("localhost/project:stage-%d", index)}
+			}
+			if index == 1 {
+				names = append(names, "localhost/foreign:keep")
+			}
+			_, err := store.CreateImage(fmt.Sprintf("%064x", index), names, "", "", &storage.ImageOptions{})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		counted := &imageLookupCountingStore{Store: store}
+		imageRuntime, err := libimage.RuntimeFromStore(counted, &libimage.RuntimeOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		for _, filter := range []string{"reference=project", "reference=project:*", "id=" + wantedID} {
+			counted.imageLookups = 0
+			started := time.Now()
+			images, err := imageRuntime.ListImages(context.Background(), &libimage.ListImagesOptions{Filters: []string{filter}})
+			Expect(err).NotTo(HaveOccurred())
+			ids := make([]string, 0, len(images))
+			for _, image := range images {
+				ids = append(ids, image.ID())
+			}
+			fmt.Fprintf(GinkgoWriter, "%s: %d storage lookups in %s\n", filter, counted.imageLookups, time.Since(started))
+			if strings.HasPrefix(filter, "id=") {
+				Expect(ids).To(Equal([]string{wantedID}))
+			} else {
+				Expect(ids).To(ConsistOf(wantedID, otherID))
+			}
+			if filter == "reference=project" {
+				Expect(counted.imageLookups).To(BeNumerically(">=", 64))
+			} else {
+				Expect(counted.imageLookups).To(BeZero())
+			}
+		}
+	})
+
 	DescribeTable("mapBackendOldFiltersToBuildahImageFilters",
 		func(oldFilters []util.Pair[string, string], expectedFilters []string) {
 			actual := mapBackendOldFiltersToBuildahImageFilters(oldFilters)

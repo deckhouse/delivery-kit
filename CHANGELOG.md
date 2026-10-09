@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.8.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.2-dk.1...v3.8.0-dk.1) (2026-10-09)
+
+
+### Features
+
+* **build:** include Git LFS content automatically in images ([#8042](https://github.com/deckhouse/delivery-kit/issues/8042)) ([186a839](https://github.com/deckhouse/delivery-kit/commit/186a83943402e3c4345b65c2b7246cb540e92622))
+
+
+### Bug Fixes
+
+* **build:** report registry publication and lookup failures ([#8047](https://github.com/deckhouse/delivery-kit/issues/8047)) ([e4d1903](https://github.com/deckhouse/delivery-kit/commit/e4d19032a01e0f6d90472276d185f387597fa488))
+* **host-cleanup:** remove root-owned project temporary data ([#8050](https://github.com/deckhouse/delivery-kit/issues/8050)) ([b2bd9cc](https://github.com/deckhouse/delivery-kit/commit/b2bd9cc65f5568a893256e247d41beda2ff4dc5a))
+
+
+### Miscellaneous Chores
+
+* force release 3.8.0-dk.1 ([b6e6186](https://github.com/deckhouse/delivery-kit/commit/b6e6186864721e4b4542ee51e7ebf0d1575b98c4))
+
 ## [3.7.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.1-dk.1...v3.7.2-dk.1) (2026-10-08)
 
 

@@ -91,17 +91,26 @@ var _ = Describe("ResolveUnknownVersions", func() {
 			},
 		),
 		Entry(
-			"returns error for non-local replace",
+			"leaves a module replace out of the patch set",
 			func(ctx context.Context, gitRepo *mock.MockGitRepo) (git_repo.GitRepo, string, string, *cdxgo.BOM) {
 				commit := "8d0a3fced4f1a98b6f51442e2a73c8417b8f45af"
+				goModContent := []byte("module example.com/app\n\nreplace example.com/replaced => example.com/other v1.2.3\n")
 
 				gitRepo.EXPECT().IsCommitFileExist(ctx, commit, "app/go.mod").Return(true, nil)
-				gitRepo.EXPECT().ReadCommitFile(ctx, commit, "app/go.mod").Return([]byte("module example.com/app\n\nreplace example.com/replaced => example.com/other v1.2.3\n"), nil)
+				gitRepo.EXPECT().ReadCommitFile(ctx, commit, "app/go.mod").Return(goModContent, nil)
+				gitRepo.EXPECT().TagsList(ctx).Return([]string{"v1.2.0"}, nil)
+				gitRepo.EXPECT().TagCommit(ctx, "v1.2.0").Return(commit, nil)
 
-				return gitRepo, commit, "app", &cdxgo.BOM{}
+				return gitRepo, commit, "app", &cdxgo.BOM{Components: &[]cdxgo.Component{
+					{Name: "example.com/app", Version: "UNKNOWN", Type: cdxgo.ComponentTypeLibrary},
+					{Name: "example.com/other", Version: "UNKNOWN", Type: cdxgo.ComponentTypeLibrary},
+				}}
 			},
-			MatchError(ContainSubstring("non-local replace")),
-			nil,
+			Succeed(),
+			func(result *cdxgo.BOM) {
+				Expect((*result.Components)[0].Version).To(Equal("v1.2.0"))
+				Expect((*result.Components)[1].Version).To(Equal("UNKNOWN"))
+			},
 		),
 	)
 })

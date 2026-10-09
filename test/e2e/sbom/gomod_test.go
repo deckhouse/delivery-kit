@@ -10,7 +10,7 @@ import (
 )
 
 var _ = Describe("SBOM go-mod packages", Label("e2e", "sbom", "gomod", "simple"), func() {
-	It("resolves local 'replace' directive to a version in the BOM", func(ctx SpecContext) {
+	It("resolves a local 'replace' directive to a version in the BOM and leaves a module replace to syft", func(ctx SpecContext) {
 		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_inject_gomod_replace"
@@ -32,6 +32,10 @@ var _ = Describe("SBOM go-mod packages", Label("e2e", "sbom", "gomod", "simple")
 		mylib := sbomtest.FindComponent(bom, "example.com/mylib", "v1.0.0")
 		Expect(mylib).NotTo(BeNil(),
 			"expected example.com/mylib@v1.0.0 (resolved from local replace via git tag) not found in BOM")
+
+		// A module replaced by another module needs no resolution: syft catalogs it under
+		// the replacement's path and version.
+		sbomtest.AssertHasComponent(bom, "github.com/alecthomas/kingpin", "v1.3.8-0.20200323085623-b6657d9477a6")
 	})
 
 	It("keeps the license of a registry module read from the module cache", func(ctx SpecContext) {

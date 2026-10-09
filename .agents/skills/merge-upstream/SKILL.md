@@ -14,6 +14,8 @@ description: Merge werf upstream into the deckhouse/delivery-kit fork. Resolves 
   author, or prepend any entry — the changelog is release-please's job on push to `main`, not the
   agent's. The agent only pins the release version via an empty `Release-As` commit (Step 2).
 - Requires `gh` authenticated and a clean working tree.
+- Apply the procedure separately to each requested branch: `main` → `main`, v2 (`2`) → `2`.
+  The commands below show `main`; substitute the matching source, target and manifest for v2.
 
 The agent merges, resolves conflicts, and opens a PR — it never pushes to the fork's `main`.
 
@@ -50,9 +52,19 @@ Resolve conflicts:
   generates the changelog on push to `main`.
 - **`go.mod` / `go.sum`** — resolve obvious parts, then `go mod tidy && git add go.mod go.sum`.
   Never blindly take one side.
-- **Any other file** — do not blanket-take upstream; it can silently revert delivery-kit
-  customizations (branding, `d8 dk` wiring, module path). Stop and surface the conflict for a
-  maintainer.
+- **`.release-please/<branch>/manifest.json`** — retain the fork's last released `-dk` version.
+  Pin the next version with `Release-As` (Step 2); release-please updates the manifest. Do not
+  replace it with the upstream version. Stage tracked ignored manifests with `git add -u -- <path>`.
+- **Expected digests and generated test output** — inspect the upstream behavior change and fork
+  customizations, then recompute against the merged fork using the existing test or generator.
+  Preserve assertions; confirm old expectations fail for the intended reason and updated ones pass.
+  Never copy upstream values or weaken assertions merely to make the test green.
+- **Other mechanical conflicts** — resolve without asking when both branches' intent is clear
+  and the result preserves fork behavior (branding, `d8 dk` wiring, module path). Verify the affected
+  behavior and report the resolution. Do not blanket-take either side.
+- **Ambiguous behavior conflicts** — stop only when resolution requires a product decision or
+  risks discarding a fork customization whose intended behavior cannot be established. Explain the
+  competing behaviors and the concrete decision needed; continue unaffected work.
 
 Stage resolved tracked files only, then commit:
 
@@ -138,4 +150,4 @@ To recover before pushing: `git merge --abort`, or discard the branch with
 - CHANGELOG: NEVER copy, author, prepend, or reorder any entry; take ours (`--ours`) on conflict and leave it byte-identical to `$FORK/main`. The changelog is release-please's job.
 - ALWAYS add an empty `Release-As: v<upstream semver>-dk.1` commit (Step 2) so release-please pins the merged upstream base; NEVER invent a base werf has not released, and NEVER author a changelog entry for it — release-please generates the changelog on push to `main`.
 - NEVER `git add .`; stage only resolved tracked files.
-- NEVER blanket-resolve non-CHANGELOG conflicts toward upstream; stop and ask a human.
+- Resolve routine conflicts using Step 1 without additional approval; ask only for unresolved behavior decisions. Never blanket-resolve conflicts toward upstream.

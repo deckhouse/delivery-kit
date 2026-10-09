@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.81.4-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.81.3-dk.1...v2.81.4-dk.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **host-cleanup:** remove root-owned project temporary data ([#8049](https://github.com/deckhouse/delivery-kit/issues/8049)) ([fd98589](https://github.com/deckhouse/delivery-kit/commit/fd98589e968cf585274b0e1bc19547f0648cbb4d))
+
+
+### Miscellaneous Chores
+
+* force release 2.81.4-dk.1 ([1a289f7](https://github.com/deckhouse/delivery-kit/commit/1a289f7e96a8713e472d9802aba3c0981137e408))
+
 ## [2.81.3-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.81.1-dk.1...v2.81.3-dk.1) (2026-10-08)
 
 

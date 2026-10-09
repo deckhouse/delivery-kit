@@ -10,7 +10,7 @@ import (
 )
 
 var _ = Describe("SBOM go-mod packages", Label("e2e", "sbom", "gomod", "simple"), func() {
-	It("resolves a local 'replace' directive to a version in the BOM and keeps a module replace intact", func(ctx SpecContext) {
+	It("resolves a local 'replace' directive to a version in the BOM and leaves a module replace to syft", func(ctx SpecContext) {
 		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_inject_gomod_replace"

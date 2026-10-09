@@ -61,7 +61,7 @@ require (
 	github.com/werf/copy-recurse v0.3.1
 	github.com/werf/lockgate v0.2.0
 	github.com/werf/logboek v0.7.2-0.20260810094044-236a5f8ae9dd
-	github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261001110220-387f78685e1a
+	github.com/werf/nelm/v2 v2.0.0-alpha.1.0.20261007183832-476d20183e9c
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
@@ -519,5 +519,6 @@ replace (
 	github.com/docker/buildx => github.com/werf/3p-buildx v0.0.0-20260921140347-f09c144ec33b // temporary race fix; remove after docker/buildx#4007 merges
 	github.com/mattn/go-sqlite3 => github.com/mattn/go-sqlite3 v1.14.22 // v2.0.1+incompatible is a mistagged 2019 release bundling SQLite 3.30.1; the image blob-info cache needs sqlite_schema (SQLite >= 3.33)
 	github.com/spf13/cobra => github.com/werf/3p-cobra v0.0.0-20260403075225-552c82797324 // adds EnableErrorOnUnknownSubcommand, not yet in upstream
+	go.podman.io/storage => github.com/werf/3p-container-libs/storage v1.63.1-0.20261008114302-204b1b85b362
 	oras.land/oras-go => github.com/werf/3p-oras-go v1.2.8-0.20260408140625-72dd516ce0aa // used by bundles, not maintained
 )

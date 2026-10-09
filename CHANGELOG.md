@@ -1,5 +1,32 @@
 # Changelog
 
+## [3.7.2-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.1-dk.1...v3.7.2-dk.1) (2026-10-08)
+
+
+### Features
+
+* **build, sbom:** install ruby dependencies through the packages directive ([#406](https://github.com/deckhouse/delivery-kit/issues/406)) ([51ea5e1](https://github.com/deckhouse/delivery-kit/commit/51ea5e17db198640afbb34449ad32e25ddfe31a4))
+
+
+### Bug Fixes
+
+* **build, stages:** make from:scratch images usable by buildah builds ([#7970](https://github.com/deckhouse/delivery-kit/issues/7970)) ([292b479](https://github.com/deckhouse/delivery-kit/commit/292b479863aba3e5d6e2cf8a0f998797670bd9a1))
+* **build:** prevent intermittent Buildah initialization failures ([#8038](https://github.com/deckhouse/delivery-kit/issues/8038)) ([6c16c5e](https://github.com/deckhouse/delivery-kit/commit/6c16c5ed9af246aa56bca2dd51ce045a7c53c74a))
+* **build:** stop rejecting initialized nested submodules ([#8040](https://github.com/deckhouse/delivery-kit/issues/8040)) ([0200b89](https://github.com/deckhouse/delivery-kit/commit/0200b8978a61fbedf00af75db74ddae56a0beae1))
+* **deploy:** pass root context from --set-root-json to templates ([#8027](https://github.com/deckhouse/delivery-kit/issues/8027)) ([53cbba1](https://github.com/deckhouse/delivery-kit/commit/53cbba12d8b718e92cee14857dc4f17b1f98780e))
+* **deploy:** preserve kubectl env defaults and command syntax ([#8032](https://github.com/deckhouse/delivery-kit/issues/8032)) ([5f00809](https://github.com/deckhouse/delivery-kit/commit/5f008094c6c7db241120e85a3880eaf093667192))
+* **deploy:** preserve release info annotations in release storage ([#8028](https://github.com/deckhouse/delivery-kit/issues/8028)) ([18e00d3](https://github.com/deckhouse/delivery-kit/commit/18e00d33acf811f7bc6648bd8577cf01da469f3a))
+* **deploy:** run kubectl plugins only through kubectl ([#408](https://github.com/deckhouse/delivery-kit/issues/408)) ([4a872e4](https://github.com/deckhouse/delivery-kit/commit/4a872e44f7781d869d891213ecd93d034c42b454))
+* **deploy:** run kubectl plugins only through kubectl ([#8030](https://github.com/deckhouse/delivery-kit/issues/8030)) ([11dd358](https://github.com/deckhouse/delivery-kit/commit/11dd358c655cc207652aaef8c719503fe0935e87))
+* **giterminism:** preserve user worktrees in dev mode ([#7999](https://github.com/deckhouse/delivery-kit/issues/7999)) ([cf22ac5](https://github.com/deckhouse/delivery-kit/commit/cf22ac56296466dcb5d4c5fe1d4cac83a82b1b96))
+* **host-cleanup:** reclaim abandoned tmp data from older releases ([#8033](https://github.com/deckhouse/delivery-kit/issues/8033)) ([875d345](https://github.com/deckhouse/delivery-kit/commit/875d345f2349c500b2f66f8f3d3e0f660a5d9c2f))
+* **sbom:** publish SPDX license expressions in license.expression, not license.id ([#407](https://github.com/deckhouse/delivery-kit/issues/407)) ([93ad80c](https://github.com/deckhouse/delivery-kit/commit/93ad80c0292e9dd898cbba1ff6acbd5112a8b689))
+
+
+### Miscellaneous Chores
+
+* **release:** force release 3.7.2-dk.1 ([8aeec10](https://github.com/deckhouse/delivery-kit/commit/8aeec10d1c76014574f045aabafd0deddae791ac))
+
 ## [3.7.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.0-dk.1...v3.7.1-dk.1) (2026-10-06)
 
 

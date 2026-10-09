@@ -10,7 +10,7 @@ import (
 type cleanupBackendStub struct {
 	ContainerBackend
 	created    string
-	removed    string
+	removed    []string
 	failCreate bool
 }
 
@@ -29,7 +29,7 @@ func (backend *cleanupBackendStub) Exec(context.Context, string, ...string) {
 
 func (backend *cleanupBackendStub) Rm(ctx context.Context, name string) {
 	gomega.Expect(ctx.Err()).NotTo(gomega.HaveOccurred())
-	backend.removed = name
+	backend.removed = append(backend.removed, name)
 }
 
 var _ = ginkgo.Describe("Content container cleanup", func() {
@@ -37,7 +37,7 @@ var _ = ginkgo.Describe("Content container cleanup", func() {
 		backend := &cleanupBackendStub{failCreate: failCreate}
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(backend.created).NotTo(gomega.BeEmpty())
-			gomega.Expect(backend.removed).To(gomega.Equal(backend.created))
+			gomega.Expect(backend.removed).To(gomega.Equal([]string{backend.created}))
 		})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

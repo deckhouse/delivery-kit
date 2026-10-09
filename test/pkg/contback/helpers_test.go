@@ -62,6 +62,9 @@ func TestCleanupBackendProcess(t *testing.T) {
 			os.Exit(48)
 		}
 	case "rmi":
+		if len(args) != 3 || args[1] != "--no-prune" {
+			os.Exit(53)
+		}
 		ref := args[len(args)-1]
 		calls, err := os.OpenFile(os.Getenv("CLEANUP_CALLS"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {

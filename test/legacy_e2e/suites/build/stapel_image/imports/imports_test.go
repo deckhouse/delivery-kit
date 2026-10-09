@@ -28,8 +28,7 @@ func werfRunOutputWithSpecificImage(ctx context.Context, dir, image string, extr
 }
 
 var _ = Describe("Stapel imports", func() {
-	BeforeEach(func() {})
-
+	SuiteData.SetupProjectCleanup()
 	Context("importing files and directories from artifact", func() {
 		It("should allow importing files and directories, optionally rename files and directories and merge directories", func(ctx SpecContext) {
 			SuiteData.CommitProjectWorktree(ctx, SuiteData.ProjectName, utils.FixturePath("imports_app_1", "001"), "initial commit")

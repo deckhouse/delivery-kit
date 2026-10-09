@@ -83,6 +83,10 @@ You can also check the existing [issues](https://github.com/werf/werf/issues), [
 7. Commit your changes. See [Conventions](#conventions) for the commit message format. The commit must be signed off (`--signoff`) as an acknowledgment of the [DCO](https://developercertificate.org/).
 8. Push and open a pull request.
 
+### Test resource cleanup
+
+See [CI runner pool](#ci-runner-pool) for test resource ownership, teardown order
+and the separate retention responsibilities of persistent-runner operators.
 
 ## Conventions
 
@@ -97,6 +101,11 @@ exact test project; repositories must match the project or be registered in
 Foreign aliases and shared base images are retained; cleanup does not force image
 deletion or prune ancestors. A missing backend CLI is skipped, but a broken
 installed backend is an error.
+
+On Linux, native cleanup re-executes the test executable before Ginkgo starts,
+passing a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. Non-root callers use
+`buildah unshare`; listing, removal and verification share one native storage
+instance. Native cleanup is skipped outside Linux.
 
 Command helpers record the backend and repository overrides before invoking werf
 or an image-changing Docker command. Mixed specs clean both used backends;
@@ -123,8 +132,12 @@ tags before digest aliases and rescan for any surviving digest-only reference.
 Permanent failures are reported, not converted into successful cleanup.
 
 This teardown does not remove remote registry data, shared build caches, or
-resources from previous runs. Runner termination or SIGKILL can bypass it;
-abandoned-job recovery remains a separate runner-infrastructure concern.
+resources from previous runs. Project build-dir mounts under
+`$WERF_HOME/shared_context/mounts/projects/<project>` and manifest cache under
+`$WERF_HOME/local_cache/manifests` require separate retention and ownership
+handling. Runner termination or SIGKILL can bypass teardown; reconcile abandoned
+job environments only after confirming their owning jobs have finished. Do not
+run global image or volume prune alongside active tests on a shared host.
 
 The PR and daily test workflows run each integration/e2e group with its own
 registry, kind cluster and kubeconfig. Jobs may run on different VMs or share a VM;

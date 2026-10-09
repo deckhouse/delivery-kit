@@ -856,8 +856,12 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 		if digest != "" {
 			repoDigest = repository + "@" + digest
 		} else {
+			filter := util.NewPair("reference", ref)
+			if inspect.FromImageID != "" {
+				filter = util.NewPair("id", strings.TrimPrefix(inspect.FromImageID, "sha256:"))
+			}
 			list, err := backend.buildah.Images(ctx, buildah.ImagesOptions{
-				Filters: []util.Pair[string, string]{util.NewPair("reference", ref)},
+				Filters: []util.Pair[string, string]{filter},
 			})
 			if err != nil {
 				return nil, fmt.Errorf("error getting buildah info for image %q: %w", ref, err)

@@ -107,6 +107,12 @@ passing a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. Non-root callers use
 `buildah unshare`; listing, removal and verification share one native storage
 instance. Native cleanup is skipped outside Linux.
 
+Native cleanup emits `[buildah cleanup]` start/done records for storage options,
+storage/runtime opening, every inventory pass and every image removal. Records
+include UTC timestamps, project, PID, elapsed time and errors; inventory summaries
+include image/reference counts. Worker output streams into Ginkgo output and is
+retained in errors, so a killed worker leaves its last started phase visible.
+
 Command helpers record the backend and repository overrides before invoking werf
 or an image-changing Docker command. Mixed specs clean both used backends;
 Buildah-only specs do not query Docker images. Docker candidates are listed by

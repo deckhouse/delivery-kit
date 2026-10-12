@@ -502,7 +502,7 @@ shell:
 
 ### Метаданные Git-источников
 
-`WERF_GIT_SOURCES` доступна в `beforeInstall`, `install`, `beforeSetup` и `setup` образов с директивой `git`. Значение — JSON-массив с одной записью на mapping:
+`WERF_GIT_SOURCES` доступна в `beforeInstall`, `install`, `beforeSetup`, `setup` и `packages` образов с директивой `git`. Значение — JSON-массив с одной записью на mapping:
 
 | Поле | Значение |
 | --- | --- |

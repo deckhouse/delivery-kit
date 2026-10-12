@@ -66,8 +66,9 @@ type vcsVerdicts struct {
 }
 
 type vcsVerdict struct {
-	once sync.Once
-	err  error
+	once   sync.Once
+	err    error
+	warned sync.Once
 }
 
 func (v *vcsVerdicts) verify(ctx context.Context, vcsURL string) error {
@@ -86,6 +87,15 @@ func (v *vcsVerdicts) verify(ctx context.Context, vcsURL string) error {
 		}
 	})
 	return verdict.err
+}
+
+// warnReplaced reports once per link, not once per component carrying it, that
+// the resolver did not confirm the link and a purl resolution took its place.
+func (v *vcsVerdicts) warnReplaced(ctx context.Context, vcsURL string, comp *cdx.Component, unconfirmed error, replacement cdx.ExternalReference) {
+	cell, _ := v.cells.Load(vcsURL)
+	cell.(*vcsVerdict).warned.Do(func() {
+		logboek.Context(ctx).Warn().LogF("WARNING: component %s (%s): %s; replaced with %s %q resolved from purl\n", comp.Name, comp.PackageURL, unconfirmed, replacement.Type, replacement.URL)
+	})
 }
 
 func NewEnricher(
@@ -194,7 +204,8 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, ver
 	}
 
 	var unconfirmed error
-	if vcsURL, ok := knownVCSLink(comp); ok {
+	vcsURL, hasVCS := knownVCSLink(comp)
+	if hasVCS {
 		unconfirmed = verdicts.verify(ctx, vcsURL)
 		if unconfirmed == nil {
 			return nil
@@ -229,7 +240,7 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, ver
 		comp.ExternalReferences = &[]cdx.ExternalReference{}
 	}
 	if unconfirmed != nil {
-		logboek.Context(ctx).Warn().LogF("WARNING: component %s (%s): %s; replaced with %s %q resolved from purl\n", comp.Name, comp.PackageURL, unconfirmed, extRef.Type, extRef.URL)
+		verdicts.warnReplaced(ctx, vcsURL, comp, unconfirmed, extRef)
 		*comp.ExternalReferences = lo.Reject(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
 			return ref.Type == cdx.ERTypeVCS
 		})

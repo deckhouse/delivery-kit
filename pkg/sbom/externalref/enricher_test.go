@@ -1,16 +1,19 @@
 package externalref
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v2/pkg/logging"
 )
 
@@ -302,6 +305,25 @@ var _ = Describe("Enricher", func() {
 				Entry("resolver reports the link is not a repository", "https://git.example.com/not-a-repo"),
 				Entry("resolver has never seen the link", "https://git.example.com/never-seen.git"),
 			)
+
+			It("warns once per unconfirmed link, not once per component carrying it", func() {
+				var output bytes.Buffer
+				logCtx := logboek.NewContext(context.Background(), logboek.NewLogger(&output, &output))
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("lodash", "pkg:npm/lodash@4.17.21", "https://git.example.com/not-a-repo"),
+					withVCS("lodash-cli", "pkg:npm/lodash@4.17.21", "https://git.example.com/not-a-repo"),
+					withVCS("lodash-es", "pkg:npm/lodash@4.17.21", "https://git.example.com/not-a-repo"),
+				}}
+
+				Expect(enricher.Enrich(logCtx, bom)).NotTo(HaveOccurred())
+
+				Expect(strings.Count(output.String(), "replaced with")).To(Equal(1), output.String())
+				Expect(output.String()).To(ContainSubstring(`vcs link "https://git.example.com/not-a-repo" not confirmed`))
+				for _, comp := range *bom.Components {
+					Expect(*comp.ExternalReferences).To(HaveLen(1))
+					Expect((*comp.ExternalReferences)[0].URL).To(Equal("https://github.com/lodash/lodash"))
+				}
+			})
 
 			It("fails with both causes when neither the link nor the purl is confirmed", func() {
 				bom := &cdx.BOM{Components: &[]cdx.Component{

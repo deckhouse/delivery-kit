@@ -161,6 +161,8 @@ WERF_EXTERNAL_REFS_SERVER_URL env var is required
 
 When SBOM is disabled, the variable is not used.
 
+A component that already carries a VCS link — the repository its package manager recorded for it, as `os-pm` packages do — is handled through the service's URL check (`/api/v1/vcs`) rather than purl resolution: the link is confirmed as it is, and the purl is not resolved. This keeps the check independent of the purl, so a package installed from a catalog the service cannot look up (for example, one published under a development branch) is still verified by its source repository. Only when the service does not confirm the link does werf fall back to resolving the purl (`/api/v1/resolve`); a confirmed answer then replaces the unconfirmed link, and if neither is confirmed the build fails naming both causes. Components without a VCS link are resolved by purl as before.
+
 ## SBOM signing
 
 SBOM signing is an optional build step. It is enabled by passing a signing key to `werf build`:

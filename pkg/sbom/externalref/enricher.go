@@ -115,11 +115,12 @@ func purlNotExpected(ct cdx.ComponentType) bool {
 }
 
 type Enricher struct {
-	Resolve func(ctx context.Context, purl string) (*ResolveResult, error)
+	Resolve  func(ctx context.Context, purl string) (*ResolveResult, error)
+	CheckVCS func(ctx context.Context, vcsURL string) (*ResolveResult, error)
 }
 
-func NewEnricher(resolve func(ctx context.Context, purl string) (*ResolveResult, error)) *Enricher {
-	return &Enricher{Resolve: resolve}
+func NewEnricher(resolve, checkVCS func(ctx context.Context, subject string) (*ResolveResult, error)) *Enricher {
+	return &Enricher{Resolve: resolve, CheckVCS: checkVCS}
 }
 
 type componentError struct {
@@ -157,12 +158,35 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	}
 
 	components := *bom.Components
+
+	// A link the SBOM already carries — the repository a package manager recorded
+	// for its package — is verified as a URL, which the resolver answers without
+	// knowing the package: a purl it cannot resolve (one naming a package index
+	// that is not published where the resolver looks) no longer fails a component
+	// whose source is known. Only an unconfirmed link falls back to purl resolution.
+	var vcsURLs []string
+	for i := range components {
+		comp := &components[i]
+		if !componentNeedsResolve(comp) {
+			continue
+		}
+		if vcsURL, ok := knownVCSLink(comp); ok {
+			vcsURLs = append(vcsURLs, vcsURL)
+		}
+	}
+
+	vcsOutcomes := e.checkVCSLinks(ctx, lo.Uniq(vcsURLs))
+
 	var purls []string
 	for i := range components {
 		comp := &components[i]
-		if componentNeedsResolve(comp) {
-			purls = append(purls, comp.PackageURL)
+		if !componentNeedsResolve(comp) {
+			continue
 		}
+		if vcsURL, ok := knownVCSLink(comp); ok && vcsOutcomes[vcsURL].unconfirmed == nil {
+			continue
+		}
+		purls = append(purls, comp.PackageURL)
 	}
 
 	outcomes := e.resolvePurls(ctx, lo.Uniq(purls))
@@ -181,17 +205,44 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 			continue
 		}
 
+		var unconfirmed error
+		vcsURL, hasVCS := knownVCSLink(comp)
+		if hasVCS {
+			vcsOutcome := vcsOutcomes[vcsURL]
+			if vcsOutcome.err != nil {
+				if _, done := reported[comp.PackageURL]; !done {
+					reported[comp.PackageURL] = struct{}{}
+					failed = append(failed, &componentError{name: comp.Name, purl: comp.PackageURL, err: vcsOutcome.err})
+				}
+				continue
+			}
+			if vcsOutcome.unconfirmed == nil {
+				continue
+			}
+			unconfirmed = fmt.Errorf("vcs link %q not confirmed: %w", vcsURL, vcsOutcome.unconfirmed)
+		}
+
 		outcome := outcomes[comp.PackageURL]
 		if outcome.err != nil {
 			if _, done := reported[comp.PackageURL]; !done {
 				reported[comp.PackageURL] = struct{}{}
-				failed = append(failed, &componentError{name: comp.Name, purl: comp.PackageURL, err: outcome.err})
+				err := outcome.err
+				if unconfirmed != nil {
+					err = fmt.Errorf("%w; %w", unconfirmed, outcome.err)
+				}
+				failed = append(failed, &componentError{name: comp.Name, purl: comp.PackageURL, err: err})
 			}
 			continue
 		}
 
 		if comp.ExternalReferences == nil {
 			comp.ExternalReferences = &[]cdx.ExternalReference{}
+		}
+		if unconfirmed != nil {
+			logboek.Context(ctx).Warn().LogF("WARNING: component %s (%s): %s; replaced with %s %q resolved from purl\n", comp.Name, comp.PackageURL, unconfirmed, outcome.ref.Type, outcome.ref.URL)
+			*comp.ExternalReferences = lo.Reject(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
+				return ref.Type == cdx.ERTypeVCS
+			})
 		}
 		// A component carrying two links of the same type fails ISPRAS validation,
 		// and downstream images re-enrich an already enriched BOM. A source
@@ -236,6 +287,72 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 type purlOutcome struct {
 	ref cdx.ExternalReference
 	err error
+}
+
+// vcsOutcome separates the resolver refusing to vouch for a link (unconfirmed:
+// a repository it reports as not a VCS, or one it has no answer for) from the
+// resolver being unreachable (err): the first falls back to purl resolution, the
+// second is the same terminal failure a resolve call would hit.
+type vcsOutcome struct {
+	unconfirmed error
+	err         error
+}
+
+func (e *Enricher) checkVCSLinks(ctx context.Context, vcsURLs []string) map[string]*vcsOutcome {
+	outcomes := make(map[string]*vcsOutcome, len(vcsURLs))
+	for _, vcsURL := range vcsURLs {
+		outcomes[vcsURL] = &vcsOutcome{}
+	}
+
+	var g errgroup.Group
+	g.SetLimit(10)
+	for _, vcsURL := range vcsURLs {
+		g.Go(func() error {
+			outcome := outcomes[vcsURL]
+
+			res, err := e.CheckVCS(ctx, vcsURL)
+			if err != nil {
+				if isInfraFailure(err) {
+					outcome.err = err
+				} else {
+					outcome.unconfirmed = err
+				}
+				return nil
+			}
+
+			// For the url check kind "vcs" and a confirmed status are the same
+			// verdict: the resolver derives the row status from kind alone.
+			if cdx.ExternalReferenceType(res.Kind) != cdx.ERTypeVCS {
+				outcome.unconfirmed = fmt.Errorf("resolver reports kind %q", res.Kind)
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	return outcomes
+}
+
+func isInfraFailure(err error) bool {
+	if errors.Is(err, ErrResolverUnavailable) {
+		return true
+	}
+	var classified *ClassifiedError
+	return errors.As(err, &classified) && classified.Class == FailureClassInfra
+}
+
+// knownVCSLink returns the component's vcs link. A BOM reaching enrichment
+// carries at most one vcs link per component: merged BOMs are canonicalized
+// first, and syft emits at most one. A second link only shows up in a foreign
+// SBOM and is handled by the fallback.
+func knownVCSLink(comp *cdx.Component) (string, bool) {
+	if comp.ExternalReferences == nil {
+		return "", false
+	}
+	ref, ok := lo.Find(*comp.ExternalReferences, func(ref cdx.ExternalReference) bool {
+		return ref.Type == cdx.ERTypeVCS && ref.URL != ""
+	})
+	return ref.URL, ok
 }
 
 func (e *Enricher) resolvePurls(ctx context.Context, purls []string) map[string]*purlOutcome {

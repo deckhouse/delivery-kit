@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -19,14 +20,15 @@ import (
 
 var _ = Describe("Enricher", func() {
 	var ts *httptest.Server
+	var service *Service
 	var enricher *Enricher
 	var ctx context.Context
 
 	BeforeEach(func() {
 		handler, _ := mockResolver()
 		ts = httptest.NewServer(handler)
-		service := NewService(ServiceConfig{ServerURL: ts.URL})
-		enricher = NewEnricher(service.Resolve)
+		service = NewService(ServiceConfig{ServerURL: ts.URL})
+		enricher = NewEnricher(service.Resolve, service.CheckVCS)
 		ctx = logging.WithLogger(context.Background())
 	})
 
@@ -192,7 +194,7 @@ var _ = Describe("Enricher", func() {
 
 		It("resolves a duplicated package URL once and enriches every duplicate", func() {
 			var calls int32
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				atomic.AddInt32(&calls, 1)
 				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "vcs"}, nil
 			})
@@ -215,7 +217,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("reports a duplicated failing package URL once", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return nil, fmt.Errorf("resolve failed")
 			})
 
@@ -233,7 +235,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("collapses resolver-unavailable failures into a single summary line", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return nil, ErrResolverUnavailable
 			})
 
@@ -253,7 +255,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("keeps per-component lines for content failures next to the unavailable summary", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				if purl == "pkg:npm/pkg-a@1.0" {
 					return nil, fmt.Errorf("resolve: unexpected status 404")
 				}
@@ -294,27 +296,175 @@ var _ = Describe("Enricher", func() {
 			Expect(refs[1].URL).To(Equal("https://github.com/lodash/lodash"))
 		})
 
-		It("keeps a single reference of a type the component already has", func() {
-			bom := &cdx.BOM{
-				Components: &[]cdx.Component{
-					{
-						Name:               "lodash",
-						Version:            "4.17.21",
-						PackageURL:         "pkg:npm/lodash@4.17.21",
-						Type:               cdx.ComponentTypeLibrary,
-						ExternalReferences: &[]cdx.ExternalReference{{URL: "git://example.com/lodash.git", Type: cdx.ERTypeVCS}},
-					},
-				},
+		Describe("component with a vcs link of its own", func() {
+			withVCS := func(name, purl, vcsURL string) cdx.Component {
+				return cdx.Component{
+					Name:               name,
+					Version:            "1.0",
+					PackageURL:         purl,
+					Type:               cdx.ComponentTypeLibrary,
+					ExternalReferences: &[]cdx.ExternalReference{{URL: vcsURL, Type: cdx.ERTypeVCS}},
+				}
 			}
 
-			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			It("verifies the link and never resolves the purl when the resolver confirms it", func() {
+				var resolved []string
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					resolved = append(resolved, purl)
+					return nil, fmt.Errorf("resolve: %w", ErrEmptyURL)
+				}, service.CheckVCS)
+				// The purl names a package index the resolver has never heard of: the
+				// case of a build whose packages come from an unpublished catalog.
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("libssl3", "pkg:generic/libssl3@3.6.2?containerfactoryversion=feature-branch", "https://git.example.com/confirmed.git"),
+				}}
 
-			refs := *(*bom.Components)[0].ExternalReferences
-			Expect(refs).To(HaveLen(1))
-			Expect(refs[0].URL).To(Equal("git://example.com/lodash.git"))
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+
+				refs := *(*bom.Components)[0].ExternalReferences
+				Expect(refs).To(Equal([]cdx.ExternalReference{{URL: "https://git.example.com/confirmed.git", Type: cdx.ERTypeVCS}}))
+				Expect(*bom.ExternalReferences).To(Equal(refs))
+			})
+
+			It("verifies a shared link once for every component carrying it", func() {
+				handler, calls := mockResolver()
+				ts := httptest.NewServer(handler)
+				defer ts.Close()
+				svc := NewService(ServiceConfig{ServerURL: ts.URL})
+				enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
+
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("libssl3", "pkg:generic/libssl3@3.6.2?containerfactoryversion=x", "https://git.example.com/confirmed.git"),
+					withVCS("libcrypto3", "pkg:generic/libcrypto3@3.6.2?containerfactoryversion=x", "https://git.example.com/confirmed.git"),
+					withVCS("libssl3", "pkg:generic/libssl3@3.6.2?containerfactoryversion=y", "https://git.example.com/confirmed.git"),
+				}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(calls.Load()).To(Equal(int64(1)))
+			})
+
+			DescribeTable("falls back to purl resolution when the link is not confirmed",
+				func(vcsURL string) {
+					bom := &cdx.BOM{Components: &[]cdx.Component{
+						withVCS("lodash", "pkg:npm/lodash@4.17.21", vcsURL),
+					}}
+
+					Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+					refs := *(*bom.Components)[0].ExternalReferences
+					Expect(refs).To(HaveLen(1), "the unconfirmed link must not stay next to the resolved one")
+					Expect(refs[0].URL).To(Equal("https://github.com/lodash/lodash"))
+					Expect(refs[0].Type).To(Equal(cdx.ERTypeVCS))
+					Expect(refs[0].Comment).To(Equal(cyclonedxutil.ExternalReferenceCommentResolved))
+					Expect(*bom.ExternalReferences).To(Equal(refs))
+				},
+				Entry("resolver reports the link is not a repository", "https://git.example.com/not-a-repo"),
+				Entry("resolver has never seen the link", "https://git.example.com/never-seen.git"),
+			)
+
+			It("drops the unconfirmed link when the purl resolves to a source distribution", func() {
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("commondir", "pkg:npm/commondir@1.0.1", "https://git.example.com/not-a-repo"),
+				}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+				refs := *(*bom.Components)[0].ExternalReferences
+				Expect(refs).To(HaveLen(1))
+				Expect(refs[0].Type).To(Equal(cdx.ERTypeSourceDistribution))
+			})
+
+			It("fails with both causes when neither the link nor the purl is confirmed", func() {
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("svace", "pkg:generic/svace@6.0?containerfactoryversion=feature-branch", "https://git.example.com/not-a-repo"),
+				}}
+
+				err := enricher.Enrich(ctx, bom)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(`component: svace (pkg:generic/svace@6.0?containerfactoryversion=feature-branch): vcs link "https://git.example.com/not-a-repo" not confirmed: resolver reports kind "unknown"; resolve: unexpected status 404`))
+				Expect(*(*bom.Components)[0].ExternalReferences).To(HaveLen(1), "a failed enrichment leaves the component as it was")
+			})
+
+			It("treats a resolver failure on the link check as terminal, not as an unconfirmed link", func() {
+				var resolved []string
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					resolved = append(resolved, purl)
+					return &ResolveResult{URL: "https://github.com/x/y", Kind: "vcs"}, nil
+				}, func(ctx context.Context, vcsURL string) (*ResolveResult, error) {
+					return nil, &ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("check vcs: unexpected status 500")}
+				})
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("lodash", "pkg:npm/lodash@4.17.21", "https://git.example.com/flaky.git"),
+				}}
+
+				err := enricher.Enrich(ctx, bom)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("unexpected status 500"))
+				Expect(resolved).To(BeEmpty())
+			})
+
+			It("drops every unconfirmed vcs link of a foreign SBOM component that carries more than one", func() {
+				bom := &cdx.BOM{Components: &[]cdx.Component{{
+					Name:       "lodash",
+					Version:    "1.0",
+					PackageURL: "pkg:npm/lodash@4.17.21",
+					Type:       cdx.ComponentTypeLibrary,
+					ExternalReferences: &[]cdx.ExternalReference{
+						{URL: "https://git.example.com/not-a-repo", Type: cdx.ERTypeVCS},
+						{URL: "https://git.example.com/another-unverified.git", Type: cdx.ERTypeVCS},
+					},
+				}}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+
+				refs := *(*bom.Components)[0].ExternalReferences
+				Expect(refs).To(HaveLen(1))
+				Expect(refs[0].URL).To(Equal("https://github.com/lodash/lodash"))
+			})
+
+			It("stays terminal when the build is canceled during the backoff of a failing link check", func() {
+				var resolved []string
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					resolved = append(resolved, purl)
+					return &ResolveResult{URL: "https://github.com/x/y", Kind: "vcs"}, nil
+				}, service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("lodash", "pkg:npm/lodash@4.17.21", "https://git.example.com/flaky.git"),
+				}}
+				cancelCtx, cancel := context.WithCancelCause(ctx)
+				time.AfterFunc(200*time.Millisecond, func() { cancel(errors.New("SIBLING IMAGE FAILURE REPORT")) })
+
+				err := enricher.Enrich(cancelCtx, bom)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("check vcs: context canceled"))
+				Expect(err.Error()).NotTo(ContainSubstring("SIBLING IMAGE FAILURE REPORT"))
+				Expect(err.Error()).NotTo(ContainSubstring("not confirmed"))
+				Expect(resolved).To(BeEmpty())
+			})
+
+			It("surfaces a tripped breaker on the link check through the usual sentinel", func() {
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					return &ResolveResult{URL: "https://github.com/x/y", Kind: "vcs"}, nil
+				}, func(ctx context.Context, vcsURL string) (*ResolveResult, error) {
+					return nil, ErrResolverUnavailable
+				})
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("lodash", "pkg:npm/lodash@4.17.21", "https://git.example.com/confirmed.git"),
+				}}
+
+				err := enricher.Enrich(ctx, bom)
+				Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
+			})
 		})
 
 		It("does not duplicate references when an enriched BOM is enriched again", func() {
+			handler, calls := mockResolver()
+			ts := httptest.NewServer(handler)
+			defer ts.Close()
+			svc := NewService(ServiceConfig{ServerURL: ts.URL})
+			enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
+
 			bom := &cdx.BOM{
 				Components: &[]cdx.Component{
 					{Name: "lodash", Version: "4.17.21", PackageURL: "pkg:npm/lodash@4.17.21", Type: cdx.ComponentTypeLibrary},
@@ -322,14 +472,18 @@ var _ = Describe("Enricher", func() {
 			}
 
 			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			Expect(calls.Load()).To(Equal(int64(1)))
 			Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+			Expect(calls.Load()).To(Equal(int64(2)), "a downstream image verifies the base image's resolved link with one call and does not resolve the purl again")
 
-			Expect(*(*bom.Components)[0].ExternalReferences).To(HaveLen(1))
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Comment).To(Equal(cyclonedxutil.ExternalReferenceCommentResolved))
 			Expect(*bom.ExternalReferences).To(HaveLen(1))
 		})
 
 		It("error string contains component details format: '- <name> (<purl>): <error>'", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return nil, fmt.Errorf("resolve failed")
 			})
 
@@ -349,7 +503,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("reports purl for errors produced by the enricher itself", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{URL: "https://example.com", Kind: "unknown"}, nil
 			})
 
@@ -365,7 +519,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("rejects a kind the SBOM validation does not accept", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "website"}, nil
 			})
 
@@ -381,7 +535,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("accepts a source-distribution kind", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{
 					URL:    "https://example.com/pkg.tgz",
 					Kind:   "source-distribution",
@@ -402,7 +556,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("carries the source distribution hashes into the reference", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{
 					URL:  "https://example.com/pkg.tgz",
 					Kind: "source-distribution",
@@ -433,7 +587,7 @@ var _ = Describe("Enricher", func() {
 
 		DescribeTable("replaces a source distribution an earlier enrichment left without a digest",
 			func(inheritedHashes *[]cdx.Hash) {
-				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 					return &ResolveResult{
 						URL:    "https://example.com/pkg.tgz",
 						Kind:   "source-distribution",
@@ -469,7 +623,7 @@ var _ = Describe("Enricher", func() {
 
 		DescribeTable("keeps a shared source distribution in the BOM list when another component's copy is replaced",
 			func(digestFirst bool) {
-				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 					return &ResolveResult{
 						URL:    "https://example.com/new.tgz",
 						Kind:   "source-distribution",
@@ -519,7 +673,7 @@ var _ = Describe("Enricher", func() {
 		)
 
 		It("keeps a source distribution that already carries a digest", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{
 					URL:    "https://example.com/pkg.tgz",
 					Kind:   "source-distribution",
@@ -551,7 +705,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("keeps a vcs reference free of hashes", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{
 					URL:    "https://github.com/pkg-a/pkg-a",
 					Kind:   "vcs",
@@ -573,7 +727,7 @@ var _ = Describe("Enricher", func() {
 
 		DescribeTable("rejects a source distribution the SBOM validation would fail on",
 			func(hashes []Hash, expectedErr string) {
-				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+				enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 					return &ResolveResult{URL: "https://example.com/pkg.tgz", Kind: "source-distribution", Hashes: hashes}, nil
 				})
 
@@ -614,7 +768,7 @@ var _ = Describe("Enricher", func() {
 
 		It("keeps a digest in another algorithm next to the STREEBOG one", func() {
 			sha256Content := strings.Repeat("a", 64)
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{
 					URL:  "https://example.com/pkg.tgz",
 					Kind: "source-distribution",
@@ -664,7 +818,7 @@ var _ = Describe("Enricher", func() {
 		})
 
 		It("Resolve field can be injected via NewEnricher", func() {
-			enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+			enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
 				return &ResolveResult{URL: "https://example.com/" + purl, Kind: "vcs"}, nil
 			})
 			Expect(enricher.Resolve).NotTo(BeNil())

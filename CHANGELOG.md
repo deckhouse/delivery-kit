@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.81.4-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.81.4-dk.1...v2.81.4-dk.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* **sbom:** keep builds green when a package's source repo is known ([#425](https://github.com/deckhouse/delivery-kit/issues/425)) ([09ab49f](https://github.com/deckhouse/delivery-kit/commit/09ab49fbce8f608cd3548930dc997285fb9a3e73))
+
 ## [2.81.4-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.81.3-dk.1...v2.81.4-dk.1) (2026-10-09)
 
 

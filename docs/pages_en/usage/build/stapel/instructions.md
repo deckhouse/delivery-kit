@@ -510,7 +510,7 @@ In the example above the current commit hash will be inserted into the `echo ...
 
 ### Git source metadata
 
-`WERF_GIT_SOURCES` is available during `beforeInstall`, `install`, `beforeSetup` and `setup` for images with a `git` directive. It contains a JSON array with one record per mapping:
+`WERF_GIT_SOURCES` is available during `beforeInstall`, `packages`, `install`, `beforeSetup` and `setup` for images with a `git` directive. It contains a JSON array with one record per mapping:
 
 | Field | Meaning |
 | --- | --- |

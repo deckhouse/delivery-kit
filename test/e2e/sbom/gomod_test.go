@@ -33,8 +33,6 @@ var _ = Describe("SBOM go-mod packages", Label("e2e", "sbom", "gomod", "simple")
 		Expect(mylib).NotTo(BeNil(),
 			"expected example.com/mylib@v1.0.0 (resolved from local replace via git tag) not found in BOM")
 
-		// A module replaced by another module needs no resolution: syft catalogs it under
-		// the replacement's path and version.
 		sbomtest.AssertHasComponent(bom, "github.com/alecthomas/kingpin", "v1.3.8-0.20200323085623-b6657d9477a6")
 	})
 

@@ -211,13 +211,33 @@ replace github.com/spf13/cobra => github.com/werf/3p-cobra v1.8.1-werf
 })
 
 var _ = Describe("FromOSPMSpec", func() {
-	It("splits name==version entries", func() {
-		Expect(FromOSPMSpec([]string{"jq==1.8.1", "curl", " ", "openssl==3.6.2"})).To(Equal([]Package{
+	DescribeTable("reads the separators pm accepts",
+		func(spec []string, expected []Package) {
+			Expect(FromOSPMSpec(spec)).To(Equal(expected))
+		},
+		Entry("name==version", []string{"jq==1.8.1", "curl", " ", "openssl==3.6.2"}, []Package{
 			{Name: "jq", Version: "1.8.1"},
 			{Name: "curl"},
 			{Name: "openssl", Version: "3.6.2"},
-		}))
-	})
+		}),
+		Entry("name@version", []string{"curl@8.12.1"}, []Package{{Name: "curl", Version: "8.12.1"}}),
+		Entry("name=version", []string{"curl=8.12.1"}, []Package{{Name: "curl", Version: "8.12.1"}}),
+		Entry("surrounding whitespace is dropped", []string{" curl @ 8.12.1 ", "jq == 1.8.1"}, []Package{
+			{Name: "curl", Version: "8.12.1"},
+			{Name: "jq", Version: "1.8.1"},
+		}),
+		Entry("a range declares the package by name only", []string{"jq>=1.0", "curl@^8", "openssl=~3.6", "bash<6"}, []Package{
+			{Name: "jq"},
+			{Name: "curl"},
+			{Name: "openssl"},
+			{Name: "bash"},
+		}),
+		Entry("a separator without a version declares the package by name only", []string{"curl@", "jq="}, []Package{
+			{Name: "curl"},
+			{Name: "jq"},
+		}),
+		Entry("a separator without a name is skipped", []string{"@8.12.1", "==1.8.1"}, []Package{}),
+	)
 })
 
 var _ = Describe("MatchComponents", func() {

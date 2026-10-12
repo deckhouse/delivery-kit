@@ -63,19 +63,29 @@ func ParseSpec(ecosystem config.PackagesDirectiveType, spec []byte) ([]Package, 
 	}
 }
 
-// FromOSPMSpec reads the `name==version` entries of an os-pm directive spec.
-// An entry without `==` declares the package by name only.
+// FromOSPMSpec reads the entries of an os-pm directive spec the way pm does: the
+// name ends at the first of `@`, `=`, `<` or `>`, what follows is a version
+// constraint. An exact version (`curl==8.12.1`, `curl@8.12.1`) is kept; a range
+// (`curl>=8`, `curl@^8`) or no constraint at all declares the package by name only.
 func FromOSPMSpec(spec []string) []Package {
 	pkgs := make([]Package, 0, len(spec))
 	for _, entry := range spec {
-		name, version, _ := strings.Cut(strings.TrimSpace(entry), "==")
+		name, constraint := strings.TrimSpace(entry), ""
+		if i := strings.IndexAny(name, "@=<>"); i != -1 {
+			name, constraint = strings.TrimSpace(name[:i]), strings.TrimSpace(strings.TrimLeft(name[i:], "@="))
+		}
 		if name == "" {
 			continue
 		}
-		pkgs = append(pkgs, Package{Name: name, Version: version})
+		if !ospmExactVersionPattern.MatchString(constraint) {
+			constraint = ""
+		}
+		pkgs = append(pkgs, Package{Name: name, Version: constraint})
 	}
 	return pkgs
 }
+
+var ospmExactVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`)
 
 // MatchComponents returns the bom-refs of the components of bom that pkgs
 // declare, in the order the components are listed. A declaration with a

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -37,6 +38,27 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		imageRuntime, err = libimage.RuntimeFromStore(inventoryStore, &libimage.RuntimeOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		lookupStore = &cleanupLookupStore{Store: store}
+	})
+
+	ginkgo.It("cleans journal IDs without listing and still checks ownership", func() {
+		ownedID := createCleanupImage(store, project, "owned", []string{"localhost/" + project + ":owned"})
+		aliasedID := createCleanupImage(store, project, "aliased", []string{"localhost/" + project + ":aliased", "localhost/foreign:keep"})
+		danglingID := createCleanupImage(store, project, "dangling", nil)
+		foreignID := createCleanupImage(store, "werf-test-other", "foreign", []string{"localhost/" + project + ":foreign"})
+		request := cleanupProjectRequest{ProjectName: project, ImageIDs: []string{ownedID, aliasedID, danglingID, foreignID, strings.Repeat("f", 64)}}
+		gomega.Expect(cleanupBuildahProjectImages(context.Background(), request, store, imageRuntime)).To(gomega.Succeed())
+		gomega.Expect(inventoryStore.listings).To(gomega.BeZero())
+		for _, id := range []string{ownedID, danglingID} {
+			_, err := store.Image(id)
+			gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
+		}
+		image, err := store.Image(aliasedID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(image.Names).To(gomega.Equal([]string{"localhost/foreign:keep"}))
+		_, err = store.Image(foreignID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(cleanupBuildahProjectImages(context.Background(), cleanupProjectRequest{ProjectName: project, ImageIDs: []string{}}, store, imageRuntime)).To(gomega.Succeed())
+		gomega.Expect(inventoryStore.listings).To(gomega.BeZero())
 	})
 
 	ginkgo.It("refreshes only discovered IDs and preserves foreign aliases and ownership", func() {

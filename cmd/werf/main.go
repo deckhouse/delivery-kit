@@ -15,6 +15,7 @@ import (
 	"github.com/werf/werf/v3/cmd/werf/common"
 	"github.com/werf/werf/v3/cmd/werf/root"
 	"github.com/werf/werf/v3/pkg/background"
+	"github.com/werf/werf/v3/pkg/image/journal"
 	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/process_exterminator"
 	"github.com/werf/werf/v3/pkg/true_git"
@@ -44,6 +45,18 @@ func main() {
 		return
 	} else if shouldTerminate {
 		return
+	}
+	if directory := os.Getenv(journal.Env); directory != "" {
+		finish, err := journal.Begin(ctx, directory)
+		if err != nil {
+			graceful.Terminate(ctx, err, 1)
+			return
+		}
+		defer func() {
+			if err := finish(); err != nil {
+				graceful.Terminate(ctx, err, 1)
+			}
+		}()
 	}
 
 	if profileDir := os.Getenv("WERF_CPU_PROFILE_DIR"); profileDir != "" {

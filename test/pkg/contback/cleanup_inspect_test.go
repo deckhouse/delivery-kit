@@ -9,9 +9,47 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
+	"github.com/werf/werf/v3/pkg/image/journal"
 )
 
 var _ = ginkgo.Describe("Docker cleanup inspect", func() {
+	ginkgo.It("uses journal IDs without listing and retains foreign aliases", func(ctx ginkgo.SpecContext) {
+		dir := ginkgo.GinkgoT().TempDir()
+		root := filepath.Join(dir, "journal")
+		gomega.Expect(os.MkdirAll(filepath.Join(root, "docker"), 0o700)).To(gomega.Succeed())
+		id := strings.Repeat("a", 64)
+		gomega.Expect(journal.Record(ctx, filepath.Join(root, "docker"), id)).To(gomega.Succeed())
+		script := `#!/bin/sh
+if [ "$1" != image ] || [ "$2" != inspect ]; then
+  printf 'listing is forbidden\n' >&2
+  exit 42
+fi
+if [ -f "$REMOVED_MARKER" ]; then
+  printf '{"Id":"%s","Config":{"Labels":{"werf":"werf-test-journal"}},"RepoTags":["foreign:keep"]}\n' "$IMAGE_ID"
+else
+  printf '{"Id":"%s","Config":{"Labels":{"werf":"werf-test-journal"}},"RepoTags":["werf-test-journal:owned","foreign:keep"]}\n' "$IMAGE_ID"
+fi
+`
+		gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700)).To(gomega.Succeed())
+		marker := filepath.Join(dir, "removed")
+		ginkgo.GinkgoT().Setenv("PATH", dir)
+		ginkgo.GinkgoT().Setenv("REMOVED_MARKER", marker)
+		ginkgo.GinkgoT().Setenv("IMAGE_ID", id)
+		ginkgo.GinkgoT().Setenv(journal.Env, root)
+		var removed []string
+		err := cleanupDockerProjectImages(ctx, "werf-test-journal", nil, func(_ context.Context, ref string) error {
+			removed = append(removed, ref)
+			return os.WriteFile(marker, nil, 0o600)
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(removed).To(gomega.Equal([]string{"werf-test-journal:owned"}))
+		gomega.Expect(os.Remove(filepath.Join(root, "docker", id))).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(filepath.Join(root, "docker", "invalid"), nil, 0o600)).To(gomega.Succeed())
+		err = cleanupDockerProjectImages(ctx, "werf-test-journal", nil, func(context.Context, string) error { return nil })
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid image journal entry")))
+	})
+
 	ginkgo.DescribeTable("retries only transient snapshotter consistency errors", func(mode string, attempts int, succeeds bool) {
 		dir := ginkgo.GinkgoT().TempDir()
 		script := `#!/bin/sh

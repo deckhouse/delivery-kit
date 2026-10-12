@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"go.podman.io/storage/pkg/unshare"
 
 	"github.com/werf/werf/v3/pkg/buildah"
+	"github.com/werf/werf/v3/pkg/image/journal"
 )
 
 const cleanupProjectEnv = "_WERF_TEST_CLEANUP_PROJECT"
@@ -27,6 +29,7 @@ const cleanupProjectEnv = "_WERF_TEST_CLEANUP_PROJECT"
 type cleanupProjectRequest struct {
 	ProjectName  string
 	Repositories []string
+	ImageIDs     []string
 }
 
 func init() {
@@ -58,7 +61,14 @@ func cleanupBuildahProject(ctx context.Context, projectName string, repos []stri
 	if err != nil {
 		return fmt.Errorf("find test executable: %w", err)
 	}
-	request, err := json.Marshal(cleanupProjectRequest{ProjectName: projectName, Repositories: repos})
+	cleanupRequest := cleanupProjectRequest{ProjectName: projectName, Repositories: repos}
+	if directory := os.Getenv(journal.Env); directory != "" {
+		cleanupRequest.ImageIDs, err = journal.Read(ctx, filepath.Join(directory, "buildah"))
+		if err != nil {
+			return err
+		}
+	}
+	request, err := json.Marshal(cleanupRequest)
 	if err != nil {
 		return fmt.Errorf("encode cleanup request: %w", err)
 	}
@@ -112,10 +122,13 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 func cleanupBuildahProjectImages(ctx context.Context, request cleanupProjectRequest, store storage.Store, imageRuntime *libimage.Runtime) error {
 	pass := 0
 	var candidates []cleanupImage
+	for _, id := range request.ImageIDs {
+		candidates = append(candidates, cleanupImage{ID: id})
+	}
 	list := func() ([]string, error) {
 		pass++
 		var selected []cleanupImage
-		if pass == 1 {
+		if pass == 1 && request.ImageIDs == nil {
 			done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("list pass=%d", pass))
 			images, err := imageRuntime.ListImages(ctx, &libimage.ListImagesOptions{Filters: []string{"label=werf=" + request.ProjectName}})
 			done(err)
@@ -139,6 +152,21 @@ func cleanupBuildahProjectImages(ctx context.Context, request cleanupProjectRequ
 				if err != nil {
 					done(err)
 					return nil, fmt.Errorf("refresh native test image %q: %w", candidate.ID, err)
+				}
+				if pass == 1 {
+					resolved, _, err := imageRuntime.LookupImage(image.ID, nil)
+					if err != nil {
+						done(err)
+						return nil, fmt.Errorf("resolve journal image %q: %w", image.ID, err)
+					}
+					labels, err := resolved.Labels(ctx)
+					if err != nil {
+						done(err)
+						return nil, fmt.Errorf("read journal image ownership %q: %w", image.ID, err)
+					}
+					if labels["werf"] != request.ProjectName {
+						continue
+					}
 				}
 				selected = append(selected, cleanupImage{ID: image.ID, Names: image.Names})
 			}

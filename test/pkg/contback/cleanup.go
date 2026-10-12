@@ -9,11 +9,15 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/distribution/reference"
+
+	"github.com/werf/werf/v3/pkg/image/journal"
+	"github.com/werf/werf/v3/test/pkg/testresource"
 )
 
 type cleanupImage struct {
@@ -54,6 +58,14 @@ func CleanupProject(ctx context.Context, projectName string, opts CleanupProject
 	if !strings.HasPrefix(projectName, "werf-test-") || strings.ContainsAny(projectName, "/:*?[] \t\n") {
 		return fmt.Errorf("refuse cleanup of non-test project %q", projectName)
 	}
+	if err := testresource.Flush(ctx); err != nil {
+		return fmt.Errorf("flush image journal events: %w", err)
+	}
+	if directory := os.Getenv(journal.Env); directory != "" {
+		if err := journal.Check(ctx, directory); err != nil {
+			return err
+		}
+	}
 
 	var cleanupErrors []error
 	repos := append(slices.Clone(opts.Repositories), os.Getenv("WERF_REPO"), os.Getenv("WERF_FINAL_REPO"))
@@ -86,34 +98,44 @@ func CleanupProject(ctx context.Context, projectName string, opts CleanupProject
 
 func cleanupDockerProjectImages(ctx context.Context, projectName string, repos []string, removeImage func(context.Context, string) error, observedIDs ...string) error {
 	candidates := make(map[string]bool)
+	directory := os.Getenv(journal.Env)
+	if directory != "" {
+		ids, err := journal.Read(ctx, filepath.Join(directory, "docker"))
+		if err != nil {
+			return err
+		}
+		observedIDs = append(observedIDs, ids...)
+	}
 	for _, id := range observedIDs {
 		candidates[id] = true
 	}
 	list := func() ([]string, error) {
-		args := []string{"images", "--all", "--no-trunc", "--digests", "--format", "{{json .}}"}
-		references := []string{projectName, "*/" + projectName, projectName + "-final", "*/" + projectName + "-final"}
-		for _, repo := range repos {
-			if named, err := reference.ParseNormalizedNamed(repo); err == nil {
-				references = append(references, reference.FamiliarName(named))
+		if directory == "" {
+			args := []string{"images", "--all", "--no-trunc", "--digests", "--format", "{{json .}}"}
+			references := []string{projectName, "*/" + projectName, projectName + "-final", "*/" + projectName + "-final"}
+			for _, repo := range repos {
+				if named, err := reference.ParseNormalizedNamed(repo); err == nil {
+					references = append(references, reference.FamiliarName(named))
+				}
 			}
-		}
-		slices.Sort(references)
-		for _, ref := range slices.Compact(references) {
-			args = append(args, "--filter", "reference="+ref)
-		}
-		output, err := cleanupCommand(ctx, "docker", args)
-		if err != nil {
-			return nil, err
-		}
-		images, err := parseDockerCleanupImages(output)
-		if err != nil {
-			return nil, err
-		}
-		for _, image := range images {
-			if image.ID == "" {
-				return nil, fmt.Errorf("docker image inventory returned an empty ID")
+			slices.Sort(references)
+			for _, ref := range slices.Compact(references) {
+				args = append(args, "--filter", "reference="+ref)
 			}
-			candidates[image.ID] = true
+			output, err := cleanupCommand(ctx, "docker", args)
+			if err != nil {
+				return nil, err
+			}
+			images, err := parseDockerCleanupImages(output)
+			if err != nil {
+				return nil, err
+			}
+			for _, image := range images {
+				if image.ID == "" {
+					return nil, fmt.Errorf("docker image inventory returned an empty ID")
+				}
+				candidates[image.ID] = true
+			}
 		}
 		var owned []cleanupImage
 		var queue []string

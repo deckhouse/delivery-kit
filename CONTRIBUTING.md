@@ -104,17 +104,29 @@ installed backend is an error.
 
 On Linux, native cleanup re-executes the test executable before Ginkgo starts,
 passing a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. Non-root callers use
-`buildah unshare`; listing, removal and verification share one native storage
-instance. It discovers project-owned images once, then refreshes their names by
-full storage ID after each removal pass, without repeating the label listing.
+`buildah unshare`; removal and verification share one native storage instance.
+`SetupProjectCleanup` creates a per-spec `_WERF_TEST_IMAGE_JOURNAL` directory.
+Native storage records image IDs before creation and on ID/name/digest lookups;
+Docker records event IDs and successful werf image inspections, including cache
+hits. Cleanup reads these candidates and verifies exact label ownership by ID,
+then refreshes their names after each removal pass. Neither backend lists images
+when journaling is enabled. Callers without a journal retain inventory discovery.
 Missing IDs are complete; other lookup errors fail cleanup. Surviving own aliases
 and tagless images remain candidates, while foreign aliases are preserved.
 Image-producing processes for the project must finish before cleanup starts;
-images created after discovery are not added to its working set.
+images created after tracking ends are not added to its working set. Each werf
+process leaves a pending marker until it finishes journaling; interrupted writers,
+invalid journal records and event-tracking errors fail cleanup without falling
+back to listing. The journal does not discover old, unobserved images in storage.
+Direct Buildah producer commands, including `unshare`, are rejected by test command
+helpers in this mode; use the instrumented werf backend. Direct tag commands record
+their source by inspect. Explicit native references to another storage are unsupported.
+Command-specific Docker endpoints and alternate Buildah roots/drivers are rejected
+because tracking and cleanup must use the same backend storage.
 Native cleanup is skipped outside Linux.
 
 Native cleanup emits `[buildah cleanup]` start/done records for storage options,
-storage/runtime opening, the initial `list`, subsequent `refresh` passes and
+storage/runtime opening, `refresh` passes (or initial `list` without a journal) and
 every image removal. Records
 include UTC timestamps, project, PID, elapsed time and errors; inventory summaries
 include image/reference counts. Worker output streams into Ginkgo output and is
@@ -122,9 +134,9 @@ retained in errors, so a killed worker leaves its last started phase visible.
 
 Command helpers record the backend and repository overrides before invoking werf
 or an image-changing Docker command. Mixed specs clean both used backends;
-Buildah-only specs do not query Docker images. Docker candidates are listed by
-repository references without a server-side label filter, then inspected by ID
-to verify ownership and all aliases. Keep explicit `CleanupRepositories`
+Buildah-only specs do not query Docker images. Without a journal, Docker candidates
+are listed by repository references without a server-side label filter. Candidates
+are always inspected by ID to verify ownership and all aliases. Keep explicit `CleanupRepositories`
 registration for export names and other references not passed as repo options.
 Docker image events are collected while commands run, including failing commands,
 so cleanup can still inspect images that lost their last tag. A short event-history

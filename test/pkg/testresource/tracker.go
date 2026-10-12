@@ -2,9 +2,12 @@ package testresource
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,6 +18,9 @@ import (
 	"github.com/docker/cli/cli/flags"
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
+
+	"github.com/werf/werf/v3/pkg/buildah"
+	"github.com/werf/werf/v3/pkg/image/journal"
 )
 
 var active struct {
@@ -42,10 +48,11 @@ type Tracker struct {
 	seenImageIDs   map[string]bool
 	streamErr      error
 	finished       bool
+	journalDir     string
 }
 
 func Activate(_ context.Context, projectName, executable string) *Tracker {
-	tracker := &Tracker{projectName: projectName, executable: executable, snapshot: Snapshot{Backends: []string{}}}
+	tracker := &Tracker{projectName: projectName, executable: executable, snapshot: Snapshot{Backends: []string{}}, journalDir: os.Getenv(journal.Env)}
 	active.Lock()
 	defer active.Unlock()
 	active.tracker = tracker
@@ -59,14 +66,29 @@ func ObserveCommand(ctx context.Context, executable string, args, environment []
 	if tracker == nil {
 		return nil
 	}
+	if tracker.journalDir != "" && executable != tracker.executable && slices.Contains([]string{"docker", "buildah"}, filepath.Base(executable)) {
+		if _, _, err := commandOperation(executable, args); err != nil {
+			return err
+		}
+	}
 	backend, repos := commandResources(tracker.executable, executable, args, environment)
 	if backend == "" {
 		return nil
+	}
+	if tracker.journalDir != "" {
+		if err := tracker.validateCommandStorage(executable, args, environment, backend); err != nil {
+			return err
+		}
 	}
 	tracker.mu.Lock()
 	defer tracker.mu.Unlock()
 	if tracker.finished {
 		return errors.New("cannot start a command after resource tracking has finished")
+	}
+	if tracker.journalDir != "" && backend == "buildah" && executable != tracker.executable {
+		if err := tracker.observeBuildahCommand(ctx, executable, args, environment); err != nil {
+			return err
+		}
 	}
 	tracker.snapshot.Backends = appendUnique(tracker.snapshot.Backends, backend)
 	for _, repo := range repos {
@@ -76,6 +98,111 @@ func ObserveCommand(ctx context.Context, executable string, args, environment []
 		return tracker.startEvents(ctx)
 	}
 	return nil
+}
+
+func (tracker *Tracker) validateCommandStorage(executable string, args, environment []string, backend string) error {
+	env := make(map[string]string)
+	for _, entry := range environment {
+		if key, value, found := strings.Cut(entry, "="); found {
+			env[key] = value
+		}
+	}
+	if env[journal.Env] != tracker.journalDir {
+		return fmt.Errorf("image journal override is not supported during resource tracking")
+	}
+	if backend == "docker" {
+		for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+			if env[name] != os.Getenv(name) {
+				return fmt.Errorf("%s override is not supported during image tracking", name)
+			}
+		}
+	} else if driver := env["WERF_BUILDAH_STORAGE_DRIVER"]; driver != "" && driver != string(buildah.DefaultStorageDriver) {
+		return fmt.Errorf("alternate Buildah storage driver is not supported during image tracking")
+	}
+	if executable == tracker.executable {
+		return nil
+	}
+	_, operationIndex, err := commandOperation(executable, args)
+	if err != nil {
+		return err
+	}
+	for index := 0; index < operationIndex; index++ {
+		name, value, assigned := strings.Cut(args[index], "=")
+		if backend == "docker" && slices.Contains([]string{"--host", "-H", "--context", "-c", "--config", "--tls", "--tlsverify", "--tlscacert", "--tlscert", "--tlskey"}, name) {
+			return fmt.Errorf("Docker endpoint option %s is not supported during image tracking", name)
+		}
+		if backend == "buildah" && slices.Contains([]string{"--root", "--runroot"}, name) {
+			return fmt.Errorf("Buildah storage option %s is not supported during image tracking", name)
+		}
+		if backend == "buildah" && name == "--storage-driver" {
+			if !assigned {
+				value = args[index+1]
+			}
+			if value != string(buildah.DefaultStorageDriver) {
+				return fmt.Errorf("alternate Buildah storage driver is not supported during image tracking")
+			}
+		}
+	}
+	return nil
+}
+
+func (tracker *Tracker) observeBuildahCommand(ctx context.Context, executable string, args, environment []string) error {
+	arg, index, err := commandOperation(executable, args)
+	if err != nil {
+		return err
+	}
+	switch arg {
+	case "build", "bud", "commit", "pull", "load", "import", "from", "manifest", "unshare":
+		return fmt.Errorf("direct buildah %s is not supported by image journaling; use the instrumented werf backend", arg)
+	case "tag":
+		if index+1 >= len(args) {
+			return fmt.Errorf("buildah tag source is missing")
+		}
+		command := exec.CommandContext(ctx, executable, append(slices.Clone(args[:index]), "inspect", "--type", "image", args[index+1])...)
+		command.Env = environment
+		output, err := command.Output()
+		if err != nil {
+			return fmt.Errorf("inspect buildah tag source: %w", err)
+		}
+		var image struct{ FromImageID string }
+		if err := json.Unmarshal(output, &image); err != nil {
+			return fmt.Errorf("decode buildah tag source: %w", err)
+		}
+		return journal.Record(ctx, filepath.Join(tracker.journalDir, "buildah"), image.FromImageID)
+	case "inspect", "images", "containers", "rmi", "rm", "mount", "umount", "info", "version", "push":
+		return nil
+	}
+	return fmt.Errorf("unrecognized direct buildah operation with image journaling")
+}
+
+func commandOperation(executable string, args []string) (string, int, error) {
+	valueFlags := []string{"--config", "--context", "-c", "--host", "-H", "--log-level", "-l", "--tlscacert", "--tlscert", "--tlskey"}
+	boolFlags := []string{"--debug", "-D", "--tls", "--tlsverify"}
+	if filepath.Base(executable) == "buildah" {
+		valueFlags = []string{"--root", "--runroot", "--storage-driver", "--storage-opt", "--registries-conf", "--registries-conf-dir", "--signature-policy", "--log-level", "--userns-uid-map", "--userns-gid-map", "--cgroup-manager"}
+		boolFlags = []string{"--debug"}
+	}
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if !strings.HasPrefix(arg, "-") {
+			return arg, index, nil
+		}
+		name, _, assigned := strings.Cut(arg, "=")
+		if slices.Contains(boolFlags, name) {
+			continue
+		}
+		if slices.Contains(valueFlags, name) {
+			if !assigned {
+				index++
+				if index >= len(args) {
+					return "", 0, fmt.Errorf("missing value for %s", name)
+				}
+			}
+			continue
+		}
+		return "", 0, fmt.Errorf("unsupported %s global option %q with image tracking", filepath.Base(executable), arg)
+	}
+	return "", 0, nil
 }
 
 func commandResources(werfExecutable, executable string, args, environment []string) (string, []string) {
@@ -97,9 +224,12 @@ func commandResources(werfExecutable, executable string, args, environment []str
 	} else if len(args) > 0 {
 		switch filepath.Base(executable) {
 		case "docker":
-			operation := args[0]
-			if operation == "image" && len(args) > 1 {
-				operation = args[1]
+			operation, index, err := commandOperation(executable, args)
+			if err != nil {
+				return "", nil
+			}
+			if operation == "image" && len(args) > index+1 {
+				operation = args[index+1]
 			}
 			if slices.Contains([]string{"build", "buildx", "pull", "run", "create", "commit", "load", "import", "tag"}, operation) {
 				backend = "docker"
@@ -196,6 +326,11 @@ func (tracker *Tracker) record(event events.Message) {
 			tracker.seenImageIDs = make(map[string]bool)
 		}
 		if !tracker.seenImageIDs[event.Actor.ID] {
+			if tracker.journalDir != "" {
+				if err := journal.Record(context.Background(), filepath.Join(tracker.journalDir, "docker"), event.Actor.ID); err != nil {
+					tracker.streamErr = errors.Join(tracker.streamErr, fmt.Errorf("record Docker event: %w", err))
+				}
+			}
 			tracker.seenImageIDs[event.Actor.ID] = true
 			tracker.snapshot.DockerImageIDs = append(tracker.snapshot.DockerImageIDs, event.Actor.ID)
 		}
@@ -242,15 +377,34 @@ func (tracker *Tracker) recordStreamError(err, cancellation error) {
 	if err == nil {
 		err = errors.New("stream closed without a result")
 	}
-	tracker.streamErr = fmt.Errorf("Docker event stream ended: %w", err)
+	tracker.streamErr = errors.Join(tracker.streamErr, fmt.Errorf("Docker event stream ended: %w", err))
+}
+
+func Flush(ctx context.Context) error {
+	active.Lock()
+	tracker := active.tracker
+	active.Unlock()
+	if tracker == nil {
+		return nil
+	}
+	tracker.mu.Lock()
+	if tracker.finished {
+		err := tracker.streamErr
+		tracker.mu.Unlock()
+		return err
+	}
+	api := tracker.api
+	tracker.mu.Unlock()
+	if api == nil {
+		return nil
+	}
+	err := tracker.replay(ctx, time.Now())
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	return errors.Join(err, tracker.streamErr)
 }
 
 func (tracker *Tracker) Finish(ctx context.Context) (Snapshot, error) {
-	active.Lock()
-	if active.tracker == tracker {
-		active.tracker = nil
-	}
-	active.Unlock()
 	tracker.mu.Lock()
 	if tracker.finished {
 		tracker.mu.Unlock()
@@ -277,7 +431,8 @@ func (tracker *Tracker) Finish(ctx context.Context) (Snapshot, error) {
 	}
 	tracker.mu.Lock()
 	defer tracker.mu.Unlock()
-	return tracker.snapshot, errors.Join(finalErr, tracker.streamErr)
+	tracker.streamErr = errors.Join(finalErr, tracker.streamErr)
+	return tracker.snapshot, tracker.streamErr
 }
 
 func appendUnique(values []string, value string) []string {

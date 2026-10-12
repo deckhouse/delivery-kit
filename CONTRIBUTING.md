@@ -105,10 +105,17 @@ installed backend is an error.
 On Linux, native cleanup re-executes the test executable before Ginkgo starts,
 passing a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. Non-root callers use
 `buildah unshare`; listing, removal and verification share one native storage
-instance. Native cleanup is skipped outside Linux.
+instance. It discovers project-owned images once, then refreshes their names by
+full storage ID after each removal pass, without repeating the label listing.
+Missing IDs are complete; other lookup errors fail cleanup. Surviving own aliases
+and tagless images remain candidates, while foreign aliases are preserved.
+Image-producing processes for the project must finish before cleanup starts;
+images created after discovery are not added to its working set.
+Native cleanup is skipped outside Linux.
 
 Native cleanup emits `[buildah cleanup]` start/done records for storage options,
-storage/runtime opening, every inventory pass and every image removal. Records
+storage/runtime opening, the initial `list`, subsequent `refresh` passes and
+every image removal. Records
 include UTC timestamps, project, PID, elapsed time and errors; inventory summaries
 include image/reference counts. Worker output streams into Ginkgo output and is
 retained in errors, so a killed worker leaves its last started phase visible.

@@ -106,21 +106,47 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 	if err != nil {
 		return fmt.Errorf("open test image runtime: %w", err)
 	}
+	return cleanupBuildahProjectImages(ctx, request, store, imageRuntime)
+}
+
+func cleanupBuildahProjectImages(ctx context.Context, request cleanupProjectRequest, store storage.Store, imageRuntime *libimage.Runtime) error {
 	pass := 0
+	var candidates []cleanupImage
 	list := func() ([]string, error) {
 		pass++
-		done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("list pass=%d", pass))
-		images, err := imageRuntime.ListImages(ctx, &libimage.ListImagesOptions{Filters: []string{"label=werf=" + request.ProjectName}})
-		done(err)
-		if err != nil {
-			return nil, fmt.Errorf("list native test images: %w", err)
-		}
 		var selected []cleanupImage
-		for _, img := range images {
-			selected = append(selected, cleanupImage{ID: img.ID(), Names: img.Names()})
+		if pass == 1 {
+			done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("list pass=%d", pass))
+			images, err := imageRuntime.ListImages(ctx, &libimage.ListImagesOptions{Filters: []string{"label=werf=" + request.ProjectName}})
+			done(err)
+			if err != nil {
+				return nil, fmt.Errorf("list native test images: %w", err)
+			}
+			for _, img := range images {
+				selected = append(selected, cleanupImage{ID: img.ID(), Names: img.Names()})
+			}
+		} else {
+			done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("refresh pass=%d", pass))
+			for _, candidate := range candidates {
+				if err := ctx.Err(); err != nil {
+					done(err)
+					return nil, err
+				}
+				image, err := store.Image(candidate.ID)
+				if errors.Is(err, storage.ErrImageUnknown) {
+					continue
+				}
+				if err != nil {
+					done(err)
+					return nil, fmt.Errorf("refresh native test image %q: %w", candidate.ID, err)
+				}
+				selected = append(selected, cleanupImage{ID: image.ID, Names: image.Names})
+			}
+			done(nil)
 		}
+		candidates = selected
 		references := projectImageReferences(selected, request.ProjectName, request.Repositories)
-		fmt.Fprintf(os.Stderr, "[buildah cleanup] project=%q pass=%d images=%d references=%d\n", request.ProjectName, pass, len(images), len(references))
+		fmt.Fprintf(os.Stderr, "[buildah cleanup] project=%q pass=%d images=%d references=%d\n", request.ProjectName, pass, len(selected), len(references))
 		return references, nil
 	}
 	removeImage := func(ctx context.Context, ref string) error {

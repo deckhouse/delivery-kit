@@ -560,6 +560,7 @@ type artifactPhaseGiterminism struct {
 
 func (m *artifactPhaseGiterminism) LocalGitRepo() git_repo.GitRepo             { return nil }
 func (m *artifactPhaseGiterminism) HeadCommit(context.Context) string          { return "" }
+func (m *artifactPhaseGiterminism) RelativeToGitProjectDir() string            { return "" }
 func (m *artifactPhaseGiterminism) FileReader() giterminism_manager.FileReader { return m.reader }
 
 type artifactPhaseFileReader struct {

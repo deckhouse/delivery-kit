@@ -33,7 +33,8 @@ werf sbom validate [options]
             checker`s own VCS tool diagnostics. The output is printed at the default log level, so  
             --log-quiet suppresses it; it does not affect werf log verbosity, see --log-verbose
       --container-registry-mirror=[]
-            (Buildah-only) Use specified mirrors for docker.io
+            (Buildah-only) Use specified mirrors for docker.io ($WERF_CONTAINER_REGISTRY_MIRROR or  
+            $WERF_CONTAINER_REGISTRY_MIRROR_*)
       --docker-config=""
             Specify docker config directory path. Default $WERF_DOCKER_CONFIG or $DOCKER_CONFIG or  
             ~/.docker (in the order of priority)

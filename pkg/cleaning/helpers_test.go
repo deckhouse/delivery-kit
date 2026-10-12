@@ -169,3 +169,17 @@ func (f *fakePrimaryStagesStorage) Address() string { return f.address }
 func (f *fakePrimaryStagesStorage) GetOrphanedArtifactNames(context.Context) ([]string, error) {
 	return nil, nil
 }
+
+type purgeOrphanFailureStorage struct {
+	storage.StagesStorage
+	failOrphanListing bool
+}
+
+var _ storage.StagesStorage = (*purgeOrphanFailureStorage)(nil)
+
+func (s *purgeOrphanFailureStorage) GetOrphanedArtifactNames(ctx context.Context) ([]string, error) {
+	if s.failOrphanListing {
+		return nil, fmt.Errorf("orphan enumeration unavailable")
+	}
+	return s.StagesStorage.GetOrphanedArtifactNames(ctx)
+}

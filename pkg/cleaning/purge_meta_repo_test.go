@@ -79,4 +79,31 @@ var _ = ginkgo.Describe("Purge meta-repo safeguard", func() {
 		ginkgo.Entry("image metadata", "image"),
 		ginkgo.Entry("custom-tag metadata", "custom tag"),
 	)
+
+	ginkgo.It("retains the marker when orphan enumeration fails and removes it after a successful retry", func() {
+		ctx := context.Background()
+		gomega.Expect(werf.Init(ginkgo.GinkgoT().TempDir(), ginkgo.GinkgoT().TempDir())).To(gomega.Succeed())
+		registry := &purgeMarkerRegistry{images: map[string]*image.Info{}}
+		stages := storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/stages", DockerRegistry: registry, SkipMetaCheck: true})
+		meta := storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/meta", DockerRegistry: registry, SkipMetaCheck: true})
+		final := &purgeOrphanFailureStorage{
+			StagesStorage:     storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/final", DockerRegistry: registry, SkipMetaCheck: true}),
+			failOrphanListing: true,
+		}
+		orphanName := final.Address() + ":sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		registry.images[orphanName] = &image.Info{Name: orphanName}
+		gomega.Expect(stages.PutMetaRepoMarker(ctx, "project", meta.Address())).To(gomega.Succeed())
+		sm := &manager.StorageManager{ProjectName: "project", StagesStorage: stages, MetaStorage: meta, FinalStagesStorage: final}
+		gomega.Expect(Purge(ctx, "project", sm, PurgeOptions{})).To(gomega.MatchError(gomega.ContainSubstring("orphan enumeration unavailable")))
+		_, found, err := stages.GetMetaRepoMarker(ctx, "project")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(found).To(gomega.BeTrue())
+		gomega.Expect(registry.images).To(gomega.HaveKey(orphanName))
+		final.failOrphanListing = false
+		gomega.Expect(Purge(ctx, "project", sm, PurgeOptions{})).To(gomega.Succeed())
+		_, found, err = stages.GetMetaRepoMarker(ctx, "project")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(found).To(gomega.BeFalse())
+		gomega.Expect(registry.images).NotTo(gomega.HaveKey(orphanName))
+	})
 })

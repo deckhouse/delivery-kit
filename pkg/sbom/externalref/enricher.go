@@ -341,9 +341,10 @@ func isInfraFailure(err error) bool {
 	return errors.As(err, &classified) && classified.Class == FailureClassInfra
 }
 
-// knownVCSLink returns the component's vcs link. Enrichment runs on a merged,
-// canonicalized BOM, which carries at most one vcs link per component; a
-// second link only shows up in a foreign SBOM and is handled by the fallback.
+// knownVCSLink returns the component's vcs link. A BOM reaching enrichment
+// carries at most one vcs link per component: merged BOMs are canonicalized
+// first, and syft emits at most one. A second link only shows up in a foreign
+// SBOM and is handled by the fallback.
 func knownVCSLink(comp *cdx.Component) (string, bool) {
 	if comp.ExternalReferences == nil {
 		return "", false

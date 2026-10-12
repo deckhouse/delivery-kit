@@ -44,9 +44,9 @@ type PredicateKind struct {
 	// URI set for slot selection only.
 	AliasMatching bool
 
-	// DowngradeSupersede makes an unsigned publish evict the stale signed bundle
-	// (019-vex-signing FR-009); kinds without it keep the 016-sbom-signing
-	// behavior where only a signed publish supersedes the unsigned artifact.
+	// DowngradeSupersede makes an unsigned publish evict the stale signed bundle,
+	// so a read never prefers an artifact of the previous signing state; kinds
+	// without it only supersede the unsigned artifact on a signed publish.
 	DowngradeSupersede bool
 }
 
@@ -66,9 +66,10 @@ var (
 	}
 
 	PredicateKindCycloneDX = PredicateKind{
-		Name:         "cyclonedx",
-		SignedType:   "https://cyclonedx.org/bom",
-		UnsignedType: "https://cyclonedx.org/bom/v1.6",
+		Name:               "cyclonedx",
+		SignedType:         "https://cyclonedx.org/bom",
+		UnsignedType:       "https://cyclonedx.org/bom/v1.6",
+		DowngradeSupersede: true,
 	}
 )
 

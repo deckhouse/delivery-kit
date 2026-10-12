@@ -165,3 +165,7 @@ func (r *purgeMarkerRegistry) DeleteRepoImage(_ context.Context, info *image.Inf
 }
 
 func (f *fakePrimaryStagesStorage) Address() string { return f.address }
+
+func (f *fakePrimaryStagesStorage) GetOrphanedArtifactNames(context.Context) ([]string, error) {
+	return nil, nil
+}

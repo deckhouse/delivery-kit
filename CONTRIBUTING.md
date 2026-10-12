@@ -108,7 +108,9 @@ passing a JSON request in `_WERF_TEST_CLEANUP_PROJECT`. Non-root callers use
 `SetupProjectCleanup` creates a per-spec `_WERF_TEST_IMAGE_JOURNAL` directory.
 Native storage records image IDs before creation and on ID/name/digest lookups;
 Docker records event IDs and successful werf image inspections, including cache
-hits. Cleanup reads these candidates and verifies exact label ownership by ID,
+hits. Reference-valued Docker events are resolved by addressable inspect; replay
+reuses the identity of the same event, not a cached mutable tag. Cleanup reads
+these candidates and verifies exact label ownership by ID,
 then refreshes their names after each removal pass. Neither backend lists images
 when journaling is enabled. Callers without a journal retain inventory discovery.
 Missing IDs are complete; other lookup errors fail cleanup. Surviving own aliases
@@ -118,9 +120,13 @@ images created after tracking ends are not added to its working set. Each werf
 process leaves a pending marker until it finishes journaling; interrupted writers,
 invalid journal records and event-tracking errors fail cleanup without falling
 back to listing. The journal does not discover old, unobserved images in storage.
-Direct Buildah producer commands, including `unshare`, are rejected by test command
-helpers in this mode; use the instrumented werf backend. Direct tag commands record
-their source by inspect. Explicit native references to another storage are unsupported.
+Command helpers support single-image Buildah `pull` and named `from` operations:
+they retain a pending marker until the result is inspected and journaled. Successful
+pulls use the immutable ID printed by Buildah; `from` records the named container's
+source image. Failed preparation retains its incomplete marker. Other direct Buildah
+producers, including `unshare`, remain rejected; use the instrumented werf backend.
+Container `run` is supported. Direct tag commands record their source by inspect.
+Explicit native references to another storage are unsupported.
 Command-specific Docker endpoints and alternate Buildah roots/drivers are rejected
 because tracking and cleanup must use the same backend storage.
 Native cleanup is skipped outside Linux.

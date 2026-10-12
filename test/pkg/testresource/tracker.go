@@ -18,6 +18,7 @@ import (
 	"github.com/docker/cli/cli/flags"
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
+	"github.com/opencontainers/go-digest"
 
 	"github.com/werf/werf/v3/pkg/buildah"
 	"github.com/werf/werf/v3/pkg/image/journal"
@@ -46,6 +47,7 @@ type Tracker struct {
 	auditDone      chan struct{}
 	coveredThrough time.Time
 	seenImageIDs   map[string]bool
+	resolvedEvents map[string]string
 	streamErr      error
 	finished       bool
 	journalDir     string
@@ -60,6 +62,110 @@ func Activate(_ context.Context, projectName, executable string) *Tracker {
 }
 
 func ObserveCommand(ctx context.Context, executable string, args, environment []string) error {
+	return observeCommand(ctx, executable, args, environment, false)
+}
+
+func PrepareCommand(ctx context.Context, executable string, args, environment []string) (func(error, []byte) error, error) {
+	if err := observeCommand(ctx, executable, args, environment, true); err != nil {
+		return nil, err
+	}
+	active.Lock()
+	tracker := active.tracker
+	active.Unlock()
+	if tracker == nil || tracker.journalDir == "" || filepath.Base(executable) != "buildah" {
+		return func(error, []byte) error { return nil }, nil
+	}
+	operation, index, err := commandOperation(executable, args)
+	if err != nil {
+		return nil, err
+	}
+	if operation != "pull" && operation != "from" {
+		return func(error, []byte) error { return nil }, nil
+	}
+	kind, ref, err := buildahPreparationResult(operation, args[index+1:])
+	if err != nil {
+		return nil, err
+	}
+	finish, err := journal.Begin(ctx, tracker.journalDir)
+	if err != nil {
+		return nil, err
+	}
+	return func(commandErr error, stdout []byte) error {
+		if operation == "pull" && commandErr == nil {
+			fields := strings.Fields(string(stdout))
+			if len(fields) == 0 {
+				return fmt.Errorf("buildah pull returned no image ID")
+			}
+			ref = strings.TrimPrefix(fields[len(fields)-1], "sha256:")
+			if err := digest.Digest("sha256:" + ref).Validate(); err != nil {
+				return fmt.Errorf("invalid buildah pull result ID: %w", err)
+			}
+		}
+		inspectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		command := exec.CommandContext(inspectCtx, executable, append(slices.Clone(args[:index]), "inspect", "--type", kind, ref)...)
+		command.Env = environment
+		output, err := command.Output()
+		if err != nil {
+			return fmt.Errorf("inspect buildah %s result %q: %w", operation, ref, err)
+		}
+		var inspected struct{ FromImageID string }
+		if err := json.Unmarshal(output, &inspected); err != nil {
+			return fmt.Errorf("decode buildah %s result: %w", operation, err)
+		}
+		if operation == "pull" && commandErr == nil && strings.TrimPrefix(inspected.FromImageID, "sha256:") != ref {
+			return fmt.Errorf("buildah pull result ID differs from inspected image")
+		}
+		if err := journal.Record(inspectCtx, filepath.Join(tracker.journalDir, "buildah"), inspected.FromImageID); err != nil {
+			return fmt.Errorf("record buildah %s result: %w", operation, err)
+		}
+		if commandErr != nil {
+			return fmt.Errorf("buildah %s failed; image journal may be incomplete: %w", operation, commandErr)
+		}
+		return finish()
+	}, nil
+}
+
+func buildahPreparationResult(operation string, args []string) (string, string, error) {
+	var source, container string
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if !strings.HasPrefix(arg, "-") {
+			if source != "" {
+				return "", "", fmt.Errorf("buildah %s image tracking requires one image reference", operation)
+			}
+			source = arg
+			continue
+		}
+		name, value, assigned := strings.Cut(arg, "=")
+		if name == "--tls-verify" && assigned && (value == "true" || value == "false") {
+			continue
+		}
+		if operation == "from" && slices.Contains([]string{"--name", "--isolation", "--format"}, name) {
+			if !assigned {
+				index++
+				if index >= len(args) {
+					return "", "", fmt.Errorf("missing value for buildah %s", name)
+				}
+				value = args[index]
+			}
+			if name == "--name" {
+				container = value
+			}
+			continue
+		}
+		return "", "", fmt.Errorf("buildah %s option %q is not supported by image tracking", operation, arg)
+	}
+	if source == "" || (operation == "from" && container == "") {
+		return "", "", fmt.Errorf("buildah %s requires an explicit result reference for image tracking", operation)
+	}
+	if operation == "from" {
+		return "container", container, nil
+	}
+	return "image", source, nil
+}
+
+func observeCommand(ctx context.Context, executable string, args, environment []string, trackPreparation bool) error {
 	active.Lock()
 	tracker := active.tracker
 	active.Unlock()
@@ -86,8 +192,14 @@ func ObserveCommand(ctx context.Context, executable string, args, environment []
 		return errors.New("cannot start a command after resource tracking has finished")
 	}
 	if tracker.journalDir != "" && backend == "buildah" && executable != tracker.executable {
-		if err := tracker.observeBuildahCommand(ctx, executable, args, environment); err != nil {
+		operation, _, err := commandOperation(executable, args)
+		if err != nil {
 			return err
+		}
+		if !trackPreparation || (operation != "pull" && operation != "from") {
+			if err := tracker.observeBuildahCommand(ctx, executable, args, environment); err != nil {
+				return err
+			}
 		}
 	}
 	tracker.snapshot.Backends = appendUnique(tracker.snapshot.Backends, backend)
@@ -169,7 +281,7 @@ func (tracker *Tracker) observeBuildahCommand(ctx context.Context, executable st
 			return fmt.Errorf("decode buildah tag source: %w", err)
 		}
 		return journal.Record(ctx, filepath.Join(tracker.journalDir, "buildah"), image.FromImageID)
-	case "inspect", "images", "containers", "rmi", "rm", "mount", "umount", "info", "version", "push":
+	case "inspect", "images", "containers", "rmi", "rm", "run", "mount", "umount", "info", "version", "push":
 		return nil
 	}
 	return fmt.Errorf("unrecognized direct buildah operation with image journaling")
@@ -278,9 +390,7 @@ func (tracker *Tracker) startEvents(ctx context.Context) error {
 		for {
 			select {
 			case event := <-stream.Messages:
-				tracker.mu.Lock()
 				tracker.record(event)
-				tracker.mu.Unlock()
 			case err := <-stream.Err:
 				tracker.mu.Lock()
 				tracker.recordStreamError(err, eventCtx.Err())
@@ -318,21 +428,52 @@ func (tracker *Tracker) startEvents(ctx context.Context) error {
 }
 
 func (tracker *Tracker) record(event events.Message) {
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
 	if owner, present := event.Actor.Attributes["werf"]; present && tracker.projectName != "" && owner != tracker.projectName {
 		return
 	}
 	if event.Type == events.ImageEventType && event.Actor.ID != "" {
+		id := event.Actor.ID
+		if tracker.journalDir != "" {
+			id = strings.TrimPrefix(id, "sha256:")
+			if err := digest.Digest("sha256:" + id).Validate(); err != nil {
+				key := fmt.Sprintf("%s/%s/%d/%d", event.Actor.ID, event.Action, event.Time, event.TimeNano)
+				if resolved := tracker.resolvedEvents[key]; resolved != "" && (event.Time != 0 || event.TimeNano != 0) {
+					id = resolved
+				} else {
+					api := tracker.api
+					tracker.mu.Unlock()
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					inspected, err := api.ImageInspect(ctx, event.Actor.ID)
+					cancel()
+					tracker.mu.Lock()
+					if resolved := tracker.resolvedEvents[key]; resolved != "" && (event.Time != 0 || event.TimeNano != 0) {
+						id = resolved
+					} else if err != nil {
+						tracker.streamErr = errors.Join(tracker.streamErr, fmt.Errorf("resolve Docker event reference %q: %w", event.Actor.ID, err))
+						return
+					} else {
+						id = strings.TrimPrefix(inspected.ID, "sha256:")
+						if tracker.resolvedEvents == nil {
+							tracker.resolvedEvents = make(map[string]string)
+						}
+						tracker.resolvedEvents[key] = id
+					}
+				}
+			}
+		}
 		if tracker.seenImageIDs == nil {
 			tracker.seenImageIDs = make(map[string]bool)
 		}
-		if !tracker.seenImageIDs[event.Actor.ID] {
+		if !tracker.seenImageIDs[id] {
 			if tracker.journalDir != "" {
-				if err := journal.Record(context.Background(), filepath.Join(tracker.journalDir, "docker"), event.Actor.ID); err != nil {
+				if err := journal.Record(context.Background(), filepath.Join(tracker.journalDir, "docker"), id); err != nil {
 					tracker.streamErr = errors.Join(tracker.streamErr, fmt.Errorf("record Docker event: %w", err))
 				}
 			}
-			tracker.seenImageIDs[event.Actor.ID] = true
-			tracker.snapshot.DockerImageIDs = append(tracker.snapshot.DockerImageIDs, event.Actor.ID)
+			tracker.seenImageIDs[id] = true
+			tracker.snapshot.DockerImageIDs = append(tracker.snapshot.DockerImageIDs, id)
 		}
 	}
 }
@@ -352,9 +493,7 @@ func (tracker *Tracker) replay(ctx context.Context, until time.Time) error {
 		select {
 		case event := <-stream.Messages:
 			count++
-			tracker.mu.Lock()
 			tracker.record(event)
-			tracker.mu.Unlock()
 		case err := <-stream.Err:
 			if !errors.Is(err, io.EOF) {
 				return fmt.Errorf("read Docker event tail: %w", err)

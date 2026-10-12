@@ -13,13 +13,45 @@ import (
 	"github.com/onsi/gomega"
 
 	"github.com/werf/werf/v3/pkg/buildah"
+	"github.com/werf/werf/v3/pkg/buildah/thirdparty"
+	"github.com/werf/werf/v3/pkg/image/journal"
 	"github.com/werf/werf/v3/test/pkg/contback"
 	"github.com/werf/werf/v3/test/pkg/report"
+	"github.com/werf/werf/v3/test/pkg/suite_init"
 	"github.com/werf/werf/v3/test/pkg/testresource"
 	"github.com/werf/werf/v3/test/pkg/utils"
 )
 
 var _ = ginkgo.Describe("Test image cleanup", ginkgo.Label("e2e", "build", "extra"), func() {
+	ginkgo.It("journals native pull and container preparation", ginkgo.Label("native-rootless", suite_init.LabelNeedsBuildah), func(ctx ginkgo.SpecContext) {
+		contback.SkipIfUnavailable("native-rootless")
+		opts := setupEnvOptions{ContainerBackendMode: "native-rootless"}
+		setupEnv(opts)
+		backend := contback.NewNativeBuildahBackend(thirdparty.IsolationOCIRootless, buildah.DefaultStorageDriver)
+		backend.Pull(ctx, "docker.io/library/bash:5.2")
+		backend.ExpectCmdsToSucceed(ctx, "docker.io/library/bash:5.2", "true")
+		ids, err := journal.Read(ctx, filepath.Join(os.Getenv(journal.Env), "buildah"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(ids).NotTo(gomega.BeEmpty())
+		gomega.Expect(journal.Check(ctx, os.Getenv(journal.Env))).To(gomega.Succeed())
+	})
+
+	ginkgo.It("tracks reference-valued Docker push events", ginkgo.Label("docker"), func(ctx ginkgo.SpecContext) {
+		setupEnv(setupEnvOptions{ContainerBackendMode: "docker"})
+		tracker := testresource.Activate(ctx, SuiteData.ProjectName, SuiteData.WerfBinPath)
+		ref := suite_init.TestRepo(SuiteData.ProjectName) + ":event"
+		_, err := utils.RunCommandWithOptions(ctx, "", "docker", []string{"build", "--quiet", "--label", "werf=" + SuiteData.ProjectName, "--tag", ref, "-"}, utils.RunCommandOptions{ToStdin: "FROM scratch\n"})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		id := strings.TrimSpace(utils.SucceedCommandOutputString(ctx, "", "docker", "image", "inspect", "--format", "{{.Id}}", ref))
+		utils.RunSucceedCommand(ctx, "", "docker", "push", ref)
+		resources, err := tracker.Finish(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(resources.DockerImageIDs).To(gomega.ContainElement(strings.TrimPrefix(id, "sha256:")))
+		gomega.Expect(contback.CleanupProject(ctx, SuiteData.ProjectName, contback.CleanupProjectOptions{Backends: resources.Backends, DockerImageIDs: resources.DockerImageIDs})).To(gomega.Succeed())
+		_, err = utils.RunCommand(ctx, "", "docker", "image", "inspect", id)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+	})
+
 	ginkgo.It("tracks a dangling image left by a command that fails", ginkgo.Label("docker"), func(ctx ginkgo.SpecContext) {
 		setupEnv(setupEnvOptions{ContainerBackendMode: "docker"})
 		tracker := testresource.Activate(ctx, SuiteData.ProjectName, "/bin/sh")
@@ -40,7 +72,7 @@ var _ = ginkgo.Describe("Test image cleanup", ginkgo.Label("e2e", "build", "extr
 			})
 			gomega.Expect(trackingErr).NotTo(gomega.HaveOccurred())
 			gomega.Expect(cleanupErr).NotTo(gomega.HaveOccurred())
-			gomega.Expect(resources.DockerImageIDs).To(gomega.ContainElement(firstID))
+			gomega.Expect(resources.DockerImageIDs).To(gomega.ContainElement(strings.TrimPrefix(firstID, "sha256:")))
 			for _, ref := range []string{firstID, imageRef} {
 				_, err := utils.RunCommand(cleanupCtx, "", "docker", "image", "inspect", ref)
 				gomega.Expect(err).To(gomega.HaveOccurred())

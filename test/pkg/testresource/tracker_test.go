@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/moby/moby/api/types/events"
+	dockerImage "github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/client"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
@@ -21,6 +24,84 @@ func TestResources(t *testing.T) {
 }
 
 var _ = ginkgo.Describe("Resource tracking", func() {
+	ginkgo.It("keeps a resolved event when concurrent replay loses its tag", func(ctx ginkgo.SpecContext) {
+		directory := ginkgo.GinkgoT().TempDir()
+		gomega.Expect(os.Mkdir(filepath.Join(directory, "docker"), 0o700)).To(gomega.Succeed())
+		id := strings.Repeat("a", 64)
+		entered, finished := make(chan struct{}, 2), make(chan struct{}, 2)
+		first, second := make(chan struct{}), make(chan struct{})
+		var calls atomic.Int32
+		api := &eventInspectStub{inspect: func(inspectCtx context.Context, _ string) (client.ImageInspectResult, error) {
+			call := calls.Add(1)
+			entered <- struct{}{}
+			gate := first
+			if call == 2 {
+				gate = second
+			}
+			select {
+			case <-gate:
+			case <-inspectCtx.Done():
+				return client.ImageInspectResult{}, inspectCtx.Err()
+			}
+			if call == 2 {
+				return client.ImageInspectResult{}, errors.New("tag vanished")
+			}
+			return client.ImageInspectResult{InspectResponse: dockerImage.InspectResponse{ID: "sha256:" + id}}, nil
+		}}
+		tracker := &Tracker{api: api, journalDir: directory}
+		event := events.Message{Type: events.ImageEventType, Action: "push", Actor: events.Actor{ID: "localhost/test:tag"}, TimeNano: 1}
+		for index := 0; index < 2; index++ {
+			go func() { tracker.record(event); finished <- struct{}{} }()
+		}
+		gomega.Eventually(entered).Should(gomega.Receive())
+		gomega.Eventually(entered).Should(gomega.Receive())
+		close(first)
+		gomega.Eventually(finished).Should(gomega.Receive())
+		close(second)
+		gomega.Eventually(finished).Should(gomega.Receive())
+		gomega.Expect(tracker.streamErr).NotTo(gomega.HaveOccurred())
+		ids, err := journal.Read(ctx, filepath.Join(directory, "docker"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(ids).To(gomega.Equal([]string{id}))
+	})
+
+	ginkgo.It("rejects preparation forms whose complete result cannot be tracked", func() {
+		for _, args := range [][]string{{"--all-tags", "localhost/test"}, {"first", "second"}, {"--tls-verify=false"}} {
+			_, _, err := buildahPreparationResult("pull", args)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+		}
+		_, _, err := buildahPreparationResult("from", []string{"localhost/test:tag"})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+	})
+
+	ginkgo.It("resolves reference events without confusing mutable tags with image IDs", func(ctx ginkgo.SpecContext) {
+		directory := ginkgo.GinkgoT().TempDir()
+		gomega.Expect(os.Mkdir(filepath.Join(directory, "docker"), 0o700)).To(gomega.Succeed())
+		first, second := strings.Repeat("a", 64), strings.Repeat("b", 64)
+		api := &eventInspectStub{id: "sha256:" + first}
+		tracker := &Tracker{api: api, journalDir: directory}
+		event := events.Message{Type: events.ImageEventType, Action: "push", Actor: events.Actor{ID: "localhost:5000/werf-test-one:stage"}, TimeNano: 1}
+		tracker.record(event)
+		api.err = errors.New("tag no longer exists")
+		tracker.record(event)
+		gomega.Expect(tracker.streamErr).NotTo(gomega.HaveOccurred())
+		api.err = nil
+		api.id = "sha256:" + second
+		event.TimeNano = 2
+		tracker.record(event)
+		tracker.record(events.Message{Type: events.ImageEventType, Actor: events.Actor{ID: "sha256:" + first}})
+		gomega.Expect(tracker.streamErr).NotTo(gomega.HaveOccurred())
+		gomega.Expect(api.refs).To(gomega.Equal([]string{event.Actor.ID, event.Actor.ID}))
+		ids, err := journal.Read(ctx, filepath.Join(directory, "docker"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(ids).To(gomega.ConsistOf(first, second))
+		gomega.Expect(tracker.snapshot.DockerImageIDs).To(gomega.ConsistOf(first, second))
+		api.err = errors.New("inspect unavailable")
+		event.TimeNano = 3
+		tracker.record(event)
+		gomega.Expect(errors.Is(tracker.streamErr, api.err)).To(gomega.BeTrue())
+	})
+
 	ginkgo.It("persists event IDs and rejects uninstrumented native producers", func(ctx ginkgo.SpecContext) {
 		directory := ginkgo.GinkgoT().TempDir()
 		gomega.Expect(os.Mkdir(filepath.Join(directory, "docker"), 0o700)).To(gomega.Succeed())

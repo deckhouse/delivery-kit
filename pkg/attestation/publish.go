@@ -22,9 +22,9 @@ type PublishAttestationOptions struct {
 // artifact attached to parentDigest. With a signer the artifact is a Sigstore
 // Bundle carrying the kind's signed predicate; without one it is a bare DSSE
 // envelope with the legacy predicate. Publishing supersedes the artifact of the
-// opposite signing state (per the kind's downgrade policy) and any legacy
-// annotation-less entry whose content proves it belongs to this kind, so exactly
-// one artifact of the kind per image remains behind.
+// opposite signing state and any legacy annotation-less entry whose content
+// proves it belongs to this kind, so exactly one artifact of the kind per image
+// remains behind and a read never prefers the previous signing state.
 func PublishAttestation(ctx context.Context, kind PredicateKind, predicate []byte, repo, parentDigest, imageName string, opts PublishAttestationOptions) error {
 	digestHex, err := artifact.DigestHex(parentDigest)
 	if err != nil {
@@ -76,9 +76,7 @@ func PublishAttestation(ctx context.Context, kind PredicateKind, predicate []byt
 		return store.AttachSuperseding(ctx, parentDigest, BundleMediaType, bundleBytes, opts.Checksum, opts.TargetPlatform, predicateType, superseded)
 	}
 
-	if kind.DowngradeSupersede {
-		superseded = append(superseded, kindSlotKeys(BundleMediaType, kind)...)
-	}
+	superseded = append(superseded, kindSlotKeys(BundleMediaType, kind)...)
 	return store.AttachSuperseding(ctx, parentDigest, DSSEMediaType, envelopeBytes, opts.Checksum, opts.TargetPlatform, predicateType, superseded)
 }
 
@@ -96,16 +94,11 @@ func CopySupersededKeys(copied artifact.Key, srcSlots []artifact.Key) []artifact
 		return nil
 	}
 
-	var oppositeType string
-	switch copied.ArtifactType {
-	case BundleMediaType:
-		oppositeType = DSSEMediaType
-	case DSSEMediaType:
-		if !kind.DowngradeSupersede {
-			return nil
-		}
-		oppositeType = BundleMediaType
-	default:
+	oppositeType := map[string]string{
+		BundleMediaType: DSSEMediaType,
+		DSSEMediaType:   BundleMediaType,
+	}[copied.ArtifactType]
+	if oppositeType == "" {
 		return nil
 	}
 

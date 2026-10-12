@@ -15,7 +15,7 @@ import (
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
-var _ = Describe("SBOM signing downgrade", Label("e2e", "sbom", "sbom-signing", "unsigned"), func() {
+var _ = Describe("SBOM signing downgrade", Label("e2e", "sbom", "sbom-signing", "unsigned", "simple"), func() {
 	const (
 		sbomCachedMarker = "Use previously generated SBOM from registry"
 		sbomRegenMarker  = "SBOM processing"
@@ -111,7 +111,8 @@ var _ = Describe("SBOM signing downgrade", Label("e2e", "sbom", "sbom-signing", 
 			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
 		)
 		unsignedDigest := unsignedReport.Images["app"].DockerImageDigest
-		Expect(unsignedDigest).NotTo(BeEmpty())
+		Expect(unsignedDigest).To(Equal(signedDigest),
+			"the GOST change must not alter the image, otherwise the supersede assertion below is vacuous")
 
 		Expect(attestutils.FindArtifactDescriptor(ctx, finalRepo, unsignedDigest, attestation.BundleMediaType)).To(BeNil(),
 			"the final repo must mirror the supersede of the source repo")

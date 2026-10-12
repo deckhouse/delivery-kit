@@ -62,8 +62,10 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 // was repacked on its way to the destination). Artifacts already attached to the
 // destination with the same identity (artifact type, image name, checksum, platform)
 // are skipped unless they leave a slot the source no longer holds behind, so the
-// copy is idempotent and still converges on the slot state of the source. A missing
-// source index is a no-op.
+// copy is idempotent and still converges on the slot state of the source. The
+// source is the source of truth: the copy carries no notion of recency, so a
+// destination entry the rule reports as superseded is evicted even when it is the
+// fresher of the two. A missing source index is a no-op.
 func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, supersede SupersedeRule, opts ...remote.Option) error {
 	srcOpts := opts
 	dstOpts := opts

@@ -43,11 +43,6 @@ type PredicateKind struct {
 	// read and verify. Kinds without it keep exact predicate matching and use the
 	// URI set for slot selection only.
 	AliasMatching bool
-
-	// DowngradeSupersede makes an unsigned publish evict the stale signed bundle,
-	// so a read never prefers an artifact of the previous signing state; kinds
-	// without it only supersede the unsigned artifact on a signed publish.
-	DowngradeSupersede bool
 }
 
 // Types returns every predicate URI the kind is known under.
@@ -57,19 +52,17 @@ func (k PredicateKind) Types() []string {
 
 var (
 	PredicateKindOpenVEX = PredicateKind{
-		Name:               "openvex",
-		SignedType:         "https://openvex.dev/ns",
-		UnsignedType:       "https://openvex.dev/ns/v0.2.0",
-		ImageLevel:         true,
-		AliasMatching:      true,
-		DowngradeSupersede: true,
+		Name:          "openvex",
+		SignedType:    "https://openvex.dev/ns",
+		UnsignedType:  "https://openvex.dev/ns/v0.2.0",
+		ImageLevel:    true,
+		AliasMatching: true,
 	}
 
 	PredicateKindCycloneDX = PredicateKind{
-		Name:               "cyclonedx",
-		SignedType:         "https://cyclonedx.org/bom",
-		UnsignedType:       "https://cyclonedx.org/bom/v1.6",
-		DowngradeSupersede: true,
+		Name:         "cyclonedx",
+		SignedType:   "https://cyclonedx.org/bom",
+		UnsignedType: "https://cyclonedx.org/bom/v1.6",
 	}
 )
 

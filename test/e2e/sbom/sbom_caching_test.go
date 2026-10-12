@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	"github.com/werf/werf/v3/test/pkg/suite_init"
 	"github.com/werf/werf/v3/test/pkg/utils"
@@ -102,7 +103,7 @@ func publishPrivateSbomCachingBaseImages(ctx SpecContext) map[string]string {
 
 		utils.RunSucceedCommand(ctx, "", "docker", "pull", upstreamRef)
 		Expect(crane.Copy(upstreamRef, privateRef, crane.WithContext(ctx), crane.Insecure)).To(Succeed())
-		Expect(artifact.CopyAttachedArtifacts(ctx, upstreamRepo, upstreamDigest, privateRepo, upstreamDigest, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, upstreamRepo, upstreamDigest, privateRepo, upstreamDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 		DeferCleanup(func(ctx SpecContext) {
 			_, _ = utils.RunCommand(ctx, "", "docker", "image", "rm", privateRef)

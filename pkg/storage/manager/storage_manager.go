@@ -16,6 +16,7 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/logboek/pkg/style"
 	"github.com/werf/logboek/pkg/types"
+	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/docker_registry"
@@ -874,7 +875,7 @@ func (m *StorageManager) CopySuitableStageDescByDigest(ctx context.Context, stag
 			// describe the source digest; when it changed, werf regenerates its own by
 			// convergence and only what it cannot regenerate is worth reporting.
 			if destinationStageDesc.Info.GetDigest() == stageDesc.Info.GetDigest() {
-				if err := artifact.CopyAllAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest()); err != nil {
+				if err := artifact.CopyAllAttachedArtifacts(ctx, sourceStagesStorage.Address(), stageDesc.Info.GetDigest(), destinationStagesStorage.Address(), destinationStageDesc.Info.GetDigest(), attestation.CopySupersededKeys); err != nil {
 					return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageDesc.StageID.String(), err)
 				}
 			} else {

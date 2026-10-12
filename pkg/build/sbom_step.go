@@ -502,7 +502,7 @@ type PropagateArtifactsOptions struct {
 func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName, srcRepo, srcDigest string, opts PropagateArtifactsOptions) error {
 	if opts.FinalRepo != "" && opts.FinalRepo != srcRepo {
 		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into the final repo %s", werfImgName, opts.FinalRepo).DoError(func() error {
-			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, opts.FinalRepo, opts.FinalDigest)
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, opts.FinalRepo, opts.FinalDigest, attestation.CopySupersededKeys)
 		}); err != nil {
 			return fmt.Errorf("copy attached artifacts into final repo %s: %w", opts.FinalRepo, err)
 		}
@@ -513,7 +513,7 @@ func (step *sbomStep) PropagateArtifacts(ctx context.Context, werfImgName, srcRe
 			continue
 		}
 		if err := logboek.Context(ctx).Info().LogProcess("image %s: Copy attached artifacts into cache %s", werfImgName, cache.String()).DoError(func() error {
-			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, cache.Address(), srcDigest)
+			return artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, cache.Address(), srcDigest, attestation.CopySupersededKeys)
 		}); err != nil {
 			logboek.Context(ctx).Warn().LogF("Warning: unable to copy attached artifacts into cache stages storage %s: %s\n", cache.String(), err)
 		}

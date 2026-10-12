@@ -3,7 +3,9 @@ package attestation
 import (
 	"context"
 	"fmt"
+	"slices"
 
+	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/werf/v3/pkg/oci/artifact"
@@ -78,6 +80,38 @@ func PublishAttestation(ctx context.Context, kind PredicateKind, predicate []byt
 		superseded = append(superseded, kindSlotKeys(BundleMediaType, kind)...)
 	}
 	return store.AttachSuperseding(ctx, parentDigest, DSSEMediaType, envelopeBytes, opts.Checksum, opts.TargetPlatform, predicateType, superseded)
+}
+
+var _ artifact.SupersedeRule = CopySupersededKeys
+
+// CopySupersededKeys reports the destination slots an attestation being copied
+// replaces: the slots of the opposite signing state of its own kind, limited to
+// those the source no longer holds. Propagation then mirrors the slot state of
+// the source repository instead of accumulating both signing states, so a reader
+// of the destination never prefers an artifact of the previous one. Artifacts of
+// an unknown kind and legacy annotation-less ones replace nothing.
+func CopySupersededKeys(copied artifact.Key, srcSlots []artifact.Key) []artifact.Key {
+	kind, ok := predicateKindOf(copied.PredicateType)
+	if !ok {
+		return nil
+	}
+
+	var oppositeType string
+	switch copied.ArtifactType {
+	case BundleMediaType:
+		oppositeType = DSSEMediaType
+	case DSSEMediaType:
+		if !kind.DowngradeSupersede {
+			return nil
+		}
+		oppositeType = BundleMediaType
+	default:
+		return nil
+	}
+
+	return lo.Filter(kindSlotKeys(oppositeType, kind), func(key artifact.Key, _ int) bool {
+		return !slices.Contains(srcSlots, key)
+	})
 }
 
 func kindSlotKeys(artifactType string, kind PredicateKind) []artifact.Key {

@@ -12,6 +12,7 @@ import (
 	"github.com/werf/logboek"
 	nelmcommon "github.com/werf/nelm/v2/pkg/common"
 	chart "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2"
+	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	bundles_registry "github.com/werf/werf/v3/pkg/ref"
@@ -198,7 +199,7 @@ func (bundle *RemoteBundle) CopyFromRemote(ctx context.Context, fromRemote *Remo
 							if imgInfo, err := fromRemote.RegistryClient.TryGetRepoImage(ctx, image); err != nil {
 								return fmt.Errorf("error resolving image %s to copy its attached artifacts: %w", image, err)
 							} else if imgInfo != nil {
-								if err := artifact.CopyAllAttachedArtifacts(ctx, srcRepo, imgInfo.GetDigest(), ref.Repo, imgInfo.GetDigest()); err != nil {
+								if err := artifact.CopyAllAttachedArtifacts(ctx, srcRepo, imgInfo.GetDigest(), ref.Repo, imgInfo.GetDigest(), attestation.CopySupersededKeys); err != nil {
 									return fmt.Errorf("error copying artifacts attached to image %s into %s: %w", image, ref.Repo, err)
 								}
 							}

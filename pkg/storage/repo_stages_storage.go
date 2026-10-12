@@ -14,6 +14,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/docker_registry/api"
@@ -1034,7 +1035,7 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 		// The manifest may be in place without its artifacts; the copy is idempotent
 		// and repairs that. The digest is the same on both sides because a stage
 		// reaches this destination through a registry-level copy.
-		if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
+		if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest(), attestation.CopySupersededKeys); err != nil {
 			return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
 		}
 		return desc, nil
@@ -1051,7 +1052,7 @@ func (storage *RepoStagesStorage) CopyFromStorage(ctx context.Context, src Stage
 		return nil, fmt.Errorf("unable to get stage %s description: %w", stageID, err)
 	}
 
-	if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest()); err != nil {
+	if err := artifact.CopyAllAttachedArtifacts(ctx, src.Address(), desc.Info.GetDigest(), storage.RepoAddress, desc.Info.GetDigest(), attestation.CopySupersededKeys); err != nil {
 		return nil, fmt.Errorf("unable to copy artifacts attached to stage %s: %w", stageID, err)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -22,8 +23,42 @@ import (
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
+const (
+	dsseArtifactType   = "application/vnd.dsse.envelope.v1+json"
+	bundleArtifactType = "application/vnd.dev.sigstore.bundle.v0.3+json"
+
+	signedPredicate   = "https://cyclonedx.org/bom"
+	unsignedPredicate = "https://cyclonedx.org/bom/v1.6"
+)
+
+// supersedeOppositeSigningState stands in for the attestation-layer rule the
+// production callers pass: an artifact of a known kind replaces the slots of the
+// opposite signing state of that kind, unless the source still holds them.
+func supersedeOppositeSigningState(copied artifact.Key, srcSlots []artifact.Key) []artifact.Key {
+	if copied.PredicateType != signedPredicate && copied.PredicateType != unsignedPredicate {
+		return nil
+	}
+
+	opposite := map[string]string{
+		dsseArtifactType:   bundleArtifactType,
+		bundleArtifactType: dsseArtifactType,
+	}[copied.ArtifactType]
+	if opposite == "" {
+		return nil
+	}
+
+	var keys []artifact.Key
+	for _, predicateType := range []string{signedPredicate, unsignedPredicate} {
+		key := artifact.Key{ArtifactType: opposite, PredicateType: predicateType}
+		if !slices.Contains(srcSlots, key) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 var _ = Describe("CopyAttachedArtifacts (integration)", func() {
-	const artifactType = "application/vnd.dsse.envelope.v1+json"
+	const artifactType = dsseArtifactType
 
 	var (
 		server     *httptest.Server
@@ -86,7 +121,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 		copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
 
-		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 		dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
 		content, err := dstStore.GetAttachedContent(ctx, srcDigest, artifactType, nil)
@@ -106,7 +141,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		dstDigest := pushRandomImage(ctx, dstRepo, "v1")
 		Expect(dstDigest).ToNot(Equal(srcDigest))
 
-		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 		dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
 		content, err := dstStore.GetAttachedContent(ctx, dstDigest, artifactType, nil)
@@ -120,8 +155,8 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 		copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
 
-		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
-		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 		im := pullIndex(ctx, dstRepo, srcDigest)
 		Expect(im.Manifests).To(HaveLen(1))
@@ -135,7 +170,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 		copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
 
-		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 		dstStoreA := artifact.NewOCIStore(dstRepo, "app-a", remoteOpts...)
 		contentA, err := dstStoreA.GetAttachedContent(ctx, srcDigest, artifactType, nil)
@@ -148,8 +183,79 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		Expect(contentB).To(MatchJSON(`{"app":"b"}`))
 	})
 
+	Describe("slot state mirroring", func() {
+		slotsOf := func(im *v1.IndexManifest) []artifact.Key {
+			var slots []artifact.Key
+			for _, desc := range im.Manifests {
+				if desc.ArtifactType == "" {
+					continue
+				}
+				slots = append(slots, artifact.Key{ArtifactType: desc.ArtifactType, PredicateType: desc.Annotations[artifact.PredicateTypeAnnotation]})
+			}
+			return slots
+		}
+
+		It("should evict the destination artifact of the opposite signing state", func(ctx SpecContext) {
+			srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(srcStore.Attach(ctx, srcDigest, dsseArtifactType, []byte(`{"v":"unsigned"}`), "checksum-unsigned", "", unsignedPredicate)).To(Succeed())
+
+			copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			Expect(dstStore.Attach(ctx, srcDigest, bundleArtifactType, []byte(`{"v":"signed"}`), "checksum-signed", "", signedPredicate)).To(Succeed())
+
+			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
+
+			Expect(slotsOf(pullIndex(ctx, dstRepo, srcDigest))).To(ConsistOf(artifact.Key{ArtifactType: dsseArtifactType, PredicateType: unsignedPredicate}))
+		})
+
+		It("should evict a stale opposite-state artifact the destination already holds alongside an equivalent copy", func(ctx SpecContext) {
+			srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(srcStore.Attach(ctx, srcDigest, dsseArtifactType, []byte(`{"v":"unsigned"}`), "checksum-unsigned", "", unsignedPredicate)).To(Succeed())
+
+			copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			Expect(dstStore.Attach(ctx, srcDigest, bundleArtifactType, []byte(`{"v":"signed"}`), "checksum-signed", "", signedPredicate)).To(Succeed())
+			Expect(dstStore.Attach(ctx, srcDigest, dsseArtifactType, []byte(`{"v":"unsigned"}`), "checksum-unsigned", "", unsignedPredicate)).To(Succeed())
+
+			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
+			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
+
+			Expect(slotsOf(pullIndex(ctx, dstRepo, srcDigest))).To(ConsistOf(artifact.Key{ArtifactType: dsseArtifactType, PredicateType: unsignedPredicate}))
+		})
+
+		It("should keep both signing states when the source holds both", func(ctx SpecContext) {
+			srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(srcStore.Attach(ctx, srcDigest, bundleArtifactType, []byte(`{"v":"signed"}`), "checksum-signed", "", signedPredicate)).To(Succeed())
+			Expect(srcStore.Attach(ctx, srcDigest, dsseArtifactType, []byte(`{"v":"unsigned"}`), "checksum-unsigned", "", unsignedPredicate)).To(Succeed())
+
+			copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
+
+			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
+
+			Expect(slotsOf(pullIndex(ctx, dstRepo, srcDigest))).To(ConsistOf(
+				artifact.Key{ArtifactType: bundleArtifactType, PredicateType: signedPredicate},
+				artifact.Key{ArtifactType: dsseArtifactType, PredicateType: unsignedPredicate},
+			))
+		})
+
+		It("should leave the artifacts of another image alone", func(ctx SpecContext) {
+			srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(srcStore.Attach(ctx, srcDigest, dsseArtifactType, []byte(`{"v":"unsigned"}`), "checksum-unsigned", "", unsignedPredicate)).To(Succeed())
+
+			copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
+			otherStore := artifact.NewOCIStore(dstRepo, "other-app", remoteOpts...)
+			Expect(otherStore.Attach(ctx, srcDigest, bundleArtifactType, []byte(`{"v":"signed"}`), "checksum-other", "", signedPredicate)).To(Succeed())
+
+			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
+
+			content, err := otherStore.GetAttachedContent(ctx, srcDigest, bundleArtifactType, []string{signedPredicate})
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"v":"signed"}`))
+		})
+	})
+
 	It("should be a no-op when the source has no attached artifacts", func(ctx SpecContext) {
-		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, remoteOpts...)).To(Succeed())
+		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 		im := pullIndex(ctx, dstRepo, srcDigest)
 		Expect(im.Manifests).To(BeEmpty())
@@ -249,7 +355,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
 
-			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
 			content, err := dstStore.GetAttachedContent(ctx, indexDigest, artifactType, nil)
@@ -271,7 +377,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
 
-			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 			Expect(pullIndex(ctx, dstRepo, indexDigest).Manifests).To(BeEmpty())
 			Expect(pullIndex(ctx, dstRepo, children[0]).Manifests).To(HaveLen(1))
@@ -298,7 +404,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 				copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
 
-				Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+				Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 				dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
 				content, err := dstStore.GetAttachedContent(ctx, childDigest.String(), artifactType, nil)
@@ -329,7 +435,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			copyIndexByDigest(ctx, srcRepo, dstRepo, indexDigest)
 
-			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
 			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil)
@@ -340,7 +446,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		It("should be a no-op when the source does not hold the manifest", func(ctx SpecContext) {
 			absentDigest := pushRandomImage(ctx, dstRepo, "only-in-dst")
 
-			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, absentDigest, dstRepo, absentDigest, remoteOpts...)).To(Succeed())
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, absentDigest, dstRepo, absentDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 			Expect(pullIndex(ctx, dstRepo, absentDigest).Manifests).To(BeEmpty())
 		})
@@ -351,7 +457,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			failingSrcRepo := proxyFailingManifest(indexDigest, http.StatusInternalServerError)
 
-			err := artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)
+			err := artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, supersedeOppositeSigningState, remoteOpts...)
 			Expect(err).To(MatchError(ContainSubstring("list index manifests")))
 		})
 
@@ -380,7 +486,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			failingSrcRepo := proxyFailingManifest(innerDigest.String(), http.StatusNotFound)
 
-			Expect(artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, remoteOpts...)).To(Succeed())
+			Expect(artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, supersedeOppositeSigningState, remoteOpts...)).To(Succeed())
 
 			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
 			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil)

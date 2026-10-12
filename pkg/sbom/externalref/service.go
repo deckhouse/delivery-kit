@@ -76,7 +76,7 @@ func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveRes
 		return nil, err
 	}
 
-	return backoff.Retry(ctx, func() (*ResolveResult, error) {
+	res, err := backoff.Retry(ctx, func() (*ResolveResult, error) {
 		return s.doQuery(ctx, u, op)
 	},
 		backoff.WithBackOff(backoff.NewExponentialBackOff()),
@@ -88,6 +88,14 @@ func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveRes
 			)
 		}),
 	)
+	// A context canceled between attempts or during the backoff wait comes back from
+	// the retry loop as the bare cancellation cause, bypassing the classification
+	// doQuery applies to a cancellation it observes itself.
+	if err != nil && ctx.Err() != nil {
+		return nil, &ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s: %w", op, ctx.Err())}
+	}
+
+	return res, err
 }
 
 func (s *Service) doQuery(ctx context.Context, u, op string) (*ResolveResult, error) {

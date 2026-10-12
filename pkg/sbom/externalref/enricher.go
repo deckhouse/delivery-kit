@@ -228,7 +228,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 				reported[comp.PackageURL] = struct{}{}
 				err := outcome.err
 				if unconfirmed != nil {
-					err = fmt.Errorf("%w; resolve purl: %w", unconfirmed, outcome.err)
+					err = fmt.Errorf("%w; %w", unconfirmed, outcome.err)
 				}
 				failed = append(failed, &componentError{name: comp.Name, purl: comp.PackageURL, err: err})
 			}
@@ -320,6 +320,8 @@ func (e *Enricher) checkVCSLinks(ctx context.Context, vcsURLs []string) map[stri
 				return nil
 			}
 
+			// For the url check kind "vcs" and a confirmed status are the same
+			// verdict: the resolver derives the row status from kind alone.
 			if cdx.ExternalReferenceType(res.Kind) != cdx.ERTypeVCS {
 				outcome.unconfirmed = fmt.Errorf("resolver reports kind %q", res.Kind)
 			}
@@ -339,6 +341,9 @@ func isInfraFailure(err error) bool {
 	return errors.As(err, &classified) && classified.Class == FailureClassInfra
 }
 
+// knownVCSLink returns the component's vcs link. Enrichment runs on a merged,
+// canonicalized BOM, which carries at most one vcs link per component; a
+// second link only shows up in a foreign SBOM and is handled by the fallback.
 func knownVCSLink(comp *cdx.Component) (string, bool) {
 	if comp.ExternalReferences == nil {
 		return "", false

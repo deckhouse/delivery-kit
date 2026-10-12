@@ -626,7 +626,9 @@ func dedupStringSlice(values *[]string) *[]string {
 // looked up from the package purl rather than reported by the package source
 // itself. When a component ends up with several vcs links, the ones without
 // this mark are preferred: the package manager knows where its package came
-// from, a resolver only guesses.
+// from, a resolver only guesses. Enrichment later verifies the surviving link
+// with the resolver and falls back to the purl lookup only when the link does
+// not check out.
 const ExternalReferenceCommentResolved = "resolved from purl"
 
 // dedupComponentExternalReferences keeps the first reference of every

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -381,7 +382,7 @@ var _ = Describe("Enricher", func() {
 
 				err := enricher.Enrich(ctx, bom)
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring(`component: svace (pkg:generic/svace@6.0?containerfactoryversion=feature-branch): vcs link "https://git.example.com/not-a-repo" not confirmed: resolver reports kind "unknown"; resolve purl: resolve: unexpected status 404`))
+				Expect(err.Error()).To(ContainSubstring(`component: svace (pkg:generic/svace@6.0?containerfactoryversion=feature-branch): vcs link "https://git.example.com/not-a-repo" not confirmed: resolver reports kind "unknown"; resolve: unexpected status 404`))
 				Expect(*(*bom.Components)[0].ExternalReferences).To(HaveLen(1), "a failed enrichment leaves the component as it was")
 			})
 
@@ -403,7 +404,7 @@ var _ = Describe("Enricher", func() {
 				Expect(resolved).To(BeEmpty())
 			})
 
-			It("drops every unconfirmed vcs link when a merged component carries more than one", func() {
+			It("drops every unconfirmed vcs link of a foreign SBOM component that carries more than one", func() {
 				bom := &cdx.BOM{Components: &[]cdx.Component{{
 					Name:       "lodash",
 					Version:    "1.0",
@@ -420,6 +421,26 @@ var _ = Describe("Enricher", func() {
 				refs := *(*bom.Components)[0].ExternalReferences
 				Expect(refs).To(HaveLen(1))
 				Expect(refs[0].URL).To(Equal("https://github.com/lodash/lodash"))
+			})
+
+			It("stays terminal when the build is canceled during the backoff of a failing link check", func() {
+				var resolved []string
+				enricher := NewEnricher(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					resolved = append(resolved, purl)
+					return &ResolveResult{URL: "https://github.com/x/y", Kind: "vcs"}, nil
+				}, service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					withVCS("lodash", "pkg:npm/lodash@4.17.21", "https://git.example.com/flaky.git"),
+				}}
+				cancelCtx, cancel := context.WithCancelCause(ctx)
+				time.AfterFunc(200*time.Millisecond, func() { cancel(errors.New("SIBLING IMAGE FAILURE REPORT")) })
+
+				err := enricher.Enrich(cancelCtx, bom)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("check vcs: context canceled"))
+				Expect(err.Error()).NotTo(ContainSubstring("SIBLING IMAGE FAILURE REPORT"))
+				Expect(err.Error()).NotTo(ContainSubstring("not confirmed"))
+				Expect(resolved).To(BeEmpty())
 			})
 
 			It("surfaces a tripped breaker on the link check through the usual sentinel", func() {

@@ -159,9 +159,12 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			declaredPkgs := declared.FromOSPMSpec(osPmPackages)
 			refs, unmatched := declared.MatchComponents(ctx, resultBOM, config.PackagesDirectiveTypeOSPM, declaredPkgs)
 			if len(unmatched) > 0 {
-				return fmt.Errorf("record declared os-pm packages of image %q as its attack surface: %s not found among the packages pm installed into the image", werfImgName, strings.Join(lo.Map(unmatched, func(pkg declared.Package, _ int) string {
-					return lo.Ternary(pkg.Version == "", pkg.Name, pkg.Name+"=="+pkg.Version)
-				}), ", "))
+				unmatchedNames := lo.SliceToMap(unmatched, func(pkg declared.Package) (string, struct{}) { return pkg.Name, struct{}{} })
+				entries := lo.Filter(osPmPackages, func(entry string, _ int) bool {
+					_, ok := unmatchedNames[declared.OSPMSpecName(entry)]
+					return ok
+				})
+				return fmt.Errorf("record declared os-pm packages of image %q as its attack surface: %s not found among the packages pm installed into the image", werfImgName, strings.Join(entries, ", "))
 			}
 			declared.AddRootEdge(resultBOM, refs)
 		}

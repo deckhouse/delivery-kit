@@ -12,9 +12,10 @@
 //
 // A declaration is matched to a component by purl type and name; the version
 // takes part only when the declaration pins one exactly, since most manifests
-// carry ranges. A declaration no component matches is not an error — the
-// manager may have skipped it, or syft may have failed to catalog it — and is
-// ignored.
+// carry ranges. For the manifest-based ecosystems a declaration no component
+// matches is not an error — the manager may have skipped it, or syft may have
+// failed to catalog it — and is ignored. For os-pm it is one: pm installs
+// exactly what the spec names, so the caller fails the build.
 package declared
 
 import (
@@ -63,29 +64,29 @@ func ParseSpec(ecosystem config.PackagesDirectiveType, spec []byte) ([]Package, 
 	}
 }
 
-// FromOSPMSpec reads the entries of an os-pm directive spec the way pm does: the
-// name ends at the first of `@`, `=`, `<` or `>`, what follows is a version
-// constraint. An exact version (`curl==8.12.1`, `curl@8.12.1`) is kept; a range
-// (`curl>=8`, `curl@^8`) or no constraint at all declares the package by name only.
+// FromOSPMSpec reads the entries of an os-pm directive spec. Whatever version
+// constraint an entry carries, pm has already resolved it — `curl@8` installs
+// 8.12.1 — and the pm index holds a single version per name, so every entry
+// declares its package by name only.
 func FromOSPMSpec(spec []string) []Package {
 	pkgs := make([]Package, 0, len(spec))
 	for _, entry := range spec {
-		name, constraint := strings.TrimSpace(entry), ""
-		if i := strings.IndexAny(name, "@=<>"); i != -1 {
-			name, constraint = strings.TrimSpace(name[:i]), strings.TrimSpace(strings.TrimLeft(name[i:], "@="))
+		if name := OSPMSpecName(entry); name != "" {
+			pkgs = append(pkgs, Package{Name: name})
 		}
-		if name == "" {
-			continue
-		}
-		if !ospmExactVersionPattern.MatchString(constraint) {
-			constraint = ""
-		}
-		pkgs = append(pkgs, Package{Name: name, Version: constraint})
 	}
 	return pkgs
 }
 
-var ospmExactVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`)
+// OSPMSpecName is the package name of an os-pm spec entry, cut the way pm cuts
+// it: at the first of `@`, `=`, `<` or `>`.
+func OSPMSpecName(entry string) string {
+	name := strings.TrimSpace(entry)
+	if i := strings.IndexAny(name, "@=<>"); i != -1 {
+		name = strings.TrimSpace(name[:i])
+	}
+	return name
+}
 
 // MatchComponents returns the bom-refs of the components of bom that pkgs
 // declare, in the order the components are listed, and the declarations no
@@ -123,17 +124,21 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 			return
 		}
 		key := nameKey(purlType, fullName(purl))
+		satisfied := false
 		for _, i := range byName[key] {
 			if pkgs[i].Version != "" && !versionMatches(purlType, pkgs[i].Version, purl.Version) {
 				continue
 			}
 			matched[i] = true
-			if _, seen := candidates[key]; !seen {
-				order = append(order, key)
-			}
-			candidates[key] = append(candidates[key], comp.BOMRef)
-			break
+			satisfied = true
 		}
+		if !satisfied {
+			return
+		}
+		if _, seen := candidates[key]; !seen {
+			order = append(order, key)
+		}
+		candidates[key] = append(candidates[key], comp.BOMRef)
 	})
 
 	var unmatched []Package

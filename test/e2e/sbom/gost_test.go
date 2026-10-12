@@ -207,7 +207,7 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		}
 	})
 
-	It("os-pm image: a package pinned with `@` is the attack surface like one pinned with `==`", Label("declared-roots"), func(ctx SpecContext) {
+	It("os-pm image: a package pinned as `curl@8` is the attack surface like one pinned with `==`", Label("declared-roots"), func(ctx SpecContext) {
 		setupSbomBuildEnv()
 
 		repoDirname := "repo_sbom_gost_at_pin"

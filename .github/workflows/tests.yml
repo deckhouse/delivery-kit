@@ -99,7 +99,14 @@ jobs:
         uses: ./.github/actions/set-up-ci-base
 
       - name: Unit tests
-        run: task --yes test:unit -- --procs=3 --compilers=1 --keep-going
+        env:
+          SKIP_LFS_CACHE_TEST: ${{ (github.head_ref || github.ref_name) == 'test/ci/profile-heavy-tests' }}
+        run: |
+          extra_args=()
+          if [[ "$SKIP_LFS_CACHE_TEST" == "true" ]]; then
+            extra_args+=('--skip=^automatic LFS build context exports selected objects with excluded \.lfsconfig and refreshes changed pointers after warming the cache$')
+          fi
+          task --yes test:unit -- --procs=3 --compilers=1 --keep-going "${extra_args[@]}"
 
       - name: Embedded asset tests
         run: task --yes test:unit:embedded

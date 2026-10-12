@@ -157,7 +157,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			// The pm index lists everything installed, the base image's packages included, so
 			// the declared ones are picked out of the merged BOM by the directive spec.
 			declaredPkgs := declared.FromOSPMSpec(osPmPackages)
-			declared.AddRootEdge(resultBOM, declared.MatchComponents(ctx, resultBOM, config.PackagesDirectiveTypeOSPM, declaredPkgs))
+			refs, unmatched := declared.MatchComponents(ctx, resultBOM, config.PackagesDirectiveTypeOSPM, declaredPkgs)
+			if len(unmatched) > 0 {
+				return fmt.Errorf("record declared os-pm packages of image %q as its attack surface: %s not found among the packages pm installed into the image", werfImgName, strings.Join(lo.Map(unmatched, func(pkg declared.Package, _ int) string {
+					return lo.Ternary(pkg.Version == "", pkg.Name, pkg.Name+"=="+pkg.Version)
+				}), ", "))
+			}
+			declared.AddRootEdge(resultBOM, refs)
 		}
 
 		for _, patcher := range patchers {
@@ -444,7 +450,8 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 		return nil
 	}
 
-	declared.AddRootEdge(bom, declared.MatchComponents(ctx, bom, ecosystem, pkgs))
+	refs, _ := declared.MatchComponents(ctx, bom, ecosystem, pkgs)
+	declared.AddRootEdge(bom, refs)
 
 	return nil
 }

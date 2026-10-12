@@ -1,6 +1,8 @@
 package e2e_build_test
 
 import (
+	"path/filepath"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -34,6 +36,30 @@ var _ = Describe("SBOM go-mod packages", Label("e2e", "sbom", "gomod", "simple")
 			"expected example.com/mylib@v1.0.0 (resolved from local replace via git tag) not found in BOM")
 
 		sbomtest.AssertHasComponent(bom, "github.com/alecthomas/kingpin", "v1.3.8-0.20200323085623-b6657d9477a6")
+	})
+
+	It("reads go.mod from the werf project directory when it is a git subdirectory", func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_inject_gomod_subdir"
+		SuiteData.InitTestRepo(ctx, repoDirname, "inject/gomod_subdir")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		utils.RunSucceedCommand(ctx, testRepoPath, "git", "tag", "v1.0.0")
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, filepath.Join(testRepoPath, "svc"))
+		werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{}})
+
+		sbomOut := werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{"app"},
+			},
+		})
+
+		bom := sbomtest.MustParseSBOMOutput(sbomOut)
+		mylib := sbomtest.FindComponent(bom, "example.com/mylib", "v1.0.0")
+		Expect(mylib).NotTo(BeNil(),
+			"expected example.com/mylib@v1.0.0 (resolved from svc/go.mod, not the git-root go.mod) not found in BOM")
 	})
 
 	It("keeps the license of a registry module read from the module cache", func(ctx SpecContext) {

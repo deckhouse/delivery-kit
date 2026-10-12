@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -703,9 +704,9 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	gitRepo := phase.Conveyor.GiterminismManager().LocalGitRepo()
 	commit := phase.Conveyor.GiterminismManager().HeadCommit(ctx)
-	imageContext := ""
+	imageContext := phase.Conveyor.GiterminismManager().RelativeToGitProjectDir()
 	if img.IsDockerfileImage && img.DockerfileImageConfig != nil {
-		imageContext = img.DockerfileImageConfig.Context
+		imageContext = filepath.Join(imageContext, img.DockerfileImageConfig.Context)
 	}
 
 	externalRefPatcher, err := externalref.NewExternalRefPatcher(externalref.NewExternalRefPatcherOptions{Breaker: breaker})

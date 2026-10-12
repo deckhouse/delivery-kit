@@ -10,7 +10,6 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/singleflight"
 
 	"github.com/werf/logboek"
 )
@@ -56,8 +55,37 @@ func purlNotExpected(ct cdx.ComponentType) bool {
 type Enricher struct {
 	Resolve  func(ctx context.Context, purl string) (*ResolveResult, error)
 	CheckVCS func(ctx context.Context, vcsURL string) (*ResolveResult, error)
+}
 
-	vcsChecks singleflight.Group
+// vcsVerdicts memoizes the resolver's answer per link for one Enrich call, so a
+// link shared by several components is checked once however the component
+// goroutines interleave.
+type vcsVerdicts struct {
+	check func(ctx context.Context, vcsURL string) (*ResolveResult, error)
+	cells sync.Map
+}
+
+type vcsVerdict struct {
+	once sync.Once
+	err  error
+}
+
+func (v *vcsVerdicts) verify(ctx context.Context, vcsURL string) error {
+	cell, _ := v.cells.LoadOrStore(vcsURL, &vcsVerdict{})
+	verdict := cell.(*vcsVerdict)
+	verdict.once.Do(func() {
+		res, err := v.check(ctx, vcsURL)
+		if err != nil {
+			verdict.err = err
+			return
+		}
+		// For the url check kind "vcs" and a confirmed status are the same
+		// verdict: the resolver derives the row status from kind alone.
+		if cdx.ExternalReferenceType(res.Kind) != cdx.ERTypeVCS {
+			verdict.err = fmt.Errorf("resolver reports kind %q", res.Kind)
+		}
+	})
+	return verdict.err
 }
 
 func NewEnricher(
@@ -104,14 +132,13 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	var g errgroup.Group
 	g.SetLimit(10)
 
-	var seen sync.Map
-
+	verdicts := &vcsVerdicts{check: e.CheckVCS}
 	components := *bom.Components
 	compErrs := make([]*componentError, len(components))
 	for i := range components {
 		comp := &components[i]
 		g.Go(func() error {
-			if err := e.enrichComponent(ctx, comp, &seen); err != nil {
+			if err := e.enrichComponent(ctx, comp, verdicts); err != nil {
 				compErrs[i] = &componentError{name: comp.Name, purl: comp.PackageURL, err: err}
 			}
 			return nil
@@ -133,13 +160,20 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		}
 	}
 
-	var bomRefs []cdx.ExternalReference
-	seen.Range(func(_, value any) bool {
-		bomRefs = append(bomRefs, value.(cdx.ExternalReference))
-		return true
-	})
+	// The BOM-wide list is derived from the final component references: a link
+	// replaced on one component must not survive at the BOM level.
+	seen := make(map[string]cdx.ExternalReference)
+	for _, comp := range components {
+		if comp.ExternalReferences == nil {
+			continue
+		}
+		for _, ref := range *comp.ExternalReferences {
+			seen[ref.URL+"|"+string(ref.Type)] = ref
+		}
+	}
 
-	if len(bomRefs) > 0 {
+	if len(seen) > 0 {
+		bomRefs := lo.Values(seen)
 		bom.ExternalReferences = &bomRefs
 		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
 	}
@@ -147,13 +181,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	return nil
 }
 
-func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, seen *sync.Map) error {
-	if comp.ExternalReferences != nil && len(*comp.ExternalReferences) > 0 {
-		for _, ref := range *comp.ExternalReferences {
-			seen.Store(ref.URL+"|"+string(ref.Type), ref)
-		}
-	}
-
+func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, verdicts *vcsVerdicts) error {
 	if comp.PackageURL == "" {
 		if purlNotExpected(comp.Type) {
 			return nil
@@ -167,7 +195,7 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 
 	var unconfirmed error
 	if vcsURL, ok := knownVCSLink(comp); ok {
-		unconfirmed = e.checkVCSLink(ctx, vcsURL)
+		unconfirmed = verdicts.verify(ctx, vcsURL)
 		if unconfirmed == nil {
 			return nil
 		}
@@ -208,28 +236,7 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 	}
 	*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
 
-	seen.Store(res.URL+"|"+res.Kind, extRef)
-
 	return nil
-}
-
-// checkVCSLink returns nil when the resolver confirms the link, an infrastructure
-// failure when the resolver could not be asked, and the reason otherwise. A link
-// shared by several components is checked once per enrichment.
-func (e *Enricher) checkVCSLink(ctx context.Context, vcsURL string) error {
-	_, err, _ := e.vcsChecks.Do(vcsURL, func() (any, error) {
-		res, err := e.CheckVCS(ctx, vcsURL)
-		if err != nil {
-			return nil, err
-		}
-		// For the url check kind "vcs" and a confirmed status are the same
-		// verdict: the resolver derives the row status from kind alone.
-		if cdx.ExternalReferenceType(res.Kind) != cdx.ERTypeVCS {
-			return nil, fmt.Errorf("resolver reports kind %q", res.Kind)
-		}
-		return nil, nil
-	})
-	return err
 }
 
 func isInfraFailure(err error) bool {

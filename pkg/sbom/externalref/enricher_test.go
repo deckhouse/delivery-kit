@@ -273,14 +273,16 @@ var _ = Describe("Enricher", func() {
 				svc := NewService(ServiceConfig{ServerURL: ts.URL})
 				enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
 
-				bom := &cdx.BOM{Components: &[]cdx.Component{
-					withVCS("libssl3", "pkg:generic/libssl3@3.6.2?containerfactoryversion=x", "https://git.example.com/confirmed.git"),
-					withVCS("libcrypto3", "pkg:generic/libcrypto3@3.6.2?containerfactoryversion=x", "https://git.example.com/confirmed.git"),
-					withVCS("libssl3", "pkg:generic/libssl3@3.6.2?containerfactoryversion=y", "https://git.example.com/confirmed.git"),
-				}}
+				// More components than the enrichment runs concurrently, so a check
+				// deduplicated only across in-flight calls would run more than once.
+				var components []cdx.Component
+				for i := 0; i < 30; i++ {
+					components = append(components, withVCS(fmt.Sprintf("lib%d", i), fmt.Sprintf("pkg:generic/lib%d@1.0?containerfactoryversion=x", i), "https://git.example.com/confirmed.git"))
+				}
+				bom := &cdx.BOM{Components: &components}
 
 				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
-				Expect(*calls).To(Equal(1))
+				Expect(calls.Load()).To(Equal(int64(1)))
 			})
 
 			DescribeTable("falls back to purl resolution when the link is not confirmed",
@@ -295,6 +297,7 @@ var _ = Describe("Enricher", func() {
 					Expect(refs).To(HaveLen(1), "the unconfirmed link must not stay next to the resolved one")
 					Expect(refs[0].URL).To(Equal("https://github.com/lodash/lodash"))
 					Expect(refs[0].Type).To(Equal(cdx.ERTypeVCS))
+					Expect(*bom.ExternalReferences).To(Equal(refs), "the dropped link must not survive at the BOM level")
 				},
 				Entry("resolver reports the link is not a repository", "https://git.example.com/not-a-repo"),
 				Entry("resolver has never seen the link", "https://git.example.com/never-seen.git"),

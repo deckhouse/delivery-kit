@@ -89,9 +89,8 @@ func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveRes
 		}),
 	)
 	// A context canceled between attempts or during the backoff wait comes back from
-	// the retry loop as the bare cancellation cause: errgroup cancels sibling workers
-	// with the first failure as the cause, so the error would otherwise embed another
-	// image's entire report.
+	// the retry loop as the bare cancellation cause, bypassing the classification
+	// doQuery applies to a cancellation it observes itself.
 	if err != nil && ctx.Err() != nil {
 		return nil, &ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s %q: %w", op, subject, ctx.Err())}
 	}
@@ -111,13 +110,13 @@ func (s *Service) doQuery(ctx context.Context, u, op, subject string) (*ResolveR
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, s.classify(FailureClassInfra, fmt.Errorf("%s %q: %w", op, subject, err))
+		return nil, s.infraError(ctx, op, subject, fmt.Errorf("%s %q: %w", op, subject, err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, s.classify(FailureClassInfra, fmt.Errorf("%s %q: read body: %w", op, subject, err))
+		return nil, s.infraError(ctx, op, subject, fmt.Errorf("%s %q: read body: %w", op, subject, err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -157,4 +156,16 @@ func (s *Service) classify(class FailureClass, err error) error {
 		s.breaker.RecordFailure(class, classified)
 	}
 	return classified
+}
+
+// infraError guards canceled queries: errgroup cancels sibling workers with the
+// first failure as the context cause and net/http returns context.Cause(ctx), so a
+// canceled query would otherwise embed another image's entire error report.
+// Cancellation is terminal for this build and says nothing about resolver health,
+// so it is permanent and not counted by the breaker.
+func (s *Service) infraError(ctx context.Context, op, subject string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return backoff.Permanent(&ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s %q: %w", op, subject, ctxErr)})
+	}
+	return s.classify(FailureClassInfra, err)
 }

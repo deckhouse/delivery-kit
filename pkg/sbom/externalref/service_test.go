@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,7 +19,7 @@ import (
 
 var _ = Describe("Service", func() {
 	var ts *httptest.Server
-	var calls *int
+	var calls *atomic.Int64
 	var service *Service
 	var ctx context.Context
 
@@ -127,7 +128,7 @@ var _ = Describe("Service", func() {
 		It("counts resolve calls", func() {
 			_, _ = service.Resolve(ctx, "pkg:npm/lodash@4.17.21")
 			_, _ = service.Resolve(ctx, "pkg:npm/express@4.18.2")
-			Expect(*calls).To(Equal(2))
+			Expect(calls.Load()).To(Equal(int64(2)))
 		})
 	})
 
@@ -190,6 +191,31 @@ var _ = Describe("Service", func() {
 			Expect(classOf(err)).To(Equal(FailureClassInfra))
 		})
 
+		It("does not embed the cancellation cause into the error", func() {
+			cancelCtx, cancel := context.WithCancelCause(ctx)
+			cancel(errors.New("sibling image failure report"))
+
+			_, err := service.doQuery(cancelCtx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "resolve", "pkg:npm/lodash@4.17.21")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).NotTo(ContainSubstring("sibling image failure report"))
+			Expect(err.Error()).To(ContainSubstring("context canceled"))
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
+
+		It("does not count canceled queries toward the breaker", func() {
+			breaker := NewResolverBreaker(ts.URL)
+			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
+
+			cancelCtx, cancel := context.WithCancelCause(ctx)
+			cancel(errors.New("sibling image failure report"))
+
+			for i := 0; i < resolverBreakerThreshold; i++ {
+				_, err := breakerService.doQuery(cancelCtx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "resolve", "pkg:npm/lodash@4.17.21")
+				Expect(err).To(HaveOccurred())
+			}
+			Expect(breaker.Allow()).To(Succeed())
+		})
+
 		It("surfaces the classification through the Resolve retry loop", func() {
 			_, err := service.Resolve(ctx, "pkg:npm/unknown@0.0.0")
 			Expect(err).To(HaveOccurred())
@@ -215,11 +241,11 @@ var _ = Describe("Service", func() {
 				Expect(err).To(HaveOccurred())
 			}
 
-			callsBefore := *calls
+			callsBefore := calls.Load()
 			_, err := breakerService.Resolve(ctx, "pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
-			Expect(*calls).To(Equal(callsBefore), "tripped breaker must not produce HTTP requests")
+			Expect(calls.Load()).To(Equal(callsBefore), "tripped breaker must not produce HTTP requests")
 		})
 
 		It("aborts an in-flight retry loop when the breaker trips", func() {
@@ -230,11 +256,11 @@ var _ = Describe("Service", func() {
 				breaker.RecordFailure(FailureClassInfra, &ClassifiedError{Class: FailureClassInfra, Err: errors.New("connection refused")})
 			}
 
-			callsBefore := *calls
+			callsBefore := calls.Load()
 			_, err := breakerService.doQuery(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "resolve", "pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
-			Expect(*calls).To(Equal(callsBefore))
+			Expect(calls.Load()).To(Equal(callsBefore))
 		})
 
 		It("resets the breaker counter on successful resolution", func() {

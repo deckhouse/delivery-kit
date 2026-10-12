@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
-func mockResolver() (http.Handler, *int) {
-	calls := new(int)
+func mockResolver() (http.Handler, *atomic.Int64) {
+	calls := new(atomic.Int64)
 
 	type respDef struct {
 		status int
@@ -70,7 +71,7 @@ func mockResolver() (http.Handler, *int) {
 	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*calls++
+		calls.Add(1)
 
 		if r.URL.Path == "/api/v1/vcs" {
 			def, ok := vcsMap[r.URL.Query().Get("url")]

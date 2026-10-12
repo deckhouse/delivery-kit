@@ -60,16 +60,31 @@ var _ = Describe("Go mod parser", func() {
 				}),
 			),
 			Entry(
-				"mixed local and non-local replaces",
-				"module example.com/app\n\nreplace example.com/old => ./local/old\nreplace example.com/bad => example.com/good v1.2.3\n",
-				MatchError(And(ContainSubstring("non-local replace"), ContainSubstring("example.com/bad"))),
-				nil,
+				"absolute local replace path",
+				"module example.com/app\n\nreplace example.com/old => /tmp/old\n",
+				Succeed(),
+				infoAssert(func(info *GoModInfo) {
+					Expect(info.LocalReplaceTargets).To(Equal([]string{"example.com/old"}))
+					Expect(info.LocalReplacePaths).To(Equal([]string{"/tmp/old"}))
+				}),
 			),
 			Entry(
-				"non-local replace fails",
-				"module example.com/app\n\nreplace example.com/old => /tmp/old\n",
-				MatchError(And(ContainSubstring("non-local replace"), ContainSubstring("example.com/old"))),
-				nil,
+				"module replace is skipped",
+				"module example.com/app\n\nreplace example.com/bad => example.com/good v1.2.3\n",
+				Succeed(),
+				infoAssert(func(info *GoModInfo) {
+					Expect(info.LocalReplaceTargets).To(BeEmpty())
+					Expect(info.LocalReplacePaths).To(BeEmpty())
+				}),
+			),
+			Entry(
+				"mixed local and module replaces",
+				"module example.com/app\n\nreplace example.com/old => ./local/old\nreplace example.com/bad => example.com/good v1.2.3\n",
+				Succeed(),
+				infoAssert(func(info *GoModInfo) {
+					Expect(info.LocalReplaceTargets).To(Equal([]string{"example.com/old"}))
+					Expect(info.LocalReplacePaths).To(Equal([]string{"./local/old"}))
+				}),
 			),
 		)
 	})

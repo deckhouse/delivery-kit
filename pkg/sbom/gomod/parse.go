@@ -2,7 +2,6 @@ package gomod
 
 import (
 	"fmt"
-	"strings"
 
 	"golang.org/x/mod/modfile"
 )
@@ -13,6 +12,10 @@ type GoModInfo struct {
 	LocalReplacePaths   []string // New.Path values (e.g. "./mylib") — Syft may use these as component names
 }
 
+// ParseLocalReplaces collects the modules whose version syft cannot know: the main
+// module and every module replaced by a directory. A module replaced by another
+// module is left out — syft catalogs it under the replacement's path and version,
+// which is already correct.
 func ParseLocalReplaces(goModContent []byte) (*GoModInfo, error) {
 	mod, err := modfile.Parse("go.mod", goModContent, nil)
 	if err != nil {
@@ -28,14 +31,12 @@ func ParseLocalReplaces(goModContent []byte) (*GoModInfo, error) {
 	}
 
 	for _, replace := range mod.Replace {
-		newPath := replace.New.Path
-		if strings.HasPrefix(newPath, "./") || strings.HasPrefix(newPath, "../") {
-			info.LocalReplaceTargets = append(info.LocalReplaceTargets, replace.Old.Path)
-			info.LocalReplacePaths = append(info.LocalReplacePaths, newPath)
+		if !modfile.IsDirectoryPath(replace.New.Path) {
 			continue
 		}
 
-		return nil, fmt.Errorf("sbom: non-local replace for module %q: %s", replace.Old.Path, newPath)
+		info.LocalReplaceTargets = append(info.LocalReplaceTargets, replace.Old.Path)
+		info.LocalReplacePaths = append(info.LocalReplacePaths, replace.New.Path)
 	}
 
 	return info, nil

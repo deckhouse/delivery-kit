@@ -104,7 +104,7 @@ jobs:
         run: |
           extra_args=()
           if [[ "$SKIP_LFS_CACHE_TEST" == "true" ]]; then
-            extra_args+=('--skip=^automatic LFS build context exports selected objects with excluded \.lfsconfig and refreshes changed pointers after warming the cache$')
+            extra_args+=('--skip=(^| )automatic LFS build context exports selected objects with excluded \.lfsconfig and refreshes changed pointers after warming the cache$')
           fi
           task --yes test:unit -- --procs=3 --compilers=1 --keep-going "${extra_args[@]}"
 

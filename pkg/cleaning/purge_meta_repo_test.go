@@ -20,6 +20,8 @@ var _ = ginkgo.Describe("Purge meta-repo safeguard", func() {
 			registry := &purgeMarkerRegistry{images: map[string]*image.Info{}}
 			stages := storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/stages", DockerRegistry: registry, SkipMetaCheck: true})
 			meta := storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/meta", DockerRegistry: registry, SkipMetaCheck: true})
+			orphanName := stages.Address() + ":sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			registry.images[orphanName] = &image.Info{Name: orphanName}
 			gomega.Expect(stages.PutMetaRepoMarker(ctx, "project", meta.Address())).To(gomega.Succeed())
 			if withMetadata {
 				gomega.Expect(meta.AddManagedImage(ctx, "project", "app")).To(gomega.Succeed())
@@ -48,6 +50,8 @@ var _ = ginkgo.Describe("Purge meta-repo safeguard", func() {
 			registry := &purgeMarkerRegistry{images: map[string]*image.Info{}, failMetadataDelete: true}
 			stages := storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/stages", DockerRegistry: registry, SkipMetaCheck: true})
 			meta := storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: "example.com/meta", DockerRegistry: registry, SkipMetaCheck: true})
+			orphanName := stages.Address() + ":sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			registry.images[orphanName] = &image.Info{Name: orphanName}
 			guarded, err := storage.SetupMetaRepoSafeguard(ctx, "project", stages, meta, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			switch record {
@@ -69,6 +73,7 @@ var _ = ginkgo.Describe("Purge meta-repo safeguard", func() {
 			_, found, err = stages.GetMetaRepoMarker(ctx, "project")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(found).To(gomega.BeFalse())
+			gomega.Expect(registry.images).NotTo(gomega.HaveKey(orphanName))
 		},
 		ginkgo.Entry("managed-image records", "managed"),
 		ginkgo.Entry("image metadata", "image"),

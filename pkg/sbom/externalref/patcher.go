@@ -28,7 +28,7 @@ func NewExternalRefPatcher(opts NewExternalRefPatcherOptions) (*ExternalRefPatch
 	}
 
 	svc := NewService(ServiceConfig{ServerURL: serverURL, Breaker: opts.Breaker})
-	return &ExternalRefPatcher{enricher: NewEnricher(svc.Resolve)}, nil
+	return &ExternalRefPatcher{enricher: NewEnricher(svc.Resolve, svc.CheckVCS)}, nil
 }
 
 func (p *ExternalRefPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) {

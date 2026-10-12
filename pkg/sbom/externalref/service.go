@@ -58,49 +58,61 @@ func NewService(cfg ServiceConfig) *Service {
 }
 
 func (s *Service) Resolve(ctx context.Context, purl string) (*ResolveResult, error) {
+	u := fmt.Sprintf("%s/api/v1/resolve?purl=%s", s.serverURL, url.QueryEscape(purl))
+	return s.query(ctx, u, "resolve", purl)
+}
+
+// CheckVCS asks the resolver to verify a repository URL the SBOM already carries,
+// for instance the one a package manager recorded for its package. The resolver
+// keys the answer by the URL alone, so the verdict does not depend on the purl
+// that led to the link.
+func (s *Service) CheckVCS(ctx context.Context, vcsURL string) (*ResolveResult, error) {
+	u := fmt.Sprintf("%s/api/v1/vcs?url=%s", s.serverURL, url.QueryEscape(vcsURL))
+	return s.query(ctx, u, "check vcs", vcsURL)
+}
+
+func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveResult, error) {
 	if err := s.breakerAllow(); err != nil {
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/api/v1/resolve?purl=%s", s.serverURL, url.QueryEscape(purl))
-
 	return backoff.Retry(ctx, func() (*ResolveResult, error) {
-		return s.doResolve(ctx, u)
+		return s.doQuery(ctx, u, op)
 	},
 		backoff.WithBackOff(backoff.NewExponentialBackOff()),
 		backoff.WithMaxElapsedTime(defaultMaxElapsedTime),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			logboek.Context(ctx).Warn().LogF(
-				"WARNING: resolve PURL %q failed, retrying in %v: %s\n",
-				purl, duration, err,
+				"WARNING: %s %q failed, retrying in %v: %s\n",
+				op, subject, duration, err,
 			)
 		}),
 	)
 }
 
-func (s *Service) doResolve(ctx context.Context, u string) (*ResolveResult, error) {
+func (s *Service) doQuery(ctx context.Context, u, op string) (*ResolveResult, error) {
 	if err := s.breakerAllow(); err != nil {
 		return nil, backoff.Permanent(err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("resolve: create request: %w", err)))
+		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("%s: create request: %w", op, err)))
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, s.infraError(ctx, fmt.Errorf("resolve: %w", err))
+		return nil, s.infraError(ctx, op, fmt.Errorf("%s: %w", op, err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, s.infraError(ctx, fmt.Errorf("resolve: read body: %w", err))
+		return nil, s.infraError(ctx, op, fmt.Errorf("%s: read body: %w", op, err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("resolve: unexpected status %s", statusErrorDetail(resp.Status, resp.Header.Get("Content-Type"), body))
+		err := fmt.Errorf("%s: unexpected status %s", op, statusErrorDetail(resp.Status, resp.Header.Get("Content-Type"), body))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, s.classify(FailureClassInfra, err)
 		}
@@ -109,11 +121,11 @@ func (s *Service) doResolve(ctx context.Context, u string) (*ResolveResult, erro
 
 	var result ResolveResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("resolve: parse response: %w", err)))
+		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("%s: parse response: %w", op, err)))
 	}
 
 	if result.URL == "" {
-		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("resolve: %w", ErrEmptyURL)))
+		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("%s: %w", op, ErrEmptyURL)))
 	}
 
 	if s.breaker != nil {
@@ -143,9 +155,9 @@ func (s *Service) classify(class FailureClass, err error) error {
 // canceled resolve would otherwise embed another image's entire error report.
 // Cancellation is terminal for this build and says nothing about resolver health,
 // so it is permanent and not counted by the breaker.
-func (s *Service) infraError(ctx context.Context, err error) error {
+func (s *Service) infraError(ctx context.Context, op string, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return backoff.Permanent(&ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("resolve: %w", ctxErr)})
+		return backoff.Permanent(&ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s: %w", op, ctxErr)})
 	}
 	return s.classify(FailureClassInfra, err)
 }

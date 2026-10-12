@@ -75,8 +75,9 @@ func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 }
 
 // ConvergeWithMerge produces, caches and pushes the SBOM of one built image. osPmPackages
-// is the union of the os-pm directive specs of the image (`name==version` entries); when
-// non-empty, the pm index of the image is read and the declared packages recorded.
+// is the union of the os-pm directive specs of the image, the entries as written in
+// werf.yaml; when non-empty, the pm index of the image is read and the declared packages
+// recorded.
 func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()

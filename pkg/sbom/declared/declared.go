@@ -78,8 +78,8 @@ func FromOSPMSpec(spec []string) []Package {
 	return pkgs
 }
 
-// OSPMSpecName is the package name of an os-pm spec entry, cut the way pm cuts
-// it: at the first of `@`, `=`, `<` or `>`.
+// OSPMSpecName is the package name of an os-pm spec entry: everything before the
+// first character a pm version constraint can start with — `@`, `=`, `<`, `>`.
 func OSPMSpecName(entry string) string {
 	name := strings.TrimSpace(entry)
 	if i := strings.IndexAny(name, "@=<>"); i != -1 {

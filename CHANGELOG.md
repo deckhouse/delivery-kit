@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.8.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.8.0-dk.1...v3.8.0-dk.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* **sbom:** keep builds green when a package's source repo is known ([#424](https://github.com/deckhouse/delivery-kit/issues/424)) ([9871528](https://github.com/deckhouse/delivery-kit/commit/9871528f50d85224758cbcfbe4e960fe0d5eec15))
+* **sbom:** resolve Go module versions when werf.yaml lives in a git subdirectory ([#420](https://github.com/deckhouse/delivery-kit/issues/420)) ([e84d9ad](https://github.com/deckhouse/delivery-kit/commit/e84d9ade81eaff44adda2ce0db2f5a0c6c62c4c1))
+* **sbom:** stop builds failing on a go.mod replace to another module ([#419](https://github.com/deckhouse/delivery-kit/issues/419)) ([1089929](https://github.com/deckhouse/delivery-kit/commit/108992996d85b5fff3aef508e3ce5f0b808a8ccc))
+
 ## [3.8.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.7.2-dk.1...v3.8.0-dk.1) (2026-10-09)
 
 

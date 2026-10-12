@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.82.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.81.4-dk.2...v2.82.0-dk.1) (2026-10-12)
+
+
+### Features
+
+* **build, stapel:** expose git source provenance to build commands ([#8059](https://github.com/deckhouse/delivery-kit/issues/8059)) ([4062888](https://github.com/deckhouse/delivery-kit/commit/406288814cf69cb12b3bea590d730933ddfd7ae9))
+* **build:** support separate metadata repositories in v2 ([#8057](https://github.com/deckhouse/delivery-kit/issues/8057)) ([59f4efe](https://github.com/deckhouse/delivery-kit/commit/59f4efeda08c0857c3ede59e69effb7dfc4d37c9))
+
+
+### Bug Fixes
+
+* **build, deploy:** accept unsuffixed list environment variables ([#8053](https://github.com/deckhouse/delivery-kit/issues/8053)) ([082b63e](https://github.com/deckhouse/delivery-kit/commit/082b63edb18cb2f90ba0145fd8e66e31d3b5765d))
+* **sbom:** support builds with separate metadata repositories ([e910a95](https://github.com/deckhouse/delivery-kit/commit/e910a956f2ade45c8f6c7d828f33de49a436b1b2))
+
+
+### Miscellaneous Chores
+
+* force release 2.82.0-dk.1 ([ce6e586](https://github.com/deckhouse/delivery-kit/commit/ce6e58642a01957f918085ad030704b0f5a14f6b))
+
 ## [2.81.4-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.81.4-dk.1...v2.81.4-dk.2) (2026-10-12)
 
 

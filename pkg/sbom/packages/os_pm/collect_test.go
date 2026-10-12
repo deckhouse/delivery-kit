@@ -140,9 +140,10 @@ var _ = Describe("CollectBOM (AI)", func() {
 		Expect(bom).ToNot(BeNil())
 		Expect((*bom.Components)[0].PackageURL).To(ContainSubstring("containerfactoryversion=image-version"))
 
-		enricher := externalref.NewEnricher(func(_ context.Context, _ string) (*externalref.ResolveResult, error) {
+		resolve := func(_ context.Context, _ string) (*externalref.ResolveResult, error) {
 			return nil, errors.New("resolver unavailable")
-		})
+		}
+		enricher := externalref.NewEnricher(resolve, resolve)
 		err = enricher.Enrich(ctx, bom)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("resolver unavailable"))

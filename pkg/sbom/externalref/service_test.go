@@ -3,8 +3,10 @@ package externalref
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -129,9 +131,34 @@ var _ = Describe("Service", func() {
 		})
 	})
 
+	Describe("CheckVCS", func() {
+		It("queries the vcs endpoint with the URL and returns the verdict", func() {
+			var captured *url.URL
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captured = r.URL
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"purl":"url:https://git.example.com/a.git","url":"https://git.example.com/a.git","kind":"vcs","confirmed":true}`)
+			})
+			vcsTS := httptest.NewServer(handler)
+			defer vcsTS.Close()
+
+			result, err := NewService(ServiceConfig{ServerURL: vcsTS.URL}).CheckVCS(ctx, "https://git.example.com/a.git?x=1&y=2")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(captured.Path).To(Equal("/api/v1/vcs"))
+			Expect(captured.Query().Get("url")).To(Equal("https://git.example.com/a.git?x=1&y=2"))
+			Expect(result.Kind).To(Equal("vcs"))
+			Expect(result.Confirmed).To(BeTrue())
+		})
+
+		It("names the operation in its errors", func() {
+			_, err := service.CheckVCS(ctx, "https://git.example.com/never-seen.git")
+			Expect(err).To(MatchError(ContainSubstring(`check vcs "https://git.example.com/never-seen.git": unexpected status 404`)))
+		})
+	})
+
 	Describe("failure classification", func() {
 		resolveOnce := func(purl string) error {
-			_, err := service.doResolve(ctx, ts.URL+"/api/v1/resolve?purl="+purl, purl)
+			_, err := service.doQuery(ctx, ts.URL+"/api/v1/resolve?purl="+purl, "resolve", purl)
 			return err
 		}
 
@@ -158,7 +185,7 @@ var _ = Describe("Service", func() {
 			deadTS.Close()
 
 			deadService := NewService(ServiceConfig{ServerURL: deadTS.URL})
-			_, err := deadService.doResolve(ctx, deadTS.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "pkg:npm/lodash@4.17.21")
+			_, err := deadService.doQuery(ctx, deadTS.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "resolve", "pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(classOf(err)).To(Equal(FailureClassInfra))
 		})
@@ -168,6 +195,14 @@ var _ = Describe("Service", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(classOf(err)).To(Equal(FailureClassContent))
 		})
+
+		It("classifies vcs check failures the same way", func() {
+			_, err := service.doQuery(ctx, ts.URL+"/api/v1/vcs?url=https://git.example.com/never-seen.git", "check vcs", "https://git.example.com/never-seen.git")
+			Expect(classOf(err)).To(Equal(FailureClassContent))
+
+			_, err = service.doQuery(ctx, ts.URL+"/api/v1/vcs?url=https://git.example.com/flaky.git", "check vcs", "https://git.example.com/flaky.git")
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
 	})
 
 	Describe("resolver breaker integration", func() {
@@ -176,7 +211,7 @@ var _ = Describe("Service", func() {
 			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
 
 			for i := 0; i < resolverBreakerThreshold; i++ {
-				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "pkg:npm/server-error@1.0.0")
+				_, err := breakerService.doQuery(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "resolve", "pkg:npm/server-error@1.0.0")
 				Expect(err).To(HaveOccurred())
 			}
 
@@ -196,7 +231,7 @@ var _ = Describe("Service", func() {
 			}
 
 			callsBefore := *calls
-			_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "pkg:npm/lodash@4.17.21")
+			_, err := breakerService.doQuery(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/lodash@4.17.21", "resolve", "pkg:npm/lodash@4.17.21")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
 			Expect(*calls).To(Equal(callsBefore))
@@ -207,7 +242,7 @@ var _ = Describe("Service", func() {
 			breakerService := NewService(ServiceConfig{ServerURL: ts.URL, Breaker: breaker})
 
 			for i := 0; i < resolverBreakerThreshold-1; i++ {
-				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "pkg:npm/server-error@1.0.0")
+				_, err := breakerService.doQuery(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "resolve", "pkg:npm/server-error@1.0.0")
 				Expect(err).To(HaveOccurred())
 			}
 
@@ -215,7 +250,7 @@ var _ = Describe("Service", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			for i := 0; i < resolverBreakerThreshold-1; i++ {
-				_, err := breakerService.doResolve(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "pkg:npm/server-error@1.0.0")
+				_, err := breakerService.doQuery(ctx, ts.URL+"/api/v1/resolve?purl=pkg:npm/server-error@1.0.0", "resolve", "pkg:npm/server-error@1.0.0")
 				Expect(err).To(HaveOccurred())
 			}
 			Expect(breaker.Allow()).To(Succeed())

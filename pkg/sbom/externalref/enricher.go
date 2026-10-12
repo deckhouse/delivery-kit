@@ -10,6 +10,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/werf/logboek"
 )
@@ -53,11 +54,17 @@ func purlNotExpected(ct cdx.ComponentType) bool {
 }
 
 type Enricher struct {
-	Resolve func(ctx context.Context, purl string) (*ResolveResult, error)
+	Resolve  func(ctx context.Context, purl string) (*ResolveResult, error)
+	CheckVCS func(ctx context.Context, vcsURL string) (*ResolveResult, error)
+
+	vcsChecks singleflight.Group
 }
 
-func NewEnricher(resolve func(ctx context.Context, purl string) (*ResolveResult, error)) *Enricher {
-	return &Enricher{Resolve: resolve}
+func NewEnricher(
+	resolve func(ctx context.Context, purl string) (*ResolveResult, error),
+	checkVCS func(ctx context.Context, vcsURL string) (*ResolveResult, error),
+) *Enricher {
+	return &Enricher{Resolve: resolve, CheckVCS: checkVCS}
 }
 
 type componentError struct {
@@ -158,12 +165,30 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 		return nil
 	}
 
+	var unconfirmed error
+	if vcsURL, ok := knownVCSLink(comp); ok {
+		unconfirmed = e.checkVCSLink(ctx, vcsURL)
+		if unconfirmed == nil {
+			return nil
+		}
+		if isInfraFailure(unconfirmed) {
+			return unconfirmed
+		}
+		unconfirmed = fmt.Errorf("vcs link %q not confirmed: %w", vcsURL, unconfirmed)
+	}
+
 	res, err := e.Resolve(ctx, comp.PackageURL)
 	if err != nil {
+		if unconfirmed != nil {
+			return fmt.Errorf("%w; %w", unconfirmed, err)
+		}
 		return err
 	}
 
 	if err := validateRefKind(res.Kind); err != nil {
+		if unconfirmed != nil {
+			return fmt.Errorf("%w; %w", unconfirmed, err)
+		}
 		return err
 	}
 
@@ -175,9 +200,52 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 	if comp.ExternalReferences == nil {
 		comp.ExternalReferences = &[]cdx.ExternalReference{}
 	}
+	if unconfirmed != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: component %s (%s): %s; replaced with %s %q resolved from purl\n", comp.Name, comp.PackageURL, unconfirmed, extRef.Type, extRef.URL)
+		*comp.ExternalReferences = lo.Reject(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
+			return ref.Type == cdx.ERTypeVCS
+		})
+	}
 	*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
 
 	seen.Store(res.URL+"|"+res.Kind, extRef)
 
 	return nil
+}
+
+// checkVCSLink returns nil when the resolver confirms the link, an infrastructure
+// failure when the resolver could not be asked, and the reason otherwise. A link
+// shared by several components is checked once per enrichment.
+func (e *Enricher) checkVCSLink(ctx context.Context, vcsURL string) error {
+	_, err, _ := e.vcsChecks.Do(vcsURL, func() (any, error) {
+		res, err := e.CheckVCS(ctx, vcsURL)
+		if err != nil {
+			return nil, err
+		}
+		// For the url check kind "vcs" and a confirmed status are the same
+		// verdict: the resolver derives the row status from kind alone.
+		if cdx.ExternalReferenceType(res.Kind) != cdx.ERTypeVCS {
+			return nil, fmt.Errorf("resolver reports kind %q", res.Kind)
+		}
+		return nil, nil
+	})
+	return err
+}
+
+func isInfraFailure(err error) bool {
+	if errors.Is(err, ErrResolverUnavailable) {
+		return true
+	}
+	var classified *ClassifiedError
+	return errors.As(err, &classified) && classified.Class == FailureClassInfra
+}
+
+func knownVCSLink(comp *cdx.Component) (string, bool) {
+	if comp.ExternalReferences == nil {
+		return "", false
+	}
+	ref, ok := lo.Find(*comp.ExternalReferences, func(ref cdx.ExternalReference) bool {
+		return ref.Type == cdx.ERTypeVCS && ref.URL != ""
+	})
+	return ref.URL, ok
 }

@@ -207,6 +207,34 @@ var _ = Describe("SBOM GOST integration", Label("e2e", "sbom", "gost", "simple")
 		}
 	})
 
+	It("os-pm image: a package pinned with `@` is the attack surface like one pinned with `==`", Label("declared-roots"), func(ctx SpecContext) {
+		setupSbomBuildEnv()
+
+		repoDirname := "repo_sbom_gost_at_pin"
+		SuiteData.InitTestRepo(ctx, repoDirname, "packages_merge/at_pin")
+		testRepoPath := SuiteData.GetTestRepoPath(repoDirname)
+
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, testRepoPath)
+		werfProject.Build(ctx, nil)
+
+		bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+		}))
+
+		// pm and syft's binary classifier both report curl, under different purls; the
+		// declaration names them both, so both are roots.
+		Expect(sbomtest.RootDependencies(bom)).To(ContainElements("jq", "curl"))
+		Expect(lo.Uniq(sbomtest.RootDependencies(bom))).To(ConsistOf("jq", "curl"))
+		sbomtest.AssertDependencyGraphResolves(bom)
+		for _, comp := range lo.FromPtr(bom.Components) {
+			if comp.Name == "jq" || comp.Name == "curl" {
+				Expect(gost.GetComponent(&comp).AttackSurface).To(Equal(gost.GostValueYes), "%s@%s is declared", comp.Name, comp.Version)
+				continue
+			}
+			Expect(gost.GetComponent(&comp).AttackSurface).To(Equal(gost.GostValueIndirect), "%s is pulled in by a declared package", comp.Name)
+		}
+	})
+
 	DescribeTable("the source language of the packages directive lands on its components",
 		func(ctx SpecContext, ecosystem, fixture, componentName, componentVersion, expectedLang string) {
 			setupSbomBuildEnv()

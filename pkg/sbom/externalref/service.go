@@ -58,49 +58,69 @@ func NewService(cfg ServiceConfig) *Service {
 }
 
 func (s *Service) Resolve(ctx context.Context, purl string) (*ResolveResult, error) {
+	u := fmt.Sprintf("%s/api/v1/resolve?purl=%s", s.serverURL, url.QueryEscape(purl))
+	return s.query(ctx, u, "resolve", purl)
+}
+
+// CheckVCS asks the resolver to verify a repository URL the SBOM already carries,
+// for instance the one a package manager recorded for its package. The resolver
+// keys the answer by the URL alone, so the verdict does not depend on the purl
+// that led to the link.
+func (s *Service) CheckVCS(ctx context.Context, vcsURL string) (*ResolveResult, error) {
+	u := fmt.Sprintf("%s/api/v1/vcs?url=%s", s.serverURL, url.QueryEscape(vcsURL))
+	return s.query(ctx, u, "check vcs", vcsURL)
+}
+
+func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveResult, error) {
 	if err := s.breakerAllow(); err != nil {
 		return nil, err
 	}
 
-	u := fmt.Sprintf("%s/api/v1/resolve?purl=%s", s.serverURL, url.QueryEscape(purl))
-
-	return backoff.Retry(ctx, func() (*ResolveResult, error) {
-		return s.doResolve(ctx, u, purl)
+	res, err := backoff.Retry(ctx, func() (*ResolveResult, error) {
+		return s.doQuery(ctx, u, op, subject)
 	},
 		backoff.WithBackOff(backoff.NewExponentialBackOff()),
 		backoff.WithMaxElapsedTime(defaultMaxElapsedTime),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			logboek.Context(ctx).Warn().LogF(
-				"WARNING: resolve PURL failed, retrying in %v: %s\n",
-				duration, err,
+				"WARNING: %s %q failed, retrying in %v: %s\n",
+				op, subject, duration, err,
 			)
 		}),
 	)
+	// A context canceled between attempts or during the backoff wait comes back from
+	// the retry loop as the bare cancellation cause, bypassing the classification
+	// doQuery applies to a cancellation it observes itself.
+	if err != nil && ctx.Err() != nil {
+		return nil, &ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s %q: %w", op, subject, ctx.Err())}
+	}
+
+	return res, err
 }
 
-func (s *Service) doResolve(ctx context.Context, u, purl string) (*ResolveResult, error) {
+func (s *Service) doQuery(ctx context.Context, u, op, subject string) (*ResolveResult, error) {
 	if err := s.breakerAllow(); err != nil {
 		return nil, backoff.Permanent(err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("resolve %q: create request: %w", purl, err)))
+		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("%s %q: create request: %w", op, subject, err)))
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, s.classify(FailureClassInfra, fmt.Errorf("resolve %q: %w", purl, err))
+		return nil, s.infraError(ctx, op, subject, fmt.Errorf("%s %q: %w", op, subject, err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, s.classify(FailureClassInfra, fmt.Errorf("resolve %q: read body: %w", purl, err))
+		return nil, s.infraError(ctx, op, subject, fmt.Errorf("%s %q: read body: %w", op, subject, err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("resolve %q: unexpected status %d: %s", purl, resp.StatusCode, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("%s %q: unexpected status %d: %s", op, subject, resp.StatusCode, strings.TrimSpace(string(body)))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, s.classify(FailureClassInfra, err)
 		}
@@ -109,11 +129,11 @@ func (s *Service) doResolve(ctx context.Context, u, purl string) (*ResolveResult
 
 	var result ResolveResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("resolve %q: parse response: %w", purl, err)))
+		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("%s %q: parse response: %w", op, subject, err)))
 	}
 
 	if result.URL == "" {
-		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("resolve %q: %w", purl, ErrEmptyURL)))
+		return nil, backoff.Permanent(s.classify(FailureClassContent, fmt.Errorf("%s %q: %w", op, subject, ErrEmptyURL)))
 	}
 
 	if s.breaker != nil {
@@ -136,4 +156,16 @@ func (s *Service) classify(class FailureClass, err error) error {
 		s.breaker.RecordFailure(class, classified)
 	}
 	return classified
+}
+
+// infraError guards canceled queries: errgroup cancels sibling workers with the
+// first failure as the context cause and net/http returns context.Cause(ctx), so a
+// canceled query would otherwise embed another image's entire error report.
+// Cancellation is terminal for this build and says nothing about resolver health,
+// so it is permanent and not counted by the breaker.
+func (s *Service) infraError(ctx context.Context, op, subject string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return backoff.Permanent(&ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s %q: %w", op, subject, ctxErr)})
+	}
+	return s.classify(FailureClassInfra, err)
 }

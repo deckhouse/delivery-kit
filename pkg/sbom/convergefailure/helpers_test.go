@@ -13,9 +13,10 @@ import (
 // fails for a component, wrapped exactly the way ExternalRefPatcher wraps it, so
 // tests exercise the same error chain the build phase sees.
 func componentEnrichError(componentName string) error {
-	enricher := externalref.NewEnricher(func(ctx context.Context, purl string) (*externalref.ResolveResult, error) {
+	resolve := func(ctx context.Context, purl string) (*externalref.ResolveResult, error) {
 		return nil, errors.New("empty url")
-	})
+	}
+	enricher := externalref.NewEnricher(resolve, resolve)
 	bom := &cdx.BOM{Components: &[]cdx.Component{{Name: componentName, PackageURL: "pkg:apk/alpine/" + componentName + "@1.0.0"}}}
 
 	err := enricher.Enrich(context.Background(), bom)

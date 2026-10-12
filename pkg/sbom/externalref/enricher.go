@@ -53,11 +53,56 @@ func purlNotExpected(ct cdx.ComponentType) bool {
 }
 
 type Enricher struct {
-	Resolve func(ctx context.Context, purl string) (*ResolveResult, error)
+	Resolve  func(ctx context.Context, purl string) (*ResolveResult, error)
+	CheckVCS func(ctx context.Context, vcsURL string) (*ResolveResult, error)
 }
 
-func NewEnricher(resolve func(ctx context.Context, purl string) (*ResolveResult, error)) *Enricher {
-	return &Enricher{Resolve: resolve}
+// vcsVerdicts memoizes the resolver's answer per link for one Enrich call, so a
+// link shared by several components is checked once however the component
+// goroutines interleave.
+type vcsVerdicts struct {
+	check func(ctx context.Context, vcsURL string) (*ResolveResult, error)
+	cells sync.Map
+}
+
+type vcsVerdict struct {
+	once   sync.Once
+	err    error
+	warned sync.Once
+}
+
+func (v *vcsVerdicts) verify(ctx context.Context, vcsURL string) error {
+	cell, _ := v.cells.LoadOrStore(vcsURL, &vcsVerdict{})
+	verdict := cell.(*vcsVerdict)
+	verdict.once.Do(func() {
+		res, err := v.check(ctx, vcsURL)
+		if err != nil {
+			verdict.err = err
+			return
+		}
+		// For the url check kind "vcs" and a confirmed status are the same
+		// verdict: the resolver derives the row status from kind alone.
+		if cdx.ExternalReferenceType(res.Kind) != cdx.ERTypeVCS {
+			verdict.err = fmt.Errorf("resolver reports kind %q", res.Kind)
+		}
+	})
+	return verdict.err
+}
+
+// warnReplaced reports once per link, not once per component carrying it, that
+// the resolver did not confirm the link and a purl resolution took its place.
+func (v *vcsVerdicts) warnReplaced(ctx context.Context, vcsURL string, comp *cdx.Component, unconfirmed error, replacement cdx.ExternalReference) {
+	cell, _ := v.cells.Load(vcsURL)
+	cell.(*vcsVerdict).warned.Do(func() {
+		logboek.Context(ctx).Warn().LogF("WARNING: component %s (%s): %s; replaced with %s %q resolved from purl\n", comp.Name, comp.PackageURL, unconfirmed, replacement.Type, replacement.URL)
+	})
+}
+
+func NewEnricher(
+	resolve func(ctx context.Context, purl string) (*ResolveResult, error),
+	checkVCS func(ctx context.Context, vcsURL string) (*ResolveResult, error),
+) *Enricher {
+	return &Enricher{Resolve: resolve, CheckVCS: checkVCS}
 }
 
 type componentError struct {
@@ -97,14 +142,13 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	var g errgroup.Group
 	g.SetLimit(10)
 
-	var seen sync.Map
-
+	verdicts := &vcsVerdicts{check: e.CheckVCS}
 	components := *bom.Components
 	compErrs := make([]*componentError, len(components))
 	for i := range components {
 		comp := &components[i]
 		g.Go(func() error {
-			if err := e.enrichComponent(ctx, comp, &seen); err != nil {
+			if err := e.enrichComponent(ctx, comp, verdicts); err != nil {
 				compErrs[i] = &componentError{name: comp.Name, purl: comp.PackageURL, err: err}
 			}
 			return nil
@@ -126,13 +170,20 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		}
 	}
 
-	var bomRefs []cdx.ExternalReference
-	seen.Range(func(_, value any) bool {
-		bomRefs = append(bomRefs, value.(cdx.ExternalReference))
-		return true
-	})
+	// The BOM-wide list is derived from the final component references: a link
+	// replaced on one component must not survive at the BOM level.
+	seen := make(map[string]cdx.ExternalReference)
+	for _, comp := range components {
+		if comp.ExternalReferences == nil {
+			continue
+		}
+		for _, ref := range *comp.ExternalReferences {
+			seen[ref.URL+"|"+string(ref.Type)] = ref
+		}
+	}
 
-	if len(bomRefs) > 0 {
+	if len(seen) > 0 {
+		bomRefs := lo.Values(seen)
 		bom.ExternalReferences = &bomRefs
 		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
 	}
@@ -140,13 +191,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	return nil
 }
 
-func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, seen *sync.Map) error {
-	if comp.ExternalReferences != nil && len(*comp.ExternalReferences) > 0 {
-		for _, ref := range *comp.ExternalReferences {
-			seen.Store(ref.URL+"|"+string(ref.Type), ref)
-		}
-	}
-
+func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, verdicts *vcsVerdicts) error {
 	if comp.PackageURL == "" {
 		if purlNotExpected(comp.Type) {
 			return nil
@@ -158,12 +203,31 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 		return nil
 	}
 
+	var unconfirmed error
+	vcsURL, hasVCS := knownVCSLink(comp)
+	if hasVCS {
+		unconfirmed = verdicts.verify(ctx, vcsURL)
+		if unconfirmed == nil {
+			return nil
+		}
+		if isInfraFailure(unconfirmed) {
+			return unconfirmed
+		}
+		unconfirmed = fmt.Errorf("vcs link %q not confirmed: %w", vcsURL, unconfirmed)
+	}
+
 	res, err := e.Resolve(ctx, comp.PackageURL)
 	if err != nil {
+		if unconfirmed != nil {
+			return fmt.Errorf("%w; %w", unconfirmed, err)
+		}
 		return err
 	}
 
 	if err := validateRefKind(res.Kind); err != nil {
+		if unconfirmed != nil {
+			return fmt.Errorf("%w; %w", unconfirmed, err)
+		}
 		return err
 	}
 
@@ -175,9 +239,35 @@ func (e *Enricher) enrichComponent(ctx context.Context, comp *cdx.Component, see
 	if comp.ExternalReferences == nil {
 		comp.ExternalReferences = &[]cdx.ExternalReference{}
 	}
+	if unconfirmed != nil {
+		verdicts.warnReplaced(ctx, vcsURL, comp, unconfirmed, extRef)
+		*comp.ExternalReferences = lo.Reject(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
+			return ref.Type == cdx.ERTypeVCS
+		})
+	}
 	*comp.ExternalReferences = append(*comp.ExternalReferences, extRef)
 
-	seen.Store(res.URL+"|"+res.Kind, extRef)
-
 	return nil
+}
+
+func isInfraFailure(err error) bool {
+	if errors.Is(err, ErrResolverUnavailable) {
+		return true
+	}
+	var classified *ClassifiedError
+	return errors.As(err, &classified) && classified.Class == FailureClassInfra
+}
+
+// knownVCSLink returns the component's vcs link. A BOM reaching enrichment
+// carries at most one vcs link per component: syft and os-pm each emit at most
+// one. A second link only shows up in a foreign SBOM and is handled by the
+// fallback.
+func knownVCSLink(comp *cdx.Component) (string, bool) {
+	if comp.ExternalReferences == nil {
+		return "", false
+	}
+	ref, ok := lo.Find(*comp.ExternalReferences, func(ref cdx.ExternalReference) bool {
+		return ref.Type == cdx.ERTypeVCS && ref.URL != ""
+	})
+	return ref.URL, ok
 }

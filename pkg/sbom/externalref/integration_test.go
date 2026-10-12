@@ -39,7 +39,7 @@ var _ = Describe("ExternalRef Integration", func() {
 		defer ts.Close()
 
 		svc := NewService(ServiceConfig{ServerURL: ts.URL})
-		enricher := NewEnricher(svc.Resolve)
+		enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
 
 		const componentCount = 50
 		components := make([]cdx.Component, componentCount)
@@ -82,7 +82,7 @@ var _ = Describe("ExternalRef Integration", func() {
 		defer ts.Close()
 
 		svc := NewService(ServiceConfig{ServerURL: ts.URL})
-		enricher := NewEnricher(svc.Resolve)
+		enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
 
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
@@ -105,7 +105,7 @@ var _ = Describe("ExternalRef Integration", func() {
 		defer cancel()
 
 		svc := NewService(ServiceConfig{ServerURL: ts.URL})
-		enricher := NewEnricher(svc.Resolve)
+		enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
 
 		bom := &cdx.BOM{
 			Components: &[]cdx.Component{
@@ -124,7 +124,7 @@ var _ = Describe("ExternalRef Integration", func() {
 		defer ts.Close()
 
 		svc := NewService(ServiceConfig{ServerURL: ts.URL})
-		enricher := NewEnricher(svc.Resolve)
+		enricher := NewEnricher(svc.Resolve, svc.CheckVCS)
 
 		timeoutCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()

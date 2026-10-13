@@ -199,7 +199,7 @@ func mergeComponentInto(ctx context.Context, survivor *cdx.Component, dup cdx.Co
 	takePtr(&survivor.SWID, dup.SWID)
 	takePtr(&survivor.Modified, dup.Modified)
 	takePtr(&survivor.Pedigree, dup.Pedigree)
-	takePtr(&survivor.Evidence, dup.Evidence)
+	survivor.Evidence = mergeEvidence(survivor.Evidence, dup.Evidence)
 	takePtr(&survivor.ReleaseNotes, dup.ReleaseNotes)
 	takePtr(&survivor.ModelCard, dup.ModelCard)
 	takePtr(&survivor.CryptoProperties, dup.CryptoProperties)
@@ -233,6 +233,23 @@ func mergeLicenses(dest, src *cdx.Licenses) *cdx.Licenses {
 	}
 
 	return lo.ToPtr(cdx.Licenses(dedupJSONSlice(append(lo.FromPtr(dest), *src...))))
+}
+
+func mergeEvidence(dest, src *cdx.Evidence) *cdx.Evidence {
+	if src == nil {
+		return dest
+	}
+	if dest == nil {
+		return src
+	}
+
+	dest.Identity = dedupPtrSlice(appendPtrSlice(dest.Identity, src.Identity))
+	dest.Occurrences = dedupPtrSlice(appendPtrSlice(dest.Occurrences, src.Occurrences))
+	dest.Copyright = dedupPtrSlice(appendPtrSlice(dest.Copyright, src.Copyright))
+	dest.Licenses = mergeLicenses(dest.Licenses, src.Licenses)
+	takePtr(&dest.Callstack, src.Callstack)
+
+	return dest
 }
 
 func canonicalizeComponent(ctx context.Context, comp *cdx.Component) {

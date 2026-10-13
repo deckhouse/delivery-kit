@@ -165,6 +165,43 @@ var _ = Describe("Canonicalize", func() {
 		Expect(comp.CPE).To(Equal("cpe:2.3:a:vendor:bin:1:*:*:*:*:*:*:*"))
 	})
 
+	It("unions the evidence occurrences and identities of merged components", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "a", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1",
+					Evidence: &cdx.Evidence{
+						Identity:    &[]cdx.EvidenceIdentity{{Field: cdx.EvidenceIdentityFieldTypePURL}},
+						Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/usr/bin/bin"}},
+						Copyright:   &[]cdx.Copyright{{Text: "(c) a"}},
+					},
+				},
+				{
+					BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1",
+					Evidence: &cdx.Evidence{
+						Identity:    &[]cdx.EvidenceIdentity{{Field: cdx.EvidenceIdentityFieldTypeName}},
+						Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/usr/bin/bin"}, {Location: "/usr/lib/bin.so"}},
+						Copyright:   &[]cdx.Copyright{{Text: "(c) b"}},
+					},
+				},
+			},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+		ev := (*bom.Components)[0].Evidence
+		Expect(*ev.Identity).To(ConsistOf(
+			cdx.EvidenceIdentity{Field: cdx.EvidenceIdentityFieldTypePURL},
+			cdx.EvidenceIdentity{Field: cdx.EvidenceIdentityFieldTypeName},
+		))
+		Expect(*ev.Occurrences).To(ConsistOf(
+			cdx.EvidenceOccurrence{Location: "/usr/bin/bin"},
+			cdx.EvidenceOccurrence{Location: "/usr/lib/bin.so"},
+		))
+		Expect(*ev.Copyright).To(HaveLen(2))
+	})
+
 	It("takes every field the survivor lacks from the merged duplicate", func(ctx SpecContext) {
 		dup := cdx.Component{
 			BOMRef: "b", Type: cdx.ComponentTypeLibrary, Name: "bin", Version: "1", PackageURL: "pkg:generic/bin@1",

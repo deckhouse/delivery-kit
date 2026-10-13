@@ -38,15 +38,15 @@ fi
 		ginkgo.GinkgoT().Setenv("IMAGE_ID", id)
 		ginkgo.GinkgoT().Setenv(journal.Env, root)
 		var removed []string
-		err := cleanupDockerProjectImages(ctx, "werf-test-journal", nil, func(_ context.Context, ref string) error {
-			removed = append(removed, ref)
+		err := cleanupDockerProjectImages(ctx, "werf-test-journal", nil, func(_ context.Context, refs []string) error {
+			removed = append(removed, refs...)
 			return os.WriteFile(marker, nil, 0o600)
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(removed).To(gomega.Equal([]string{"werf-test-journal:owned"}))
 		gomega.Expect(os.Remove(filepath.Join(root, "docker", id))).To(gomega.Succeed())
 		gomega.Expect(os.WriteFile(filepath.Join(root, "docker", "invalid"), nil, 0o600)).To(gomega.Succeed())
-		err = cleanupDockerProjectImages(ctx, "werf-test-journal", nil, func(context.Context, string) error { return nil })
+		err = cleanupDockerProjectImages(ctx, "werf-test-journal", nil, func(context.Context, []string) error { return nil })
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid image journal entry")))
 	})
 

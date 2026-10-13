@@ -78,8 +78,8 @@ func CleanupProject(ctx context.Context, projectName string, opts CleanupProject
 	}
 	if slices.Contains(backends, "docker") {
 		if _, err := exec.LookPath("docker"); err == nil {
-			if err := cleanupDockerProjectImages(ctx, projectName, repos, func(ctx context.Context, ref string) error {
-				_, err := cleanupCommand(ctx, "docker", []string{"rmi", "--no-prune", ref})
+			if err := cleanupDockerProjectImages(ctx, projectName, repos, func(ctx context.Context, refs []string) error {
+				_, err := cleanupCommand(ctx, "docker", slices.Concat([]string{"rmi", "--no-prune"}, refs))
 				return err
 			}, opts.DockerImageIDs...); err != nil {
 				cleanupErrors = append(cleanupErrors, err)
@@ -96,7 +96,7 @@ func CleanupProject(ctx context.Context, projectName string, opts CleanupProject
 	return errors.Join(cleanupErrors...)
 }
 
-func cleanupDockerProjectImages(ctx context.Context, projectName string, repos []string, removeImage func(context.Context, string) error, observedIDs ...string) error {
+func cleanupDockerProjectImages(ctx context.Context, projectName string, repos []string, removeImages func(context.Context, []string) error, observedIDs ...string) error {
 	candidates := make(map[string]bool)
 	directory := os.Getenv(journal.Env)
 	if directory != "" {
@@ -170,23 +170,43 @@ func cleanupDockerProjectImages(ctx context.Context, projectName string, repos [
 		return projectImageReferences(owned, projectName, repos), nil
 	}
 
-	return cleanupImageReferences(ctx, "docker", list, removeImage)
+	return cleanupImageBatches(ctx, "docker", list, func(ctx context.Context, refs []string) []error {
+		var removalErrors []error
+		for batch := range slices.Chunk(refs, 64) {
+			if err := ctx.Err(); err != nil {
+				return append(removalErrors, err)
+			}
+			if err := removeImages(ctx, batch); err != nil {
+				removalErrors = append(removalErrors, fmt.Errorf("remove docker test images %q: %w", batch, err))
+			}
+		}
+		return removalErrors
+	})
 }
 
 func cleanupImageReferences(ctx context.Context, backend string, list func() ([]string, error), removeImage func(context.Context, string) error) error {
+	return cleanupImageBatches(ctx, backend, list, func(ctx context.Context, refs []string) []error {
+		var removalErrors []error
+		for _, ref := range refs {
+			if err := removeImage(ctx, ref); err != nil {
+				removalErrors = append(removalErrors, fmt.Errorf("remove %s test image %q: %w", backend, ref, err))
+			}
+		}
+		return removalErrors
+	})
+}
+
+func cleanupImageBatches(ctx context.Context, backend string, list func() ([]string, error), removeImages func(context.Context, []string) []error) error {
 	refs, err := list()
 	if err != nil {
 		return fmt.Errorf("list %s test images: %w", backend, err)
 	}
 	for pass := 0; len(refs) > 0; pass++ {
-		var cleanupErrors []error
+		cleanupErrors := removeImages(ctx, refs)
 		onlyInUseErrors := true
-		for _, ref := range refs {
-			if err := removeImage(ctx, ref); err != nil {
-				if !errors.Is(err, errCleanupImageInUse) {
-					onlyInUseErrors = false
-				}
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("remove %s test image %q: %w", backend, ref, err))
+		for _, err := range cleanupErrors {
+			if !errors.Is(err, errCleanupImageInUse) {
+				onlyInUseErrors = false
 			}
 		}
 		remaining, err := list()

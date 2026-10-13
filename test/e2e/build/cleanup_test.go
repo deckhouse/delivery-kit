@@ -24,6 +24,29 @@ import (
 )
 
 var _ = ginkgo.Describe("Test image cleanup", ginkgo.Label("e2e", "build", "extra"), func() {
+	ginkgo.It("preserves a container-held image while deleting another batch member", ginkgo.Label("docker"), func(ctx ginkgo.SpecContext) {
+		setupEnv(setupEnvOptions{ContainerBackendMode: "docker"})
+		busyRef := SuiteData.ProjectName + ":a-busy"
+		freeRef := SuiteData.ProjectName + ":z-free"
+		for _, ref := range []string{busyRef, freeRef} {
+			_, err := utils.RunCommandWithOptions(ctx, "", "docker", []string{"build", "--quiet", "--label", "werf=" + SuiteData.ProjectName, "--label", "fixture=" + ref, "--tag", ref, "-"}, utils.RunCommandOptions{ToStdin: "FROM scratch\n"})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		var holder string
+		ginkgo.DeferCleanup(func(cleanupCtx ginkgo.SpecContext) {
+			if holder != "" {
+				utils.RunSucceedCommand(cleanupCtx, "", "docker", "container", "rm", holder)
+			}
+		}, ginkgo.NodeTimeout(time.Minute))
+		holder = strings.TrimSpace(utils.SucceedCommandOutputString(ctx, "", "docker", "create", busyRef, "/bin/true"))
+		freeID := strings.TrimSpace(utils.SucceedCommandOutputString(ctx, "", "docker", "image", "inspect", "--format", "{{.Id}}", freeRef))
+		err := contback.CleanupProject(ctx, SuiteData.ProjectName, contback.CleanupProjectOptions{Backends: []string{"docker"}})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("docker test images remain")))
+		utils.RunSucceedCommand(ctx, "", "docker", "image", "inspect", busyRef)
+		utils.RunSucceedCommand(ctx, "", "docker", "container", "inspect", holder)
+		_, err = utils.RunCommand(ctx, "", "docker", "image", "inspect", freeID)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+	})
 	ginkgo.It("journals native pull and container preparation", ginkgo.Label("native-rootless", suite_init.LabelNeedsBuildah), func(ctx ginkgo.SpecContext) {
 		contback.SkipIfUnavailable("native-rootless")
 		opts := setupEnvOptions{ContainerBackendMode: "native-rootless"}

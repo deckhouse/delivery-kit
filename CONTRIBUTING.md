@@ -176,6 +176,11 @@ within that deadline. Docker inspect retries the daemon's concurrent-modificatio
 consistency error up to three total attempts with cancelable 100-ms waits;
 unrelated inspect errors fail immediately. For each image and repository, remove
 tags before digest aliases and rescan for any surviving digest-only reference.
+Docker teardown passes up to 64 selected references to each `docker rmi --no-prune`
+invocation, preserving their order and verifying the remaining references after
+each pass. This reduces CLI startup overhead without changing daemon deletion,
+forcing removal or replacing werf commands exercised by the specs. Cancellation
+stops submission of further batches; partial deletion still requires verification.
 Permanent failures are reported, not converted into successful cleanup.
 
 This teardown does not remove remote registry data, shared build caches, or

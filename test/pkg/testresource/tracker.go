@@ -100,6 +100,10 @@ func PrepareCommand(ctx context.Context, executable string, args, environment []
 			if err := digest.Digest("sha256:" + ref).Validate(); err != nil {
 				return fmt.Errorf("invalid buildah pull result ID: %w", err)
 			}
+			if err := journal.Record(context.WithoutCancel(ctx), filepath.Join(tracker.journalDir, "buildah"), ref); err != nil {
+				return fmt.Errorf("record buildah pull result: %w", err)
+			}
+			return finish()
 		}
 		inspectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -112,9 +116,6 @@ func PrepareCommand(ctx context.Context, executable string, args, environment []
 		var inspected struct{ FromImageID string }
 		if err := json.Unmarshal(output, &inspected); err != nil {
 			return fmt.Errorf("decode buildah %s result: %w", operation, err)
-		}
-		if operation == "pull" && commandErr == nil && strings.TrimPrefix(inspected.FromImageID, "sha256:") != ref {
-			return fmt.Errorf("buildah pull result ID differs from inspected image")
 		}
 		if err := journal.Record(inspectCtx, filepath.Join(tracker.journalDir, "buildah"), inspected.FromImageID); err != nil {
 			return fmt.Errorf("record buildah %s result: %w", operation, err)

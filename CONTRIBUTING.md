@@ -92,7 +92,7 @@ and the separate retention responsibilities of persistent-runner operators.
 
 ### CI runner pool
 
-Image-building suites register `SuiteData.SetupProjectCleanup()` after project,
+Image-building suites register `SuiteData.SetupProjectCleanup()` exactly once after project,
 environment and temporary-directory setup. Cleanup runs before those resources
 are reset, removes local Docker and native Buildah image references owned by the
 test, and fails if selected references remain. The image label must match the
@@ -116,13 +116,15 @@ when journaling is enabled. Callers without a journal retain inventory discovery
 Missing IDs are complete; other lookup errors fail cleanup. Surviving own aliases
 and tagless images remain candidates, while foreign aliases are preserved.
 Image-producing processes for the project must finish before cleanup starts;
-images created after tracking ends are not added to its working set. Each werf
-process leaves a pending marker until it finishes journaling; interrupted writers,
+images created after tracking ends are not added to its working set. Werf commands
+other than `kubectl` leave a pending marker until they finish journaling. Kubectl
+does not produce local images and may exit without running deferred callbacks.
+Interrupted writers,
 invalid journal records and event-tracking errors fail cleanup without falling
 back to listing. The journal does not discover old, unobserved images in storage.
 Command helpers support single-image Buildah `pull` and named `from` operations:
-they retain a pending marker until the result is inspected and journaled. Successful
-pulls use the immutable ID printed by Buildah; `from` records the named container's
+they retain a pending marker until the result is journaled. Successful pulls record
+the validated immutable ID printed by Buildah without another inspect; `from` inspects and records the named container's
 source image. Failed preparation retains its incomplete marker. Other direct Buildah
 producers, including `unshare`, remain rejected; use the instrumented werf backend.
 Container `run` is supported. Direct tag commands record their source by inspect.

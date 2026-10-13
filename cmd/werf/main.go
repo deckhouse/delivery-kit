@@ -46,19 +46,6 @@ func main() {
 	} else if shouldTerminate {
 		return
 	}
-	if directory := os.Getenv(journal.Env); directory != "" {
-		finish, err := journal.Begin(ctx, directory)
-		if err != nil {
-			graceful.Terminate(ctx, err, 1)
-			return
-		}
-		defer func() {
-			if err := finish(); err != nil {
-				graceful.Terminate(ctx, err, 1)
-			}
-		}()
-	}
-
 	if profileDir := os.Getenv("WERF_CPU_PROFILE_DIR"); profileDir != "" {
 		stopProfile, err := startCPUProfile(profileDir)
 		if err != nil {
@@ -84,6 +71,18 @@ func main() {
 	}
 
 	root.SetupTelemetryInit(rootCmd)
+	if directory := os.Getenv(journal.Env); directory != "" {
+		finish, err := startImageJournal(ctx, rootCmd, os.Args[1:], directory)
+		if err != nil {
+			graceful.Terminate(ctx, err, 1)
+			return
+		}
+		defer func() {
+			if err := finish(); err != nil {
+				graceful.Terminate(ctx, err, 1)
+			}
+		}()
+	}
 
 	// WARNING this behavior could be changed
 	// https://github.com/spf13/cobra/pull/2167 is not accepted yet
@@ -115,6 +114,19 @@ func main() {
 	}
 
 	common.ShutdownTelemetry(ctx, 0)
+}
+
+func startImageJournal(ctx context.Context, rootCmd *cobra.Command, args []string, directory string) (func() error, error) {
+	command, _, err := rootCmd.Find(args)
+	if err != nil {
+		return journal.Begin(ctx, directory)
+	}
+	for current := command; current != nil && current != rootCmd; current = current.Parent() {
+		if current.Parent() == rootCmd && current.Name() == "kubectl" {
+			return func() error { return nil }, nil
+		}
+	}
+	return journal.Begin(ctx, directory)
 }
 
 func startCPUProfile(dir string) (func() error, error) {

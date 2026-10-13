@@ -88,7 +88,11 @@ exit "$HELPER_EXIT"
 		if operation == "from" {
 			kind, ref = "container", "test-container"
 		}
-		Expect(string(output)).To(ContainSubstring("inspect --type " + kind + " " + ref))
+		if operation == "pull" && !fails {
+			Expect(string(output)).NotTo(ContainSubstring("inspect"))
+		} else {
+			Expect(string(output)).To(ContainSubstring("inspect --type " + kind + " " + ref))
+		}
 		snapshot, err := tracker.Finish(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(snapshot.Backends).To(Equal([]string{"buildah"}))

@@ -1,0 +1,7 @@
+{
+  "name": "packages-manager-tools",
+  "version": "1.0.0",
+  "dependencies": {
+    "@yarnpkg/cli-dist": "4.18.1"
+  }
+}

@@ -142,7 +142,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "uv.lock",
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s sync --frozen", managerBin(files, "uv")), env)
+			defaults := map[string]string{"UV_PYTHON_DOWNLOADS": "never"}
+			return formatWorkdirCommand(workdir, fmt.Sprintf("%s sync --frozen", managerBin(files, "uv")), withDefaultEnv(env, defaults))
 		},
 		CatalogerName: "python-package-cataloger",
 		SourceLang:    "Python",
@@ -161,8 +162,10 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonPoetry,
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "poetry.lock",
+		// `poetry sync` exists since Poetry 2.0 only, and with virtualenvs.create=false it
+		// uninstalls from the system site-packages everything the lock does not list.
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s sync --no-root", managerBin(files, "poetry")), env)
+			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-root", managerBin(files, "poetry")), env)
 		},
 		CatalogerName: "python-package-cataloger",
 		SourceLang:    "Python",
@@ -203,8 +206,15 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptPnpm,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "pnpm-lock.yaml",
+		// A `packageManager` field naming another pnpm version makes pnpm 10 (npm_config_*)
+		// and pnpm 11+ (pnpm_config_*) download that version and re-exec into it, bypassing
+		// the one the lock pins.
 		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), env)
+			defaults := map[string]string{
+				"npm_config_manage_package_manager_versions": "false",
+				"pnpm_config_pm_on_fail":                     "ignore",
+			}
+			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), withDefaultEnv(env, defaults))
 		},
 		CatalogerName: "javascript-lock-cataloger",
 		SourceLang:    "JavaScript",

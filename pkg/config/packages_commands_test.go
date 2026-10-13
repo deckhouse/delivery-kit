@@ -381,11 +381,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("PythonUV env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
-			substring: `cd "/app" && uv sync --frozen`,
+			substring: `cd "/app" && UV_PYTHON_DOWNLOADS=never uv sync --frozen`,
 		}),
 		Entry("PythonUV env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
-			substring: `cd "/app" && uv sync --frozen`,
+			substring: `cd "/app" && UV_PYTHON_DOWNLOADS=never uv sync --frozen`,
 		}),
 		Entry("PythonPip env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
@@ -397,11 +397,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("PythonPoetry env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
-			substring: `cd "/app" && poetry sync --no-root`,
+			substring: `cd "/app" && poetry install --no-root`,
 		}),
 		Entry("PythonPoetry env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
-			substring: `cd "/app" && poetry sync --no-root`,
+			substring: `cd "/app" && poetry install --no-root`,
 		}),
 		Entry("RustCargo env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}},
@@ -429,11 +429,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("JavaScriptPnpm env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
-			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+			substring: `cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`,
 		}),
 		Entry("JavaScriptPnpm env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
-			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+			substring: `cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`,
 		}),
 		Entry("LuaRock env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeLuaRock, FileBased: FileBasedSpec{Workdir: "/app", Spec: "rockspec"}},
@@ -503,7 +503,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("PythonUV with UV_EXTRA_INDEX_URL", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"UV_EXTRA_INDEX_URL": "http://pypi:8080"}},
-			substring:  `uv sync --frozen`,
+			substring:  `UV_PYTHON_DOWNLOADS=never uv sync --frozen`,
 			envVarName: "UV_EXTRA_INDEX_URL",
 			envValue:   "http://pypi:8080",
 		}),
@@ -517,7 +517,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("PythonPoetry with POETRY_HTTP_BASIC_MYREGISTRY_USERNAME", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"POETRY_HTTP_BASIC_MYREGISTRY_USERNAME": "user"}},
-			substring:  `poetry sync --no-root`,
+			substring:  `poetry install --no-root`,
 			envVarName: "POETRY_HTTP_BASIC_MYREGISTRY_USERNAME",
 			envValue:   "user",
 		}),
@@ -545,7 +545,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("JavaScriptPnpm with PNPM_HOME", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"PNPM_HOME": "/custom/path"}},
-			substring:  `pnpm install --frozen-lockfile`,
+			substring:  `npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`,
 			envVarName: "PNPM_HOME",
 			envValue:   "/custom/path",
 		}),
@@ -589,7 +589,9 @@ var _ = Describe("GeneratePackagesCommands non-os-pm multiple env vars", func() 
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"BBB": "two", "AAA": "one"}},
 			substring: `uv sync --frozen`,
 			checks: []func(cmd string){
-				func(cmd string) { Expect(cmd).To(ContainSubstring(`&& AAA=one BBB=two uv sync`)) },
+				func(cmd string) {
+					Expect(cmd).To(ContainSubstring(`&& AAA=one BBB=two UV_PYTHON_DOWNLOADS=never uv sync`))
+				},
 			},
 		}),
 

@@ -170,3 +170,33 @@ var _ = Describe("rawPackagesDirective python", func() {
 		),
 	)
 })
+
+var _ = Describe("python install commands", func() {
+	It("installs a poetry project without its root package", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Lock: "poetry.lock"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && poetry install --no-root`}))
+	})
+
+	It("syncs a uv project without downloading an interpreter", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Lock: "uv.lock"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && UV_PYTHON_DOWNLOADS=never uv sync --frozen`}))
+	})
+
+	It("lets the directive env override the uv python downloads default", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"UV_PYTHON_DOWNLOADS": "automatic"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && UV_PYTHON_DOWNLOADS=automatic uv sync --frozen`}))
+	})
+
+	It("runs the uv the preceding entry installed", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Manager: "/opt/tools/bin/uv"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && UV_PYTHON_DOWNLOADS=never "/opt/tools/bin/uv" sync --frozen`}))
+	})
+})

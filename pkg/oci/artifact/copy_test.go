@@ -24,11 +24,13 @@ import (
 )
 
 const (
-	dsseArtifactType   = "application/vnd.dsse.envelope.v1+json"
-	bundleArtifactType = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	dsseArtifactType   = attestation.DSSEMediaType
+	bundleArtifactType = attestation.BundleMediaType
+)
 
-	signedPredicate   = "https://cyclonedx.org/bom"
-	unsignedPredicate = "https://cyclonedx.org/bom/v1.6"
+var (
+	signedPredicate   = attestation.PredicateKindCycloneDX.SignedType
+	unsignedPredicate = attestation.PredicateKindCycloneDX.UnsignedType
 )
 
 var _ = Describe("CopyAttachedArtifacts (integration)", func() {
@@ -210,6 +212,21 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 				artifact.Key{ArtifactType: bundleArtifactType, PredicateType: signedPredicate},
 				artifact.Key{ArtifactType: dsseArtifactType, PredicateType: unsignedPredicate},
 			))
+		})
+
+		It("should keep an attestation the user signed into the destination slot", func(ctx SpecContext) {
+			srcStore := artifact.NewOCIStore(srcRepo, "my-app", remoteOpts...)
+			Expect(srcStore.Attach(ctx, srcDigest, bundleArtifactType, []byte(`{"v":"signed"}`), "checksum-signed", "", signedPredicate)).To(Succeed())
+
+			copyImageByDigest(ctx, srcRepo, dstRepo, srcDigest)
+			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
+			Expect(dstStore.Attach(ctx, srcDigest, dsseArtifactType, []byte(`{"v":"user"}`), "", "", signedPredicate)).To(Succeed())
+
+			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
+
+			content, err := dstStore.GetAttachedContent(ctx, srcDigest, dsseArtifactType, []string{signedPredicate})
+			Expect(err).To(Succeed())
+			Expect(content).To(MatchJSON(`{"v":"user"}`))
 		})
 
 		It("should leave the artifacts of another image alone", func(ctx SpecContext) {

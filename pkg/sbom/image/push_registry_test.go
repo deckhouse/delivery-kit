@@ -88,6 +88,27 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(bomJSON).To(MatchJSON(unsignedBOM))
 	})
 
+	It("supersedes a legacy annotation-less SBOM artifact of its own kind only", func(ctx SpecContext) {
+		legacyEnvelope := buildLegacyEnvelope(ctx, unsignedBOM, attestation.PredicateKindCycloneDX.UnsignedType, repo, parentDigest)
+		legacyVexEnvelope := buildLegacyEnvelope(ctx, []byte(`{"@context":"https://openvex.dev/ns/v0.2.0"}`), attestation.PredicateKindOpenVEX.UnsignedType, repo, parentDigest)
+
+		sbomStore := artifact.NewOCIStore(repo, imageName)
+		Expect(sbomStore.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyEnvelope, "legacy-checksum", "", "")).To(Succeed())
+
+		vexStore := artifact.NewOCIStore(repo, "other-app")
+		Expect(vexStore.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyVexEnvelope, "legacy-vex-checksum", "", "")).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
+
+		_, found, err := sbomStore.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeFalse())
+
+		_, found, err = vexStore.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+	})
+
 	It("leaves the VEX artifact of the same image alone", func(ctx SpecContext) {
 		vexJSON := []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","statements":[]}`)
 		Expect(attestation.PublishAttestation(ctx, attestation.PredicateKindOpenVEX, vexJSON, repo, parentDigest, imageName, attestation.PublishAttestationOptions{
@@ -103,3 +124,13 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(found).To(BeTrue())
 	})
 })
+
+func buildLegacyEnvelope(ctx SpecContext, predicate []byte, predicateType, repo, parentDigest string) []byte {
+	digestHex, err := artifact.DigestHex(parentDigest)
+	Expect(err).To(Succeed())
+	stmtBytes, err := attestation.WrapInInTotoStatement(predicate, predicateType, repo, digestHex)
+	Expect(err).To(Succeed())
+	envelopeJSON, err := attestation.WrapInDSSE(ctx, stmtBytes, attestation.InTotoMediaType, nil)
+	Expect(err).To(Succeed())
+	return envelopeJSON
+}

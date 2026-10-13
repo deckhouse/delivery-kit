@@ -54,8 +54,13 @@ var _ = Describe("SBOM signing downgrade", Label("e2e", "sbom", "sbom-signing", 
 
 		By("rebuilding without the key and with a changed GOST config")
 		SuiteData.UpdateTestRepo(ctx, repoDirname, "gost_toggle/state1")
-		unsignedOut := werfProject.Build(ctx, nil)
+		unsignedOut, unsignedReport := reportProject.BuildWithReport(ctx,
+			SuiteData.GetBuildReportPath("sbom_signing_downgrade_unsigned.json"),
+			&werf.WithReportOptions{CommonOptions: werf.CommonOptions{}},
+		)
 		Expect(unsignedOut).To(ContainSubstring(sbomRegenMarker))
+		Expect(unsignedReport.Images["app"].DockerImageDigest).To(Equal(digest),
+			"the GOST change must not alter the image, otherwise the supersede assertions below are vacuous")
 
 		Expect(attestutils.FindArtifactDescriptor(ctx, repo, digest, attestation.BundleMediaType)).To(BeNil(),
 			"stale signed bundle must be superseded by the unsigned artifact")

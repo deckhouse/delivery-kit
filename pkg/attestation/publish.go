@@ -87,7 +87,9 @@ var _ artifact.SupersedeRule = CopySupersededKeys
 // those the source no longer holds. Propagation then mirrors the slot state of
 // the source repository instead of accumulating both signing states, so a reader
 // of the destination never prefers an artifact of the previous one. Artifacts of
-// an unknown kind and legacy annotation-less ones replace nothing.
+// an unknown kind and legacy annotation-less ones replace nothing, and a legacy
+// annotation-less entry at the destination is never named as replaced: deciding
+// that needs its content, which only the publish path reads.
 func CopySupersededKeys(copied artifact.Key, srcSlots []artifact.Key) []artifact.Key {
 	kind, ok := predicateKindOf(copied.PredicateType)
 	if !ok {

@@ -48,6 +48,15 @@ var _ = Describe("CopySupersededKeys", func() {
 			},
 			[]artifact.Key{key(BundleMediaType, PredicateKindCycloneDX.UnsignedType)},
 		),
+		Entry("a signed VEX bundle replaces the unsigned slots of its kind",
+			key(BundleMediaType, PredicateKindOpenVEX.SignedType),
+			[]artifact.Key{key(BundleMediaType, PredicateKindOpenVEX.SignedType)},
+			[]artifact.Key{
+				key(DSSEMediaType, PredicateKindOpenVEX.SignedType),
+				key(DSSEMediaType, PredicateKindOpenVEX.UnsignedType),
+			},
+		),
+
 		Entry("an artifact of one kind never replaces another kind",
 			key(DSSEMediaType, PredicateKindOpenVEX.UnsignedType),
 			[]artifact.Key{

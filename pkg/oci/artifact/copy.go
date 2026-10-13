@@ -65,7 +65,9 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 // copy is idempotent and still converges on the slot state of the source. The
 // source is the source of truth: the copy carries no notion of recency, so a
 // destination entry the rule reports as superseded is evicted even when it is the
-// fresher of the two. A missing source index is a no-op.
+// fresher of the two — but only when werf produced it: an attestation published
+// through werf attest sign carries no checksum annotation and cannot be produced
+// again, so it survives a copy into its slot. A missing source index is a no-op.
 func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, supersede SupersedeRule, opts ...remote.Option) error {
 	srcOpts := opts
 	dstOpts := opts
@@ -106,9 +108,9 @@ func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dst
 		}
 
 		imageName := desc.Annotations[image.WerfImageNameAnnotation]
-		dstSlots := imageSlots(dstIM, imageName)
+		evictable := evictableSlots(dstIM, imageName)
 		superseded := lo.Filter(supersede(descriptorSlot(desc), imageSlots(srcIM, imageName)), func(key Key, _ int) bool {
-			return slices.Contains(dstSlots, key)
+			return slices.Contains(evictable, key)
 		})
 
 		if len(superseded) == 0 && hasEquivalentArtifact(dstIM, desc) {
@@ -145,6 +147,20 @@ func imageSlots(im *v1.IndexManifest, imageName string) []Key {
 	var slots []Key
 	for _, desc := range im.Manifests {
 		if desc.ArtifactType == "" || desc.Annotations[image.WerfImageNameAnnotation] != imageName {
+			continue
+		}
+		slots = append(slots, descriptorSlot(desc))
+	}
+	return slots
+}
+
+func evictableSlots(im *v1.IndexManifest, imageName string) []Key {
+	var slots []Key
+	for _, desc := range im.Manifests {
+		if desc.ArtifactType == "" || desc.Annotations[image.WerfImageNameAnnotation] != imageName {
+			continue
+		}
+		if desc.Annotations[image.WerfChecksumAnnotation] == "" {
 			continue
 		}
 		slots = append(slots, descriptorSlot(desc))

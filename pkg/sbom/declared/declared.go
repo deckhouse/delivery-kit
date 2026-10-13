@@ -12,9 +12,10 @@
 //
 // A declaration is matched to a component by purl type and name; the version
 // takes part only when the declaration pins one exactly, since most manifests
-// carry ranges. A declaration no component matches is not an error — the
-// manager may have skipped it, or syft may have failed to catalog it — and is
-// ignored.
+// carry ranges. For the manifest-based ecosystems a declaration no component
+// matches is not an error — the manager may have skipped it, or syft may have
+// failed to catalog it — and is ignored. For os-pm it is one: pm installs
+// exactly what the spec names, so the caller fails the build.
 package declared
 
 import (
@@ -63,46 +64,57 @@ func ParseSpec(ecosystem config.PackagesDirectiveType, spec []byte) ([]Package, 
 	}
 }
 
-// FromOSPMSpec reads the `name==version` entries of an os-pm directive spec.
-// An entry without `==` declares the package by name only.
+// FromOSPMSpec reads the entries of an os-pm directive spec. Whatever version
+// constraint an entry carries, pm has already resolved it — `curl@8` installs
+// 8.12.1 — and the pm index holds a single version per name, so every entry
+// declares its package by name only.
 func FromOSPMSpec(spec []string) []Package {
 	pkgs := make([]Package, 0, len(spec))
 	for _, entry := range spec {
-		name, version, _ := strings.Cut(strings.TrimSpace(entry), "==")
-		if name == "" {
-			continue
+		if name := OSPMSpecName(entry); name != "" {
+			pkgs = append(pkgs, Package{Name: name})
 		}
-		pkgs = append(pkgs, Package{Name: name, Version: version})
 	}
 	return pkgs
 }
 
+// OSPMSpecName is the package name of an os-pm spec entry: everything before the
+// first character a pm version constraint can start with — `@`, `=`, `<`, `>`.
+func OSPMSpecName(entry string) string {
+	name := strings.TrimSpace(entry)
+	if i := strings.IndexAny(name, "@=<>"); i != -1 {
+		name = strings.TrimSpace(name[:i])
+	}
+	return name
+}
+
 // MatchComponents returns the bom-refs of the components of bom that pkgs
-// declare, in the order the components are listed. A declaration with a
-// version matches that version only. A declaration without one matches the
-// package by name; when several versions of it are present, the ones no other
-// component depends on are taken — the lock-file catalogers record the edges
-// between packages, so a copy nested under another package has an incoming
-// edge and the top-level copy the manifest names does not. When every copy has
-// one, all of them are taken.
-func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.PackagesDirectiveType, pkgs []Package) []string {
-	if bom == nil || len(pkgs) == 0 {
-		return nil
+// declare, in the order the components are listed, and the declarations no
+// component matches. A declaration with a version matches that version only. A
+// declaration without one matches the package by name; when several versions
+// of it are present, the ones no other component depends on are taken — the
+// lock-file catalogers record the edges between packages, so a copy nested
+// under another package has an incoming edge and the top-level copy the
+// manifest names does not. When every copy has one, all of them are taken.
+func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.PackagesDirectiveType, pkgs []Package) ([]string, []Package) {
+	if len(pkgs) == 0 {
+		return nil, nil
 	}
 
 	purlType, ok := purlTypes[ecosystem]
-	if !ok {
-		return nil
+	if bom == nil || !ok {
+		return nil, pkgs
 	}
 
-	byName := make(map[string][]Package, len(pkgs))
-	for _, pkg := range pkgs {
+	byName := make(map[string][]int, len(pkgs))
+	for i, pkg := range pkgs {
 		key := nameKey(purlType, pkg.Name)
-		byName[key] = append(byName[key], pkg)
+		byName[key] = append(byName[key], i)
 	}
 
 	var order []string
 	candidates := map[string][]string{}
+	matched := make([]bool, len(pkgs))
 	walkComponents(bom, func(comp *cdx.Component) {
 		if comp.BOMRef == "" || comp.PackageURL == "" {
 			return
@@ -112,22 +124,30 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 			return
 		}
 		key := nameKey(purlType, fullName(purl))
-		for _, pkg := range byName[key] {
-			if pkg.Version != "" && !versionMatches(purlType, pkg.Version, purl.Version) {
+		satisfied := false
+		for _, i := range byName[key] {
+			if pkgs[i].Version != "" && !versionMatches(purlType, pkgs[i].Version, purl.Version) {
 				continue
 			}
-			if _, seen := candidates[key]; !seen {
-				order = append(order, key)
-			}
-			candidates[key] = append(candidates[key], comp.BOMRef)
-			break
+			matched[i] = true
+			satisfied = true
 		}
+		if !satisfied {
+			return
+		}
+		if _, seen := candidates[key]; !seen {
+			order = append(order, key)
+		}
+		candidates[key] = append(candidates[key], comp.BOMRef)
 	})
 
-	for _, pkg := range pkgs {
-		if _, ok := candidates[nameKey(purlType, pkg.Name)]; !ok {
-			logboek.Context(ctx).Debug().LogF("declared %s package %q matches no component of the SBOM\n", ecosystem, pkg.Name)
+	var unmatched []Package
+	for i, pkg := range pkgs {
+		if matched[i] {
+			continue
 		}
+		logboek.Context(ctx).Debug().LogF("declared %s package %q matches no component of the SBOM\n", ecosystem, pkg.Name)
+		unmatched = append(unmatched, pkg)
 	}
 
 	var refs []string
@@ -136,10 +156,10 @@ func MatchComponents(ctx context.Context, bom *cdx.BOM, ecosystem config.Package
 	}
 
 	if len(refs) == 0 {
-		return nil
+		return nil, unmatched
 	}
 
-	return lo.Uniq(refs)
+	return lo.Uniq(refs), unmatched
 }
 
 func topLevelRefs(bom *cdx.BOM, refs []string) []string {

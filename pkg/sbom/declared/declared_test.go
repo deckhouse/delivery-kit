@@ -211,13 +211,18 @@ replace github.com/spf13/cobra => github.com/werf/3p-cobra v1.8.1-werf
 })
 
 var _ = Describe("FromOSPMSpec", func() {
-	It("splits name==version entries", func() {
-		Expect(FromOSPMSpec([]string{"jq==1.8.1", "curl", " ", "openssl==3.6.2"})).To(Equal([]Package{
-			{Name: "jq", Version: "1.8.1"},
-			{Name: "curl"},
-			{Name: "openssl", Version: "3.6.2"},
-		}))
-	})
+	DescribeTable("declares every entry by name, whatever constraint pm accepts after it",
+		func(spec []string, expected []Package) {
+			Expect(FromOSPMSpec(spec)).To(Equal(expected))
+		},
+		Entry("name==version", []string{"jq==1.8.1", "curl", " ", "openssl==3.6.2"}, []Package{{Name: "jq"}, {Name: "curl"}, {Name: "openssl"}}),
+		Entry("name@version and name=version", []string{"curl@8.12.1", "jq=1.8.1"}, []Package{{Name: "curl"}, {Name: "jq"}}),
+		Entry("a partial version pm resolves as a range", []string{"curl@8", "curl==8.12", "curl@8.x", "curl@v8"}, []Package{{Name: "curl"}, {Name: "curl"}, {Name: "curl"}, {Name: "curl"}}),
+		Entry("a range", []string{"curl@^8", "openssl=~3.6", "bash<6", "jq>1"}, []Package{{Name: "curl"}, {Name: "openssl"}, {Name: "bash"}, {Name: "jq"}}),
+		Entry("surrounding whitespace is dropped", []string{" curl @ 8.12.1 ", "jq == 1.8.1"}, []Package{{Name: "curl"}, {Name: "jq"}}),
+		Entry("a separator without a version", []string{"curl@", "jq="}, []Package{{Name: "curl"}, {Name: "jq"}}),
+		Entry("a separator without a name is skipped", []string{"@8.12.1", "==1.8.1"}, []Package{}),
+	)
 })
 
 var _ = Describe("MatchComponents", func() {
@@ -228,7 +233,8 @@ var _ = Describe("MatchComponents", func() {
 	DescribeTable("finds the components a declaration names",
 		func(ecosystem config.PackagesDirectiveType, components []cdx.Component, pkgs []Package, expected []string) {
 			bom := &cdx.BOM{Components: &components}
-			Expect(MatchComponents(context.Background(), bom, ecosystem, pkgs)).To(Equal(expected))
+			refs, _ := MatchComponents(context.Background(), bom, ecosystem, pkgs)
+			Expect(refs).To(Equal(expected))
 		},
 		Entry("go module by path and exact version",
 			config.PackagesDirectiveTypeGoMod,
@@ -317,7 +323,8 @@ var _ = Describe("MatchComponents", func() {
 				},
 				Dependencies: &deps,
 			}
-			Expect(MatchComponents(context.Background(), bom, config.PackagesDirectiveTypeJavaScriptNpm, []Package{{Name: "lodash"}})).To(Equal(expected))
+			refs, _ := MatchComponents(context.Background(), bom, config.PackagesDirectiveTypeJavaScriptNpm, []Package{{Name: "lodash"}})
+			Expect(refs).To(Equal(expected))
 		},
 		Entry("the nested copy is dropped",
 			[]cdx.Dependency{{Ref: "mixin", Dependencies: &[]string{"lodash3"}}},
@@ -341,8 +348,29 @@ var _ = Describe("MatchComponents", func() {
 				Components: &[]cdx.Component{component("nested", "pkg:cargo/serde@1.0.0")},
 			}},
 		}
-		Expect(MatchComponents(context.Background(), bom, config.PackagesDirectiveTypeRustCargo, []Package{{Name: "anyhow"}, {Name: "serde"}})).
-			To(Equal([]string{"under-root", "nested"}))
+		refs, _ := MatchComponents(context.Background(), bom, config.PackagesDirectiveTypeRustCargo, []Package{{Name: "anyhow"}, {Name: "serde"}})
+		Expect(refs).To(Equal([]string{"under-root", "nested"}))
+	})
+
+	DescribeTable("reports the declarations no component matches",
+		func(pkgs, expected []Package) {
+			bom := &cdx.BOM{Components: &[]cdx.Component{
+				component("jq", "pkg:generic/jq@1.8.1?containerfactoryversion=v1"),
+				component("curl", "pkg:generic/curl@8.12.1?containerfactoryversion=v1"),
+			}}
+			_, unmatched := MatchComponents(context.Background(), bom, config.PackagesDirectiveTypeOSPM, pkgs)
+			Expect(unmatched).To(Equal(expected))
+		},
+		Entry("every declaration matches", []Package{{Name: "jq", Version: "1.8.1"}, {Name: "curl"}}, nil),
+		Entry("a name with no component", []Package{{Name: "jq"}, {Name: "bash"}}, []Package{{Name: "bash"}}),
+		Entry("a version with no component", []Package{{Name: "curl", Version: "8.0.0"}, {Name: "jq", Version: "1.8.1"}}, []Package{{Name: "curl", Version: "8.0.0"}}),
+		Entry("two declarations of one package are both satisfied by one component", []Package{{Name: "curl"}, {Name: "curl", Version: "8.12.1"}}, nil),
+	)
+
+	It("leaves every declaration unmatched when the BOM is nil", func() {
+		refs, unmatched := MatchComponents(context.Background(), nil, config.PackagesDirectiveTypeOSPM, []Package{{Name: "jq"}})
+		Expect(refs).To(BeNil())
+		Expect(unmatched).To(Equal([]Package{{Name: "jq"}}))
 	})
 })
 

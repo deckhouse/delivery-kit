@@ -20,7 +20,7 @@ const (
 )
 
 func predicateDesc(name, artifactType, imageName, predicateType string) v1.Descriptor {
-	annotations := map[string]string{}
+	annotations := map[string]string{image.WerfChecksumAnnotation: "checksum-" + name}
 	if imageName != "" {
 		annotations[image.WerfImageNameAnnotation] = imageName
 	}
@@ -34,6 +34,12 @@ func predicateDesc(name, artifactType, imageName, predicateType string) v1.Descr
 		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
+}
+
+func userSignedDesc(name, artifactType, imageName, predicateType string) v1.Descriptor {
+	desc := predicateDesc(name, artifactType, imageName, predicateType)
+	delete(desc.Annotations, image.WerfChecksumAnnotation)
+	return desc
 }
 
 var _ = Describe("predicate slot discrimination", func() {
@@ -99,6 +105,20 @@ var _ = Describe("predicate slot discrimination", func() {
 			Expect(im.Manifests).To(HaveLen(2))
 			digests := []v1.Hash{im.Manifests[0].Digest, im.Manifests[1].Digest}
 			Expect(digests).To(ContainElements(sbomBundle.Digest, signedVex.Digest))
+		})
+
+		It("keeps an artifact werf did not produce in a superseded slot", func() {
+			userSigned := userSignedDesc("user-dsse", testDSSEType, "app", sbomPredicate)
+			idx := newStaticIndex([]v1.Descriptor{userSigned})
+
+			signedSbom := predicateDesc("sbom-bundle", testBundleType, "app", sbomPredicate)
+			superseded := []Key{{ArtifactType: testDSSEType, PredicateType: sbomPredicate}}
+			idx = updateFallbackIndex(idx, signedSbom, testBundleType, "app", sbomPredicate, superseded)
+
+			im, err := idx.IndexManifest()
+			Expect(err).To(Succeed())
+			digests := []v1.Hash{im.Manifests[0].Digest, im.Manifests[1].Digest}
+			Expect(digests).To(ContainElements(userSigned.Digest, signedSbom.Digest))
 		})
 
 		It("keeps a legacy entry not listed as superseded", func() {

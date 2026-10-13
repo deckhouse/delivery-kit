@@ -65,9 +65,10 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 // copy is idempotent and still converges on the slot state of the source. The
 // source is the source of truth: the copy carries no notion of recency, so a
 // destination entry the rule reports as superseded is evicted even when it is the
-// fresher of the two — but only when werf produced it: an attestation published
-// through werf attest sign carries no checksum annotation and cannot be produced
-// again, so it survives a copy into its slot. A missing source index is a no-op.
+// fresher of the two, unless werf did not produce it — an entry without the
+// checksum annotation is never superseded. It is still overwritten when the copied
+// artifact occupies its exact slot, which no eviction rule can prevent. A missing
+// source index is a no-op.
 func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, supersede SupersedeRule, opts ...remote.Option) error {
 	srcOpts := opts
 	dstOpts := opts
@@ -154,6 +155,9 @@ func imageSlots(im *v1.IndexManifest, imageName string) []Key {
 	return slots
 }
 
+// evictableSlots lists the slots of imageName an attach may supersede. It mirrors
+// the rule supersededKey enforces, so that a copy does not re-attach an artifact
+// over a slot the attach would refuse to evict anyway.
 func evictableSlots(im *v1.IndexManifest, imageName string) []Key {
 	var slots []Key
 	for _, desc := range im.Manifests {

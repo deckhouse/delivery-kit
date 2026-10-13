@@ -88,25 +88,50 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(bomJSON).To(MatchJSON(unsignedBOM))
 	})
 
-	It("supersedes a legacy annotation-less SBOM artifact of its own kind only", func(ctx SpecContext) {
+	It("keeps an attestation the user signed into the slot a signed build supersedes", func(ctx SpecContext) {
+		userPredicate := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"user"}]}`)
+		Expect(attestation.Sign(ctx, userPredicate, attestation.PredicateKindCycloneDX.Name, repo, parentDigest, imageName, signer)).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v1", "", signer)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		content, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType})
+		Expect(err).To(Succeed())
+		Expect(content).NotTo(BeEmpty())
+
+		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
+		Expect(err).To(Succeed())
+		Expect(bomJSON).To(MatchJSON(signedBOM))
+	})
+
+	It("supersedes a legacy annotation-less SBOM artifact", func(ctx SpecContext) {
 		legacyEnvelope := buildLegacyEnvelope(ctx, unsignedBOM, attestation.PredicateKindCycloneDX.UnsignedType, repo, parentDigest)
-		legacyVexEnvelope := buildLegacyEnvelope(ctx, []byte(`{"@context":"https://openvex.dev/ns/v0.2.0"}`), attestation.PredicateKindOpenVEX.UnsignedType, repo, parentDigest)
 
-		sbomStore := artifact.NewOCIStore(repo, imageName)
-		Expect(sbomStore.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyEnvelope, "legacy-checksum", "", "")).To(Succeed())
-
-		vexStore := artifact.NewOCIStore(repo, "other-app")
-		Expect(vexStore.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyVexEnvelope, "legacy-vex-checksum", "", "")).To(Succeed())
+		store := artifact.NewOCIStore(repo, imageName)
+		Expect(store.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyEnvelope, "legacy-checksum", "", "")).To(Succeed())
 
 		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
 
-		_, found, err := sbomStore.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
+		_, found, err := store.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeFalse())
+	})
 
-		_, found, err = vexStore.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
+	It("leaves a legacy annotation-less artifact of another kind in place", func(ctx SpecContext) {
+		legacyVexEnvelope := buildLegacyEnvelope(ctx, []byte(`{"@context":"https://openvex.dev/ns/v0.2.0"}`), attestation.PredicateKindOpenVEX.UnsignedType, repo, parentDigest)
+
+		store := artifact.NewOCIStore(repo, imageName)
+		Expect(store.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyVexEnvelope, "legacy-vex-checksum", "", "")).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
+
+		desc, found, err := store.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
+
+		envelope, err := store.GetContentByDigest(ctx, desc.Digest.String())
+		Expect(err).To(Succeed())
+		Expect(attestation.StatementPredicateType(envelope)).To(Equal(attestation.PredicateKindOpenVEX.UnsignedType))
 	})
 
 	It("leaves the VEX artifact of the same image alone", func(ctx SpecContext) {

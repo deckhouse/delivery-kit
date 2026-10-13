@@ -227,6 +227,10 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			content, err := dstStore.GetAttachedContent(ctx, srcDigest, dsseArtifactType, []string{signedPredicate})
 			Expect(err).To(Succeed())
 			Expect(content).To(MatchJSON(`{"v":"user"}`))
+
+			copied, err := dstStore.GetAttachedContent(ctx, srcDigest, bundleArtifactType, []string{signedPredicate})
+			Expect(err).To(Succeed())
+			Expect(copied).To(MatchJSON(`{"v":"signed"}`))
 		})
 
 		It("should leave the artifacts of another image alone", func(ctx SpecContext) {

@@ -437,7 +437,15 @@ func updateFallbackIndex(current v1.ImageIndex, artifactDesc v1.Descriptor, arti
 	return newStaticIndex(kept)
 }
 
+// supersededKey reports whether desc occupies one of the superseded slots. An
+// entry without the checksum annotation is never superseded: everything werf
+// generates carries the checksum of its cache identity, while an attestation
+// signed through werf attest sign carries none and cannot be produced again.
 func supersededKey(desc v1.Descriptor, superseded []Key, imageName string) bool {
+	if desc.Annotations[image.WerfChecksumAnnotation] == "" {
+		return false
+	}
+
 	for _, key := range superseded {
 		if isArtifactKey(desc, key.ArtifactType, imageName, key.PredicateType) {
 			return true

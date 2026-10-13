@@ -56,7 +56,6 @@ var _ = Describe("CopySupersededKeys", func() {
 				key(DSSEMediaType, PredicateKindOpenVEX.UnsignedType),
 			},
 		),
-
 		Entry("an artifact of one kind never replaces another kind",
 			key(DSSEMediaType, PredicateKindOpenVEX.UnsignedType),
 			[]artifact.Key{

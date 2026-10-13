@@ -95,13 +95,33 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v1", "", signer)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		content, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType})
+		envelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType})
 		Expect(err).To(Succeed())
-		Expect(content).NotTo(BeEmpty())
+		predicate, err := sbomimage.PullCycloneDX16BOMContent(ctx, envelope)
+		Expect(err).To(Succeed())
+		Expect(predicate).To(MatchJSON(userPredicate))
 
 		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
 		Expect(err).To(Succeed())
 		Expect(bomJSON).To(MatchJSON(signedBOM))
+	})
+
+	It("returns its own document when a user attestation shares the artifact type", func(ctx SpecContext) {
+		userPredicate := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"user"}]}`)
+		Expect(attestation.Sign(ctx, userPredicate, attestation.PredicateKindCycloneDX.Name, repo, parentDigest, imageName, signer)).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		userEnvelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType})
+		Expect(err).To(Succeed())
+		userStored, err := sbomimage.PullCycloneDX16BOMContent(ctx, userEnvelope)
+		Expect(err).To(Succeed())
+		Expect(userStored).To(MatchJSON(userPredicate))
+
+		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
+		Expect(err).To(Succeed())
+		Expect(bomJSON).To(MatchJSON(unsignedBOM))
 	})
 
 	It("supersedes a legacy annotation-less SBOM artifact", func(ctx SpecContext) {

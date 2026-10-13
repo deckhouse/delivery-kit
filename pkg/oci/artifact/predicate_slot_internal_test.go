@@ -174,6 +174,20 @@ var _ = Describe("predicate slot discrimination", func() {
 			Expect(matches[1].Digest).To(Equal(legacy.Digest))
 		})
 
+		It("prefers the artifact werf produced over one the user signed, whatever the index order", func() {
+			userSigned := userSignedDesc("user-dsse", testDSSEType, "app", vexPredicate)
+			werfOwn := predicateDesc("vex-dsse", testDSSEType, "app", vexLegacyPredicate)
+
+			for _, entries := range [][]v1.Descriptor{{userSigned, werfOwn}, {werfOwn, userSigned}} {
+				im, err := newStaticIndex(entries).IndexManifest()
+				Expect(err).To(Succeed())
+
+				matches := matchDescriptors(im, testDSSEType, "app", []string{vexPredicate, vexLegacyPredicate})
+				Expect(matches).To(HaveLen(2))
+				Expect(matches[0].Digest).To(Equal(werfOwn.Digest))
+			}
+		})
+
 		It("excludes entries annotated with another predicate kind", func() {
 			sbom := predicateDesc("sbom-dsse", testDSSEType, "app", sbomLegacyPredicate)
 			vexEntry := predicateDesc("vex-dsse", testDSSEType, "app", vexLegacyPredicate)

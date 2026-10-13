@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -214,11 +215,14 @@ func isArtifactKey(desc v1.Descriptor, artifactType, imageName, predicateType st
 // matchDescriptors selects the entries a reader asks for. An empty image name
 // means any image here, unlike the exact key used by writers.
 //
-// Entries annotated with one of the requested predicate types come first; entries
-// without the predicate annotation are legacy candidates appended last — their kind
-// is only known from their content, so callers must verify it before use. Entries
-// annotated with a different predicate type are excluded. An empty predicateTypes
-// set matches any entry.
+// Entries annotated with one of the requested predicate types come first, and
+// among them the ones werf produced — those carrying the checksum annotation —
+// precede an attestation the user signed into a neighboring slot of the same
+// kind, so a read returns werf's own document rather than whichever entry the
+// registry happens to list first. Entries without the predicate annotation are
+// legacy candidates appended last — their kind is only known from their content,
+// so callers must verify it before use. Entries annotated with a different
+// predicate type are excluded. An empty predicateTypes set matches any entry.
 //
 // Entries are deduplicated by manifest digest: a descriptor only points at a
 // manifest, so two of them sharing a digest describe one artifact. An attach
@@ -246,6 +250,11 @@ func matchDescriptors(im *v1.IndexManifest, artifactType, imageName string, pred
 		seen[desc.Digest] = true
 		annotated = append(annotated, desc)
 	}
+
+	sort.SliceStable(annotated, func(i, j int) bool {
+		return annotated[i].Annotations[image.WerfChecksumAnnotation] != "" &&
+			annotated[j].Annotations[image.WerfChecksumAnnotation] == ""
+	})
 
 	position := make(map[v1.Hash]int)
 	var legacy []v1.Descriptor

@@ -1,6 +1,11 @@
 package shippedscope
 
 import (
+	"archive/tar"
+	"context"
+	"fmt"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -104,6 +109,145 @@ var _ = Describe("IndexImageFiles", func() {
 			Digest: digestOf(""),
 			Size:   0,
 		}))
+	})
+
+	It("keeps the topmost layer when two layers spell the same path differently", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{regularFile("usr/bin/x", "bottom")},
+			[]tarEntry{regularFile("/usr/bin/x", "top")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files["/usr/bin/x"].Digest).To(Equal(digestOf("top")))
+	})
+
+	It("roots a path a layer spells relative to the archive", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{regularFile("./usr/bin/dotted", "body")})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files).To(HaveKey("/usr/bin/dotted"))
+	})
+
+	It("follows a chain of hardlinks to the content at its end", func(ctx SpecContext) {
+		entries := []tarEntry{regularFile("usr/bin/origin", "shared")}
+		for i := range 6 {
+			target := fmt.Sprintf("usr/bin/link%d", i+1)
+			if i == 5 {
+				target = "usr/bin/origin"
+			}
+			entries = append(entries, hardlink(fmt.Sprintf("usr/bin/link%d", i), target))
+		}
+
+		img, err := imageOf(entries)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		for i := range 6 {
+			Expect(index.Files[fmt.Sprintf("/usr/bin/link%d", i)].Digest).To(Equal(digestOf("shared")))
+		}
+	})
+
+	It("resolves a hardlink whose target the layer spells relative to the archive", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("usr/bin/origin", "shared"),
+			hardlink("usr/bin/alias", "./usr/bin/origin"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files["/usr/bin/alias"].Digest).To(Equal(digestOf("shared")))
+	})
+
+	It("records a hardlink to a symlink as a symlink", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			symlink("usr/bin/link", "/usr/bin/target"),
+			hardlink("usr/bin/alias", "usr/bin/link"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Symlinks).To(HaveKeyWithValue("/usr/bin/alias", "/usr/bin/target"))
+		Expect(index.Files).NotTo(HaveKey("/usr/bin/alias"))
+	})
+
+	It("keeps directories out of the file index", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{directory("opt/app"), regularFile("opt/app/file", "body")})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files).To(HaveKey("/opt/app/file"))
+		Expect(index.Files).NotTo(HaveKey("/opt/app"))
+	})
+
+	It("leaves a hardlink whose target the image does not contain out of the index instead of failing", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{regularFile("usr/bin/origin", "shared"), hardlink("usr/bin/alias", "usr/bin/origin")},
+			[]tarEntry{whiteout("usr/bin/.wh.origin")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files).NotTo(HaveKey("/usr/bin/alias"))
+	})
+
+	It("gives up on hardlinks that point at each other", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			hardlink("usr/bin/first", "usr/bin/second"),
+			hardlink("usr/bin/second", "usr/bin/first"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		done := make(chan *FileIndex, 1)
+		go func() {
+			defer GinkgoRecover()
+
+			index, err := IndexImageFiles(ctx, img)
+			Expect(err).NotTo(HaveOccurred())
+			done <- index
+		}()
+
+		var index *FileIndex
+		Eventually(done).WithTimeout(time.Minute).Should(Receive(&index))
+		Expect(index.Files).To(BeEmpty())
+	})
+
+	It("reports an image it cannot read instead of returning a partial index", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("usr/bin/good", "good"),
+			{name: "../escape", typeflag: tar.TypeReg, body: "escaped"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).To(MatchError(ContainSubstring("unsafe tar path")))
+		Expect(index).To(BeNil())
+	})
+
+	It("stops when the context is canceled", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{regularFile("usr/bin/tool", "payload")})
+		Expect(err).NotTo(HaveOccurred())
+
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+
+		_, err = IndexImageFiles(canceled, img)
+		Expect(err).To(MatchError(context.Canceled))
 	})
 
 	It("returns an empty index for an image without layers", func(ctx SpecContext) {

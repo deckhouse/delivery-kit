@@ -36,6 +36,17 @@ type cleanupInventoryStore struct {
 	listings int
 }
 
+type cleanupDeleteStore struct {
+	storage.Store
+	deleteImage func(string, bool) ([]string, error)
+}
+
+var _ storage.Store = (*cleanupDeleteStore)(nil)
+
+func (store *cleanupDeleteStore) DeleteImage(id string, commit bool) ([]string, error) {
+	return store.deleteImage(id, commit)
+}
+
 var _ storage.Store = (*cleanupInventoryStore)(nil)
 
 func (store *cleanupInventoryStore) MultiList(options storage.MultiListOptions) (storage.MultiListResult, error) {

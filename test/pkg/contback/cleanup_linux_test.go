@@ -40,6 +40,32 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		lookupStore = &cleanupLookupStore{Store: store}
 	})
 
+	ginkgo.It("traces storage lookup, untag and deletion during real cleanup", func() {
+		ownedID := createCleanupImage(store, project, "owned", []string{"localhost/" + project + ":owned"})
+		aliasedID := createCleanupImage(store, project, "aliased", []string{"localhost/" + project + ":aliased", "localhost/foreign:keep"})
+		var output bytes.Buffer
+		traced := &cleanupTraceStore{Store: store, writer: &output, projectName: project}
+		runtime, err := libimage.RuntimeFromStore(traced, &libimage.RuntimeOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		request := cleanupProjectRequest{ProjectName: project, ImageIDs: []string{ownedID, aliasedID}}
+		gomega.Expect(cleanupBuildahProjectImages(context.Background(), request, traced, runtime)).To(gomega.Succeed())
+		for _, operation := range []string{"Image", "ImageBigData", "ListImageBigData", "ImageBigDataSize", "LayersByUncompressedDigest", "MultiList", "RemoveNames", "DeleteImage"} {
+			gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.` + operation + ` call=\d+.*event=start`))
+			expectedError := `<nil>`
+			if operation == "LayersByUncompressedDigest" {
+				expectedError = `.*layer not known`
+			}
+			gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.` + operation + ` call=\d+.*event=done elapsed=\S+ error=` + expectedError))
+		}
+		gomega.Expect(output.String()).To(gomega.ContainSubstring(`commit=true`))
+		gomega.Expect(output.String()).NotTo(gomega.ContainSubstring(`"rootfs"`))
+		_, err = store.Image(ownedID)
+		gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
+		remaining, err := store.Image(aliasedID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(remaining.Names).To(gomega.Equal([]string{"localhost/foreign:keep"}))
+	})
+
 	ginkgo.It("cleans journal IDs without listing and still checks ownership", func() {
 		ownedID := createCleanupImage(store, project, "owned", []string{"localhost/" + project + ":owned"})
 		aliasedID := createCleanupImage(store, project, "aliased", []string{"localhost/" + project + ":aliased", "localhost/foreign:keep"})
@@ -121,6 +147,24 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 })
 
 var _ = ginkgo.Describe("Buildah cleanup trace", func() {
+	ginkgo.It("logs storage start before delegation and preserves results and errors", func() {
+		var output bytes.Buffer
+		expectedErr := fmt.Errorf("busy image: %w", storage.ErrImageUsedByContainer)
+		underlying := &cleanupDeleteStore{deleteImage: func(id string, commit bool) ([]string, error) {
+			gomega.Expect(id).To(gomega.Equal("image-id"))
+			gomega.Expect(commit).To(gomega.BeFalse())
+			gomega.Expect(output.String()).To(gomega.ContainSubstring(`storage.DeleteImage call=1`))
+			gomega.Expect(output.String()).To(gomega.ContainSubstring("event=start"))
+			gomega.Expect(output.String()).NotTo(gomega.ContainSubstring("event=done"))
+			return []string{"layer-id"}, expectedErr
+		}}
+		traced := &cleanupTraceStore{Store: underlying, writer: &output, projectName: "werf-test-trace"}
+		layers, err := traced.DeleteImage("image-id", false)
+		gomega.Expect(layers).To(gomega.Equal([]string{"layer-id"}))
+		gomega.Expect(err).To(gomega.BeIdenticalTo(expectedErr))
+		gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.DeleteImage call=1.*event=done elapsed=\S+ error=busy image:`))
+	})
+
 	ginkgo.It("reports phase start immediately and records elapsed time and errors", func() {
 		var output bytes.Buffer
 		done := traceBuildahCleanupPhase(&output, "werf-test-trace", "open storage")

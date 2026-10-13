@@ -110,6 +110,7 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 	if err != nil {
 		return fmt.Errorf("open test image storage: %w", err)
 	}
+	store = &cleanupTraceStore{Store: store, writer: os.Stderr, projectName: request.ProjectName}
 	done = traceBuildahCleanupPhase(os.Stderr, request.ProjectName, "open image runtime")
 	imageRuntime, err := libimage.RuntimeFromStore(store, &libimage.RuntimeOptions{})
 	done(err)

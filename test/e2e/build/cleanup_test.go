@@ -1,6 +1,7 @@
 package e2e_build_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -27,6 +28,14 @@ var _ = ginkgo.Describe("Test image cleanup", ginkgo.Label("e2e", "build", "extr
 		contback.SkipIfUnavailable("native-rootless")
 		opts := setupEnvOptions{ContainerBackendMode: "native-rootless"}
 		setupEnv(opts)
+		ginkgo.DeferCleanup(func(cleanupCtx ginkgo.SpecContext) {
+			var output bytes.Buffer
+			ginkgo.GinkgoWriter.TeeTo(&output)
+			defer ginkgo.GinkgoWriter.ClearTeeWriters()
+			gomega.Expect(contback.CleanupProject(cleanupCtx, SuiteData.ProjectName, contback.CleanupProjectOptions{Backends: []string{"buildah"}})).To(gomega.Succeed())
+			gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.Image call=\d+.*event=start`))
+			gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.Image call=\d+.*event=done elapsed=\S+ error=<nil>`))
+		}, ginkgo.NodeTimeout(2*time.Minute))
 		backend := contback.NewNativeBuildahBackend(thirdparty.IsolationOCIRootless, buildah.DefaultStorageDriver)
 		backend.Pull(ctx, "docker.io/library/bash:5.2")
 		backend.ExpectCmdsToSucceed(ctx, "docker.io/library/bash:5.2", "true")

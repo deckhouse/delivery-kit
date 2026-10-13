@@ -139,6 +139,13 @@ every image removal. Records
 include UTC timestamps, project, PID, elapsed time and errors; inventory summaries
 include image/reference counts. Worker output streams into Ginkgo output and is
 retained in errors, so a killed worker leaves its last started phase visible.
+Nested `storage.*` records distinguish image lookup, metadata reads, image/layer
+inventory, name removal (`RemoveNames`) and deletion (`DeleteImage`). Each storage
+call has a unique per-worker `call` number, plus its arguments, elapsed time and
+error; metadata contents are not logged. These timings include locking and other
+work inside the storage API. `DeleteImage` covers both image metadata and layer
+cleanup, not just filesystem deletion. The wrapper adds no lookups or retries and
+does not change removal options or returned results.
 
 Command helpers record the backend and repository overrides before invoking werf
 or an image-changing Docker command. Mixed specs clean both used backends;

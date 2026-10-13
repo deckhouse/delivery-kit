@@ -115,6 +115,13 @@ then refreshes their names after each removal pass. Neither backend lists images
 when journaling is enabled. Callers without a journal retain inventory discovery.
 Missing IDs are complete; other lookup errors fail cleanup. Surviving own aliases
 and tagless images remain candidates, while foreign aliases are preserved.
+Native removal binds each selected reference to its verified image ID and rereads
+that ID's names before acting. It removes only the selected name when other names
+remain; otherwise it calls storage `DeleteImage` directly. This avoids libimage's
+per-removal parent/child tree scans without deleting ancestor image records.
+Storage still checks container and layer references under its own locks and may
+scan its indexes internally. Non-retryable native removal errors remain failures
+even if image metadata was already deleted; busy-image errors retain bounded retries.
 Image-producing processes for the project must finish before cleanup starts;
 images created after tracking ends are not added to its working set. Werf commands
 other than `kubectl` leave a pending marker until they finish journaling. Kubectl

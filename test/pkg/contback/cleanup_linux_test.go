@@ -40,6 +40,77 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		lookupStore = &cleanupLookupStore{Store: store}
 	})
 
+	ginkgo.It("retries busy errors without stripping the final name", func() {
+		ref := "localhost/" + project + ":busy"
+		id := createCleanupImage(store, project, "busy", []string{ref})
+		attempts := 0
+		guarded := &cleanupDeleteStore{Store: store, deleteImage: func(imageID string, commit bool) ([]string, error) {
+			attempts++
+			gomega.Expect(imageID).To(gomega.Equal(id))
+			gomega.Expect(commit).To(gomega.BeTrue())
+			if attempts == 1 {
+				retained, inspectErr := store.Image(id)
+				gomega.Expect(inspectErr).NotTo(gomega.HaveOccurred())
+				gomega.Expect(retained.Names).To(gomega.Equal([]string{ref}))
+				return nil, fmt.Errorf("busy image: %w", storage.ErrImageUsedByContainer)
+			}
+			return store.DeleteImage(imageID, commit)
+		}}
+		request := cleanupProjectRequest{ProjectName: project, ImageIDs: []string{id}}
+		gomega.Expect(cleanupBuildahProjectImages(context.Background(), request, guarded, imageRuntime)).To(gomega.Succeed())
+		gomega.Expect(attempts).To(gomega.Equal(2))
+		gomega.Expect(inventoryStore.snapshots).To(gomega.BeZero())
+		_, err := store.Image(id)
+		gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
+	})
+
+	ginkgo.It("does not follow a retagged reference to another image", func() {
+		ref := "localhost/" + project + ":owned"
+		id := createCleanupImage(store, project, "original", []string{ref, "localhost/foreign:keep"})
+		replacementID := createCleanupImage(store, "werf-test-other", "replacement", []string{"localhost/other:keep"})
+		gomega.Expect(store.AddNames(replacementID, []string{ref})).To(gomega.Succeed())
+		gomega.Expect(removeNativeCleanupImage(context.Background(), store, id, ref)).To(gomega.Succeed())
+		replacement, err := store.Image(replacementID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(replacement.Names).To(gomega.ContainElement(ref))
+		original, err := store.Image(id)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(original.Names).To(gomega.Equal([]string{"localhost/foreign:keep"}))
+	})
+
+	ginkgo.It("preserves a newly added foreign name on a previously tagless candidate", func() {
+		id := createCleanupImage(store, project, "tagless", nil)
+		gomega.Expect(store.AddNames(id, []string{"localhost/foreign:keep"})).To(gomega.Succeed())
+		gomega.Expect(removeNativeCleanupImage(context.Background(), store, id, id)).To(gomega.Succeed())
+		retained, err := store.Image(id)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(retained.Names).To(gomega.Equal([]string{"localhost/foreign:keep"}))
+	})
+
+	ginkgo.It("refuses read-only images before removing a name", func() {
+		ref := "localhost/" + project + ":readonly"
+		id := createCleanupImage(store, project, "readonly", []string{ref, "localhost/foreign:keep"})
+		readonly := &cleanupLookupStore{Store: store, readOnly: true}
+		gomega.Expect(removeNativeCleanupImage(context.Background(), readonly, id, ref)).To(gomega.MatchError(gomega.ContainSubstring("read-only")))
+		retained, err := store.Image(id)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(retained.Names).To(gomega.ConsistOf(ref, "localhost/foreign:keep"))
+	})
+
+	ginkgo.It("retains deletion errors after image metadata disappears", func() {
+		id := createCleanupImage(store, project, "partial", []string{"localhost/" + project + ":partial"})
+		failure := errors.New("layer removal failed")
+		partial := &cleanupDeleteStore{Store: store, deleteImage: func(imageID string, commit bool) ([]string, error) {
+			layers, err := store.DeleteImage(imageID, commit)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			return layers, failure
+		}}
+		err := cleanupBuildahProjectImages(context.Background(), cleanupProjectRequest{ProjectName: project, ImageIDs: []string{id}}, partial, imageRuntime)
+		gomega.Expect(errors.Is(err, failure)).To(gomega.BeTrue())
+		_, err = store.Image(id)
+		gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
+	})
+
 	ginkgo.It("traces storage lookup, untag and deletion during real cleanup", func() {
 		ownedID := createCleanupImage(store, project, "owned", []string{"localhost/" + project + ":owned"})
 		aliasedID := createCleanupImage(store, project, "aliased", []string{"localhost/" + project + ":aliased", "localhost/foreign:keep"})
@@ -49,7 +120,7 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		request := cleanupProjectRequest{ProjectName: project, ImageIDs: []string{ownedID, aliasedID}}
 		gomega.Expect(cleanupBuildahProjectImages(context.Background(), request, traced, runtime)).To(gomega.Succeed())
-		for _, operation := range []string{"Image", "ImageBigData", "ListImageBigData", "ImageBigDataSize", "LayersByUncompressedDigest", "MultiList", "RemoveNames", "DeleteImage"} {
+		for _, operation := range []string{"Image", "ImageBigData", "ListImageBigData", "ImageBigDataSize", "LayersByUncompressedDigest", "RemoveNames", "DeleteImage"} {
 			gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.` + operation + ` call=\d+.*event=start`))
 			expectedError := `<nil>`
 			if operation == "LayersByUncompressedDigest" {
@@ -58,6 +129,7 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 			gomega.Expect(output.String()).To(gomega.MatchRegexp(`storage\.` + operation + ` call=\d+.*event=done elapsed=\S+ error=` + expectedError))
 		}
 		gomega.Expect(output.String()).To(gomega.ContainSubstring(`commit=true`))
+		gomega.Expect(output.String()).NotTo(gomega.ContainSubstring(`storage.MultiList`))
 		gomega.Expect(output.String()).NotTo(gomega.ContainSubstring(`"rootfs"`))
 		_, err = store.Image(ownedID)
 		gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
@@ -74,6 +146,7 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		request := cleanupProjectRequest{ProjectName: project, ImageIDs: []string{ownedID, aliasedID, danglingID, foreignID, strings.Repeat("f", 64)}}
 		gomega.Expect(cleanupBuildahProjectImages(context.Background(), request, store, imageRuntime)).To(gomega.Succeed())
 		gomega.Expect(inventoryStore.listings).To(gomega.BeZero())
+		gomega.Expect(inventoryStore.snapshots).To(gomega.BeZero())
 		for _, id := range []string{ownedID, danglingID} {
 			_, err := store.Image(id)
 			gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
@@ -97,7 +170,7 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		}
 		gomega.Expect(cleanupBuildahProjectImages(context.Background(), cleanupProjectRequest{ProjectName: project}, lookupStore, imageRuntime)).To(gomega.Succeed())
 		gomega.Expect(inventoryStore.listings).To(gomega.Equal(1))
-		gomega.Expect(lookupStore.lookups).To(gomega.ConsistOf(ownedID, aliasedID, danglingID))
+		gomega.Expect(lookupStore.lookups).To(gomega.ConsistOf(ownedID, aliasedID, danglingID, ownedID, aliasedID, danglingID))
 		for _, id := range []string{ownedID, danglingID} {
 			_, err := store.Image(id)
 			gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())
@@ -127,7 +200,11 @@ var _ = ginkgo.Describe("Buildah cleanup inventory", func() {
 		}
 		gomega.Expect(cleanupBuildahProjectImages(context.Background(), cleanupProjectRequest{ProjectName: project}, lookupStore, imageRuntime)).To(gomega.Succeed())
 		gomega.Expect(inventoryStore.listings).To(gomega.Equal(1))
-		gomega.Expect(lookupStore.lookups).To(gomega.Equal([]string{imageID, imageID}))
+		if kind == "tagless" {
+			gomega.Expect(lookupStore.lookups).To(gomega.Equal([]string{imageID, imageID}))
+		} else {
+			gomega.Expect(lookupStore.lookups).To(gomega.Equal([]string{imageID, imageID, imageID, imageID}))
+		}
 		image, err := store.Image(imageID)
 		if kind == "tagless" {
 			gomega.Expect(errors.Is(err, storage.ErrImageUnknown)).To(gomega.BeTrue())

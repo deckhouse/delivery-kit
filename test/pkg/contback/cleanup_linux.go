@@ -12,12 +12,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"go.podman.io/common/libimage"
 	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/reexec"
 	"go.podman.io/storage/pkg/unshare"
 
 	"github.com/werf/werf/v3/pkg/buildah"
@@ -33,6 +35,9 @@ type cleanupProjectRequest struct {
 }
 
 func init() {
+	if reexec.Init() {
+		os.Exit(0)
+	}
 	requestJSON, requested := os.LookupEnv(cleanupProjectEnv)
 	if !requested {
 		return
@@ -123,6 +128,8 @@ func cleanupBuildahProjectInNamespace(ctx context.Context, request cleanupProjec
 func cleanupBuildahProjectImages(ctx context.Context, request cleanupProjectRequest, store storage.Store, imageRuntime *libimage.Runtime) error {
 	pass := 0
 	var candidates []cleanupImage
+	idsByReference := make(map[string]string)
+	var removalErrors []error
 	for _, id := range request.ImageIDs {
 		candidates = append(candidates, cleanupImage{ID: id})
 	}
@@ -174,27 +181,68 @@ func cleanupBuildahProjectImages(ctx context.Context, request cleanupProjectRequ
 			done(nil)
 		}
 		candidates = selected
+		clear(idsByReference)
+		for _, image := range selected {
+			for _, ref := range projectImageReferences([]cleanupImage{image}, request.ProjectName, request.Repositories) {
+				idsByReference[ref] = image.ID
+			}
+		}
 		references := projectImageReferences(selected, request.ProjectName, request.Repositories)
 		fmt.Fprintf(os.Stderr, "[buildah cleanup] project=%q pass=%d images=%d references=%d\n", request.ProjectName, pass, len(selected), len(references))
 		return references, nil
 	}
 	removeImage := func(ctx context.Context, ref string) error {
 		done := traceBuildahCleanupPhase(os.Stderr, request.ProjectName, fmt.Sprintf("remove pass=%d ref=%q", pass, ref))
-		_, removeErrors := imageRuntime.RemoveImages(ctx, []string{ref}, &libimage.RemoveImagesOptions{NoPrune: true})
-		err := errors.Join(removeErrors...)
-		done(err)
-		onlyInUseErrors := err != nil
-		for _, removeErr := range removeErrors {
-			if removeErr != nil && !errors.Is(removeErr, storage.ErrImageUsedByContainer) {
-				onlyInUseErrors = false
-			}
+		id, known := idsByReference[ref]
+		if !known {
+			err := fmt.Errorf("unknown native cleanup reference %q", ref)
+			done(err)
+			return err
 		}
-		if onlyInUseErrors {
+		err := removeNativeCleanupImage(ctx, store, id, ref)
+		done(err)
+		if errors.Is(err, storage.ErrImageUsedByContainer) {
 			return errors.Join(errCleanupImageInUse, err)
+		}
+		if err != nil {
+			removalErrors = append(removalErrors, err)
 		}
 		return err
 	}
-	return cleanupImageReferences(ctx, "buildah", list, removeImage)
+	cleanupErr := cleanupImageReferences(ctx, "buildah", list, removeImage)
+	return errors.Join(cleanupErr, errors.Join(removalErrors...))
+}
+
+func removeNativeCleanupImage(ctx context.Context, store storage.Store, id, ref string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	image, err := store.Image(id)
+	if errors.Is(err, storage.ErrImageUnknown) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read native cleanup image %q: %w", id, err)
+	}
+	if image.ReadOnly {
+		return fmt.Errorf("refuse cleanup of read-only image %q", id)
+	}
+	if len(image.Names) > 0 {
+		if !slices.Contains(image.Names, ref) {
+			return nil
+		}
+		if len(image.Names) > 1 {
+			if err := store.RemoveNames(id, []string{ref}); err != nil {
+				return fmt.Errorf("remove native image name %q: %w", ref, err)
+			}
+			return nil
+		}
+	}
+	_, err = store.DeleteImage(id, true)
+	if err != nil {
+		return fmt.Errorf("delete native cleanup image %q: %w", id, err)
+	}
+	return nil
 }
 
 func traceBuildahCleanupPhase(writer io.Writer, projectName, phase string) func(error) {

@@ -33,7 +33,8 @@ func (observer *cleanupTraceObserver) Write(data []byte) (int, error) {
 
 type cleanupInventoryStore struct {
 	storage.Store
-	listings int
+	listings  int
+	snapshots int
 }
 
 type cleanupDeleteStore struct {
@@ -50,6 +51,7 @@ func (store *cleanupDeleteStore) DeleteImage(id string, commit bool) ([]string, 
 var _ storage.Store = (*cleanupInventoryStore)(nil)
 
 func (store *cleanupInventoryStore) MultiList(options storage.MultiListOptions) (storage.MultiListResult, error) {
+	store.snapshots++
 	if options.Images && !options.Layers && !options.Containers {
 		store.listings++
 	}
@@ -60,6 +62,7 @@ type cleanupLookupStore struct {
 	storage.Store
 	lookups      []string
 	lookupError  error
+	readOnly     bool
 	beforeLookup func() error
 }
 
@@ -77,7 +80,11 @@ func (store *cleanupLookupStore) Image(id string) (*storage.Image, error) {
 	if store.lookupError != nil {
 		return nil, store.lookupError
 	}
-	return store.Store.Image(id)
+	image, err := store.Store.Image(id)
+	if err == nil && store.readOnly {
+		image.ReadOnly = true
+	}
+	return image, err
 }
 
 func createCleanupImage(store storage.Store, project, fixture string, names []string) string {

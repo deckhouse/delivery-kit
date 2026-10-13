@@ -210,7 +210,7 @@ packages:
     workdir: /app
 ```
 
-Runs `uv sync --frozen`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock).
+Runs `uv sync --frozen` with `UV_PYTHON_DOWNLOADS=never`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock). Supported: uv 0.3 and newer, with any `revision` of the `version = 1` lock format. The lock is taken as is: a `pyproject.toml` whose dependencies changed since the lock was written installs what the lock says. uv installs into `.venv` under the workdir; to install into the image interpreter instead, set `env: {UV_PROJECT_ENVIRONMENT: <prefix>}` (`/usr/local` for a stock interpreter) — uv then removes from that prefix every package the lock does not list. When the image interpreter does not satisfy `requires-python`, uv would download a CPython of its own, which the SBOM would never see; `UV_PYTHON_DOWNLOADS=never` makes the build fail instead, and `env` overrides it.
 
 **Python — pip** (`python-pip`):
 
@@ -230,7 +230,7 @@ packages:
     workdir: /app
 ```
 
-Runs `poetry sync --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
+Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock). Supported: Poetry 1.2 and newer, including 2.x; Poetry 2.0–2.2 needs Python 3.9 or newer in the image, 2.3 and newer — Python 3.10. A lock older than `pyproject.toml` fails the install on Poetry 1.8 and newer (a warning before that); a lock written by Poetry 2.x is read by 1.8 with a warning. `poetry sync` is not used: it exists since Poetry 2.0 only, and with `POETRY_VIRTUALENVS_CREATE=false` it uninstalls from the image interpreter everything the lock does not list — pip-installed tools included.
 
 **Rust — Cargo** (`rust-cargo`):
 
@@ -294,7 +294,7 @@ packages:
     workdir: /app
 ```
 
-Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock).
+Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock). Supported: Yarn Classic 1.x and Yarn Berry 3.x and 4.x, where the flag is accepted as an alias of `--immutable` with a deprecation warning; Yarn 2.x rejects it and is not supported. Berry is not published to the registry as the `yarn` package, which stays at 1.x: install it from `@yarnpkg/cli-dist` through a preceding entry and point `manager` at it, see [Package managers absent from the builder image](#package-managers-absent-from-the-builder-image). Berry links through Plug'n'Play by default, which leaves no `node_modules` for syft to read licenses from — set `nodeLinker: node-modules` in `.yarnrc.yml`. A `packageManager: yarn@<2 or newer>` field in `package.json` makes Yarn 1.22.20 and newer refuse to run unless Corepack is enabled; such a project installs with the Berry it names through `manager`.
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 
@@ -304,7 +304,7 @@ packages:
     workdir: /app
 ```
 
-Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
+Runs `pnpm install --frozen-lockfile` with `npm_config_manage_package_manager_versions=false` and `pnpm_config_pm_on_fail=ignore`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock). Supported: pnpm 6 and newer; the lock formats 5.x, 6.0 and 9.0 are all read. A lock written by an older major is not converted under `--frozen-lockfile`: regenerate it with the pnpm the entry runs. pnpm 10 and newer download and run the pnpm version a `packageManager` field names when it differs from the one running, bypassing the one the preceding entry pinned; the two variables (pnpm 10 reads the first, pnpm 11 and newer the second) disable that, and `env` overrides them. pnpm 10 and newer also skip the build scripts of dependencies that are not allowlisted — with a warning on pnpm 10, with an error on pnpm 11 and newer; list them in `pnpm-workspace.yaml` (`onlyBuiltDependencies` on pnpm 10, `allowBuilds` on 11 and newer).
 
 All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
 
@@ -400,7 +400,7 @@ packages:
 
 The entries run in the order they are declared: `pm` installs Node.js with npm, npm installs Yarn, Yarn installs the application dependencies. The npm entry needs no `manager` — `pm` puts npm onto `PATH`.
 
-Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` pointing anywhere else — a bare executable name, a path from the builder image — is rejected: it would be resolved by the image instead of the configuration.
+Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. For Yarn Berry declare `@yarnpkg/cli-dist` instead of `yarn`: the `manager` path stays the same, the package provides the same `yarn` executable. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` pointing anywhere else — a bare executable name, a path from the builder image — is rejected: it would be resolved by the image instead of the configuration.
 
 For Python the same recipe needs no `manager`: `pip` installs uv or Poetry onto `PATH`, and the following entry finds them there. Poetry additionally needs `POETRY_VIRTUALENVS_CREATE=false` in the builder image — otherwise it installs the dependencies into a virtualenv of its own instead of the image.
 

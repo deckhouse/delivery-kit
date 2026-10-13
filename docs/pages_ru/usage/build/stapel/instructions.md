@@ -223,7 +223,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `uv sync --frozen`. Файлы по умолчанию: `pyproject.toml` (spec) и `uv.lock` (lock).
+Выполняет `uv sync --frozen` с `UV_PYTHON_DOWNLOADS=never`. Файлы по умолчанию: `pyproject.toml` (spec) и `uv.lock` (lock). Поддерживается uv 0.3 и новее с любым `revision` формата lock-файла `version = 1`. Lock-файл берется как есть: если зависимости в `pyproject.toml` изменились после его записи, установится то, что указано в lock-файле. uv устанавливает зависимости в `.venv` внутри workdir; чтобы установить их в интерпретатор образа, задайте `env: {UV_PROJECT_ENVIRONMENT: <prefix>}` (`/usr/local` для стандартного интерпретатора) — тогда uv удалит из этого prefix все пакеты, которых нет в lock-файле. Если интерпретатор образа не удовлетворяет `requires-python`, uv скачал бы собственный CPython, которого SBOM никогда не увидит; `UV_PYTHON_DOWNLOADS=never` вместо этого завершает сборку ошибкой, `env` переопределяет значение.
 
 **Python — pip** (`python-pip`):
 
@@ -243,7 +243,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `poetry sync --no-root`. Файлы по умолчанию: `pyproject.toml` (spec) и `poetry.lock` (lock).
+Выполняет `poetry install --no-root`. Файлы по умолчанию: `pyproject.toml` (spec) и `poetry.lock` (lock). Поддерживается Poetry 1.2 и новее, включая 2.x; Poetry 2.0–2.2 требует в образе Python 3.9 или новее, 2.3 и новее — Python 3.10. Lock-файл старше `pyproject.toml` завершает установку ошибкой начиная с Poetry 1.8 (раньше — предупреждение); lock-файл, записанный Poetry 2.x, Poetry 1.8 читает с предупреждением. `poetry sync` не используется: команда есть только с Poetry 2.0, а с `POETRY_VIRTUALENVS_CREATE=false` она удаляет из интерпретатора образа все, чего нет в lock-файле, — включая инструменты, установленные через pip.
 
 **JavaScript — npm** (`javascript-npm`):
 
@@ -263,7 +263,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock).
+Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock). Поддерживаются Yarn Classic 1.x и Yarn Berry 3.x и 4.x, где флаг принимается как псевдоним `--immutable` с предупреждением об устаревании; Yarn 2.x отклоняет его и не поддерживается. Berry не публикуется в реестре под именем `yarn` — этот пакет остается на 1.x: установите его из `@yarnpkg/cli-dist` предыдущей записью и укажите путь к нему в `manager`, см. [Менеджеры пакетов, которых нет в сборочном образе](#менеджеры-пакетов-которых-нет-в-сборочном-образе). Berry по умолчанию связывает зависимости через Plug'n'Play, не оставляя `node_modules`, откуда syft читает лицензии, — задайте `nodeLinker: node-modules` в `.yarnrc.yml`. Поле `packageManager: yarn@<2 и новее>` в `package.json` заставляет Yarn 1.22.20 и новее отказаться от запуска без Corepack; такой проект устанавливается тем Berry, который в нем указан, через `manager`.
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 
@@ -273,7 +273,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `pnpm install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `pnpm-lock.yaml` (lock).
+Выполняет `pnpm install --frozen-lockfile` с `npm_config_manage_package_manager_versions=false` и `pnpm_config_pm_on_fail=ignore`. Файлы по умолчанию: `package.json` (spec) и `pnpm-lock.yaml` (lock). Поддерживается pnpm 6 и новее; читаются форматы lock-файла 5.x, 6.0 и 9.0. Lock-файл, записанный более старым мажором, под `--frozen-lockfile` не конвертируется: перегенерируйте его тем pnpm, который запускает запись. pnpm 10 и новее скачивает и запускает ту версию pnpm, которую называет поле `packageManager`, если она отличается от запущенной, — в обход той, что зафиксировала предыдущая запись; две переменные (pnpm 10 читает первую, pnpm 11 и новее — вторую) это отключают, `env` их переопределяет. pnpm 10 и новее также пропускает build-скрипты зависимостей, не внесенных в список разрешенных, — с предупреждением на pnpm 10 и с ошибкой на pnpm 11 и новее; перечислите их в `pnpm-workspace.yaml` (`onlyBuiltDependencies` на pnpm 10, `allowBuilds` на 11 и новее).
 
 **Rust — Cargo** (`rust-cargo`):
 
@@ -413,7 +413,7 @@ packages:
 
 Записи выполняются в порядке объявления: `pm` устанавливает Node.js с npm, npm устанавливает Yarn, Yarn устанавливает зависимости приложения. Записи с npm поле `manager` не нужно — `pm` устанавливает npm в `PATH`.
 
-Здесь `/tools/package.json` объявляет сам Yarn зависимостью, а `/tools/package-lock.json` фиксирует его версию и хеш целостности. Менеджер устанавливается как обычная зависимость: он попадает в SBOM образа и остается в собранном образе. `manager`, указывающий куда-то еще — голое имя исполняемого файла или путь из сборочного образа, — отклоняется: такой файл выбирает образ, а не конфигурация.
+Здесь `/tools/package.json` объявляет сам Yarn зависимостью, а `/tools/package-lock.json` фиксирует его версию и хеш целостности. Для Yarn Berry вместо `yarn` объявите `@yarnpkg/cli-dist`: путь в `manager` остается тем же, пакет предоставляет тот же исполняемый файл `yarn`. Менеджер устанавливается как обычная зависимость: он попадает в SBOM образа и остается в собранном образе. `manager`, указывающий куда-то еще — голое имя исполняемого файла или путь из сборочного образа, — отклоняется: такой файл выбирает образ, а не конфигурация.
 
 Для Python поле `manager` не нужно: `pip` устанавливает uv или Poetry в `PATH`, и следующая запись находит их там. Poetry дополнительно требует `POETRY_VIRTUALENVS_CREATE=false` в сборочном образе — иначе он установит зависимости в собственный virtualenv, а не в образ.
 

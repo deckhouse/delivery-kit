@@ -117,6 +117,7 @@ var _ = Describe("predicate slot discrimination", func() {
 
 			im, err := idx.IndexManifest()
 			Expect(err).To(Succeed())
+			Expect(im.Manifests).To(HaveLen(2))
 			digests := []v1.Hash{im.Manifests[0].Digest, im.Manifests[1].Digest}
 			Expect(digests).To(ContainElements(userSigned.Digest, signedSbom.Digest))
 		})

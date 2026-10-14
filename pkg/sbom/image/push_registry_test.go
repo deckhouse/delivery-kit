@@ -122,6 +122,16 @@ var _ = Describe("PushSBOM against a registry", func() {
 		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
 		Expect(err).To(Succeed())
 		Expect(bomJSON).To(MatchJSON(unsignedBOM))
+
+		for _, spelling := range []string{attestation.PredicateKindCycloneDX.Name, attestation.PredicateKindCycloneDX.SignedType} {
+			got, err := attestation.Get(ctx, repo, parentDigest, imageName, spelling)
+			Expect(err).To(Succeed(), spelling)
+			Expect(got).To(MatchJSON(userPredicate), spelling)
+		}
+
+		got, err := attestation.Get(ctx, repo, parentDigest, imageName, attestation.PredicateKindCycloneDX.UnsignedType)
+		Expect(err).To(Succeed())
+		Expect(got).To(MatchJSON(unsignedBOM))
 	})
 
 	It("supersedes a legacy annotation-less SBOM artifact", func(ctx SpecContext) {

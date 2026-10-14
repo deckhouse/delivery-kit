@@ -61,7 +61,7 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 		return nil, err
 	}
 
-	kindAliases, err := PredicateKindAliases(predicateType)
+	lookupTypes, err := PredicateLookupTypes(predicateType)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 
 	results := make([]PlatformVerifyResult, 0, len(entries))
 	for _, entry := range entries {
-		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, kindAliases, verifiers)
+		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, lookupTypes, verifiers)
 		results = append(results, PlatformVerifyResult{
 			Platform: entry.Platform,
 			Digest:   entry.Digest,
@@ -106,8 +106,8 @@ func VerifyIndexResultError(results []PlatformVerifyResult) error {
 	return fmt.Errorf("attestation verification failed for %d of %d platforms:\n%s", len(failures), len(results), strings.Join(failures, "\n"))
 }
 
-func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType string, kindAliases []string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, kindAliases)
+func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType string, lookupTypes []string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, lookupTypes)
 	if err != nil {
 		if errors.Is(err, artifact.ErrNotFound) {
 			return PlatformVerifyStatusMissing, fmt.Errorf("no attestation found for digest %s: %w", digest, err)

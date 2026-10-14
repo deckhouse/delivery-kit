@@ -97,14 +97,18 @@ func ResolvePredicateType(shortOrURI string) (string, error) {
 	return "", fmt.Errorf("unknown predicate type %q: use a full URI or one of: %s", shortOrURI, PredicateTypeHelp())
 }
 
-// PredicateKindAliases resolves a short name or URI to every predicate URI of the
-// same attestation kind. Unknown kinds resolve to themselves.
-func PredicateKindAliases(shortOrURI string) ([]string, error) {
+// PredicateLookupTypes resolves a short name or URI to the predicate URIs a read
+// of that kind may land on. It mirrors PredicateTypeMatches: an alias-matching
+// kind accepts every URI of the kind, so a read may match any of them; every
+// other kind accepts only the resolved URI, so a read must look for that one
+// alone — matching a neighboring URI of the same kind would only find an
+// artifact the exact check then rejects. Unknown kinds resolve to themselves.
+func PredicateLookupTypes(shortOrURI string) ([]string, error) {
 	resolved, err := ResolvePredicateType(shortOrURI)
 	if err != nil {
 		return nil, err
 	}
-	if kind, ok := predicateKindOf(resolved); ok {
+	if kind, ok := predicateKindOf(resolved); ok && kind.AliasMatching {
 		return kind.Types(), nil
 	}
 	return []string{resolved}, nil

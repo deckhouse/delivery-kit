@@ -30,14 +30,14 @@ func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicate
 		return nil, err
 	}
 
-	kindAliases, err := PredicateKindAliases(predicateType)
+	lookupTypes, err := PredicateLookupTypes(predicateType)
 	if err != nil {
 		return nil, err
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)
 
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, kindAliases)
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, lookupTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func StatementPredicateType(envelopeJSON []byte) (string, error) {
 // entries attached to parentDigest whose content proves they belong to the given
 // predicate kind. Legacy entries of other kinds (or unreadable ones) are left in
 // place: an artifact must never be evicted by a writer of a different kind.
-func LegacySupersededKeys(ctx context.Context, store *artifact.OCIStore, parentDigest string, kindAliases []string) ([]artifact.Key, error) {
+func LegacySupersededKeys(ctx context.Context, store *artifact.OCIStore, parentDigest string, kindTypes []string) ([]artifact.Key, error) {
 	var keys []artifact.Key
 
 	for _, artifactType := range []string{BundleMediaType, DSSEMediaType} {
@@ -194,7 +194,7 @@ func LegacySupersededKeys(ctx context.Context, store *artifact.OCIStore, parentD
 			continue
 		}
 
-		if slices.Contains(kindAliases, foundType) {
+		if slices.Contains(kindTypes, foundType) {
 			keys = append(keys, artifact.Key{ArtifactType: artifactType, PredicateType: ""})
 		}
 	}

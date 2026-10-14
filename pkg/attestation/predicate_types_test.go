@@ -50,24 +50,24 @@ var _ = Describe("ResolvePredicateType", func() {
 	})
 })
 
-var _ = Describe("PredicateKindAliases", func() {
-	DescribeTable("alias sets",
+var _ = Describe("PredicateLookupTypes", func() {
+	DescribeTable("lookup sets",
 		func(shortOrURI string, expected []string) {
-			aliases, err := PredicateKindAliases(shortOrURI)
+			aliases, err := PredicateLookupTypes(shortOrURI)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(aliases).To(Equal(expected))
 		},
 		Entry("openvex short name", "openvex", []string{"https://openvex.dev/ns", "https://openvex.dev/ns/v0.2.0"}),
 		Entry("openvex unversioned URI", "https://openvex.dev/ns", []string{"https://openvex.dev/ns", "https://openvex.dev/ns/v0.2.0"}),
 		Entry("openvex versioned URI", "https://openvex.dev/ns/v0.2.0", []string{"https://openvex.dev/ns", "https://openvex.dev/ns/v0.2.0"}),
-		Entry("cyclonedx short name", "cyclonedx", []string{"https://cyclonedx.org/bom", "https://cyclonedx.org/bom/v1.6"}),
-		Entry("cyclonedx versioned URI", "https://cyclonedx.org/bom/v1.6", []string{"https://cyclonedx.org/bom", "https://cyclonedx.org/bom/v1.6"}),
+		Entry("cyclonedx short name resolves to the signed URI alone", "cyclonedx", []string{"https://cyclonedx.org/bom"}),
+		Entry("cyclonedx versioned URI resolves to itself", "https://cyclonedx.org/bom/v1.6", []string{"https://cyclonedx.org/bom/v1.6"}),
 		Entry("unknown kind resolves to itself", "https://slsa.dev/provenance/v1", []string{"https://slsa.dev/provenance/v1"}),
 		Entry("custom URI resolves to itself", "https://custom.example.com/predicate/v1", []string{"https://custom.example.com/predicate/v1"}),
 	)
 
 	It("should error on unknown short name", func() {
-		_, err := PredicateKindAliases("nonexistent")
+		_, err := PredicateLookupTypes("nonexistent")
 		Expect(err).To(HaveOccurred())
 	})
 })

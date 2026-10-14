@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -212,6 +211,13 @@ func isArtifactKey(desc v1.Descriptor, artifactType, imageName, predicateType st
 		desc.Annotations[PredicateTypeAnnotation] == predicateType
 }
 
+func werfOwnershipRank(desc v1.Descriptor) int {
+	if desc.Annotations[image.WerfChecksumAnnotation] != "" {
+		return 0
+	}
+	return 1
+}
+
 // matchDescriptors selects the entries a reader asks for. An empty image name
 // means any image here, unlike the exact key used by writers.
 //
@@ -251,9 +257,8 @@ func matchDescriptors(im *v1.IndexManifest, artifactType, imageName string, pred
 		annotated = append(annotated, desc)
 	}
 
-	sort.SliceStable(annotated, func(i, j int) bool {
-		return annotated[i].Annotations[image.WerfChecksumAnnotation] != "" &&
-			annotated[j].Annotations[image.WerfChecksumAnnotation] == ""
+	slices.SortStableFunc(annotated, func(a, b v1.Descriptor) int {
+		return werfOwnershipRank(a) - werfOwnershipRank(b)
 	})
 
 	position := make(map[v1.Hash]int)

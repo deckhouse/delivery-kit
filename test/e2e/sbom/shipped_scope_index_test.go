@@ -19,6 +19,7 @@ import (
 
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/test/pkg/report"
+	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
@@ -124,19 +125,16 @@ func digestOfString(body string) string {
 }
 
 func exportImageWithDocker(ctx SpecContext, imageRef string) (map[string]shippedscope.File, map[string]string) {
-	pull := exec.CommandContext(ctx, "docker", "pull", imageRef)
-	pullOut, err := pull.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "docker pull %s: %s", imageRef, pullOut)
+	utils.RunSucceedCommand(ctx, "", "docker", "pull", imageRef)
 
-	create := exec.CommandContext(ctx, "docker", "create", imageRef)
-	var createErr bytes.Buffer
-	create.Stderr = &createErr
-	created, err := create.Output()
-	Expect(err).NotTo(HaveOccurred(), "docker create %s: %s", imageRef, createErr.String())
+	created, _, err := utils.RunCommandWithSeparateStreams(ctx, "", "docker", []string{"create", imageRef},
+		utils.RunCommandOptions{ShouldSucceed: true},
+	)
+	Expect(err).NotTo(HaveOccurred())
 
 	container := strings.TrimSpace(string(created))
-	DeferCleanup(func() {
-		_ = exec.Command("docker", "rm", "-f", container).Run()
+	DeferCleanup(func(ctx SpecContext) {
+		utils.RunSucceedCommand(ctx, "", "docker", "rm", "-f", container)
 	})
 
 	export := exec.CommandContext(ctx, "docker", "export", container)

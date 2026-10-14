@@ -217,7 +217,6 @@ func resolveOwnedHardlinks(index *FileIndex, remaining, owned map[string]string,
 
 		if link, ok := symlinks[target]; ok {
 			index.Symlinks[name] = link
-			delete(index.Files, name)
 			delete(remaining, name)
 		}
 	}
@@ -238,9 +237,9 @@ func indexed(index *FileIndex, hardlinks map[string]string, name string) bool {
 	return ok
 }
 
-// Links whose own layer could not answer: the target is a symlink, another hardlink, or an
-// entry a later layer whited out. The first two resolve against the flattened view, the
-// third leaves content that is in the image but whose digest no layer still records.
+// Links whose own layer could not answer: the target lives in another layer, or is another
+// hardlink. Both resolve against the flattened view, which is as close as the image gets to
+// an answer once the layer that owns the link does not hold the target.
 func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[string]string) {
 	var unresolved int
 

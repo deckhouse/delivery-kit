@@ -2,6 +2,7 @@ package attestation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -24,6 +25,15 @@ func Get(ctx context.Context, repo, parentDigest, imageName, predicateType strin
 // returns its predicate. openEnvelope turns the stored DSSE envelope into the
 // in-toto statement: reading it as-is for Get, verifying its signatures for
 // Verify.
+//
+// Each URI of the kind is tried on its own, the requested one first, and the
+// first candidate the caller accepts wins. Looking the whole kind up at once
+// would answer with whichever entry the registry lists first, while stopping at
+// the requested URI would hide a signed attestation sitting in the neighboring
+// slot from a verify. When every candidate fails, the reported error is the
+// first one that is not a plain not-found: an entry of the kind that the caller
+// rejected — unsigned where a signature was required, say — tells the user more
+// than the absence of the exact URI.
 func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicateType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {
 	resolvedType, err := ResolvePredicateType(predicateType)
 	if err != nil {
@@ -37,7 +47,30 @@ func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicate
 
 	store := artifact.NewOCIStore(repo, imageName)
 
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, lookupTypes)
+	var notFoundErr, rejectedErr error
+	for _, lookupType := range lookupTypes {
+		predicate, err := pullPredicateOfType(ctx, store, parentDigest, resolvedType, lookupType, openEnvelope)
+		switch {
+		case err == nil:
+			return predicate, nil
+		case errors.Is(err, artifact.ErrNotFound):
+			if notFoundErr == nil {
+				notFoundErr = err
+			}
+		case rejectedErr == nil:
+			rejectedErr = err
+		}
+	}
+
+	if rejectedErr != nil {
+		return nil, rejectedErr
+	}
+
+	return nil, notFoundErr
+}
+
+func pullPredicateOfType(ctx context.Context, store *artifact.OCIStore, parentDigest, resolvedType, lookupType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, []string{lookupType})
 	if err != nil {
 		return nil, err
 	}

@@ -61,11 +61,6 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 		return nil, err
 	}
 
-	lookupTypes, err := PredicateLookupTypes(predicateType)
-	if err != nil {
-		return nil, err
-	}
-
 	entries, err := artifact.ListIndexPlatforms(ctx, repo, indexDigest, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("list index platforms: %w", err)
@@ -75,7 +70,7 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 
 	results := make([]PlatformVerifyResult, 0, len(entries))
 	for _, entry := range entries {
-		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, lookupTypes, verifiers)
+		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, predicateType, verifiers)
 		results = append(results, PlatformVerifyResult{
 			Platform: entry.Platform,
 			Digest:   entry.Digest,
@@ -106,8 +101,43 @@ func VerifyIndexResultError(results []PlatformVerifyResult) error {
 	return fmt.Errorf("attestation verification failed for %d of %d platforms:\n%s", len(failures), len(results), strings.Join(failures, "\n"))
 }
 
-func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType string, lookupTypes []string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, lookupTypes)
+// verifyPlatformAttestation verifies the attestation of one platform manifest.
+// Each URI of the kind is tried on its own, the requested one first, and the
+// first verified candidate wins; a failed verification reports the first
+// outcome that is not a plain not-found. See pullPredicate for why the lookup
+// works this way.
+func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType, predicateType string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
+	lookupTypes, err := PredicateLookupTypes(predicateType)
+	if err != nil {
+		return PlatformVerifyStatusMissing, err
+	}
+
+	notFoundStatus, rejectedStatus := PlatformVerifyStatusMissing, PlatformVerifyStatusMissing
+	var notFoundErr, rejectedErr error
+
+	for _, lookupType := range lookupTypes {
+		status, err := verifyPlatformAttestationOfType(ctx, store, digest, resolvedType, lookupType, verifiers)
+		switch {
+		case err == nil:
+			return status, nil
+		case errors.Is(err, artifact.ErrNotFound):
+			if notFoundErr == nil {
+				notFoundStatus, notFoundErr = status, err
+			}
+		case rejectedErr == nil:
+			rejectedStatus, rejectedErr = status, err
+		}
+	}
+
+	if rejectedErr != nil {
+		return rejectedStatus, rejectedErr
+	}
+
+	return notFoundStatus, notFoundErr
+}
+
+func verifyPlatformAttestationOfType(ctx context.Context, store *artifact.OCIStore, digest, resolvedType, lookupType string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, []string{lookupType})
 	if err != nil {
 		if errors.Is(err, artifact.ErrNotFound) {
 			return PlatformVerifyStatusMissing, fmt.Errorf("no attestation found for digest %s: %w", digest, err)

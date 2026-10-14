@@ -5,6 +5,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 // WellKnownPredicateTypes maps cosign-compatible short names to predicate URIs.
@@ -98,20 +100,23 @@ func ResolvePredicateType(shortOrURI string) (string, error) {
 }
 
 // PredicateLookupTypes resolves a short name or URI to the predicate URIs a read
-// of that kind may land on. It mirrors PredicateTypeMatches: an alias-matching
-// kind accepts every URI of the kind, so a read may match any of them; every
-// other kind accepts only the resolved URI, so a read must look for that one
-// alone — matching a neighboring URI of the same kind would only find an
-// artifact the exact check then rejects. Unknown kinds resolve to themselves.
+// of that kind may answer with, most specific first: the resolved URI, then the
+// kind's remaining URIs. The order matters because neighboring slots of one kind
+// hold different documents — werf's own and one the user signed — and only the
+// exact URI tells them apart. Unknown kinds resolve to themselves.
 func PredicateLookupTypes(shortOrURI string) ([]string, error) {
 	resolved, err := ResolvePredicateType(shortOrURI)
 	if err != nil {
 		return nil, err
 	}
-	if kind, ok := predicateKindOf(resolved); ok && kind.AliasMatching {
-		return kind.Types(), nil
+	kind, ok := predicateKindOf(resolved)
+	if !ok {
+		return []string{resolved}, nil
 	}
-	return []string{resolved}, nil
+	rest := lo.Filter(kind.Types(), func(predicateType string, _ int) bool {
+		return predicateType != resolved
+	})
+	return append([]string{resolved}, rest...), nil
 }
 
 // PredicateTypeMatches reports whether a found statement predicate satisfies the

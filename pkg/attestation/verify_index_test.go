@@ -84,6 +84,21 @@ var _ = Describe("VerifyIndex", func() {
 		Expect(store.Attach(ctx, digest, BundleMediaType, bundleJSON, "", "", predicateType)).To(Succeed())
 	}
 
+	attachDSSE := func(ctx SpecContext, digest, predicateType string, signer signature.SignerVerifier) {
+		stmtBytes, err := WrapInInTotoStatement(predicate, predicateType, repo, strings.TrimPrefix(digest, "sha256:"))
+		Expect(err).NotTo(HaveOccurred())
+
+		var envelopeSigner signature.Signer
+		if signer != nil {
+			envelopeSigner = signer
+		}
+		envelopeJSON, err := WrapInDSSE(ctx, stmtBytes, InTotoMediaType, envelopeSigner)
+		Expect(err).NotTo(HaveOccurred())
+
+		store := artifact.NewOCIStore(repo, imageName, remoteOpts...)
+		Expect(store.Attach(ctx, digest, DSSEMediaType, envelopeJSON, "", "", predicateType)).To(Succeed())
+	}
+
 	attachUnsignedBareDSSE := func(ctx SpecContext, digest string) {
 		stmtBytes, err := WrapInInTotoStatement(predicate, cyclonedxType, repo, strings.TrimPrefix(digest, "sha256:"))
 		Expect(err).NotTo(HaveOccurred())
@@ -176,6 +191,21 @@ var _ = Describe("VerifyIndex", func() {
 			attachSignedBundle(ctx, arm64Digest, openvexType, signerA)
 		}, PlatformVerifyStatusMissing, "no attestation found"),
 	)
+
+	It("verifies a signed attestation attached beside an unsigned entry of the same kind", func(ctx SpecContext) {
+		for _, digest := range []string{amd64Digest, arm64Digest} {
+			attachDSSE(ctx, digest, PredicateKindOpenVEX.UnsignedType, nil)
+			attachDSSE(ctx, digest, PredicateKindOpenVEX.SignedType, signerA)
+		}
+
+		results, err := VerifyIndex(ctx, repo, indexDigest, imageName, "openvex", []signature.Verifier{verifierA}, remoteOpts...)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results).To(HaveLen(2))
+		for _, result := range results {
+			Expect(result.Status).To(Equal(PlatformVerifyStatusVerified), result.Platform)
+		}
+		Expect(VerifyIndexResultError(results)).To(Succeed())
+	})
 
 	It("lists every failing platform when all platforms fail verification", func(ctx SpecContext) {
 		attachSignedBundle(ctx, amd64Digest, cyclonedxType, signerB)

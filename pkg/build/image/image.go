@@ -51,6 +51,7 @@ type CommonImageOptions struct {
 
 	ForceTargetPlatformLogging bool
 	ManifestSigningOptions     signing.ManifestSigningOptions
+	FilesSigningOptions        signing.FilesSigningOptions
 	VerityAnnotationOptions    verify_annotation.Options
 }
 

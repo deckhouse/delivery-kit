@@ -215,6 +215,22 @@ werf run [options] [IMAGE_NAME] [-- COMMAND ARG...]
             Enable ELF files signing (default $WERF_SIGN_ELF_FILES).
             When enabled, the private signing key must be specified with --sign-key option and the  
             certificate must be specified with --sign-cert option
+      --sign-files=true
+            Sign the files declared with the sign directive of werf.yaml (default $WERF_SIGN_FILES  
+            or true).
+            When enabled and at least one image declares files to sign,
+            the private signing key must be specified with --sign-files-key option and
+            the certificate must be specified with --sign-files-cert option.
+            Disable to build such images without signatures
+      --sign-files-cert=""
+            The leaf certificate of the files signing key as path to PEM file or base64-encoded PEM 
+            (default $WERF_SIGN_FILES_CERT)
+      --sign-files-intermediates=""
+            The intermediate certificates of the files signing key as path to PEM file or           
+            base64-encoded PEM (default $WERF_SIGN_FILES_INTERMEDIATES)
+      --sign-files-key=""
+            The private key to sign files with as path to PEM file, base64-encoded PEM or           
+            hashivault://[KEY] (default $WERF_SIGN_FILES_KEY)
       --sign-intermediates=""
             The intermediate certificates as path to PEM file or base64-encoded PEM (default        
             $WERF_SIGN_INTERMEDIATES)

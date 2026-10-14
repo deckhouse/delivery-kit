@@ -64,6 +64,7 @@ type BuildOptions struct {
 	SbomSigningOptions      signing.SbomSigningOptions
 	VexSigningOptions       signing.VexSigningOptions
 	ELFSigningOptions       signing.ELFSigningOptions
+	FilesSigningOptions     signing.FilesSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 
 	ReportPath       string

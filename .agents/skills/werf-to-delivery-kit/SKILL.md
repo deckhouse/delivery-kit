@@ -178,7 +178,7 @@ git:
 | `go-mod` | `go.mod` | `go.sum` | `cd <workdir> && go mod download` |
 | `python-uv` | `pyproject.toml` | `uv.lock` | `uv sync --frozen` |
 | `python-pip` | `requirements.txt` | — | `pip install --no-cache-dir -r <spec>` |
-| `python-poetry` | `pyproject.toml` | `poetry.lock` | `poetry sync --no-root` |
+| `python-poetry` | `pyproject.toml` | `poetry.lock` | `poetry install --no-root` |
 | `rust-cargo` | `Cargo.toml` | `Cargo.lock` | `cargo fetch` |
 | `javascript-npm` | `package.json` | `package-lock.json` | `npm ci` |
 | `javascript-yarn` | `package.json` | `yarn.lock` | yarn install (frozen) |

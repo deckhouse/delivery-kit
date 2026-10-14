@@ -513,7 +513,7 @@ var _ = Describe("javascript install commands", func() {
 		Expect(cmds).To(Equal([]string{`cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore "/opt/tools/node_modules/.bin/pnpm" install --frozen-lockfile`}))
 	})
 
-	It("installs with yarn frozen to its lock on every supported major", func() {
+	It("installs with yarn frozen to its lock", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "yarn.lock"}},
 		})

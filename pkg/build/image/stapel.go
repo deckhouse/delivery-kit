@@ -128,10 +128,13 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 
 	stages = appendIfExist(stages, stage.GenerateInstallStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateDependenciesAfterInstallStage(imageBaseConfig, baseStageOptions))
+	stages = appendIfExist(stages, stage.GenerateSignFilesAfterInstallStage(imageBaseConfig, opts.FilesSigningOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateBeforeSetupStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateDependenciesBeforeSetupStage(imageBaseConfig, baseStageOptions))
+	stages = appendIfExist(stages, stage.GenerateSignFilesBeforeSetupStage(imageBaseConfig, opts.FilesSigningOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateSetupStage(ctx, imageBaseConfig, gitPatchStageOptions, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateDependenciesAfterSetupStage(imageBaseConfig, baseStageOptions))
+	stages = appendIfExist(stages, stage.GenerateSignFilesAfterSetupStage(imageBaseConfig, opts.FilesSigningOptions, baseStageOptions))
 
 	if gitMappingsExist {
 		stages = append(stages, stage.NewGitCacheStage(gitPatchStageOptions, baseStageOptions))

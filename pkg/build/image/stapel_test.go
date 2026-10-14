@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/config"
 )
@@ -110,4 +111,79 @@ packages:
 		Entry("build.sbom.enable false", "build:\n  sbom:\n    enable: false"),
 		Entry("build.sbom.enable true", "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6"),
 	)
+})
+
+var _ = Describe("sign files stages", func() {
+	werfYaml := func(sbomBlock string) string {
+		return fmt.Sprintf(`project: test
+configVersion: 1
+%s
+---
+image: app
+from: alpine:3.20
+shell:
+  install:
+  - echo install
+  setup:
+  - echo setup
+sign:
+- path: /out/a.roothash
+  after: install
+- path: /out/b.roothash
+  before: setup
+- path: /out/c.roothash
+  after: setup
+`, sbomBlock)
+	}
+
+	newImage := func(ctx context.Context, sbomBlock string, filesSigning signing.FilesSigningOptions) *Image {
+		projectDir := newProjectRepo(ctx, map[string]string{"werf.yaml": werfYaml(sbomBlock)})
+		metaConfig, imageConfig, opts := stapelImageConfig(ctx, projectDir)
+		opts.FilesSigningOptions = filesSigning
+
+		image, err := mapStapelConfigToImage(ctx, metaConfig, imageConfig, "linux/amd64", false, opts)
+		Expect(err).NotTo(HaveOccurred())
+		return image
+	}
+
+	enabled := func() signing.FilesSigningOptions {
+		o := signing.NewFilesSigningOptions(&signing.Signer{})
+		o.Enabled = true
+		return o
+	}
+
+	It("places one stage per position right after the matching dependencies position", func() {
+		image := newImage(context.Background(), "", enabled())
+
+		names := stageNames(image)
+		Expect(names).To(Equal([]stage.StageName{
+			stage.From,
+			stage.Install,
+			stage.SignFilesAfterInstall,
+			stage.SignFilesBeforeSetup,
+			stage.Setup,
+			stage.SignFilesAfterSetup,
+		}))
+	})
+
+	It("generates no stage when files signing is disabled", func() {
+		image := newImage(context.Background(), "", signing.NewFilesSigningOptions(&signing.Signer{}))
+
+		for _, name := range []stage.StageName{stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
+			Expect(stageNames(image)).NotTo(ContainElement(name))
+		}
+	})
+
+	It("keeps shell stages offline under build.sbom.enable while the sign stages need no network either", func() {
+		image := newImage(context.Background(), "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6", enabled())
+
+		for _, s := range image.GetStages() {
+			if s.Name() == stage.From {
+				continue
+			}
+			nn, ok := s.(interface{ NeedsNetwork() bool })
+			Expect(ok).To(BeTrue(), string(s.Name()))
+			Expect(nn.NeedsNetwork()).To(BeFalse(), string(s.Name()))
+		}
+	})
 })

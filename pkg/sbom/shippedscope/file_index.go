@@ -2,6 +2,7 @@ package shippedscope
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -44,11 +45,20 @@ type FileIndex struct {
 // Hardlinks make the layers be read a second time, so an image whose layers are expensive
 // to obtain pays for that twice.
 func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
+	index, _, err := indexImageFiles(ctx, img, nil)
+
+	return index, err
+}
+
+// capture names the files whose bytes the caller needs beside their digest; they are read
+// once, while the file passes by, instead of costing another walk of the image.
+func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string) bool) (*FileIndex, map[string][]byte, error) {
 	index := &FileIndex{
 		Files:    make(map[string]File),
 		Symlinks: make(map[string]string),
 	}
 	hardlinks := make(map[string]string)
+	captured := make(map[string][]byte)
 
 	rootfs := mutate.Extract(img)
 	defer rootfs.Close()
@@ -56,7 +66,7 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 	reader := tar.NewReader(rootfs)
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		header, err := reader.Next()
@@ -64,7 +74,7 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read image filesystem: %w", err)
+			return nil, nil, fmt.Errorf("read image filesystem: %w", err)
 		}
 
 		name := rootedPath(header.Name)
@@ -75,13 +85,23 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 		switch header.Typeflag {
 		case tar.TypeReg:
 			hasher := sha256.New()
-			if _, err := io.Copy(hasher, reader); err != nil {
-				return nil, fmt.Errorf("hash %q: %w", name, err)
+			var body bytes.Buffer
+
+			var sink io.Writer = hasher
+			if capture != nil && capture(name) {
+				sink = io.MultiWriter(hasher, &body)
+			}
+
+			if _, err := io.Copy(sink, reader); err != nil {
+				return nil, nil, fmt.Errorf("hash %q: %w", name, err)
 			}
 
 			index.Files[name] = File{
 				Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
 				Size:   header.Size,
+			}
+			if sink != io.Writer(hasher) {
+				captured[name] = body.Bytes()
 			}
 		case tar.TypeSymlink:
 			index.Symlinks[name] = header.Linkname
@@ -95,17 +115,17 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 	// drain a rejected path or a layer whose digest does not verify would silently
 	// yield a partial index instead of an error.
 	if _, err := io.Copy(io.Discard, rootfs); err != nil {
-		return nil, fmt.Errorf("read image filesystem: %w", err)
+		return nil, nil, fmt.Errorf("read image filesystem: %w", err)
 	}
 
 	remaining, err := resolveHardlinksWithinLayers(ctx, img, index, hardlinks)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	resolveHardlinks(ctx, index, remaining)
 
-	return index, nil
+	return index, captured, nil
 }
 
 // A layer tar spells a hardlink as a regular file plus a link entry beside it, so the bytes

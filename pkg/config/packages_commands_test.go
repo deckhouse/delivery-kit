@@ -47,18 +47,18 @@ var _ = Describe("formatEnvVars shell safety", func() {
 
 var _ = Describe("formatWorkdirCommand", func() {
 	It("places the env prefix in front of the package manager, not in front of cd", func() {
-		Expect(formatWorkdirCommand("/app", "go mod download", map[string]string{"GOPROXY": "direct"})).
+		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "direct"})).
 			To(Equal(`cd "/app" && GOPROXY=direct go mod download`))
 	})
 
 	It("keeps cd in the parent shell and isolates only a secret-backed value", func() {
-		Expect(formatWorkdirCommand("/app", "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"})).
+		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"})).
 			To(Equal(`cd "/app" && (GOPROXY="$(</run/secrets/proxy)"; GOPROXY="$GOPROXY" go mod download)`))
 	})
 
 	It("exposes the env var to the package manager process", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
-		command := formatWorkdirCommand(dir, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"})
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir}, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"})
 
 		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
 		stderr := &bytes.Buffer{}
@@ -83,8 +83,8 @@ var _ = Describe("formatWorkdirCommand", func() {
 			// The second workdir is relative: it resolves against the `cd` of the first directive,
 			// which the shared stage shell keeps between directives.
 			script := strings.Join([]string{
-				formatWorkdirCommand(appDir, "printenv GOPROXY", firstEnv),
-				formatWorkdirCommand("tools", "printenv GOPROXY", nil),
+				formatWorkdirCommand(FileBasedSpec{Workdir: appDir}, "printenv GOPROXY", firstEnv),
+				formatWorkdirCommand(FileBasedSpec{Workdir: "tools"}, "printenv GOPROXY", nil),
 			}, "\n")
 			script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
 
@@ -381,11 +381,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("PythonUV env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
-			substring: `cd "/app" && uv sync --frozen`,
+			substring: `cd "/app" && UV_PYTHON_DOWNLOADS=never uv sync --frozen`,
 		}),
 		Entry("PythonUV env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
-			substring: `cd "/app" && uv sync --frozen`,
+			substring: `cd "/app" && UV_PYTHON_DOWNLOADS=never uv sync --frozen`,
 		}),
 		Entry("PythonPip env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPip, FileBased: FileBasedSpec{Workdir: "/app", Spec: "requirements.txt"}},
@@ -397,11 +397,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("PythonPoetry env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}},
-			substring: `cd "/app" && poetry sync --no-root`,
+			substring: `cd "/app" && poetry install --no-root`,
 		}),
 		Entry("PythonPoetry env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{}},
-			substring: `cd "/app" && poetry sync --no-root`,
+			substring: `cd "/app" && poetry install --no-root`,
 		}),
 		Entry("RustCargo env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Cargo.toml"}},
@@ -429,11 +429,11 @@ var _ = Describe("GeneratePackagesCommands non-os-pm backward compatible", func(
 		}),
 		Entry("JavaScriptPnpm env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}},
-			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+			substring: `cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`,
 		}),
 		Entry("JavaScriptPnpm env is empty", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{}},
-			substring: `cd "/app" && pnpm install --frozen-lockfile`,
+			substring: `cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`,
 		}),
 		Entry("LuaRock env is nil", backwardCompatEntry{
 			directive: &PackagesDirective{Type: PackagesDirectiveTypeLuaRock, FileBased: FileBasedSpec{Workdir: "/app", Spec: "rockspec"}},
@@ -503,7 +503,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("PythonUV with UV_EXTRA_INDEX_URL", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"UV_EXTRA_INDEX_URL": "http://pypi:8080"}},
-			substring:  `uv sync --frozen`,
+			substring:  `UV_PYTHON_DOWNLOADS=never uv sync --frozen`,
 			envVarName: "UV_EXTRA_INDEX_URL",
 			envValue:   "http://pypi:8080",
 		}),
@@ -517,7 +517,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("PythonPoetry with POETRY_HTTP_BASIC_MYREGISTRY_USERNAME", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypePythonPoetry, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"POETRY_HTTP_BASIC_MYREGISTRY_USERNAME": "user"}},
-			substring:  `poetry sync --no-root`,
+			substring:  `poetry install --no-root`,
 			envVarName: "POETRY_HTTP_BASIC_MYREGISTRY_USERNAME",
 			envValue:   "user",
 		}),
@@ -545,7 +545,7 @@ var _ = Describe("GeneratePackagesCommands non-os-pm passes env", func() {
 
 		Entry("JavaScriptPnpm with PNPM_HOME", langEnvVarEntry{
 			directive:  &PackagesDirective{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"PNPM_HOME": "/custom/path"}},
-			substring:  `pnpm install --frozen-lockfile`,
+			substring:  `npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`,
 			envVarName: "PNPM_HOME",
 			envValue:   "/custom/path",
 		}),
@@ -589,7 +589,9 @@ var _ = Describe("GeneratePackagesCommands non-os-pm multiple env vars", func() 
 			directive: &PackagesDirective{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml"}, Env: map[string]string{"BBB": "two", "AAA": "one"}},
 			substring: `uv sync --frozen`,
 			checks: []func(cmd string){
-				func(cmd string) { Expect(cmd).To(ContainSubstring(`&& AAA=one BBB=two uv sync`)) },
+				func(cmd string) {
+					Expect(cmd).To(ContainSubstring(`&& AAA=one BBB=two UV_PYTHON_DOWNLOADS=never uv sync`))
+				},
 			},
 		}),
 
@@ -671,5 +673,47 @@ var _ = Describe("GeneratePackagesCommands no os-pm", func() {
 	It("produces no commands when packages list is empty", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{})
 		Expect(cmds).To(BeEmpty())
+	})
+})
+
+var _ = Describe("formatWorkdirCommand lock guard", func() {
+	It("runs the package manager when the lock is present", func(ctx SpecContext) {
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(dir, "poetry.lock"), nil, 0o600)).To(Succeed())
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil)
+
+		stdout, err := exec.CommandContext(ctx, "bash", "-ec", command).Output()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(stdout)).To(Equal("installed\n"))
+	})
+
+	It("fails the stage script before the package manager runs when the lock is absent", func(ctx SpecContext) {
+		dir := GinkgoT().TempDir()
+		script := strings.Join([]string{
+			formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil),
+			"echo next-directive",
+		}, "\n")
+
+		cmd := exec.CommandContext(ctx, "bash", "-ec", script)
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		stdout, err := cmd.Output()
+		Expect(err).To(HaveOccurred())
+		Expect(string(stdout)).To(BeEmpty())
+		Expect(stderr.String()).To(Equal("lock file poetry.lock not found in " + dir + "; the packages stage installs only what the lock pins, commit it\n"))
+	})
+
+	It("reports a missing workdir as such, not as a missing lock", func(ctx SpecContext) {
+		dir := filepath.Join(GinkgoT().TempDir(), "absent")
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil)
+
+		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		stdout, err := cmd.Output()
+		Expect(err).To(HaveOccurred())
+		Expect(string(stdout)).To(BeEmpty())
+		Expect(stderr.String()).To(ContainSubstring("No such file or directory"))
+		Expect(stderr.String()).NotTo(ContainSubstring("lock file"))
 	})
 })

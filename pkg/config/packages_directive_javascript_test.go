@@ -490,3 +490,33 @@ var _ = Describe("rawPackagesDirective javascript mixed config", func() {
 		),
 	)
 })
+
+var _ = Describe("javascript install commands", func() {
+	It("installs with pnpm pinned to the lock, without switching to the packageManager version", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "pnpm-lock.yaml"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && { test -f "pnpm-lock.yaml" || { echo 'lock file pnpm-lock.yaml not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`}))
+	})
+
+	It("lets the directive env override the pnpm defaults one at a time", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json"}, Env: map[string]string{"pnpm_config_pm_on_fail": "download"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=download pnpm install --frozen-lockfile`}))
+	})
+
+	It("runs the pnpm the preceding entry installed", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Manager: "/opt/tools/node_modules/.bin/pnpm"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore "/opt/tools/node_modules/.bin/pnpm" install --frozen-lockfile`}))
+	})
+
+	It("installs with yarn frozen to its lock", func() {
+		cmds := GeneratePackagesCommands([]*PackagesDirective{
+			{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "yarn.lock"}},
+		})
+		Expect(cmds).To(Equal([]string{`cd "/app" && { test -f "yarn.lock" || { echo 'lock file yarn.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && yarn install --frozen-lockfile`}))
+	})
+})

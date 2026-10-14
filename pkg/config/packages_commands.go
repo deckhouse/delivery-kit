@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"al.essio.dev/pkg/shellescape"
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
@@ -69,13 +70,17 @@ func joinDirective(assignments, commands []string) string {
 
 // `cd` stays in the parent shell: a later directive may use a relative workdir that
 // counts on it, as it did when every command ran there.
-func formatWorkdirCommand(workdir, command string, env map[string]string) string {
-	return formatWorkdirCommands(workdir, []string{command}, env)
+func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]string) string {
+	return formatWorkdirCommands(files, []string{command}, env)
 }
 
 // The environment prefix goes on the last command, the one that installs: a prefix
 // applies to the simple command it precedes and nothing else.
-func formatWorkdirCommands(workdir string, commands []string, env map[string]string) string {
+//
+// The lock is checked here rather than left to the manager: poetry, go, cargo and yarn 1
+// resolve from the network and write a lock of their own when none is committed, so the
+// stage would record an unpinned resolution in the SBOM without a word.
+func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[string]string) string {
 	assignments, prefix := formatEnvVars(env, nil)
 	commands = slices.Clone(commands)
 	if prefix != "" {
@@ -83,7 +88,21 @@ func formatWorkdirCommands(workdir string, commands []string, env map[string]str
 		commands[last] = fmt.Sprintf("%s %s", prefix, commands[last])
 	}
 
-	return fmt.Sprintf("cd %q && %s", workdir, joinDirective(assignments, []string{strings.Join(commands, " && ")}))
+	steps := []string{fmt.Sprintf("cd %q", files.Workdir)}
+	if files.Lock != "" {
+		steps = append(steps, formatLockGuard(files))
+	}
+	steps = append(steps, joinDirective(assignments, []string{strings.Join(commands, " && ")}))
+
+	return strings.Join(steps, " && ")
+}
+
+func formatLockGuard(files FileBasedSpec) string {
+	return fmt.Sprintf(
+		`{ test -f %q || { echo %s >&2; exit 1; }; }`,
+		files.Lock,
+		shellescape.Quote(fmt.Sprintf("lock file %s not found in %s; the packages stage installs only what the lock pins, commit it", files.Lock, files.Workdir)),
+	)
 }
 
 func withDefaultEnv(env, defaults map[string]string) map[string]string {
@@ -124,7 +143,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased.Workdir, pkg.FileBased, pkg.Spec.Packages, pkg.Env))
+		commands = append(commands, eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env))
 	}
 	return commands
 }

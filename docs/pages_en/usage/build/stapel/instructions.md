@@ -210,7 +210,7 @@ packages:
     workdir: /app
 ```
 
-Runs `uv sync --frozen`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock).
+Runs `uv sync --frozen` with `UV_PYTHON_DOWNLOADS=never`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock). Supported: uv 0.3.2 and newer. uv installs into `.venv` under the workdir; to install into the image interpreter instead, set `env: {UV_PROJECT_ENVIRONMENT: <prefix>}` (`/usr/local` for a stock interpreter). The image interpreter must satisfy `requires-python`: uv does not download one.
 
 **Python — pip** (`python-pip`):
 
@@ -230,7 +230,7 @@ packages:
     workdir: /app
 ```
 
-Runs `poetry sync --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock).
+Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock). Supported: Poetry 1.8 and newer, including 2.x. The lock must be up to date with `pyproject.toml` and written by the same Poetry major.
 
 **Rust — Cargo** (`rust-cargo`):
 
@@ -294,7 +294,7 @@ packages:
     workdir: /app
 ```
 
-Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock).
+Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock). Supported: Yarn Classic 1.x and Yarn Berry 3.x and 4.x; Yarn 2.x is not supported. Berry is installed from `@yarnpkg/cli-dist` through a preceding entry and `manager`, see [Package managers absent from the builder image](#package-managers-absent-from-the-builder-image), and needs `nodeLinker: node-modules` in `.yarnrc.yml` for its packages to be cataloged.
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 
@@ -304,9 +304,9 @@ packages:
     workdir: /app
 ```
 
-Runs `pnpm install --frozen-lockfile`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock).
+Runs `pnpm install --frozen-lockfile` with `npm_config_manage_package_manager_versions=false` and `pnpm_config_pm_on_fail=ignore`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock). Supported: pnpm 9 and newer. The lock must be written by the pnpm major the entry runs. The install uses the pnpm the entry runs regardless of the `packageManager` field. Dependencies with build scripts must be allowlisted in `pnpm-workspace.yaml` on pnpm 10 and newer.
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). For every type with a lock the file must be present in the workdir, otherwise the packages stage fails. All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:
@@ -400,7 +400,7 @@ packages:
 
 The entries run in the order they are declared: `pm` installs Node.js with npm, npm installs Yarn, Yarn installs the application dependencies. The npm entry needs no `manager` — `pm` puts npm onto `PATH`.
 
-Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` pointing anywhere else — a bare executable name, a path from the builder image — is rejected: it would be resolved by the image instead of the configuration.
+Here `/tools/package.json` declares Yarn itself as a dependency, and `/tools/package-lock.json` pins its version and integrity hash. For Yarn Berry declare `@yarnpkg/cli-dist` instead of `yarn`: the `manager` path stays the same, the package provides the same `yarn` executable. The manager is installed like any other dependency: it appears in the image SBOM and stays in the built image. A `manager` pointing anywhere else — a bare executable name, a path from the builder image — is rejected: it would be resolved by the image instead of the configuration.
 
 For Python the same recipe needs no `manager`: `pip` installs uv or Poetry onto `PATH`, and the following entry finds them there. Poetry additionally needs `POETRY_VIRTUALENVS_CREATE=false` in the builder image — otherwise it installs the dependencies into a virtualenv of its own instead of the image.
 

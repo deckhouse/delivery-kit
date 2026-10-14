@@ -2,6 +2,6 @@
   "name": "packages-manager-tools",
   "version": "1.0.0",
   "dependencies": {
-    "pnpm": "9.15.9"
+    "pnpm": "10.34.6"
   }
 }

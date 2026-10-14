@@ -240,14 +240,14 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 				Type:      config.PackagesDirectiveTypePythonPoetry,
 				FileBased: config.FileBasedSpec{Workdir: "/svc"},
 			},
-		}, []string{"cd \"/svc\" && poetry sync --no-root"}),
+		}, []string{"cd \"/svc\" && poetry install --no-root"}),
 
 		Entry("python-uv /api", []*config.PackagesDirective{
 			{
 				Type:      config.PackagesDirectiveTypePythonUV,
 				FileBased: config.FileBasedSpec{Workdir: "/api"},
 			},
-		}, []string{"cd \"/api\" && uv sync --frozen"}),
+		}, []string{"cd \"/api\" && UV_PYTHON_DOWNLOADS=never uv sync --frozen"}),
 
 		Entry("mixed: go-mod + python-uv + os-pm all produce commands", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeGoMod, FileBased: config.FileBasedSpec{Workdir: "/app"}},
@@ -257,7 +257,7 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 			},
 			{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
 		}, func() []string {
-			return append([]string{"cd \"/app\" && go mod download", "cd \"/lib\" && uv sync --frozen"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
+			return append([]string{"cd \"/app\" && go mod download", "cd \"/lib\" && UV_PYTHON_DOWNLOADS=never uv sync --frozen"}, config.GeneratePackagesCommands([]*config.PackagesDirective{
 				{Type: config.PackagesDirectiveTypeOSPM, Spec: config.PackagesSpec{Packages: []string{"curl", "jq"}}},
 			})...)
 		}()),
@@ -307,11 +307,11 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 
 		Entry("python-poetry with manager runs the given executable", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypePythonPoetry, FileBased: config.FileBasedSpec{Workdir: "/app", Manager: "/opt/tools/bin/poetry"}},
-		}, []string{"cd \"/app\" && \"/opt/tools/bin/poetry\" sync --no-root"}),
+		}, []string{"cd \"/app\" && \"/opt/tools/bin/poetry\" install --no-root"}),
 
 		Entry("javascript-pnpm /app produces pnpm install --frozen-lockfile", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptPnpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
-		}, []string{"cd \"/app\" && pnpm install --frozen-lockfile"}),
+		}, []string{"cd \"/app\" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile"}),
 
 		Entry("multiple javascript entries", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeJavaScriptNpm, FileBased: config.FileBasedSpec{Workdir: "/app"}},
@@ -343,11 +343,11 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 
 		Entry("ruby-bundler /app produces a frozen bundle install", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRubyBundler, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"}},
-		}, []string{"cd \"/app\" && BUNDLE_FROZEN=true bundle install"}),
+		}, []string{"cd \"/app\" && { test -f \"Gemfile.lock\" || { echo 'lock file Gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && BUNDLE_FROZEN=true bundle install"}),
 
 		Entry("ruby-bundler with a non-default Gemfile passes it as BUNDLE_GEMFILE", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRubyBundler, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "gemfiles/rails7.gemfile", Lock: "gemfiles/rails7.gemfile.lock"}},
-		}, []string{"cd \"/app\" && BUNDLE_FROZEN=true BUNDLE_GEMFILE=gemfiles/rails7.gemfile bundle install"}),
+		}, []string{"cd \"/app\" && { test -f \"gemfiles/rails7.gemfile.lock\" || { echo 'lock file gemfiles/rails7.gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && BUNDLE_FROZEN=true BUNDLE_GEMFILE=gemfiles/rails7.gemfile bundle install"}),
 
 		Entry("ruby-gemspec /app produces gem build and gem install", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRubyGemspec, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app.gemspec"}},

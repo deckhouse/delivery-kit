@@ -66,7 +66,7 @@ func PushSBOM(ctx context.Context, bomJSON []byte, repo, parentDigest, imageName
 func PullSBOM(ctx context.Context, repo, parentDigest, imageName string) ([]byte, error) {
 	store := artifact.NewOCIStore(repo, imageName)
 
-	envelopeJSON, err := attestation.PullAttestationEnvelope(ctx, store, parentDigest, CycloneDXPredicateTypes)
+	envelopeJSON, err := attestation.PullAttestationEnvelope(ctx, store, parentDigest, CycloneDXPredicateTypes, attestation.PullAttestationEnvelopeOptions{})
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package attestation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -24,20 +25,60 @@ func Get(ctx context.Context, repo, parentDigest, imageName, predicateType strin
 // returns its predicate. openEnvelope turns the stored DSSE envelope into the
 // in-toto statement: reading it as-is for Get, verifying its signatures for
 // Verify.
+//
+// Each URI of the kind is tried on its own, the requested one first, and the
+// first candidate the caller accepts wins. Looking the whole kind up at once
+// would answer with whichever entry the registry lists first, while stopping at
+// the requested URI would hide a signed attestation sitting in the neighboring
+// slot from a verify. When every candidate fails, the most telling failure is
+// reported — see rejectionRank.
 func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicateType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {
 	resolvedType, err := ResolvePredicateType(predicateType)
 	if err != nil {
 		return nil, err
 	}
 
-	kindAliases, err := PredicateKindAliases(predicateType)
+	lookupTypes, err := PredicateLookupTypes(predicateType)
 	if err != nil {
 		return nil, err
 	}
 
 	store := artifact.NewOCIStore(repo, imageName)
 
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, kindAliases)
+	var bestErr error
+	for _, lookupType := range lookupTypes {
+		predicate, err := pullPredicateOfType(ctx, store, parentDigest, resolvedType, lookupType, openEnvelope)
+		if err == nil {
+			return predicate, nil
+		}
+		if rejectionRank(err) > rejectionRank(bestErr) {
+			bestErr = err
+		}
+	}
+
+	return nil, bestErr
+}
+
+// rejectionRank orders the ways a candidate can fail by how much it tells the
+// user. The absence of an entry says the least, an entry that carries no
+// signature says more, and an entry that failed verification or carries another
+// predicate kind says the most — a read that tried several URIs of a kind
+// reports the highest of them.
+func rejectionRank(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, artifact.ErrNotFound):
+		return 1
+	case errors.Is(err, ErrUnsignedAttestation):
+		return 2
+	default:
+		return 3
+	}
+}
+
+func pullPredicateOfType(ctx context.Context, store *artifact.OCIStore, parentDigest, resolvedType, lookupType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, parentDigest, []string{lookupType}, PullAttestationEnvelopeOptions{PreferUserOwned: true})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +128,7 @@ func ResolveAttestationDigest(ctx context.Context, repo, digest, platform, predi
 // annotation with the one the current inputs produce.
 func FindAttachedArtifact(ctx context.Context, store artifact.Store, parentDigest string, kind PredicateKind) (v1.Descriptor, bool, error) {
 	for _, artifactType := range []string{BundleMediaType, DSSEMediaType} {
-		desc, found, err := store.GetAttached(ctx, parentDigest, artifactType, kind.Types())
+		desc, found, err := store.GetAttached(ctx, parentDigest, artifactType, kind.Types(), artifact.GetAttachedOptions{})
 		if err != nil {
 			return v1.Descriptor{}, false, fmt.Errorf("get attached %s artifact of type %q: %w", kind.Name, artifactType, err)
 		}
@@ -99,14 +140,36 @@ func FindAttachedArtifact(ctx context.Context, store artifact.Store, parentDiges
 	return v1.Descriptor{}, false, nil
 }
 
+// PullAttestationEnvelopeOptions tunes which attestation a read answers with.
+type PullAttestationEnvelopeOptions struct {
+	// PreferUserOwned answers with an attestation published through attest sign when
+	// one is attached, falling back to werf's own document of the same predicate
+	// type. Reads of werf's own documents — sbom get, vex get — leave it unset.
+	PreferUserOwned bool
+}
+
 // PullAttestationEnvelope returns the DSSE envelope of the attestation of the
 // requested predicate kind: the Sigstore Bundle artifact is preferred over the
 // legacy bare-DSSE one, entries annotated with a matching predicate type are
 // preferred over annotation-less legacy entries, and a legacy entry is used only
 // after its content proves it belongs to the requested kind.
-func PullAttestationEnvelope(ctx context.Context, store *artifact.OCIStore, parentDigest string, predicateTypes []string) ([]byte, error) {
+func PullAttestationEnvelope(ctx context.Context, store *artifact.OCIStore, parentDigest string, predicateTypes []string, opts PullAttestationEnvelopeOptions) ([]byte, error) {
+	if opts.PreferUserOwned {
+		envelopeJSON, err := pullAttestationEnvelope(ctx, store, parentDigest, predicateTypes, artifact.GetAttachedOptions{UserOwnedOnly: true})
+		if err == nil {
+			return envelopeJSON, nil
+		}
+		if !errors.Is(err, artifact.ErrNotFound) {
+			return nil, err
+		}
+	}
+
+	return pullAttestationEnvelope(ctx, store, parentDigest, predicateTypes, artifact.GetAttachedOptions{})
+}
+
+func pullAttestationEnvelope(ctx context.Context, store *artifact.OCIStore, parentDigest string, predicateTypes []string, getOpts artifact.GetAttachedOptions) ([]byte, error) {
 	for _, artifactType := range []string{BundleMediaType, DSSEMediaType} {
-		desc, found, err := store.GetAttached(ctx, parentDigest, artifactType, predicateTypes)
+		desc, found, err := store.GetAttached(ctx, parentDigest, artifactType, predicateTypes, getOpts)
 		if err != nil {
 			return nil, fmt.Errorf("get attached artifact: %w", err)
 		}
@@ -172,7 +235,7 @@ func StatementPredicateType(envelopeJSON []byte) (string, error) {
 // entries attached to parentDigest whose content proves they belong to the given
 // predicate kind. Legacy entries of other kinds (or unreadable ones) are left in
 // place: an artifact must never be evicted by a writer of a different kind.
-func LegacySupersededKeys(ctx context.Context, store *artifact.OCIStore, parentDigest string, kindAliases []string) ([]artifact.Key, error) {
+func LegacySupersededKeys(ctx context.Context, store *artifact.OCIStore, parentDigest string, kindTypes []string) ([]artifact.Key, error) {
 	var keys []artifact.Key
 
 	for _, artifactType := range []string{BundleMediaType, DSSEMediaType} {
@@ -194,7 +257,7 @@ func LegacySupersededKeys(ctx context.Context, store *artifact.OCIStore, parentD
 			continue
 		}
 
-		if slices.Contains(kindAliases, foundType) {
+		if slices.Contains(kindTypes, foundType) {
 			keys = append(keys, artifact.Key{ArtifactType: artifactType, PredicateType: ""})
 		}
 	}

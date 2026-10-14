@@ -5,6 +5,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 // WellKnownPredicateTypes maps cosign-compatible short names to predicate URIs.
@@ -43,11 +45,6 @@ type PredicateKind struct {
 	// read and verify. Kinds without it keep exact predicate matching and use the
 	// URI set for slot selection only.
 	AliasMatching bool
-
-	// DowngradeSupersede makes an unsigned publish evict the stale signed bundle
-	// (019-vex-signing FR-009); kinds without it keep the 016-sbom-signing
-	// behavior where only a signed publish supersedes the unsigned artifact.
-	DowngradeSupersede bool
 }
 
 // Types returns every predicate URI the kind is known under.
@@ -57,12 +54,11 @@ func (k PredicateKind) Types() []string {
 
 var (
 	PredicateKindOpenVEX = PredicateKind{
-		Name:               "openvex",
-		SignedType:         "https://openvex.dev/ns",
-		UnsignedType:       "https://openvex.dev/ns/v0.2.0",
-		ImageLevel:         true,
-		AliasMatching:      true,
-		DowngradeSupersede: true,
+		Name:          "openvex",
+		SignedType:    "https://openvex.dev/ns",
+		UnsignedType:  "https://openvex.dev/ns/v0.2.0",
+		ImageLevel:    true,
+		AliasMatching: true,
 	}
 
 	PredicateKindCycloneDX = PredicateKind{
@@ -103,17 +99,24 @@ func ResolvePredicateType(shortOrURI string) (string, error) {
 	return "", fmt.Errorf("unknown predicate type %q: use a full URI or one of: %s", shortOrURI, PredicateTypeHelp())
 }
 
-// PredicateKindAliases resolves a short name or URI to every predicate URI of the
-// same attestation kind. Unknown kinds resolve to themselves.
-func PredicateKindAliases(shortOrURI string) ([]string, error) {
+// PredicateLookupTypes resolves a short name or URI to the predicate URIs a read
+// of that kind may answer with, most specific first: the resolved URI, then the
+// kind's remaining URIs. The order matters because neighboring slots of one kind
+// hold different documents — werf's own and one the user signed — and only the
+// exact URI tells them apart. Unknown kinds resolve to themselves.
+func PredicateLookupTypes(shortOrURI string) ([]string, error) {
 	resolved, err := ResolvePredicateType(shortOrURI)
 	if err != nil {
 		return nil, err
 	}
-	if kind, ok := predicateKindOf(resolved); ok {
-		return kind.Types(), nil
+	kind, ok := predicateKindOf(resolved)
+	if !ok {
+		return []string{resolved}, nil
 	}
-	return []string{resolved}, nil
+	rest := lo.Filter(kind.Types(), func(predicateType string, _ int) bool {
+		return predicateType != resolved
+	})
+	return append([]string{resolved}, rest...), nil
 }
 
 // PredicateTypeMatches reports whether a found statement predicate satisfies the

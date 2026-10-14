@@ -20,7 +20,7 @@ const (
 )
 
 func predicateDesc(name, artifactType, imageName, predicateType string) v1.Descriptor {
-	annotations := map[string]string{}
+	annotations := map[string]string{image.WerfChecksumAnnotation: "checksum-" + name}
 	if imageName != "" {
 		annotations[image.WerfImageNameAnnotation] = imageName
 	}
@@ -34,6 +34,12 @@ func predicateDesc(name, artifactType, imageName, predicateType string) v1.Descr
 		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
+}
+
+func userSignedDesc(name, artifactType, imageName, predicateType string) v1.Descriptor {
+	desc := predicateDesc(name, artifactType, imageName, predicateType)
+	delete(desc.Annotations, image.WerfChecksumAnnotation)
+	return desc
 }
 
 var _ = Describe("predicate slot discrimination", func() {
@@ -101,6 +107,57 @@ var _ = Describe("predicate slot discrimination", func() {
 			Expect(digests).To(ContainElements(sbomBundle.Digest, signedVex.Digest))
 		})
 
+		It("keeps werf's document and the user's attestation of one predicate type side by side", func() {
+			werfVex := predicateDesc("vex-dsse", testDSSEType, "app", vexLegacyPredicate)
+			userVex := userSignedDesc("user-vex", testDSSEType, "app", vexLegacyPredicate)
+			idx := newStaticIndex([]v1.Descriptor{werfVex})
+
+			idx = updateFallbackIndex(idx, userVex, testDSSEType, "app", vexLegacyPredicate, nil)
+
+			im, err := idx.IndexManifest()
+			Expect(err).To(Succeed())
+			Expect(im.Manifests).To(HaveLen(2))
+
+			freshWerfVex := predicateDesc("vex-dsse-v2", testDSSEType, "app", vexLegacyPredicate)
+			idx = updateFallbackIndex(idx, freshWerfVex, testDSSEType, "app", vexLegacyPredicate, nil)
+
+			im, err = idx.IndexManifest()
+			Expect(err).To(Succeed())
+			Expect(im.Manifests).To(HaveLen(2))
+			digests := []v1.Hash{im.Manifests[0].Digest, im.Manifests[1].Digest}
+			Expect(digests).To(ContainElements(userVex.Digest, freshWerfVex.Digest))
+		})
+
+		It("replaces an attestation of the user with the next one instead of piling them up", func() {
+			userVex := userSignedDesc("user-vex", testDSSEType, "app", vexLegacyPredicate)
+			werfVex := predicateDesc("vex-dsse", testDSSEType, "app", vexLegacyPredicate)
+			idx := newStaticIndex([]v1.Descriptor{werfVex, userVex})
+
+			freshUserVex := userSignedDesc("user-vex-v2", testDSSEType, "app", vexLegacyPredicate)
+			idx = updateFallbackIndex(idx, freshUserVex, testDSSEType, "app", vexLegacyPredicate, nil)
+
+			im, err := idx.IndexManifest()
+			Expect(err).To(Succeed())
+			Expect(im.Manifests).To(HaveLen(2))
+			digests := []v1.Hash{im.Manifests[0].Digest, im.Manifests[1].Digest}
+			Expect(digests).To(ContainElements(werfVex.Digest, freshUserVex.Digest))
+		})
+
+		It("keeps an artifact werf did not produce in a superseded slot", func() {
+			userSigned := userSignedDesc("user-dsse", testDSSEType, "app", sbomPredicate)
+			idx := newStaticIndex([]v1.Descriptor{userSigned})
+
+			signedSbom := predicateDesc("sbom-bundle", testBundleType, "app", sbomPredicate)
+			superseded := []Key{{ArtifactType: testDSSEType, PredicateType: sbomPredicate}}
+			idx = updateFallbackIndex(idx, signedSbom, testBundleType, "app", sbomPredicate, superseded)
+
+			im, err := idx.IndexManifest()
+			Expect(err).To(Succeed())
+			Expect(im.Manifests).To(HaveLen(2))
+			digests := []v1.Hash{im.Manifests[0].Digest, im.Manifests[1].Digest}
+			Expect(digests).To(ContainElements(userSigned.Digest, signedSbom.Digest))
+		})
+
 		It("keeps a legacy entry not listed as superseded", func() {
 			legacy := predicateDesc("legacy", testDSSEType, "app", "")
 			idx := newStaticIndex([]v1.Descriptor{legacy})
@@ -147,10 +204,24 @@ var _ = Describe("predicate slot discrimination", func() {
 			im, err := newStaticIndex([]v1.Descriptor{legacy, annotated}).IndexManifest()
 			Expect(err).To(Succeed())
 
-			matches := matchDescriptors(im, testDSSEType, "app", []string{vexPredicate, vexLegacyPredicate})
+			matches := matchDescriptors(im, testDSSEType, "app", []string{vexPredicate, vexLegacyPredicate}, false)
 			Expect(matches).To(HaveLen(2))
 			Expect(matches[0].Digest).To(Equal(annotated.Digest))
 			Expect(matches[1].Digest).To(Equal(legacy.Digest))
+		})
+
+		It("prefers the artifact werf produced over one the user signed, whatever the index order", func() {
+			userSigned := userSignedDesc("user-dsse", testDSSEType, "app", vexPredicate)
+			werfOwn := predicateDesc("vex-dsse", testDSSEType, "app", vexLegacyPredicate)
+
+			for _, entries := range [][]v1.Descriptor{{userSigned, werfOwn}, {werfOwn, userSigned}} {
+				im, err := newStaticIndex(entries).IndexManifest()
+				Expect(err).To(Succeed())
+
+				matches := matchDescriptors(im, testDSSEType, "app", []string{vexPredicate, vexLegacyPredicate}, false)
+				Expect(matches).To(HaveLen(2))
+				Expect(matches[0].Digest).To(Equal(werfOwn.Digest))
+			}
 		})
 
 		It("excludes entries annotated with another predicate kind", func() {
@@ -160,7 +231,7 @@ var _ = Describe("predicate slot discrimination", func() {
 			im, err := newStaticIndex([]v1.Descriptor{sbom, vexEntry}).IndexManifest()
 			Expect(err).To(Succeed())
 
-			matches := matchDescriptors(im, testDSSEType, "app", []string{vexPredicate, vexLegacyPredicate})
+			matches := matchDescriptors(im, testDSSEType, "app", []string{vexPredicate, vexLegacyPredicate}, false)
 			Expect(matches).To(HaveLen(1))
 			Expect(matches[0].Digest).To(Equal(vexEntry.Digest))
 		})
@@ -173,7 +244,7 @@ var _ = Describe("predicate slot discrimination", func() {
 			im, err := newStaticIndex([]v1.Descriptor{sbom, vexEntry, legacy}).IndexManifest()
 			Expect(err).To(Succeed())
 
-			Expect(matchDescriptors(im, testDSSEType, "app", nil)).To(HaveLen(3))
+			Expect(matchDescriptors(im, testDSSEType, "app", nil, false)).To(HaveLen(3))
 		})
 
 		It("deduplicates the go-containerregistry auto entry against the annotated one", func() {
@@ -188,7 +259,7 @@ var _ = Describe("predicate slot discrimination", func() {
 			im, err := newStaticIndex([]v1.Descriptor{auto, annotated}).IndexManifest()
 			Expect(err).To(Succeed())
 
-			matches := matchDescriptors(im, testDSSEType, "", []string{vexPredicate, vexLegacyPredicate})
+			matches := matchDescriptors(im, testDSSEType, "", []string{vexPredicate, vexLegacyPredicate}, false)
 			Expect(matches).To(HaveLen(1))
 			Expect(matches[0].Annotations[PredicateTypeAnnotation]).To(Equal(vexLegacyPredicate))
 		})

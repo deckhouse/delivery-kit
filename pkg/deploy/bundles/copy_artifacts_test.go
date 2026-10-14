@@ -125,7 +125,7 @@ var _ = Describe("Bundle copy artifacts", func() {
 		copyBundle(ctx, digest)
 
 		dstStore := artifact.NewOCIStore(dstRepo, "image-1", remoteOpts...)
-		content, err := dstStore.GetAttachedContent(ctx, digest, attestation.DSSEMediaType, nil)
+		content, err := dstStore.GetAttachedContent(ctx, digest, attestation.DSSEMediaType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"sbom":true}`))
 	})

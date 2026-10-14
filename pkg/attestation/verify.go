@@ -12,6 +12,10 @@ import (
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
 
+// ErrUnsignedAttestation marks an attestation that is attached but carries no
+// signature, which a verify reports as the legacy format to rebuild from.
+var ErrUnsignedAttestation = errors.New("attestation present but unsigned (legacy format), rebuild with --sign-key to publish a signed attestation")
+
 type PlatformVerifyStatus string
 
 const (
@@ -37,7 +41,7 @@ func Verify(ctx context.Context, repo, parentDigest, imageName, predicateType st
 			return nil, fmt.Errorf("check DSSE signatures: %w", err)
 		}
 		if !signed {
-			return nil, fmt.Errorf("attestation for digest %s is present but unsigned (legacy format): rebuild with --sign-key to publish a signed attestation", parentDigest)
+			return nil, fmt.Errorf("attestation for digest %s: %w", parentDigest, ErrUnsignedAttestation)
 		}
 
 		stmtBytes, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, verifiers)
@@ -61,11 +65,6 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 		return nil, err
 	}
 
-	kindAliases, err := PredicateKindAliases(predicateType)
-	if err != nil {
-		return nil, err
-	}
-
 	entries, err := artifact.ListIndexPlatforms(ctx, repo, indexDigest, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("list index platforms: %w", err)
@@ -75,7 +74,7 @@ func VerifyIndex(ctx context.Context, repo, indexDigest, imageName, predicateTyp
 
 	results := make([]PlatformVerifyResult, 0, len(entries))
 	for _, entry := range entries {
-		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, kindAliases, verifiers)
+		status, verifyErr := verifyPlatformAttestation(ctx, store, entry.Digest, resolvedType, predicateType, verifiers)
 		results = append(results, PlatformVerifyResult{
 			Platform: entry.Platform,
 			Digest:   entry.Digest,
@@ -106,8 +105,34 @@ func VerifyIndexResultError(results []PlatformVerifyResult) error {
 	return fmt.Errorf("attestation verification failed for %d of %d platforms:\n%s", len(failures), len(results), strings.Join(failures, "\n"))
 }
 
-func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType string, kindAliases []string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, kindAliases)
+// verifyPlatformAttestation verifies the attestation of one platform manifest,
+// trying each URI of the kind on its own, the requested one first. The first
+// verified candidate wins; otherwise the most telling failure is reported. See
+// pullPredicate for why the lookup works this way.
+func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, digest, resolvedType, predicateType string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
+	lookupTypes, err := PredicateLookupTypes(predicateType)
+	if err != nil {
+		return PlatformVerifyStatusMissing, fmt.Errorf("resolve predicate type %q: %w", predicateType, err)
+	}
+
+	bestStatus := PlatformVerifyStatusMissing
+	var bestErr error
+
+	for _, lookupType := range lookupTypes {
+		status, err := verifyPlatformAttestationOfType(ctx, store, digest, resolvedType, lookupType, verifiers)
+		if err == nil {
+			return status, nil
+		}
+		if rejectionRank(err) > rejectionRank(bestErr) {
+			bestStatus, bestErr = status, err
+		}
+	}
+
+	return bestStatus, bestErr
+}
+
+func verifyPlatformAttestationOfType(ctx context.Context, store *artifact.OCIStore, digest, resolvedType, lookupType string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, []string{lookupType}, PullAttestationEnvelopeOptions{PreferUserOwned: true})
 	if err != nil {
 		if errors.Is(err, artifact.ErrNotFound) {
 			return PlatformVerifyStatusMissing, fmt.Errorf("no attestation found for digest %s: %w", digest, err)
@@ -120,7 +145,7 @@ func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, di
 		return PlatformVerifyStatusInvalid, fmt.Errorf("parse DSSE envelope: %w", err)
 	}
 	if !signed {
-		return PlatformVerifyStatusUnsigned, errors.New("attestation present but unsigned (legacy format), rebuild with --sign-key to publish a signed attestation")
+		return PlatformVerifyStatusUnsigned, ErrUnsignedAttestation
 	}
 
 	stmtBytes, err := VerifyDSSE(ctx, envelopeJSON, InTotoMediaType, verifiers)

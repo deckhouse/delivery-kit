@@ -3,7 +3,9 @@ package attestation
 import (
 	"context"
 	"fmt"
+	"slices"
 
+	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/werf/v3/pkg/oci/artifact"
@@ -20,9 +22,9 @@ type PublishAttestationOptions struct {
 // artifact attached to parentDigest. With a signer the artifact is a Sigstore
 // Bundle carrying the kind's signed predicate; without one it is a bare DSSE
 // envelope with the legacy predicate. Publishing supersedes the artifact of the
-// opposite signing state (per the kind's downgrade policy) and any legacy
-// annotation-less entry whose content proves it belongs to this kind, so exactly
-// one artifact of the kind per image remains behind.
+// opposite signing state and any legacy annotation-less entry whose content
+// proves it belongs to this kind, so exactly one artifact of the kind per image
+// remains behind and a read never prefers the previous signing state.
 func PublishAttestation(ctx context.Context, kind PredicateKind, predicate []byte, repo, parentDigest, imageName string, opts PublishAttestationOptions) error {
 	digestHex, err := artifact.DigestHex(parentDigest)
 	if err != nil {
@@ -74,10 +76,37 @@ func PublishAttestation(ctx context.Context, kind PredicateKind, predicate []byt
 		return store.AttachSuperseding(ctx, parentDigest, BundleMediaType, bundleBytes, opts.Checksum, opts.TargetPlatform, predicateType, superseded)
 	}
 
-	if kind.DowngradeSupersede {
-		superseded = append(superseded, kindSlotKeys(BundleMediaType, kind)...)
-	}
+	superseded = append(superseded, kindSlotKeys(BundleMediaType, kind)...)
 	return store.AttachSuperseding(ctx, parentDigest, DSSEMediaType, envelopeBytes, opts.Checksum, opts.TargetPlatform, predicateType, superseded)
+}
+
+var _ artifact.SupersedeRule = CopySupersededKeys
+
+// CopySupersededKeys reports the destination slots an attestation being copied
+// replaces: the slots of the opposite signing state of its own kind, limited to
+// those the source no longer holds. Propagation then mirrors the slot state of
+// the source repository instead of accumulating both signing states, so a reader
+// of the destination never prefers an artifact of the previous one. Artifacts of
+// an unknown kind and legacy annotation-less ones replace nothing, and a legacy
+// annotation-less entry at the destination is never named as replaced: deciding
+// that needs its content, which only the publish path reads.
+func CopySupersededKeys(copied artifact.Key, srcSlots []artifact.Key) []artifact.Key {
+	kind, ok := predicateKindOf(copied.PredicateType)
+	if !ok {
+		return nil
+	}
+
+	oppositeType := map[string]string{
+		BundleMediaType: DSSEMediaType,
+		DSSEMediaType:   BundleMediaType,
+	}[copied.ArtifactType]
+	if oppositeType == "" {
+		return nil
+	}
+
+	return lo.Filter(kindSlotKeys(oppositeType, kind), func(key artifact.Key, _ int) bool {
+		return !slices.Contains(srcSlots, key)
+	})
 }
 
 func kindSlotKeys(artifactType string, kind PredicateKind) []artifact.Key {

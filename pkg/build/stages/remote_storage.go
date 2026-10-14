@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/werf/logboek"
+	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/build"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
@@ -86,7 +87,7 @@ func (s *RemoteStorage) copyCurrentBuildStagesFromRemote(ctx context.Context, fr
 			}
 
 			if infoGetter.Digest != "" {
-				if err := artifact.CopyAllAttachedArtifacts(ctx, infoGetter.Repo, infoGetter.Digest, reference.Repo, infoGetter.Digest); err != nil {
+				if err := artifact.CopyAllAttachedArtifacts(ctx, infoGetter.Repo, infoGetter.Digest, reference.Repo, infoGetter.Digest, attestation.CopySupersededKeys); err != nil {
 					return fmt.Errorf("error copying artifacts attached to stage %s into %s: %w", infoGetterName, reference.Repo, err)
 				}
 			}
@@ -125,7 +126,7 @@ func (s *RemoteStorage) copyAllFromRemote(ctx context.Context, fromRemote *Remot
 		}
 
 		if digest := stageDesc.Info.GetDigest(); digest != "" {
-			if err := artifact.CopyAllAttachedArtifacts(ctx, stageDesc.Info.Repository, digest, reference.Repo, digest); err != nil {
+			if err := artifact.CopyAllAttachedArtifacts(ctx, stageDesc.Info.Repository, digest, reference.Repo, digest, attestation.CopySupersededKeys); err != nil {
 				return fmt.Errorf("error copying artifacts attached to stage %s into %s: %w", stageName, reference.Repo, err)
 			}
 		}

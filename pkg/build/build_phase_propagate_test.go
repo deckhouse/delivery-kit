@@ -103,7 +103,7 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 
 	expectAttached := func(ctx SpecContext, repo, digest, payload string) {
 		store := artifact.NewOCIStore(repo, "app", remoteOpts...)
-		content, err := store.GetAttachedContent(ctx, digest, attestation.DSSEMediaType, nil)
+		content, err := store.GetAttachedContent(ctx, digest, attestation.DSSEMediaType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed(), "no artifact attached to %s in %s", digest, repo)
 		Expect(content).To(MatchJSON(payload))
 	}

@@ -113,7 +113,7 @@ var _ = Describe("RepoStagesStorage.CopyFromStorage", func() {
 		Expect(stub.copied).To(BeEmpty(), "the manifest was in place, nothing to copy")
 
 		dstStore := artifact.NewOCIStore(dstRepo, "app", remoteOpts...)
-		content, err := dstStore.GetAttachedContent(ctx, digest, attestation.DSSEMediaType, nil)
+		content, err := dstStore.GetAttachedContent(ctx, digest, attestation.DSSEMediaType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})

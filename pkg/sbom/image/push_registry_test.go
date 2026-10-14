@@ -1,0 +1,191 @@
+package image_test
+
+import (
+	"net/http/httptest"
+	"strings"
+
+	"github.com/deckhouse/delivery-kit-sdk/test/pkg/cert_utils"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/sigstore/sigstore/pkg/signature"
+
+	"github.com/werf/werf/v3/pkg/attestation"
+	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
+	sbomimage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/test/pkg/signutils"
+)
+
+var _ = Describe("PushSBOM against a registry", func() {
+	const imageName = "app"
+
+	signedBOM := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"signed"}]}`)
+	unsignedBOM := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"unsigned"}]}`)
+
+	var (
+		server       *httptest.Server
+		repo         string
+		parentDigest string
+		signer       signature.Signer
+	)
+
+	BeforeEach(func(ctx SpecContext) {
+		Expect(docker_registry.Init(ctx, true, false, nil, nil)).To(Succeed())
+
+		server = httptest.NewServer(registry.New())
+		repo = strings.TrimPrefix(server.URL, "http://") + "/test/app"
+
+		parent, err := random.Image(256, 1)
+		Expect(err).To(Succeed())
+		parentRef, err := name.NewTag(repo + ":v1")
+		Expect(err).To(Succeed())
+		Expect(remote.Write(parentRef, parent, remote.WithContext(ctx))).To(Succeed())
+		dgst, err := parent.Digest()
+		Expect(err).To(Succeed())
+		parentDigest = dgst.String()
+
+		signer = signutils.GenerateSignerVerifier(cert_utils.KeyType_ED25519)
+	})
+
+	AfterEach(func() {
+		server.Close()
+	})
+
+	It("publishes a signed bundle superseding the unsigned artifact", func(ctx SpecContext) {
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
+		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v2", "", signer)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType, sbomimage.CycloneDXPredicateTypes, artifact.GetAttachedOptions{})
+		Expect(err).To(Succeed())
+		Expect(found).To(BeFalse())
+
+		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
+		Expect(err).To(Succeed())
+		Expect(bomJSON).To(MatchJSON(signedBOM))
+	})
+
+	It("downgrades to the unsigned form superseding the bundle when the key is removed", func(ctx SpecContext) {
+		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v1", "", signer)).To(Succeed())
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, sbomimage.CycloneDXPredicateTypes, artifact.GetAttachedOptions{})
+		Expect(err).To(Succeed())
+		Expect(found).To(BeFalse())
+
+		desc, found, err := attestation.FindAttachedArtifact(ctx, store, parentDigest, attestation.PredicateKindCycloneDX)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+		Expect(desc.ArtifactType).To(Equal(attestation.DSSEMediaType))
+
+		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
+		Expect(err).To(Succeed())
+		Expect(bomJSON).To(MatchJSON(unsignedBOM))
+	})
+
+	It("keeps an attestation the user signed into the slot a signed build supersedes", func(ctx SpecContext) {
+		userPredicate := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"user"}]}`)
+		Expect(attestation.Sign(ctx, userPredicate, attestation.PredicateKindCycloneDX.Name, repo, parentDigest, imageName, signer)).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v1", "", signer)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		envelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType}, artifact.GetAttachedOptions{})
+		Expect(err).To(Succeed())
+		predicate, err := sbomimage.PullCycloneDX16BOMContent(ctx, envelope)
+		Expect(err).To(Succeed())
+		Expect(predicate).To(MatchJSON(userPredicate))
+
+		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
+		Expect(err).To(Succeed())
+		Expect(bomJSON).To(MatchJSON(signedBOM))
+	})
+
+	It("returns its own document when a user attestation shares the artifact type", func(ctx SpecContext) {
+		userPredicate := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[{"type":"library","name":"user"}]}`)
+		Expect(attestation.Sign(ctx, userPredicate, attestation.PredicateKindCycloneDX.Name, repo, parentDigest, imageName, signer)).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		userEnvelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType}, artifact.GetAttachedOptions{})
+		Expect(err).To(Succeed())
+		userStored, err := sbomimage.PullCycloneDX16BOMContent(ctx, userEnvelope)
+		Expect(err).To(Succeed())
+		Expect(userStored).To(MatchJSON(userPredicate))
+
+		bomJSON, err := sbomimage.PullSBOM(ctx, repo, parentDigest, imageName)
+		Expect(err).To(Succeed())
+		Expect(bomJSON).To(MatchJSON(unsignedBOM))
+
+		for _, spelling := range []string{attestation.PredicateKindCycloneDX.Name, attestation.PredicateKindCycloneDX.SignedType} {
+			got, err := attestation.Get(ctx, repo, parentDigest, imageName, spelling)
+			Expect(err).To(Succeed(), spelling)
+			Expect(got).To(MatchJSON(userPredicate), spelling)
+		}
+
+		got, err := attestation.Get(ctx, repo, parentDigest, imageName, attestation.PredicateKindCycloneDX.UnsignedType)
+		Expect(err).To(Succeed())
+		Expect(got).To(MatchJSON(unsignedBOM))
+	})
+
+	It("supersedes a legacy annotation-less SBOM artifact", func(ctx SpecContext) {
+		legacyEnvelope := buildLegacyEnvelope(ctx, unsignedBOM, attestation.PredicateKindCycloneDX.UnsignedType, repo, parentDigest)
+
+		store := artifact.NewOCIStore(repo, imageName)
+		Expect(store.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyEnvelope, "legacy-checksum", "", "")).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
+
+		_, found, err := store.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeFalse())
+	})
+
+	It("leaves a legacy annotation-less artifact of another kind in place", func(ctx SpecContext) {
+		legacyVexEnvelope := buildLegacyEnvelope(ctx, []byte(`{"@context":"https://openvex.dev/ns/v0.2.0"}`), attestation.PredicateKindOpenVEX.UnsignedType, repo, parentDigest)
+
+		store := artifact.NewOCIStore(repo, imageName)
+		Expect(store.Attach(ctx, parentDigest, attestation.DSSEMediaType, legacyVexEnvelope, "legacy-vex-checksum", "", "")).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
+
+		desc, found, err := store.GetAttachedLegacy(ctx, parentDigest, attestation.DSSEMediaType)
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+
+		envelope, err := store.GetContentByDigest(ctx, desc.Digest.String())
+		Expect(err).To(Succeed())
+		Expect(attestation.StatementPredicateType(envelope)).To(Equal(attestation.PredicateKindOpenVEX.UnsignedType))
+	})
+
+	It("leaves the VEX artifact of the same image alone", func(ctx SpecContext) {
+		vexJSON := []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","statements":[]}`)
+		Expect(attestation.PublishAttestation(ctx, attestation.PredicateKindOpenVEX, vexJSON, repo, parentDigest, imageName, attestation.PublishAttestationOptions{
+			Signer:   signer,
+			Checksum: "vex-checksum",
+		})).To(Succeed())
+
+		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
+
+		store := artifact.NewOCIStore(repo, imageName)
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, attestation.PredicateKindOpenVEX.Types(), artifact.GetAttachedOptions{})
+		Expect(err).To(Succeed())
+		Expect(found).To(BeTrue())
+	})
+})
+
+func buildLegacyEnvelope(ctx SpecContext, predicate []byte, predicateType, repo, parentDigest string) []byte {
+	digestHex, err := artifact.DigestHex(parentDigest)
+	Expect(err).To(Succeed())
+	stmtBytes, err := attestation.WrapInInTotoStatement(predicate, predicateType, repo, digestHex)
+	Expect(err).To(Succeed())
+	envelopeJSON, err := attestation.WrapInDSSE(ctx, stmtBytes, attestation.InTotoMediaType, nil)
+	Expect(err).To(Succeed())
+	return envelopeJSON
+}

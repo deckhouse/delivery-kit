@@ -4,15 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 )
+
+// SupersedeRule reports the destination slots the artifact occupying the copied
+// slot replaces, given the slots the source holds for the same image. It lets a
+// copy evict what the source has evicted, which the artifact store cannot decide
+// on its own: slot kinship is a property of the attestation kinds layered above
+// it.
+type SupersedeRule func(copied Key, srcSlots []Key) []Key
 
 // CopyAllAttachedArtifacts copies every artifact attached to srcDigest in srcRepo
 // onto dstDigest in dstRepo, and when srcDigest is an image index it also copies
@@ -20,8 +29,8 @@ import (
 // manifests are addressed by the same digest in both repositories, which holds for
 // registry-level copies — the only in-scope way an index travels between
 // repositories.
-func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, opts ...remote.Option) error {
-	if err := CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, opts...); err != nil {
+func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, supersede SupersedeRule, opts ...remote.Option) error {
+	if err := CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, supersede, opts...); err != nil {
 		return err
 	}
 
@@ -39,7 +48,7 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 	}
 
 	for _, digest := range referenced {
-		if err := CopyAttachedArtifacts(ctx, srcRepo, digest, dstRepo, digest, opts...); err != nil {
+		if err := CopyAttachedArtifacts(ctx, srcRepo, digest, dstRepo, digest, supersede, opts...); err != nil {
 			return fmt.Errorf("copy artifacts of index manifest %s: %w", digest, err)
 		}
 	}
@@ -52,8 +61,15 @@ func CopyAllAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, 
 // copied manifest-by-manifest, so the parent digests may differ (e.g. when a stage
 // was repacked on its way to the destination). Artifacts already attached to the
 // destination with the same identity (artifact type, image name, checksum, platform)
-// are skipped, so the copy is idempotent. A missing source index is a no-op.
-func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, opts ...remote.Option) error {
+// are skipped unless they leave a slot the source no longer holds behind, so the
+// copy is idempotent and still converges on the slot state of the source. The
+// source is the source of truth: the copy carries no notion of recency, so a
+// destination entry the rule reports as superseded is evicted even when it is the
+// fresher of the two, unless werf did not produce it — an entry without the
+// checksum annotation is never superseded. It is still overwritten when the copied
+// artifact occupies its exact slot, which no eviction rule can prevent. A missing
+// source index is a no-op.
+func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dstDigest string, supersede SupersedeRule, opts ...remote.Option) error {
 	srcOpts := opts
 	dstOpts := opts
 	if len(opts) == 0 {
@@ -91,7 +107,14 @@ func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dst
 		if desc.ArtifactType == "" {
 			continue
 		}
-		if hasEquivalentArtifact(dstIM, desc) {
+
+		imageName := desc.Annotations[image.WerfImageNameAnnotation]
+		evictable := evictableSlots(dstIM, imageName)
+		superseded := lo.Filter(supersede(descriptorSlot(desc), imageSlots(srcIM, imageName)), func(key Key, _ int) bool {
+			return slices.Contains(evictable, key)
+		})
+
+		if len(superseded) == 0 && hasEquivalentArtifact(dstIM, desc) {
 			continue
 		}
 
@@ -100,12 +123,13 @@ func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dst
 			return fmt.Errorf("pull artifact %s content: %w", desc.Digest.String(), err)
 		}
 
-		dstStore := NewOCIStore(dstRepo, desc.Annotations[image.WerfImageNameAnnotation], dstOpts...)
-		if err := dstStore.Attach(
+		dstStore := NewOCIStore(dstRepo, imageName, dstOpts...)
+		if err := dstStore.AttachSuperseding(
 			ctx, dstDigest, desc.ArtifactType, payload,
 			desc.Annotations[image.WerfChecksumAnnotation],
 			desc.Annotations[image.WerfPlatformAnnotation],
 			desc.Annotations[PredicateTypeAnnotation],
+			superseded,
 		); err != nil {
 			return fmt.Errorf("attach artifact of type %q to %s: %w", desc.ArtifactType, dstRepo+"@"+dstDigest, err)
 		}
@@ -114,6 +138,38 @@ func CopyAttachedArtifacts(ctx context.Context, srcRepo, srcDigest, dstRepo, dst
 	}
 
 	return nil
+}
+
+func descriptorSlot(desc v1.Descriptor) Key {
+	return Key{ArtifactType: desc.ArtifactType, PredicateType: desc.Annotations[PredicateTypeAnnotation]}
+}
+
+func imageSlots(im *v1.IndexManifest, imageName string) []Key {
+	var slots []Key
+	for _, desc := range im.Manifests {
+		if desc.ArtifactType == "" || desc.Annotations[image.WerfImageNameAnnotation] != imageName {
+			continue
+		}
+		slots = append(slots, descriptorSlot(desc))
+	}
+	return slots
+}
+
+// evictableSlots lists the slots of imageName an attach may supersede. It mirrors
+// the rule supersededKey enforces, so that a copy does not re-attach an artifact
+// over a slot the attach would refuse to evict anyway.
+func evictableSlots(im *v1.IndexManifest, imageName string) []Key {
+	var slots []Key
+	for _, desc := range im.Manifests {
+		if desc.ArtifactType == "" || desc.Annotations[image.WerfImageNameAnnotation] != imageName {
+			continue
+		}
+		if desc.Annotations[image.WerfChecksumAnnotation] == "" {
+			continue
+		}
+		slots = append(slots, descriptorSlot(desc))
+	}
+	return slots
 }
 
 func hasEquivalentArtifact(dstIM *v1.IndexManifest, srcDesc v1.Descriptor) bool {

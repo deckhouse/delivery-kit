@@ -210,7 +210,7 @@ packages:
     workdir: /app
 ```
 
-Runs `uv sync --frozen` with `UV_PYTHON_DOWNLOADS=never`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock). Supported: uv 0.3.2 and newer, with any `revision` of the `version = 1` lock format. The lock is taken as is: a `pyproject.toml` whose dependencies changed since the lock was written installs what the lock says. uv installs into `.venv` under the workdir; to install into the image interpreter instead, set `env: {UV_PROJECT_ENVIRONMENT: <prefix>}` (`/usr/local` for a stock interpreter) — uv then removes from that prefix every package the lock does not list. When the image interpreter does not satisfy `requires-python`, uv would download a CPython of its own, which the SBOM would never see; `UV_PYTHON_DOWNLOADS=never` makes the build fail instead, and `env` overrides it.
+Runs `uv sync --frozen` with `UV_PYTHON_DOWNLOADS=never`. Default files: `pyproject.toml` (spec) and `uv.lock` (lock). Supported: uv 0.3.2 and newer. uv installs into `.venv` under the workdir; to install into the image interpreter instead, set `env: {UV_PROJECT_ENVIRONMENT: <prefix>}` (`/usr/local` for a stock interpreter). The image interpreter must satisfy `requires-python`: uv does not download one.
 
 **Python — pip** (`python-pip`):
 
@@ -230,7 +230,7 @@ packages:
     workdir: /app
 ```
 
-Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock). Supported: Poetry 1.8 and newer, including 2.x; Poetry 2.0–2.2 needs Python 3.9 or newer in the image, 2.3 and newer — Python 3.10. Older Poetry is not supported: a lock older than `pyproject.toml` fails the install on 1.8 and newer, while 1.7 and older warn and resolve from the network instead. A project and its lock must come from the same Poetry major, since 1.8 computes the lock hash of a PEP 621 `[project]` table differently from 2.x and reports it stale. `poetry sync` is not used: it exists since Poetry 2.0 only, and with `POETRY_VIRTUALENVS_CREATE=false` it uninstalls from the image interpreter everything the lock does not list — pip-installed tools included.
+Runs `poetry install --no-root`. Default files: `pyproject.toml` (spec) and `poetry.lock` (lock). Supported: Poetry 1.8 and newer, including 2.x. The lock must be up to date with `pyproject.toml` and written by the same Poetry major.
 
 **Rust — Cargo** (`rust-cargo`):
 
@@ -294,7 +294,7 @@ packages:
     workdir: /app
 ```
 
-Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock). Supported: Yarn Classic 1.x and Yarn Berry 3.x and 4.x, where the flag is accepted as an alias of `--immutable` with a deprecation warning; Yarn 2.x rejects it and is not supported. Berry is not published to the registry as the `yarn` package, which stays at 1.x: install it from `@yarnpkg/cli-dist` through a preceding entry and point `manager` at it, see [Package managers absent from the builder image](#package-managers-absent-from-the-builder-image). Berry links through Plug'n'Play by default, which leaves no `node_modules` for syft to read licenses from — set `nodeLinker: node-modules` in `.yarnrc.yml`. A `packageManager: yarn@<2 or newer>` field in `package.json` makes Yarn 1.22.20 and newer refuse to run unless Corepack is enabled; such a project installs with the Berry it names through `manager`.
+Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock). Supported: Yarn Classic 1.x and Yarn Berry 3.x and 4.x; Yarn 2.x is not supported. Berry is installed from `@yarnpkg/cli-dist` through a preceding entry and `manager`, see [Package managers absent from the builder image](#package-managers-absent-from-the-builder-image), and needs `nodeLinker: node-modules` in `.yarnrc.yml` for its packages to be cataloged.
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 
@@ -304,9 +304,9 @@ packages:
     workdir: /app
 ```
 
-Runs `pnpm install --frozen-lockfile` with `npm_config_manage_package_manager_versions=false` and `pnpm_config_pm_on_fail=ignore`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock). Supported: pnpm 9 and newer. Each pnpm major reads only the lock format it writes: under `--frozen-lockfile` a lock of another major fails the install with `LOCKFILE_BREAKING_CHANGE`, so regenerate it with the pnpm the entry runs. pnpm 10 and newer download and run the pnpm version a `packageManager` field names when it differs from the one running, bypassing the one the preceding entry pinned; the two variables (pnpm 10 reads the first, pnpm 11 and newer the second) disable that, and `env` overrides them. pnpm 10 and newer also skip the build scripts of dependencies that are not allowlisted — with a warning on pnpm 10, with an error on pnpm 11 and newer; list them in `pnpm-workspace.yaml` (`onlyBuiltDependencies` on pnpm 10, `allowBuilds` on 11 and newer).
+Runs `pnpm install --frozen-lockfile` with `npm_config_manage_package_manager_versions=false` and `pnpm_config_pm_on_fail=ignore`. Default files: `package.json` (spec) and `pnpm-lock.yaml` (lock). Supported: pnpm 9 and newer. The lock must be written by the pnpm major the entry runs. The install uses the pnpm the entry runs regardless of the `packageManager` field. Dependencies with build scripts must be allowlisted in `pnpm-workspace.yaml` on pnpm 10 and newer.
 
-All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). For every type with a lock the file must be present in the workdir: the packages stage fails with `lock file <name> not found in <workdir>` before the package manager runs, because Poetry, Go, Cargo and Yarn 1 would otherwise resolve from the network and write a lock of their own, leaving the SBOM with versions nothing pinned. All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
+All file-based types support `workdir` (required), `spec` (optional, overrides default manifest filename), `lock` (optional, overrides default lock filename), and `manager` (optional, the package manager executable to run instead of the default one — a path inside the workdir of a preceding `packages` entry, so that the executable being run is the one pinned by that entry's lock file). For every type with a lock the file must be present in the workdir, otherwise the packages stage fails. All types, including `os-pm`, support an optional `env: {KEY: value}` field — the environment variables are added to the install command. Values are passed to the package manager as is: shell constructs such as `$(...)`, backticks and `$VARIABLE` are not evaluated. A value may reference a declared build secret, see [Secrets in packages](#secrets-in-packages). Multiple entries of the same or different types can be combined in one image:
 
 ```yaml
 packages:

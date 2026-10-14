@@ -36,11 +36,11 @@ func DoTasks(ctx context.Context, numberOfTasks int, options DoTasksOptions, tas
 
 	numberOfWorkers, numberOfTasksPerWorker := calculateTasksDistribution(numberOfTasks, options.MaxNumberOfWorkers)
 
-	return runWorkers(ctx, numberOfWorkers, options, taskFunc, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+	return runWorkers(ctx, numberOfWorkers, options, taskFunc, func(workerCtx context.Context, worker *Worker, log *deferredLog, runTask func(taskId int) error) error {
 		for workerTaskId := 0; workerTaskId < numberOfTasksPerWorker[worker.ID]; workerTaskId++ {
 			select {
 			case <-workerCtx.Done():
-				logboek.Context(ctx).Debug().LogF("parallel: canceling worker %d for task %d/%d (%d)\n", worker.ID, workerTaskId, numberOfTasksPerWorker[worker.ID], numberOfTasks)
+				log.Debug("parallel: canceling worker %d for task %d/%d (%d)\n", worker.ID, workerTaskId, numberOfTasksPerWorker[worker.ID], numberOfTasks)
 				return workerCtx.Err()
 			default:
 				taskId := calculateTaskId(numberOfTasks, numberOfWorkers, worker.ID, workerTaskId)
@@ -81,11 +81,11 @@ func DoTasksDynamic(ctx context.Context, options DoTasksOptions, next NextTaskFu
 
 	logboek.Context(ctx).Debug().LogF("parallel: initializing dynamic scheduler with %d workers\n", numberOfWorkers)
 
-	return runWorkers(ctx, numberOfWorkers, options, taskFunc, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+	return runWorkers(ctx, numberOfWorkers, options, taskFunc, func(workerCtx context.Context, worker *Worker, log *deferredLog, runTask func(taskId int) error) error {
 		for {
 			select {
 			case <-workerCtx.Done():
-				logboek.Context(ctx).Debug().LogF("parallel: canceling worker %d\n", worker.ID)
+				log.Debug("parallel: canceling worker %d\n", worker.ID)
 				return workerCtx.Err()
 			default:
 			}
@@ -110,17 +110,24 @@ func DoTasksDynamic(ctx context.Context, options DoTasksOptions, next NextTaskFu
 // decide WHICH task to run next. The worker context carries the worker ID
 // and, when requested, a docker cli whose output is relayed to the logger
 // of the worker's current task (see Worker).
-func runWorkers(ctx context.Context, numberOfWorkers int, options DoTasksOptions, taskFunc TaskFunc, workerLoop func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error) error {
+//
+// The caller's logger belongs to the Printer for the whole run: logboek
+// stream state is not goroutine-safe, so anything a worker goroutine has to
+// say about itself goes through the deferredLog and is written once the
+// Printer has returned.
+func runWorkers(ctx context.Context, numberOfWorkers int, options DoTasksOptions, taskFunc TaskFunc, workerLoop func(workerCtx context.Context, worker *Worker, log *deferredLog, runTask func(taskId int) error) error) error {
 	groupParentCtx, cancelGroupParentCtx := context.WithCancel(ctx)
 	defer cancelGroupParentCtx()
 
 	g, groupCtx := errgroup.WithContext(groupParentCtx)
 
 	printer := NewPrinter()
+	log := &deferredLog{}
 	workers := make([]*Worker, 0, numberOfWorkers)
 	workerCtxs := make([]context.Context, 0, numberOfWorkers)
 
 	defer func() {
+		log.Flush(ctx)
 		for _, worker := range workers {
 			if err := worker.Close(); err != nil {
 				logboek.Context(ctx).Warn().LogF("parallel: failed to close worker %d: %s\n", worker.ID, err)
@@ -181,7 +188,7 @@ func runWorkers(ctx context.Context, numberOfWorkers int, options DoTasksOptions
 				if err := worker.endTask(); err != nil {
 					// Only the log is affected: a buffer that could not be
 					// created or closed costs the task's output, not the task.
-					logboek.Context(ctx).Warn().LogF("parallel: log of the last task of worker %d is incomplete: %s\n", worker.ID, err)
+					log.Warn("parallel: log of the last task of worker %d is incomplete: %s\n", worker.ID, err)
 				}
 				if runningWorkers.Add(-1) == 0 {
 					printer.Close()
@@ -196,7 +203,7 @@ func runWorkers(ctx context.Context, numberOfWorkers int, options DoTasksOptions
 				}
 			}
 
-			return workerLoop(workerCtx, worker, func(taskId int) error {
+			return workerLoop(workerCtx, worker, log, func(taskId int) error {
 				out := worker.beginTask()
 
 				startOrder := printer.EnqueueWithCallback(out, func(startOrder int) {
@@ -220,7 +227,7 @@ func runWorkers(ctx context.Context, numberOfWorkers int, options DoTasksOptions
 					// HalfClose terminates it.
 					taskLogger.LogF("")
 					if err := worker.endTask(); err != nil {
-						logboek.Context(ctx).Warn().LogF("parallel: log of task %d is incomplete, the task itself is unaffected: %s\n", taskId, err)
+						log.Warn("parallel: log of task %d is incomplete, the task itself is unaffected: %s\n", taskId, err)
 					}
 				}()
 
@@ -300,4 +307,45 @@ func calculateTasksDistribution(numberOfTasks, maxNumberOfWorkers int) (int, []i
 // isCanceledErr is a workaround to check "context canceled" error from docker daemon
 func isCanceledErr(err error) bool {
 	return strings.HasSuffix(err.Error(), context.Canceled.Error())
+}
+
+type deferredLog struct {
+	mu      sync.Mutex
+	entries []deferredLogEntry
+}
+
+type deferredLogEntry struct {
+	debug  bool
+	format string
+	args   []interface{}
+}
+
+func (l *deferredLog) Warn(format string, args ...interface{}) {
+	l.add(false, format, args)
+}
+
+func (l *deferredLog) Debug(format string, args ...interface{}) {
+	l.add(true, format, args)
+}
+
+func (l *deferredLog) add(debug bool, format string, args []interface{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.entries = append(l.entries, deferredLogEntry{debug: debug, format: format, args: args})
+}
+
+func (l *deferredLog) Flush(ctx context.Context) {
+	l.mu.Lock()
+	entries := l.entries
+	l.entries = nil
+	l.mu.Unlock()
+
+	for _, entry := range entries {
+		if entry.debug {
+			logboek.Context(ctx).Debug().LogF(entry.format, entry.args...)
+		} else {
+			logboek.Context(ctx).Warn().LogF(entry.format, entry.args...)
+		}
+	}
 }

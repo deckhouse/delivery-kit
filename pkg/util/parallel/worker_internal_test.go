@@ -61,7 +61,7 @@ var _ = Describe("worker-level stream relay", func() {
 			}
 		}
 
-		err := runWorkers(ctx, 1, DoTasksOptions{}, taskFunc, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+		err := runWorkers(ctx, 1, DoTasksOptions{}, taskFunc, func(workerCtx context.Context, worker *Worker, _ *deferredLog, runTask func(taskId int) error) error {
 			cli = worker.OutStream()
 			for taskId := 0; taskId < 2; taskId++ {
 				if err := runTask(taskId); err != nil {
@@ -102,7 +102,7 @@ var _ = Describe("worker-level stream relay", func() {
 				}
 			}
 
-			err := runWorkers(ctx, 1, DoTasksOptions{}, taskFunc, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+			err := runWorkers(ctx, 1, DoTasksOptions{}, taskFunc, func(workerCtx context.Context, worker *Worker, _ *deferredLog, runTask func(taskId int) error) error {
 				cli = pick(worker)
 				for taskId := 0; taskId < 2; taskId++ {
 					if err := runTask(taskId); err != nil {
@@ -140,7 +140,7 @@ var _ = It("task loggers keep the width a directly derived sub-logger would have
 		err := runWorkers(ctx, 1, DoTasksOptions{}, func(ctx context.Context, taskId int) error {
 			taskWidth = logboek.Context(ctx).Streams().Width()
 			return nil
-		}, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+		}, func(workerCtx context.Context, worker *Worker, _ *deferredLog, runTask func(taskId int) error) error {
 			return runTask(0)
 		})
 		Expect(err).To(Succeed())

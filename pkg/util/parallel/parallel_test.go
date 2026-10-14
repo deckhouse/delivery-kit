@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"slices"
 	"sync"
@@ -414,3 +415,34 @@ func (s *spyOutput) String() string {
 
 	return s.buf.String()
 }
+
+var _ = It("reports a lost task log without racing the printer on the caller's logger", func() {
+	output := newSpyOutput(8)
+	ctx := logboek.NewContext(context.Background(), logboek.NewLogger(output, output))
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	tmpDir := GinkgoT().TempDir()
+	Expect(werf.Init(tmpDir, "")).To(Succeed())
+	Expect(os.RemoveAll(tmpDir)).To(Succeed())
+
+	// The printer is parked on the first task of worker 0 while the other
+	// worker finishes its tasks, so the lost-log warnings of the second
+	// worker are raised while the printer is busy with the caller's logger.
+	otherWorkerDone := make(chan struct{})
+	err := parallel.DoTasks(ctx, 20, parallel.DoTasksOptions{MaxNumberOfWorkers: 2}, func(ctx context.Context, taskId int) error {
+		logboek.Context(ctx).LogF("task %d\n", taskId)
+		switch taskId {
+		case 0:
+			<-otherWorkerDone
+		case 19:
+			close(otherWorkerDone)
+		}
+		return nil
+	})
+	Expect(err).To(Succeed())
+
+	for taskId := 0; taskId < 20; taskId++ {
+		Expect(output.String()).To(ContainSubstring(fmt.Sprintf("parallel: log of task %d is incomplete", taskId)))
+	}
+})

@@ -496,7 +496,7 @@ var _ = Describe("javascript install commands", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeJavaScriptPnpm, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "pnpm-lock.yaml"}},
 		})
-		Expect(cmds).To(Equal([]string{`cd "/app" && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`}))
+		Expect(cmds).To(Equal([]string{`cd "/app" && test -f "pnpm-lock.yaml" || { echo 'lock file pnpm-lock.yaml not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; } && npm_config_manage_package_manager_versions=false pnpm_config_pm_on_fail=ignore pnpm install --frozen-lockfile`}))
 	})
 
 	It("lets the directive env override the pnpm defaults one at a time", func() {
@@ -517,6 +517,6 @@ var _ = Describe("javascript install commands", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeJavaScriptYarn, FileBased: FileBasedSpec{Workdir: "/app", Spec: "package.json", Lock: "yarn.lock"}},
 		})
-		Expect(cmds).To(Equal([]string{`cd "/app" && yarn install --frozen-lockfile`}))
+		Expect(cmds).To(Equal([]string{`cd "/app" && test -f "yarn.lock" || { echo 'lock file yarn.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; } && yarn install --frozen-lockfile`}))
 	})
 })

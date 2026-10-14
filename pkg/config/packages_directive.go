@@ -43,7 +43,7 @@ type PackageEcosystem struct {
 	Type            PackagesDirectiveType
 	DefaultSpecFile string
 	DefaultLockFile string
-	InstallCmd      func(workdir string, files FileBasedSpec, pkgs []string, env map[string]string) string
+	InstallCmd      func(files FileBasedSpec, pkgs []string, env map[string]string) string
 	CatalogerName   string
 	// SourceLang is the source language of the packages this ecosystem installs, as
 	// reported in the GOST:source_langs property. Empty when the ecosystem installs
@@ -127,8 +127,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeGoMod,
 		DefaultSpecFile: "go.mod",
 		DefaultLockFile: "go.sum",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s mod download", managerBin(files, "go")), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s mod download", managerBin(files, "go")), env)
 		},
 		CatalogerName: "go-module-file-cataloger",
 		SourceLang:    "Go",
@@ -141,9 +141,9 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonUV,
 		DefaultSpecFile: "pyproject.toml",
 		DefaultLockFile: "uv.lock",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
 			defaults := map[string]string{"UV_PYTHON_DOWNLOADS": "never"}
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s sync --frozen", managerBin(files, "uv")), withDefaultEnv(env, defaults))
+			return formatWorkdirCommand(files, fmt.Sprintf("%s sync --frozen", managerBin(files, "uv")), withDefaultEnv(env, defaults))
 		},
 		CatalogerName: "python-package-cataloger",
 		SourceLang:    "Python",
@@ -152,8 +152,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypePythonPip,
 		DefaultSpecFile: "requirements.txt",
 		DefaultLockFile: "",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "python3 -P -m pip"), files.Spec), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s install --no-cache-dir -r %q", managerBin(files, "python3 -P -m pip"), files.Spec), env)
 		},
 		CatalogerName: "python-package-cataloger",
 		SourceLang:    "Python",
@@ -164,8 +164,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultLockFile: "poetry.lock",
 		// `poetry sync` exists since Poetry 2.0 only, and with virtualenvs.create=false it
 		// uninstalls from the system site-packages everything the lock does not list.
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --no-root", managerBin(files, "poetry")), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s install --no-root", managerBin(files, "poetry")), env)
 		},
 		CatalogerName: "python-package-cataloger",
 		SourceLang:    "Python",
@@ -174,8 +174,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeRustCargo,
 		DefaultSpecFile: "Cargo.toml",
 		DefaultLockFile: "Cargo.lock",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s fetch", managerBin(files, "cargo")), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s fetch", managerBin(files, "cargo")), env)
 		},
 		CatalogerName: "rust-cargo-lock-cataloger",
 		SourceLang:    "Rust",
@@ -184,8 +184,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptNpm,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "package-lock.json",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s ci", managerBin(files, "npm")), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s ci", managerBin(files, "npm")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
 		SourceLang:    "JavaScript",
@@ -195,8 +195,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeJavaScriptYarn,
 		DefaultSpecFile: "package.json",
 		DefaultLockFile: "yarn.lock",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "yarn")), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "yarn")), env)
 		},
 		CatalogerName: "javascript-lock-cataloger",
 		SourceLang:    "JavaScript",
@@ -209,12 +209,12 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		// A `packageManager` field naming another pnpm version makes pnpm 10 (npm_config_*)
 		// and pnpm 11+ (pnpm_config_*) download that version and re-exec into it, bypassing
 		// the one the lock pins.
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
 			defaults := map[string]string{
 				"npm_config_manage_package_manager_versions": "false",
 				"pnpm_config_pm_on_fail":                     "ignore",
 			}
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), withDefaultEnv(env, defaults))
+			return formatWorkdirCommand(files, fmt.Sprintf("%s install --frozen-lockfile", managerBin(files, "pnpm")), withDefaultEnv(env, defaults))
 		},
 		CatalogerName: "javascript-lock-cataloger",
 		SourceLang:    "JavaScript",
@@ -224,8 +224,8 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeLuaRock,
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install --only-deps %q", managerBin(files, "luarocks"), files.Spec), env)
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
+			return formatWorkdirCommand(files, fmt.Sprintf("%s install --only-deps %q", managerBin(files, "luarocks"), files.Spec), env)
 		},
 		CatalogerName: "lua-rock-cataloger",
 		SourceLang:    "Lua",
@@ -234,12 +234,12 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeRubyBundler,
 		DefaultSpecFile: "Gemfile",
 		DefaultLockFile: "Gemfile.lock",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
 			defaults := map[string]string{"BUNDLE_FROZEN": "true"}
 			if files.Spec != "Gemfile" {
 				defaults["BUNDLE_GEMFILE"] = files.Spec
 			}
-			return formatWorkdirCommand(workdir, fmt.Sprintf("%s install", managerBin(files, "bundle")), withDefaultEnv(env, defaults))
+			return formatWorkdirCommand(files, fmt.Sprintf("%s install", managerBin(files, "bundle")), withDefaultEnv(env, defaults))
 		},
 		CatalogerName:      "ruby-gemfile-cataloger",
 		SourceLang:         "Ruby",
@@ -249,10 +249,10 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		Type:            PackagesDirectiveTypeRubyGemspec,
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
-		InstallCmd: func(workdir string, files FileBasedSpec, _ []string, env map[string]string) string {
+		InstallCmd: func(files FileBasedSpec, _ []string, env map[string]string) string {
 			gem := managerBin(files, "gem")
 			artifact := path.Join("/tmp", strings.TrimSuffix(path.Base(files.Spec), ".gemspec")+".gem")
-			return formatWorkdirCommands(workdir, []string{
+			return formatWorkdirCommands(files, []string{
 				fmt.Sprintf("%s build %q -o %q", gem, files.Spec, artifact),
 				fmt.Sprintf("%s install --no-document %q", gem, artifact),
 			}, env)
@@ -266,7 +266,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultSpecFile: "",
 		DefaultLockFile: "",
 		CatalogerName:   metadata.CatalogerName,
-		InstallCmd: func(_ string, _ FileBasedSpec, pkgs []string, env map[string]string) string {
+		InstallCmd: func(_ FileBasedSpec, pkgs []string, env map[string]string) string {
 			return formatInstallCommand(pkgs, env)
 		},
 	},

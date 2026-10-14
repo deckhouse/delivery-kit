@@ -43,6 +43,9 @@ var _ = Describe("rawStapelImage", func() {
 			Expect(err).To(Succeed())
 
 			stapelImage.StapelImageBase.raw = nil // set to nil for correct deep comparison
+			for _, sign := range stapelImage.StapelImageBase.Sign {
+				sign.raw = nil
+			}
 			Expect(&stapelImage).To(Equal(&expectedImage))
 		},
 		Entry(
@@ -62,6 +65,32 @@ var _ = Describe("rawStapelImage", func() {
 					cacheVersion: "docker-cache-version",
 					platform:     []string{},
 					final:        true,
+				},
+			},
+		),
+		Entry(
+			"should handle sign",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"sign": []map[string]interface{}{
+					{"path": "/out/a.roothash", "after": "install"},
+					{"path": "/out/b.roothash", "before": "setup"},
+				},
+			},
+			&StapelImage{
+				StapelImageBase: &StapelImageBase{
+					Name:    "image1",
+					From:    "alpine:latest",
+					Git:     &GitManager{},
+					Secrets: []Secret{},
+					Sign: []*Sign{
+						{Path: "/out/a.roothash", After: "install"},
+						{Path: "/out/b.roothash", Before: "setup"},
+					},
+
+					platform: []string{},
+					final:    true,
 				},
 			},
 		),
@@ -320,6 +349,65 @@ var _ = Describe("rawStapelImage", func() {
 						"targetBuildArg": "IMAGE_TAG",
 					}},
 				}},
+			},
+		),
+		Entry(
+			"with sign missing path",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"after": "install"}},
+			},
+		),
+		Entry(
+			"with sign relative path",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"path": "out/x.roothash", "after": "install"}},
+			},
+		),
+		Entry(
+			"with sign root path",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"path": "/", "after": "install"}},
+			},
+		),
+		Entry(
+			"with sign missing before/after",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"path": "/out/x.roothash"}},
+			},
+		),
+		Entry(
+			"with sign both before and after",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"path": "/out/x.roothash", "before": "setup", "after": "install"}},
+			},
+		),
+		Entry(
+			"with sign invalid stage",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"path": "/out/x.roothash", "after": "beforeInstall"}},
+			},
+		),
+		Entry(
+			"with sign duplicated path",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign": []map[string]interface{}{
+					{"path": "/out/x.roothash", "after": "install"},
+					{"path": "/out/x.roothash", "before": "setup"},
+				},
 			},
 		),
 	)

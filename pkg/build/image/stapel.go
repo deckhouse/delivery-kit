@@ -119,6 +119,7 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 	stages = appendIfExist(stages, stage.GenerateFromStage(imageBaseConfig, image.baseImageRepoId, imageCacheVersion, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateBeforeInstallStage(ctx, imageBaseConfig, baseStageOptions))
 	stages = appendIfExist(stages, stage.GenerateDependenciesBeforeInstallStage(imageBaseConfig, baseStageOptions))
+	stages = appendIfExist(stages, stage.GenerateSignFilesBeforeInstallStage(imageBaseConfig, opts.FilesSigningOptions, baseStageOptions))
 
 	if gitMappingsExist {
 		stages = append(stages, stage.NewGitArchiveStage(gitArchiveStageOptions, baseStageOptions))

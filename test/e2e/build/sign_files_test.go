@@ -113,10 +113,15 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 
 			By("rebuilding with the same key reuses the stage")
 			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
-			Expect(rebuildOut).NotTo(ContainSubstring("Building stage sysext/signFilesAfterInstall"))
+			Expect(rebuildOut).To(ContainSubstring("Use previously built image for sysext"))
+			Expect(rebuildOut).NotTo(ContainSubstring("Building stage"))
 		},
 		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
 			ContainerBackendMode: "docker",
+			WithLocalRepo:        true,
+		}}),
+		backendEntry("with repo using Native Rootless", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "native-rootless",
 			WithLocalRepo:        true,
 		}}),
 	)

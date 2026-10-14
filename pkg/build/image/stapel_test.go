@@ -127,6 +127,8 @@ shell:
   setup:
   - echo setup
 sign:
+- path: /etc/os-release
+  before: install
 - path: /out/a.roothash
   after: install
 - path: /out/b.roothash
@@ -158,6 +160,7 @@ sign:
 		names := stageNames(image)
 		Expect(names).To(Equal([]stage.StageName{
 			stage.From,
+			stage.SignFilesBeforeInstall,
 			stage.Install,
 			stage.SignFilesAfterInstall,
 			stage.SignFilesBeforeSetup,
@@ -169,7 +172,7 @@ sign:
 	It("generates no stage when files signing is disabled", func() {
 		image := newImage(context.Background(), "", signing.NewFilesSigningOptions(&signing.Signer{}))
 
-		for _, name := range []stage.StageName{stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
+		for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
 			Expect(stageNames(image)).NotTo(ContainElement(name))
 		}
 	})

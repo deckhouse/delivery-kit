@@ -69,7 +69,7 @@ Disable to build such images without signatures`)
 }
 
 func GetSignFiles(cmdData *CmdData) bool {
-	return option.PtrValueOrDefault(cmdData.SignFiles, true)
+	return option.PtrValueOrDefault(cmdData.SignFiles, false)
 }
 
 func SetupELFSigningOptions(cmdData *CmdData, cmd *cobra.Command) {

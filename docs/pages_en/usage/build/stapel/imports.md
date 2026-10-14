@@ -122,6 +122,6 @@ The key and the certificate are never part of `werf.yaml`; they come from the co
 | `--sign-files-cert` | `WERF_SIGN_FILES_CERT` | the signing certificate: a path to a PEM file or a base64-encoded PEM |
 | `--sign-files-intermediates` | `WERF_SIGN_FILES_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
 
-A build of an image that declares `sign` fails before any stage runs when the key or the certificate is missing and `--sign-files` is not `false`. With `hashivault://` the private key never leaves the KMS: the stage container runs no commands and needs no network, so the directive works unchanged when `build.sbom.enable` is `true` and [network is disabled in shell stages]({{ "/usage/build/sbom.html" | true_relative_url }}).
+A build of an image that declares `sign` fails before any stage runs when the key or the certificate is missing and `--sign-files` is not `false`. With `hashivault://` the private key never leaves the KMS: the stage runs none of the image's commands and needs no network, so the directive works unchanged when `build.sbom.enable` is `true` and [network is disabled in shell stages]({{ "/usage/build/sbom.html" | true_relative_url }}).
 
 The stage is cached like any other. Its digest covers the signed paths and the signing certificate chain, so rotating the key rebuilds the signature and the stages after it, while a rebuild with the same key reuses the cached layer.

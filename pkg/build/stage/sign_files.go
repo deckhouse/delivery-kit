@@ -9,7 +9,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
+
+	"al.essio.dev/pkg/shellescape"
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/logboek"
@@ -20,15 +21,16 @@ import (
 )
 
 const (
-	SignFilesAfterInstall StageName = "signFilesAfterInstall"
-	SignFilesBeforeSetup  StageName = "signFilesBeforeSetup"
-	SignFilesAfterSetup   StageName = "signFilesAfterSetup"
+	SignFilesBeforeInstall StageName = "signFilesBeforeInstall"
+	SignFilesAfterInstall  StageName = "signFilesAfterInstall"
+	SignFilesBeforeSetup   StageName = "signFilesBeforeSetup"
+	SignFilesAfterSetup    StageName = "signFilesAfterSetup"
 )
 
 // SignFilesStage signs the files the sign directive places at one position of the
 // stage chain. The files are read out of the previous built image, signed on the host
 // by the files signer and the detached PKCS#7 signatures are laid down next to them as
-// a new layer; the stage container itself runs nothing and needs no network.
+// a new layer; nothing of the user's runs in the stage container and it needs no network.
 type SignFilesStage struct {
 	*BaseStage
 
@@ -37,6 +39,10 @@ type SignFilesStage struct {
 }
 
 var _ Interface = (*SignFilesStage)(nil)
+
+func GenerateSignFilesBeforeInstallStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
+	return generateSignFilesStage(imageBaseConfig, SignFilesBeforeInstall, &getImportsOptions{Before: Install}, options, baseStageOptions)
+}
 
 func GenerateSignFilesAfterInstallStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
 	return generateSignFilesStage(imageBaseConfig, SignFilesAfterInstall, &getImportsOptions{After: Install}, options, baseStageOptions)
@@ -123,8 +129,8 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 			}
 			containerPath := path.Join(s.containerWerfDir, "sign", string(s.Name()), outputName)
 			commands = append(commands,
-				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellQuote(path.Dir(sign.OutputPath()))),
-				fmt.Sprintf("%s -m 0644 %s %s", stapel.InstallBinPath(), shellQuote(containerPath), shellQuote(sign.OutputPath())),
+				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellescape.Quote(path.Dir(sign.OutputPath()))),
+				fmt.Sprintf("%s -m 0644 %s %s", stapel.InstallBinPath(), shellescape.Quote(containerPath), shellescape.Quote(sign.OutputPath())),
 			)
 			continue
 		}
@@ -157,8 +163,4 @@ func singleFileTar(name string, content []byte) (*bytes.Buffer, error) {
 		return nil, err
 	}
 	return &buf, nil
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

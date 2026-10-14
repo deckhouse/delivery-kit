@@ -1,0 +1,27 @@
+project: werf-test-e2e-sbom-shipped-scope-index
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /
+shell:
+  install:
+    # The tar of a layer names the alphabetically first of a hardlinked pair as the
+    # regular file and the rest as links, so "busybox" carries the bytes and "sh" is
+    # the link whose target the setup stage then replaces.
+    - mkdir -p /opt/app/nested
+    - printf old > /opt/app/busybox
+    - ln /opt/app/busybox /opt/app/sh
+    - ln -s /opt/app/busybox /opt/app/link
+    - printf '' > /opt/app/empty
+    - printf doomed > /opt/app/removed
+    - printf nested > /opt/app/nested/kept
+  setup:
+    - printf new > /opt/app/busybox
+    - rm -f /opt/app/removed

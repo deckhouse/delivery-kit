@@ -207,6 +207,21 @@ var _ = Describe("VerifyIndex", func() {
 		Expect(VerifyIndexResultError(results)).To(Succeed())
 	})
 
+	It("reports a failed signature on a neighbor rather than the rebuild hint of the requested slot", func(ctx SpecContext) {
+		for _, digest := range []string{amd64Digest, arm64Digest} {
+			attachDSSE(ctx, digest, PredicateKindOpenVEX.UnsignedType, nil)
+			attachDSSE(ctx, digest, PredicateKindOpenVEX.SignedType, signerB)
+		}
+
+		results, err := VerifyIndex(ctx, repo, indexDigest, imageName, "openvex", []signature.Verifier{verifierA}, remoteOpts...)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results).To(HaveLen(2))
+		for _, result := range results {
+			Expect(result.Status).To(Equal(PlatformVerifyStatusInvalid), result.Platform)
+			Expect(result.Err).To(MatchError(ContainSubstring("verify DSSE signature")))
+		}
+	})
+
 	It("lists every failing platform when all platforms fail verification", func(ctx SpecContext) {
 		attachSignedBundle(ctx, amd64Digest, cyclonedxType, signerB)
 		attachSignedBundle(ctx, arm64Digest, cyclonedxType, signerB)

@@ -30,10 +30,8 @@ func Get(ctx context.Context, repo, parentDigest, imageName, predicateType strin
 // first candidate the caller accepts wins. Looking the whole kind up at once
 // would answer with whichever entry the registry lists first, while stopping at
 // the requested URI would hide a signed attestation sitting in the neighboring
-// slot from a verify. When every candidate fails, the reported error is the
-// first one that is not a plain not-found: an entry of the kind that the caller
-// rejected — unsigned where a signature was required, say — tells the user more
-// than the absence of the exact URI.
+// slot from a verify. When every candidate fails, the most telling failure is
+// reported — see rejectionRank.
 func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicateType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {
 	resolvedType, err := ResolvePredicateType(predicateType)
 	if err != nil {
@@ -47,26 +45,36 @@ func pullPredicate(ctx context.Context, repo, parentDigest, imageName, predicate
 
 	store := artifact.NewOCIStore(repo, imageName)
 
-	var notFoundErr, rejectedErr error
+	var bestErr error
 	for _, lookupType := range lookupTypes {
 		predicate, err := pullPredicateOfType(ctx, store, parentDigest, resolvedType, lookupType, openEnvelope)
-		switch {
-		case err == nil:
+		if err == nil {
 			return predicate, nil
-		case errors.Is(err, artifact.ErrNotFound):
-			if notFoundErr == nil {
-				notFoundErr = err
-			}
-		case rejectedErr == nil:
-			rejectedErr = err
+		}
+		if rejectionRank(err) > rejectionRank(bestErr) {
+			bestErr = err
 		}
 	}
 
-	if rejectedErr != nil {
-		return nil, rejectedErr
-	}
+	return nil, bestErr
+}
 
-	return nil, notFoundErr
+// rejectionRank orders the ways a candidate can fail by how much it tells the
+// user. The absence of an entry says the least, an entry that carries no
+// signature says more, and an entry that failed verification or carries another
+// predicate kind says the most — a read that tried several URIs of a kind
+// reports the highest of them.
+func rejectionRank(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, artifact.ErrNotFound):
+		return 1
+	case errors.Is(err, ErrUnsignedAttestation):
+		return 2
+	default:
+		return 3
+	}
 }
 
 func pullPredicateOfType(ctx context.Context, store *artifact.OCIStore, parentDigest, resolvedType, lookupType string, openEnvelope func(context.Context, []byte) ([]byte, error)) ([]byte, error) {

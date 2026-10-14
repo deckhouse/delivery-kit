@@ -33,6 +33,7 @@ var _ = Describe("reading an attestation kind", func() {
 		store        *artifact.OCIStore
 		signer       signature.Signer
 		verifier     signature.Verifier
+		otherSigner  signature.Signer
 	)
 
 	BeforeEach(func(ctx SpecContext) {
@@ -52,6 +53,7 @@ var _ = Describe("reading an attestation kind", func() {
 
 		store = artifact.NewOCIStore(repo, imageName)
 		signer, verifier = generateKeyPair()
+		otherSigner, _ = generateKeyPair()
 	})
 
 	AfterEach(func() {
@@ -86,9 +88,15 @@ var _ = Describe("reading an attestation kind", func() {
 		Expect(store.Attach(ctx, parentDigest, BundleMediaType, bundleBytes, "checksum-v1", "", kind.SignedType)).To(Succeed())
 	}
 
-	attachUserSigned := func(ctx SpecContext, kind PredicateKind) {
-		envelopeJSON := envelopeOf(ctx, userOwn, kind.SignedType, true)
-		Expect(store.Attach(ctx, parentDigest, DSSEMediaType, envelopeJSON, "", "", kind.SignedType)).To(Succeed())
+	attachUserSigned := func(ctx SpecContext, predicateType string, userSigner signature.Signer) {
+		Expect(Sign(ctx, []byte(userOwn), predicateType, repo, parentDigest, imageName, userSigner)).To(Succeed())
+	}
+
+	publishWerf := func(ctx SpecContext, kind PredicateKind, werfSigner signature.Signer) {
+		Expect(PublishAttestation(ctx, kind, []byte(werfOwn), repo, parentDigest, imageName, PublishAttestationOptions{
+			Signer:   werfSigner,
+			Checksum: "checksum-v1",
+		})).To(Succeed())
 	}
 
 	buildState := func(ctx SpecContext, kind PredicateKind, state string) {
@@ -100,7 +108,13 @@ var _ = Describe("reading an attestation kind", func() {
 			case "werf-signed":
 				attachWerfSigned(ctx, kind)
 			case "user-signed":
-				attachUserSigned(ctx, kind)
+				attachUserSigned(ctx, kind.SignedType, signer)
+			case "user-signed-short-name":
+				attachUserSigned(ctx, kind.Name, signer)
+			case "user-signed-other-key":
+				attachUserSigned(ctx, kind.SignedType, otherSigner)
+			case "werf-build-unsigned":
+				publishWerf(ctx, kind, nil)
 			case "legacy":
 				attachWerfUnsigned(ctx, kind, "")
 			default:
@@ -146,6 +160,10 @@ var _ = Describe("reading an attestation kind", func() {
 		Entry("openvex: user attestation beside an unsigned build, short name returns werf's", PredicateKindOpenVEX, "werf-unsigned+user-signed", "openvex", werfOwn),
 		Entry("openvex: user attestation beside an unsigned build, unversioned URI returns the user's", PredicateKindOpenVEX, "werf-unsigned+user-signed", PredicateKindOpenVEX.SignedType, userOwn),
 		Entry("openvex: legacy annotation-less entry", PredicateKindOpenVEX, "legacy", "openvex", werfOwn),
+
+		Entry("cyclonedx: a build does not replace what the user signed under the short name", PredicateKindCycloneDX, "user-signed-short-name+werf-build-unsigned", "cyclonedx", userOwn),
+		Entry("openvex: a build replaces what the user signed under the short name, which shares its slot", PredicateKindOpenVEX, "user-signed-short-name+werf-build-unsigned", "openvex", werfOwn),
+		Entry("openvex: a build does not replace what the user signed under the unversioned URI", PredicateKindOpenVEX, "user-signed+werf-build-unsigned", PredicateKindOpenVEX.SignedType, userOwn),
 	)
 
 	DescribeTable("answers verify by the predicate type asked for",
@@ -172,5 +190,6 @@ var _ = Describe("reading an attestation kind", func() {
 		Entry("openvex: unsigned build keeps the rebuild hint", PredicateKindOpenVEX, "werf-unsigned", "openvex", unsigned),
 		Entry("openvex: signed build verifies", PredicateKindOpenVEX, "werf-signed", "openvex", werfOwn),
 		Entry("openvex: user attestation beside an unsigned build verifies the signed neighbor", PredicateKindOpenVEX, "werf-unsigned+user-signed", "openvex", userOwn),
+		Entry("openvex: a neighbor signed by another key reports the signature failure, not the rebuild hint", PredicateKindOpenVEX, "werf-unsigned+user-signed-other-key", "openvex", "verify DSSE signature"),
 	)
 })

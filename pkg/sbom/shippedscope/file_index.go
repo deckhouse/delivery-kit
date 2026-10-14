@@ -40,6 +40,9 @@ type FileIndex struct {
 // which is what the running image sees even once an upper layer replaces or removes that
 // target. A link no layer can resolve is left out and reported, so treat a path missing
 // from the index as "not proven present" rather than "proven absent".
+//
+// Hardlinks make the layers be read a second time, so an image whose layers are expensive
+// to obtain pays for that twice.
 func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 	index := &FileIndex{
 		Files:    make(map[string]File),
@@ -108,8 +111,10 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 // A layer tar spells a hardlink as a regular file plus a link entry beside it, so the bytes
 // it names are the ones its own layer holds. Extract flattens that boundary away, and a
 // lookup in the flattened index would credit the link with whatever an upper layer later
-// wrote to the same path. Reading the layers again costs about a hundredth of what hashing
-// the image does, since only the few paths a hardlink names are hashed here.
+// wrote to the same path. Inflating the layers again is what this costs — measured at a
+// sixth of the first pass on uncompressed layers and at nearly its equal on compressed ones,
+// where the gzip dominates — so it runs only for images that hold hardlinks and stops as
+// soon as every link has been answered.
 func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *FileIndex, hardlinks map[string]string) (map[string]string, error) {
 	if len(hardlinks) == 0 {
 		return hardlinks, nil
@@ -144,7 +149,9 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 	}
 	defer contents.Close()
 
-	candidates := make(map[string]File)
+	files := make(map[string]File)
+	symlinks := make(map[string]string)
+	owned := make(map[string]string)
 
 	reader := tar.NewReader(contents)
 	for {
@@ -154,6 +161,8 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
+			resolveOwnedHardlinks(index, remaining, owned, files, symlinks)
+
 			return nil
 		}
 		if err != nil {
@@ -173,9 +182,13 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 				return fmt.Errorf("hash %q: %w", name, err)
 			}
 
-			candidates[name] = File{
+			files[name] = File{
 				Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
 				Size:   header.Size,
+			}
+		case tar.TypeSymlink:
+			if targets[name] {
+				symlinks[name] = header.Linkname
 			}
 		case tar.TypeLink:
 			target, ok := remaining[name]
@@ -186,13 +199,25 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 			// The topmost layer holding the link owns it, whether or not its target is
 			// there; a lower layer's answer would describe a path this one replaced.
 			settled[name] = true
+			owned[name] = target
+		}
+	}
+}
 
-			file, ok := candidates[target]
-			if !ok {
-				continue
-			}
-
+// A link entry may precede the target it names, so the layer answers only once its tar has
+// been read to the end.
+func resolveOwnedHardlinks(index *FileIndex, remaining, owned map[string]string, files map[string]File, symlinks map[string]string) {
+	for name, target := range owned {
+		if file, ok := files[target]; ok {
 			index.Files[name] = file
+			delete(remaining, name)
+
+			continue
+		}
+
+		if link, ok := symlinks[target]; ok {
+			index.Symlinks[name] = link
+			delete(index.Files, name)
 			delete(remaining, name)
 		}
 	}

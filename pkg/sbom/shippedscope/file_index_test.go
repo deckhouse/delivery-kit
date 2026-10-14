@@ -84,6 +84,33 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(index.Files["/bin/sh"].Digest).To(Equal(digestOf("old")))
 	})
 
+	It("keeps a hardlink on its own layer when the link entry precedes its target in the layer", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{hardlink("bin/sh", "bin/busybox"), regularFile("bin/busybox", "old")},
+			[]tarEntry{regularFile("bin/busybox", "new")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files["/bin/sh"].Digest).To(Equal(digestOf("old")))
+	})
+
+	It("keeps a hardlink to a symlink on the target its own layer spells", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{symlink("bin/sh", "/bin/dash"), hardlink("bin/rsh", "bin/sh")},
+			[]tarEntry{symlink("bin/sh", "/bin/bash")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Symlinks["/bin/sh"]).To(Equal("/bin/bash"))
+		Expect(index.Symlinks["/bin/rsh"]).To(Equal("/bin/dash"))
+	})
+
 	It("takes the topmost hardlink when both layers link the same path to the same target", func(ctx SpecContext) {
 		img, err := imageOf(
 			[]tarEntry{regularFile("bin/busybox", "old"), hardlink("bin/sh", "bin/busybox")},

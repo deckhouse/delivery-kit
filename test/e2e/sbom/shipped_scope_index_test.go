@@ -2,6 +2,7 @@ package e2e_build_test
 
 import (
 	"archive/tar"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -127,8 +128,11 @@ func exportImageWithDocker(ctx SpecContext, imageRef string) (map[string]shipped
 	pullOut, err := pull.CombinedOutput()
 	Expect(err).NotTo(HaveOccurred(), "docker pull %s: %s", imageRef, pullOut)
 
-	created, err := exec.CommandContext(ctx, "docker", "create", imageRef).Output()
-	Expect(err).NotTo(HaveOccurred())
+	create := exec.CommandContext(ctx, "docker", "create", imageRef)
+	var createErr bytes.Buffer
+	create.Stderr = &createErr
+	created, err := create.Output()
+	Expect(err).NotTo(HaveOccurred(), "docker create %s: %s", imageRef, createErr.String())
 
 	container := strings.TrimSpace(string(created))
 	DeferCleanup(func() {
@@ -136,6 +140,8 @@ func exportImageWithDocker(ctx SpecContext, imageRef string) (map[string]shipped
 	})
 
 	export := exec.CommandContext(ctx, "docker", "export", container)
+	var exportErr bytes.Buffer
+	export.Stderr = &exportErr
 	stdout, err := export.StdoutPipe()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(export.Start()).To(Succeed())
@@ -170,7 +176,7 @@ func exportImageWithDocker(ctx SpecContext, imageRef string) (map[string]shipped
 			hardlinks[path] = "/" + strings.TrimPrefix(strings.TrimPrefix(header.Linkname, "./"), "/")
 		}
 	}
-	Expect(export.Wait()).To(Succeed())
+	Expect(export.Wait()).To(Succeed(), "docker export %s: %s", container, exportErr.String())
 
 	for path, target := range hardlinks {
 		if file, ok := files[target]; ok {

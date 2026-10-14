@@ -60,6 +60,7 @@ var _ = Describe("CollectFilesets, Lua", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		cjson := filesetOf(filesets, EcosystemLua, "lua-cjson", "2.1.0-1")
+		Expect(cjson).NotTo(BeNil())
 		Expect(cjson.Files).To(HaveKey("/usr/local/lib/luarocks/rocks-5.4/lua-cjson/2.1.0-1/lua-cjson-2.1.0-1.rockspec"))
 		Expect(cjson.Files).To(HaveKey("/usr/local/lib/luarocks/rocks-5.4/lua-cjson/2.1.0-1/doc/README.md"))
 	})
@@ -77,8 +78,25 @@ var _ = Describe("CollectFilesets, Lua", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		lfs := filesetOf(filesets, EcosystemLua, "luafilesystem", "1.8.0-1")
+		Expect(lfs).NotTo(BeNil())
 		Expect(lfs.Files).To(HaveKey("/usr/lib/lua/5.1/lfs.so"))
 		Expect(lfs.Files).NotTo(HaveKey("/usr/lib/lua/5.4/lfs.so"))
+	})
+
+	It("reads a name the manifest had to escape", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("usr/local/lib/luarocks/rocks-5.4/odd/1.0-1/rock_manifest",
+				"rock_manifest = {\n   lua = {\n      [\"say \\\"hi\\\".lua\"] = \"aaa\"\n   }\n}\n"),
+			regularFile("usr/local/share/lua/5.4/say \"hi\".lua", "code"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		odd := filesetOf(filesets, EcosystemLua, "odd", "1.0-1")
+		Expect(odd).NotTo(BeNil())
+		Expect(odd.Files).To(HaveKey("/usr/local/share/lua/5.4/say \"hi\".lua"))
 	})
 
 	It("ignores a manifest it cannot read", func(ctx SpecContext) {
@@ -91,6 +109,6 @@ var _ = Describe("CollectFilesets, Lua", func() {
 		filesets, err := CollectFilesets(ctx, img)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(filesets).To(BeEmpty())
+		Expect(filesets.Filesets).To(BeEmpty())
 	})
 })

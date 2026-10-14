@@ -18,15 +18,22 @@ const (
 )
 
 // Fileset is one installed copy of a component and the files the image gives it. npm keeps
-// several copies of one version under different paths, so Root tells them apart; the rule
-// that consumes this treats them as one owner.
+// several copies of one version under different paths, so one (Ecosystem, Name, Version)
+// can appear more than once; the rule that consumes this treats them as one owner.
 type Fileset struct {
 	Ecosystem Ecosystem
 	Name      string
 	Version   string
-	Root      string
 	Files     map[string]File
 	Symlinks  map[string]string
+}
+
+type Filesets struct {
+	Filesets []Fileset
+	// OSPMFileListMissing is set when the image carries os-pm packages but was installed
+	// by a pm that recorded no file list for them, so none of them has a fileset here. A
+	// consumer that would drop a component without a fileset must not do so for os-pm then.
+	OSPMFileListMissing bool
 }
 
 // CollectFilesets reads the image once and answers, for every component an ecosystem
@@ -37,20 +44,27 @@ type Fileset struct {
 // the nested package trees inside it, Lua takes the paths its rock manifest declares across
 // the install roots they land in, and os-pm takes the list its package manager wrote. The
 // digests always come from the image, never from the manifest that names the file.
-func CollectFilesets(ctx context.Context, img v1.Image) ([]Fileset, error) {
+//
+// A component installed some other way — a Python egg-info, a LuaRocks 2 tree, a Yarn PnP
+// cache — has no fileset, and this says nothing about whether it shipped.
+func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 	index, manifests, err := indexImageFiles(ctx, img, isFilesetManifest)
 	if err != nil {
 		return nil, err
 	}
 
-	filesets, err := osPMFilesets(ctx, index, manifests)
+	osPM, missing, err := osPMFilesets(ctx, index, manifests)
 	if err != nil {
 		return nil, err
 	}
 
-	filesets = append(filesets, pythonFilesets(index, manifests)...)
-	filesets = append(filesets, javascriptFilesets(index, manifests)...)
-	filesets = append(filesets, luaFilesets(index, manifests)...)
+	filesets := &Filesets{
+		Filesets:            osPM,
+		OSPMFileListMissing: missing,
+	}
+	filesets.Filesets = append(filesets.Filesets, pythonFilesets(index, manifests)...)
+	filesets.Filesets = append(filesets.Filesets, javascriptFilesets(index, manifests)...)
+	filesets.Filesets = append(filesets.Filesets, luaFilesets(index, manifests)...)
 
 	return filesets, nil
 }
@@ -86,4 +100,8 @@ func collect(index *FileIndex, paths []string) (map[string]File, map[string]stri
 
 func rootedJoin(dir, rel string) string {
 	return rootedPath(path.Join(dir, rel))
+}
+
+func hasPathPrefix(file, dir string) bool {
+	return strings.HasPrefix(file, dir+"/")
 }

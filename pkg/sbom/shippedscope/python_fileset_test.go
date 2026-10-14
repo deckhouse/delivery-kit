@@ -46,12 +46,17 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(typing.Files).To(HaveKey("/usr/lib/python3.12/site-packages/typing_extensions.py"))
 	})
 
-	It("credits a compiled file to the source its distribution declares", func(ctx SpecContext) {
+	It("credits a compiled file to the source its distribution declares, and to no other", func(ctx SpecContext) {
 		img, err := imageOf([]tarEntry{
 			regularFile("usr/lib/python3.12/site-packages/yaml/__init__.py", "yaml"),
 			regularFile("usr/lib/python3.12/site-packages/yaml/__pycache__/__init__.cpython-312.pyc", "compiled"),
+			regularFile("usr/lib/python3.12/site-packages/yaml/__pycache__/__init__.cpython-312.opt-1.pyc", "optimized"),
 			regularFile("usr/lib/python3.12/site-packages/PyYAML-6.0.2.dist-info/RECORD",
 				"yaml/__init__.py,sha256=aaa,4\n"),
+			regularFile("usr/lib/python3.12/site-packages/six.py", "six"),
+			regularFile("usr/lib/python3.12/site-packages/__pycache__/six.cpython-312.pyc", "compiled six"),
+			regularFile("usr/lib/python3.12/site-packages/six-1.17.0.dist-info/RECORD",
+				"six.py,sha256=bbb,3\n"),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -59,7 +64,30 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		pyyaml := filesetOf(filesets, EcosystemPython, "pyyaml", "6.0.2")
+		Expect(pyyaml).NotTo(BeNil())
 		Expect(pyyaml.Files).To(HaveKey("/usr/lib/python3.12/site-packages/yaml/__pycache__/__init__.cpython-312.pyc"))
+		Expect(pyyaml.Files).To(HaveKey("/usr/lib/python3.12/site-packages/yaml/__pycache__/__init__.cpython-312.opt-1.pyc"))
+		Expect(pyyaml.Files).NotTo(HaveKey("/usr/lib/python3.12/site-packages/__pycache__/six.cpython-312.pyc"))
+
+		six := filesetOf(filesets, EcosystemPython, "six", "1.17.0")
+		Expect(six).NotTo(BeNil())
+		Expect(six.Files).To(HaveLen(2))
+	})
+
+	It("reads a record whose path is quoted because it holds a comma", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("usr/lib/python3.12/site-packages/odd/a,b.txt", "odd"),
+			regularFile("usr/lib/python3.12/site-packages/odd-1.0.dist-info/RECORD",
+				"\"odd/a,b.txt\",sha256=aaa,3\n"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		odd := filesetOf(filesets, EcosystemPython, "odd", "1.0")
+		Expect(odd).NotTo(BeNil())
+		Expect(odd.Files).To(HaveKey("/usr/lib/python3.12/site-packages/odd/a,b.txt"))
 	})
 
 	It("keeps the compiled file when the source it was built from is gone", func(ctx SpecContext) {
@@ -74,6 +102,7 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		pyyaml := filesetOf(filesets, EcosystemPython, "pyyaml", "6.0.2")
+		Expect(pyyaml).NotTo(BeNil())
 		Expect(pyyaml.Files).To(HaveLen(1))
 		Expect(pyyaml.Files).To(HaveKey("/usr/lib/python3.12/site-packages/yaml/__pycache__/__init__.cpython-312.pyc"))
 	})
@@ -91,6 +120,7 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		pytest := filesetOf(filesets, EcosystemPython, "pytest", "8.4.2")
+		Expect(pytest).NotTo(BeNil())
 		Expect(pytest.Files).To(HaveKey("/usr/bin/pytest"))
 		Expect(pytest.Symlinks).To(HaveKeyWithValue("/usr/lib/python3.12/site-packages/pytest/shortcut", "/usr/bin/pytest"))
 	})
@@ -107,6 +137,7 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		pyyaml := filesetOf(filesets, EcosystemPython, "pyyaml", "6.0.2")
+		Expect(pyyaml).NotTo(BeNil())
 		Expect(pyyaml.Files).To(HaveLen(1))
 	})
 })

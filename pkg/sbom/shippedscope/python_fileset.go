@@ -2,6 +2,7 @@ package shippedscope
 
 import (
 	"encoding/csv"
+	"errors"
 	"io"
 	"path"
 	"strings"
@@ -46,7 +47,6 @@ func pythonFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 			Ecosystem: EcosystemPython,
 			Name:      normalizePythonName(name),
 			Version:   version,
-			Root:      distInfo,
 			Files:     files,
 			Symlinks:  symlinks,
 		})
@@ -63,11 +63,10 @@ func recordPaths(body []byte) []string {
 	var paths []string
 	for {
 		record, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-
 			continue
 		}
 

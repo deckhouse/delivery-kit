@@ -47,6 +47,8 @@ var _ = Describe("CollectFilesets, JavaScript", func() {
 		img, err := imageOf([]tarEntry{
 			regularFile("usr/share/nodejs/semver/package.json", `{"name":"semver","version":"7.6.3"}`),
 			regularFile("usr/share/nodejs/semver/index.js", "semver"),
+			regularFile("usr/lib/nodejs/@types/node/package.json", `{"name":"@types/node","version":"22.0.0"}`),
+			regularFile("usr/lib/nodejs/@types/node/index.d.ts", "types"),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -56,6 +58,43 @@ var _ = Describe("CollectFilesets, JavaScript", func() {
 		semver := filesetOf(filesets, EcosystemJavaScript, "semver", "7.6.3")
 		Expect(semver).NotTo(BeNil())
 		Expect(semver.Files).To(HaveKey("/usr/share/nodejs/semver/index.js"))
+
+		types := filesetOf(filesets, EcosystemJavaScript, "@types/node", "22.0.0")
+		Expect(types).NotTo(BeNil())
+		Expect(types.Files).To(HaveKey("/usr/lib/nodejs/@types/node/index.d.ts"))
+	})
+
+	It("leaves a fixture a package ships inside its own tree to that package", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("app/node_modules/resolve/package.json", `{"name":"resolve","version":"1.22.8"}`),
+			regularFile("app/node_modules/resolve/test/resolver/baz/package.json", `{"name":"baz","version":"1.0.0"}`),
+			regularFile("app/node_modules/resolve/test/resolver/baz/quux.js", "fixture"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(filesetOf(filesets, EcosystemJavaScript, "baz", "1.0.0")).To(BeNil())
+
+		resolve := filesetOf(filesets, EcosystemJavaScript, "resolve", "1.22.8")
+		Expect(resolve).NotTo(BeNil())
+		Expect(resolve.Files).To(HaveKey("/app/node_modules/resolve/test/resolver/baz/quux.js"))
+	})
+
+	It("tells a nested package tree from a directory whose name merely ends the same way", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("app/node_modules/webpack/package.json", `{"name":"webpack","version":"5.95.0"}`),
+			regularFile("app/node_modules/webpack/lib/my_node_modules/plugin.js", "plugin"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		webpack := filesetOf(filesets, EcosystemJavaScript, "webpack", "5.95.0")
+		Expect(webpack).NotTo(BeNil())
+		Expect(webpack.Files).To(HaveKey("/app/node_modules/webpack/lib/my_node_modules/plugin.js"))
 	})
 
 	It("keeps a package.json that belongs to no package tree out of the filesets", func(ctx SpecContext) {
@@ -82,6 +121,7 @@ var _ = Describe("CollectFilesets, JavaScript", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		semver := filesetOf(filesets, EcosystemJavaScript, "semver", "7.6.3")
+		Expect(semver).NotTo(BeNil())
 		Expect(semver.Symlinks).To(HaveKeyWithValue("/app/node_modules/semver/bin/semver", "../index.js"))
 	})
 
@@ -95,6 +135,6 @@ var _ = Describe("CollectFilesets, JavaScript", func() {
 		filesets, err := CollectFilesets(ctx, img)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(filesets).To(BeEmpty())
+		Expect(filesets.Filesets).To(BeEmpty())
 	})
 })

@@ -57,7 +57,6 @@ func luaFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 			Ecosystem: EcosystemLua,
 			Name:      name,
 			Version:   version,
-			Root:      rockDir,
 			Files:     files,
 			Symlinks:  symlinks,
 		})
@@ -83,7 +82,9 @@ func manifestEntryPaths(prefix string, entry any) []string {
 }
 
 // luarocksTree splits a rock directory into the prefix the install roots hang off and the
-// Lua version whose tree the rock was installed into: one image can carry several.
+// Lua version whose tree the rock was installed into: one image can carry several. The
+// unversioned tree LuaRocks 2 wrote keeps the Lua version in its config instead, and is
+// not read.
 func luarocksTree(rockDir string) (string, string, bool) {
 	marker := "/lib/luarocks/rocks-"
 
@@ -211,18 +212,29 @@ func parseLuaKey(text string) (string, int, bool) {
 	return text[:end], end, true
 }
 
+// parseLuaString reads a string the way luarocks writes one: %q-quoted, so a quote, a
+// backslash and a newline inside it come escaped.
 func parseLuaString(text string) (string, int, bool) {
 	if len(text) == 0 || (text[0] != '"' && text[0] != '\'') {
 		return "", 0, false
 	}
 
 	quote := text[0]
+
+	var value strings.Builder
 	for position := 1; position < len(text); position++ {
 		switch text[position] {
 		case '\\':
 			position++
+			if position >= len(text) {
+				return "", 0, false
+			}
+
+			value.WriteByte(text[position])
 		case quote:
-			return text[1:position], position + 1, true
+			return value.String(), position + 1, true
+		default:
+			value.WriteByte(text[position])
 		}
 	}
 

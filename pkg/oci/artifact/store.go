@@ -21,7 +21,7 @@ import (
 // Store is the artifact-store surface consumed by build steps (mockable subset
 // of OCIStore).
 type Store interface {
-	GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error)
+	GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string, opts GetAttachedOptions) (v1.Descriptor, bool, error)
 }
 
 // OCIStore manages OCI artifacts attached to container images.
@@ -144,12 +144,12 @@ func (s *OCIStore) artifactAnnotations(checksum, targetPlatform, predicateType s
 // tuple. Entries annotated with one of predicateTypes are preferred; an annotation-less
 // legacy entry is returned only when no annotated entry matches, and its kind must be
 // verified from its content by the caller (see PredicateTypeAnnotation).
-func (s *OCIStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error) {
-	return GetAttached(ctx, s.repo, parentDigest, artifactType, s.imageName, predicateTypes, s.remoteOptions(ctx)...)
+func (s *OCIStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string, opts GetAttachedOptions) (v1.Descriptor, bool, error) {
+	return GetAttached(ctx, s.repo, parentDigest, artifactType, s.imageName, predicateTypes, opts, s.remoteOptions(ctx)...)
 }
 
-func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) ([]byte, error) {
-	desc, found, err := s.GetAttached(ctx, parentDigest, artifactType, predicateTypes)
+func (s *OCIStore) GetAttachedContent(ctx context.Context, parentDigest, artifactType string, predicateTypes []string, opts GetAttachedOptions) ([]byte, error) {
+	desc, found, err := s.GetAttached(ctx, parentDigest, artifactType, predicateTypes, opts)
 	if err != nil {
 		return nil, fmt.Errorf("get attached artifact: %w", err)
 	}
@@ -174,7 +174,7 @@ func (s *OCIStore) GetAttachedLegacy(ctx context.Context, parentDigest, artifact
 		return v1.Descriptor{}, false, fmt.Errorf("read fallback index manifest: %w", err)
 	}
 
-	for _, desc := range matchDescriptors(im, artifactType, s.imageName, nil) {
+	for _, desc := range matchDescriptors(im, artifactType, s.imageName, nil, false) {
 		if desc.Annotations[PredicateTypeAnnotation] == "" {
 			return desc, true, nil
 		}

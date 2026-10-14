@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("stage lookup", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(desc).NotTo(gomega.BeNil())
 
-		_, found, err := artifact.NewOCIStore(destination.RepoAddress, "app").GetAttached(ctx, desc.Info.GetDigest(), artifactType, nil)
+		_, found, err := artifact.NewOCIStore(destination.RepoAddress, "app").GetAttached(ctx, desc.Info.GetDigest(), artifactType, nil, artifact.GetAttachedOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(found).To(gomega.BeTrue())
 	})

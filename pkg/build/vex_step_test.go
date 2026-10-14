@@ -8,6 +8,7 @@ import (
 
 	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/oci/artifact"
 	"github.com/werf/werf/v3/pkg/vex"
 	"github.com/werf/werf/v3/test/mock"
 )
@@ -25,7 +26,7 @@ var _ = Describe("VexStep", func() {
 			defer ctrl.Finish()
 
 			mockStore := mock.NewMockStore(ctrl)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{
 					Annotations: map[string]string{
 						image.WerfChecksumAnnotation: matchingChecksum,
@@ -43,10 +44,10 @@ var _ = Describe("VexStep", func() {
 			defer ctrl.Finish()
 
 			mockStore := mock.NewMockStore(ctrl)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{}, false, nil,
 			)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{
 					Annotations: map[string]string{
 						image.WerfChecksumAnnotation: matchingChecksum,
@@ -64,10 +65,10 @@ var _ = Describe("VexStep", func() {
 			defer ctrl.Finish()
 
 			mockStore := mock.NewMockStore(ctrl)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{}, false, nil,
 			)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{
 					Annotations: map[string]string{
 						image.WerfChecksumAnnotation: differentChecksum,
@@ -85,10 +86,10 @@ var _ = Describe("VexStep", func() {
 			defer ctrl.Finish()
 
 			mockStore := mock.NewMockStore(ctrl)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{}, false, nil,
 			)
-			mockStore.EXPECT().GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes).Return(
+			mockStore.EXPECT().GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{}).Return(
 				v1.Descriptor{}, false, nil,
 			)
 

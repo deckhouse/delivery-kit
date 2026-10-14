@@ -150,7 +150,7 @@ var _ = Describe("reading an attestation kind", func() {
 
 		Entry("cyclonedx: user attestation beside an unsigned build, short name returns the user's", PredicateKindCycloneDX, "werf-unsigned+user-signed", "cyclonedx", userOwn),
 		Entry("cyclonedx: user attestation beside an unsigned build, unsigned URI returns werf's", PredicateKindCycloneDX, "werf-unsigned+user-signed", PredicateKindCycloneDX.UnsignedType, werfOwn),
-		Entry("cyclonedx: user attestation beside a signed build, short name returns werf's", PredicateKindCycloneDX, "werf-signed+user-signed", "cyclonedx", werfOwn),
+		Entry("cyclonedx: user attestation beside a signed build, short name returns the user's", PredicateKindCycloneDX, "werf-signed+user-signed", "cyclonedx", userOwn),
 
 		Entry("cyclonedx: legacy annotation-less entry, unsigned URI returns it", PredicateKindCycloneDX, "legacy", PredicateKindCycloneDX.UnsignedType, werfOwn),
 
@@ -162,7 +162,8 @@ var _ = Describe("reading an attestation kind", func() {
 		Entry("openvex: legacy annotation-less entry", PredicateKindOpenVEX, "legacy", "openvex", werfOwn),
 
 		Entry("cyclonedx: a build does not replace what the user signed under the short name", PredicateKindCycloneDX, "user-signed-short-name+werf-build-unsigned", "cyclonedx", userOwn),
-		Entry("openvex: a build replaces what the user signed under the short name, which shares its slot", PredicateKindOpenVEX, "user-signed-short-name+werf-build-unsigned", "openvex", werfOwn),
+		Entry("openvex: a build does not replace what the user signed under the short name", PredicateKindOpenVEX, "user-signed-short-name+werf-build-unsigned", "openvex", userOwn),
+		Entry("openvex: a second attest sign replaces the first instead of piling up", PredicateKindOpenVEX, "user-signed-short-name+user-signed-short-name+werf-build-unsigned", "openvex", userOwn),
 		Entry("openvex: a build does not replace what the user signed under the unversioned URI", PredicateKindOpenVEX, "user-signed+werf-build-unsigned", PredicateKindOpenVEX.SignedType, userOwn),
 	)
 
@@ -185,7 +186,7 @@ var _ = Describe("reading an attestation kind", func() {
 		Entry("cyclonedx: signed build verifies", PredicateKindCycloneDX, "werf-signed", "cyclonedx", werfOwn),
 		Entry("cyclonedx: user attestation alone verifies", PredicateKindCycloneDX, "user-signed", "cyclonedx", userOwn),
 		Entry("cyclonedx: user attestation beside an unsigned build verifies", PredicateKindCycloneDX, "werf-unsigned+user-signed", "cyclonedx", userOwn),
-		Entry("cyclonedx: user attestation beside a signed build verifies werf's", PredicateKindCycloneDX, "werf-signed+user-signed", "cyclonedx", werfOwn),
+		Entry("cyclonedx: user attestation beside a signed build verifies the user's", PredicateKindCycloneDX, "werf-signed+user-signed", "cyclonedx", userOwn),
 
 		Entry("openvex: unsigned build keeps the rebuild hint", PredicateKindOpenVEX, "werf-unsigned", "openvex", unsigned),
 		Entry("openvex: signed build verifies", PredicateKindOpenVEX, "werf-signed", "openvex", werfOwn),

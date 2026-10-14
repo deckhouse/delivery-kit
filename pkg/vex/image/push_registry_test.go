@@ -59,7 +59,7 @@ var _ = Describe("PushVEX against a registry", func() {
 		Expect(veximage.PushVEX(ctx, vexJSON, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		desc, found, err := store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes)
+		desc, found, err := store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 		Expect(desc.ArtifactType).To(Equal(vex.DSSEMediaType))
@@ -80,7 +80,7 @@ var _ = Describe("PushVEX against a registry", func() {
 
 		store := artifact.NewOCIStore(repo, imageName)
 
-		desc, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes)
+		desc, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 		Expect(desc.Annotations[artifact.PredicateTypeAnnotation]).To(Equal(vex.VEXPredicateURIUnversioned))
@@ -91,7 +91,7 @@ var _ = Describe("PushVEX against a registry", func() {
 		Expect(err).To(Succeed())
 		Expect(attestation.HasSignatures(envelopeJSON)).To(BeTrue())
 
-		_, found, err = store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes)
+		_, found, err = store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeFalse())
 	})
@@ -101,11 +101,11 @@ var _ = Describe("PushVEX against a registry", func() {
 		Expect(veximage.PushVEX(ctx, vexJSON, repo, parentDigest, imageName, "checksum-v3", "", nil)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes)
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeFalse())
 
-		desc, found, err := store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes)
+		desc, found, err := store.GetAttached(ctx, parentDigest, vex.DSSEMediaType, vex.VEXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 		Expect(desc.Annotations[artifact.PredicateTypeAnnotation]).To(Equal(vex.VEXPredicateURI))

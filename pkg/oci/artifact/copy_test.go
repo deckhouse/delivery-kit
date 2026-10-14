@@ -100,7 +100,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 		dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-		content, err := dstStore.GetAttachedContent(ctx, srcDigest, artifactType, nil)
+		content, err := dstStore.GetAttachedContent(ctx, srcDigest, artifactType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 
@@ -120,7 +120,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, dstDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 		dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-		content, err := dstStore.GetAttachedContent(ctx, dstDigest, artifactType, nil)
+		content, err := dstStore.GetAttachedContent(ctx, dstDigest, artifactType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})
@@ -149,12 +149,12 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 		Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 		dstStoreA := artifact.NewOCIStore(dstRepo, "app-a", remoteOpts...)
-		contentA, err := dstStoreA.GetAttachedContent(ctx, srcDigest, artifactType, nil)
+		contentA, err := dstStoreA.GetAttachedContent(ctx, srcDigest, artifactType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(contentA).To(MatchJSON(`{"app":"a"}`))
 
 		dstStoreB := artifact.NewOCIStore(dstRepo, "app-b", remoteOpts...)
-		contentB, err := dstStoreB.GetAttachedContent(ctx, srcDigest, artifactType, nil)
+		contentB, err := dstStoreB.GetAttachedContent(ctx, srcDigest, artifactType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(contentB).To(MatchJSON(`{"app":"b"}`))
 	})
@@ -224,11 +224,11 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
-			content, err := dstStore.GetAttachedContent(ctx, srcDigest, dsseArtifactType, []string{signedPredicate})
+			content, err := dstStore.GetAttachedContent(ctx, srcDigest, dsseArtifactType, []string{signedPredicate}, artifact.GetAttachedOptions{})
 			Expect(err).To(Succeed())
 			Expect(content).To(MatchJSON(`{"v":"user"}`))
 
-			copied, err := dstStore.GetAttachedContent(ctx, srcDigest, bundleArtifactType, []string{signedPredicate})
+			copied, err := dstStore.GetAttachedContent(ctx, srcDigest, bundleArtifactType, []string{signedPredicate}, artifact.GetAttachedOptions{})
 			Expect(err).To(Succeed())
 			Expect(copied).To(MatchJSON(`{"v":"signed"}`))
 		})
@@ -243,7 +243,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 
 			Expect(artifact.CopyAttachedArtifacts(ctx, srcRepo, srcDigest, dstRepo, srcDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
-			content, err := otherStore.GetAttachedContent(ctx, srcDigest, bundleArtifactType, []string{signedPredicate})
+			content, err := otherStore.GetAttachedContent(ctx, srcDigest, bundleArtifactType, []string{signedPredicate}, artifact.GetAttachedOptions{})
 			Expect(err).To(Succeed())
 			Expect(content).To(MatchJSON(`{"v":"signed"}`))
 		})
@@ -353,12 +353,12 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-			content, err := dstStore.GetAttachedContent(ctx, indexDigest, artifactType, nil)
+			content, err := dstStore.GetAttachedContent(ctx, indexDigest, artifactType, nil, artifact.GetAttachedOptions{})
 			Expect(err).To(Succeed())
 			Expect(content).To(MatchJSON(`{"scope":"image"}`))
 
 			for i, child := range children {
-				childContent, err := dstStore.GetAttachedContent(ctx, child, artifactType, nil)
+				childContent, err := dstStore.GetAttachedContent(ctx, child, artifactType, nil, artifact.GetAttachedOptions{})
 				Expect(err).To(Succeed())
 				Expect(childContent).To(MatchJSON(fmt.Sprintf(`{"scope":"platform-%d"}`, i)))
 			}
@@ -402,7 +402,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 				Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 				dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-				content, err := dstStore.GetAttachedContent(ctx, childDigest.String(), artifactType, nil)
+				content, err := dstStore.GetAttachedContent(ctx, childDigest.String(), artifactType, nil, artifact.GetAttachedOptions{})
 				Expect(err).To(Succeed())
 				Expect(content).To(MatchJSON(`{"scope":"child"}`))
 			},
@@ -433,7 +433,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			Expect(artifact.CopyAllAttachedArtifacts(ctx, srcRepo, indexDigest, dstRepo, indexDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil)
+			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil, artifact.GetAttachedOptions{})
 			Expect(err).To(Succeed())
 			Expect(content).To(MatchJSON(`{"scope":"leaf"}`))
 		})
@@ -484,7 +484,7 @@ var _ = Describe("CopyAttachedArtifacts (integration)", func() {
 			Expect(artifact.CopyAllAttachedArtifacts(ctx, failingSrcRepo, indexDigest, dstRepo, indexDigest, attestation.CopySupersededKeys, remoteOpts...)).To(Succeed())
 
 			dstStore := artifact.NewOCIStore(dstRepo, "my-app", remoteOpts...)
-			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil)
+			content, err := dstStore.GetAttachedContent(ctx, leafDigest.String(), artifactType, nil, artifact.GetAttachedOptions{})
 			Expect(err).To(Succeed())
 			Expect(content).To(MatchJSON(`{"scope":"leaf"}`), "a nested index the source no longer holds must not cancel the artifacts of its siblings")
 		})

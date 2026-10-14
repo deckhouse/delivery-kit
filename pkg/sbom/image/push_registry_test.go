@@ -60,7 +60,7 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v2", "", signer)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		_, found, err := store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType, sbomimage.CycloneDXPredicateTypes)
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.DSSEMediaType, sbomimage.CycloneDXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeFalse())
 
@@ -74,7 +74,7 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v2", "", nil)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, sbomimage.CycloneDXPredicateTypes)
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, sbomimage.CycloneDXPredicateTypes, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeFalse())
 
@@ -95,7 +95,7 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(sbomimage.PushSBOM(ctx, signedBOM, repo, parentDigest, imageName, "checksum-v1", "", signer)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		envelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType})
+		envelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType}, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		predicate, err := sbomimage.PullCycloneDX16BOMContent(ctx, envelope)
 		Expect(err).To(Succeed())
@@ -113,7 +113,7 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		userEnvelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType})
+		userEnvelope, err := store.GetAttachedContent(ctx, parentDigest, attestation.DSSEMediaType, []string{attestation.PredicateKindCycloneDX.SignedType}, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		userStored, err := sbomimage.PullCycloneDX16BOMContent(ctx, userEnvelope)
 		Expect(err).To(Succeed())
@@ -174,7 +174,7 @@ var _ = Describe("PushSBOM against a registry", func() {
 		Expect(sbomimage.PushSBOM(ctx, unsignedBOM, repo, parentDigest, imageName, "checksum-v1", "", nil)).To(Succeed())
 
 		store := artifact.NewOCIStore(repo, imageName)
-		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, attestation.PredicateKindOpenVEX.Types())
+		_, found, err := store.GetAttached(ctx, parentDigest, attestation.BundleMediaType, attestation.PredicateKindOpenVEX.Types(), artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(found).To(BeTrue())
 	})

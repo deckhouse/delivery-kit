@@ -132,7 +132,7 @@ func verifyPlatformAttestation(ctx context.Context, store *artifact.OCIStore, di
 }
 
 func verifyPlatformAttestationOfType(ctx context.Context, store *artifact.OCIStore, digest, resolvedType, lookupType string, verifiers []signature.Verifier) (PlatformVerifyStatus, error) {
-	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, []string{lookupType})
+	envelopeJSON, err := PullAttestationEnvelope(ctx, store, digest, []string{lookupType}, PullAttestationEnvelopeOptions{PreferUserOwned: true})
 	if err != nil {
 		if errors.Is(err, artifact.ErrNotFound) {
 			return PlatformVerifyStatusMissing, fmt.Errorf("no attestation found for digest %s: %w", digest, err)

@@ -160,7 +160,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 					Expect(found).To(Equal(!check), repo)
 				}
 			} else {
-				content, err := store.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
+				content, err := store.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil, artifact.GetAttachedOptions{})
 				if check {
 					Expect(errors.Is(err, artifact.ErrNotFound)).To(BeTrue())
 					Expect(content).To(BeEmpty())
@@ -179,7 +179,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, PropagateArtifactsOptions{FinalRepo: finalRepo, FinalDigest: srcDigest})).To(Succeed())
 
 		finalStore := artifact.NewOCIStore(finalRepo, "app", remoteOpts...)
-		content, err := finalStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
+		content, err := finalStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})
@@ -196,7 +196,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		Expect(step.PropagateArtifacts(ctx, "app", srcRepo, srcDigest, PropagateArtifactsOptions{CacheStagesStorageList: caches})).To(Succeed())
 
 		cacheStore := artifact.NewOCIStore(cacheRepo, "app", remoteOpts...)
-		content, err := cacheStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil)
+		content, err := cacheStore.GetAttachedContent(ctx, srcDigest, attestation.DSSEMediaType, nil, artifact.GetAttachedOptions{})
 		Expect(err).To(Succeed())
 		Expect(content).To(MatchJSON(`{"v":1}`))
 	})

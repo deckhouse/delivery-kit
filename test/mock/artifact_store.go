@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	artifact "github.com/werf/werf/v3/pkg/oci/artifact"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -42,9 +43,9 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 }
 
 // GetAttached mocks base method.
-func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string) (v1.Descriptor, bool, error) {
+func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType string, predicateTypes []string, opts artifact.GetAttachedOptions) (v1.Descriptor, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAttached", ctx, parentDigest, artifactType, predicateTypes)
+	ret := m.ctrl.Call(m, "GetAttached", ctx, parentDigest, artifactType, predicateTypes, opts)
 	ret0, _ := ret[0].(v1.Descriptor)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -52,7 +53,7 @@ func (m *MockStore) GetAttached(ctx context.Context, parentDigest, artifactType 
 }
 
 // GetAttached indicates an expected call of GetAttached.
-func (mr *MockStoreMockRecorder) GetAttached(ctx, parentDigest, artifactType, predicateTypes any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetAttached(ctx, parentDigest, artifactType, predicateTypes, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttached", reflect.TypeOf((*MockStore)(nil).GetAttached), ctx, parentDigest, artifactType, predicateTypes)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAttached", reflect.TypeOf((*MockStore)(nil).GetAttached), ctx, parentDigest, artifactType, predicateTypes, opts)
 }

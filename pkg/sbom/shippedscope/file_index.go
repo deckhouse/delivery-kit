@@ -31,6 +31,15 @@ type FileIndex struct {
 	Symlinks map[string]string
 }
 
+// IndexImageFiles records what the image ships: every regular file by rooted path, with
+// the digest of its content, and every symlink with its target exactly as the image spells
+// it — possibly relative, possibly dangling.
+//
+// A path two layers spell differently ("/a" and "a") is one entry here, holding what the
+// topmost layer put there. A hardlink carries the content its own layer gives the target,
+// which is what the running image sees even once an upper layer replaces or removes that
+// target. A link no layer can resolve is left out and reported, so treat a path missing
+// from the index as "not proven present" rather than "proven absent".
 func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 	index := &FileIndex{
 		Files:    make(map[string]File),
@@ -86,9 +95,107 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 		return nil, fmt.Errorf("read image filesystem: %w", err)
 	}
 
-	resolveHardlinks(ctx, index, hardlinks)
+	remaining, err := resolveHardlinksWithinLayers(ctx, img, index, hardlinks)
+	if err != nil {
+		return nil, err
+	}
+
+	resolveHardlinks(ctx, index, remaining)
 
 	return index, nil
+}
+
+// A layer tar spells a hardlink as a regular file plus a link entry beside it, so the bytes
+// it names are the ones its own layer holds. Extract flattens that boundary away, and a
+// lookup in the flattened index would credit the link with whatever an upper layer later
+// wrote to the same path. Reading the layers again costs about a hundredth of what hashing
+// the image does, since only the few paths a hardlink names are hashed here.
+func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *FileIndex, hardlinks map[string]string) (map[string]string, error) {
+	if len(hardlinks) == 0 {
+		return hardlinks, nil
+	}
+
+	targets := make(map[string]bool, len(hardlinks))
+	remaining := make(map[string]string, len(hardlinks))
+	for name, target := range hardlinks {
+		remaining[name] = target
+		targets[target] = true
+	}
+
+	layers, err := img.Layers()
+	if err != nil {
+		return nil, fmt.Errorf("read image layers: %w", err)
+	}
+
+	settled := make(map[string]bool, len(hardlinks))
+	for i := len(layers) - 1; i >= 0 && len(settled) < len(hardlinks); i-- {
+		if err := resolveHardlinksInLayer(ctx, layers[i], index, remaining, targets, settled); err != nil {
+			return nil, err
+		}
+	}
+
+	return remaining, nil
+}
+
+func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileIndex, remaining map[string]string, targets, settled map[string]bool) error {
+	contents, err := layer.Uncompressed()
+	if err != nil {
+		return fmt.Errorf("read layer contents: %w", err)
+	}
+	defer contents.Close()
+
+	candidates := make(map[string]File)
+
+	reader := tar.NewReader(contents)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read layer contents: %w", err)
+		}
+
+		name := rootedPath(header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeReg:
+			if !targets[name] {
+				continue
+			}
+
+			hasher := sha256.New()
+			if _, err := io.Copy(hasher, reader); err != nil {
+				return fmt.Errorf("hash %q: %w", name, err)
+			}
+
+			candidates[name] = File{
+				Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
+				Size:   header.Size,
+			}
+		case tar.TypeLink:
+			target, ok := remaining[name]
+			if !ok || settled[name] {
+				continue
+			}
+
+			// The topmost layer holding the link owns it, whether or not its target is
+			// there; a lower layer's answer would describe a path this one replaced.
+			settled[name] = true
+
+			file, ok := candidates[target]
+			if !ok {
+				continue
+			}
+
+			index.Files[name] = file
+			delete(remaining, name)
+		}
+	}
 }
 
 // Extract emits the topmost layer first, so the first entry seen for a path is the one
@@ -106,9 +213,9 @@ func indexed(index *FileIndex, hardlinks map[string]string, name string) bool {
 	return ok
 }
 
-// A hardlink carries no content of its own and may precede its target, point at another
-// hardlink, or outlive a target a later layer whited out. The first two are resolved here;
-// the third leaves content that is in the image but whose digest it no longer records.
+// Links whose own layer could not answer: the target is a symlink, another hardlink, or an
+// entry a later layer whited out. The first two resolve against the flattened view, the
+// third leaves content that is in the image but whose digest no layer still records.
 func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[string]string) {
 	var unresolved int
 
@@ -129,7 +236,7 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 			next, ok := hardlinks[target]
 			if !ok || visited[target] {
 				unresolved++
-				logboek.Context(ctx).Debug().LogF("hardlink %q points to %q, which the image filesystem does not contain\n", name, target)
+				logboek.Context(ctx).Debug().LogF("hardlink %q could not be resolved to the content of %q\n", name, target)
 				break
 			}
 
@@ -139,7 +246,7 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 	}
 
 	if unresolved > 0 {
-		logboek.Context(ctx).Warn().LogF("WARNING: %d hardlinks point outside the image filesystem and are left out of the file index\n", unresolved)
+		logboek.Context(ctx).Warn().LogF("WARNING: %d hardlinks could not be resolved to content and are left out of the file index\n", unresolved)
 	}
 }
 

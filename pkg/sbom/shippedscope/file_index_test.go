@@ -70,7 +70,53 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(index.Files).To(HaveKey("/opt/keep.txt"))
 	})
 
-	It("gives a hardlink the digest of its target, including across layers", func(ctx SpecContext) {
+	It("keeps a hardlink on the content of its own layer when a later layer rewrites the target", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{regularFile("bin/busybox", "old"), hardlink("bin/sh", "bin/busybox")},
+			[]tarEntry{regularFile("bin/busybox", "new")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files["/bin/busybox"].Digest).To(Equal(digestOf("new")))
+		Expect(index.Files["/bin/sh"].Digest).To(Equal(digestOf("old")))
+	})
+
+	It("takes the topmost hardlink when both layers link the same path to the same target", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{regularFile("bin/busybox", "old"), hardlink("bin/sh", "bin/busybox")},
+			[]tarEntry{regularFile("bin/busybox", "new"), hardlink("bin/sh", "bin/busybox")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files["/bin/sh"].Digest).To(Equal(digestOf("new")))
+	})
+
+	It("does not let a lower layer answer for a hardlink a higher layer owns", func(ctx SpecContext) {
+		img, err := imageOf(
+			[]tarEntry{
+				regularFile("bin/busybox", "old"),
+				hardlink("bin/sh", "bin/busybox"),
+				hardlink("bin/awk", "bin/busybox"),
+			},
+			[]tarEntry{regularFile("bin/busybox", "new")},
+			[]tarEntry{hardlink("bin/sh", "bin/busybox")},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files["/bin/awk"].Digest).To(Equal(digestOf("old")))
+		Expect(index.Files["/bin/sh"].Digest).To(Equal(digestOf("new")))
+	})
+
+	It("falls back to the flattened view for a hardlink whose own layer lacks the target", func(ctx SpecContext) {
 		img, err := imageOf(
 			[]tarEntry{regularFile("usr/bin/origin", "shared")},
 			[]tarEntry{hardlink("usr/bin/alias", "usr/bin/origin")},
@@ -193,7 +239,7 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(index.Files).NotTo(HaveKey("/opt/app"))
 	})
 
-	It("leaves a hardlink whose target the image does not contain out of the index instead of failing", func(ctx SpecContext) {
+	It("keeps a hardlink whose target a later layer whited out, since its own layer holds the bytes", func(ctx SpecContext) {
 		img, err := imageOf(
 			[]tarEntry{regularFile("usr/bin/origin", "shared"), hardlink("usr/bin/alias", "usr/bin/origin")},
 			[]tarEntry{whiteout("usr/bin/.wh.origin")},
@@ -203,7 +249,18 @@ var _ = Describe("IndexImageFiles", func() {
 		index, err := IndexImageFiles(ctx, img)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(index.Files).NotTo(HaveKey("/usr/bin/alias"))
+		Expect(index.Files).NotTo(HaveKey("/usr/bin/origin"))
+		Expect(index.Files["/usr/bin/alias"].Digest).To(Equal(digestOf("shared")))
+	})
+
+	It("leaves a hardlink no layer can resolve out of the index instead of failing", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{hardlink("usr/bin/alias", "usr/bin/absent")})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files).To(BeEmpty())
 	})
 
 	It("gives up on hardlinks that point at each other", func(ctx SpecContext) {
@@ -213,19 +270,11 @@ var _ = Describe("IndexImageFiles", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		done := make(chan *FileIndex, 1)
-		go func() {
-			defer GinkgoRecover()
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
 
-			index, err := IndexImageFiles(ctx, img)
-			Expect(err).NotTo(HaveOccurred())
-			done <- index
-		}()
-
-		var index *FileIndex
-		Eventually(done).WithTimeout(time.Minute).Should(Receive(&index))
 		Expect(index.Files).To(BeEmpty())
-	})
+	}, SpecTimeout(time.Minute))
 
 	It("reports an image it cannot read instead of returning a partial index", func(ctx SpecContext) {
 		img, err := imageOf([]tarEntry{

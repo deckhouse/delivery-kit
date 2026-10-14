@@ -99,7 +99,7 @@ func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[strin
 
 func formatLockGuard(files FileBasedSpec) string {
 	return fmt.Sprintf(
-		`test -f %q || { echo %s >&2; exit 1; }`,
+		`{ test -f %q || { echo %s >&2; exit 1; }; }`,
 		files.Lock,
 		shellescape.Quote(fmt.Sprintf("lock file %s not found in %s; the packages stage installs only what the lock pins, commit it", files.Lock, files.Workdir)),
 	)

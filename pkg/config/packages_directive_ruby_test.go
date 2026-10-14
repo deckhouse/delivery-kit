@@ -163,7 +163,7 @@ var _ = Describe("ruby install commands", func() {
 		cmds := GeneratePackagesCommands([]*PackagesDirective{
 			{Type: PackagesDirectiveTypeRubyBundler, FileBased: FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"}},
 		})
-		Expect(cmds).To(Equal([]string{`cd "/app" && test -f "Gemfile.lock" || { echo 'lock file Gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; } && BUNDLE_FROZEN=true bundle install`}))
+		Expect(cmds).To(Equal([]string{`cd "/app" && { test -f "Gemfile.lock" || { echo 'lock file Gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && BUNDLE_FROZEN=true bundle install`}))
 	})
 
 	It("lets the directive env override the frozen default", func() {

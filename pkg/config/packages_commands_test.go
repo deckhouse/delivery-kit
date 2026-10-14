@@ -702,4 +702,18 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 		Expect(string(stdout)).To(BeEmpty())
 		Expect(stderr.String()).To(Equal("lock file poetry.lock not found in " + dir + "; the packages stage installs only what the lock pins, commit it\n"))
 	})
+
+	It("reports a missing workdir as such, not as a missing lock", func(ctx SpecContext) {
+		dir := filepath.Join(GinkgoT().TempDir(), "absent")
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil)
+
+		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		stdout, err := cmd.Output()
+		Expect(err).To(HaveOccurred())
+		Expect(string(stdout)).To(BeEmpty())
+		Expect(stderr.String()).To(ContainSubstring("No such file or directory"))
+		Expect(stderr.String()).NotTo(ContainSubstring("lock file"))
+	})
 })

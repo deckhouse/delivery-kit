@@ -343,11 +343,11 @@ var _ = Describe("GeneratePackagesCommands invocations", func() {
 
 		Entry("ruby-bundler /app produces a frozen bundle install", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRubyBundler, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "Gemfile", Lock: "Gemfile.lock"}},
-		}, []string{"cd \"/app\" && test -f \"Gemfile.lock\" || { echo 'lock file Gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; } && BUNDLE_FROZEN=true bundle install"}),
+		}, []string{"cd \"/app\" && { test -f \"Gemfile.lock\" || { echo 'lock file Gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && BUNDLE_FROZEN=true bundle install"}),
 
 		Entry("ruby-bundler with a non-default Gemfile passes it as BUNDLE_GEMFILE", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRubyBundler, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "gemfiles/rails7.gemfile", Lock: "gemfiles/rails7.gemfile.lock"}},
-		}, []string{"cd \"/app\" && test -f \"gemfiles/rails7.gemfile.lock\" || { echo 'lock file gemfiles/rails7.gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; } && BUNDLE_FROZEN=true BUNDLE_GEMFILE=gemfiles/rails7.gemfile bundle install"}),
+		}, []string{"cd \"/app\" && { test -f \"gemfiles/rails7.gemfile.lock\" || { echo 'lock file gemfiles/rails7.gemfile.lock not found in /app; the packages stage installs only what the lock pins, commit it' >&2; exit 1; }; } && BUNDLE_FROZEN=true BUNDLE_GEMFILE=gemfiles/rails7.gemfile bundle install"}),
 
 		Entry("ruby-gemspec /app produces gem build and gem install", []*config.PackagesDirective{
 			{Type: config.PackagesDirectiveTypeRubyGemspec, FileBased: config.FileBasedSpec{Workdir: "/app", Spec: "app.gemspec"}},

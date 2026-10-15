@@ -1,5 +1,32 @@
 # Changelog
 
+## [3.10.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.9.0-dk.1...v3.10.0-dk.1) (2026-10-15)
+
+
+### Features
+
+* **build:** fetch only the pinned commit of a submodule missing locally ([#8070](https://github.com/deckhouse/delivery-kit/issues/8070)) ([dae2c2d](https://github.com/deckhouse/delivery-kit/commit/dae2c2d2cf6ec0aacc9b4c3f98ab52ec0fe2bb22))
+* **deploy:** own Helm-compatible release storage with streamed reads ([#8061](https://github.com/deckhouse/delivery-kit/issues/8061)) ([367a712](https://github.com/deckhouse/delivery-kit/commit/367a7128fa52f3e7a8133d64b14fea17f7515e0f))
+* **sbom:** index the files an image actually ships ([#433](https://github.com/deckhouse/delivery-kit/issues/433)) ([42f5d0a](https://github.com/deckhouse/delivery-kit/commit/42f5d0aacdf6480100ec4c47cc233d5b8859f0da))
+
+
+### Bug Fixes
+
+* **build, stapel:** recover interrupted file imports ([#8074](https://github.com/deckhouse/delivery-kit/issues/8074)) ([079791d](https://github.com/deckhouse/delivery-kit/commit/079791d0bd52fd165fd9c6dfbca315f8e1d4b33c))
+* **build:** show git preparation in operations statistics ([#8068](https://github.com/deckhouse/delivery-kit/issues/8068)) ([b2cd0c4](https://github.com/deckhouse/delivery-kit/commit/b2cd0c40d7792460cb7111824189622e06b9ff79))
+* **build:** skip cached stages with invalid image config sizes ([#8065](https://github.com/deckhouse/delivery-kit/issues/8065)) ([2f01f58](https://github.com/deckhouse/delivery-kit/commit/2f01f583b50087099047b86a399fb14f74f6e5fc))
+* **build:** stop a lost task log from racing the live output of parallel tasks ([#437](https://github.com/deckhouse/delivery-kit/issues/437)) ([236b3b8](https://github.com/deckhouse/delivery-kit/commit/236b3b896338d33d62658e172a6236a419475d95))
+* **cleanup:** speed up and report metadata migration progress ([#8078](https://github.com/deckhouse/delivery-kit/issues/8078)) ([eb94043](https://github.com/deckhouse/delivery-kit/commit/eb94043eb0ca1282c1b8476f7a96d509541a017b))
+* **sbom, vex, attest:** stop a stale signed attestation from shadowing later unsigned builds ([#421](https://github.com/deckhouse/delivery-kit/issues/421)) ([6c93b13](https://github.com/deckhouse/delivery-kit/commit/6c93b138b5fe3e4ba7df65cf8e58d9b59d72a437))
+* **sbom:** keep package installs on the manager, interpreter and lock the entry pins ([#434](https://github.com/deckhouse/delivery-kit/issues/434)) ([a3f3bf2](https://github.com/deckhouse/delivery-kit/commit/a3f3bf21d85cbd1c44ec64352309ed11187cb069))
+* **sbom:** keep the file locations of both duplicates when merging components ([#427](https://github.com/deckhouse/delivery-kit/issues/427)) ([183a421](https://github.com/deckhouse/delivery-kit/commit/183a42147224066d35325b7d4321e0dbd8a3c89e))
+* **sbom:** record os-pm packages pinned with `@` as the attack surface ([#423](https://github.com/deckhouse/delivery-kit/issues/423)) ([3014181](https://github.com/deckhouse/delivery-kit/commit/3014181fd9eb20474820b313720749222f904ac0))
+
+
+### Miscellaneous Chores
+
+* force release 3.10.0-dk.1 ([bb1c12e](https://github.com/deckhouse/delivery-kit/commit/bb1c12edfc20d13be31e8599333dd271b74fdc07))
+
 ## [3.9.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.8.0-dk.2...v3.9.0-dk.1) (2026-10-12)
 
 

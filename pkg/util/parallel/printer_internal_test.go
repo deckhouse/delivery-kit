@@ -52,7 +52,7 @@ var _ = It("Printer removes a task's temp file as soon as its block is printed, 
 		}
 	}
 
-	err := runWorkers(ctx, 1, DoTasksOptions{}, taskFunc, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+	err := runWorkers(ctx, 1, DoTasksOptions{}, taskFunc, func(workerCtx context.Context, worker *Worker, _ *deferredLog, runTask func(taskId int) error) error {
 		w = worker
 		for taskId := 0; taskId < 2; taskId++ {
 			if err := runTask(taskId); err != nil {
@@ -85,7 +85,7 @@ var _ = It("gives a task no temp file at all unless it logs something", func() {
 			logboek.Context(ctx).LogLn("the one task that does log")
 		}
 		return nil
-	}, func(workerCtx context.Context, worker *Worker, runTask func(taskId int) error) error {
+	}, func(workerCtx context.Context, worker *Worker, _ *deferredLog, runTask func(taskId int) error) error {
 		w = worker
 		for taskId := 0; taskId < 32; taskId++ {
 			if err := runTask(taskId); err != nil {

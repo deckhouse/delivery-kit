@@ -3,4 +3,6 @@ configVersion: 1
 ---
 image: dockerfile
 dockerfile: Dockerfile
-network: none
+network: {{ env "WERF_TEST_NETWORK_MODE" | default "none" | quote }}
+args:
+  NETWORK_PROBE_URL: {{ env "WERF_TEST_NETWORK_PROBE_URL" | quote }}

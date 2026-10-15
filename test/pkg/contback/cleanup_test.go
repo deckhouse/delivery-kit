@@ -2,11 +2,13 @@ package contback
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -50,6 +52,114 @@ func TestCleanup(t *testing.T) {
 }
 
 var _ = ginkgo.Describe("Project image cleanup", func() {
+	ginkgo.DescribeTable("bounds Docker removal batches", func(count int, cancelAfterFirst bool, expectedSizes []int) {
+		dir := ginkgo.GinkgoT().TempDir()
+		executable, err := os.Executable()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.GinkgoT().Setenv("CLEANUP_HELPER_BINARY", executable)
+		script, err := os.ReadFile("testdata/cleanup-backend.sh")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), script, 0o700)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("PATH", dir)
+		inventoryPath := filepath.Join(dir, "inventory")
+		ginkgo.GinkgoT().Setenv("CLEANUP_INVENTORY", inventoryPath)
+		var inventory strings.Builder
+		var expected []string
+		for index := 0; index < count; index++ {
+			tag := fmt.Sprintf("%03d", index)
+			gomega.Expect(json.NewEncoder(&inventory).Encode(map[string]string{"ID": "owned-" + tag, "Repository": "werf-test-one", "Tag": tag})).To(gomega.Succeed())
+			expected = append(expected, "werf-test-one:"+tag)
+		}
+		gomega.Expect(os.WriteFile(inventoryPath, []byte(inventory.String()), 0o600)).To(gomega.Succeed())
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var batches [][]string
+		err = cleanupDockerProjectImages(ctx, "werf-test-one", nil, func(_ context.Context, refs []string) error {
+			batches = append(batches, slices.Clone(refs))
+			if cancelAfterFirst {
+				cancel()
+				return nil
+			}
+			return os.WriteFile(inventoryPath, nil, 0o600)
+		})
+		var sizes []int
+		for _, batch := range batches {
+			sizes = append(sizes, len(batch))
+		}
+		gomega.Expect(sizes).To(gomega.Equal(expectedSizes))
+		if cancelAfterFirst {
+			gomega.Expect(errors.Is(err, context.Canceled)).To(gomega.BeTrue())
+			gomega.Expect(slices.Concat(batches...)).To(gomega.Equal(expected[:64]))
+			return
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(slices.Concat(batches...)).To(gomega.Equal(expected))
+	},
+		ginkgo.Entry("empty inventory", 0, false, []int(nil)),
+		ginkgo.Entry("full batch", 64, false, []int{64}),
+		ginkgo.Entry("batch boundary", 65, false, []int{64, 1}),
+		ginkgo.Entry("multiple batches", 129, false, []int{64, 64, 1}),
+		ginkgo.Entry("cancellation between batches", 65, true, []int{64}),
+	)
+	ginkgo.It("rescans a surviving digest after removing its tag without deleting a foreign alias", func() {
+		dir := ginkgo.GinkgoT().TempDir()
+		executable, err := os.Executable()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.GinkgoT().Setenv("CLEANUP_HELPER_BINARY", executable)
+		script, err := os.ReadFile("testdata/cleanup-backend.sh")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), script, 0o700)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("PATH", dir)
+		inventoryPath := filepath.Join(dir, "inventory")
+		ginkgo.GinkgoT().Setenv("CLEANUP_INVENTORY", inventoryPath)
+		tag := "{\"ID\":\"owned\",\"Repository\":\"werf-test-one\",\"Tag\":\"stage\"}\n"
+		digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		ownDigest := "{\"ID\":\"owned\",\"Repository\":\"werf-test-one\",\"Tag\":\"<none>\",\"Digest\":\"" + digest + "\"}\n"
+		foreign := "{\"ID\":\"owned\",\"Repository\":\"foreign\",\"Tag\":\"keep\"}\n"
+		gomega.Expect(os.WriteFile(inventoryPath, []byte(tag+ownDigest+foreign), 0o600)).To(gomega.Succeed())
+		var removed []string
+		err = cleanupDockerProjectImages(context.Background(), "werf-test-one", nil, func(_ context.Context, refs []string) error {
+			gomega.Expect(refs).To(gomega.HaveLen(1))
+			ref := refs[0]
+			removed = append(removed, ref)
+			switch ref {
+			case "werf-test-one:stage":
+				return os.WriteFile(inventoryPath, []byte(ownDigest+foreign), 0o600)
+			case "werf-test-one@" + digest:
+				return os.WriteFile(inventoryPath, []byte(foreign), 0o600)
+			default:
+				return errors.New("attempted to delete a foreign alias")
+			}
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(removed).To(gomega.Equal([]string{"werf-test-one:stage", "werf-test-one@" + digest}))
+		remaining, err := os.ReadFile(inventoryPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(string(remaining)).To(gomega.Equal(foreign))
+	})
+	ginkgo.It("removes tags before digest aliases and keeps digest-only ownership checks", func() {
+		digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		image := cleanupImage{ID: "owned", Names: []string{"werf-test-one:stage", "docker.io/library/werf-test-one@" + digest, "foreign@" + digest}}
+		gomega.Expect(projectImageReferences([]cleanupImage{image}, "werf-test-one", nil)).To(gomega.Equal([]string{"werf-test-one:stage"}))
+		image.Names = image.Names[1:]
+		gomega.Expect(projectImageReferences([]cleanupImage{image}, "werf-test-one", nil)).To(gomega.Equal([]string{"docker.io/library/werf-test-one@" + digest}))
+		image.Names = image.Names[1:]
+		gomega.Expect(projectImageReferences([]cleanupImage{image}, "werf-test-one", nil)).To(gomega.BeEmpty())
+	})
+	ginkgo.It("checks exact project ownership from inspect and retains every alias", func() {
+		output := []byte(`{"Id":"owned","RepoTags":["werf-test-one:stage","foreign:keep"],"RepoDigests":["foreign@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"Config":{"Labels":{"werf":"werf-test-one"}}}`)
+		image, err := parseDockerCleanupInspect(output, "werf-test-one")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(image.Names).To(gomega.HaveLen(3))
+		gomega.Expect(projectImageReferences([]cleanupImage{*image}, "werf-test-one", nil)).To(gomega.Equal([]string{"werf-test-one:stage"}))
+		image, err = parseDockerCleanupInspect(output, "werf-test-one-other")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(image).To(gomega.BeNil())
+	})
+	ginkgo.It("rejects incomplete inspect output instead of treating it as empty inventory", func() {
+		_, err := parseDockerCleanupInspect([]byte(`{}`), "werf-test-one")
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("empty ID")))
+	})
 	ginkgo.It("does not retry an unrelated removal error alongside a busy image", func() {
 		attempts := 0
 		permanentErr := errors.New("permission denied")
@@ -96,6 +206,9 @@ var _ = ginkgo.Describe("Project image cleanup", func() {
 		gomega.Expect(err.Error()).To(gomega.ContainSubstring("owned"))
 	})
 	ginkgo.It("rescans after deleting a dependent child image", func() {
+		executable, err := os.Executable()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.GinkgoT().Setenv("CLEANUP_HELPER_BINARY", executable)
 		dir := ginkgo.GinkgoT().TempDir()
 		script, err := os.ReadFile("testdata/cleanup-backend.sh")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -117,17 +230,26 @@ var _ = ginkgo.Describe("Project image cleanup", func() {
 			}
 			return os.WriteFile(inventoryPath, nil, 0o600)
 		}
-		gomega.Expect(cleanupDockerProjectImages(context.Background(), "werf-test-one", nil, removeImage)).To(gomega.Succeed())
+		var batches [][]string
+		gomega.Expect(cleanupDockerProjectImages(context.Background(), "werf-test-one", nil, func(ctx context.Context, refs []string) error {
+			batches = append(batches, slices.Clone(refs))
+			var removalErrors []error
+			for _, ref := range refs {
+				removalErrors = append(removalErrors, removeImage(ctx, ref))
+			}
+			return errors.Join(removalErrors...)
+		})).To(gomega.Succeed())
+		gomega.Expect(batches).To(gomega.Equal([][]string{{"werf-test-one:a", "werf-test-one:z"}, {"werf-test-one:a"}}))
 		remaining, err := os.ReadFile(inventoryPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(remaining).To(gomega.BeEmpty())
 	})
 	ginkgo.DescribeTable("executes cleanup and verifies the resulting inventory",
 		func(inventory, remaining, expectedRef string) {
-			dir := ginkgo.GinkgoT().TempDir()
-			cat, err := exec.LookPath("cat")
+			executable, err := os.Executable()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(os.Symlink(cat, filepath.Join(dir, "cat"))).To(gomega.Succeed())
+			ginkgo.GinkgoT().Setenv("CLEANUP_HELPER_BINARY", executable)
+			dir := ginkgo.GinkgoT().TempDir()
 			script, err := os.ReadFile("testdata/cleanup-backend.sh")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), script, 0o700)).To(gomega.Succeed())
@@ -140,14 +262,16 @@ var _ = ginkgo.Describe("Project image cleanup", func() {
 			ginkgo.GinkgoT().Setenv("CLEANUP_REMAINING", remaining)
 			ginkgo.GinkgoT().Setenv("WERF_REPO", "")
 			ginkgo.GinkgoT().Setenv("WERF_FINAL_REPO", "")
+			options := CleanupProjectOptions{Backends: []string{"docker"}}
+
 			ginkgo.GinkgoT().Setenv("CLEANUP_FAIL", "1")
-			gomega.Expect(CleanupProject(context.Background(), "werf-test-one", CleanupProjectOptions{})).To(gomega.MatchError(gomega.ContainSubstring("exit status 42")))
+			gomega.Expect(CleanupProject(context.Background(), "werf-test-one", options)).To(gomega.MatchError(gomega.ContainSubstring("exit status 42")))
 			ginkgo.GinkgoT().Setenv("CLEANUP_FAIL", "0")
 			ginkgo.GinkgoT().Setenv("CLEANUP_NOOP", "1")
-			gomega.Expect(CleanupProject(context.Background(), "werf-test-one", CleanupProjectOptions{})).To(gomega.MatchError(gomega.ContainSubstring("test images remain")))
+			gomega.Expect(CleanupProject(context.Background(), "werf-test-one", options)).To(gomega.MatchError(gomega.ContainSubstring("test images remain")))
 			ginkgo.GinkgoT().Setenv("CLEANUP_NOOP", "0")
 			gomega.Expect(os.WriteFile(callsPath, nil, 0o600)).To(gomega.Succeed())
-			gomega.Expect(CleanupProject(context.Background(), "werf-test-one", CleanupProjectOptions{})).To(gomega.Succeed())
+			gomega.Expect(CleanupProject(context.Background(), "werf-test-one", options)).To(gomega.Succeed())
 			calls, err := os.ReadFile(callsPath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(string(calls)).To(gomega.Equal(expectedRef + "\n"))
@@ -156,6 +280,7 @@ var _ = ginkgo.Describe("Project image cleanup", func() {
 			gomega.Expect(string(actual)).To(gomega.Equal(remaining))
 		},
 		ginkgo.Entry("Docker preserves a foreign alias", "{\"ID\":\"owned\",\"Repository\":\"localhost:5000/werf-test-one\",\"Tag\":\"stage\"}\n{\"ID\":\"owned\",\"Repository\":\"foreign\",\"Tag\":\"keep\"}\n", "{\"ID\":\"owned\",\"Repository\":\"foreign\",\"Tag\":\"keep\"}\n", "localhost:5000/werf-test-one:stage"),
+		ginkgo.Entry("Docker batches selected references and preserves a foreign alias", "{\"ID\":\"first\",\"Repository\":\"werf-test-one\",\"Tag\":\"first\"}\n{\"ID\":\"second\",\"Repository\":\"werf-test-one\",\"Tag\":\"second\"}\n{\"ID\":\"first\",\"Repository\":\"foreign\",\"Tag\":\"keep\"}\n", "{\"ID\":\"first\",\"Repository\":\"foreign\",\"Tag\":\"keep\"}\n", "werf-test-one:first werf-test-one:second"),
 	)
 	ginkgo.DescribeTable("selects only project references",
 		func(images []cleanupImage, expected []string) {
@@ -180,6 +305,12 @@ var _ = ginkgo.Describe("Project image cleanup", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(images).To(gomega.Equal([]cleanupImage{{ID: "sha256:owned", Names: []string{"localhost:5000/werf-test-one:stage"}}}))
 	})
+	ginkgo.It("matches canonical and familiar Docker Hub repository names", func() {
+		images := []cleanupImage{{Names: []string{"docker.io/acme/custom:tag", "docker.io/acme/foreign:keep"}}}
+		for _, repo := range []string{"docker.io/acme/custom", "acme/custom"} {
+			gomega.Expect(projectImageReferences(images, "werf-test-one", []string{repo})).To(gomega.Equal([]string{"docker.io/acme/custom:tag"}))
+		}
+	})
 	ginkgo.It("rejects malformed inventories", func() {
 		_, err := parseDockerCleanupImages([]byte("not-json"))
 		gomega.Expect(err).To(gomega.HaveOccurred())
@@ -203,5 +334,12 @@ var _ = ginkgo.Describe("Project image cleanup", func() {
 		gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\nexit 42\n"), 0o700)).To(gomega.Succeed())
 		ginkgo.GinkgoT().Setenv("PATH", dir)
 		gomega.Expect(CleanupProject(context.Background(), "werf-test-one", CleanupProjectOptions{})).To(gomega.MatchError(gomega.ContainSubstring("exit status 42")))
+	})
+	ginkgo.It("does not contact Docker for a Buildah-only cleanup but checks it for mixed backends", func() {
+		dir := ginkgo.GinkgoT().TempDir()
+		gomega.Expect(os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\nexit 42\n"), 0o700)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("PATH", dir)
+		gomega.Expect(CleanupProject(context.Background(), "werf-test-one", CleanupProjectOptions{Backends: []string{"buildah"}})).To(gomega.Succeed())
+		gomega.Expect(CleanupProject(context.Background(), "werf-test-one", CleanupProjectOptions{Backends: []string{"docker", "buildah"}})).To(gomega.MatchError(gomega.ContainSubstring("exit status 42")))
 	})
 })

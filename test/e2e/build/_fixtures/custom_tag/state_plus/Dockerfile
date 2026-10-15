@@ -1,2 +1,2 @@
-FROM alpine:latest
+FROM registry.werf.io/base/alpine:3.21@sha256:5405e8f36ce1878720f71217d664aa3dea32e5e5df11acbf07fc78ef5661465b
 RUN echo DONE

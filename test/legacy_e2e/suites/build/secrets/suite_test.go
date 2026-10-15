@@ -22,12 +22,11 @@ var (
 	_ = SuiteData.SetupWerfBinary(suite_init.NewWerfBinaryData(SuiteData.SynchronizedSuiteCallbacksData))
 	_ = SuiteData.SetupProjectName(suite_init.NewProjectNameData(SuiteData.StubsData))
 	_ = SuiteData.SetupTmp(suite_init.NewTmpDirData())
+	_ = SuiteData.SetupProjectCleanup()
 
 	_ = SuiteData.AppendSynchronizedBeforeSuiteAllNodesFunc(func(_ context.Context, _ []byte) {
 		_ = utils.CreateTmpFileInHome("secret_file_in_home", "secret")
 	})
-
-	_ = SuiteData.SetupProjectCleanup()
 )
 
 func setupEnv(opts testOptions) {

@@ -9,42 +9,86 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/distribution/reference"
+
+	"github.com/werf/werf/v3/pkg/image/journal"
+	"github.com/werf/werf/v3/test/pkg/testresource"
 )
 
 type cleanupImage struct {
-	ID    string   `json:"id"`
-	Names []string `json:"names"`
+	ID     string   `json:"id"`
+	Names  []string `json:"names"`
+	Parent string   `json:"parent,omitempty"`
 }
 
 var errCleanupImageInUse = errors.New("test image is still in use")
 
 type CleanupProjectOptions struct {
-	Repositories []string
+	Repositories   []string
+	DockerImageIDs []string
+	Backends       []string
+}
+
+func parseDockerCleanupInspect(output []byte, projectName string) (*cleanupImage, error) {
+	var inspected struct {
+		ID          string `json:"Id"`
+		Parent      string
+		RepoTags    []string
+		RepoDigests []string
+		Config      struct{ Labels map[string]string }
+	}
+	if err := json.Unmarshal(output, &inspected); err != nil {
+		return nil, fmt.Errorf("decode docker image inspect: %w", err)
+	}
+	if inspected.ID == "" {
+		return nil, fmt.Errorf("docker image inspect returned an empty ID")
+	}
+	if inspected.Config.Labels["werf"] != projectName {
+		return nil, nil
+	}
+	return &cleanupImage{ID: inspected.ID, Names: slices.Concat(inspected.RepoTags, inspected.RepoDigests), Parent: inspected.Parent}, nil
 }
 
 func CleanupProject(ctx context.Context, projectName string, opts CleanupProjectOptions) error {
 	if !strings.HasPrefix(projectName, "werf-test-") || strings.ContainsAny(projectName, "/:*?[] \t\n") {
 		return fmt.Errorf("refuse cleanup of non-test project %q", projectName)
 	}
+	if err := testresource.Flush(ctx); err != nil {
+		return fmt.Errorf("flush image journal events: %w", err)
+	}
+	if directory := os.Getenv(journal.Env); directory != "" {
+		if err := journal.Check(ctx, directory); err != nil {
+			return err
+		}
+	}
 
 	var cleanupErrors []error
 	repos := append(slices.Clone(opts.Repositories), os.Getenv("WERF_REPO"), os.Getenv("WERF_FINAL_REPO"))
-	if _, err := exec.LookPath("docker"); err == nil {
-		if err := cleanupDockerProjectImages(ctx, projectName, repos, func(ctx context.Context, ref string) error {
-			_, err := cleanupCommand(ctx, "docker", []string{"rmi", "--no-prune", ref})
-			return err
-		}); err != nil {
-			cleanupErrors = append(cleanupErrors, err)
+	backends := opts.Backends
+	if backends == nil {
+		backends = []string{"docker"}
+		if mode := os.Getenv("WERF_BUILDAH_MODE"); mode != "" && mode != "docker" {
+			backends = []string{"buildah"}
 		}
-	} else if !errors.Is(err, exec.ErrNotFound) {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("locate docker CLI: %w", err))
 	}
-	if buildahAvailable() {
+	if slices.Contains(backends, "docker") {
+		if _, err := exec.LookPath("docker"); err == nil {
+			if err := cleanupDockerProjectImages(ctx, projectName, repos, func(ctx context.Context, refs []string) error {
+				_, err := cleanupCommand(ctx, "docker", slices.Concat([]string{"rmi", "--no-prune"}, refs))
+				return err
+			}, opts.DockerImageIDs...); err != nil {
+				cleanupErrors = append(cleanupErrors, err)
+			}
+		} else if !errors.Is(err, exec.ErrNotFound) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("locate docker CLI: %w", err))
+		}
+	}
+	if slices.Contains(backends, "buildah") && buildahAvailable() && ctx.Err() == nil {
 		if err := cleanupBuildahProject(ctx, projectName, repos); err != nil {
 			cleanupErrors = append(cleanupErrors, err)
 		}
@@ -52,37 +96,117 @@ func CleanupProject(ctx context.Context, projectName string, opts CleanupProject
 	return errors.Join(cleanupErrors...)
 }
 
-func cleanupDockerProjectImages(ctx context.Context, projectName string, repos []string, removeImage func(context.Context, string) error) error {
+func cleanupDockerProjectImages(ctx context.Context, projectName string, repos []string, removeImages func(context.Context, []string) error, observedIDs ...string) error {
+	candidates := make(map[string]bool)
+	directory := os.Getenv(journal.Env)
+	if directory != "" {
+		ids, err := journal.Read(ctx, filepath.Join(directory, "docker"))
+		if err != nil {
+			return err
+		}
+		observedIDs = append(observedIDs, ids...)
+	}
+	for _, id := range observedIDs {
+		candidates[id] = true
+	}
 	list := func() ([]string, error) {
-		args := []string{"images", "--filter", "label=werf=" + projectName, "--all", "--no-trunc", "--digests", "--format", "{{json .}}"}
-		output, err := cleanupCommand(ctx, "docker", args)
-		if err != nil {
-			return nil, err
+		if directory == "" {
+			args := []string{"images", "--all", "--no-trunc", "--digests", "--format", "{{json .}}"}
+			references := []string{projectName, "*/" + projectName, projectName + "-final", "*/" + projectName + "-final"}
+			for _, repo := range repos {
+				if named, err := reference.ParseNormalizedNamed(repo); err == nil {
+					references = append(references, reference.FamiliarName(named))
+				}
+			}
+			slices.Sort(references)
+			for _, ref := range slices.Compact(references) {
+				args = append(args, "--filter", "reference="+ref)
+			}
+			output, err := cleanupCommand(ctx, "docker", args)
+			if err != nil {
+				return nil, err
+			}
+			images, err := parseDockerCleanupImages(output)
+			if err != nil {
+				return nil, err
+			}
+			for _, image := range images {
+				if image.ID == "" {
+					return nil, fmt.Errorf("docker image inventory returned an empty ID")
+				}
+				candidates[image.ID] = true
+			}
 		}
-		images, err := parseDockerCleanupImages(output)
-		if err != nil {
-			return nil, err
+		var owned []cleanupImage
+		var queue []string
+		for id := range candidates {
+			queue = append(queue, id)
 		}
-		return projectImageReferences(images, projectName, repos), nil
+		slices.Sort(queue)
+		for index := 0; index < len(queue); index++ {
+			id := queue[index]
+			output, err := cleanupDockerInspect(ctx, id)
+			if err != nil {
+				if strings.Contains(err.Error(), "No such image:") {
+					delete(candidates, id)
+					continue
+				}
+				return nil, err
+			}
+			image, err := parseDockerCleanupInspect(output, projectName)
+			if err != nil {
+				return nil, err
+			}
+			if image == nil {
+				delete(candidates, id)
+				continue
+			}
+			owned = append(owned, *image)
+			if image.Parent != "" && !candidates[image.Parent] {
+				candidates[image.Parent] = true
+				queue = append(queue, image.Parent)
+			}
+		}
+		return projectImageReferences(owned, projectName, repos), nil
 	}
 
-	return cleanupImageReferences(ctx, "docker", list, removeImage)
+	return cleanupImageBatches(ctx, "docker", list, func(ctx context.Context, refs []string) []error {
+		var removalErrors []error
+		for batch := range slices.Chunk(refs, 64) {
+			if err := ctx.Err(); err != nil {
+				return append(removalErrors, err)
+			}
+			if err := removeImages(ctx, batch); err != nil {
+				removalErrors = append(removalErrors, fmt.Errorf("remove docker test images %q: %w", batch, err))
+			}
+		}
+		return removalErrors
+	})
 }
 
 func cleanupImageReferences(ctx context.Context, backend string, list func() ([]string, error), removeImage func(context.Context, string) error) error {
+	return cleanupImageBatches(ctx, backend, list, func(ctx context.Context, refs []string) []error {
+		var removalErrors []error
+		for _, ref := range refs {
+			if err := removeImage(ctx, ref); err != nil {
+				removalErrors = append(removalErrors, fmt.Errorf("remove %s test image %q: %w", backend, ref, err))
+			}
+		}
+		return removalErrors
+	})
+}
+
+func cleanupImageBatches(ctx context.Context, backend string, list func() ([]string, error), removeImages func(context.Context, []string) []error) error {
 	refs, err := list()
 	if err != nil {
 		return fmt.Errorf("list %s test images: %w", backend, err)
 	}
 	for pass := 0; len(refs) > 0; pass++ {
-		var cleanupErrors []error
+		cleanupErrors := removeImages(ctx, refs)
 		onlyInUseErrors := true
-		for _, ref := range refs {
-			if err := removeImage(ctx, ref); err != nil {
-				if !errors.Is(err, errCleanupImageInUse) {
-					onlyInUseErrors = false
-				}
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("remove %s test image %q: %w", backend, ref, err))
+		for _, err := range cleanupErrors {
+			if !errors.Is(err, errCleanupImageInUse) {
+				onlyInUseErrors = false
 			}
 		}
 		remaining, err := list()
@@ -112,11 +236,29 @@ func cleanupImageReferences(ctx context.Context, backend string, list func() ([]
 }
 
 func cleanupCommand(ctx context.Context, backend string, args []string) ([]byte, error) {
-	output, err := exec.CommandContext(ctx, backend, args...).CombinedOutput()
+	command := exec.CommandContext(ctx, backend, args...)
+	command.WaitDelay = 5 * time.Second
+	output, err := command.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s %v: %w: %s", backend, args, err, output)
 	}
 	return output, nil
+}
+
+func cleanupDockerInspect(ctx context.Context, id string) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		output, err := cleanupCommand(ctx, "docker", []string{"image", "inspect", id, "--format", "{{json .}}"})
+		if err == nil || attempt == 2 || !strings.Contains(err.Error(), "Error response from daemon: consistency error: data changed during operation, retry") {
+			return output, err
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, errors.Join(err, ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 func parseDockerCleanupImages(output []byte) ([]cleanupImage, error) {
@@ -170,12 +312,23 @@ func projectImageReferences(images []cleanupImage, projectName string, repos []s
 			}
 			continue
 		}
+		taggedRepos := make(map[string]bool)
+		for _, name := range img.Names {
+			if named, err := reference.ParseNormalizedNamed(name); err == nil {
+				if _, tagged := named.(reference.NamedTagged); tagged {
+					taggedRepos[reference.FamiliarName(named)] = true
+				}
+			}
+		}
 		for _, name := range img.Names {
 			named, err := reference.ParseNormalizedNamed(name)
 			if err != nil {
 				continue
 			}
 			repo := reference.FamiliarName(named)
+			if _, digestOnly := named.(reference.Canonical); digestOnly && taggedRepos[repo] {
+				continue
+			}
 			base := path.Base(reference.Path(named))
 			if base == projectName || base == projectName+"-final" || ownedRepos[repo] {
 				refs = append(refs, name)

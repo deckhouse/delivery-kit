@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	werfExec "github.com/werf/werf/v3/pkg/werf/exec"
+	"github.com/werf/werf/v3/test/pkg/testresource"
 )
 
 func RunCommand(ctx context.Context, dir, command string, args ...string) ([]byte, error) {
@@ -35,6 +38,8 @@ func RunCommandWithSeparateStreams(ctx context.Context, dir, command string, arg
 	}
 
 	cmd.Env = append(os.Environ(), options.ExtraEnv...)
+	completeTracking, trackingErr := testresource.PrepareCommand(ctx, command, args, cmd.Env)
+	Expect(trackingErr).To(Succeed())
 
 	if options.ToStdin != "" {
 		cmd.Stdin = bytes.NewReader([]byte(options.ToStdin))
@@ -47,6 +52,7 @@ func RunCommandWithSeparateStreams(ctx context.Context, dir, command string, arg
 	Expect(cmd.Start()).To(Succeed())
 
 	err = cmd.Wait()
+	err = errors.Join(err, completeTracking(err, outBuf.Bytes()))
 
 	_, _ = GinkgoWriter.Write(outBuf.Bytes())
 	_, _ = GinkgoWriter.Write(errBuf.Bytes())
@@ -83,6 +89,8 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 	}
 
 	cmd.Env = append(os.Environ(), options.ExtraEnv...)
+	completeTracking, trackingErr := testresource.PrepareCommand(ctx, command, args, cmd.Env)
+	Expect(trackingErr).To(Succeed())
 
 	if options.ToStdin != "" {
 		cmd.Stdin = bytes.NewReader([]byte(options.ToStdin))
@@ -90,6 +98,10 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 
 	res := newCommandOutput(options.CancelOnOutput)
 	cmd.Stdout = res
+	var trackingOutput bytes.Buffer
+	if filepath.Base(command) == "buildah" {
+		cmd.Stdout = io.MultiWriter(res, &trackingOutput)
+	}
 	if !options.NoStderr {
 		cmd.Stderr = res
 	}
@@ -102,6 +114,7 @@ func RunCommandWithOptions(ctx context.Context, dir, command string, args []stri
 	}
 
 	err := cmd.Wait()
+	err = errors.Join(err, completeTracking(err, trackingOutput.Bytes()))
 	output := res.Bytes()
 
 	_, _ = GinkgoWriter.Write(output)

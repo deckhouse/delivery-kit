@@ -1,6 +1,8 @@
 package e2e_build_test
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -14,6 +16,7 @@ type networkTestOptions struct {
 	FixturePath        string
 	NetworkNone        bool
 	ExpectNetworkValue string
+	ExpectErrorMessage string
 }
 
 func (opts networkTestOptions) env() setupEnvOptions {
@@ -35,6 +38,18 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 			werfProject := newWerfProject(repoDirname)
 
 			var extraArgs []string
+			if strings.HasPrefix(fixtureRelPath, "network/dockerfile") {
+				probeURL := startBuildHTTPFixture(ctx, []byte("network available\n"))
+				if testOpts.ExpectError {
+					By("checking connectivity with network enabled before testing isolation")
+					SuiteData.Stubs.SetEnv("WERF_TEST_NETWORK_PROBE_URL", probeURL+"/control")
+					SuiteData.Stubs.SetEnv("WERF_TEST_NETWORK_MODE", "default")
+					controlOut := werfProject.Build(ctx, &werf.BuildOptions{})
+					Expect(controlOut).To(ContainSubstring("network probe succeeded"))
+					SuiteData.Stubs.SetEnv("WERF_TEST_NETWORK_MODE", "none")
+				}
+				SuiteData.Stubs.SetEnv("WERF_TEST_NETWORK_PROBE_URL", probeURL+"/isolated")
+			}
 			if testOpts.NetworkNone {
 				extraArgs = append(extraArgs, "--backend-network", "none")
 			}
@@ -47,6 +62,15 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 				},
 			}
 			buildOut := werfProject.Build(ctx, opts)
+			if strings.HasPrefix(fixtureRelPath, "network/dockerfile") {
+				if testOpts.ExpectErrorMessage != "" {
+					Expect(buildOut).To(ContainSubstring(testOpts.ExpectErrorMessage))
+				} else if testOpts.ExpectError {
+					Expect(buildOut).To(MatchRegexp(`(?m)^.*wget: (can't connect|download timed out|bad address)`))
+				} else {
+					Expect(buildOut).To(ContainSubstring("network probe succeeded"))
+				}
+			}
 
 			if !testOpts.ExpectError {
 				Expect(buildOut).To(ContainSubstring("Building stage"))
@@ -112,14 +136,15 @@ var _ = Describe("Network isolation build", Label("e2e", "build", "network"), fu
 			ExpectNetworkValue: "host",
 		}, Label("dockerfile", "yml")),
 
-		// Native Buildah rootless: guards that the network value reaches buildah's build options.
+		// Native Buildah rootless: YAML controls networking; the CLI override is rejected.
 		// native-chroot is absent on purpose — buildah forces host networking for chroot isolation,
 		// so `none` can never be honored there.
-		backendEntry("Dockerfile (Native Buildah rootless): Failure with --backend-network=none", networkTestOptions{
-			setupEnvOptions: setupEnvOptions{ContainerBackendMode: "native-rootless", WithLocalRepo: true},
-			ExpectError:     true,
-			FixturePath:     "network/dockerfile",
-			NetworkNone:     true,
+		backendEntry("Dockerfile (Native Buildah rootless): Rejects --backend-network=none", networkTestOptions{
+			setupEnvOptions:    setupEnvOptions{ContainerBackendMode: "native-rootless", WithLocalRepo: true},
+			ExpectError:        true,
+			ExpectErrorMessage: "--network option is not supported with Buildah backend",
+			FixturePath:        "network/dockerfile",
+			NetworkNone:        true,
 		}, Label("dockerfile")),
 		backendEntry("Dockerfile (Native Buildah rootless): Failure with network:none in werf.yaml", networkTestOptions{
 			setupEnvOptions: setupEnvOptions{ContainerBackendMode: "native-rootless", WithLocalRepo: true},

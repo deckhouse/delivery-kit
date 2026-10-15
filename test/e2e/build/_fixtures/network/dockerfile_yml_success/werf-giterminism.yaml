@@ -1,0 +1,5 @@
+giterminismConfigVersion: 1
+config:
+  goTemplateRendering:
+    allowEnvVariables:
+    - WERF_TEST_NETWORK_PROBE_URL

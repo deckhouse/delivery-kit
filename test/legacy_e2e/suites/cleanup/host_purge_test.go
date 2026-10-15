@@ -1,6 +1,9 @@
 package cleanup_test
 
 import (
+	"strings"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -35,7 +38,14 @@ var _ = Describe("host purge command", func() {
 			BeforeEach(func(ctx SpecContext) {
 				utils.RunSucceedCommand(ctx, SuiteData.TestDirPath, SuiteData.WerfBinPath, "build")
 
-				utils.RunSucceedCommand(ctx, SuiteData.TestDirPath, SuiteData.WerfBinPath, "run", "--docker-options", "-d", "--", "/bin/sleep", "30")
+				containerName := SuiteData.ProjectName + "-host-purge"
+				DeferCleanup(func(cleanupCtx SpecContext) {
+					remaining := utils.SucceedCommandOutputString(cleanupCtx, "", "docker", "ps", "--all", "--quiet", "--filter", "name=^/"+containerName+"$")
+					if strings.TrimSpace(remaining) != "" {
+						utils.RunSucceedCommand(cleanupCtx, "", "docker", "rm", "--force", containerName)
+					}
+				}, NodeTimeout(time.Minute))
+				utils.RunSucceedCommand(ctx, SuiteData.TestDirPath, SuiteData.WerfBinPath, "run", "--docker-options", "-d --name "+containerName, "--", "/bin/sleep", "30")
 			})
 
 			It("should fail with specific error", func(ctx SpecContext) {

@@ -17,6 +17,8 @@ var _ = Describe("Complex build", Label("e2e", "build", "complex"), func() {
 			By("initializing")
 			setupEnv(testOpts)
 			contRuntime := contback.NewContainerBackend(testOpts.ContainerBackendMode)
+			archiveURL := startBuildHTTPFixture(ctx, buildFixtureArchive()) + "/archive.tar.gz"
+			SuiteData.Stubs.SetEnv("WERF_TEST_ARCHIVE_URL", archiveURL)
 
 			By("state0: starting")
 			{

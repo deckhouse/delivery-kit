@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/pprof"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/spf13/cobra"
@@ -14,6 +15,7 @@ import (
 	"github.com/werf/werf/v3/cmd/werf/common"
 	"github.com/werf/werf/v3/cmd/werf/root"
 	"github.com/werf/werf/v3/pkg/background"
+	"github.com/werf/werf/v3/pkg/image/journal"
 	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/process_exterminator"
 	"github.com/werf/werf/v3/pkg/true_git"
@@ -44,6 +46,18 @@ func main() {
 	} else if shouldTerminate {
 		return
 	}
+	if profileDir := os.Getenv("WERF_CPU_PROFILE_DIR"); profileDir != "" {
+		stopProfile, err := startCPUProfile(profileDir)
+		if err != nil {
+			graceful.Terminate(ctx, err, 1)
+			return
+		}
+		defer func() {
+			if err := stopProfile(); err != nil {
+				logging.Error(err.Error())
+			}
+		}()
+	}
 
 	if err := process_exterminator.Init(); err != nil {
 		graceful.Terminate(ctx, fmt.Errorf("process exterminator initialization failed: %w", err), 1)
@@ -57,6 +71,18 @@ func main() {
 	}
 
 	root.SetupTelemetryInit(rootCmd)
+	if directory := os.Getenv(journal.Env); directory != "" {
+		finish, err := startImageJournal(ctx, rootCmd, os.Args[1:], directory)
+		if err != nil {
+			graceful.Terminate(ctx, err, 1)
+			return
+		}
+		defer func() {
+			if err := finish(); err != nil {
+				graceful.Terminate(ctx, err, 1)
+			}
+		}()
+	}
 
 	// WARNING this behavior could be changed
 	// https://github.com/spf13/cobra/pull/2167 is not accepted yet
@@ -88,6 +114,39 @@ func main() {
 	}
 
 	common.ShutdownTelemetry(ctx, 0)
+}
+
+func startImageJournal(ctx context.Context, rootCmd *cobra.Command, args []string, directory string) (func() error, error) {
+	command, _, err := rootCmd.Find(args)
+	if err != nil {
+		return journal.Begin(ctx, directory)
+	}
+	for current := command; current != nil && current != rootCmd; current = current.Parent() {
+		if current.Parent() == rootCmd && current.Name() == "kubectl" {
+			return func() error { return nil }, nil
+		}
+	}
+	return journal.Begin(ctx, directory)
+}
+
+func startCPUProfile(dir string) (func() error, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create CPU profile directory: %w", err)
+	}
+	profile, err := os.CreateTemp(dir, fmt.Sprintf("werf-%d-*.pprof", os.Getpid()))
+	if err != nil {
+		return nil, fmt.Errorf("create CPU profile: %w", err)
+	}
+	if err := pprof.StartCPUProfile(profile); err != nil {
+		return nil, fmt.Errorf("start CPU profile: %w", errors.Join(err, profile.Close()))
+	}
+	return func() error {
+		pprof.StopCPUProfile()
+		if err := profile.Close(); err != nil {
+			return fmt.Errorf("close CPU profile: %w", err)
+		}
+		return nil
+	}, nil
 }
 
 func onShutdown(_ context.Context, desc graceful.TerminationDescriptor) {

@@ -7,18 +7,118 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"go.podman.io/buildah/define"
+	"go.podman.io/common/libimage"
+	imgstor "go.podman.io/image/v5/storage"
+	"go.podman.io/storage"
 
 	"github.com/werf/common-go/pkg/util"
+	"github.com/werf/werf/v3/pkg/image/journal"
 )
 
 var _ = Describe("buildah", func() {
+	It("journals created, failed and cached image IDs without inventory", func() {
+		ctx := context.Background()
+		dir := GinkgoT().TempDir()
+		store, err := storage.GetStore(storage.StoreOptions{RunRoot: filepath.Join(dir, "run"), GraphRoot: filepath.Join(dir, "graph"), GraphDriverName: "vfs"})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_, err := store.Shutdown(false)
+			Expect(err).NotTo(HaveOccurred())
+		})
+		journalDir := GinkgoT().TempDir()
+		tracked := &journalStore{Store: store, directory: journalDir}
+		created, err := tracked.CreateImage("", []string{"localhost/created:tag"}, "", "", &storage.ImageOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		cached, err := store.CreateImage("", []string{"localhost/cached:tag"}, "", "", &storage.ImageOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = tracked.Image("localhost/cached:tag")
+		Expect(err).NotTo(HaveOccurred())
+		ref, err := imgstor.Transport.NewStoreReference(store, nil, cached.ID)
+		Expect(err).NotTo(HaveOccurred())
+		previousStore := imgstor.Transport.GetStoreIfSet()
+		imgstor.Transport.SetStore(tracked)
+		defer imgstor.Transport.SetStore(previousStore)
+		transport := &journalTransport{StoreTransport: imgstor.Transport}
+		Expect(os.Remove(filepath.Join(journalDir, cached.ID))).To(Succeed())
+		roundTrip, err := transport.ParseReference(ref.StringWithinTransport())
+		Expect(err).NotTo(HaveOccurred())
+		_, resolved, err := imgstor.ResolveReference(roundTrip)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resolved.ID).To(Equal(cached.ID))
+		_, err = os.Stat(filepath.Join(journalDir, cached.ID))
+		Expect(err).NotTo(HaveOccurred())
+		failedID := strings.Repeat("f", 64)
+		_, err = tracked.CreateImage(failedID, nil, "nonexistent-layer", "", &storage.ImageOptions{})
+		Expect(err).To(HaveOccurred())
+		ids, err := journal.Read(ctx, journalDir)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ids).To(ConsistOf(created.ID, cached.ID, failedID))
+		tracked.directory = filepath.Join(dir, "missing")
+		blockedID := strings.Repeat("e", 64)
+		_, err = tracked.CreateImage(blockedID, nil, "", "", &storage.ImageOptions{})
+		Expect(err).To(HaveOccurred())
+		_, err = store.Image(blockedID)
+		Expect(errors.Is(err, storage.ErrImageUnknown)).To(BeTrue())
+	})
+
+	It("avoids repeated storage lookups for tagged project and image ID filters", func() {
+		dir := GinkgoT().TempDir()
+		store, err := storage.GetStore(storage.StoreOptions{
+			RunRoot: filepath.Join(dir, "run"), GraphRoot: filepath.Join(dir, "graph"), GraphDriverName: "vfs",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_, err := store.Shutdown(false)
+			Expect(err).NotTo(HaveOccurred())
+		})
+		wantedID := fmt.Sprintf("%064x", 1)
+		otherID := fmt.Sprintf("%064x", 2)
+		for index := 1; index <= 64; index++ {
+			names := []string{fmt.Sprintf("localhost/other-%d:stage", index)}
+			if index <= 2 {
+				names = []string{fmt.Sprintf("localhost/project:stage-%d", index)}
+			}
+			if index == 1 {
+				names = append(names, "localhost/foreign:keep")
+			}
+			_, err := store.CreateImage(fmt.Sprintf("%064x", index), names, "", "", &storage.ImageOptions{})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		counted := &imageLookupCountingStore{Store: store}
+		imageRuntime, err := libimage.RuntimeFromStore(counted, &libimage.RuntimeOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		for _, filter := range []string{"reference=project", "reference=project:*", "id=" + wantedID} {
+			counted.imageLookups = 0
+			started := time.Now()
+			images, err := imageRuntime.ListImages(context.Background(), &libimage.ListImagesOptions{Filters: []string{filter}})
+			Expect(err).NotTo(HaveOccurred())
+			ids := make([]string, 0, len(images))
+			for _, image := range images {
+				ids = append(ids, image.ID())
+			}
+			fmt.Fprintf(GinkgoWriter, "%s: %d storage lookups in %s\n", filter, counted.imageLookups, time.Since(started))
+			if strings.HasPrefix(filter, "id=") {
+				Expect(ids).To(Equal([]string{wantedID}))
+			} else {
+				Expect(ids).To(ConsistOf(wantedID, otherID))
+			}
+			if filter == "reference=project" {
+				Expect(counted.imageLookups).To(BeNumerically(">=", 64))
+			} else {
+				Expect(counted.imageLookups).To(BeZero())
+			}
+		}
+	})
+
 	DescribeTable("mapBackendOldFiltersToBuildahImageFilters",
 		func(oldFilters []util.Pair[string, string], expectedFilters []string) {
 			actual := mapBackendOldFiltersToBuildahImageFilters(oldFilters)

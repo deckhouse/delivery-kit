@@ -97,7 +97,7 @@ var _ = Describe("Signature", Label("e2e", "signature", "simple"), func() {
 			Expect(verifyOut).To(ContainSubstring(fmt.Sprintf("Using reference: %s", buildReport.Images["dockerfile"].DockerImageName)))
 			Expect(verifyOut).To(ContainSubstring("Manifest signature ... ok"))
 			Expect(verifyOut).To(ContainSubstring("ELF files signatures"))
-			Expect(verifyOut).To(ContainSubstring("usr/bin/curl ... ok"))
+			Expect(verifyOut).To(ContainSubstring("usr/bin/true ... ok"))
 		},
 		// TODO: enable when it will be supported
 		// XEntry("without repo using Vanilla Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{
@@ -190,7 +190,7 @@ var _ = Describe("Signature", Label("e2e", "signature", "simple"), func() {
 				Expect(verifyOut).To(ContainSubstring("Verifying image (1/1)"))
 				Expect(verifyOut).To(ContainSubstring(fmt.Sprintf("Using reference: %s", buildReport.Images["dockerfile"].DockerImageName)))
 				Expect(verifyOut).To(ContainSubstring("ELF files signatures"))
-				Expect(verifyOut).To(ContainSubstring("usr/bin/curl ... ok"))
+				Expect(verifyOut).To(ContainSubstring("usr/bin/true ... ok"))
 			},
 			// TODO: enable when it will be supported
 			// XEntry("without repo using Vanilla Docker", integrityTestOptions{setupEnvOptions: setupEnvOptions{

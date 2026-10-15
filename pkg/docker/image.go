@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -32,6 +34,7 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/container_backend/filter"
 	"github.com/werf/werf/v3/pkg/container_backend/prune"
+	"github.com/werf/werf/v3/pkg/image/journal"
 	"github.com/werf/werf/v3/pkg/opstats"
 )
 
@@ -123,6 +126,11 @@ func ImageInspect(ctx context.Context, ref string) (*dockerImage.InspectResponse
 	result, err := apiCli(ctx).ImageInspect(ctx, ref)
 	if err != nil {
 		return nil, err
+	}
+	if directory := os.Getenv(journal.Env); directory != "" {
+		if err := journal.Record(ctx, filepath.Join(directory, "docker"), result.ID); err != nil {
+			return nil, fmt.Errorf("record inspected Docker image: %w", err)
+		}
 	}
 
 	return &result.InspectResponse, nil

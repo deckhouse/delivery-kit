@@ -37,6 +37,7 @@ import (
 	"go.podman.io/image/v5/manifest"
 	imgstor "go.podman.io/image/v5/storage"
 	storageTransport "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/transports"
 	"go.podman.io/image/v5/transports/alltransports"
 	"go.podman.io/image/v5/types"
 	imgtypes "go.podman.io/image/v5/types"
@@ -51,6 +52,7 @@ import (
 	"github.com/werf/werf/v3/pkg/container_backend/filter"
 	"github.com/werf/werf/v3/pkg/container_backend/info"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/image/journal"
 	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/ssh_agent"
 )
@@ -61,6 +63,8 @@ const (
 )
 
 var DefaultShell = []string{"/bin/sh", "-c"}
+
+var installJournalTransport sync.Once
 
 func NativeProcessStartupHook() bool {
 	if reexec.Init() {
@@ -162,6 +166,14 @@ func NewNativeBuildah(commonOpts CommonBuildahOpts, opts NativeModeOpts) (*Nativ
 	b.Store, err = storage.GetStore(storage.StoreOptions(*storeOpts))
 	if err != nil {
 		return nil, fmt.Errorf("unable to get storage: %w", err)
+	}
+	if directory := os.Getenv(journal.Env); directory != "" {
+		b.Store = &journalStore{Store: b.Store, directory: filepath.Join(directory, "buildah")}
+		installJournalTransport.Do(func() {
+			imgstor.Transport = &journalTransport{StoreTransport: imgstor.Transport}
+			transports.Delete(imgstor.Transport.Name())
+			transports.Register(imgstor.Transport)
+		})
 	}
 
 	dockerInsecureSkipTLSVerify := imgtypes.OptionalBoolUndefined

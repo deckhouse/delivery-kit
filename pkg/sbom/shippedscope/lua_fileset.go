@@ -1,8 +1,13 @@
 package shippedscope
 
 import (
+	"context"
+	"maps"
 	"path"
+	"slices"
 	"strings"
+
+	"github.com/werf/logboek"
 )
 
 const rockManifestName = "rock_manifest"
@@ -11,10 +16,11 @@ const rockManifestName = "rock_manifest"
 // holds little more than the rockspec and its docs: luarocks spreads the code that runs
 // over trees shared with every other rock, and only the manifest says which files there
 // are this rock's.
-func luaFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
+func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte) []Fileset {
 	var filesets []Fileset
 
-	for manifest, body := range manifests {
+	for _, manifest := range slices.Sorted(maps.Keys(manifests)) {
+		body := manifests[manifest]
 		if path.Base(manifest) != rockManifestName {
 			continue
 		}
@@ -30,6 +36,8 @@ func luaFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 
 		sections := parseRockManifest(body)
 		if len(sections) == 0 {
+			logboek.Context(ctx).Debug().LogF("skip %s: not the table luarocks writes\n", manifest)
+
 			continue
 		}
 
@@ -43,8 +51,8 @@ func luaFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 		for section, entry := range sections {
 			root, ok := roots[section]
 			if !ok {
-				// Not an install root: the rock's own directory holds it, either as the
-				// file the section names or as a directory of them.
+				// Everything else — the rockspec, doc, conf — stays in the rock's own
+				// directory, as a file or a directory under the section's name.
 				root = path.Join(rockDir, section)
 			}
 

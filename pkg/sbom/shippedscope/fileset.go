@@ -1,8 +1,10 @@
 package shippedscope
 
 import (
+	"cmp"
 	"context"
 	"path"
+	"slices"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -62,9 +64,19 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 		Filesets:            osPM,
 		OSPMFileListMissing: missing,
 	}
-	filesets.Filesets = append(filesets.Filesets, pythonFilesets(index, manifests)...)
+	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)
 	filesets.Filesets = append(filesets.Filesets, javascriptFilesets(index, manifests)...)
-	filesets.Filesets = append(filesets.Filesets, luaFilesets(index, manifests)...)
+	filesets.Filesets = append(filesets.Filesets, luaFilesets(ctx, index, manifests)...)
+
+	// Readers walk maps; a consumer that logs or reports per component should see the same
+	// order on every build of the same image.
+	slices.SortStableFunc(filesets.Filesets, func(a, b Fileset) int {
+		return cmp.Or(
+			cmp.Compare(a.Ecosystem, b.Ecosystem),
+			cmp.Compare(a.Name, b.Name),
+			cmp.Compare(a.Version, b.Version),
+		)
+	})
 
 	return filesets, nil
 }

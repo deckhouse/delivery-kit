@@ -2,7 +2,9 @@ package shippedscope
 
 import (
 	"encoding/json"
+	"maps"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -23,7 +25,8 @@ var distributionNodeDirs = []string{"/usr/share/nodejs", "/usr/lib/nodejs"}
 func javascriptFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 	var filesets []Fileset
 
-	for manifest, body := range manifests {
+	for _, manifest := range slices.Sorted(maps.Keys(manifests)) {
+		body := manifests[manifest]
 		if !isNodePackageManifest(manifest) {
 			continue
 		}

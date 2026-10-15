@@ -74,6 +74,47 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(six.Files).To(HaveLen(2))
 	})
 
+	It("credits the bytecode of a dotted source name to that source, not to its first component", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("site/foo.py", "foo"),
+			regularFile("site/foo.bar.py", "foobar"),
+			regularFile("site/__pycache__/foo.bar.cpython-312.pyc", "compiled foobar"),
+			regularFile("site/__pycache__/foo.bar.cpython-312.opt-2.pyc", "optimized foobar"),
+			regularFile("site/__pycache__/foo.pypy310-pp73.pyc", "compiled foo"),
+			regularFile("site/a-1.0.dist-info/RECORD", "foo.py,,\n"),
+			regularFile("site/b-1.0.dist-info/RECORD", "foo.bar.py,,\n"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		a := filesetOf(filesets, EcosystemPython, "a", "1.0")
+		Expect(a).NotTo(BeNil())
+		Expect(a.Files).To(HaveLen(2))
+		Expect(a.Files).To(HaveKey("/site/__pycache__/foo.pypy310-pp73.pyc"))
+
+		b := filesetOf(filesets, EcosystemPython, "b", "1.0")
+		Expect(b).NotTo(BeNil())
+		Expect(b.Files).To(HaveLen(3))
+		Expect(b.Files).To(HaveKey("/site/__pycache__/foo.bar.cpython-312.pyc"))
+		Expect(b.Files).To(HaveKey("/site/__pycache__/foo.bar.cpython-312.opt-2.pyc"))
+	})
+
+	It("yields an empty fileset for a distribution whose record is empty, not no fileset", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("site/stub-1.0.dist-info/RECORD", ""),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		stub := filesetOf(filesets, EcosystemPython, "stub", "1.0")
+		Expect(stub).NotTo(BeNil())
+		Expect(stub.Files).To(BeEmpty())
+	})
+
 	It("reads a record whose path is quoted because it holds a comma", func(ctx SpecContext) {
 		img, err := imageOf([]tarEntry{
 			regularFile("usr/lib/python3.12/site-packages/odd/a,b.txt", "odd"),

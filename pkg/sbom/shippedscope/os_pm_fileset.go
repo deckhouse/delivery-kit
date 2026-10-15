@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/werf/logboek"
 )
@@ -47,7 +49,8 @@ func osPMFilesets(ctx context.Context, index *FileIndex, manifests map[string][]
 	}
 
 	var filesets []Fileset
-	for name, entry := range list {
+	for _, name := range slices.Sorted(maps.Keys(list)) {
+		entry := list[name]
 		declared := make([]string, 0, len(entry.Files)+len(entry.Symlinks))
 		for file := range entry.Files {
 			declared = append(declared, rootedPath(file))

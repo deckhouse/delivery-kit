@@ -133,6 +133,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 	return index, captured, nil
 }
 
+// The body is nil unless kept; a kept body is never nil, however short the file.
 func readFile(reader io.Reader, header *tar.Header, keepBody bool) (File, []byte, error) {
 	hasher := sha256.New()
 
@@ -154,7 +155,7 @@ func readFile(reader io.Reader, header *tar.Header, keepBody bool) (File, []byte
 		return file, nil, nil
 	}
 
-	return file, body.Bytes(), nil
+	return file, append([]byte{}, body.Bytes()...), nil
 }
 
 // A layer tar spells a hardlink as a regular file plus a link entry beside it, so the bytes

@@ -1,11 +1,16 @@
 package shippedscope
 
 import (
+	"context"
 	"encoding/csv"
 	"errors"
 	"io"
+	"maps"
 	"path"
+	"slices"
 	"strings"
+
+	"github.com/werf/logboek"
 )
 
 const distInfoRecordSuffix = ".dist-info/RECORD"
@@ -16,12 +21,13 @@ const distInfoRecordSuffix = ".dist-info/RECORD"
 // directory named after it.
 //
 // Names are normalised the PEP 503 way, so a fileset of "PyYAML" is named "pyyaml".
-func pythonFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
+func pythonFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte) []Fileset {
 	var filesets []Fileset
 
 	pycache := compiledSources(index)
 
-	for manifest, body := range manifests {
+	for _, manifest := range slices.Sorted(maps.Keys(manifests)) {
+		body := manifests[manifest]
 		if !strings.HasSuffix(manifest, distInfoRecordSuffix) {
 			continue
 		}
@@ -35,7 +41,7 @@ func pythonFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 		siteDir := path.Dir(distInfo)
 
 		var declared []string
-		for _, record := range recordPaths(body) {
+		for _, record := range recordPaths(ctx, manifest, body) {
 			file := rootedJoin(siteDir, record)
 			declared = append(declared, file)
 			declared = append(declared, pycache[file]...)
@@ -55,7 +61,7 @@ func pythonFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 	return filesets
 }
 
-func recordPaths(body []byte) []string {
+func recordPaths(ctx context.Context, manifest string, body []byte) []string {
 	reader := csv.NewReader(strings.NewReader(string(body)))
 	reader.FieldsPerRecord = -1
 	reader.LazyQuotes = true
@@ -67,6 +73,8 @@ func recordPaths(body []byte) []string {
 			break
 		}
 		if err != nil {
+			logboek.Context(ctx).Debug().LogF("skip a line of %s: %s\n", manifest, err)
+
 			continue
 		}
 
@@ -96,12 +104,39 @@ func compiledSources(index *FileIndex) map[string][]string {
 			continue
 		}
 
-		stem, _, _ := strings.Cut(path.Base(file), ".")
+		stem, ok := bytecodeStem(path.Base(file))
+		if !ok {
+			continue
+		}
+
 		source := path.Join(path.Dir(dir), stem+".py")
 		compiled[source] = append(compiled[source], file)
 	}
 
 	return compiled
+}
+
+// bytecodeStem takes "<stem>.<interpreter tag>[.opt-N].pyc" apart from the right, because
+// the stem itself may hold dots: "foo.bar.cpython-312.pyc" was compiled from "foo.bar.py".
+func bytecodeStem(name string) (string, bool) {
+	rest := strings.TrimSuffix(name, ".pyc")
+
+	if tagged, _, ok := strings.Cut(rest, ".opt-"); ok {
+		rest = tagged
+	}
+
+	stem, _, ok := cutLast(rest, ".")
+
+	return stem, ok && stem != ""
+}
+
+func cutLast(text, separator string) (string, string, bool) {
+	at := strings.LastIndex(text, separator)
+	if at < 0 {
+		return text, "", false
+	}
+
+	return text[:at], text[at+len(separator):], true
 }
 
 func normalizePythonName(name string) string {

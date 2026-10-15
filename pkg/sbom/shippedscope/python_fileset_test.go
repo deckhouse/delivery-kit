@@ -81,8 +81,12 @@ var _ = Describe("CollectFilesets, Python", func() {
 			regularFile("site/__pycache__/foo.bar.cpython-312.pyc", "compiled foobar"),
 			regularFile("site/__pycache__/foo.bar.cpython-312.opt-2.pyc", "optimized foobar"),
 			regularFile("site/__pycache__/foo.pypy310-pp73.pyc", "compiled foo"),
+			regularFile("site/my.opt-config.py", "config"),
+			regularFile("site/__pycache__/my.opt-config.cpython-312.pyc", "compiled config"),
+			regularFile("site/__pycache__/my.opt-config.cpython-312.opt-2.pyc", "optimized config"),
 			regularFile("site/a-1.0.dist-info/RECORD", "foo.py,,\n"),
 			regularFile("site/b-1.0.dist-info/RECORD", "foo.bar.py,,\n"),
+			regularFile("site/c-1.0.dist-info/RECORD", "my.opt-config.py,,\n"),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -99,6 +103,12 @@ var _ = Describe("CollectFilesets, Python", func() {
 		Expect(b.Files).To(HaveLen(3))
 		Expect(b.Files).To(HaveKey("/site/__pycache__/foo.bar.cpython-312.pyc"))
 		Expect(b.Files).To(HaveKey("/site/__pycache__/foo.bar.cpython-312.opt-2.pyc"))
+
+		c := filesetOf(filesets, EcosystemPython, "c", "1.0")
+		Expect(c).NotTo(BeNil())
+		Expect(c.Files).To(HaveLen(3))
+		Expect(c.Files).To(HaveKey("/site/__pycache__/my.opt-config.cpython-312.pyc"))
+		Expect(c.Files).To(HaveKey("/site/__pycache__/my.opt-config.cpython-312.opt-2.pyc"))
 	})
 
 	It("yields an empty fileset for a distribution whose record is empty, not no fileset", func(ctx SpecContext) {

@@ -117,11 +117,13 @@ func compiledSources(index *FileIndex) map[string][]string {
 }
 
 // bytecodeStem takes "<stem>.<interpreter tag>[.opt-N].pyc" apart from the right, because
-// the stem itself may hold dots: "foo.bar.cpython-312.pyc" was compiled from "foo.bar.py".
+// the stem itself may hold dots, and may spell anything the suffixes spell:
+// "foo.bar.cpython-312.pyc" was compiled from "foo.bar.py", and so was
+// "my.opt-config.cpython-312.pyc" from "my.opt-config.py".
 func bytecodeStem(name string) (string, bool) {
 	rest := strings.TrimSuffix(name, ".pyc")
 
-	if tagged, _, ok := strings.Cut(rest, ".opt-"); ok {
+	if tagged, last, ok := cutLast(rest, "."); ok && strings.HasPrefix(last, "opt-") {
 		rest = tagged
 	}
 

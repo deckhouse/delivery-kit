@@ -113,7 +113,7 @@ func (s *digestSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 		options.WithCryptoSignerOpts(crypto.SHA256),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sign digest with the files signing key: %w", err)
 	}
 	s.digest = digest
 	s.signature = sig

@@ -91,7 +91,7 @@ func (s *SignFilesStage) digest() string {
 	for _, sign := range s.signs {
 		args = append(args, "Path", sign.Path)
 	}
-	args = append(args, "Cert", s.options.Signer().Cert(), "Chain", s.options.Signer().Chain())
+	args = append(args, "Cert", s.options.Signer().Cert())
 	return util.Sha256Hash(args...)
 }
 

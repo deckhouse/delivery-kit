@@ -67,7 +67,7 @@ type Conveyor struct {
 	StorageManager     manager.StorageManagerInterface
 
 	onTerminateFuncs []ConveyorCleanupFunc
-	importServers    map[string]import_server.ImportServer
+	importServers    map[string]*import_server.RsyncServer
 
 	ConveyorOptions
 
@@ -111,7 +111,7 @@ func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_m
 		baseImagesRepoErrCache: make(map[string]error),
 		remoteGitRepos:         make(map[string]*git_repo.Remote),
 		tmpDir:                 filepath.Join(baseTmpDir, util.GenerateConsistentRandomString(10)),
-		importServers:          make(map[string]import_server.ImportServer),
+		importServers:          make(map[string]*import_server.RsyncServer),
 
 		ContainerBackend:   containerBackend,
 		StorageLockManager: storageLockManager,
@@ -286,8 +286,15 @@ func (c *Conveyor) GetStageDigestMutex(stage string) *sync.Mutex {
 }
 
 func (c *Conveyor) GetImportServer(ctx context.Context, targetPlatform, imageName string, fromExternalImage bool) (import_server.ImportServer, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	c.GetServiceRWMutex("ImportServer").Lock()
 	defer c.GetServiceRWMutex("ImportServer").Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	importServerName := imageName
 
@@ -296,13 +303,22 @@ func (c *Conveyor) GetImportServer(ctx context.Context, targetPlatform, imageNam
 	}
 	importServerName += fmt.Sprintf("[%s]", targetPlatform)
 
-	if srv, hasKey := c.importServers[importServerName]; hasKey {
-		return srv, nil
+	var pinnedSource string
+	if cached, hasKey := c.importServers[importServerName]; hasKey {
+		healthy, err := cached.Healthy(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if healthy {
+			return cached, nil
+		}
+		pinnedSource = cached.DockerImageName
+		logboek.Context(ctx).Warn().LogF("Replacing unavailable import server %s for image %s\n", cached.DockerContainerName, imageName)
 	}
 
 	var srv *import_server.RsyncServer
 
-	if !fromExternalImage {
+	if !fromExternalImage && pinnedSource == "" {
 		img := c.GetImage(targetPlatform, imageName)
 		contentTagStageImage := img.GetContentTagStageImage()
 		if contentTagStageImage == nil {
@@ -336,6 +352,12 @@ func (c *Conveyor) GetImportServer(ctx context.Context, targetPlatform, imageNam
 				dockerImageName = c.GetImageContentTagName(targetPlatform, imageName)
 			}
 
+			if pinnedSource != "" {
+				dockerImageName = pinnedSource
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			var err error
 			srv, err = import_server.RunRsyncServer(ctx, dockerImageName, tmpDir, targetPlatform)
 			if err != nil {

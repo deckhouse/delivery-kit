@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.83.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.82.0-dk.1...v2.83.0-dk.1) (2026-10-15)
+
+
+### Features
+
+* **build:** fetch only the pinned commit of a submodule missing locally ([#8071](https://github.com/deckhouse/delivery-kit/issues/8071)) ([8eeb30c](https://github.com/deckhouse/delivery-kit/commit/8eeb30cf37c12bf3fb229ac669101f76e3a12029))
+
+
+### Bug Fixes
+
+* **build, stapel:** recover interrupted file imports ([#8076](https://github.com/deckhouse/delivery-kit/issues/8076)) ([1fb67cd](https://github.com/deckhouse/delivery-kit/commit/1fb67cdde4542b17ec0191a4bca3f039c2dd99a6))
+* **build:** show git preparation in operations statistics ([#8069](https://github.com/deckhouse/delivery-kit/issues/8069)) ([c849c21](https://github.com/deckhouse/delivery-kit/commit/c849c2100bbb50542aabb4f7b360da80208781a1))
+* **build:** skip cached stages with invalid image config sizes ([#8066](https://github.com/deckhouse/delivery-kit/issues/8066)) ([3763b35](https://github.com/deckhouse/delivery-kit/commit/3763b35ee07c24c9eff37f61302aa32ecaf1d5f9))
+* **cleanup:** speed up and report metadata migration progress ([#8079](https://github.com/deckhouse/delivery-kit/issues/8079)) ([8eae981](https://github.com/deckhouse/delivery-kit/commit/8eae9814a9c4a5e0494083501870328262625d07))
+
+
+### Miscellaneous Chores
+
+* force release 2.83.0-dk.1 ([2d47133](https://github.com/deckhouse/delivery-kit/commit/2d47133dfbbfc17d65b35c4f6492345ac9db336f))
+
 ## [2.82.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.81.4-dk.2...v2.82.0-dk.1) (2026-10-12)
 
 

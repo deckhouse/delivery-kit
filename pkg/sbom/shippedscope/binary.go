@@ -99,15 +99,19 @@ func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (Binary
 	}
 	defer file.Close()
 
-	testBinary, err := carriesTestMain(binary, size)
-	if err != nil {
-		return unknown, err
-	}
-	if testBinary {
-		classification := none
-		classification.TestBinary = true
+	if carriesGoSections(file) {
+		// Only a Go binary can be a test binary, and the scan reads the file end to end:
+		// running it on every shared library in an image would cost seconds per image.
+		testBinary, err := carriesTestMain(binary, size)
+		if err != nil {
+			return unknown, err
+		}
+		if testBinary {
+			classification := none
+			classification.TestBinary = true
 
-		return classification, nil
+			return classification, nil
+		}
 	}
 
 	info, err := buildinfo.Read(binary)
@@ -142,7 +146,10 @@ func rustEvidence(ctx context.Context, file *elf.File, info *debug.BuildInfo) (V
 		}
 
 		// Nothing can be told about crates from a Rust binary built without cargo
-		// auditable, and a binary of another language is indistinguishable from one.
+		// auditable, and a binary of another language is indistinguishable from one. The
+		// aggregate is blunt on purpose: one unaudited ELF — a libc, a shell — makes the
+		// image hold every crate. Narrowing it needs a test for "is this Rust at all",
+		// which no cheap and reliable mark provides today.
 		return VerdictUnknown, nil
 	}
 
@@ -216,6 +223,11 @@ func carriesGoSections(file *elf.File) bool {
 // survives -trimpath and -ldflags="-s -w". The path of the testing package's own source
 // cannot serve here: every binary linking the testing package carries it, production tools
 // among them, and a tool misread as a test binary would hold no component at all.
+//
+// The mark is a string in the file, so a binary carrying the string for another reason
+// reads as a test binary — the `go` tool itself does, since it has to name the file it
+// generates. An image shipping the Go toolchain therefore holds no module on account of
+// `go`, which is the safe direction for a build tool but worth knowing.
 func carriesTestMain(binary io.ReaderAt, size int64) (bool, error) {
 	const chunk = 1 << 20
 

@@ -180,6 +180,25 @@ func parsedCopy(file []byte) []byte {
 	return append([]byte{}, file...)
 }
 
+// elfWithTestMainAt places the test-main mark at an exact offset in the file, so a spec
+// can put it across a read boundary without knowing the layout of the ELF writer.
+func elfWithTestMainAt(offset int) []byte {
+	sections := func(padding int) map[string][]byte {
+		return map[string][]byte{
+			// A test binary is a Go binary, and the scan runs only on those.
+			".gopclntab": []byte("go"),
+			".rodata":    append(bytes.Repeat([]byte{'x'}, padding), []byte(testMainSource)...),
+		}
+	}
+
+	empty := elfWithSections(sections(0))
+	start := bytes.Index(empty, []byte(testMainSource))
+	Expect(start).NotTo(Equal(-1))
+	Expect(offset).To(BeNumerically(">=", start))
+
+	return elfWithSections(sections(offset - start))
+}
+
 func auditSection(document string) []byte {
 	var compressed bytes.Buffer
 

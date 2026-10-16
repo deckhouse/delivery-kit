@@ -151,6 +151,18 @@ var _ = Describe("ClassifyBinary", func() {
 		Expect(classification.Go).To(Equal(VerdictUnknown))
 	})
 
+	It("does not read a binary of another language as a test binary", func(ctx SpecContext) {
+		binary := elfWithSections(map[string][]byte{
+			".rodata": []byte("a C binary quoting _testmain.go for its own reasons"),
+		})
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.TestBinary).To(BeFalse())
+		Expect(classification.Go).To(Equal(VerdictNone))
+	})
+
 	It("holds everything when a file claims to be an ELF but cannot be parsed", func(ctx SpecContext) {
 		truncated := append([]byte{0x7f, 'E', 'L', 'F'}, bytes.Repeat([]byte{0}, 40)...)
 
@@ -161,25 +173,24 @@ var _ = Describe("ClassifyBinary", func() {
 		Expect(classification.Rust).To(Equal(VerdictUnknown))
 	})
 
-	It("finds the test main when it straddles two reads", func(ctx SpecContext) {
-		// The first read covers [0, chunk+overlap); a needle crossing its far edge is
-		// found only because the next read starts at chunk rather than where it ended.
-		const (
-			chunk       = 1 << 20
-			overlap     = len(testMainSource) - 1
-			sectionHead = 64 + 3*64
-		)
+	DescribeTable("finds the test main however it straddles the reads",
+		func(ctx SpecContext, position func(chunk, overlap int) int) {
+			const chunk = 1 << 20
 
-		padding := bytes.Repeat([]byte{'x'}, chunk+overlap-sectionHead-4)
-		binary := elfWithSections(map[string][]byte{
-			".rodata": append(padding, []byte(testMainSource)...),
-		})
+			overlap := len(testMainSource) - 1
+			binary := elfWithTestMainAt(position(chunk, overlap))
 
-		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
-		Expect(err).NotTo(HaveOccurred())
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+			Expect(err).NotTo(HaveOccurred())
 
-		Expect(classification.TestBinary).To(BeTrue())
-	})
+			Expect(classification.TestBinary).To(BeTrue())
+		},
+		// Crossing the stride is caught only by the buffer being longer than the stride.
+		Entry("across the stride boundary", func(chunk, _ int) int { return chunk - 4 }),
+		// Crossing the far edge of a read is caught only by the next read starting back
+		// at the stride rather than where the previous one ended.
+		Entry("across the far edge of the first read", func(chunk, overlap int) int { return chunk + overlap - 4 }),
+	)
 
 	It("refuses audit data larger than the cap before reading it", func(ctx SpecContext) {
 		binary := oversizedSection(elfWithSections(map[string][]byte{

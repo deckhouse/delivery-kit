@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.10.0-dk.1...v3.10.0-dk.2) (2026-10-16)
+
+
+### Features
+
+* **sbom:** collect the files each installed component ships ([#435](https://github.com/deckhouse/delivery-kit/issues/435)) ([a591e0d](https://github.com/deckhouse/delivery-kit/commit/a591e0ddfa230abe9c6c1054d205729f1551c102))
+
 ## [3.10.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.9.0-dk.1...v3.10.0-dk.1) (2026-10-15)
 
 

@@ -151,6 +151,63 @@ var _ = Describe("ClassifyBinary", func() {
 		Expect(classification.Go).To(Equal(VerdictUnknown))
 	})
 
+	It("lets the go tool keep its modules although it names the file it generates", func(ctx SpecContext) {
+		binary := elfWithSections(map[string][]byte{
+			".gopclntab": []byte("go"),
+			".rodata":    []byte("cmd/go writes " + testMainSource + " and never runs it"),
+		})
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.TestBinary).To(BeFalse())
+	})
+
+	It("lets a binary embedding a test framework keep its modules", func(ctx SpecContext) {
+		binary := elfWithSections(map[string][]byte{
+			".gopclntab": []byte("go"),
+			".rodata":    []byte("a framework reaching " + testRunnerFunc + " from its own main"),
+		})
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.TestBinary).To(BeFalse())
+	})
+
+	It("holds every module of a binary whose section headers are gone", func(ctx SpecContext) {
+		binary := withoutSectionHeaders(elfWithSections(map[string][]byte{
+			".rodata": []byte("packed"),
+		}))
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.Go).To(Equal(VerdictUnknown))
+		Expect(classification.Rust).To(Equal(VerdictUnknown))
+	})
+
+	It("still recognizes a test binary whose section headers are gone", func(ctx SpecContext) {
+		binary := withoutSectionHeaders(elfWithSections(map[string][]byte{
+			".rodata": []byte(testMainSource + " " + testRunnerFunc),
+		}))
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.TestBinary).To(BeTrue())
+	})
+
+	It("refuses a size it cannot scan", func(ctx SpecContext) {
+		binary := goBinary()
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), 0)
+		Expect(err).To(MatchError(ContainSubstring("size is 0")))
+
+		Expect(classification.Go).To(Equal(VerdictUnknown))
+		Expect(classification.Rust).To(Equal(VerdictUnknown))
+	})
+
 	It("does not read a binary of another language as a test binary", func(ctx SpecContext) {
 		binary := elfWithSections(map[string][]byte{
 			".rodata": []byte("a C binary quoting _testmain.go for its own reasons"),
@@ -192,7 +249,7 @@ var _ = Describe("ClassifyBinary", func() {
 		Entry("across the far edge of the first read", func(chunk, overlap int) int { return chunk + overlap - 4 }),
 	)
 
-	It("refuses audit data larger than the cap before reading it", func(ctx SpecContext) {
+	It("refuses audit data whose stored size is over the cap before reading it", func(ctx SpecContext) {
 		binary := oversizedSection(elfWithSections(map[string][]byte{
 			rustDepSection: auditSection(`{"packages":[{"name":"serde","version":"1.0.210","source":"crates.io"}]}`),
 		}), rustDepSection)
@@ -201,10 +258,27 @@ var _ = Describe("ClassifyBinary", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer file.Close()
 
-		// A compressed section is inflated inside Data(), so the size has to be rejected
-		// before the read rather than capped after it.
 		_, err = runtimeCrates(file.Section(rustDepSection))
 		Expect(err).To(MatchError(ContainSubstring("over the")))
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(classification.Rust).To(Equal(VerdictUnknown))
+	})
+
+	It("refuses audit data that inflates over the cap, however small it is stored", func(ctx SpecContext) {
+		binary := elfWithSections(map[string][]byte{
+			rustDepSection: inflatingAuditSection(),
+		})
+
+		file, err := elf.NewFile(bytes.NewReader(binary))
+		Expect(err).NotTo(HaveOccurred())
+		defer file.Close()
+
+		Expect(file.Section(rustDepSection).Size).To(BeNumerically("<", maxAuditData))
+
+		_, err = runtimeCrates(file.Section(rustDepSection))
+		Expect(err).To(MatchError(ContainSubstring("inflates over the")))
 
 		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
 		Expect(err).NotTo(HaveOccurred())

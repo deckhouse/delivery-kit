@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
+	"slices"
 
 	"github.com/werf/logboek"
 )
@@ -52,9 +53,13 @@ type BinaryClassification struct {
 }
 
 const (
-	// The generated main of a `go test -c` binary. Its own source path is the only mark
-	// that tells a test binary from a tool that merely links the testing package.
+	// Two marks together name a `go test -c` binary. The generated main's source path
+	// alone is not enough: the `go` tool carries it as the literal it writes that file
+	// with. The test runner's own function is not enough either: a binary embedding a
+	// test framework can reach it. Only a binary that both generates a test main and
+	// runs it is a test binary.
 	testMainSource = "_testmain.go"
+	testRunnerFunc = "testing.tRunner"
 	// The section cargo-auditable writes, holding zlib-compressed JSON.
 	rustDepSection    = ".dep-v0"
 	cgoEnabledSetting = "CGO_ENABLED"
@@ -83,9 +88,13 @@ func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (Binary
 	none := BinaryClassification{Go: VerdictNone, Rust: VerdictNone}
 	unknown := BinaryClassification{Go: VerdictUnknown, Rust: VerdictUnknown}
 
+	if size <= 0 {
+		return unknown, fmt.Errorf("classify binary: size is %d", size)
+	}
+
 	elfBinary, err := looksLikeELF(binary)
 	if err != nil {
-		return unknown, err
+		return unknown, fmt.Errorf("classify binary: %w", err)
 	}
 	if !elfBinary {
 		return none, nil
@@ -99,12 +108,14 @@ func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (Binary
 	}
 	defer file.Close()
 
-	if carriesGoSections(file) {
+	if carriesGoSections(file) || len(file.Sections) == 0 {
 		// Only a Go binary can be a test binary, and the scan reads the file end to end:
-		// running it on every shared library in an image would cost seconds per image.
-		testBinary, err := carriesTestMain(binary, size)
+		// running it on every shared library in an image would cost seconds per image. A
+		// binary with no section headers at all is scanned regardless, since nothing
+		// there says whether it is Go.
+		testBinary, err := carriesTestMarks(binary, size)
 		if err != nil {
-			return unknown, err
+			return unknown, fmt.Errorf("classify binary: %w", err)
 		}
 		if testBinary {
 			classification := none
@@ -125,7 +136,9 @@ func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (Binary
 
 func goEvidenceOf(ctx context.Context, file *elf.File, info *debug.BuildInfo, err error) (Verdict, []string) {
 	if err != nil {
-		if carriesGoSections(file) {
+		// Sections are what tells "not Go" from "Go I cannot read". A binary stripped of
+		// its section headers says neither, so it holds every module rather than none.
+		if carriesGoSections(file) || len(file.Sections) == 0 {
 			logboek.Context(ctx).Debug().LogF("read Go build info: %s\n", err)
 
 			return VerdictUnknown, nil
@@ -219,30 +232,40 @@ func carriesGoSections(file *elf.File) bool {
 	return false
 }
 
-// carriesTestMain looks for the source path of the main `go test -c` generates, which
-// survives -trimpath and -ldflags="-s -w". The path of the testing package's own source
-// cannot serve here: every binary linking the testing package carries it, production tools
-// among them, and a tool misread as a test binary would hold no component at all.
+// carriesTestMarks looks for both marks of a `go test -c` binary, which survive -trimpath
+// and -ldflags="-s -w". The path of the testing package's own source cannot serve here:
+// every binary linking the testing package carries it, production tools among them, and a
+// tool misread as a test binary would hold no component at all.
 //
-// The mark is a string in the file, so a binary carrying the string for another reason
-// reads as a test binary — the `go` tool itself does, since it has to name the file it
-// generates. An image shipping the Go toolchain therefore holds no module on account of
-// `go`, which is the safe direction for a build tool but worth knowing.
-func carriesTestMain(binary io.ReaderAt, size int64) (bool, error) {
+// Both marks are needed because each has a witness that carries it alone. The `go` tool
+// writes the generated main's path as a literal, so requiring it alone would make a
+// shipped Go toolchain hold nothing; a binary embedding a test framework can reach the
+// runner's own function without ever being a test.
+func carriesTestMarks(binary io.ReaderAt, size int64) (bool, error) {
 	const chunk = 1 << 20
 
-	needle := []byte(testMainSource)
-	// A match split across two reads is found by overlapping them.
-	overlap := len(needle) - 1
+	needles := [][]byte{[]byte(testMainSource), []byte(testRunnerFunc)}
 
+	// A match split across two reads is found by overlapping them.
+	overlap := 0
+	for _, needle := range needles {
+		overlap = max(overlap, len(needle)-1)
+	}
+
+	found := make([]bool, len(needles))
 	buffer := make([]byte, chunk+overlap)
+
 	for offset := int64(0); offset < size; offset += chunk {
 		read, err := binary.ReadAt(buffer, offset)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return false, fmt.Errorf("read binary at %d: %w", offset, err)
 		}
 
-		if bytes.Contains(buffer[:read], needle) {
+		for i, needle := range needles {
+			found[i] = found[i] || bytes.Contains(buffer[:read], needle)
+		}
+
+		if !slices.Contains(found, false) {
 			return true, nil
 		}
 
@@ -291,9 +314,14 @@ func runtimeCrates(section *elf.Section) ([]Crate, error) {
 	}
 	defer reader.Close()
 
-	data, err := io.ReadAll(io.LimitReader(reader, maxAuditData))
+	// The stored size says nothing about the inflated one, so the inflated side is
+	// capped too, and reading one byte past the cap tells a bomb from data that fits.
+	data, err := io.ReadAll(io.LimitReader(reader, maxAuditData+1))
 	if err != nil {
 		return nil, fmt.Errorf("decompress: %w", err)
+	}
+	if len(data) > maxAuditData {
+		return nil, fmt.Errorf("audit data inflates over the %d limit", maxAuditData)
 	}
 
 	var audit auditData

@@ -181,12 +181,13 @@ func parsedCopy(file []byte) []byte {
 }
 
 // elfWithTestMainAt places the test-main mark at an exact offset in the file, so a spec
-// can put it across a read boundary without knowing the layout of the ELF writer.
+// can put it across a read boundary without knowing the layout of the ELF writer. The
+// runner mark goes first, where no boundary reaches it.
 func elfWithTestMainAt(offset int) []byte {
 	sections := func(padding int) map[string][]byte {
 		return map[string][]byte{
 			// A test binary is a Go binary, and the scan runs only on those.
-			".gopclntab": []byte("go"),
+			".gopclntab": []byte(testRunnerFunc),
 			".rodata":    append(bytes.Repeat([]byte{'x'}, padding), []byte(testMainSource)...),
 		}
 	}
@@ -197,6 +198,26 @@ func elfWithTestMainAt(offset int) []byte {
 	Expect(offset).To(BeNumerically(">=", start))
 
 	return elfWithSections(sections(offset - start))
+}
+
+// withoutSectionHeaders strips the section header table the way a packer does, leaving a
+// file debug/elf still opens but that says nothing about its own language.
+func withoutSectionHeaders(file []byte) []byte {
+	stripped := parsedCopy(file)
+	order := binary.LittleEndian
+	order.PutUint64(stripped[40:], 0) // e_shoff
+	order.PutUint16(stripped[60:], 0) // e_shnum
+	order.PutUint16(stripped[62:], 0) // e_shstrndx
+
+	return stripped
+}
+
+// inflatingAuditSection compresses a document whose inflated size is far over the cap
+// while its stored size stays well under it.
+func inflatingAuditSection() []byte {
+	padding := strings.Repeat("a", maxAuditData+1)
+
+	return auditSection(`{"packages":[{"name":"serde","version":"1.0.210","source":"crates.io"}],"pad":"` + padding + `"}`)
 }
 
 func auditSection(document string) []byte {

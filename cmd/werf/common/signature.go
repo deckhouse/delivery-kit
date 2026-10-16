@@ -227,17 +227,22 @@ func getFilesSigningOptions(ctx context.Context, commonCmdData *CmdData, werfCon
 		return signing.FilesSigningOptions{}, fmt.Errorf("images %s declare files to sign: specify the signing certificate with --sign-files-cert", strings.Join(signingImages, ", "))
 	}
 
+	vault := signing.VaultOptions{
+		Address:     lo.FromPtr(commonCmdData.SignFilesVaultAddr),
+		TransitPath: lo.FromPtr(commonCmdData.SignFilesVaultTransitPath),
+		AuthJWT:     lo.FromPtr(commonCmdData.SignFilesVaultAuthJWT),
+		AuthRole:    lo.FromPtr(commonCmdData.SignFilesVaultAuthRole),
+		AuthPath:    lo.FromPtr(commonCmdData.SignFilesVaultAuthPath),
+	}
+	if (vault.AuthRole != "" || vault.AuthPath != "") && vault.AuthJWT == "" {
+		return signing.FilesSigningOptions{}, fmt.Errorf("--sign-files-vault-auth-role and --sign-files-vault-auth-path qualify --sign-files-vault-auth-jwt: specify the JWT as well, or drop them to log in to Vault as --sign-key does")
+	}
+
 	signer, err := signing.NewSigner(ctx, signing.SignerOptions{
 		KeyRef:           keyRef,
 		CertRef:          certRef,
 		IntermediatesRef: lo.FromPtr(commonCmdData.SignFilesIntermediates),
-		Vault: signing.VaultOptions{
-			Address:     lo.FromPtr(commonCmdData.SignFilesVaultAddr),
-			TransitPath: lo.FromPtr(commonCmdData.SignFilesVaultTransitPath),
-			AuthJWT:     lo.FromPtr(commonCmdData.SignFilesVaultAuthJWT),
-			AuthRole:    lo.FromPtr(commonCmdData.SignFilesVaultAuthRole),
-			AuthPath:    lo.FromPtr(commonCmdData.SignFilesVaultAuthPath),
-		},
+		Vault:            vault,
 	})
 	if err != nil {
 		return signing.FilesSigningOptions{}, fmt.Errorf("create files signer: %w", err)

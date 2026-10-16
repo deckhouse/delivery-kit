@@ -91,6 +91,7 @@ type ConveyorOptions struct {
 	ManifestSigningOptions  signing.ManifestSigningOptions
 	SbomSigningOptions      signing.SbomSigningOptions
 	VexSigningOptions       signing.VexSigningOptions
+	FilesSigningOptions     signing.FilesSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 	UseBuildReport          bool
 	BuildReportPath         string
@@ -142,6 +143,7 @@ func NewConveyor(werfConfig *config.WerfConfig, giterminismManager giterminism_m
 			ContainerWerfDir:        c.containerWerfDir,
 			TmpDir:                  c.tmpDir,
 			ManifestSigningOptions:  opts.ManifestSigningOptions,
+			FilesSigningOptions:     opts.FilesSigningOptions,
 			VerityAnnotationOptions: opts.VerityAnnotationOptions,
 		},
 		ImagesToProcess:     opts.ImagesToProcess,

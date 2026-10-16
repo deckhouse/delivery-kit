@@ -64,6 +64,7 @@ type BuildOptions struct {
 	SbomSigningOptions      signing.SbomSigningOptions
 	VexSigningOptions       signing.VexSigningOptions
 	ELFSigningOptions       signing.ELFSigningOptions
+	FilesSigningOptions     signing.FilesSigningOptions
 	VerityAnnotationOptions verify_annotation.Options
 
 	ReportPath       string
@@ -1322,8 +1323,11 @@ func (phase *BuildPhase) getPrevNonEmptyStageCreationTs() int64 {
 	return 0
 }
 
-func (phase *BuildPhase) getLogImageNetwork(img *image.Image) string {
+func (phase *BuildPhase) getLogImageNetwork(img *image.Image, stg stage.Interface) string {
 	network := phase.ImageBuildOptions.Network
+	if n, ok := stg.(interface{ Network() string }); network == "" && ok {
+		network = n.Network()
+	}
 	if network == "" {
 		if img.IsDockerfileImage && img.DockerfileImageConfig != nil {
 			network = img.DockerfileImageConfig.Network
@@ -1403,7 +1407,7 @@ func (phase *BuildPhase) onImageStage(ctx context.Context, img *image.Image, stg
 	if foundSuitableStage {
 		phase.countStageCacheHit(ctx)
 		logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s\n", stg.LogDetailedName())
-		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img, stg))
 
 		logboek.Context(ctx).LogOptionalLn()
 
@@ -1568,7 +1572,7 @@ func (phase *BuildPhase) findAndFetchStageFromSecondaryStagesStorage(ctx context
 				}
 
 				logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s\n", stg.LogDetailedName())
-				container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+				container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img, stg))
 
 				return nil
 			}
@@ -1924,7 +1928,7 @@ func (phase *BuildPhase) buildStage(ctx context.Context, img *image.Image, stg s
 		if err != nil {
 			return
 		}
-		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img, stg))
 	}
 
 	var reusedPublishedStage bool

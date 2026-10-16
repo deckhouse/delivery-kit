@@ -662,6 +662,40 @@ import:
   before: beforeInstall
   add: /app
 `),
+		Entry("sign without path", `
+image: app
+from: alpine
+sign:
+- after: install
+`),
+		Entry("sign without stage", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+`),
+		Entry("sign with both before and after", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+  before: install
+  after: install
+`),
+		Entry("sign with unknown stage", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+  after: beforeInstall
+`),
+		Entry("sign with relative path", `
+image: app
+from: alpine
+sign:
+- path: out/x
+  after: install
+`),
 		Entry("import with empty from", `
 image: app
 from: alpine

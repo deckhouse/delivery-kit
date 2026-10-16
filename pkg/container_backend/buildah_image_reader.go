@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/werf/logboek"
 )
@@ -30,12 +29,30 @@ func (backend *BuildahBackend) ReadFileFromImage(ctx context.Context, imageRef, 
 		}
 	}()
 
-	data, err := os.ReadFile(filepath.Join(container.RootMount, path))
+	data, err := readRegularFileFromRoot(container.RootMount, path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s from image %q: %w", path, imageRef, err)
 	}
 
 	return data, nil
+}
+
+// readRegularFileFromRoot reads path inside the mounted container root, following
+// symlinks against that root rather than the host, and accepts regular files only,
+// matching what the Docker reader yields for the same path.
+func readRegularFileFromRoot(rootMount, path string) ([]byte, error) {
+	resolvedPath, err := resolveContainerRootPath(rootMount, path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(resolvedPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	return os.ReadFile(resolvedPath)
 }
 
 // OpenImageReader is intentionally unsupported on the Buildah backend: the only caller is

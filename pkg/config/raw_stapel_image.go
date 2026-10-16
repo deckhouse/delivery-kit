@@ -21,6 +21,7 @@ type rawStapelImage struct {
 	RawShell         *rawShell               `yaml:"shell,omitempty"`
 	RawMount         []*rawMount             `yaml:"mount,omitempty"`
 	RawImport        []*rawImport            `yaml:"import,omitempty"`
+	RawSign          []*rawSign              `yaml:"sign,omitempty"`
 	RawDependencies  []*rawDependency        `yaml:"dependencies,omitempty"`
 	Platform         []string                `yaml:"platform,omitempty"`
 	Network          string                  `yaml:"network,omitempty"`
@@ -193,6 +194,20 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 
 	if err := imageBase.exportsAutoExcluding(); err != nil {
 		return nil, err
+	}
+
+	signPaths := map[string]struct{}{}
+	for _, rawSign := range c.RawSign {
+		signDirective, err := rawSign.toDirective()
+		if err != nil {
+			return nil, err
+		}
+		if _, exist := signPaths[signDirective.Path]; exist {
+			return nil, newDetailedConfigError(fmt.Sprintf("duplicated `path: %s` for sign!", signDirective.Path), rawSign, c.doc)
+		}
+		signPaths[signDirective.Path] = struct{}{}
+
+		imageBase.Sign = append(imageBase.Sign, signDirective)
 	}
 
 	for _, rawDep := range c.RawDependencies {

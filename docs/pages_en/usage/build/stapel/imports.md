@@ -94,3 +94,43 @@ If `add` is a **file**, the outcome depends on the _destination image_:
 werf creates only the parent directory of `to`, so whether `to` itself exists is decided by the _destination image_ — pin the full file path when the difference matters.
 
 A trailing slash in `to` (anything other than `to: /`) is a configuration error and fails the build: write `to: /usr/sbin`, not `to: /usr/sbin/`.
+
+## Signing files inside the image
+
+The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key. It fits the same place in the stage chain as `import`: the file must exist after the stage named by `before` or `after`, and the signature is in place for the stages that follow.
+
+```yaml
+image: sysext
+from: registry.example.com/base/ubuntu:22.04
+shell:
+  install:
+  - mkfs.erofs /out/ext.raw /src
+  - veritysetup format --root-hash-file=/out/ext.roothash /out/ext.raw /out/ext.verity
+sign:
+- path: /out/ext.roothash
+  after: install
+```
+
+werf reads the file out of the image built so far, signs it on the build host and adds `<path>.p7s` as a new layer. The signature is a detached PKCS#7 (CMS) `SignedData` over the file content — SHA-256, RSASSA-PKCS1-v1_5, no authenticated attributes, the signing certificate embedded — the same shape `systemd-keyutil pkcs7` produces, so systemd and the Linux kernel accept it as a dm-verity root hash signature. The key therefore has to be RSA.
+
+The key and the certificate are never part of `werf.yaml`; they come from the command line only, separately from the manifest and SBOM signing identity:
+
+| Flag | Environment variable | Description |
+|---|---|---|
+| `--sign-files` | `WERF_SIGN_FILES` | process `sign` directives (default `true`); `false` skips them and builds the image without the signatures |
+| `--sign-files-key` | `WERF_SIGN_FILES_KEY` | the private key: a path to a PEM file, a base64-encoded PEM, or `hashivault://[KEY]` |
+| `--sign-files-cert` | `WERF_SIGN_FILES_CERT` | the signing certificate: a path to a PEM file or a base64-encoded PEM |
+| `--sign-files-intermediates` | `WERF_SIGN_FILES_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
+| `--sign-files-vault-addr` | `WERF_SIGN_FILES_VAULT_ADDR` | the Vault address a `hashivault://` key is resolved against; unset → `VAULT_ADDR` |
+| `--sign-files-vault-transit-path` | `WERF_SIGN_FILES_VAULT_TRANSIT_PATH` | the transit engine mount of the key; unset → `TRANSIT_SECRET_ENGINE_PATH` |
+| `--sign-files-vault-auth-jwt` | `WERF_SIGN_FILES_VAULT_AUTH_JWT` | the JWT to log in to Vault with; unset → the authentication `--sign-key` uses, from the environment |
+| `--sign-files-vault-auth-role` | `WERF_SIGN_FILES_VAULT_AUTH_ROLE` | the Vault JWT role for that JWT |
+| `--sign-files-vault-auth-path` | `WERF_SIGN_FILES_VAULT_AUTH_PATH` | the JWT auth mount for that JWT; unset → `jwt` |
+
+The `--sign-files-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`; each option left unset falls back to what `--sign-key` would use.
+
+A build of an image that declares `sign` fails before any stage runs when the key or the certificate is missing and `--sign-files` is not `false`. Commands that do not build images (`lint`, `stages copy`, `sbom get`) have no `--sign-files` flag and treat it as off: they accept such a `werf.yaml` without a key.
+
+With `hashivault://` the private key never leaves the KMS. The certificate is not fetched from the KMS: when it is issued by a PKI (Vault PKI, for example), the pipeline retrieves the PEM itself and passes it as a path or base64. The stage container always runs with `network: none`, whatever the image's `network` setting, and none of the image's commands run in it, so the directive works unchanged when `build.sbom.enable` is `true` and [network is disabled in shell stages]({{ "/usage/build/sbom.html" | true_relative_url }}).
+
+The stage is cached like any other. Its digest covers the signed paths and the signing certificate, so rotating the key rebuilds the signature and the stages after it, while a rebuild with the same key reuses the cached layer. Only the signing certificate is embedded in the `.p7s`; intermediates do not take part in the signature or the digest.

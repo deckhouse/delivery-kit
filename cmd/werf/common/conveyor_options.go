@@ -75,6 +75,7 @@ func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData,
 	conveyorOptions.ManifestSigningOptions = buildStagesOptions.ManifestSigningOptions
 	conveyorOptions.SbomSigningOptions = buildStagesOptions.SbomSigningOptions
 	conveyorOptions.VexSigningOptions = buildStagesOptions.VexSigningOptions
+	conveyorOptions.FilesSigningOptions = buildStagesOptions.FilesSigningOptions
 	conveyorOptions.VerityAnnotationOptions = buildStagesOptions.VerityAnnotationOptions
 
 	return conveyorOptions, nil
@@ -138,6 +139,11 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		return buildOptions, err
 	}
 
+	filesSigningOptions, err := getFilesSigningOptions(ctx, commonCmdData, werfConfig)
+	if err != nil {
+		return buildOptions, err
+	}
+
 	verityAnnotationOptions, err := getVerityAnnotationOptions(commonCmdData)
 	if err != nil {
 		return build.BuildOptions{}, fmt.Errorf("getting verity annotation options: %w", err)
@@ -157,6 +163,7 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		SbomSigningOptions:      sbomSigningOptions,
 		VexSigningOptions:       vexSigningOptions,
 		ELFSigningOptions:       elfSigningOptions,
+		FilesSigningOptions:     filesSigningOptions,
 		VerityAnnotationOptions: verityAnnotationOptions,
 		ReportOperations:        GetBuildReportOperations(commonCmdData),
 	}

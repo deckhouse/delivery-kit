@@ -928,6 +928,31 @@ sections:
             description:
               en: "Globs for excluding"
               ru: "Глобы исключения"
+      - name: sign
+        description:
+          en: "Files to sign inside the image"
+          ru: "Подписание файлов внутри образа"
+        detailsArticle:
+          en: "/usage/build/stapel/imports.html#signing-files-inside-the-image"
+          ru: "/usage/build/stapel/imports.html#подписание-файлов-внутри-образа"
+        collapsible: true
+        isCollapsedByDefault: false
+        directiveList:
+          - name: path
+            value: "string"
+            description:
+              en: "The absolute path of the file to sign; the detached PKCS#7 signature is written next to it as `<path>.p7s`"
+              ru: "Абсолютный путь к подписываемому файлу; отсоединённая подпись PKCS#7 записывается рядом как `<path>.p7s`"
+          - name: before
+            value: "string"
+            description:
+              en: "The stage name before which to sign the file. At present, only install and setup stages are supported"
+              ru: "Стадия, перед которой подписать файл. Поддерживаются только стадии install и setup"
+          - name: after
+            value: "string"
+            description:
+              en: "The stage name after which to sign the file. At present, only install and setup stages are supported"
+              ru: "Стадия, после которой подписать файл. Поддерживаются только стадии install и setup"
       - name: dependencies
         description:
           en: "Dependencies images for current image"

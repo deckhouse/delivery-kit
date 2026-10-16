@@ -121,6 +121,13 @@ werf читает файл из собранного к этому момент�
 | `--sign-files-key` | `WERF_SIGN_FILES_KEY` | приватный ключ: путь к PEM-файлу, PEM в base64 или `hashivault://[KEY]` |
 | `--sign-files-cert` | `WERF_SIGN_FILES_CERT` | сертификат подписанта: путь к PEM-файлу или PEM в base64 |
 | `--sign-files-intermediates` | `WERF_SIGN_FILES_INTERMEDIATES` | промежуточные сертификаты: путь к PEM-файлу или PEM в base64 |
+| `--sign-files-vault-addr` | `WERF_SIGN_FILES_VAULT_ADDR` | адрес Vault, в котором ищется ключ `hashivault://`; не задан → `VAULT_ADDR` |
+| `--sign-files-vault-transit-path` | `WERF_SIGN_FILES_VAULT_TRANSIT_PATH` | mount transit-движка с ключом; не задан → `TRANSIT_SECRET_ENGINE_PATH` |
+| `--sign-files-vault-auth-jwt` | `WERF_SIGN_FILES_VAULT_AUTH_JWT` | JWT для входа в Vault; не задан → та же аутентификация из окружения, что у `--sign-key` |
+| `--sign-files-vault-auth-role` | `WERF_SIGN_FILES_VAULT_AUTH_ROLE` | роль Vault JWT для этого JWT |
+| `--sign-files-vault-auth-path` | `WERF_SIGN_FILES_VAULT_AUTH_PATH` | mount JWT-аутентификации для этого JWT; не задан → `jwt` |
+
+Опции `--sign-files-vault-*` нужны, чтобы подписант файлов и подписант `--sign-key` могли жить в разных mount Vault и входить под разными ролями в рамках одного `werf build`; каждая незаданная опция берёт то, что использовал бы `--sign-key`.
 
 Сборка образа с директивой `sign` завершается ошибкой ещё до запуска стадий, если ключ или сертификат не заданы, а `--sign-files` не равен `false`. Команды, которые не собирают образы (`lint`, `stages copy`, `sbom get`), не имеют флага `--sign-files` и считают его выключенным: такой `werf.yaml` они принимают без ключа.
 

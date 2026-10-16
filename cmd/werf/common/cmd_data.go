@@ -123,10 +123,15 @@ type CmdData struct {
 	SignCert          *string
 	SignIntermediates *string
 
-	SignFiles              *bool
-	SignFilesKey           *string
-	SignFilesCert          *string
-	SignFilesIntermediates *string
+	SignFiles                 *bool
+	SignFilesKey              *string
+	SignFilesCert             *string
+	SignFilesIntermediates    *string
+	SignFilesVaultAddr        *string
+	SignFilesVaultTransitPath *string
+	SignFilesVaultAuthJWT     *string
+	SignFilesVaultAuthRole    *string
+	SignFilesVaultAuthPath    *string
 
 	VerifyManifest *bool
 	VerifyRoots    *[]string

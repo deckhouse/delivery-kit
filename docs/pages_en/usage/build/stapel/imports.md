@@ -121,6 +121,13 @@ The key and the certificate are never part of `werf.yaml`; they come from the co
 | `--sign-files-key` | `WERF_SIGN_FILES_KEY` | the private key: a path to a PEM file, a base64-encoded PEM, or `hashivault://[KEY]` |
 | `--sign-files-cert` | `WERF_SIGN_FILES_CERT` | the signing certificate: a path to a PEM file or a base64-encoded PEM |
 | `--sign-files-intermediates` | `WERF_SIGN_FILES_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
+| `--sign-files-vault-addr` | `WERF_SIGN_FILES_VAULT_ADDR` | the Vault address a `hashivault://` key is resolved against; unset → `VAULT_ADDR` |
+| `--sign-files-vault-transit-path` | `WERF_SIGN_FILES_VAULT_TRANSIT_PATH` | the transit engine mount of the key; unset → `TRANSIT_SECRET_ENGINE_PATH` |
+| `--sign-files-vault-auth-jwt` | `WERF_SIGN_FILES_VAULT_AUTH_JWT` | the JWT to log in to Vault with; unset → the authentication `--sign-key` uses, from the environment |
+| `--sign-files-vault-auth-role` | `WERF_SIGN_FILES_VAULT_AUTH_ROLE` | the Vault JWT role for that JWT |
+| `--sign-files-vault-auth-path` | `WERF_SIGN_FILES_VAULT_AUTH_PATH` | the JWT auth mount for that JWT; unset → `jwt` |
+
+The `--sign-files-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`; each option left unset falls back to what `--sign-key` would use.
 
 A build of an image that declares `sign` fails before any stage runs when the key or the certificate is missing and `--sign-files` is not `false`. Commands that do not build images (`lint`, `stages copy`, `sbom get`) have no `--sign-files` flag and treat it as off: they accept such a `werf.yaml` without a key.
 

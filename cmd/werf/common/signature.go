@@ -66,6 +66,26 @@ Disable to build such images without signatures`)
 	cmdData.SignFilesIntermediates = new(string)
 	cmd.Flags().StringVarP(cmdData.SignFilesIntermediates, "sign-files-intermediates", "", os.Getenv("WERF_SIGN_FILES_INTERMEDIATES"),
 		"The intermediate certificates of the files signing key as path to PEM file or base64-encoded PEM (default $WERF_SIGN_FILES_INTERMEDIATES)")
+
+	cmdData.SignFilesVaultAddr = new(string)
+	cmd.Flags().StringVarP(cmdData.SignFilesVaultAddr, "sign-files-vault-addr", "", os.Getenv("WERF_SIGN_FILES_VAULT_ADDR"),
+		"The Vault address a hashivault:// files signing key is resolved against (default $WERF_SIGN_FILES_VAULT_ADDR, then $VAULT_ADDR)")
+
+	cmdData.SignFilesVaultTransitPath = new(string)
+	cmd.Flags().StringVarP(cmdData.SignFilesVaultTransitPath, "sign-files-vault-transit-path", "", os.Getenv("WERF_SIGN_FILES_VAULT_TRANSIT_PATH"),
+		"The Vault transit engine mount of the files signing key (default $WERF_SIGN_FILES_VAULT_TRANSIT_PATH, then $TRANSIT_SECRET_ENGINE_PATH)")
+
+	cmdData.SignFilesVaultAuthJWT = new(string)
+	cmd.Flags().StringVarP(cmdData.SignFilesVaultAuthJWT, "sign-files-vault-auth-jwt", "", os.Getenv("WERF_SIGN_FILES_VAULT_AUTH_JWT"),
+		"The JWT to log in to Vault with for the files signing key; when unset the Vault authentication is taken from the environment, as for --sign-key (default $WERF_SIGN_FILES_VAULT_AUTH_JWT)")
+
+	cmdData.SignFilesVaultAuthRole = new(string)
+	cmd.Flags().StringVarP(cmdData.SignFilesVaultAuthRole, "sign-files-vault-auth-role", "", os.Getenv("WERF_SIGN_FILES_VAULT_AUTH_ROLE"),
+		"The Vault JWT role for --sign-files-vault-auth-jwt (default $WERF_SIGN_FILES_VAULT_AUTH_ROLE)")
+
+	cmdData.SignFilesVaultAuthPath = new(string)
+	cmd.Flags().StringVarP(cmdData.SignFilesVaultAuthPath, "sign-files-vault-auth-path", "", os.Getenv("WERF_SIGN_FILES_VAULT_AUTH_PATH"),
+		"The Vault JWT auth mount for --sign-files-vault-auth-jwt (default $WERF_SIGN_FILES_VAULT_AUTH_PATH, then jwt)")
 }
 
 func GetSignFiles(cmdData *CmdData) bool {
@@ -211,6 +231,13 @@ func getFilesSigningOptions(ctx context.Context, commonCmdData *CmdData, werfCon
 		KeyRef:           keyRef,
 		CertRef:          certRef,
 		IntermediatesRef: lo.FromPtr(commonCmdData.SignFilesIntermediates),
+		Vault: signing.VaultOptions{
+			Address:     lo.FromPtr(commonCmdData.SignFilesVaultAddr),
+			TransitPath: lo.FromPtr(commonCmdData.SignFilesVaultTransitPath),
+			AuthJWT:     lo.FromPtr(commonCmdData.SignFilesVaultAuthJWT),
+			AuthRole:    lo.FromPtr(commonCmdData.SignFilesVaultAuthRole),
+			AuthPath:    lo.FromPtr(commonCmdData.SignFilesVaultAuthPath),
+		},
 	})
 	if err != nil {
 		return signing.FilesSigningOptions{}, fmt.Errorf("create files signer: %w", err)

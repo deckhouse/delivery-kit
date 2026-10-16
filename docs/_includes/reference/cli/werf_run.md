@@ -231,6 +231,22 @@ werf run [options] [IMAGE_NAME] [-- COMMAND ARG...]
       --sign-files-key=""
             The private key to sign files with as path to PEM file, base64-encoded PEM or           
             hashivault://[KEY] (default $WERF_SIGN_FILES_KEY)
+      --sign-files-vault-addr=""
+            The Vault address a hashivault:// files signing key is resolved against (default        
+            $WERF_SIGN_FILES_VAULT_ADDR, then $VAULT_ADDR)
+      --sign-files-vault-auth-jwt=""
+            The JWT to log in to Vault with for the files signing key; when unset the Vault         
+            authentication is taken from the environment, as for --sign-key (default                
+            $WERF_SIGN_FILES_VAULT_AUTH_JWT)
+      --sign-files-vault-auth-path=""
+            The Vault JWT auth mount for --sign-files-vault-auth-jwt (default                       
+            $WERF_SIGN_FILES_VAULT_AUTH_PATH, then jwt)
+      --sign-files-vault-auth-role=""
+            The Vault JWT role for --sign-files-vault-auth-jwt (default                             
+            $WERF_SIGN_FILES_VAULT_AUTH_ROLE)
+      --sign-files-vault-transit-path=""
+            The Vault transit engine mount of the files signing key (default                        
+            $WERF_SIGN_FILES_VAULT_TRANSIT_PATH, then $TRANSIT_SECRET_ENGINE_PATH)
       --sign-intermediates=""
             The intermediate certificates as path to PEM file or base64-encoded PEM (default        
             $WERF_SIGN_INTERMEDIATES)

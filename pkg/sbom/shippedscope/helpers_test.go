@@ -98,3 +98,13 @@ func digestOf(body string) string {
 
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
+
+func filesetOf(filesets *Filesets, ecosystem Ecosystem, name, version string) *Fileset {
+	for i, fileset := range filesets.Filesets {
+		if fileset.Ecosystem == ecosystem && fileset.Name == name && fileset.Version == version {
+			return &filesets.Filesets[i]
+		}
+	}
+
+	return nil
+}

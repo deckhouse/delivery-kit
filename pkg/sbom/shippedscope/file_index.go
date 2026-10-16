@@ -2,6 +2,7 @@ package shippedscope
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,6 +30,11 @@ type FileIndex struct {
 	Files map[string]File
 	// Symlinks holds targets exactly as the image records them: possibly relative, possibly dangling.
 	Symlinks map[string]string
+
+	// bodies holds the captured content by indexed name; targetBodies holds, by target
+	// path, the content a hardlink's name asked for while the layers were read.
+	bodies       map[string][]byte
+	targetBodies map[string][]byte
 }
 
 // IndexImageFiles records what the image ships: every regular file by rooted path, with
@@ -44,11 +50,26 @@ type FileIndex struct {
 // Hardlinks make the layers be read a second time, so an image whose layers are expensive
 // to obtain pays for that twice.
 func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
+	index, _, err := indexImageFiles(ctx, img, nil)
+
+	return index, err
+}
+
+// capture names the files whose bytes the caller needs beside their digest; they are read
+// once, while the file passes by, instead of costing another walk of the image. The bytes
+// travel with the entry, so a hardlink to such a file gets them along with its digest. A
+// symlink to one does not: it stays a symlink in the index, as everywhere else.
+func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string) bool) (*FileIndex, map[string][]byte, error) {
 	index := &FileIndex{
-		Files:    make(map[string]File),
-		Symlinks: make(map[string]string),
+		Files:        make(map[string]File),
+		Symlinks:     make(map[string]string),
+		bodies:       make(map[string][]byte),
+		targetBodies: make(map[string][]byte),
 	}
 	hardlinks := make(map[string]string)
+	if capture == nil {
+		capture = func(string) bool { return false }
+	}
 
 	rootfs := mutate.Extract(img)
 	defer rootfs.Close()
@@ -56,7 +77,7 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 	reader := tar.NewReader(rootfs)
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		header, err := reader.Next()
@@ -64,7 +85,7 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read image filesystem: %w", err)
+			return nil, nil, fmt.Errorf("read image filesystem: %w", err)
 		}
 
 		name := rootedPath(header.Name)
@@ -74,14 +95,14 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 
 		switch header.Typeflag {
 		case tar.TypeReg:
-			hasher := sha256.New()
-			if _, err := io.Copy(hasher, reader); err != nil {
-				return nil, fmt.Errorf("hash %q: %w", name, err)
+			file, body, err := readFile(reader, header, capture(name))
+			if err != nil {
+				return nil, nil, fmt.Errorf("hash %q: %w", name, err)
 			}
 
-			index.Files[name] = File{
-				Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
-				Size:   header.Size,
+			index.Files[name] = file
+			if body != nil {
+				index.bodies[name] = body
 			}
 		case tar.TypeSymlink:
 			index.Symlinks[name] = header.Linkname
@@ -95,17 +116,46 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 	// drain a rejected path or a layer whose digest does not verify would silently
 	// yield a partial index instead of an error.
 	if _, err := io.Copy(io.Discard, rootfs); err != nil {
-		return nil, fmt.Errorf("read image filesystem: %w", err)
+		return nil, nil, fmt.Errorf("read image filesystem: %w", err)
 	}
 
-	remaining, err := resolveHardlinksWithinLayers(ctx, img, index, hardlinks)
+	remaining, err := resolveHardlinksWithinLayers(ctx, img, index, hardlinks, capture)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	resolveHardlinks(ctx, index, remaining)
 
-	return index, nil
+	captured := index.bodies
+	index.bodies = nil
+	index.targetBodies = nil
+
+	return index, captured, nil
+}
+
+// The body is nil unless kept; a kept body is never nil, however short the file.
+func readFile(reader io.Reader, header *tar.Header, keepBody bool) (File, []byte, error) {
+	hasher := sha256.New()
+
+	var body bytes.Buffer
+	var sink io.Writer = hasher
+	if keepBody {
+		sink = io.MultiWriter(hasher, &body)
+	}
+
+	if _, err := io.Copy(sink, reader); err != nil {
+		return File{}, nil, err
+	}
+
+	file := File{
+		Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
+		Size:   header.Size,
+	}
+	if !keepBody {
+		return file, nil, nil
+	}
+
+	return file, append([]byte{}, body.Bytes()...), nil
 }
 
 // A layer tar spells a hardlink as a regular file plus a link entry beside it, so the bytes
@@ -115,16 +165,18 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 // sixth of the first pass on uncompressed layers and at nearly its equal on compressed ones,
 // where the gzip dominates — so it runs only for images that hold hardlinks and stops as
 // soon as every link has been answered.
-func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *FileIndex, hardlinks map[string]string) (map[string]string, error) {
+func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *FileIndex, hardlinks map[string]string, capture func(path string) bool) (map[string]string, error) {
 	if len(hardlinks) == 0 {
 		return hardlinks, nil
 	}
 
+	// A target is read for the link's sake, so it is the link's name that decides whether
+	// the bytes are kept.
 	targets := make(map[string]bool, len(hardlinks))
 	remaining := make(map[string]string, len(hardlinks))
 	for name, target := range hardlinks {
 		remaining[name] = target
-		targets[target] = true
+		targets[target] = targets[target] || capture(name)
 	}
 
 	layers, err := img.Layers()
@@ -133,13 +185,33 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 	}
 
 	settled := make(map[string]bool, len(hardlinks))
-	for i := len(layers) - 1; i >= 0 && len(settled) < len(hardlinks); i-- {
+	for i := len(layers) - 1; i >= 0; i-- {
+		if len(settled) == len(hardlinks) && !bodyOwed(index, remaining, capture) {
+			break
+		}
+
 		if err := resolveHardlinksInLayer(ctx, layers[i], index, remaining, targets, settled); err != nil {
 			return nil, err
 		}
 	}
 
 	return remaining, nil
+}
+
+// A link its own layer could not answer is resolved against the flattened view later, and
+// the bytes its name asked for have to come from the layer that holds the target.
+func bodyOwed(index *FileIndex, remaining map[string]string, capture func(path string) bool) bool {
+	for name, target := range remaining {
+		if !capture(name) {
+			continue
+		}
+
+		if _, ok := index.targetBodies[target]; !ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileIndex, remaining map[string]string, targets, settled map[string]bool) error {
@@ -150,6 +222,7 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 	defer contents.Close()
 
 	files := make(map[string]File)
+	bodies := make(map[string][]byte)
 	symlinks := make(map[string]string)
 	owned := make(map[string]string)
 
@@ -161,7 +234,7 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			resolveOwnedHardlinks(index, remaining, owned, files, symlinks)
+			resolveOwnedHardlinks(index, remaining, owned, files, bodies, symlinks)
 
 			return nil
 		}
@@ -173,21 +246,25 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 
 		switch header.Typeflag {
 		case tar.TypeReg:
-			if !targets[name] {
+			keepBody, ok := targets[name]
+			if !ok {
 				continue
 			}
 
-			hasher := sha256.New()
-			if _, err := io.Copy(hasher, reader); err != nil {
+			file, body, err := readFile(reader, header, keepBody)
+			if err != nil {
 				return fmt.Errorf("hash %q: %w", name, err)
 			}
 
-			files[name] = File{
-				Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
-				Size:   header.Size,
+			files[name] = file
+			if body != nil {
+				bodies[name] = body
+				if _, ok := index.targetBodies[name]; !ok {
+					index.targetBodies[name] = body
+				}
 			}
 		case tar.TypeSymlink:
-			if targets[name] {
+			if _, ok := targets[name]; ok {
 				symlinks[name] = header.Linkname
 			}
 		case tar.TypeLink:
@@ -206,10 +283,13 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 
 // A link entry may precede the target it names, so the layer answers only once its tar has
 // been read to the end.
-func resolveOwnedHardlinks(index *FileIndex, remaining, owned map[string]string, files map[string]File, symlinks map[string]string) {
+func resolveOwnedHardlinks(index *FileIndex, remaining, owned map[string]string, files map[string]File, bodies map[string][]byte, symlinks map[string]string) {
 	for name, target := range owned {
 		if file, ok := files[target]; ok {
 			index.Files[name] = file
+			if body, ok := bodies[target]; ok {
+				index.bodies[name] = body
+			}
 			delete(remaining, name)
 
 			continue
@@ -250,6 +330,9 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 		for {
 			if file, ok := index.Files[target]; ok {
 				index.Files[name] = file
+				if body, ok := index.targetBodies[target]; ok {
+					index.bodies[name] = body
+				}
 				break
 			}
 			if link, ok := index.Symlinks[target]; ok {

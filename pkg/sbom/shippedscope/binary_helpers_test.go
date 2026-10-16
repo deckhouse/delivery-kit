@@ -5,9 +5,15 @@ import (
 	"compress/zlib"
 	"debug/elf"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
 	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -15,10 +21,11 @@ import (
 )
 
 var (
-	buildOnce sync.Once
-	builtGo   []byte
-	builtTest []byte
-	errBuild  error
+	buildOnce     sync.Once
+	builtGo       []byte
+	builtTest     []byte
+	builtLinkedGo []byte
+	errBuild      error
 )
 
 // goBinary and goTestBinary return a Linux binary and the test binary of the same package,
@@ -36,20 +43,29 @@ func goTestBinary() []byte {
 	return builtTest
 }
 
+// goTestingLinkedBinary is an ordinary tool that imports the testing package, as gopls,
+// mockgen and werf itself do. It carries the path of the testing package's own source
+// while being no test binary at all.
+func goTestingLinkedBinary() []byte {
+	buildFixtures()
+
+	return builtLinkedGo
+}
+
 func buildFixtures() {
 	GinkgoHelper()
 
 	buildOnce.Do(func() {
-		builtGo, builtTest, errBuild = buildGoFixtures()
+		builtGo, builtTest, builtLinkedGo, errBuild = buildGoFixtures()
 	})
 
 	Expect(errBuild).NotTo(HaveOccurred())
 }
 
-func buildGoFixtures() ([]byte, []byte, error) {
+func buildGoFixtures() ([]byte, []byte, []byte, error) {
 	root, err := os.MkdirTemp("", "shippedscope-fixtures")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, fmt.Errorf("create fixture root: %w", err)
 	}
 	defer os.RemoveAll(root)
 
@@ -61,45 +77,107 @@ func buildGoFixtures() ([]byte, []byte, error) {
 			"func main() { println(lib.Greet()) }\n",
 		"app/main_test.go": "package main\n\nimport (\n\t\"testing\"\n\n\t\"example.test/lib\"\n)\n\n" +
 			"func TestGreet(t *testing.T) {\n\tif lib.Greet() == \"\" {\n\t\tt.Fatal(\"empty\")\n\t}\n}\n",
+		"tool/go.mod": "module example.test/tool\n\ngo 1.24\n\nrequire example.test/lib v0.0.0\n\nreplace example.test/lib => ../lib\n",
+		"tool/main.go": "package main\n\nimport (\n\t\"testing\"\n\n\t\"example.test/lib\"\n)\n\n" +
+			"func main() {\n\ttesting.Init()\n\tprintln(lib.Greet())\n}\n",
 	}
 	for name, body := range sources {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, fmt.Errorf("create %s: %w", name, err)
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, fmt.Errorf("write %s: %w", name, err)
 		}
 	}
 
-	app := filepath.Join(root, "app")
 	binary := filepath.Join(root, "app.bin")
 	testBinary := filepath.Join(root, "app.test")
+	toolBinary := filepath.Join(root, "tool.bin")
 
-	for _, args := range [][]string{
-		{"build", "-o", binary, "."},
-		{"test", "-c", "-o", testBinary, "."},
-	} {
-		command := exec.Command("go", args...)
-		command.Dir = app
+	builds := []struct {
+		module string
+		args   []string
+	}{
+		{module: "app", args: []string{"build", "-o", binary, "."}},
+		{module: "app", args: []string{"test", "-c", "-o", testBinary, "."}},
+		{module: "tool", args: []string{"build", "-o", toolBinary, "."}},
+	}
+	for _, build := range builds {
+		command := exec.Command("go", build.args...)
+		command.Dir = filepath.Join(root, build.module)
 		command.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
 
 		if output, err := command.CombinedOutput(); err != nil {
-			return nil, nil, &exec.ExitError{ProcessState: command.ProcessState, Stderr: output}
+			return nil, nil, nil, fmt.Errorf("go %s in %s: %w: %s", strings.Join(build.args, " "), build.module, err, output)
 		}
 	}
 
 	built, err := os.ReadFile(binary)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, fmt.Errorf("read %s: %w", binary, err)
 	}
 
 	builtTest, err := os.ReadFile(testBinary)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, fmt.Errorf("read %s: %w", testBinary, err)
 	}
 
-	return built, builtTest, nil
+	builtTool, err := os.ReadFile(toolBinary)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("read %s: %w", toolBinary, err)
+	}
+
+	return built, builtTest, builtTool, nil
+}
+
+// failingReaderAt serves the small reads that parsing an ELF needs and fails the large
+// ones the whole-file scan makes.
+type failingReaderAt struct {
+	io.ReaderAt
+
+	failLargerThan int
+}
+
+func (r failingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if len(p) > r.failLargerThan {
+		return 0, errors.New("read failed")
+	}
+
+	return r.ReaderAt.ReadAt(p, off)
+}
+
+// oversizedSection rewrites the recorded size of a section so it claims to hold more than
+// the reader accepts, without the file actually carrying those bytes.
+func oversizedSection(file []byte, name string) []byte {
+	parsed, err := elf.NewFile(bytes.NewReader(parsedCopy(file)))
+	Expect(err).NotTo(HaveOccurred())
+	defer parsed.Close()
+
+	index := -1
+	for i, section := range parsed.Sections {
+		if section.Name == name {
+			index = i
+
+			break
+		}
+	}
+	Expect(index).NotTo(Equal(-1))
+
+	const (
+		headerSize        = 64
+		sectionHeaderSize = 64
+		sizeOffset        = 32
+	)
+
+	rewritten := parsedCopy(file)
+	binary.LittleEndian.PutUint64(rewritten[headerSize+index*sectionHeaderSize+sizeOffset:], maxAuditData+1)
+
+	return rewritten
+}
+
+func parsedCopy(file []byte) []byte {
+	return append([]byte{}, file...)
 }
 
 func auditSection(document string) []byte {
@@ -126,12 +204,13 @@ func elfWithSections(sections map[string][]byte) []byte {
 	for name := range sections {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 
 	var nameTable bytes.Buffer
 	nameTable.WriteByte(0)
 
 	nameOffsets := make(map[string]uint32, len(names)+1)
-	for _, name := range append(names, ".shstrtab") {
+	for _, name := range append(slices.Clone(names), ".shstrtab") {
 		nameOffsets[name] = uint32(nameTable.Len())
 		nameTable.WriteString(name)
 		nameTable.WriteByte(0)

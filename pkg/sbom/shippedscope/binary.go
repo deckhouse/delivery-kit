@@ -7,6 +7,7 @@ import (
 	"debug/buildinfo"
 	"debug/elf"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"runtime/debug"
@@ -51,9 +52,12 @@ type BinaryClassification struct {
 }
 
 const (
-	testingSourcePath = "src/testing/testing.go"
+	// The generated main of a `go test -c` binary. Its own source path is the only mark
+	// that tells a test binary from a tool that merely links the testing package.
+	testMainSource = "_testmain.go"
 	// The section cargo-auditable writes, holding zlib-compressed JSON.
-	rustDepSection = ".dep-v0"
+	rustDepSection    = ".dep-v0"
+	cgoEnabledSetting = "CGO_ENABLED"
 )
 
 // goSections name a Go binary even when its build info is gone.
@@ -69,65 +73,106 @@ var goSections = []string{".gopclntab", ".go.buildinfo"}
 // obfuscator leaves an empty dependency list behind on a binary whose dependencies are
 // alive; reading that as knowledge would drop every one of them.
 //
-// A file that is not an ELF binary speaks for nobody: images here are Linux images, and a
-// Go or Rust binary in one is an ELF.
+// Go and Rust are read independently: a cgo binary linking an audited Rust archive carries
+// the evidence of both, and an early return on either would drop the other.
+//
+// A file that is not an ELF at all speaks for nobody: images here are Linux images, and a
+// Go or Rust binary in one is an ELF. A file that looks like an ELF but cannot be parsed
+// holds everything instead — "I cannot read this" is not "this contains nothing".
 func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (BinaryClassification, error) {
-	classification := BinaryClassification{Go: VerdictNone, Rust: VerdictNone}
+	none := BinaryClassification{Go: VerdictNone, Rust: VerdictNone}
+	unknown := BinaryClassification{Go: VerdictUnknown, Rust: VerdictUnknown}
+
+	elfBinary, err := looksLikeELF(binary)
+	if err != nil {
+		return unknown, err
+	}
+	if !elfBinary {
+		return none, nil
+	}
 
 	file, err := elf.NewFile(binary)
 	if err != nil {
-		return classification, nil
+		logboek.Context(ctx).Debug().LogF("parse ELF: %s\n", err)
+
+		return unknown, nil
 	}
 	defer file.Close()
 
-	testBinary, err := carriesTestingSource(binary, size)
+	testBinary, err := carriesTestMain(binary, size)
 	if err != nil {
-		return classification, err
+		return unknown, err
 	}
 	if testBinary {
+		classification := none
 		classification.TestBinary = true
 
 		return classification, nil
 	}
 
-	if section := file.Section(rustDepSection); section != nil {
-		crates, err := runtimeCrates(section)
-		if err != nil {
-			logboek.Context(ctx).Debug().LogF("read %s: %s\n", rustDepSection, err)
-			classification.Rust = VerdictUnknown
-
-			return classification, nil
-		}
-
-		classification.Rust = VerdictNames
-		classification.Crates = crates
-
-		return classification, nil
-	}
-
 	info, err := buildinfo.Read(binary)
-	if err != nil {
-		if carriesGoSections(file) {
-			classification.Go = VerdictUnknown
 
-			return classification, nil
-		}
-
-		// Not a Go binary, and no audit data: it holds no Go module, and whether it holds
-		// a crate cannot be told from a Rust binary built without cargo auditable.
-		classification.Rust = VerdictUnknown
-
-		return classification, nil
-	}
-
-	classification.Go, classification.Modules = goEvidence(info)
+	classification := none
+	classification.Go, classification.Modules = goEvidenceOf(ctx, file, info, err)
+	classification.Rust, classification.Crates = rustEvidence(ctx, file, info)
 
 	return classification, nil
 }
 
+func goEvidenceOf(ctx context.Context, file *elf.File, info *debug.BuildInfo, err error) (Verdict, []string) {
+	if err != nil {
+		if carriesGoSections(file) {
+			logboek.Context(ctx).Debug().LogF("read Go build info: %s\n", err)
+
+			return VerdictUnknown, nil
+		}
+
+		return VerdictNone, nil
+	}
+
+	return goEvidence(info)
+}
+
+func rustEvidence(ctx context.Context, file *elf.File, info *debug.BuildInfo) (Verdict, []Crate) {
+	section := file.Section(rustDepSection)
+	if section == nil {
+		if builtWithoutCgo(info) {
+			// A Go binary that links no C object carries no crate either.
+			return VerdictNone, nil
+		}
+
+		// Nothing can be told about crates from a Rust binary built without cargo
+		// auditable, and a binary of another language is indistinguishable from one.
+		return VerdictUnknown, nil
+	}
+
+	crates, err := runtimeCrates(section)
+	if err != nil {
+		logboek.Context(ctx).Debug().LogF("read %s: %s\n", rustDepSection, err)
+
+		return VerdictUnknown, nil
+	}
+
+	return VerdictNames, crates
+}
+
+func looksLikeELF(binary io.ReaderAt) (bool, error) {
+	magic := make([]byte, 4)
+
+	read, err := binary.ReadAt(magic, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, fmt.Errorf("read binary header: %w", err)
+	}
+
+	return read == len(magic) && bytes.Equal(magic, []byte{0x7f, 'E', 'L', 'F'}), nil
+}
+
 // goEvidence reads the build info of a binary already known not to be a test binary.
 func goEvidence(info *debug.BuildInfo) (Verdict, []string) {
-	if info.GoVersion == "" && info.Path == "" && len(info.Settings) == 0 {
+	// An obfuscator leaves the module path and the settings empty while the dependency
+	// list it emptied describes a binary whose dependencies are alive. GoVersion is no
+	// part of the test: garble fills it with "unknown" rather than clearing it.
+	if info.Path == "" && len(info.Settings) == 0 {
 		return VerdictUnknown, nil
 	}
 
@@ -143,6 +188,20 @@ func goEvidence(info *debug.BuildInfo) (Verdict, []string) {
 	return VerdictNames, modules
 }
 
+func builtWithoutCgo(info *debug.BuildInfo) bool {
+	if info == nil {
+		return false
+	}
+
+	for _, setting := range info.Settings {
+		if setting.Key == cgoEnabledSetting {
+			return setting.Value == "0"
+		}
+	}
+
+	return false
+}
+
 func carriesGoSections(file *elf.File) bool {
 	for _, name := range goSections {
 		if file.Section(name) != nil {
@@ -153,19 +212,21 @@ func carriesGoSections(file *elf.File) bool {
 	return false
 }
 
-// carriesTestingSource looks for the path of the testing package's own source, which the
-// test runner inside every `go test -c` binary carries and a strip does not touch.
-func carriesTestingSource(binary io.ReaderAt, size int64) (bool, error) {
+// carriesTestMain looks for the source path of the main `go test -c` generates, which
+// survives -trimpath and -ldflags="-s -w". The path of the testing package's own source
+// cannot serve here: every binary linking the testing package carries it, production tools
+// among them, and a tool misread as a test binary would hold no component at all.
+func carriesTestMain(binary io.ReaderAt, size int64) (bool, error) {
 	const chunk = 1 << 20
 
-	needle := []byte(testingSourcePath)
+	needle := []byte(testMainSource)
 	// A match split across two reads is found by overlapping them.
 	overlap := len(needle) - 1
 
 	buffer := make([]byte, chunk+overlap)
 	for offset := int64(0); offset < size; offset += chunk {
 		read, err := binary.ReadAt(buffer, offset)
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return false, fmt.Errorf("read binary at %d: %w", offset, err)
 		}
 
@@ -173,7 +234,7 @@ func carriesTestingSource(binary io.ReaderAt, size int64) (bool, error) {
 			return true, nil
 		}
 
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 	}
@@ -195,9 +256,18 @@ type auditPackage struct {
 	Kind string `json:"kind"`
 }
 
-const buildDependency = "build"
+const (
+	buildDependency = "build"
+	maxAuditData    = 8 << 20
+)
 
 func runtimeCrates(section *elf.Section) ([]Crate, error) {
+	// Audit data of a real binary is tens of kilobytes. The size is checked before the
+	// section is read because debug/elf inflates a compressed section inside Data().
+	if section.Size > maxAuditData {
+		return nil, fmt.Errorf("section is %d bytes, over the %d limit", section.Size, maxAuditData)
+	}
+
 	compressed, err := section.Data()
 	if err != nil {
 		return nil, fmt.Errorf("read section: %w", err)
@@ -208,10 +278,6 @@ func runtimeCrates(section *elf.Section) ([]Crate, error) {
 		return nil, fmt.Errorf("decompress: %w", err)
 	}
 	defer reader.Close()
-
-	// Audit data of a real binary is tens of kilobytes; the cap keeps a crafted section
-	// from being decompressed into memory without bound.
-	const maxAuditData = 8 << 20
 
 	data, err := io.ReadAll(io.LimitReader(reader, maxAuditData))
 	if err != nil {

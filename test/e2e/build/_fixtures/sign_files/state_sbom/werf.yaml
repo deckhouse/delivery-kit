@@ -13,7 +13,8 @@ shell:
   install:
   - mkdir -p /out
   - printf '%s' 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b > /out/ext.roothash
-  - if wget -q -T 3 -O /dev/null http://1.1.1.1 2>/dev/null; then echo 'network is reachable' >&2; exit 1; fi
+  - command -v ping >/dev/null || { echo 'network probe tool is missing' >&2; exit 1; }
+  - if ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then echo 'network is reachable' >&2; exit 1; fi
   setup:
   - test -s /out/ext.roothash.p7s
 sign:

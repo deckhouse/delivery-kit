@@ -947,12 +947,12 @@ sections:
             value: "string"
             description:
               en: "The stage name before which to sign the file. At present, only install and setup stages are supported"
-              ru: "Выбор стадии подписания файла при сборке, до стадии install или setup"
+              ru: "Стадия, перед которой подписать файл. Поддерживаются только стадии install и setup"
           - name: after
             value: "string"
             description:
               en: "The stage name after which to sign the file. At present, only install and setup stages are supported"
-              ru: "Выбор стадии подписания файла при сборке, после стадии install или setup"
+              ru: "Стадия, после которой подписать файл. Поддерживаются только стадии install и setup"
       - name: dependencies
         description:
           en: "Dependencies images for current image"

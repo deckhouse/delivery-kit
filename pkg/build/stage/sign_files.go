@@ -71,11 +71,13 @@ func generateSignFilesStage(imageBaseConfig *config.StapelImageBase, name StageN
 		return nil
 	}
 
-	return &SignFilesStage{
+	stage := &SignFilesStage{
 		BaseStage: NewBaseStage(name, baseStageOptions),
 		signs:     signs,
 		options:   options,
 	}
+	stage.SetNetworkOverride("none")
+	return stage
 }
 
 func (s *SignFilesStage) GetDependencies(_ context.Context, _ Conveyor, _ container_backend.ContainerBackend, _, _ *StageImage, _ container_backend.BuildContextArchiver) (string, error) {
@@ -115,8 +117,9 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 
 		var signature []byte
 		if err := logboek.Context(ctx).Default().LogProcess("Signing %s", sign.Path).DoError(func() error {
-			signature, err = signing.SignDetachedPKCS7(ctx, content, s.options.Signer())
-			return err
+			var signErr error
+			signature, signErr = signing.SignDetachedPKCS7(ctx, content, s.options.Signer())
+			return signErr
 		}); err != nil {
 			return fmt.Errorf("sign %s of image %q: %w", sign.Path, s.imageName, err)
 		}

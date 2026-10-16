@@ -177,16 +177,25 @@ sign:
 		}
 	})
 
-	It("keeps shell stages offline under build.sbom.enable while the sign stages need no network either", func() {
+	DescribeTable("runs the sign stages without network",
+		func(sbomBlock string) {
+			image := newImage(context.Background(), sbomBlock, enabled())
+
+			for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
+				s := image.GetStage(name)
+				Expect(s).NotTo(BeNil(), string(name))
+				Expect(s.(*stage.SignFilesStage).Network()).To(Equal("none"), string(name))
+			}
+		},
+		Entry("build.sbom absent", ""),
+		Entry("build.sbom.enable true", "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6"),
+	)
+
+	It("keeps shell stages offline under build.sbom.enable", func() {
 		image := newImage(context.Background(), "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6", enabled())
 
-		for _, s := range image.GetStages() {
-			if s.Name() == stage.From {
-				continue
-			}
-			nn, ok := s.(interface{ NeedsNetwork() bool })
-			Expect(ok).To(BeTrue(), string(s.Name()))
-			Expect(nn.NeedsNetwork()).To(BeFalse(), string(s.Name()))
+		for _, name := range []stage.StageName{stage.Install, stage.Setup} {
+			Expect(image.GetStage(name).(interface{ Network() string }).Network()).To(Equal("none"), string(name))
 		}
 	})
 })

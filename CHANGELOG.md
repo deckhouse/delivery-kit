@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.83.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v2.83.0-dk.1...v2.83.0-dk.2) (2026-10-18)
+
+
+### Bug Fixes
+
+* **elf:** sign files with shared string tables ([#445](https://github.com/deckhouse/delivery-kit/issues/445)) ([b634289](https://github.com/deckhouse/delivery-kit/commit/b6342894e8a83b68b2b292ab65374f9e2e48b960))
+
 ## [2.83.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.82.0-dk.1...v2.83.0-dk.1) (2026-10-15)
 
 

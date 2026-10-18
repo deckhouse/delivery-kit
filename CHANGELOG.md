@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.10.0-dk.2...v3.10.0-dk.3) (2026-10-18)
+
+
+### Bug Fixes
+
+* **elf:** preserve valid metadata when signing and verifying ([#447](https://github.com/deckhouse/delivery-kit/issues/447)) ([ea45917](https://github.com/deckhouse/delivery-kit/commit/ea459173570f8c44342ab56d186f24c74cbdf637))
+
 ## [3.10.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.10.0-dk.1...v3.10.0-dk.2) (2026-10-18)
 
 

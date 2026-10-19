@@ -269,10 +269,6 @@ func recordShippedFiles(ctx context.Context, bom *cdx.BOM, backend imageSaver, w
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
 }
 
-type imageSaver interface {
-	SaveImageToStream(ctx context.Context, imageName string) (io.ReadCloser, error)
-}
-
 // savedImage reads the image out of the backend as a docker-save tarball. The tarball is
 // read more than once, once for its manifest and once per layer, which a stream cannot
 // give, so it goes to a file first, the same way MutateAndPushImage does. The returned

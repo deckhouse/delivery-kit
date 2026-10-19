@@ -32,6 +32,7 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/pkg/werf/global_warnings"
@@ -202,6 +203,10 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
+		if err := recordShippedFiles(ctx, resultBOM, store, parentDigest); err != nil {
+			return err
+		}
+
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
 			return fmt.Errorf("serialize BOM: %w", err)
@@ -219,6 +224,31 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		return nil
 	})
+}
+
+// recordShippedFiles records, on every component an ecosystem installed into the image,
+// which files of the image are that component's. An image built from this one can then
+// ask of an inherited component whether its files are still there, instead of trusting
+// that a component its base declared came along.
+//
+// Runs last, once the BOM holds the components it will ship with: Canonicalize folds
+// duplicate components together and drops an evidence list that comes out empty, which is
+// exactly the "its files were looked for and none were found" this writes.
+func recordShippedFiles(ctx context.Context, bom *cdx.BOM, store *artifact.OCIStore, parentDigest string) error {
+	img, err := store.ParentImage(ctx, parentDigest)
+	if err != nil {
+		return fmt.Errorf("read built image: %w", err)
+	}
+
+	filesets, err := shippedscope.CollectFilesets(ctx, img)
+	if err != nil {
+		return fmt.Errorf("collect component filesets: %w", err)
+	}
+
+	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
+	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
+
+	return nil
 }
 
 // restoreImageMetadata sets the BOM's top-level component to the scanned image while
@@ -460,7 +490,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "10"
+const sbomArtifactFormatVersion = "11"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

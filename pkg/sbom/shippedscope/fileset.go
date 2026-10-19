@@ -28,6 +28,11 @@ type Fileset struct {
 	Version   string
 	Files     map[string]File
 	Symlinks  map[string]string
+	// DeclaresFiles tells whether the component named any path at all. One that names none
+	// — a metapackage, a distribution whose record is empty — can be shown neither present
+	// nor absent by its files, which is a different thing from one whose declared files are
+	// all gone.
+	DeclaresFiles bool
 }
 
 type Filesets struct {

@@ -123,6 +123,22 @@ var _ = Describe("CollectFilesets, Python", func() {
 		stub := filesetOf(filesets, EcosystemPython, "stub", "1.0")
 		Expect(stub).NotTo(BeNil())
 		Expect(stub.Files).To(BeEmpty())
+		Expect(stub.DeclaresFiles).To(BeFalse())
+	})
+
+	It("says a distribution declares files when its record names some, however few survived", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("site/gone-1.0.dist-info/RECORD", "gone/__init__.py,sha256=x,12\n"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		gone := filesetOf(filesets, EcosystemPython, "gone", "1.0")
+		Expect(gone).NotTo(BeNil())
+		Expect(gone.Files).To(BeEmpty())
+		Expect(gone.DeclaresFiles).To(BeTrue())
 	})
 
 	It("reads a record whose path is quoted because it holds a comma", func(ctx SpecContext) {

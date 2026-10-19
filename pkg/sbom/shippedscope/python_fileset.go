@@ -50,11 +50,12 @@ func pythonFilesets(ctx context.Context, index *FileIndex, manifests map[string]
 		files, symlinks := collect(index, declared)
 
 		filesets = append(filesets, Fileset{
-			Ecosystem: EcosystemPython,
-			Name:      normalizePythonName(name),
-			Version:   version,
-			Files:     files,
-			Symlinks:  symlinks,
+			Ecosystem:     EcosystemPython,
+			Name:          normalizePythonName(name),
+			Version:       version,
+			Files:         files,
+			Symlinks:      symlinks,
+			DeclaresFiles: len(declared) > 0,
 		})
 	}
 

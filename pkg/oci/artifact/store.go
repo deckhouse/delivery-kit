@@ -46,6 +46,23 @@ func NewOCIStore(repo, imageName string, opts ...remote.Option) *OCIStore {
 	}
 }
 
+// ParentImage fetches the image an artifact would be attached to. The digest names one
+// manifest, so a multi-platform build gets the image of the platform it is converging,
+// not the index.
+func (s *OCIStore) ParentImage(ctx context.Context, parentDigest string) (v1.Image, error) {
+	ref, err := name.NewDigest(s.repo + "@" + parentDigest)
+	if err != nil {
+		return nil, fmt.Errorf("parse parent digest reference: %w", err)
+	}
+
+	img, err := remote.Image(ref, s.remoteOptions(ctx)...)
+	if err != nil {
+		return nil, fmt.Errorf("get parent image: %w", err)
+	}
+
+	return img, nil
+}
+
 func (s *OCIStore) Attach(ctx context.Context, parentDigest, artifactType string, payload []byte, checksum, targetPlatform, predicateType string) error {
 	return s.AttachSuperseding(ctx, parentDigest, artifactType, payload, checksum, targetPlatform, predicateType, nil)
 }

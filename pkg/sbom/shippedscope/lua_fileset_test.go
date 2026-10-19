@@ -111,4 +111,18 @@ var _ = Describe("CollectFilesets, Lua", func() {
 
 		Expect(filesets.Filesets).To(BeEmpty())
 	})
+
+	It("says a rock whose manifest names no file declares none", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("usr/local/lib/luarocks/rocks-5.4/meta/1.0-1/rock_manifest", "rock_manifest = {\n   lua = {\n   }\n}\n"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		meta := filesetOf(filesets, EcosystemLua, "meta", "1.0-1")
+		Expect(meta).NotTo(BeNil())
+		Expect(meta.DeclaresFiles).To(BeFalse())
+	})
 })

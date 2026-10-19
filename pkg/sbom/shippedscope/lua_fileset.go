@@ -62,11 +62,12 @@ func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]b
 		files, symlinks := collect(index, declared)
 
 		filesets = append(filesets, Fileset{
-			Ecosystem: EcosystemLua,
-			Name:      name,
-			Version:   version,
-			Files:     files,
-			Symlinks:  symlinks,
+			Ecosystem:     EcosystemLua,
+			Name:          name,
+			Version:       version,
+			Files:         files,
+			Symlinks:      symlinks,
+			DeclaresFiles: len(declared) > 0,
 		})
 	}
 

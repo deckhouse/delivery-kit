@@ -44,14 +44,16 @@ func javascriptFilesets(index *FileIndex, manifests map[string][]byte) []Fileset
 
 		root := path.Dir(manifest)
 
-		files, symlinks := collect(index, packageTreePaths(index, root))
+		declared := packageTreePaths(index, root)
+		files, symlinks := collect(index, declared)
 
 		filesets = append(filesets, Fileset{
-			Ecosystem: EcosystemJavaScript,
-			Name:      declaration.Name,
-			Version:   declaration.Version,
-			Files:     files,
-			Symlinks:  symlinks,
+			Ecosystem:     EcosystemJavaScript,
+			Name:          declaration.Name,
+			Version:       declaration.Version,
+			Files:         files,
+			Symlinks:      symlinks,
+			DeclaresFiles: len(declared) > 0,
 		})
 	}
 

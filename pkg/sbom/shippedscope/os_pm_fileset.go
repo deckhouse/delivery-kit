@@ -62,11 +62,12 @@ func osPMFilesets(ctx context.Context, index *FileIndex, manifests map[string][]
 		files, symlinks := collect(index, declared)
 
 		filesets = append(filesets, Fileset{
-			Ecosystem: EcosystemOSPM,
-			Name:      name,
-			Version:   entry.Version,
-			Files:     files,
-			Symlinks:  symlinks,
+			Ecosystem:     EcosystemOSPM,
+			Name:          name,
+			Version:       entry.Version,
+			Files:         files,
+			Symlinks:      symlinks,
+			DeclaresFiles: len(declared) > 0,
 		})
 	}
 

@@ -65,6 +65,21 @@ var _ = Describe("CollectFilesets, os-pm", func() {
 		git := filesetOf(filesets, EcosystemOSPM, "git", "2.50.1")
 		Expect(git).NotTo(BeNil())
 		Expect(git.Files).To(HaveLen(1))
+		Expect(git.DeclaresFiles).To(BeTrue())
+	})
+
+	It("tells a package that recorded no files from one whose recorded files are gone", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("var/lib/pm/files.json",
+				`{"build-essential": {"version": "12.9"}, "git": {"version": "2.50.1", "files": {"/usr/bin/git": "sha256:dead"}}}`),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		filesets, err := CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(filesetOf(filesets, EcosystemOSPM, "build-essential", "12.9").DeclaresFiles).To(BeFalse())
+		Expect(filesetOf(filesets, EcosystemOSPM, "git", "2.50.1").DeclaresFiles).To(BeTrue())
 	})
 
 	It("reads a file list the image reaches through a hardlink", func(ctx SpecContext) {

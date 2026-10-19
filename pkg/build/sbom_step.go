@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	packageurl "github.com/package-url/packageurl-go"
 	"github.com/samber/lo"
 	"github.com/sigstore/sigstore/pkg/signature"
@@ -32,7 +35,9 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
+	"github.com/werf/werf/v3/pkg/tmp_manager"
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
@@ -202,6 +207,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
+		recordShippedFiles(ctx, resultBOM, step.containerBackend, werfImgName, stageDesc.Info.Name)
+
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
 			return fmt.Errorf("serialize BOM: %w", err)
@@ -219,6 +226,87 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		return nil
 	})
+}
+
+// recordShippedFiles records, on every component an ecosystem installed into the image,
+// which files of the image are that component's. An image built from this one can then
+// ask of an inherited component whether its files are still there, instead of trusting
+// that a component its base declared came along.
+//
+// Runs last, once the BOM holds the components it will ship with: Canonicalize folds
+// duplicate components together and drops an evidence list that comes out empty, which is
+// exactly the "its files were looked for and none were found" this writes.
+//
+// The image is read out of the backend the step pulled it into, not from the registry a
+// second time: the read is then as long as a save to local disk, and what can fail it is
+// the host — an image that is not there, a disk that is full — rather than the network.
+//
+// Nothing here fails the build. A BOM without these records is the BOM werf wrote before
+// it kept them, and a reader that finds no record of a component's files keeps the
+// component, so the worst an unreadable image costs is the SBOM of the image built from
+// this one being as complete as it used to be.
+func recordShippedFiles(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
+	if !shippedscope.HasFileBackedComponents(bom) {
+		return
+	}
+
+	img, cleanup, err := savedImage(ctx, backend, imageName)
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; the SBOM records none of the files its components consist of: %s\n", werfImgName, imageName, err)
+
+		return
+	}
+	defer cleanup()
+
+	filesets, err := shippedscope.CollectFilesets(ctx, img)
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read which files the components of the built image %s consist of; the SBOM records none of them: %s\n", werfImgName, imageName, err)
+
+		return
+	}
+
+	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
+	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
+}
+
+// savedImage reads the image out of the backend as a docker-save tarball. The tarball is
+// read more than once, once for its manifest and once per layer, which a stream cannot
+// give, so it goes to a file first, the same way MutateAndPushImage does. The returned
+// cleanup removes that file.
+func savedImage(ctx context.Context, backend imageSaver, imageName string) (v1.Image, func(), error) {
+	stream, err := backend.SaveImageToStream(ctx, imageName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("save image: %w", err)
+	}
+	defer stream.Close()
+
+	file, err := tmp_manager.TempFile("werf-sbom-shipped-files-*.tar")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create temp file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(file.Name()) }
+
+	if _, err := io.Copy(file, stream); err != nil {
+		_ = file.Close()
+		cleanup()
+
+		return nil, nil, fmt.Errorf("write saved image to %s: %w", file.Name(), err)
+	}
+
+	if err := file.Close(); err != nil {
+		cleanup()
+
+		return nil, nil, fmt.Errorf("close %s: %w", file.Name(), err)
+	}
+
+	img, err := tarball.ImageFromPath(file.Name(), nil)
+	if err != nil {
+		cleanup()
+
+		return nil, nil, fmt.Errorf("read saved image %s: %w", file.Name(), err)
+	}
+
+	return img, cleanup, nil
 }
 
 // restoreImageMetadata sets the BOM's top-level component to the scanned image while
@@ -460,7 +548,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "10"
+const sbomArtifactFormatVersion = "11"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

@@ -203,9 +203,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
-		if err := recordShippedFiles(ctx, resultBOM, store, parentDigest); err != nil {
-			return err
-		}
+		recordShippedFiles(ctx, resultBOM, store, parentDigest)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -234,21 +232,32 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 // Runs last, once the BOM holds the components it will ship with: Canonicalize folds
 // duplicate components together and drops an evidence list that comes out empty, which is
 // exactly the "its files were looked for and none were found" this writes.
-func recordShippedFiles(ctx context.Context, bom *cdx.BOM, store *artifact.OCIStore, parentDigest string) error {
+//
+// Nothing here fails the build. A BOM without these records is the BOM werf wrote before
+// it kept them, and a reader that finds no record of a component's files keeps the
+// component, so the worst an unreadable image costs is the SBOM of the image built from
+// this one being as complete as it used to be.
+func recordShippedFiles(ctx context.Context, bom *cdx.BOM, store *artifact.OCIStore, parentDigest string) {
+	if !shippedscope.HasFileBackedComponents(bom) {
+		return
+	}
+
 	img, err := store.ParentImage(ctx, parentDigest)
 	if err != nil {
-		return fmt.Errorf("read built image: %w", err)
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the built image; the SBOM records none of the files its components consist of: %s\n", err)
+
+		return
 	}
 
 	filesets, err := shippedscope.CollectFilesets(ctx, img)
 	if err != nil {
-		return fmt.Errorf("collect component filesets: %w", err)
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read which files the components of the image consist of; the SBOM records none of them: %s\n", err)
+
+		return
 	}
 
 	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
-
-	return nil
 }
 
 // restoreImageMetadata sets the BOM's top-level component to the scanned image while

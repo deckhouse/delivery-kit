@@ -63,6 +63,25 @@ func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
 	return recorded
 }
 
+// HasFileBackedComponents tells whether the BOM holds a component any ecosystem could
+// record files for. Reading an image to find out costs a full download of its layers, and
+// an image whose components are all Go modules, deb packages or anything else no collector
+// reads has nothing to gain from it.
+func HasFileBackedComponents(bom *cdx.BOM) bool {
+	if bom == nil {
+		return false
+	}
+
+	found := false
+	walkComponents(bom, func(comp *cdx.Component) {
+		if _, ok := keyOfComponent(comp); ok {
+			found = true
+		}
+	})
+
+	return found
+}
+
 // componentKey is what a fileset and a component have to agree on to be the same install:
 // one ecosystem's idea of a package, not another's. Two ecosystems naming a package alike
 // are two packages.
@@ -103,6 +122,10 @@ func keyOfComponent(comp *cdx.Component) (componentKey, bool) {
 // describe it. os-pm packages are pkg:generic, the type werf gives what its own pm
 // installs; a deb or rpm component comes from a package manager whose file list nothing
 // here reads, so it has no fileset and stays unmarked.
+//
+// pkg:generic is not werf's alone — syft gives it to a runtime it recognizes by its binary
+// — but taking a fileset needs the same name and version as a package the pm recorded, and
+// a component agreeing with a pm entry on both is that package.
 var purlEcosystems = map[string]Ecosystem{
 	packageurl.TypeGeneric: EcosystemOSPM,
 	packageurl.TypePyPi:    EcosystemPython,
@@ -140,9 +163,7 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) {
 			contexts[file] = entry.Digest
 		}
 		for link := range fileset.Symlinks {
-			if _, isFile := contexts[link]; !isFile {
-				contexts[link] = symlinkContext
-			}
+			contexts[link] = symlinkContext
 		}
 	}
 

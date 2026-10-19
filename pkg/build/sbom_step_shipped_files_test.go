@@ -3,6 +3,7 @@ package build
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -21,6 +22,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 )
@@ -84,6 +86,13 @@ var _ = Describe("recordShippedFiles", func() {
 		return "sha256:" + hex.EncodeToString(sum[:])
 	}
 
+	logged := func(ctx SpecContext, record func(ctx context.Context)) string {
+		var out bytes.Buffer
+		record(logboek.NewContext(ctx, logboek.NewLogger(&out, &out)))
+
+		return out.String()
+	}
+
 	BeforeEach(func(ctx SpecContext) {
 		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
 
@@ -109,7 +118,7 @@ var _ = Describe("recordShippedFiles", func() {
 			{BOMRef: "libc6", Name: "libc6", PackageURL: "pkg:deb/debian/libc6@2.36"},
 		}}
 
-		Expect(recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)).To(Succeed())
+		recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)
 
 		components := *bom.Components
 		Expect(lo.FromPtr(components[0].Evidence.Occurrences)).To(Equal([]cdx.EvidenceOccurrence{
@@ -132,16 +141,52 @@ var _ = Describe("recordShippedFiles", func() {
 			{BOMRef: "zlib", Name: "zlib", PackageURL: "pkg:generic/zlib@1.3.1"},
 		}}
 
-		Expect(recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)).To(Succeed())
+		recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)
 
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
 
-	It("fails when the built image cannot be read", func(ctx SpecContext) {
-		bom := &cdx.BOM{Components: &[]cdx.Component{}}
+	It("warns and leaves the BOM as it was when the built image cannot be read", func(ctx SpecContext) {
+		bom := &cdx.BOM{Components: &[]cdx.Component{
+			{BOMRef: "zlib", Name: "zlib", PackageURL: "pkg:generic/zlib@1.3.1"},
+		}}
 
-		err := recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "sha256:"+strings.Repeat("0", 64))
+		out := logged(ctx, func(ctx context.Context) {
+			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "sha256:"+strings.Repeat("0", 64))
+		})
 
-		Expect(err).To(MatchError(ContainSubstring("read built image")))
+		Expect(out).To(ContainSubstring("unable to read the built image"))
+		Expect((*bom.Components)[0].Evidence).To(BeNil())
+	})
+
+	It("warns and leaves the BOM as it was when the image's file lists cannot be read", func(ctx SpecContext) {
+		digest := pushImage(ctx, map[string]string{
+			"/var/lib/pm/index.json": `{}`,
+			"/var/lib/pm/files.json": `not json at all`,
+		}, nil)
+
+		bom := &cdx.BOM{Components: &[]cdx.Component{
+			{BOMRef: "zlib", Name: "zlib", PackageURL: "pkg:generic/zlib@1.3.1"},
+		}}
+
+		out := logged(ctx, func(ctx context.Context) {
+			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)
+		})
+
+		Expect(out).To(ContainSubstring("unable to read which files the components"))
+		Expect((*bom.Components)[0].Evidence).To(BeNil())
+	})
+
+	It("does not read the image when no component could be given files", func(ctx SpecContext) {
+		bom := &cdx.BOM{Components: &[]cdx.Component{
+			{BOMRef: "yaml", Name: "gopkg.in/yaml.v3", PackageURL: "pkg:golang/gopkg.in/yaml.v3@3.0.1"},
+			{BOMRef: "libc6", Name: "libc6", PackageURL: "pkg:deb/debian/libc6@2.36"},
+		}}
+
+		out := logged(ctx, func(ctx context.Context) {
+			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "sha256:"+strings.Repeat("0", 64))
+		})
+
+		Expect(out).To(BeEmpty())
 	})
 })

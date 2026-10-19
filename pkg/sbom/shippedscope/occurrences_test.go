@@ -274,3 +274,40 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(BeNil())
 	})
 })
+
+var _ = Describe("HasFileBackedComponents", func() {
+	bomOf := func(purls ...string) *cdx.BOM {
+		components := make([]cdx.Component, 0, len(purls))
+		for _, purl := range purls {
+			components = append(components, cdx.Component{BOMRef: purl, Name: purl, PackageURL: purl})
+		}
+
+		return &cdx.BOM{Components: &components}
+	}
+
+	It("finds a component of each ecosystem that records file lists", func() {
+		Expect(HasFileBackedComponents(bomOf("pkg:generic/zlib@1.3.1"))).To(BeTrue())
+		Expect(HasFileBackedComponents(bomOf("pkg:pypi/requests@2.32.3"))).To(BeTrue())
+		Expect(HasFileBackedComponents(bomOf("pkg:npm/debug@4.3.4"))).To(BeTrue())
+		Expect(HasFileBackedComponents(bomOf("pkg:luarocks/luasocket@3.1.0-1"))).To(BeTrue())
+	})
+
+	It("finds nothing in a BOM whose components no ecosystem here records", func() {
+		Expect(HasFileBackedComponents(bomOf(
+			"pkg:golang/gopkg.in/yaml.v3@3.0.1",
+			"pkg:deb/debian/libc6@2.36",
+			"pkg:cargo/serde@1.0.0",
+		))).To(BeFalse())
+	})
+
+	It("finds a component nested under another", func() {
+		nested := []cdx.Component{{BOMRef: "z", PackageURL: "pkg:generic/zlib@1.3.1"}}
+		outer := cdx.Component{BOMRef: "g", PackageURL: "pkg:golang/x@1", Components: &nested}
+
+		Expect(HasFileBackedComponents(&cdx.BOM{Components: &[]cdx.Component{outer}})).To(BeTrue())
+	})
+
+	It("finds nothing in an empty BOM", func() {
+		Expect(HasFileBackedComponents(&cdx.BOM{})).To(BeFalse())
+	})
+})

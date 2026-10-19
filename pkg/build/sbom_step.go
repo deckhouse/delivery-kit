@@ -203,7 +203,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
-		recordShippedFiles(ctx, resultBOM, store, parentDigest)
+		recordShippedFiles(ctx, resultBOM, store, werfImgName, parentDigest)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -236,22 +236,24 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 // Nothing here fails the build. A BOM without these records is the BOM werf wrote before
 // it kept them, and a reader that finds no record of a component's files keeps the
 // component, so the worst an unreadable image costs is the SBOM of the image built from
-// this one being as complete as it used to be.
-func recordShippedFiles(ctx context.Context, bom *cdx.BOM, store *artifact.OCIStore, parentDigest string) {
+// this one being as complete as it used to be. That BOM is then cached against the stage
+// like any other, so the warning says so: a transient failure is not retried on the next
+// build of the same stage.
+func recordShippedFiles(ctx context.Context, bom *cdx.BOM, store *artifact.OCIStore, werfImgName, parentDigest string) {
 	if !shippedscope.HasFileBackedComponents(bom) {
 		return
 	}
 
 	img, err := store.ParentImage(ctx, parentDigest)
 	if err != nil {
-		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the built image; the SBOM records none of the files its components consist of: %s\n", err)
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; the SBOM records none of the files its components consist of and is cached as such until the stage is rebuilt: %s\n", werfImgName, parentDigest, err)
 
 		return
 	}
 
 	filesets, err := shippedscope.CollectFilesets(ctx, img)
 	if err != nil {
-		logboek.Context(ctx).Warn().LogF("WARNING: unable to read which files the components of the image consist of; the SBOM records none of them: %s\n", err)
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read which files the components of the built image %s consist of; the SBOM records none of them and is cached as such until the stage is rebuilt: %s\n", werfImgName, parentDigest, err)
 
 		return
 	}

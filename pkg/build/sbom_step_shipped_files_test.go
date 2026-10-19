@@ -88,7 +88,9 @@ var _ = Describe("recordShippedFiles", func() {
 
 	logged := func(ctx SpecContext, record func(ctx context.Context)) string {
 		var out bytes.Buffer
-		record(logboek.NewContext(ctx, logboek.NewLogger(&out, &out)))
+		logger := logboek.NewLogger(&out, &out)
+		logger.Streams().DisableLineWrapping()
+		record(logboek.NewContext(ctx, logger))
 
 		return out.String()
 	}
@@ -118,7 +120,7 @@ var _ = Describe("recordShippedFiles", func() {
 			{BOMRef: "libc6", Name: "libc6", PackageURL: "pkg:deb/debian/libc6@2.36"},
 		}}
 
-		recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)
+		recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "app", digest)
 
 		components := *bom.Components
 		Expect(lo.FromPtr(components[0].Evidence.Occurrences)).To(Equal([]cdx.EvidenceOccurrence{
@@ -141,7 +143,7 @@ var _ = Describe("recordShippedFiles", func() {
 			{BOMRef: "zlib", Name: "zlib", PackageURL: "pkg:generic/zlib@1.3.1"},
 		}}
 
-		recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)
+		recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "app", digest)
 
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
@@ -152,10 +154,11 @@ var _ = Describe("recordShippedFiles", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "sha256:"+strings.Repeat("0", 64))
+			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "app", "sha256:"+strings.Repeat("0", 64))
 		})
 
-		Expect(out).To(ContainSubstring("unable to read the built image"))
+		Expect(out).To(ContainSubstring("image app: unable to read the built image sha256:0000"))
+		Expect(out).To(ContainSubstring("cached as such until the stage is rebuilt"))
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
 
@@ -170,21 +173,22 @@ var _ = Describe("recordShippedFiles", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), digest)
+			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "app", digest)
 		})
 
-		Expect(out).To(ContainSubstring("unable to read which files the components"))
+		Expect(out).To(ContainSubstring("image app: unable to read which files the components of the built image " + digest))
+		Expect(out).To(ContainSubstring("cached as such until the stage is rebuilt"))
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
 
-	It("does not read the image when no component could be given files", func(ctx SpecContext) {
+	It("warns nothing and skips the read when no component could be given files", func(ctx SpecContext) {
 		bom := &cdx.BOM{Components: &[]cdx.Component{
 			{BOMRef: "yaml", Name: "gopkg.in/yaml.v3", PackageURL: "pkg:golang/gopkg.in/yaml.v3@3.0.1"},
 			{BOMRef: "libc6", Name: "libc6", PackageURL: "pkg:deb/debian/libc6@2.36"},
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "sha256:"+strings.Repeat("0", 64))
+			recordShippedFiles(ctx, bom, artifact.NewOCIStore(repo, "app"), "app", "sha256:"+strings.Repeat("0", 64))
 		})
 
 		Expect(out).To(BeEmpty())

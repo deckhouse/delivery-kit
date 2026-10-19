@@ -15,10 +15,14 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 	var mockServer *httptest.Server
 
 	BeforeEach(func() {
-		mockServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			purl := r.URL.Query().Get("purl")
-			mockResponse(w, purl)
-		}))
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/v1/resolve", func(w http.ResponseWriter, r *http.Request) {
+			mockResolveResponse(w, r.URL.Query().Get("purl"))
+		})
+		mux.HandleFunc("/api/v1/vcs", func(w http.ResponseWriter, r *http.Request) {
+			mockVCSResponse(w, r.URL.Query().Get("url"))
+		})
+		mockServer = httptest.NewServer(mux)
 	})
 
 	AfterEach(func() {
@@ -28,9 +32,9 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 	It("three-image build with mixed PURL resolution outcomes", func(ctx SpecContext) {
 		setupSbomBuildEnv()
 
-		// Override the external refs server URL with our custom mock that returns failures
-		// for the curl and openssl the fixture installs and success for everything else,
-		// including the curl/openssl already present in the base image SBOM.
+		// The mock does not vouch for the repository links curl and openssl carry and
+		// fails their purls, so both go through the vcs check and the purl fallback and
+		// end up in the aggregated error; every other component is confirmed by its link.
 		SuiteData.Stubs.SetEnv("WERF_EXTERNAL_REFS_SERVER_URL", mockServer.URL)
 
 		repoDirname := "repo_purl_resolver_errors"
@@ -61,7 +65,7 @@ var _ = Describe("PURL resolver errors", Label("e2e", "sbom", "simple", "purl-re
 	})
 })
 
-func mockResponse(w http.ResponseWriter, purl string) {
+func mockResolveResponse(w http.ResponseWriter, purl string) {
 	installedByFixture := strings.Contains(purl, "containerfactoryversion=")
 	if installedByFixture && (strings.Contains(purl, "curl") || strings.Contains(purl, "openssl")) {
 		w.WriteHeader(http.StatusNotFound)
@@ -71,4 +75,14 @@ func mockResponse(w http.ResponseWriter, purl string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"purl":"` + purl + `","url":"https://example.com/repo","kind":"vcs"}`))
+}
+
+func mockVCSResponse(w http.ResponseWriter, vcsURL string) {
+	kind := "vcs"
+	if strings.Contains(vcsURL, "github.com/curl/curl") || strings.Contains(vcsURL, "github.com/openssl/openssl") {
+		kind = "unknown"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"url":"` + vcsURL + `","kind":"` + kind + `"}`))
 }

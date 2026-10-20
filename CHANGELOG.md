@@ -1,5 +1,32 @@
 # Changelog
 
+## [3.11.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.10.0-dk.3...v3.11.0-dk.1) (2026-10-20)
+
+
+### Features
+
+* **build:** publish built images to multiple final repositories ([#8087](https://github.com/deckhouse/delivery-kit/issues/8087)) ([9a30573](https://github.com/deckhouse/delivery-kit/commit/9a30573351211a9092ce17d97cc0650ac04d272a))
+* **build:** publish cached images with require-built-images ([93776dc](https://github.com/deckhouse/delivery-kit/commit/93776dc64030b824a7cd95871558875f5869ebb4))
+* **sbom:** decide which components an image actually ships ([#452](https://github.com/deckhouse/delivery-kit/issues/452)) ([69de584](https://github.com/deckhouse/delivery-kit/commit/69de5842687d79dc5cf91c357a2590bb3b9114c5))
+* **sbom:** read which modules and crates a produced binary carries ([#442](https://github.com/deckhouse/delivery-kit/issues/442)) ([11a39f6](https://github.com/deckhouse/delivery-kit/commit/11a39f6562b3f1e2c7c0ea6f7ee31f1830ec388e))
+* **sbom:** record which files each component of an image consists of ([#453](https://github.com/deckhouse/delivery-kit/issues/453)) ([fcc8e93](https://github.com/deckhouse/delivery-kit/commit/fcc8e93a19cef7ba7883e83e605159a24085c51c))
+
+
+### Bug Fixes
+
+* **build:** avoid panic on cache-repo errors without final-repo ([#8089](https://github.com/deckhouse/delivery-kit/issues/8089)) ([f553a94](https://github.com/deckhouse/delivery-kit/commit/f553a945a877c843c8c7371b1e2b4a0d699e8bf3))
+* **build:** reduce native build delays on populated image stores ([#8064](https://github.com/deckhouse/delivery-kit/issues/8064)) ([d7e8f38](https://github.com/deckhouse/delivery-kit/commit/d7e8f38104a802d0c936faaaa8fb55a6d785e923))
+* **build:** retain actionable check-mode diagnostics ([93dc456](https://github.com/deckhouse/delivery-kit/commit/93dc456cbeeaa7377e76d083370e4581c4fe3c5a))
+* **cleanup:** limit registry credentials to deletion commands ([#8086](https://github.com/deckhouse/delivery-kit/issues/8086)) ([5fe00b3](https://github.com/deckhouse/delivery-kit/commit/5fe00b39b476cd89ba0c92e71974af4648e46684))
+* **deploy, plan:** respect `--releases-history-max` with `--use-plan` ([#8085](https://github.com/deckhouse/delivery-kit/issues/8085)) ([9bb995b](https://github.com/deckhouse/delivery-kit/commit/9bb995b9dfb5314855657feaaad3838fbdc7d532))
+* **deploy, tracking:** honor `$WERF_NO_POD_LOGS` ([#8091](https://github.com/deckhouse/delivery-kit/issues/8091)) ([97866b8](https://github.com/deckhouse/delivery-kit/commit/97866b8d1d41e46de7cf508a5ed068ee80772b6b))
+* **deploy:** respect `--no-pod-logs` with `--use-plan` ([#8092](https://github.com/deckhouse/delivery-kit/issues/8092)) ([ffe489e](https://github.com/deckhouse/delivery-kit/commit/ffe489ed1f2d0c1cd166b935053b42b56d7cf0cb))
+
+
+### Miscellaneous Chores
+
+* **release:** pin upstream base to 3.11.0-dk.1 ([e955d96](https://github.com/deckhouse/delivery-kit/commit/e955d96b961407d6ca46b4c3dda7aab05c52d14f))
+
 ## [3.10.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.10.0-dk.2...v3.10.0-dk.3) (2026-10-18)
 
 

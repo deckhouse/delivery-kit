@@ -481,3 +481,52 @@ func (r *artifactPhaseFileReader) ReadVEXFile(context.Context, string) ([]byte, 
 	r.reads++
 	return []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","@id":"https://example.com/vex","author":"test","timestamp":"2026-01-01T00:00:00Z","version":1,"statements":[]}`), nil
 }
+type requireLookupStorageManager struct{ *publicationStorageManager }
+
+var _ manager.StorageManagerInterface = (*requireLookupStorageManager)(nil)
+
+func (m *requireLookupStorageManager) GetStageDescSetByDigestWithCache(ctx context.Context, name, digest string, parentTs int64) (imagePkg.StageDescSet, error) {
+	return m.GetStageDescSetByDigest(ctx, name, digest, parentTs)
+}
+
+func (m *publicationStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(ctx context.Context, name, digest string, parentTs int64, stagesStorage storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	return m.GetStageDescSetByDigestFromStagesStorageCached(ctx, name, digest, parentTs, stagesStorage)
+}
+
+type secondaryLookupStorageManager struct {
+	*publicationStorageManager
+	lookup    *manager.StorageManager
+	secondary storage.StagesStorage
+}
+
+var _ manager.StorageManagerInterface = (*secondaryLookupStorageManager)(nil)
+
+func (m *secondaryLookupStorageManager) GetSecondaryStagesStorageList() []storage.StagesStorage {
+	return []storage.StagesStorage{m.secondary}
+}
+
+func (m *secondaryLookupStorageManager) GetStageDescSetByDigestFromStagesStorageCached(ctx context.Context, name, digest string, parentTs int64, stagesStorage storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	return m.lookup.GetStageDescSetByDigestFromStagesStorageCached(ctx, name, digest, parentTs, stagesStorage)
+}
+
+func (m *secondaryLookupStorageManager) GetStageDescSetByDigestFromStagesStorageWithCache(ctx context.Context, name, digest string, parentTs int64, stagesStorage storage.StagesStorage) (imagePkg.StageDescSet, error) {
+	return m.lookup.GetStageDescSetByDigestFromStagesStorageWithCache(ctx, name, digest, parentTs, stagesStorage)
+}
+
+func (m *secondaryLookupStorageManager) CopySuitableStageDescByDigest(_ context.Context, desc *imagePkg.StageDesc, _, _ storage.StagesStorage, _ container_backend.ContainerBackend, _ string) (*imagePkg.StageDesc, error) {
+	copied := *desc
+	info := *desc.Info
+	info.Name = "repo:shared-digest-100"
+	copied.Info = &info
+	m.primary.desc = &copied
+	m.primary.writes++
+	return &copied, nil
+}
+
+type publicationContainerBackend struct {
+	container_backend.ContainerBackend
+}
+
+var _ container_backend.ContainerBackend = (*publicationContainerBackend)(nil)
+
+func (b *publicationContainerBackend) HasStapelBuildSupport() bool { return true }

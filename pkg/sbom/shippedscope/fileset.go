@@ -49,7 +49,9 @@ type Filesets struct {
 }
 
 // CollectFilesets reads the image once and answers, for every component an ecosystem
-// installed into it, which files are that component's.
+// installed into it, which files are that component's. The index that read produced comes
+// back with the filesets, never nil, so that a consumer needing a file no fileset names
+// does not read the image again.
 //
 // Each ecosystem draws the boundary itself, and none of them draw it around a directory:
 // Python takes the paths its RECORD declares, JavaScript takes a package directory minus

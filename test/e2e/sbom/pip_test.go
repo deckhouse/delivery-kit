@@ -128,10 +128,19 @@ var _ = Describe("SBOM python-pip packages", Label("e2e", "sbom", "pip", "simple
 
 		// The importing image takes one file of the donor and inherits the donor's whole BOM
 		// with it, requests included, while none of the files requests consists of came along.
-		inherited := sbomtest.FindComponent(bomOf("app"), "requests", "2.32.3")
+		appBOM := bomOf("app")
+		inherited := sbomtest.FindComponent(appBOM, "requests", "2.32.3")
 		Expect(inherited).NotTo(BeNil(), "expected requests@2.32.3 to be inherited into the BOM of the importing image")
 		value, marked := shippedProperty(inherited)
 		Expect(marked).To(BeTrue(), "requests is in the BOM of an image that carries none of its files, so it must be marked")
 		Expect(value).To(Equal("false"))
+
+		// python is inherited the same way and is not in the importing image either, but the pm
+		// that installed it into the donor wrote no file list, so nothing can show where its
+		// files are and it is left unjudged rather than marked.
+		python := sbomtest.FindComponent(appBOM, "python", "3.12.12")
+		Expect(python).NotTo(BeNil(), "expected python@3.12.12 to be inherited into the BOM of the importing image")
+		_, marked = shippedProperty(python)
+		Expect(marked).To(BeFalse(), "an os-pm package whose files no file list names is one nothing is known about")
 	})
 })

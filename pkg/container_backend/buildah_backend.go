@@ -19,6 +19,7 @@ import (
 
 	"al.essio.dev/pkg/shellescape"
 	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/distribution/reference"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
@@ -149,7 +150,7 @@ func (backend *BuildahBackend) getBuildahCommonOpts(ctx context.Context, suppres
 	}
 	opts.TargetPlatform = targetPlatform
 
-	return
+	return opts
 }
 
 type containerDesc struct {
@@ -856,14 +857,24 @@ func (backend *BuildahBackend) GetImageInfo(ctx context.Context, ref string, opt
 		if digest != "" {
 			repoDigest = repository + "@" + digest
 		} else {
+			filter := util.NewPair("reference", ref)
+			if inspect.FromImageID != "" {
+				filter = util.NewPair("id", strings.TrimPrefix(inspect.FromImageID, "sha256:"))
+			}
 			list, err := backend.buildah.Images(ctx, buildah.ImagesOptions{
-				Filters: []util.Pair[string, string]{util.NewPair("reference", ref)},
+				Filters: []util.Pair[string, string]{filter},
 			})
 			if err != nil {
 				return nil, fmt.Errorf("error getting buildah info for image %q: %w", ref, err)
 			}
 			if len(list) > 0 {
 				repoDigest = image.ExtractRepoDigest(list[0].RepoDigests, repository)
+			}
+		}
+		isImageID := inspect.FromImageID != "" && strings.HasPrefix(strings.TrimPrefix(inspect.FromImageID, "sha256:"), ref)
+		if inspectedByCachedID && repoDigest == "" && inspect.FromImageDigest != "" && !isImageID {
+			if named, err := reference.ParseNormalizedNamed(ref); err == nil {
+				repoDigest = image.NormalizeRepository(named.Name()) + "@" + inspect.FromImageDigest
 			}
 		}
 	}

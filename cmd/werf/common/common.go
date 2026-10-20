@@ -867,12 +867,6 @@ func SetupRequireBuiltImages(cmdData *CmdData, cmd *cobra.Command) {
 func SetupCheckBuiltImages(cmdData *CmdData, cmd *cobra.Command) {
 	cmdData.CheckBuiltImages = new(bool)
 	cmd.Flags().BoolVarP(cmdData.CheckBuiltImages, "check-built-images", "", util.GetBoolEnvironmentDefaultFalse("WERF_CHECK_BUILT_IMAGES"), "Check that all used images are previously built and exist in repo. Exits with error if needed images are not cached and so require to run build instructions (default $WERF_CHECK_BUILT_IMAGES)")
-
-	cmdData.LegacyCheckBuiltImages = new(bool)
-	cmd.Flags().BoolVarP(cmdData.LegacyCheckBuiltImages, "require-built-images", "Z", false, "Check that all used images are previously built and exist in repo. Exits with error if needed images are not cached and so require to run build instructions")
-	if err := cmd.Flags().MarkHidden("require-built-images"); err != nil {
-		panic(err)
-	}
 }
 
 func SetupStubTags(cmdData *CmdData, cmd *cobra.Command) {
@@ -954,8 +948,15 @@ func GetStagesStorage(ctx context.Context, containerBackend container_backend.Co
 	})
 }
 
-func GetOptionalFinalStagesStorage(ctx context.Context, containerBackend container_backend.ContainerBackend, cmdData *CmdData) (storage.StagesStorage, error) {
-	if cmdData.FinalRepo == nil || cmdData.FinalRepo.Address == nil || *cmdData.FinalRepo.Address == "" {
+func GetFinalStagesStorageList(ctx context.Context, containerBackend container_backend.ContainerBackend, cmdData *CmdData) ([]storage.StagesStorage, error) {
+	if cmdData.FinalRepo == nil {
+		return nil, nil
+	}
+	addresses := cmdData.FinalRepo.Addresses
+	if !cmdData.FinalRepo.MultipleAddresses && cmdData.FinalRepo.Address != nil && *cmdData.FinalRepo.Address != "" {
+		addresses = []string{*cmdData.FinalRepo.Address}
+	}
+	if len(addresses) == 0 || len(addresses) == 1 && addresses[0] == "" {
 		return nil, nil
 	}
 
@@ -969,13 +970,24 @@ func GetOptionalFinalStagesStorage(ctx context.Context, containerBackend contain
 		return nil, fmt.Errorf("get insecure registry hosts: %w", err)
 	}
 
-	return cmdData.FinalRepo.CreateStagesStorage(ctx, &CreateStagesStorageOptions{
-		ContainerBackend:      containerBackend,
-		InsecureRegistry:      *cmdData.InsecureRegistry,
-		SkipTlsVerifyRegistry: *cmdData.SkipTlsVerifyRegistry,
-		InsecureRegistryHosts: insecureRegistryHosts,
-		SkipMetaCheck:         true,
-	})
+	var storages []storage.StagesStorage
+	for _, address := range lo.Uniq(addresses) {
+		repoData := *cmdData.FinalRepo
+		repoData.MultipleAddresses = false
+		repoData.Address = &address
+		finalStorage, err := repoData.CreateStagesStorage(ctx, &CreateStagesStorageOptions{
+			ContainerBackend:      containerBackend,
+			InsecureRegistry:      *cmdData.InsecureRegistry,
+			SkipTlsVerifyRegistry: *cmdData.SkipTlsVerifyRegistry,
+			InsecureRegistryHosts: insecureRegistryHosts,
+			SkipMetaCheck:         true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create final repo %q: %w", address, err)
+		}
+		storages = append(storages, finalStorage)
+	}
+	return storages, nil
 }
 
 func GetOptionalMetaStorage(ctx context.Context, containerBackend container_backend.ContainerBackend, cmdData *CmdData, stagesStorage storage.PrimaryStagesStorage, cleanupDisabled bool) (storage.PrimaryStagesStorage, error) {
@@ -1296,7 +1308,7 @@ func SetupSecretKeyFlags(cmdData *CmdData, cmd *cobra.Command) {
 
 func SetupTrackingFlags(cmdData *CmdData, cmd *cobra.Command) error {
 	SetupNoFinalTrackingFlag(cmdData, cmd)
-	cmd.PersistentFlags().BoolVarP(&cmdData.NoPodLogs, "no-pod-logs", "", false, "Disable Pod logs collection and printing (default $WERF_NO_POD_LOGS or false)")
+	cmd.PersistentFlags().BoolVarP(&cmdData.NoPodLogs, "no-pod-logs", "", util.GetBoolEnvironmentDefaultFalse("WERF_NO_POD_LOGS"), "Disable Pod logs collection and printing (default $WERF_NO_POD_LOGS or false)")
 	if err := SetupLegacyProgressTablePrintInterval(cmdData, cmd); err != nil {
 		return err
 	}
@@ -1469,7 +1481,7 @@ func GetRequireBuiltImages(cmdData *CmdData) bool {
 }
 
 func GetCheckBuiltImages(cmdData *CmdData) bool {
-	return option.PtrValueOrDefault(cmdData.CheckBuiltImages, false) || option.PtrValueOrDefault(cmdData.LegacyCheckBuiltImages, false)
+	return option.PtrValueOrDefault(cmdData.CheckBuiltImages, false)
 }
 
 func isImagesReadOnly(cmdData *CmdData) bool {

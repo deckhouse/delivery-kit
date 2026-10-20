@@ -142,28 +142,17 @@ werf build [IMAGE_NAME...] [options]
             Use specified environment (default $WERF_ENV)
       --final-images-only=true
             Process final images only ($WERF_FINAL_IMAGES_ONLY or true by default)
-      --final-repo=""
-            Container registry storage address (default $WERF_FINAL_REPO)
+      --final-repo=[]
+            Container registry storage address (default $WERF_FINAL_REPO). Can be specified         
+            multiple times; the first repo is used in the build report. Also accepts numbered       
+            environment variables, e.g. $WERF_FINAL_REPO_1, $WERF_FINAL_REPO_2. Flags override      
+            environment values.
       --final-repo-container-registry=""
             Choose final-repo container registry implementation.
             The following container registries are supported: ecr, acr, default, dockerhub, gcr,    
             github, gitlab, harbor, quay.
             Default $WERF_FINAL_REPO_CONTAINER_REGISTRY or auto mode (detect container registry by  
             repo address).
-      --final-repo-docker-hub-password=""
-            final-repo Docker Hub password (default $WERF_FINAL_REPO_DOCKER_HUB_PASSWORD)
-      --final-repo-docker-hub-token=""
-            final-repo Docker Hub token (default $WERF_FINAL_REPO_DOCKER_HUB_TOKEN)
-      --final-repo-docker-hub-username=""
-            final-repo Docker Hub username (default $WERF_FINAL_REPO_DOCKER_HUB_USERNAME)
-      --final-repo-github-token=""
-            final-repo GitHub token (default $WERF_FINAL_REPO_GITHUB_TOKEN)
-      --final-repo-harbor-password=""
-            final-repo Harbor password (default $WERF_FINAL_REPO_HARBOR_PASSWORD)
-      --final-repo-harbor-username=""
-            final-repo Harbor username (default $WERF_FINAL_REPO_HARBOR_USERNAME)
-      --final-repo-quay-token=""
-            final-repo quay.io token (default $WERF_FINAL_REPO_QUAY_TOKEN)
       --follow=false
             Enable follow mode (default $WERF_FOLLOW).
             The mode allows restarting the command on a new commit.
@@ -252,20 +241,10 @@ werf build [IMAGE_NAME...] [options]
             github, gitlab, harbor, quay.
             Default $WERF_REPO_CONTAINER_REGISTRY or auto mode (detect container registry by repo   
             address).
-      --repo-docker-hub-password=""
-            repo Docker Hub password (default $WERF_REPO_DOCKER_HUB_PASSWORD)
-      --repo-docker-hub-token=""
-            repo Docker Hub token (default $WERF_REPO_DOCKER_HUB_TOKEN)
-      --repo-docker-hub-username=""
-            repo Docker Hub username (default $WERF_REPO_DOCKER_HUB_USERNAME)
-      --repo-github-token=""
-            repo GitHub token (default $WERF_REPO_GITHUB_TOKEN)
-      --repo-harbor-password=""
-            repo Harbor password (default $WERF_REPO_HARBOR_PASSWORD)
-      --repo-harbor-username=""
-            repo Harbor username (default $WERF_REPO_HARBOR_USERNAME)
-      --repo-quay-token=""
-            repo quay.io token (default $WERF_REPO_QUAY_TOKEN)
+  -Z, --require-built-images=false
+            Publish previously built images and custom tags without running build instructions.     
+            Reuse stages from primary and secondary repos; fail if a required stage is missing.     
+            Incompatible with --check-built-images (default $WERF_REQUIRE_BUILT_IMAGES)
       --save-build-report=false
             Save build report (by default $WERF_SAVE_BUILD_REPORT or false). Its path and format    
             configured with --build-report-path

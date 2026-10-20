@@ -42,6 +42,9 @@ func NewCmd(ctx context.Context) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if common.GetRequireBuiltImages(&commonCmdData) && common.GetCheckBuiltImages(&commonCmdData) {
+				return fmt.Errorf("--require-built-images cannot be used with --check-built-images")
+			}
 
 			defer global_warnings.PrintGlobalWarnings(ctx)
 
@@ -75,7 +78,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupSecondaryStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupCacheStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupRepoOptions(&commonCmdData, cmd, common.RepoDataOptions{OptionalRepo: true})
-	common.SetupFinalRepo(&commonCmdData, cmd)
+	commonCmdData.FinalRepo = common.NewRepoData("final-repo", common.RepoDataOptions{MultipleAddresses: true})
+	commonCmdData.FinalRepo.SetupCmd(cmd)
 	common.SetupMetaRepo(&commonCmdData, cmd)
 
 	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to read, pull and push images into the specified repo, to pull base images")
@@ -107,6 +111,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupParallelOptions(&commonCmdData, cmd, common.DefaultBuildParallelTasksLimit)
 	common.SetupCheckBuiltImages(&commonCmdData, cmd)
+	common.SetupRequireBuiltImages(&commonCmdData, cmd)
+	cmd.Flags().Lookup("require-built-images").Usage = "Publish previously built images and custom tags without running build instructions. Reuse stages from primary and secondary repos; fail if a required stage is missing. Incompatible with --check-built-images (default $WERF_REQUIRE_BUILT_IMAGES)"
 	common.SetupFollow(&commonCmdData, cmd)
 
 	common.SetupDisableAutoHostCleanup(&commonCmdData, cmd)
@@ -215,6 +221,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 	if err != nil {
 		return err
 	}
+	buildOptions.RequireBuiltImages = common.GetRequireBuiltImages(&commonCmdData)
 
 	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
 	if err != nil {

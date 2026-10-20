@@ -28,11 +28,12 @@ import (
 
 var _ = Describe("BuildPhase propagateArtifacts", func() {
 	var (
-		server     *httptest.Server
-		stagesRepo string
-		finalRepo  string
-		cacheRepo  string
-		remoteOpts []remote.Option
+		server          *httptest.Server
+		stagesRepo      string
+		finalRepo       string
+		secondFinalRepo string
+		cacheRepo       string
+		remoteOpts      []remote.Option
 	)
 
 	pushImage := func(ctx SpecContext, repo, tag string) string {
@@ -120,6 +121,10 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		storageManager := &manager.StorageManager{
 			StagesStorage:          storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: stagesRepo}),
 			CacheStagesStorageList: cacheStorages,
+			FinalStagesStorageList: []storage.StagesStorage{
+				storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: finalRepo}),
+				storage.NewRepoStagesStorage(&storage.NewRepoStagesStorageOptions{RepoAddress: secondFinalRepo}),
+			},
 		}
 		return &BuildPhase{
 			BasePhase: BasePhase{Conveyor: &Conveyor{imagesTree: tree, StorageManager: storageManager}},
@@ -155,6 +160,7 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		host := strings.TrimPrefix(server.URL, "http://")
 		stagesRepo = host + "/test/stages"
 		finalRepo = host + "/test/final"
+		secondFinalRepo = host + "/test/final-second"
 		cacheRepo = host + "/test/cache"
 		remoteOpts = []remote.Option{remote.WithAuth(authn.Anonymous)}
 	})
@@ -163,10 +169,11 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		server.Close()
 	})
 
-	It("carries the artifacts of a single-platform image into the final repo and the cache repo", func(ctx SpecContext) {
+	It("carries the artifacts of a single-platform image into every final repo and the cache repo", func(ctx SpecContext) {
 		digest := pushImage(ctx, stagesRepo, "v1")
 		attach(ctx, stagesRepo, digest, `{"scope":"app"}`)
 		copyManifestByDigest(ctx, stagesRepo, finalRepo, digest)
+		copyManifestByDigest(ctx, stagesRepo, secondFinalRepo, digest)
 		copyManifestByDigest(ctx, stagesRepo, cacheRepo, digest)
 
 		finalDesc := &imagePkg.StageDesc{
@@ -180,6 +187,7 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		Expect(newPhase(tree, cacheStorage(cacheRepo)).propagateArtifacts(ctx)).To(Succeed())
 
 		expectAttached(ctx, finalRepo, digest, `{"scope":"app"}`)
+		expectAttached(ctx, secondFinalRepo, digest, `{"scope":"app"}`)
 		expectAttached(ctx, cacheRepo, digest, `{"scope":"app"}`)
 	})
 
@@ -187,6 +195,7 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		digest := pushImage(ctx, stagesRepo, "v1")
 		attach(ctx, stagesRepo, digest, `{"scope":"app"}`)
 		copyManifestByDigest(ctx, stagesRepo, finalRepo, digest)
+		copyManifestByDigest(ctx, stagesRepo, secondFinalRepo, digest)
 
 		tree := image.NewImagesTree(nil, image.ImagesTreeOptions{})
 		tree.AppendImageForTests(newImage(ctx, "linux/amd64", stagesRepo, digest, nil))
@@ -194,6 +203,7 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		Expect(newPhase(tree).propagateArtifacts(ctx)).To(Succeed())
 
 		expectNothingAttached(ctx, finalRepo, digest)
+		expectNothingAttached(ctx, secondFinalRepo, digest)
 	})
 
 	It("carries per-platform artifacts onto the platform manifests and image-level artifacts onto the index", func(ctx SpecContext) {
@@ -205,6 +215,7 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		attach(ctx, stagesRepo, children[1], `{"scope":"arm64"}`)
 
 		copyManifestByDigest(ctx, stagesRepo, finalRepo, indexDigest)
+		copyManifestByDigest(ctx, stagesRepo, secondFinalRepo, indexDigest)
 		copyManifestByDigest(ctx, stagesRepo, cacheRepo, children[0])
 		copyManifestByDigest(ctx, stagesRepo, cacheRepo, children[1])
 
@@ -230,8 +241,11 @@ var _ = Describe("BuildPhase propagateArtifacts", func() {
 		Expect(newPhase(tree, cacheStorage(cacheRepo)).propagateArtifacts(ctx)).To(Succeed())
 
 		expectAttached(ctx, finalRepo, indexDigest, `{"scope":"image"}`)
+		expectAttached(ctx, secondFinalRepo, indexDigest, `{"scope":"image"}`)
 		expectAttached(ctx, finalRepo, children[0], `{"scope":"amd64"}`)
+		expectAttached(ctx, secondFinalRepo, children[0], `{"scope":"amd64"}`)
 		expectAttached(ctx, finalRepo, children[1], `{"scope":"arm64"}`)
+		expectAttached(ctx, secondFinalRepo, children[1], `{"scope":"arm64"}`)
 		expectAttached(ctx, cacheRepo, children[0], `{"scope":"amd64"}`)
 		expectAttached(ctx, cacheRepo, children[1], `{"scope":"arm64"}`)
 		expectNothingAttached(ctx, cacheRepo, indexDigest)

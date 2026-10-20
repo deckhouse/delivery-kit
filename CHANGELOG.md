@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.12.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.11.0-dk.1...v3.12.0-dk.1) (2026-10-20)
+
+
+### Features
+
+* **build:** publish cached images with require-built-images ([#8095](https://github.com/deckhouse/delivery-kit/issues/8095)) ([ed8b629](https://github.com/deckhouse/delivery-kit/commit/ed8b6298e3cc0b817979fb11bec67bee13f14c21))
+* **sbom:** mark the components whose files an image does not carry ([#459](https://github.com/deckhouse/delivery-kit/issues/459)) ([0a70b81](https://github.com/deckhouse/delivery-kit/commit/0a70b818e741bb8c66a5917eee8b014ee5a6c512))
+
+
+### Miscellaneous Chores
+
+* force release 3.12.0-dk.1 ([a1aa1b0](https://github.com/deckhouse/delivery-kit/commit/a1aa1b0335fceaa0d93cd559dac80647b6a090db))
+
 ## [3.11.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.10.0-dk.3...v3.11.0-dk.1) (2026-10-20)
 
 

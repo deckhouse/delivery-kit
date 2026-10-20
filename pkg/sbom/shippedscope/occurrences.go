@@ -26,7 +26,10 @@ import (
 //
 // Occurrences the component already carries are replaced: a fileset is what the image
 // holds, and a scanner's guess at where it saw the package is not evidence of the same
-// kind.
+// kind. A fileset that names files the image does not hold at any of them replaces
+// nothing: what a donor recorded of the same component is the only way left to find its
+// bytes where this image put them, and an empty list in its place would read as the files
+// having been looked for and missed.
 //
 // Returns the number of components given occurrences.
 func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
@@ -56,7 +59,9 @@ func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
 			return
 		}
 
-		setOccurrences(comp, sets)
+		if !setOccurrences(comp, sets) {
+			return
+		}
 		recorded++
 	})
 
@@ -155,8 +160,8 @@ const symlinkContext = "symlink"
 
 // setOccurrences records every file of every fileset of one component. npm installs a
 // package more than once under different paths, and each copy is a fileset of its own;
-// what the component ships is all of them.
-func setOccurrences(comp *cdx.Component, sets []Fileset) {
+// what the component ships is all of them. Reports whether anything was recorded.
+func setOccurrences(comp *cdx.Component, sets []Fileset) bool {
 	contexts := make(map[string]string)
 	for _, fileset := range sets {
 		for file, entry := range fileset.Files {
@@ -165,6 +170,10 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) {
 		for link := range fileset.Symlinks {
 			contexts[link] = symlinkContext
 		}
+	}
+
+	if len(contexts) == 0 {
+		return false
 	}
 
 	occurrences := make([]cdx.EvidenceOccurrence, 0, len(contexts))
@@ -179,6 +188,8 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) {
 		comp.Evidence = &cdx.Evidence{}
 	}
 	comp.Evidence.Occurrences = &occurrences
+
+	return true
 }
 
 func walkComponents(bom *cdx.BOM, visit func(comp *cdx.Component)) {

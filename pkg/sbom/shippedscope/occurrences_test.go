@@ -103,6 +103,39 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
 
+	It("keeps what a donor recorded when the image holds none of the files its manifest declares", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+		(*bom.Components)[0].Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
+			{Location: "/usr/lib/python3/requests/__init__.py", AdditionalContext: digestOf("r")},
+		}}
+
+		recorded := RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})
+
+		Expect(recorded).To(BeZero())
+		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{
+			{Location: "/usr/lib/python3/requests/__init__.py", AdditionalContext: digestOf("r")},
+		}), "the digests a donor recorded are the only way left to find the bytes this image moved")
+	})
+
+	It("says nothing of a component the image holds no declared file of and no donor described", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+
+		recorded := RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})
+
+		Expect(recorded).To(BeZero())
+		Expect((*bom.Components)[0].Evidence).To(BeNil())
+	})
+
 	It("records a component one of whose copies declares files", func() {
 		bom := bomOf("pkg:npm/debug@4.3.4")
 
@@ -184,15 +217,16 @@ var _ = Describe("RecordOccurrences", func() {
 		}))
 	})
 
-	It("says the files were looked for when a fileset names a component but the image kept none", func() {
+	It("claims nothing of a component a fileset names but the image kept no file of", func() {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 
 		recorded := RecordOccurrences(bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", nil, nil),
 		})
 
-		Expect(recorded).To(Equal(1))
-		Expect((*bom.Components)[0].Evidence.Occurrences).To(Equal(&[]cdx.EvidenceOccurrence{}))
+		Expect(recorded).To(BeZero())
+		Expect((*bom.Components)[0].Evidence).To(BeNil(),
+			"an empty list would read as the files having been looked for and missed, which an index that drops a file it cannot resolve would produce too")
 	})
 
 	It("leaves a component no fileset names unmarked, so nothing is known of its files", func() {

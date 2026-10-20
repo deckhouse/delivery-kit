@@ -37,6 +37,11 @@ type Fileset struct {
 
 type Filesets struct {
 	Filesets []Fileset
+	// Index is what the image holds, the same read the filesets were drawn from. A consumer
+	// that has to look up a file the filesets do not name — a component's file under a path
+	// no manifest of this image declares — takes it from here rather than reading the image
+	// a second time.
+	Index *FileIndex
 	// OSPMFileListMissing is set when the image carries os-pm packages but was installed
 	// by a pm that recorded no file list for them, so none of them has a fileset here. A
 	// consumer that would drop a component without a fileset must not do so for os-pm then.
@@ -67,6 +72,7 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 
 	filesets := &Filesets{
 		Filesets:            osPM,
+		Index:               index,
 		OSPMFileListMissing: missing,
 	}
 	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)

@@ -39,6 +39,7 @@ import (
 )
 
 func newFinalRepoBuildPhase(ctx context.Context) (*BuildPhase, *manager.StorageManager) {
+	gomega.Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(gomega.Succeed())
 	var storages []storage.StagesStorage
 	for range 3 {
 		server := httptest.NewServer(registry.New())

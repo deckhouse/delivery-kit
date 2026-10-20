@@ -42,7 +42,7 @@ var _ = ginkgo.Describe("Build with multiple final repos", func() {
 			} else {
 				publish = func() error {
 					err := phase.publishFinalImage(ctx, first.Name, first)
-					published = first.GetContentTagDesc()
+					published = first.GetFinalContentTagDesc()
 					return err
 				}
 				publishTags = func() error { return phase.publishImageMetadata(ctx, first.Name, first) }

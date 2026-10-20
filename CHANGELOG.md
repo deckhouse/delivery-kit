@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.83.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.83.0-dk.3...v2.83.1-dk.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **build:** avoid panic on cache-repo errors without final-repo ([#8088](https://github.com/deckhouse/delivery-kit/issues/8088)) ([acdca35](https://github.com/deckhouse/delivery-kit/commit/acdca350932073444c4d385c3325de6bfc390b59))
+
+
+### Miscellaneous Chores
+
+* **release:** pin upstream base to 2.83.1-dk.1 ([a1ec66c](https://github.com/deckhouse/delivery-kit/commit/a1ec66c03b3ce82ff5da24def3bd29f34ae10a09))
+
 ## [2.83.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v2.83.0-dk.2...v2.83.0-dk.3) (2026-10-18)
 
 

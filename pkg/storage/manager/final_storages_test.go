@@ -9,6 +9,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/werf"
@@ -18,6 +19,7 @@ var _ = ginkgo.Describe("Multiple final storages", func() {
 	ginkgo.DescribeTable("copies and checks the requested destination independently",
 		func(ctx ginkgo.SpecContext, populatedDestination int, checkOnly bool) {
 			gomega.Expect(werf.Init(ginkgo.GinkgoT().TempDir(), "")).To(gomega.Succeed())
+			gomega.Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(gomega.Succeed())
 			manager := newManifestStorageManager(ctx)
 			finalStorages := []storage.StagesStorage{
 				newManifestStorageManager(ctx).StagesStorage,

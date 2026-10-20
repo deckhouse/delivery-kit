@@ -2,7 +2,6 @@ package shippedscope
 
 import (
 	"context"
-	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
@@ -21,8 +20,6 @@ import (
 const PropertyShipped = "werf:shipped"
 
 const propertyShippedFalse = "false"
-
-const digestPrefix = "sha256:"
 
 // MarkNotShipped decides, for every component of the BOM whose files an ecosystem can
 // describe, whether this image ships it, and writes PropertyShipped on the ones it does
@@ -68,7 +65,7 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 			Ecosystem:   key.ecosystem,
 			Name:        key.name,
 			Version:     key.version,
-			Occurrences: occurrencesOf(comp),
+			Occurrences: recordedOccurrences(comp),
 		})
 		judged = append(judged, comp)
 	})
@@ -91,34 +88,6 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 	}
 
 	return count
-}
-
-// occurrencesOf reads back what werf recorded of a component's files. An occurrence
-// without a digest or the symlink marker came from somewhere else — a scanner noting where
-// it saw a package, a document merged in — and says nothing about content; a component
-// carrying none of werf's own is one nothing is known about, not one whose files were
-// looked for and missed.
-func occurrencesOf(comp *cdx.Component) []Occurrence {
-	if comp.Evidence == nil || comp.Evidence.Occurrences == nil {
-		return nil
-	}
-
-	recorded := *comp.Evidence.Occurrences
-	occurrences := make([]Occurrence, 0, len(recorded))
-	for _, occurrence := range recorded {
-		switch {
-		case occurrence.AdditionalContext == symlinkContext:
-			occurrences = append(occurrences, Occurrence{Path: occurrence.Location, Symlink: true})
-		case strings.HasPrefix(occurrence.AdditionalContext, digestPrefix):
-			occurrences = append(occurrences, Occurrence{Path: occurrence.Location, Digest: occurrence.AdditionalContext})
-		}
-	}
-
-	if len(recorded) > 0 && len(occurrences) == 0 {
-		return nil
-	}
-
-	return occurrences
 }
 
 func setProperty(comp *cdx.Component, name, value string) {

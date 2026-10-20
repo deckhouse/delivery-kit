@@ -204,6 +204,21 @@ var _ = Describe("recordShippedScope", func() {
 			"the bytes are in the image, so the manifest naming a path they left must not mark the component")
 	})
 
+	It("marks a component the image installed and then deleted, leaving only its manifest", func(ctx SpecContext) {
+		backend := backendWith(map[string]string{
+			"/usr/lib/python3/tool-1.0.0.dist-info/RECORD": "tool/main.py,sha256=x,12\n",
+		}, nil)
+
+		bom := &cdx.BOM{Components: &[]cdx.Component{
+			{BOMRef: "tool", Name: "tool", PackageURL: "pkg:pypi/tool@1.0.0"},
+		}}
+
+		recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+
+		Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(ContainElement(cdx.Property{Name: "werf:shipped", Value: "false"}),
+			"a build toolchain removed by a later stage is not shipped, and its own manifest is all that could say so")
+	})
+
 	It("clears a verdict a donor recorded on a component this image does ship", func(ctx SpecContext) {
 		backend := backendWith(map[string]string{"/bin/jq": "jq body"}, nil)
 

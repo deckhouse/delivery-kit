@@ -26,10 +26,13 @@ import (
 //
 // Occurrences the component already carries are replaced: a fileset is what the image
 // holds, and a scanner's guess at where it saw the package is not evidence of the same
-// kind. A fileset that names files the image does not hold at any of them replaces
-// nothing: what a donor recorded of the same component is the only way left to find its
-// bytes where this image put them, and an empty list in its place would read as the files
-// having been looked for and missed.
+// kind. The one exception is a fileset naming files the image holds at none of them, over
+// a component werf itself recorded occurrences for before: those digests are the only way
+// left to find the bytes where this image put them, and an empty list over them would say
+// the files are gone when they may only have moved. Over a component werf never recorded,
+// the empty list is written, because there is nothing else that could show the files and
+// "its own file list names files it does not hold" is what an image that installed a
+// package and then deleted it looks like.
 //
 // Returns the number of components given occurrences.
 func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
@@ -158,6 +161,36 @@ func canonicalName(ecosystem Ecosystem, name string) string {
 // content of its own to compare.
 const symlinkContext = "symlink"
 
+const digestPrefix = "sha256:"
+
+// recordedOccurrences reads back what werf recorded of a component's files. An occurrence
+// without a digest or the symlink marker came from somewhere else — a scanner noting where
+// it saw a package, a document merged in — and says nothing about content; a component
+// carrying none of werf's own is one nothing is known about, not one whose files were
+// looked for and missed.
+func recordedOccurrences(comp *cdx.Component) []Occurrence {
+	if comp.Evidence == nil || comp.Evidence.Occurrences == nil {
+		return nil
+	}
+
+	recorded := *comp.Evidence.Occurrences
+	occurrences := make([]Occurrence, 0, len(recorded))
+	for _, occurrence := range recorded {
+		switch {
+		case occurrence.AdditionalContext == symlinkContext:
+			occurrences = append(occurrences, Occurrence{Path: occurrence.Location, Symlink: true})
+		case strings.HasPrefix(occurrence.AdditionalContext, digestPrefix):
+			occurrences = append(occurrences, Occurrence{Path: occurrence.Location, Digest: occurrence.AdditionalContext})
+		}
+	}
+
+	if len(recorded) > 0 && len(occurrences) == 0 {
+		return nil
+	}
+
+	return occurrences
+}
+
 // setOccurrences records every file of every fileset of one component. npm installs a
 // package more than once under different paths, and each copy is a fileset of its own;
 // what the component ships is all of them. Reports whether anything was recorded.
@@ -172,7 +205,7 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) bool {
 		}
 	}
 
-	if len(contexts) == 0 {
+	if len(contexts) == 0 && recordedOccurrences(comp) != nil {
 		return false
 	}
 

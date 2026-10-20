@@ -207,7 +207,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
-		recordShippedFiles(ctx, resultBOM, step.containerBackend, werfImgName, stageDesc.Info.Name)
+		recordShippedScope(ctx, resultBOM, step.containerBackend, werfImgName, stageDesc.Info.Name)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -228,10 +228,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-// recordShippedFiles records, on every component an ecosystem installed into the image,
-// which files of the image are that component's. An image built from this one can then
-// ask of an inherited component whether its files are still there, instead of trusting
-// that a component its base declared came along.
+// recordShippedScope records, on every component an ecosystem installed into the image,
+// which files of the image are that component's, and then marks the components whose
+// files are not in this image at all. An image built from this one can then ask of an
+// inherited component whether its files are still there, instead of trusting that a
+// component its base declared came along.
 //
 // Runs last, once the BOM holds the components it will ship with: Canonicalize folds
 // duplicate components together and drops an evidence list that comes out empty, which is
@@ -241,11 +242,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 // second time: the read is then as long as a save to local disk, and what can fail it is
 // the host — an image that is not there, a disk that is full — rather than the network.
 //
-// Nothing here fails the build. A BOM without these records is the BOM werf wrote before
-// it kept them, and a reader that finds no record of a component's files keeps the
-// component, so the worst an unreadable image costs is the SBOM of the image built from
-// this one being as complete as it used to be.
-func recordShippedFiles(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
+// Nothing here fails the build, and nothing is removed from the BOM. A BOM without these
+// records is the BOM werf wrote before it kept them, and a reader that finds no record of
+// a component's files keeps the component, so the worst an unreadable image costs is the
+// SBOM of the image built from this one being as complete as it used to be.
+func recordShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
 	if !shippedscope.HasFileBackedComponents(bom) {
 		return
 	}
@@ -267,6 +268,10 @@ func recordShippedFiles(ctx context.Context, bom *cdx.BOM, backend imageSaver, w
 
 	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
+
+	if marked := shippedscope.MarkNotShipped(ctx, bom, filesets); marked > 0 {
+		logboek.Context(ctx).Default().LogF("image %s: %d components of the SBOM are not shipped by the image\n", werfImgName, marked)
+	}
 }
 
 // savedImage reads the image out of the backend as a docker-save tarball. The tarball is
@@ -548,7 +553,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "11"
+const sbomArtifactFormatVersion = "12"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

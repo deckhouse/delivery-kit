@@ -103,6 +103,40 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
 
+	It("keeps what a donor recorded when the image holds none of the files its manifest declares", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+		(*bom.Components)[0].Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
+			{Location: "/usr/lib/python3/requests/__init__.py", AdditionalContext: digestOf("r")},
+		}}
+
+		recorded := RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})
+
+		Expect(recorded).To(BeZero())
+		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{
+			{Location: "/usr/lib/python3/requests/__init__.py", AdditionalContext: digestOf("r")},
+		}), "the digests a donor recorded are the only way left to find the bytes this image moved")
+	})
+
+	It("says the files were looked for when the image holds no declared file of a component no donor described", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+
+		recorded := RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})
+
+		Expect(recorded).To(Equal(1))
+		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{}),
+			"a package the image installed and then deleted looks exactly like this, and nothing else could show its files")
+	})
+
 	It("records a component one of whose copies declares files", func() {
 		bom := bomOf("pkg:npm/debug@4.3.4")
 
@@ -192,7 +226,22 @@ var _ = Describe("RecordOccurrences", func() {
 		})
 
 		Expect(recorded).To(Equal(1))
-		Expect((*bom.Components)[0].Evidence.Occurrences).To(Equal(&[]cdx.EvidenceOccurrence{}))
+		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{}))
+	})
+
+	It("keeps the occurrences werf recorded before over a fileset the image kept no file of, but replaces a scanner's", func() {
+		bom := bomOf("pkg:generic/zlib@1.3.1")
+		(*bom.Components)[0].Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
+			{Location: "/var/lib/dpkg/status"},
+		}}
+
+		recorded := RecordOccurrences(bom, []Fileset{
+			fileset(EcosystemOSPM, "zlib", "1.3.1", nil, nil),
+		})
+
+		Expect(recorded).To(Equal(1))
+		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{}),
+			"where a scanner saw the package says nothing of its files, so there is nothing worth keeping over the image's own answer")
 	})
 
 	It("leaves a component no fileset names unmarked, so nothing is known of its files", func() {

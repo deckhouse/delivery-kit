@@ -1,0 +1,29 @@
+project: werf-test-e2e-sbom-inject-pip-partial-import
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - requirements.txt
+packages:
+  - type: os-pm
+    spec:
+      - python==3.12.12
+  - type: python-pip
+    workdir: /app
+---
+image: app
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/requirements.txt
+    to: /imported/requirements.txt
+    before: setup

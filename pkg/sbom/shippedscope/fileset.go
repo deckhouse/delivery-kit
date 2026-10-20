@@ -37,6 +37,11 @@ type Fileset struct {
 
 type Filesets struct {
 	Filesets []Fileset
+	// Index is what the image holds, the same read the filesets were drawn from. A consumer
+	// that has to look up a file the filesets do not name — a component's file under a path
+	// no manifest of this image declares — takes it from here rather than reading the image
+	// a second time.
+	Index *FileIndex
 	// OSPMFileListMissing is set when the image carries os-pm packages but was installed
 	// by a pm that recorded no file list for them, so none of them has a fileset here. A
 	// consumer that would drop a component without a fileset must not do so for os-pm then.
@@ -44,7 +49,9 @@ type Filesets struct {
 }
 
 // CollectFilesets reads the image once and answers, for every component an ecosystem
-// installed into it, which files are that component's.
+// installed into it, which files are that component's. The index that read produced comes
+// back with the filesets, never nil, so that a consumer needing a file no fileset names
+// does not read the image again.
 //
 // Each ecosystem draws the boundary itself, and none of them draw it around a directory:
 // Python takes the paths its RECORD declares, JavaScript takes a package directory minus
@@ -67,6 +74,7 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 
 	filesets := &Filesets{
 		Filesets:            osPM,
+		Index:               index,
 		OSPMFileListMissing: missing,
 	}
 	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)

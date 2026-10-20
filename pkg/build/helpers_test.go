@@ -443,6 +443,7 @@ func (m *artifactPhaseStorageManager) GetFinalStagesStorage() storage.StagesStor
 func (m *artifactPhaseStorageManager) GetCacheStagesStorageList() []storage.StagesStorage {
 	return m.caches
 }
+
 func (m *artifactPhaseStorageManager) CopyStageIntoFinalStorage(_ context.Context, _ imagePkg.StageID, _ storage.StagesStorage, opts manager.CopyStageIntoStorageOptions) (*imagePkg.StageDesc, error) {
 	m.copyOptions = opts
 	return m.finalDesc, nil
@@ -481,6 +482,7 @@ func (r *artifactPhaseFileReader) ReadVEXFile(context.Context, string) ([]byte, 
 	r.reads++
 	return []byte(`{"@context":"https://openvex.dev/ns/v0.2.0","@id":"https://example.com/vex","author":"test","timestamp":"2026-01-01T00:00:00Z","version":1,"statements":[]}`), nil
 }
+
 type requireLookupStorageManager struct{ *publicationStorageManager }
 
 var _ manager.StorageManagerInterface = (*requireLookupStorageManager)(nil)

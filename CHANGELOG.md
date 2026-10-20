@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.84.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.83.1-dk.1...v2.84.0-dk.1) (2026-10-20)
+
+
+### Features
+
+* **build:** publish cached images with require-built-images ([#8096](https://github.com/deckhouse/delivery-kit/issues/8096)) ([bf5c561](https://github.com/deckhouse/delivery-kit/commit/bf5c56112b1759b886690199ef161e876be94dc5))
+
+
+### Miscellaneous Chores
+
+* force release 2.84.0-dk.1 ([6eb4f3e](https://github.com/deckhouse/delivery-kit/commit/6eb4f3eb4c30e6ba832b9f0d59dee5ae44b8c6b7))
+
 ## [2.83.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.83.0-dk.3...v2.83.1-dk.1) (2026-10-20)
 
 

@@ -499,6 +499,7 @@ func run(
 		TemplatesAllowDNS:          commonCmdData.TemplatesAllowDNS,
 		IgnoreBundleJS:             commonCmdData.IgnoreBundleJS,
 		DenoBinaryPath:             commonCmdData.DenoBinaryPath,
+		ReleaseHistoryLimit:        commonCmdData.ReleaseHistoryLimit,
 		ReleaseInstallRuntimeOptions: nelmcommon.ReleaseInstallRuntimeOptions{
 			ResourceValidationOptions:   commonCmdData.ResourceValidationOptions,
 			DefaultDeletePropagation:    commonCmdData.DefaultDeletePropagation,
@@ -511,7 +512,6 @@ func run(
 			NoRemoveManualChanges:       commonCmdData.NoRemoveManualChanges,
 			PatchesFiles:                commonCmdData.PatchesFiles,
 			DefaultPatchesDisable:       commonCmdData.DefaultPatchesDisable,
-			ReleaseHistoryLimit:         commonCmdData.ReleaseHistoryLimit,
 			ReleaseInfoAnnotations:      releaseInfoAnnotations,
 			ReleaseLabels:               releaseLabels,
 			ReleaseStorageDriver:        commonCmdData.ReleaseStorageDriver,

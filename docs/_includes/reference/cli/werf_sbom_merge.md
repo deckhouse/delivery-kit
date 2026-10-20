@@ -84,20 +84,6 @@ werf sbom merge [options]
             github, gitlab, harbor, quay.
             Default $WERF_REPO_CONTAINER_REGISTRY or auto mode (detect container registry by repo   
             address).
-      --repo-docker-hub-password=""
-            repo Docker Hub password (default $WERF_REPO_DOCKER_HUB_PASSWORD)
-      --repo-docker-hub-token=""
-            repo Docker Hub token (default $WERF_REPO_DOCKER_HUB_TOKEN)
-      --repo-docker-hub-username=""
-            repo Docker Hub username (default $WERF_REPO_DOCKER_HUB_USERNAME)
-      --repo-github-token=""
-            repo GitHub token (default $WERF_REPO_GITHUB_TOKEN)
-      --repo-harbor-password=""
-            repo Harbor password (default $WERF_REPO_HARBOR_PASSWORD)
-      --repo-harbor-username=""
-            repo Harbor username (default $WERF_REPO_HARBOR_USERNAME)
-      --repo-quay-token=""
-            repo quay.io token (default $WERF_REPO_QUAY_TOKEN)
       --skip-tls-verify-registry=false
             Skip TLS certificate validation when accessing a registry (default                      
             $WERF_SKIP_TLS_VERIFY_REGISTRY)

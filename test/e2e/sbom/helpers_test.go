@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -14,10 +15,13 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
+	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
@@ -129,4 +133,46 @@ func mustExtractInTotoSubjectDigest(dsseEnvelope []byte) string {
 	hex, hasSha256 := statement.Subject[0].Digest["sha256"]
 	Expect(hasSha256).To(BeTrue(), "in-toto subject must carry a sha256 digest")
 	return "sha256:" + hex
+}
+
+type producedBinarySnapshot struct {
+	Shipped     bool
+	Unknown     bool
+	Occurrences []cdx.EvidenceOccurrence
+}
+
+func assertProducedBinaryImages(ctx SpecContext, project *werf.Project) map[string]producedBinarySnapshot {
+	snapshot := make(map[string]producedBinarySnapshot)
+	for _, imageName := range []string{"donor", "consumer", "grandchild", "manifest-only"} {
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{imageName}}}))
+		for module, version := range map[string]string{
+			"github.com/spf13/cobra":               "v1.5.0",
+			"github.com/spf13/pflag":               "v1.0.5",
+			"github.com/inconshreveable/mousetrap": "v1.1.0",
+			"gopkg.in/yaml.v3":                     "v3.0.0",
+		} {
+			comp := sbomtest.FindComponent(bom, module, version)
+			Expect(comp).NotTo(BeNil(), "%s must retain component %s", imageName, module)
+			shipped := imageName != "manifest-only" && module != "github.com/inconshreveable/mousetrap" && (imageName == "donor" || module != "gopkg.in/yaml.v3")
+			properties := lo.FromPtr(comp.Properties)
+			negative := cdx.Property{Name: shippedscope.PropertyShipped, Value: "false"}
+			unknown := cdx.Property{Name: shippedscope.PropertyBinaries, Value: "unknown"}
+			if module == "github.com/inconshreveable/mousetrap" {
+				Expect(properties).To(ContainElement(unknown), "the pinned base has this same PURL without binary evidence")
+				Expect(properties).NotTo(ContainElement(negative), "local checked-empty cannot erase an unknown inherited origin")
+			} else if shipped {
+				Expect(properties).NotTo(ContainElement(negative), "%s must ship %s", imageName, module)
+				Expect(comp.Evidence).NotTo(BeNil())
+				Expect(lo.FromPtr(comp.Evidence.Occurrences)).To(ContainElement(HaveField("AdditionalContext", MatchRegexp(`^werf:binary:v1:sha256:[0-9a-f]{64}$`))))
+			} else {
+				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, module)
+			}
+			var occurrences []cdx.EvidenceOccurrence
+			if comp.Evidence != nil {
+				occurrences = lo.FromPtr(comp.Evidence.Occurrences)
+			}
+			snapshot[imageName+"/"+module] = producedBinarySnapshot{Shipped: !slices.Contains(properties, negative), Unknown: slices.Contains(properties, unknown), Occurrences: occurrences}
+		}
+	}
+	return snapshot
 }

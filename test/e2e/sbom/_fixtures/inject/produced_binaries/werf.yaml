@@ -1,0 +1,48 @@
+project: werf-test-e2e-sbom-produced-binaries
+configVersion: 1
+build:
+  cacheVersion: produced-binaries-v1
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:ef3bd2afef793bbaf31ce020550e577c7190cc7cb4cd9b3b3e9188587e3612cd
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+shell:
+  install:
+    - cd /app && CGO_ENABLED=0 go build -o /bin/app1 ./cmd/app1
+    - cd /app && CGO_ENABLED=0 go build -o /bin/app2 ./cmd/app2
+packages:
+  - type: go-mod
+    workdir: /app
+---
+image: consumer
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /bin/app1
+    to: /usr/bin/app1
+    before: setup
+---
+image: grandchild
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: consumer
+    add: /usr/bin/app1
+    to: /app1
+    before: setup
+---
+image: manifest-only
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/go.mod
+    to: /app/go.mod
+    before: setup

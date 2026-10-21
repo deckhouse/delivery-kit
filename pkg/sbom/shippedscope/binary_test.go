@@ -2,6 +2,7 @@ package shippedscope
 
 import (
 	"bytes"
+	"encoding/binary"
 	"runtime/debug"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -123,6 +124,46 @@ var _ = Describe("ClassifyBinary", func() {
 		},
 		Entry("Mach-O", "darwin/arm64"),
 		Entry("PE", "windows/amd64"),
+	)
+
+	DescribeTable("reads audited crates across executable formats",
+		func(ctx SpecContext, makeBinary func([]byte) []byte) {
+			binary := makeBinary(auditSection(`{"packages":[{"name":"serde","version":"1.0.210"},{"name":"build-helper","version":"1.0","kind":"build"}]}`))
+
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(classification.Rust).To(Equal(VerdictNames))
+			Expect(classification.Crates).To(Equal([]Crate{{Name: "serde", Version: "1.0.210"}}))
+		},
+		Entry("Mach-O", machoWithAuditSection),
+		Entry("PE", peWithAuditSection),
+	)
+
+	DescribeTable("holds dependencies when an executable header is truncated",
+		func(ctx SpecContext, header []byte) {
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(header), int64(len(header)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(classification.Go).To(Equal(VerdictUnknown))
+			Expect(classification.Rust).To(Equal(VerdictUnknown))
+		},
+		Entry("Mach-O", []byte{0xcf, 0xfa, 0xed, 0xfe}),
+		Entry("PE", []byte{'M', 'Z'}),
+	)
+
+	DescribeTable("holds dependencies of universal Mach-O containers",
+		func(ctx SpecContext, order binary.ByteOrder, wide bool) {
+			binary := universalMachO(order, wide)
+
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(classification.Go).To(Equal(VerdictUnknown))
+			Expect(classification.Rust).To(Equal(VerdictUnknown))
+			Expect(classification.TestBinary).To(BeFalse())
+		},
+		Entry("FAT_MAGIC", binary.BigEndian, false),
+		Entry("FAT_CIGAM", binary.LittleEndian, false),
+		Entry("FAT_MAGIC_64", binary.BigEndian, true),
+		Entry("FAT_CIGAM_64", binary.LittleEndian, true),
 	)
 
 	It("holds every module of a wasm binary, which nothing here can read", func(ctx SpecContext) {

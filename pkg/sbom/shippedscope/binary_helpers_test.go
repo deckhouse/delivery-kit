@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/zlib"
 	"debug/elf"
+	"debug/macho"
+	"debug/pe"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -237,6 +239,94 @@ func oversizedSection(file []byte, name string) []byte {
 	binary.LittleEndian.PutUint64(rewritten[headerSize+index*sectionHeaderSize+sizeOffset:], maxAuditData+1)
 
 	return rewritten
+}
+
+func machoWithAuditSection(data []byte) []byte {
+	GinkgoHelper()
+
+	const headerSize = 32
+	commandSize := uint32(binary.Size(macho.Segment64{}) + binary.Size(macho.Section64{}))
+	header := macho.FileHeader{Magic: macho.Magic64, Cpu: macho.CpuArm64, Type: macho.TypeExec, Ncmd: 1, Cmdsz: commandSize}
+	segment := macho.Segment64{Cmd: macho.LoadCmdSegment64, Len: commandSize, Offset: uint64(headerSize + commandSize), Filesz: uint64(len(data)), Memsz: uint64(len(data)), Nsect: 1}
+	copy(segment.Name[:], "__DATA")
+	section := macho.Section64{Offset: headerSize + commandSize, Size: uint64(len(data)), Seg: segment.Name}
+	copy(section.Name[:], ".dep-v0")
+
+	var file bytes.Buffer
+	Expect(binary.Write(&file, binary.LittleEndian, header)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, uint32(0))).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, segment)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, section)).To(Succeed())
+	file.Write(data)
+
+	return file.Bytes()
+}
+
+func peWithAuditSection(data []byte) []byte {
+	GinkgoHelper()
+
+	const offset = 512
+	header := pe.FileHeader{
+		Machine: pe.IMAGE_FILE_MACHINE_AMD64, NumberOfSections: 1,
+		SizeOfOptionalHeader: uint16(binary.Size(pe.OptionalHeader64{})), Characteristics: pe.IMAGE_FILE_EXECUTABLE_IMAGE,
+	}
+	optional := pe.OptionalHeader64{Magic: 0x20b, SectionAlignment: 4096, FileAlignment: 512, SizeOfHeaders: offset, NumberOfRvaAndSizes: 16}
+	section := pe.SectionHeader32{PointerToRawData: offset, SizeOfRawData: uint32(len(data)), VirtualSize: uint32(len(data)), VirtualAddress: 4096}
+	copy(section.Name[:], ".dep-v0")
+
+	dos := make([]byte, 64)
+	copy(dos, "MZ")
+	binary.LittleEndian.PutUint32(dos[60:], uint32(len(dos)))
+	var file bytes.Buffer
+	file.Write(dos)
+	file.WriteString("PE\x00\x00")
+	Expect(binary.Write(&file, binary.LittleEndian, header)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, optional)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, section)).To(Succeed())
+	Expect(file.Len()).To(BeNumerically("<=", offset))
+	file.Write(make([]byte, offset-file.Len()))
+	file.Write(data)
+
+	return file.Bytes()
+}
+
+func universalMachO(order binary.ByteOrder, wide bool) []byte {
+	GinkgoHelper()
+
+	thin := goBinaryFor("darwin/arm64")
+	file, err := macho.NewFile(bytes.NewReader(thin))
+	Expect(err).NotTo(HaveOccurred())
+	defer file.Close()
+
+	const offset = 4096
+	fat := make([]byte, offset+len(thin))
+	magic := uint32(0xcafebabe)
+	if wide {
+		magic = 0xcafebabf
+	}
+	order.PutUint32(fat, magic)
+	order.PutUint32(fat[4:], 1)
+	order.PutUint32(fat[8:], uint32(file.Cpu))
+	order.PutUint32(fat[12:], file.SubCpu)
+	if wide {
+		order.PutUint64(fat[16:], offset)
+		order.PutUint64(fat[24:], uint64(len(thin)))
+		order.PutUint32(fat[32:], 12)
+	} else {
+		order.PutUint32(fat[16:], offset)
+		order.PutUint32(fat[20:], uint32(len(thin)))
+		order.PutUint32(fat[24:], 12)
+	}
+	copy(fat[offset:], thin)
+
+	if !wide && order == binary.BigEndian {
+		parsed, err := macho.NewFatFile(bytes.NewReader(fat))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Arches).To(HaveLen(1))
+		Expect(parsed.Close()).To(Succeed())
+	}
+
+	return fat
 }
 
 func parsedCopy(file []byte) []byte {

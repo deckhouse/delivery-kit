@@ -87,10 +87,19 @@ var goFormatSections = map[binaryFormat][]string{
 }
 
 var formatMagic = map[binaryFormat][][]byte{
-	formatELF:   {{0x7f, 'E', 'L', 'F'}},
-	formatWasm:  {{0x00, 'a', 's', 'm'}},
-	formatMachO: {{0xfe, 0xed, 0xfa, 0xce}, {0xfe, 0xed, 0xfa, 0xcf}, {0xce, 0xfa, 0xed, 0xfe}, {0xcf, 0xfa, 0xed, 0xfe}},
-	formatPE:    {{'M', 'Z'}},
+	formatELF:  {{0x7f, 'E', 'L', 'F'}},
+	formatWasm: {{0x00, 'a', 's', 'm'}},
+	formatMachO: {
+		{0xfe, 0xed, 0xfa, 0xce},
+		{0xfe, 0xed, 0xfa, 0xcf},
+		{0xce, 0xfa, 0xed, 0xfe},
+		{0xcf, 0xfa, 0xed, 0xfe},
+		{0xca, 0xfe, 0xba, 0xbe},
+		{0xbe, 0xba, 0xfe, 0xca},
+		{0xca, 0xfe, 0xba, 0xbf},
+		{0xbf, 0xba, 0xfe, 0xca},
+	},
+	formatPE: {{'M', 'Z'}},
 }
 
 // binaryImage is as much of a binary's own structure as the rule needs: the sections it
@@ -120,11 +129,9 @@ type binarySection struct {
 // Go and Rust are read independently: a cgo binary linking an audited Rust archive carries
 // the evidence of both, and an early return on either would drop the other.
 //
-// A file in no executable format at all speaks for nobody. One in a format the rule knows
-// but cannot parse holds everything instead — "I cannot read this" is not "this contains
-// nothing" — and so does a Mach-O, PE or wasm binary whose build info will not read: only
-// ELF and Mach-O carry a section that tells "not Go" from "Go I cannot read", and in a
-// Linux image the formats that do not are rare enough to hold open cheaply.
+// Unreadable executable containers hold all dependencies. Universal Mach-O containers
+// also fail open: the thin-file parser cannot establish what every architecture carries.
+// Only ELF and thin Mach-O section tables can rule Go out without readable build info.
 func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (BinaryClassification, error) {
 	none := BinaryClassification{Go: VerdictNone, Rust: VerdictNone}
 	unknown := BinaryClassification{Go: VerdictUnknown, Rust: VerdictUnknown}
@@ -195,9 +202,6 @@ func formatOf(binary io.ReaderAt) (binaryFormat, bool, error) {
 	return "", false, nil
 }
 
-// sectionsOf reads the section table of a binary. A wasm module has none to read: the
-// format keeps its custom sections behind a parser the standard library does not ship,
-// and what werf reads out of sections it reads out of the build info there instead.
 func sectionsOf(format binaryFormat, binary io.ReaderAt) (map[string]binarySection, error) {
 	sections := make(map[string]binarySection)
 

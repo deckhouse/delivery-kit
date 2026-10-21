@@ -196,7 +196,7 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 		}
 	}
 
-	if len(recorded) > 0 && len(occurrences) == 0 {
+	if len(recorded) > 0 && len(occurrences) == 0 && propertyValue(comp, PropertyFiles) != propertyFilesNone {
 		return nil
 	}
 

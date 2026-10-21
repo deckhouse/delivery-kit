@@ -38,8 +38,9 @@ type Component struct {
 	Ecosystem Ecosystem
 	Name      string
 	Version   string
-	// Occurrences is nil for a Go module or a crate: neither keeps a file of its own, and
-	// both are proven by the produced binaries instead.
+	// For Go and Rust, occurrences must identify binaries previously classified as
+	// carrying this module or crate. The caller must exclude manifests and source files;
+	// a matching digest alone cannot establish that a binary contains the dependency.
 	Occurrences []Occurrence
 }
 

@@ -85,6 +85,41 @@ var _ = Describe("Match, binary-backed components", func() {
 		Expect(decisions[0]).To(Equal(Decision{Reason: ReasonNotLinked}))
 	})
 
+	It("holds a module whose binary this image imported rather than built", func(ctx SpecContext) {
+		decisions := Match(ctx, []Component{
+			{Ecosystem: EcosystemGo, Name: "a", Occurrences: []Occurrence{{Path: "/dist/ctl", Digest: digestOf("ctl")}}},
+			{Ecosystem: EcosystemRust, Name: "serde", Version: "1", Occurrences: []Occurrence{{Path: "/dist/ctl", Digest: digestOf("ctl")}}},
+		}, ProducedBinaries{Known: true}, indexOf(map[string]File{
+			"/usr/bin/ctl": {Digest: digestOf("ctl"), Size: 3},
+		}))
+
+		Expect(decisions[0]).To(Equal(Decision{Shipped: true, Reason: ReasonBinaryInherited, Matched: []string{"/usr/bin/ctl"}}),
+			"the donor's SBOM says the module is in that binary, and the binary is here byte for byte")
+		Expect(decisions[1]).To(Equal(Decision{Shipped: true, Reason: ReasonBinaryInherited, Matched: []string{"/usr/bin/ctl"}}))
+	})
+
+	It("drops a module whose binary the image neither built nor carries", func(ctx SpecContext) {
+		decisions := Match(ctx, []Component{
+			{Ecosystem: EcosystemGo, Name: "a", Occurrences: []Occurrence{{Path: "/dist/ctl", Digest: digestOf("ctl")}}},
+		}, ProducedBinaries{Known: true}, indexOf(map[string]File{
+			"/usr/bin/other": {Digest: digestOf("other"), Size: 5},
+		}))
+
+		Expect(decisions[0]).To(Equal(Decision{Reason: ReasonNotLinked}))
+	})
+
+	It("does not let a symlink of a donor binary hold a module", func(ctx SpecContext) {
+		decisions := Match(ctx, []Component{
+			{Ecosystem: EcosystemGo, Name: "a", Occurrences: []Occurrence{{Path: "/dist/ctl", Symlink: true}}},
+		}, ProducedBinaries{Known: true}, &FileIndex{
+			Files:    map[string]File{},
+			Symlinks: map[string]string{"/dist/ctl": "/usr/bin/ctl"},
+		})
+
+		Expect(decisions[0]).To(Equal(Decision{Reason: ReasonNotLinked}),
+			"a symlink carries no code, and the binary it pointed at did not come along")
+	})
+
 	It("holds every module when the produced set could not be established at all", func(ctx SpecContext) {
 		decisions := Match(ctx, []Component{
 			{Ecosystem: EcosystemGo, Name: "a"},

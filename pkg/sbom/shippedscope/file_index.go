@@ -30,6 +30,10 @@ type FileIndex struct {
 	Files map[string]File
 	// Symlinks holds targets exactly as the image records them: possibly relative, possibly dangling.
 	Symlinks map[string]string
+	// Incomplete also covers hardlinks resolved against the final filesystem rather
+	// than their owning layer: later target changes may have hidden surviving bytes.
+	// Such an index cannot establish that a digest is absent.
+	Incomplete bool
 
 	// bodies holds the captured content by indexed name; targetBodies holds, by target
 	// path, the content a hardlink's name asked for while the layers were read.
@@ -124,6 +128,9 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 		return nil, nil, err
 	}
 
+	if len(remaining) > 0 {
+		index.Incomplete = true
+	}
 	resolveHardlinks(ctx, index, remaining)
 
 	captured := index.bodies
@@ -353,6 +360,7 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 	}
 
 	if unresolved > 0 {
+		index.Incomplete = true
 		logboek.Context(ctx).Warn().LogF("WARNING: %d hardlinks could not be resolved to content and are left out of the file index\n", unresolved)
 	}
 }

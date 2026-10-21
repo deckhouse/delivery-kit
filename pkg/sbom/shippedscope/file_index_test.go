@@ -288,6 +288,7 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(index.Files).To(BeEmpty())
+		Expect(index.Incomplete).To(BeTrue(), "unresolved hardlinks mark the index incomplete")
 	})
 
 	It("gives up on hardlinks that point at each other", func(ctx SpecContext) {
@@ -301,6 +302,7 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(index.Files).To(BeEmpty())
+		Expect(index.Incomplete).To(BeTrue(), "circular hardlinks mark the index incomplete")
 	}, SpecTimeout(time.Minute))
 
 	It("reports an image it cannot read instead of returning a partial index", func(ctx SpecContext) {
@@ -335,5 +337,21 @@ var _ = Describe("IndexImageFiles", func() {
 
 		Expect(index.Files).To(BeEmpty())
 		Expect(index.Symlinks).To(BeEmpty())
+		Expect(index.Incomplete).To(BeFalse())
+	})
+
+	It("marks the index complete when all hardlinks resolve", func(ctx SpecContext) {
+		img, err := imageOf([]tarEntry{
+			regularFile("usr/bin/origin", "shared"),
+			hardlink("usr/bin/alias", "usr/bin/origin"),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		index, err := IndexImageFiles(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(index.Files).To(HaveKey("/usr/bin/origin"))
+		Expect(index.Files).To(HaveKey("/usr/bin/alias"))
+		Expect(index.Incomplete).To(BeFalse())
 	})
 })

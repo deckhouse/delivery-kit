@@ -3,6 +3,7 @@ package build
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1826,6 +1827,19 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 	} else if img.IsBasedOnStage() {
 		baseStageImage := img.GetBaseStageImage()
 		serviceLabels[imagePkg.WerfParentStageID] = baseStageImage.Image.GetStageDesc().StageID.String()
+	}
+
+	if phase.Conveyor.EnableSbom() && img.StapelImageConfig != nil {
+		if _, ok := serviceLabels[imagePkg.WerfParentStageID]; !ok {
+			serviceLabels[imagePkg.WerfParentStageID] = ""
+		}
+		record, err := json.Marshal(sbomStageRecord{
+			Stage: stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID],
+		})
+		if err != nil {
+			return fmt.Errorf("encode SBOM stage record: %w", err)
+		}
+		serviceLabels[imagePkg.WerfSBOMStageLabel] = string(record)
 	}
 
 	// TODO: refactor this workaround required for the image spec stage.

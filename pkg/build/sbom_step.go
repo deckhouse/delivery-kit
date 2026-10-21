@@ -25,6 +25,7 @@ import (
 	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
@@ -94,7 +95,15 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform)
+	var provenance sbomStageProvenance
+	if isStapel {
+		var err error
+		provenance, err = resolveSBOMStageProvenance(ctx, stageDesc, docker_registry.API().GetRepoImageConfigFile)
+		if err != nil {
+			logboek.Context(ctx).Debug().LogF("image %s: produced binaries are unknown: %s\n", werfImgName, err)
+		}
+	}
+	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform, provenance)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -136,6 +145,19 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 				return fmt.Errorf("parse scanned BOM: %w", err)
 			}
 			cyclonedxutil.MarkWerfTool(targetBOM, werf.Version)
+		}
+
+		var filesets *shippedscope.Filesets
+		produced := &shippedscope.ProducedFiles{}
+		inputs := append([]*cdx.BOM{targetBOM, mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...)
+		if len(osPmPackages) > 0 || lo.SomeBy(inputs, func(bom *cdx.BOM) bool {
+			return bom != nil && (shippedscope.HasFileBackedComponents(bom) || shippedscope.HasBinaryBackedComponents(ctx, bom))
+		}) {
+			filesets, produced = collectShippedScope(ctx, step.containerBackend, werfImgName, stageDesc.Info.Name, provenance)
+		}
+		mergeOpts, err = prepareBinaryMerge(ctx, targetBOM, mergeOpts, produced)
+		if err != nil {
+			return err
 		}
 
 		resultBOM := targetBOM
@@ -207,7 +229,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
-		recordShippedScope(ctx, resultBOM, step.containerBackend, werfImgName, stageDesc.Info.Name)
+		recordShippedScope(ctx, resultBOM, filesets, produced, werfImgName)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -228,34 +250,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-// recordShippedScope records, on every component an ecosystem installed into the image,
-// which files of the image are that component's, and then marks the components whose
-// files are not in this image at all. An image built from this one can then ask of an
-// inherited component whether its files are still there, instead of trusting that a
-// component its base declared came along.
-//
-// Runs last, once the BOM holds the components it will ship with: Canonicalize folds
-// duplicate components together and drops an evidence list that comes out empty, which is
-// exactly the "its files were looked for and none were found" this writes.
-//
-// The image is read out of the backend the step pulled it into, not from the registry a
-// second time: the read is then as long as a save to local disk, and what can fail it is
-// the host — an image that is not there, a disk that is full — rather than the network.
-//
-// Nothing here fails the build, and nothing is removed from the BOM. A BOM without these
-// records is the BOM werf wrote before it kept them, and a reader that finds no record of
-// a component's files keeps the component, so the worst an unreadable image costs is the
-// SBOM of the image built from this one being as complete as it used to be.
-func recordShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
-	if !shippedscope.HasFileBackedComponents(bom) {
-		return
-	}
-
+func collectShippedScope(ctx context.Context, backend imageSaver, werfImgName, imageName string, provenance sbomStageProvenance) (*shippedscope.Filesets, *shippedscope.ProducedFiles) {
+	unknown := &shippedscope.ProducedFiles{}
 	img, cleanup, err := savedImage(ctx, backend, imageName)
 	if err != nil {
 		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; the SBOM records none of the files its components consist of: %s\n", werfImgName, imageName, err)
 
-		return
+		return nil, unknown
 	}
 	defer cleanup()
 
@@ -263,9 +264,53 @@ func recordShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSaver, w
 	if err != nil {
 		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read which files the components of the built image %s consist of; the SBOM records none of them: %s\n", werfImgName, imageName, err)
 
-		return
+		return nil, unknown
 	}
 
+	if !provenance.Layers.Known {
+		return filesets, unknown
+	}
+	cfg, err := img.ConfigFile()
+	if err != nil || cfg == nil || !slices.Equal(cfg.RootFS.DiffIDs, provenance.DiffIDs) {
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: saved image does not match the stage provenance; produced binaries are unknown\n", werfImgName)
+
+		return filesets, unknown
+	}
+	produced, err := shippedscope.CollectProducedFiles(ctx, img, filesets.Index, provenance.Layers)
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to collect produced binaries: %s\n", werfImgName, err)
+
+		return filesets, unknown
+	}
+
+	return filesets, produced
+}
+
+func prepareBinaryMerge(ctx context.Context, target *cdx.BOM, opts cyclonedxutil.MergeOpts, produced *shippedscope.ProducedFiles) (cyclonedxutil.MergeOpts, error) {
+	shippedscope.PrepareBinaryOccurrences(ctx, target, produced)
+	inputs := append([]*cdx.BOM{opts.BaseBOM}, opts.ImportBOMs...)
+	for i, input := range inputs {
+		if input == nil {
+			continue
+		}
+		clone, err := cyclonedxutil.CloneBOM(input)
+		if err != nil {
+			return opts, fmt.Errorf("clone binary evidence source: %w", err)
+		}
+		shippedscope.NormalizeInheritedBinaryOccurrences(ctx, clone)
+		inputs[i] = clone
+	}
+	opts.BaseBOM = inputs[0]
+	opts.ImportBOMs = inputs[1:]
+
+	return opts, nil
+}
+
+func recordShippedScope(ctx context.Context, bom *cdx.BOM, filesets *shippedscope.Filesets, produced *shippedscope.ProducedFiles, werfImgName string) {
+	shippedscope.RecordProducedBinaryOccurrences(ctx, bom, produced)
+	if filesets == nil {
+		return
+	}
 	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
 
@@ -553,7 +598,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "13"
+const sbomArtifactFormatVersion = "14"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only
@@ -565,7 +610,7 @@ const sbomArtifactFormatVersion = "13"
 // gomod patcher inputs (build context changes alter the stage digest), external reference
 // enrichment (non-deterministic external data), and generator logic changes (covered by
 // sbomArtifactFormatVersion).
-func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string) string {
+func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, signerIdentity, targetPlatform string, provenance sbomStageProvenance) string {
 	return util.Sha256Hash(
 		sbomArtifactFormatVersion,
 		"scan", scanOpts.Checksum(),
@@ -574,6 +619,7 @@ func (step *sbomStep) calculateStableChecksum(scanOpts scanner.ScanOptions, merg
 		"gost_security_function", mergeOpts.Gost.SecurityFunction.String(),
 		"signer", signerIdentity,
 		"platform", targetPlatform,
+		"produced", sbomProvenanceChecksum(provenance),
 	)
 }
 

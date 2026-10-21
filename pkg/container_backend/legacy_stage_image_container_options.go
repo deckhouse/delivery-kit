@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+
+	"github.com/werf/werf/v3/pkg/image"
 )
 
 type LegacyCommitChangeOptions struct {
@@ -213,7 +215,7 @@ func (co *LegacyStageImageContainerOptions) toCommitChanges(opts LegacyCommitCha
 	}
 
 	for _, k := range sortStrings(getKeys(co.Label)) {
-		args = append(args, fmt.Sprintf("LABEL %s=%s", k, defaultEscape(co.Label[k], opts.ExactValues)))
+		args = append(args, fmt.Sprintf("LABEL %s=%s", k, defaultEscape(co.Label[k], opts.ExactValues || k == image.WerfSBOMStageLabel)))
 	}
 
 	if co.Cmd != "" {
@@ -255,7 +257,7 @@ func (co *LegacyStageImageContainerOptions) prepareCommitChanges(ctx context.Con
 	}
 
 	for _, k := range sortStrings(getKeys(co.Label)) {
-		args = append(args, fmt.Sprintf("LABEL %s=%s", k, defaultEscape(co.Label[k], opts.ExactValues)))
+		args = append(args, fmt.Sprintf("LABEL %s=%s", k, defaultEscape(co.Label[k], opts.ExactValues || k == image.WerfSBOMStageLabel)))
 	}
 
 	if co.Workdir != "" {

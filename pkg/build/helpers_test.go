@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -33,6 +34,7 @@ import (
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/opstats"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
 	"github.com/werf/werf/v3/pkg/storage/synchronization/lock_manager"
@@ -766,3 +768,11 @@ type publicationContainerBackend struct {
 var _ container_backend.ContainerBackend = (*publicationContainerBackend)(nil)
 
 func (b *publicationContainerBackend) HasStapelBuildSupport() bool { return true }
+
+func recordSavedShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
+	if !shippedscope.HasFileBackedComponents(bom) && !shippedscope.HasBinaryBackedComponents(ctx, bom) {
+		return
+	}
+	filesets, produced := collectShippedScope(ctx, backend, werfImgName, imageName, sbomStageProvenance{})
+	recordShippedScope(ctx, bom, filesets, produced, werfImgName)
+}

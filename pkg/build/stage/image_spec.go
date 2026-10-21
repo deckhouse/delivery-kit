@@ -259,7 +259,7 @@ func (s *ImageSpecStage) modifyLabels(ctx context.Context, labels, addLabels map
 			continue
 		}
 
-		if key == image.WerfLabel || key == image.WerfParentStageID || key == image.WerfStageContentDigestLabel || key == image.WerfProjectRepoCommitLabel {
+		if key == image.WerfLabel || key == image.WerfParentStageID || key == image.WerfStageContentDigestLabel || key == image.WerfProjectRepoCommitLabel || key == image.WerfSBOMStageLabel {
 			if !keepEssentialWerfLabels {
 				shouldPrintGlobalWarn = true
 			}

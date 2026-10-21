@@ -26,6 +26,10 @@ var (
 	builtTest     []byte
 	builtLinkedGo []byte
 	errBuild      error
+
+	crossOnce  sync.Once
+	builtCross map[string][]byte
+	errCross   error
 )
 
 // goBinary and goTestBinary return a Linux binary and the test binary of the same package,
@@ -62,13 +66,22 @@ func buildFixtures() {
 	Expect(errBuild).NotTo(HaveOccurred())
 }
 
-func buildGoFixtures() ([]byte, []byte, []byte, error) {
-	root, err := os.MkdirTemp("", "shippedscope-fixtures")
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create fixture root: %w", err)
-	}
-	defer os.RemoveAll(root)
+// goBinaryFor returns the same program built for another platform, so a spec can ask what
+// the rule makes of a binary an image ships for users to download rather than to run.
+func goBinaryFor(platform string) []byte {
+	GinkgoHelper()
 
+	crossOnce.Do(func() {
+		builtCross, errCross = buildCrossFixtures()
+	})
+
+	Expect(errCross).NotTo(HaveOccurred())
+	Expect(builtCross).To(HaveKey(platform))
+
+	return builtCross[platform]
+}
+
+func writeFixtureSources(root string) error {
 	sources := map[string]string{
 		"lib/go.mod": "module example.test/lib\n\ngo 1.24\n",
 		"lib/lib.go": "package lib\n\nfunc Greet() string { return \"hi\" }\n",
@@ -81,14 +94,64 @@ func buildGoFixtures() ([]byte, []byte, []byte, error) {
 		"tool/main.go": "package main\n\nimport (\n\t\"testing\"\n\n\t\"example.test/lib\"\n)\n\n" +
 			"func main() {\n\ttesting.Init()\n\tprintln(lib.Greet())\n}\n",
 	}
+
 	for name, body := range sources {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, nil, nil, fmt.Errorf("create %s: %w", name, err)
+			return fmt.Errorf("create %s: %w", name, err)
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			return nil, nil, nil, fmt.Errorf("write %s: %w", name, err)
+			return fmt.Errorf("write %s: %w", name, err)
 		}
+	}
+
+	return nil
+}
+
+func buildCrossFixtures() (map[string][]byte, error) {
+	root, err := os.MkdirTemp("", "shippedscope-cross-fixtures")
+	if err != nil {
+		return nil, fmt.Errorf("create fixture root: %w", err)
+	}
+	defer os.RemoveAll(root)
+
+	if err := writeFixtureSources(root); err != nil {
+		return nil, err
+	}
+
+	built := make(map[string][]byte)
+	for _, platform := range []string{"darwin/arm64", "windows/amd64", "js/wasm"} {
+		goos, goarch, _ := strings.Cut(platform, "/")
+		binary := filepath.Join(root, strings.ReplaceAll(platform, "/", "-"))
+
+		command := exec.Command("go", "build", "-o", binary, ".")
+		command.Dir = filepath.Join(root, "app")
+		command.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
+
+		if output, err := command.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("go build for %s: %w: %s", platform, err, output)
+		}
+
+		content, err := os.ReadFile(binary)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", binary, err)
+		}
+
+		built[platform] = content
+	}
+
+	return built, nil
+}
+
+func buildGoFixtures() ([]byte, []byte, []byte, error) {
+	root, err := os.MkdirTemp("", "shippedscope-fixtures")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create fixture root: %w", err)
+	}
+	defer os.RemoveAll(root)
+
+	if err := writeFixtureSources(root); err != nil {
+		return nil, nil, nil, err
 	}
 
 	binary := filepath.Join(root, "app.bin")

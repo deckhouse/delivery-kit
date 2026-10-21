@@ -105,6 +105,16 @@ func setProperty(comp *cdx.Component, name, value string) {
 	comp.Properties = &properties
 }
 
+func propertyValue(comp *cdx.Component, name string) string {
+	for _, property := range lo.FromPtr(comp.Properties) {
+		if property.Name == name {
+			return property.Value
+		}
+	}
+
+	return ""
+}
+
 func removeProperty(comp *cdx.Component, name string) {
 	properties := lo.FromPtr(comp.Properties)
 	kept := lo.Filter(properties, func(property cdx.Property, _ int) bool {

@@ -69,6 +69,18 @@ var _ = Describe("MarkNotShipped", func() {
 		Expect(value).To(Equal("false"))
 	})
 
+	It("marks a component a donor looked for and did not find", func(ctx SpecContext) {
+		bom := bomOf(componentOf("pkg:pypi/gone@2.0.0"))
+		setProperty(&(*bom.Components)[0], PropertyFiles, propertyFilesNone)
+
+		marked := MarkNotShipped(ctx, bom, filesetsOf(emptyIndex()))
+
+		Expect(marked).To(Equal(1), "the donor wrote what an empty occurrence list could not carry across a serialization")
+		value, found := shippedProperty(bom, 0)
+		Expect(found).To(BeTrue())
+		Expect(value).To(Equal("false"))
+	})
+
 	It("keeps a component nothing is known about", func(ctx SpecContext) {
 		bom := bomOf(componentOf("pkg:pypi/unknown@1.0.0"))
 

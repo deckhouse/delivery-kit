@@ -1,10 +1,14 @@
 package shippedscope
 
 import (
+	"context"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 var _ = Describe("RecordOccurrences", func() {
@@ -135,6 +139,65 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(recorded).To(Equal(1))
 		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{}),
 			"a package the image installed and then deleted looks exactly like this, and nothing else could show its files")
+	})
+
+	It("says the files were looked for after the SBOM has been written and read back", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+
+		Expect(RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})).To(Equal(1))
+
+		data, err := cyclonedxutil.ToJSON(bom)
+		Expect(err).NotTo(HaveOccurred())
+		read, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(recordedOccurrences(&(*read.Components)[0])).To(Equal([]Occurrence{}),
+			"an empty occurrence list does not survive serialization, so what it said has to")
+	})
+
+	It("keeps the verdict that no file was found through a merge of two documents", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+		Expect(RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})).To(Equal(1))
+
+		*bom.Components = append(*bom.Components, componentOf("pkg:pypi/requests@2.32.3"))
+		cyclonedxutil.Canonicalize(context.Background(), bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+		Expect(recordedOccurrences(&(*bom.Components)[0])).To(Equal([]Occurrence{}),
+			"a copy of the component that says nothing must not undo what werf looked for")
+	})
+
+	It("drops the verdict once the image does hold a file of the component", func() {
+		bom := bomOf("pkg:pypi/requests@2.32.3")
+		Expect(RecordOccurrences(bom, []Fileset{{
+			Ecosystem:     EcosystemPython,
+			Name:          "requests",
+			Version:       "2.32.3",
+			DeclaresFiles: true,
+		}})).To(Equal(1))
+
+		Expect(RecordOccurrences(bom, []Fileset{
+			fileset(EcosystemPython, "requests", "2.32.3", map[string]string{"/usr/lib/python3/requests/__init__.py": "r"}, nil),
+		})).To(Equal(1))
+
+		data, err := cyclonedxutil.ToJSON(bom)
+		Expect(err).NotTo(HaveOccurred())
+		read, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(recordedOccurrences(&(*read.Components)[0])).To(HaveLen(1))
+		Expect(propertyValue(&(*read.Components)[0], PropertyFiles)).To(BeEmpty(),
+			"a document that lists a file of the component must not also say the image holds none")
 	})
 
 	It("records a component one of whose copies declares files", func() {

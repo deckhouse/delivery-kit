@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/zlib"
 	"debug/elf"
+	"debug/macho"
+	"debug/pe"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -26,6 +28,10 @@ var (
 	builtTest     []byte
 	builtLinkedGo []byte
 	errBuild      error
+
+	crossOnce  sync.Once
+	builtCross map[string][]byte
+	errCross   error
 )
 
 // goBinary and goTestBinary return a Linux binary and the test binary of the same package,
@@ -62,13 +68,22 @@ func buildFixtures() {
 	Expect(errBuild).NotTo(HaveOccurred())
 }
 
-func buildGoFixtures() ([]byte, []byte, []byte, error) {
-	root, err := os.MkdirTemp("", "shippedscope-fixtures")
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create fixture root: %w", err)
-	}
-	defer os.RemoveAll(root)
+// goBinaryFor returns the same program built for another platform, so a spec can ask what
+// the rule makes of a binary an image ships for users to download rather than to run.
+func goBinaryFor(platform string) []byte {
+	GinkgoHelper()
 
+	crossOnce.Do(func() {
+		builtCross, errCross = buildCrossFixtures()
+	})
+
+	Expect(errCross).NotTo(HaveOccurred())
+	Expect(builtCross).To(HaveKey(platform))
+
+	return builtCross[platform]
+}
+
+func writeFixtureSources(root string) error {
 	sources := map[string]string{
 		"lib/go.mod": "module example.test/lib\n\ngo 1.24\n",
 		"lib/lib.go": "package lib\n\nfunc Greet() string { return \"hi\" }\n",
@@ -81,14 +96,64 @@ func buildGoFixtures() ([]byte, []byte, []byte, error) {
 		"tool/main.go": "package main\n\nimport (\n\t\"testing\"\n\n\t\"example.test/lib\"\n)\n\n" +
 			"func main() {\n\ttesting.Init()\n\tprintln(lib.Greet())\n}\n",
 	}
+
 	for name, body := range sources {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, nil, nil, fmt.Errorf("create %s: %w", name, err)
+			return fmt.Errorf("create %s: %w", name, err)
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			return nil, nil, nil, fmt.Errorf("write %s: %w", name, err)
+			return fmt.Errorf("write %s: %w", name, err)
 		}
+	}
+
+	return nil
+}
+
+func buildCrossFixtures() (map[string][]byte, error) {
+	root, err := os.MkdirTemp("", "shippedscope-cross-fixtures")
+	if err != nil {
+		return nil, fmt.Errorf("create fixture root: %w", err)
+	}
+	defer os.RemoveAll(root)
+
+	if err := writeFixtureSources(root); err != nil {
+		return nil, err
+	}
+
+	built := make(map[string][]byte)
+	for _, platform := range []string{"darwin/arm64", "windows/amd64", "js/wasm"} {
+		goos, goarch, _ := strings.Cut(platform, "/")
+		binary := filepath.Join(root, strings.ReplaceAll(platform, "/", "-"))
+
+		command := exec.Command("go", "build", "-o", binary, ".")
+		command.Dir = filepath.Join(root, "app")
+		command.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
+
+		if output, err := command.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("go build for %s: %w: %s", platform, err, output)
+		}
+
+		content, err := os.ReadFile(binary)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", binary, err)
+		}
+
+		built[platform] = content
+	}
+
+	return built, nil
+}
+
+func buildGoFixtures() ([]byte, []byte, []byte, error) {
+	root, err := os.MkdirTemp("", "shippedscope-fixtures")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create fixture root: %w", err)
+	}
+	defer os.RemoveAll(root)
+
+	if err := writeFixtureSources(root); err != nil {
+		return nil, nil, nil, err
 	}
 
 	binary := filepath.Join(root, "app.bin")
@@ -174,6 +239,94 @@ func oversizedSection(file []byte, name string) []byte {
 	binary.LittleEndian.PutUint64(rewritten[headerSize+index*sectionHeaderSize+sizeOffset:], maxAuditData+1)
 
 	return rewritten
+}
+
+func machoWithAuditSection(data []byte) []byte {
+	GinkgoHelper()
+
+	const headerSize = 32
+	commandSize := uint32(binary.Size(macho.Segment64{}) + binary.Size(macho.Section64{}))
+	header := macho.FileHeader{Magic: macho.Magic64, Cpu: macho.CpuArm64, Type: macho.TypeExec, Ncmd: 1, Cmdsz: commandSize}
+	segment := macho.Segment64{Cmd: macho.LoadCmdSegment64, Len: commandSize, Offset: uint64(headerSize + commandSize), Filesz: uint64(len(data)), Memsz: uint64(len(data)), Nsect: 1}
+	copy(segment.Name[:], "__DATA")
+	section := macho.Section64{Offset: headerSize + commandSize, Size: uint64(len(data)), Seg: segment.Name}
+	copy(section.Name[:], ".dep-v0")
+
+	var file bytes.Buffer
+	Expect(binary.Write(&file, binary.LittleEndian, header)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, uint32(0))).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, segment)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, section)).To(Succeed())
+	file.Write(data)
+
+	return file.Bytes()
+}
+
+func peWithAuditSection(data []byte) []byte {
+	GinkgoHelper()
+
+	const offset = 512
+	header := pe.FileHeader{
+		Machine: pe.IMAGE_FILE_MACHINE_AMD64, NumberOfSections: 1,
+		SizeOfOptionalHeader: uint16(binary.Size(pe.OptionalHeader64{})), Characteristics: pe.IMAGE_FILE_EXECUTABLE_IMAGE,
+	}
+	optional := pe.OptionalHeader64{Magic: 0x20b, SectionAlignment: 4096, FileAlignment: 512, SizeOfHeaders: offset, NumberOfRvaAndSizes: 16}
+	section := pe.SectionHeader32{PointerToRawData: offset, SizeOfRawData: uint32(len(data)), VirtualSize: uint32(len(data)), VirtualAddress: 4096}
+	copy(section.Name[:], ".dep-v0")
+
+	dos := make([]byte, 64)
+	copy(dos, "MZ")
+	binary.LittleEndian.PutUint32(dos[60:], uint32(len(dos)))
+	var file bytes.Buffer
+	file.Write(dos)
+	file.WriteString("PE\x00\x00")
+	Expect(binary.Write(&file, binary.LittleEndian, header)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, optional)).To(Succeed())
+	Expect(binary.Write(&file, binary.LittleEndian, section)).To(Succeed())
+	Expect(file.Len()).To(BeNumerically("<=", offset))
+	file.Write(make([]byte, offset-file.Len()))
+	file.Write(data)
+
+	return file.Bytes()
+}
+
+func universalMachO(order binary.ByteOrder, wide bool) []byte {
+	GinkgoHelper()
+
+	thin := goBinaryFor("darwin/arm64")
+	file, err := macho.NewFile(bytes.NewReader(thin))
+	Expect(err).NotTo(HaveOccurred())
+	defer file.Close()
+
+	const offset = 4096
+	fat := make([]byte, offset+len(thin))
+	magic := uint32(0xcafebabe)
+	if wide {
+		magic = 0xcafebabf
+	}
+	order.PutUint32(fat, magic)
+	order.PutUint32(fat[4:], 1)
+	order.PutUint32(fat[8:], uint32(file.Cpu))
+	order.PutUint32(fat[12:], file.SubCpu)
+	if wide {
+		order.PutUint64(fat[16:], offset)
+		order.PutUint64(fat[24:], uint64(len(thin)))
+		order.PutUint32(fat[32:], 12)
+	} else {
+		order.PutUint32(fat[16:], offset)
+		order.PutUint32(fat[20:], uint32(len(thin)))
+		order.PutUint32(fat[24:], 12)
+	}
+	copy(fat[offset:], thin)
+
+	if !wide && order == binary.BigEndian {
+		parsed, err := macho.NewFatFile(bytes.NewReader(fat))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Arches).To(HaveLen(1))
+		Expect(parsed.Close()).To(Succeed())
+	}
+
+	return fat
 }
 
 func parsedCopy(file []byte) []byte {

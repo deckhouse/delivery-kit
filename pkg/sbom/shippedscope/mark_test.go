@@ -5,6 +5,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 )
 
 var _ = Describe("MarkNotShipped", func() {
@@ -68,6 +70,65 @@ var _ = Describe("MarkNotShipped", func() {
 		Expect(found).To(BeTrue())
 		Expect(value).To(Equal("false"))
 	})
+
+	It("marks a component a donor looked for and did not find", func(ctx SpecContext) {
+		bom := bomOf(componentOf("pkg:pypi/gone@2.0.0"))
+		setProperty(&(*bom.Components)[0], PropertyFiles, propertyFilesNone)
+
+		marked := MarkNotShipped(ctx, bom, filesetsOf(emptyIndex()))
+
+		Expect(marked).To(Equal(1), "the donor wrote what an empty occurrence list could not carry across a serialization")
+		value, found := shippedProperty(bom, 0)
+		Expect(found).To(BeTrue())
+		Expect(value).To(Equal("false"))
+	})
+
+	DescribeTable("preserves checked-empty evidence through a document merge",
+		func(ctx SpecContext, knownFiles, donorFirst bool) {
+			const purl = "pkg:pypi/requests@2.32.3"
+			donor := bomOf(componentOf(purl))
+			donor.SpecVersion = cdx.SpecVersion1_6
+			Expect(RecordOccurrences(donor, []Fileset{{
+				Ecosystem: EcosystemPython, Name: "requests", Version: "2.32.3", DeclaresFiles: true,
+			}})).To(Equal(1))
+
+			occurrence := cdx.EvidenceOccurrence{Location: "/app/requirements.txt"}
+			if knownFiles {
+				occurrence = fileOccurrence("/original/requests.py", "requests")
+			}
+			other := bomOf(componentOf(purl, occurrence))
+			other.SpecVersion = cdx.SpecVersion1_6
+			if !donorFirst {
+				donor, other = other, donor
+			}
+
+			merged, err := cyclonedxutil.MergeBOMs(ctx, other, cyclonedxutil.MergeOpts{BaseBOM: donor})
+			Expect(err).NotTo(HaveOccurred())
+			data, err := cyclonedxutil.ToJSON(merged)
+			Expect(err).NotTo(HaveOccurred())
+			read, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*read.Components).To(HaveLen(1))
+
+			marked := MarkNotShipped(ctx, read, filesetsOf(indexOf(map[string]File{
+				"/relocated/requests.py": {Digest: digestOf("requests"), Size: 8},
+			})))
+			if knownFiles {
+				Expect(marked).To(BeZero(), "actual file evidence takes precedence over a donor's empty verdict")
+				_, found := shippedProperty(read, 0)
+				Expect(found).To(BeFalse())
+			} else {
+				Expect(marked).To(Equal(1), "scanner-only evidence must not erase the checked-empty verdict")
+				value, found := shippedProperty(read, 0)
+				Expect(found).To(BeTrue())
+				Expect(value).To(Equal("false"))
+			}
+		},
+		Entry("scanner evidence after the donor", false, true),
+		Entry("scanner evidence before the donor", false, false),
+		Entry("file evidence after the donor", true, true),
+		Entry("file evidence before the donor", true, false),
+	)
 
 	It("keeps a component nothing is known about", func(ctx SpecContext) {
 		bom := bomOf(componentOf("pkg:pypi/unknown@1.0.0"))

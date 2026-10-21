@@ -2,7 +2,7 @@ package shippedscope
 
 import (
 	"bytes"
-	"debug/elf"
+	"encoding/binary"
 	"runtime/debug"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -80,6 +80,24 @@ var _ = DescribeTable("ClassifyBinary, crates of a Go binary",
 		[]debug.BuildSetting{{Key: "GOARCH", Value: "amd64"}}, false),
 )
 
+var _ = DescribeTable("ClassifyBinary, what a format can rule out",
+	func(format binaryFormat, names []string, expected bool) {
+		sections := make(map[string]binarySection, len(names))
+		for _, name := range names {
+			sections[name] = binarySection{}
+		}
+
+		Expect(binaryImage{format: format, sections: sections}.mayBeGo()).To(Equal(expected))
+	},
+	Entry("an ELF of another language says so", formatELF, []string{".text", ".rodata"}, false),
+	Entry("an ELF carrying the Go runtime's table says so too", formatELF, []string{".text", ".gopclntab"}, true),
+	Entry("a Mach-O of another language says so", formatMachO, []string{"__text", "__rodata"}, false),
+	Entry("a Mach-O carrying the Go runtime's table says so too", formatMachO, []string{"__text", "__gopclntab"}, true),
+	Entry("a PE carries no mark either way", formatPE, []string{".text", ".rdata"}, true),
+	Entry("a wasm module has no sections to read", formatWasm, nil, true),
+	Entry("a binary stripped of its section headers says neither", formatELF, nil, true),
+)
+
 var _ = Describe("ClassifyBinary", func() {
 	It("reads the modules of a Go binary", func(ctx SpecContext) {
 		binary := goBinary()
@@ -90,6 +108,81 @@ var _ = Describe("ClassifyBinary", func() {
 		Expect(classification.TestBinary).To(BeFalse())
 		Expect(classification.Go).To(Equal(VerdictNames))
 		Expect(classification.Modules).To(ContainElement("example.test/lib"))
+		Expect(classification.Rust).To(Equal(VerdictNone))
+	})
+
+	DescribeTable("reads the modules of a binary built for another platform",
+		func(ctx SpecContext, platform string) {
+			binary := goBinaryFor(platform)
+
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(classification.Go).To(Equal(VerdictNames))
+			Expect(classification.Modules).To(ContainElement("example.test/lib"),
+				"an image shipping a release archive carries binaries it cannot run itself")
+		},
+		Entry("Mach-O", "darwin/arm64"),
+		Entry("PE", "windows/amd64"),
+	)
+
+	DescribeTable("reads audited crates across executable formats",
+		func(ctx SpecContext, makeBinary func([]byte) []byte) {
+			binary := makeBinary(auditSection(`{"packages":[{"name":"serde","version":"1.0.210"},{"name":"build-helper","version":"1.0","kind":"build"}]}`))
+
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(classification.Rust).To(Equal(VerdictNames))
+			Expect(classification.Crates).To(Equal([]Crate{{Name: "serde", Version: "1.0.210"}}))
+		},
+		Entry("Mach-O", machoWithAuditSection),
+		Entry("PE", peWithAuditSection),
+	)
+
+	DescribeTable("holds dependencies when an executable header is truncated",
+		func(ctx SpecContext, header []byte) {
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(header), int64(len(header)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(classification.Go).To(Equal(VerdictUnknown))
+			Expect(classification.Rust).To(Equal(VerdictUnknown))
+		},
+		Entry("Mach-O", []byte{0xcf, 0xfa, 0xed, 0xfe}),
+		Entry("PE", []byte{'M', 'Z'}),
+	)
+
+	DescribeTable("holds dependencies of universal Mach-O containers",
+		func(ctx SpecContext, order binary.ByteOrder, wide bool) {
+			binary := universalMachO(order, wide)
+
+			classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(classification.Go).To(Equal(VerdictUnknown))
+			Expect(classification.Rust).To(Equal(VerdictUnknown))
+			Expect(classification.TestBinary).To(BeFalse())
+		},
+		Entry("FAT_MAGIC", binary.BigEndian, false),
+		Entry("FAT_CIGAM", binary.LittleEndian, false),
+		Entry("FAT_MAGIC_64", binary.BigEndian, true),
+		Entry("FAT_CIGAM_64", binary.LittleEndian, true),
+	)
+
+	It("holds every module of a wasm binary, which nothing here can read", func(ctx SpecContext) {
+		binary := goBinaryFor("js/wasm")
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.Go).To(Equal(VerdictUnknown),
+			"debug/buildinfo does not read wasm, and an unreadable module holds its modules rather than losing them")
+	})
+
+	It("speaks for nobody when the file is in no executable format at all", func(ctx SpecContext) {
+		document := []byte("#!/bin/sh\necho not a binary\n")
+
+		classification, err := ClassifyBinary(ctx, bytes.NewReader(document), int64(len(document)))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(classification.Go).To(Equal(VerdictNone))
 		Expect(classification.Rust).To(Equal(VerdictNone))
 	})
 
@@ -254,11 +347,10 @@ var _ = Describe("ClassifyBinary", func() {
 			rustDepSection: auditSection(`{"packages":[{"name":"serde","version":"1.0.210","source":"crates.io"}]}`),
 		}), rustDepSection)
 
-		file, err := elf.NewFile(bytes.NewReader(binary))
+		sections, err := sectionsOf(formatELF, bytes.NewReader(binary))
 		Expect(err).NotTo(HaveOccurred())
-		defer file.Close()
 
-		_, err = runtimeCrates(file.Section(rustDepSection))
+		_, err = runtimeCrates(sections[rustDepSection])
 		Expect(err).To(MatchError(ContainSubstring("over the")))
 
 		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))
@@ -271,13 +363,11 @@ var _ = Describe("ClassifyBinary", func() {
 			rustDepSection: inflatingAuditSection(),
 		})
 
-		file, err := elf.NewFile(bytes.NewReader(binary))
+		sections, err := sectionsOf(formatELF, bytes.NewReader(binary))
 		Expect(err).NotTo(HaveOccurred())
-		defer file.Close()
+		Expect(sections[rustDepSection].size).To(BeNumerically("<", maxAuditData))
 
-		Expect(file.Section(rustDepSection).Size).To(BeNumerically("<", maxAuditData))
-
-		_, err = runtimeCrates(file.Section(rustDepSection))
+		_, err = runtimeCrates(sections[rustDepSection])
 		Expect(err).To(MatchError(ContainSubstring("inflates over the")))
 
 		classification, err := ClassifyBinary(ctx, bytes.NewReader(binary), int64(len(binary)))

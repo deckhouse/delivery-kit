@@ -6,6 +6,8 @@ import (
 	"context"
 	"debug/buildinfo"
 	"debug/elf"
+	"debug/macho"
+	"debug/pe"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,8 +67,54 @@ const (
 	cgoEnabledSetting = "CGO_ENABLED"
 )
 
-// goSections name a Go binary even when its build info is gone.
-var goSections = []string{".gopclntab", ".go.buildinfo"}
+// binaryFormat is an executable container a binary can describe itself in. A Linux image
+// is not only ELF: an image whose product is a release archive ships the binaries its
+// users download, built for every platform the project supports.
+type binaryFormat string
+
+const (
+	formatELF   binaryFormat = "ELF"
+	formatMachO binaryFormat = "Mach-O"
+	formatPE    binaryFormat = "PE"
+	formatWasm  binaryFormat = "wasm"
+)
+
+// goFormatSections name a Go binary of a format even when its build info is gone. A
+// format missing here carries no such mark, so nothing in it can rule Go out.
+var goFormatSections = map[binaryFormat][]string{
+	formatELF:   {".gopclntab", ".go.buildinfo"},
+	formatMachO: {"__gopclntab", "__go_buildinfo"},
+}
+
+var formatMagic = map[binaryFormat][][]byte{
+	formatELF:  {{0x7f, 'E', 'L', 'F'}},
+	formatWasm: {{0x00, 'a', 's', 'm'}},
+	formatMachO: {
+		{0xfe, 0xed, 0xfa, 0xce},
+		{0xfe, 0xed, 0xfa, 0xcf},
+		{0xce, 0xfa, 0xed, 0xfe},
+		{0xcf, 0xfa, 0xed, 0xfe},
+		{0xca, 0xfe, 0xba, 0xbe},
+		{0xbe, 0xba, 0xfe, 0xca},
+		{0xca, 0xfe, 0xba, 0xbf},
+		{0xbf, 0xba, 0xfe, 0xca},
+	},
+	formatPE: {{'M', 'Z'}},
+}
+
+// binaryImage is as much of a binary's own structure as the rule needs: the sections it
+// reads evidence out of, and the format that says what a missing section means.
+type binaryImage struct {
+	format   binaryFormat
+	sections map[string]binarySection
+}
+
+// binarySection carries the recorded size beside the content, so a section claiming more
+// than the reader accepts is refused before a decompressor is pointed at it.
+type binarySection struct {
+	size uint64
+	data func() ([]byte, error)
+}
 
 // ClassifyBinary answers which components a produced binary carries, reading only the
 // binary's own metadata.
@@ -81,9 +129,9 @@ var goSections = []string{".gopclntab", ".go.buildinfo"}
 // Go and Rust are read independently: a cgo binary linking an audited Rust archive carries
 // the evidence of both, and an early return on either would drop the other.
 //
-// A file that is not an ELF at all speaks for nobody: images here are Linux images, and a
-// Go or Rust binary in one is an ELF. A file that looks like an ELF but cannot be parsed
-// holds everything instead — "I cannot read this" is not "this contains nothing".
+// Unreadable executable containers hold all dependencies. Universal Mach-O containers
+// also fail open: the thin-file parser cannot establish what every architecture carries.
+// Only ELF and thin Mach-O section tables can rule Go out without readable build info.
 func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (BinaryClassification, error) {
 	none := BinaryClassification{Go: VerdictNone, Rust: VerdictNone}
 	unknown := BinaryClassification{Go: VerdictUnknown, Rust: VerdictUnknown}
@@ -92,23 +140,23 @@ func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (Binary
 		return unknown, fmt.Errorf("classify binary: size is %d", size)
 	}
 
-	elfBinary, err := looksLikeELF(binary)
+	format, executable, err := formatOf(binary)
 	if err != nil {
 		return unknown, fmt.Errorf("classify binary: %w", err)
 	}
-	if !elfBinary {
+	if !executable {
 		return none, nil
 	}
 
-	file, err := elf.NewFile(binary)
+	sections, err := sectionsOf(format, binary)
 	if err != nil {
-		logboek.Context(ctx).Debug().LogF("parse ELF: %s\n", err)
+		logboek.Context(ctx).Debug().LogF("parse %s: %s\n", format, err)
 
 		return unknown, nil
 	}
-	defer file.Close()
+	image := binaryImage{format: format, sections: sections}
 
-	if carriesGoSections(file) || len(file.Sections) == 0 {
+	if image.mayBeGo() {
 		// Only a Go binary can be a test binary, and the scan reads the file end to end:
 		// running it on every shared library in an image would cost seconds per image. A
 		// binary with no section headers at all is scanned regardless, since nothing
@@ -128,17 +176,94 @@ func ClassifyBinary(ctx context.Context, binary io.ReaderAt, size int64) (Binary
 	info, err := buildinfo.Read(binary)
 
 	classification := none
-	classification.Go, classification.Modules = goEvidenceOf(ctx, file, info, err)
-	classification.Rust, classification.Crates = rustEvidence(ctx, file, info)
+	classification.Go, classification.Modules = goEvidenceOf(ctx, image, info, err)
+	classification.Rust, classification.Crates = rustEvidence(ctx, image, info)
 
 	return classification, nil
 }
 
-func goEvidenceOf(ctx context.Context, file *elf.File, info *debug.BuildInfo, err error) (Verdict, []string) {
+func formatOf(binary io.ReaderAt) (binaryFormat, bool, error) {
+	header := make([]byte, 4)
+
+	read, err := binary.ReadAt(header, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", false, fmt.Errorf("read binary header: %w", err)
+	}
+	header = header[:read]
+
+	for format, magics := range formatMagic {
+		for _, magic := range magics {
+			if bytes.HasPrefix(header, magic) {
+				return format, true, nil
+			}
+		}
+	}
+
+	return "", false, nil
+}
+
+func sectionsOf(format binaryFormat, binary io.ReaderAt) (map[string]binarySection, error) {
+	sections := make(map[string]binarySection)
+
+	switch format {
+	case formatELF:
+		file, err := elf.NewFile(binary)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		for _, section := range file.Sections {
+			sections[section.Name] = binarySection{size: section.Size, data: section.Data}
+		}
+	case formatMachO:
+		file, err := macho.NewFile(binary)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		for _, section := range file.Sections {
+			sections[section.Name] = binarySection{size: section.Size, data: section.Data}
+		}
+	case formatPE:
+		file, err := pe.NewFile(binary)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		for _, section := range file.Sections {
+			sections[section.Name] = binarySection{size: uint64(section.Size), data: section.Data}
+		}
+	}
+
+	return sections, nil
+}
+
+// mayBeGo tells whether anything about the file rules Go out. Only a format with a
+// section that marks a Go binary can rule it out at all; in one without, and in a binary
+// whose section headers are gone, the question stays open rather than answered.
+func (image binaryImage) mayBeGo() bool {
+	marks, told := goFormatSections[image.format]
+	if !told {
+		return true
+	}
+
+	for _, name := range marks {
+		if _, ok := image.sections[name]; ok {
+			return true
+		}
+	}
+
+	return len(image.sections) == 0
+}
+
+func goEvidenceOf(ctx context.Context, image binaryImage, info *debug.BuildInfo, err error) (Verdict, []string) {
 	if err != nil {
-		// Sections are what tells "not Go" from "Go I cannot read". A binary stripped of
-		// its section headers says neither, so it holds every module rather than none.
-		if carriesGoSections(file) || len(file.Sections) == 0 {
+		// Sections are what tells "not Go" from "Go I cannot read". A binary that says
+		// neither holds every module rather than none.
+		if image.mayBeGo() {
 			logboek.Context(ctx).Debug().LogF("read Go build info: %s\n", err)
 
 			return VerdictUnknown, nil
@@ -150,9 +275,9 @@ func goEvidenceOf(ctx context.Context, file *elf.File, info *debug.BuildInfo, er
 	return goEvidence(info)
 }
 
-func rustEvidence(ctx context.Context, file *elf.File, info *debug.BuildInfo) (Verdict, []Crate) {
-	section := file.Section(rustDepSection)
-	if section == nil {
+func rustEvidence(ctx context.Context, image binaryImage, info *debug.BuildInfo) (Verdict, []Crate) {
+	section, audited := image.sections[rustDepSection]
+	if !audited {
 		if builtWithoutCgo(info) {
 			// A Go binary that links no C object carries no crate either.
 			return VerdictNone, nil
@@ -160,9 +285,9 @@ func rustEvidence(ctx context.Context, file *elf.File, info *debug.BuildInfo) (V
 
 		// Nothing can be told about crates from a Rust binary built without cargo
 		// auditable, and a binary of another language is indistinguishable from one. The
-		// aggregate is blunt on purpose: one unaudited ELF — a libc, a shell — makes the
-		// image hold every crate. Narrowing it needs a test for "is this Rust at all",
-		// which no cheap and reliable mark provides today.
+		// aggregate is blunt on purpose: one unaudited binary — a libc, a shell — makes
+		// the image hold every crate. Narrowing it needs a test for "is this Rust at
+		// all", which no cheap and reliable mark provides today.
 		return VerdictUnknown, nil
 	}
 
@@ -174,17 +299,6 @@ func rustEvidence(ctx context.Context, file *elf.File, info *debug.BuildInfo) (V
 	}
 
 	return VerdictNames, crates
-}
-
-func looksLikeELF(binary io.ReaderAt) (bool, error) {
-	magic := make([]byte, 4)
-
-	read, err := binary.ReadAt(magic, 0)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, fmt.Errorf("read binary header: %w", err)
-	}
-
-	return read == len(magic) && bytes.Equal(magic, []byte{0x7f, 'E', 'L', 'F'}), nil
 }
 
 // goEvidence reads the build info of a binary already known not to be a test binary.
@@ -216,16 +330,6 @@ func builtWithoutCgo(info *debug.BuildInfo) bool {
 	for _, setting := range info.Settings {
 		if setting.Key == cgoEnabledSetting {
 			return setting.Value == "0"
-		}
-	}
-
-	return false
-}
-
-func carriesGoSections(file *elf.File) bool {
-	for _, name := range goSections {
-		if file.Section(name) != nil {
-			return true
 		}
 	}
 
@@ -296,14 +400,14 @@ const (
 	maxAuditData    = 8 << 20
 )
 
-func runtimeCrates(section *elf.Section) ([]Crate, error) {
+func runtimeCrates(section binarySection) ([]Crate, error) {
 	// Audit data of a real binary is tens of kilobytes. The size is checked before the
 	// section is read because debug/elf inflates a compressed section inside Data().
-	if section.Size > maxAuditData {
-		return nil, fmt.Errorf("section is %d bytes, over the %d limit", section.Size, maxAuditData)
+	if section.size > maxAuditData {
+		return nil, fmt.Errorf("section is %d bytes, over the %d limit", section.size, maxAuditData)
 	}
 
-	compressed, err := section.Data()
+	compressed, err := section.data()
 	if err != nil {
 		return nil, fmt.Errorf("read section: %w", err)
 	}

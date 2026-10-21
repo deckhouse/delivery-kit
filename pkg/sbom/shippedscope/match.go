@@ -38,8 +38,9 @@ type Component struct {
 	Ecosystem Ecosystem
 	Name      string
 	Version   string
-	// Occurrences is nil for a Go module or a crate: neither keeps a file of its own, and
-	// both are proven by the produced binaries instead.
+	// For Go and Rust, occurrences must identify binaries previously classified as
+	// carrying this module or crate. The caller must exclude manifests and source files;
+	// a matching digest alone cannot establish that a binary contains the dependency.
 	Occurrences []Occurrence
 }
 
@@ -65,6 +66,9 @@ type Reason string
 const (
 	// ReasonBinary — a produced binary names the component.
 	ReasonBinary Reason = "binary"
+	// ReasonBinaryInherited — a binary this image did not build, but carries byte for
+	// byte, was recorded as naming the component by the image that did build it.
+	ReasonBinaryInherited Reason = "binary-inherited"
 	// ReasonContent — a file of the component is in the image, byte for byte, and no other
 	// component of the same ecosystem claims those bytes.
 	ReasonContent Reason = "content"
@@ -108,7 +112,10 @@ type Decision struct {
 //
 //  1. A Go module or a crate is held by any produced binary that names it. One binary
 //     legitimately names many, so no exclusivity applies. A binary that could carry
-//     components but names none holds all of them.
+//     components but names none holds all of them. Failing that, it is held by a binary
+//     the image carries byte for byte that the image which built it recorded as naming
+//     the component: an imported binary is none of this image's business to classify,
+//     and the donor already did.
 //  2. A file-backed component is held by a file of its own in the image, byte for byte —
 //     provided no other component of the same ecosystem claims the same bytes, counted by
 //     (name, version) so that identical copies of one package are one owner. A component
@@ -156,11 +163,11 @@ func Match(ctx context.Context, components []Component, binaries ProducedBinarie
 	for i, component := range components {
 		switch component.Ecosystem {
 		case EcosystemGo:
-			decisions[i] = evidence.goVerdict(component)
+			decisions[i] = holdByInheritedBinary(evidence.goVerdict(component), component, byDigest)
 
 			continue
 		case EcosystemRust:
-			decisions[i] = evidence.rustVerdict(component)
+			decisions[i] = holdByInheritedBinary(evidence.rustVerdict(component), component, byDigest)
 
 			continue
 		}
@@ -378,6 +385,31 @@ func collectBinaryEvidence(binaries ProducedBinaries) binaryEvidence {
 	}
 
 	return evidence
+}
+
+// holdByInheritedBinary keeps a component the produced set does not account for when a
+// binary recorded as carrying it is in the image byte for byte. The produced set is
+// deliberately the image's own binaries, so an imported one is absent from it and would
+// otherwise read as "no binary carries this" — the donor's SBOM is what says otherwise,
+// and it travels with the component as its occurrences.
+func holdByInheritedBinary(verdict Decision, component Component, byDigest map[string][]string) Decision {
+	if verdict.Shipped {
+		return verdict
+	}
+
+	for _, occurrence := range component.Occurrences {
+		if occurrence.Digest == "" {
+			continue
+		}
+
+		for _, imagePath := range byDigest[occurrence.Digest] {
+			verdict.Shipped = true
+			verdict.Reason = ReasonBinaryInherited
+			verdict.Matched = append(verdict.Matched, imagePath)
+		}
+	}
+
+	return verdict
 }
 
 func (e binaryEvidence) goVerdict(component Component) Decision {

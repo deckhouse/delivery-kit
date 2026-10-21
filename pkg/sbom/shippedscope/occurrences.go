@@ -157,6 +157,14 @@ func canonicalName(ecosystem Ecosystem, name string) string {
 	}
 }
 
+// PropertyFiles is written on a component whose files werf enumerated, and says what the
+// image holds of them. It exists because the answer "none" cannot be written as evidence:
+// an empty occurrence list says it in memory, and serialization drops the list along with
+// what it meant, leaving a component that reads as one nothing was ever looked for.
+const PropertyFiles = "werf:files"
+
+const propertyFilesNone = "none"
+
 // symlinkContext marks an occurrence as a symlink, which has a path in the image but no
 // content of its own to compare.
 const symlinkContext = "symlink"
@@ -170,6 +178,10 @@ const digestPrefix = "sha256:"
 // looked for and missed.
 func recordedOccurrences(comp *cdx.Component) []Occurrence {
 	if comp.Evidence == nil || comp.Evidence.Occurrences == nil {
+		if propertyValue(comp, PropertyFiles) == propertyFilesNone {
+			return []Occurrence{}
+		}
+
 		return nil
 	}
 
@@ -184,7 +196,7 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 		}
 	}
 
-	if len(recorded) > 0 && len(occurrences) == 0 {
+	if len(recorded) > 0 && len(occurrences) == 0 && propertyValue(comp, PropertyFiles) != propertyFilesNone {
 		return nil
 	}
 
@@ -221,6 +233,12 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) bool {
 		comp.Evidence = &cdx.Evidence{}
 	}
 	comp.Evidence.Occurrences = &occurrences
+
+	if len(occurrences) == 0 {
+		setProperty(comp, PropertyFiles, propertyFilesNone)
+	} else {
+		removeProperty(comp, PropertyFiles)
+	}
 
 	return true
 }

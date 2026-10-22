@@ -183,7 +183,18 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 	remaining := make(map[string]string, len(hardlinks))
 	for name, target := range hardlinks {
 		remaining[name] = target
-		targets[target] = targets[target] || capture(name)
+		keepBody := capture(name)
+		for !targets[target] {
+			targets[target] = keepBody
+			if !keepBody {
+				break
+			}
+			next, ok := hardlinks[target]
+			if !ok {
+				break
+			}
+			target = next
+		}
 	}
 
 	layers, err := img.Layers()
@@ -292,19 +303,30 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 // been read to the end.
 func resolveOwnedHardlinks(index *FileIndex, remaining, owned map[string]string, files map[string]File, bodies map[string][]byte, symlinks map[string]string) {
 	for name, target := range owned {
-		if file, ok := files[target]; ok {
-			index.Files[name] = file
-			if body, ok := bodies[target]; ok {
-				index.bodies[name] = body
+		visited := map[string]bool{name: true}
+		for {
+			if file, ok := files[target]; ok {
+				index.Files[name] = file
+				files[name] = file
+				if body, ok := bodies[target]; ok {
+					index.bodies[name] = body
+					bodies[name] = body
+				}
+				delete(remaining, name)
+				break
 			}
-			delete(remaining, name)
-
-			continue
-		}
-
-		if link, ok := symlinks[target]; ok {
-			index.Symlinks[name] = link
-			delete(remaining, name)
+			if link, ok := symlinks[target]; ok {
+				index.Symlinks[name] = link
+				symlinks[name] = link
+				delete(remaining, name)
+				break
+			}
+			next, ok := owned[target]
+			if !ok || visited[target] {
+				break
+			}
+			visited[target] = true
+			target = next
 		}
 	}
 }

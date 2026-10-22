@@ -223,6 +223,7 @@ var _ = Describe("IndexImageFiles", func() {
 		index, err := IndexImageFiles(ctx, img)
 		Expect(err).NotTo(HaveOccurred())
 
+		Expect(index.Incomplete).To(BeFalse())
 		for i := range 6 {
 			Expect(index.Files[fmt.Sprintf("/usr/bin/link%d", i)].Digest).To(Equal(digestOf("shared")))
 		}

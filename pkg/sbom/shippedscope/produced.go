@@ -11,11 +11,13 @@ import (
 	"io"
 	"os"
 	"slices"
+	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 
+	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/tmp_manager"
 )
 
@@ -46,19 +48,36 @@ type ProducedFiles struct {
 
 // CollectProducedFiles compares each verified stage's filesystem boundaries and records
 // the binary content still present in the final image, including relocated hardlinks.
+// Complete indexes resolve hardlinks only within their owning layer, so candidate bytes
+// must be archived in an eligible range. Supporting cross-layer resolution would also
+// require tracking source layers instead of restricting classification to these ranges.
 func CollectProducedFiles(ctx context.Context, img v1.Image, index *FileIndex, layers ProducedLayers) (*ProducedFiles, error) {
-	if !layers.Known || index.Incomplete {
+	if !layers.Known {
+		return &ProducedFiles{}, nil
+	}
+	if index.Incomplete {
+		logboek.Context(ctx).Default().LogF("Produced binaries are unknown: the final file index requires hardlink fallback\n")
 		return &ProducedFiles{}, nil
 	}
 	imgLayers, err := img.Layers()
 	if err != nil {
 		return nil, fmt.Errorf("read image layers: %w", err)
 	}
+	eligibleLayers := make([]bool, len(imgLayers))
 	for _, r := range layers.Ranges {
 		if r.Start < 0 || r.Start > r.End || r.End > len(imgLayers) {
 			return nil, fmt.Errorf("invalid layer range [%d,%d) for image with %d layers", r.Start, r.End, len(imgLayers))
 		}
+		for i := r.Start; i < r.End; i++ {
+			eligibleLayers[i] = true
+		}
 	}
+
+	started := time.Now()
+	boundaryPasses, layerScans := 0, 0
+	defer func() {
+		logboek.Context(ctx).Default().LogF("Produced binaries: %d filesystem boundary passes, %d scanned layers (%s)\n", boundaryPasses, layerScans, time.Since(started).Round(time.Millisecond))
+	}()
 
 	indexes := map[int]*FileIndex{0: {Files: map[string]File{}, Symlinks: map[string]string{}}, len(imgLayers): index}
 	finalDigests := indexByDigest(index)
@@ -75,6 +94,7 @@ func CollectProducedFiles(ctx context.Context, img v1.Image, index *FileIndex, l
 			if err != nil {
 				return nil, fmt.Errorf("read stage filesystem boundary %d: %w", boundary, err)
 			}
+			boundaryPasses++
 			boundaryIndex, err := IndexImageFiles(ctx, prefix)
 			if err != nil {
 				return nil, fmt.Errorf("index stage filesystem boundary %d: %w", boundary, err)
@@ -83,6 +103,7 @@ func CollectProducedFiles(ctx context.Context, img v1.Image, index *FileIndex, l
 		}
 		before, after := indexes[r.Start], indexes[r.End]
 		if before.Incomplete || after.Incomplete {
+			logboek.Context(ctx).Default().LogF("Produced binaries are unknown: a stage boundary requires hardlink fallback\n")
 			return &ProducedFiles{}, nil
 		}
 		for path, file := range after.Files {
@@ -102,7 +123,11 @@ func CollectProducedFiles(ctx context.Context, img v1.Image, index *FileIndex, l
 	}
 
 	found := make(map[string]ProducedFile)
-	for _, layer := range imgLayers {
+	for i, layer := range imgLayers {
+		if !eligibleLayers[i] {
+			continue
+		}
+		layerScans++
 		files, err := classifyProducedLayer(ctx, layer, candidates)
 		if err != nil {
 			return nil, err

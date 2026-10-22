@@ -94,6 +94,18 @@ func imageOf(layers ...[]tarEntry) (v1.Image, error) {
 	return img, nil
 }
 
+var _ v1.Layer = (*countedLayer)(nil)
+
+type countedLayer struct {
+	v1.Layer
+	opens int
+}
+
+func (layer *countedLayer) Uncompressed() (io.ReadCloser, error) {
+	layer.opens++
+	return layer.Layer.Uncompressed()
+}
+
 func digestOf(body string) string {
 	sum := sha256.Sum256([]byte(body))
 

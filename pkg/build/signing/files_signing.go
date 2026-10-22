@@ -55,6 +55,10 @@ func SignDetachedPKCS7(ctx context.Context, content []byte, signer *Signer) ([]b
 		return nil, fmt.Errorf("create signed data: %w", err)
 	}
 	sd.SetDigestAlgorithm(pkcs7.OIDDigestAlgorithmSHA256)
+	// The kernel PKCS#7 parser resolves the signature algorithm from this OID alone and
+	// knows only rsaEncryption there; the sha256WithRSAEncryption OID pkcs7 would infer
+	// from the digest makes it reject the signature with -ENOPKG.
+	sd.SetEncryptionAlgorithm(pkcs7.OIDEncryptionAlgorithmRSA)
 
 	cs := &digestSigner{ctx: ctx, sv: signer.sv, pub: leafPub}
 	if err := sd.SignWithoutAttr(leaf, cs, pkcs7.SignerInfoConfig{}); err != nil {

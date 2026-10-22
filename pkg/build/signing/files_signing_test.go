@@ -1,6 +1,7 @@
 package signing
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"os"
 	"os/exec"
@@ -21,12 +23,49 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
+	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/smallstep/pkcs7"
 )
 
 func TestFilesSigning(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Files signing suite")
+}
+
+// badSignatureSigner answers every signing request with bytes that are not a valid
+// signature of the digest, the shape a wrong Vault key or a mismatched certificate
+// produces.
+type badSignatureSigner struct {
+	signature.SignerVerifier
+
+	pub crypto.PublicKey
+}
+
+var _ signature.SignerVerifier = (*badSignatureSigner)(nil)
+
+func (s *badSignatureSigner) PublicKey(_ ...signature.PublicKeyOption) (crypto.PublicKey, error) {
+	return s.pub, nil
+}
+
+func (s *badSignatureSigner) SignMessage(_ io.Reader, _ ...signature.SignOption) ([]byte, error) {
+	return bytes.Repeat([]byte{0x42}, 256), nil
+}
+
+func newTestKeyPair() (*rsa.PrivateKey, []byte) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	Expect(err).NotTo(HaveOccurred())
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "files-signing-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	Expect(err).NotTo(HaveOccurred())
+
+	return key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 }
 
 func newTestSigner(ctx context.Context) (*Signer, *rsa.PrivateKey) {
@@ -82,6 +121,30 @@ var _ = Describe("SignDetachedPKCS7", func() {
 
 		p7.Content = content
 		Expect(p7.Verify()).To(Succeed())
+	})
+
+	It("names the signature algorithm rsaEncryption, the only one the kernel parser resolves", func(ctx SpecContext) {
+		signer, _ := newTestSigner(ctx)
+
+		der, err := SignDetachedPKCS7(ctx, content, signer)
+		Expect(err).NotTo(HaveOccurred())
+
+		p7, err := pkcs7.Parse(der)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(p7.Signers[0].DigestAlgorithm.Algorithm).To(Equal(pkcs7.OIDDigestAlgorithmSHA256))
+		Expect(p7.Signers[0].DigestEncryptionAlgorithm.Algorithm).To(Equal(pkcs7.OIDEncryptionAlgorithmRSA),
+			"the kernel pkcs7 parser answers -ENOPKG for sha256WithRSAEncryption (1.2.840.113549.1.1.11)")
+	})
+
+	It("refuses a signature the signing certificate does not verify", func(ctx SpecContext) {
+		key, certPEM := newTestKeyPair()
+		signer := &Signer{sv: &signver.SignerVerifier{
+			Cert:           certPEM,
+			SignerVerifier: &badSignatureSigner{pub: &key.PublicKey},
+		}}
+
+		_, err := SignDetachedPKCS7(ctx, content, signer)
+		Expect(err).To(MatchError(ContainSubstring("does not verify the signature the key produced")))
 	})
 
 	It("is accepted by openssl as a detached signature of the content", func(ctx SpecContext) {

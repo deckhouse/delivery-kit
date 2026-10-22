@@ -96,6 +96,32 @@ var _ = Describe("rawStapelImage", func() {
 				},
 			},
 		),
+		Entry(
+			"should handle signing the signature of an earlier stage",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"sign": []map[string]interface{}{
+					{"path": "/out/a.roothash", "after": "install"},
+					{"path": "/out/a.roothash.p7s"},
+				},
+			},
+			&StapelImage{
+				StapelImageBase: &StapelImageBase{
+					Name:    "image1",
+					From:    "alpine:latest",
+					Git:     &GitManager{},
+					Secrets: []Secret{},
+					Sign: []*Sign{
+						{Path: "/out/a.roothash", After: "install"},
+						{Path: "/out/a.roothash.p7s"},
+					},
+
+					platform: []string{},
+					final:    true,
+				},
+			},
+		),
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",
@@ -401,6 +427,39 @@ var _ = Describe("rawStapelImage", func() {
 				"sign": []map[string]interface{}{
 					{"path": "/out/x.roothash", "after": "install"},
 					{"path": "/out/x.roothash", "before": "setup"},
+				},
+			},
+		),
+		Entry(
+			"with sign path signed before its own signature at the same stage",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign": []map[string]interface{}{
+					{"path": "/out/x.roothash", "after": "install"},
+					{"path": "/out/x.roothash.p7s", "after": "install"},
+				},
+			},
+		),
+		Entry(
+			"with sign signature signed before its own path at the same stage",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign": []map[string]interface{}{
+					{"path": "/out/x.roothash.p7s", "after": "install"},
+					{"path": "/out/x.roothash", "after": "install"},
+				},
+			},
+		),
+		Entry(
+			"with sign path and its signature at the end of the image",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign": []map[string]interface{}{
+					{"path": "/out/x.roothash"},
+					{"path": "/out/x.roothash.p7s"},
 				},
 			},
 		),

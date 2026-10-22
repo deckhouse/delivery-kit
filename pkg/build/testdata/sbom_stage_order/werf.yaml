@@ -1,0 +1,43 @@
+project: order-test
+configVersion: 1
+---
+image: dep
+from: scratch
+---
+image: app
+from: alpine:3.20
+git:
+- add: /src
+  to: /app
+  stageDependencies:
+    packages: [go.mod]
+    install: ["**/*.go"]
+    beforeSetup: ["config/**"]
+    setup: ["assets/**"]
+shell:
+  beforeInstall: [echo beforeInstall]
+  install: [echo install]
+  beforeSetup: [echo beforeSetup]
+  setup: [echo setup]
+packages:
+- type: os-pm
+  spec: [curl]
+import:
+- from: dep
+  add: /src
+  to: /before-install
+  before: install
+- from: dep
+  add: /src
+  to: /after-install
+  after: install
+- from: dep
+  add: /src
+  to: /before-setup
+  before: setup
+- from: dep
+  add: /src
+  to: /after-setup
+  after: setup
+imageSpec:
+  author: order-test

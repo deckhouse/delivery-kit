@@ -6,6 +6,7 @@ import (
 
 	"github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/werf"
 )
@@ -41,6 +42,23 @@ var _ = ginkgo.Describe("Introspecting a stage of an image reused by its content
 
 		return phase, img
 	}
+
+	ginkgo.DescribeTable("reuses pre-provenance caches with SBOM enabled", func(ctx ginkgo.SpecContext, reuseAnchor bool) {
+		phase, img := newPhase()
+		phase.Conveyor.werfConfig.Meta.Build.Sbom = &config.MetaBuildSbom{Enable: true}
+		img.StapelImageConfig = &config.StapelImage{StapelImageBase: &config.StapelImageBase{Name: "app"}}
+		if reuseAnchor {
+			gomega.Expect(phase.resolveAvailableContentAnchors(ctx)).To(gomega.Succeed())
+			gomega.Expect(img.AnchorReused).To(gomega.BeTrue())
+			gomega.Expect(img.GetContentTagDesc().Info.Labels).NotTo(gomega.HaveKey(imagePkg.WerfSBOMStageLabel))
+		} else {
+			stg := img.GetStages()[1]
+			gomega.Expect(phase.onImageStage(ctx, img, stg)).To(gomega.Succeed())
+			gomega.Expect(stg.GetMeta().Rebuilt).To(gomega.BeFalse())
+			gomega.Expect(stg.GetStageImage().Image.GetStageDesc().Info.Labels).NotTo(gomega.HaveKey(imagePkg.WerfSBOMStageLabel))
+		}
+		gomega.Expect(record.processedStages).To(gomega.BeEmpty())
+	}, ginkgo.Entry("image content anchor", true), ginkgo.Entry("individual cached stage", false))
 
 	ginkgo.DescribeTable("processes the stages instead of reusing the anchor",
 		func(ctx ginkgo.SpecContext, target IntrospectTarget) {

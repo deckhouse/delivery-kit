@@ -25,12 +25,15 @@ import (
 	"github.com/werf/lockgate/pkg/distributed_locker"
 	"github.com/werf/lockgate/pkg/distributed_locker/optimistic_locking_store"
 	buildImage "github.com/werf/werf/v3/pkg/build/image"
+	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/build/verify_annotation"
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/container_backend/stage_builder"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/git_repo/gitdata"
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/opstats"
@@ -38,7 +41,49 @@ import (
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
 	"github.com/werf/werf/v3/pkg/storage/synchronization/lock_manager"
+	"github.com/werf/werf/v3/pkg/true_git"
+	"github.com/werf/werf/v3/pkg/werf"
+	"github.com/werf/werf/v3/test/pkg/utils"
 )
+
+func newSBOMStageOrderImage(ctx context.Context) *buildImage.Image {
+	tmpDir, homeDir := ginkgo.GinkgoT().TempDir(), ginkgo.GinkgoT().TempDir()
+	gomega.Expect(werf.Init(tmpDir, homeDir)).To(gomega.Succeed())
+	gomega.Expect(true_git.Init(ctx, true_git.Options{})).To(gomega.Succeed())
+	gitDataManager, err := gitdata.GetHostGitDataManager(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(git_repo.Init(gitDataManager)).To(gomega.Succeed())
+	projectDir := filepath.Join(tmpDir, "project")
+	gomega.Expect(os.CopyFS(projectDir, os.DirFS("testdata/sbom_stage_order"))).To(gomega.Succeed())
+	for _, args := range [][]string{
+		{"init", "--initial-branch=main"},
+		{"config", "user.name", "Test"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "."},
+		{"commit", "-m", "initial"},
+	} {
+		utils.RunSucceedCommand(ctx, projectDir, "git", args...)
+	}
+	head := strings.TrimSpace(utils.SucceedCommandOutputString(ctx, projectDir, "git", "rev-parse", "HEAD"))
+	repo, err := git_repo.OpenLocalRepo(ctx, "own", projectDir, git_repo.OpenLocalRepoOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	giterminismManager, err := giterminism_manager.NewManager(ctx, "", projectDir, repo, head, giterminism_manager.NewManagerOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	_, werfConfig, err := config.GetWerfConfig(ctx, "", "", "", giterminismManager, config.WerfConfigOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	imageConfig, ok := werfConfig.GetImage("app").(config.StapelImageInterface)
+	gomega.Expect(ok).To(gomega.BeTrue())
+	images, err := buildImage.MapStapelConfigToImages(ctx, werfConfig.Meta, imageConfig, "linux/amd64", false, buildImage.CommonImageOptions{
+		GiterminismManager: giterminismManager,
+		ProjectDir:         projectDir, ProjectName: werfConfig.Meta.Project, ContainerWerfDir: "/.werf", TmpDir: tmpDir,
+		VerityAnnotationOptions: verify_annotation.Options{Enabled: true},
+		ManifestSigningOptions:  signing.ManifestSigningOptions{Enabled: true},
+	})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(images).To(gomega.HaveLen(1))
+	return images[0]
+}
 
 func newFinalRepoBuildPhase(ctx context.Context) (*BuildPhase, *manager.StorageManager) {
 	gomega.Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(gomega.Succeed())

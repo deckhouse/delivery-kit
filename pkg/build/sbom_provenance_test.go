@@ -13,6 +13,8 @@ import (
 
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
@@ -136,6 +138,31 @@ var _ = ginkgo.Describe("SBOM stage provenance", func() {
 		missing, err := resolveSBOMStageProvenance(ctx, final, readConfig)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		gomega.Expect(sbomProvenanceChecksum(missing)).NotTo(gomega.Equal(sbomProvenanceChecksum(complete)))
+	})
+
+	ginkgo.It("recovers from a transient registry error before selecting the SBOM cache key", func(ctx ginkgo.SpecContext) {
+		read := readConfig
+		failNext := true
+		readConfig = func(ctx context.Context, ref string) (*v1.ConfigFile, error) {
+			if failNext && ref == "example.com/stages:"+ids[3] {
+				failNext = false
+				return nil, fmt.Errorf("temporary registry failure")
+			}
+			return read(ctx, ref)
+		}
+		failed, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("temporary registry failure")))
+		gomega.Expect(failed.Layers.Known).To(gomega.BeFalse())
+		recovered, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(recovered.Layers.Known).To(gomega.BeTrue())
+		step := &sbomStep{}
+		failedKey := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/amd64", failed)
+		recoveredKey := step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/amd64", recovered)
+		gomega.Expect(recoveredKey).NotTo(gomega.Equal(failedKey))
+		again, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(step.calculateStableChecksum(scanner.ScanOptions{}, cyclonedxutil.MergeOpts{}, "", "linux/amd64", again)).To(gomega.Equal(recoveredKey))
 	})
 
 	ginkgo.It("resolves a copied stage chain from another repository", func(ctx ginkgo.SpecContext) {

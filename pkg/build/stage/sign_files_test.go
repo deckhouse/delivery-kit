@@ -16,6 +16,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 
+	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/config"
 )
@@ -80,6 +81,16 @@ var _ = Describe("SignFilesStage", func() {
 		Expect(digestOf(signerA, "/out/x")).To(Equal(base))
 		Expect(digestOf(signerA, "/out/y")).NotTo(Equal(base), "a different signed path must change the digest")
 		Expect(digestOf(signerB, "/out/x")).NotTo(Equal(base), "a different signing certificate must change the digest")
+	})
+
+	It("binds the digest to the signature format, so a format change invalidates the cache", func() {
+		signer := newSigner("a")
+
+		imageConfig := &config.StapelImageBase{Sign: []*config.Sign{{Path: "/out/x", After: "install"}}}
+		stage := GenerateSignFilesAfterInstallStage(imageConfig, enabledOptions(signer), &BaseStageOptions{})
+		expected := util.Sha256Hash(string(stage.Name()), "Format", signing.SignatureFormat, "Path", "/out/x", "Cert", signer.Cert())
+
+		Expect(digestOf(signer, "/out/x")).To(Equal(expected), "the signature format must take part in the digest")
 	})
 
 	It("identifies the stage by the certificate alone, so no private key is needed to resolve it", func() {

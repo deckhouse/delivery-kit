@@ -36,6 +36,13 @@ func NewFilesSigningOptions(cert string, signer *Signer) FilesSigningOptions {
 	return FilesSigningOptions{Cert: cert, signer: signer}
 }
 
+// SignatureFormat identifies the on-disk signature format SignDetachedPKCS7 produces.
+// It is part of the sign stage digest: bump it whenever the produced bytes change in a
+// way a verifier can observe (digest or encryption algorithm, authenticated attributes,
+// the embedded certificate set, the CMS profile), so the change invalidates cached sign
+// stages instead of serving a signature in a stale format under the old digest.
+const SignatureFormat = "detached-pkcs7-rsa-sha256-v1"
+
 // SignDetachedPKCS7 wraps an RSASSA-PKCS1-v1_5/SHA-256 signature of content into a
 // detached CMS SignedData with the leaf certificate embedded and no authenticated
 // attributes: the profile systemd-keyutil writes and the kernel dm-verity signature

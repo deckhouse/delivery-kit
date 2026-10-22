@@ -106,7 +106,7 @@ func (s *SignFilesStage) GetContentDependencies(_ context.Context, _ Conveyor, _
 }
 
 func (s *SignFilesStage) digest() string {
-	args := []string{string(s.Name())}
+	args := []string{string(s.Name()), "Format", signing.SignatureFormat}
 	for _, sign := range s.signs {
 		args = append(args, "Path", sign.Path)
 	}

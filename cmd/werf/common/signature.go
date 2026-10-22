@@ -218,13 +218,6 @@ func getFilesSigningOptions(ctx context.Context, commonCmdData *CmdData, werfCon
 		return signing.FilesSigningOptions{}, fmt.Errorf("read the files signing certificate: %w", err)
 	}
 
-	keyRef := lo.FromPtr(commonCmdData.SignBuildFileKey)
-	if keyRef == "" {
-		options := signing.NewFilesSigningOptions(cert, nil)
-		options.Enabled = true
-		return options, nil
-	}
-
 	vault := signing.VaultOptions{
 		Address:     lo.FromPtr(commonCmdData.SignBuildFileVaultAddr),
 		TransitPath: lo.FromPtr(commonCmdData.SignBuildFileVaultTransitPath),
@@ -234,6 +227,13 @@ func getFilesSigningOptions(ctx context.Context, commonCmdData *CmdData, werfCon
 	}
 	if (vault.AuthRole != "" || vault.AuthPath != "") && vault.AuthJWT == "" {
 		return signing.FilesSigningOptions{}, fmt.Errorf("--sign-build-file-vault-auth-role and --sign-build-file-vault-auth-path qualify --sign-build-file-vault-auth-jwt: specify the JWT as well, or drop them to log in to Vault as --sign-key does")
+	}
+
+	keyRef := lo.FromPtr(commonCmdData.SignBuildFileKey)
+	if keyRef == "" {
+		options := signing.NewFilesSigningOptions(cert, nil)
+		options.Enabled = true
+		return options, nil
 	}
 
 	signer, err := signing.NewSigner(ctx, signing.SignerOptions{

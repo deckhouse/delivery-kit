@@ -113,6 +113,8 @@ sign:
   after: install
 ```
 
+Entries at the same signing position must not use another entry's `<path>.p7s` as an input. For example, `path: /out/x` and `path: /out/x.p7s` at the same position are a configuration error, regardless of their order in the list. To sign a generated signature, put the second entry at a later signing position.
+
 werf reads the file out of the image built so far, signs it on the build host and adds `<path>.p7s` as a new layer. The signature is a detached PKCS#7 (CMS) `SignedData` over the file content — SHA-256, RSASSA-PKCS1-v1_5, no authenticated attributes, the signing certificate embedded — the same shape `systemd-keyutil pkcs7` produces, so systemd and the Linux kernel accept it as a dm-verity root hash signature. The key therefore has to be RSA.
 
 The key and the certificate are never part of `werf.yaml`; they come from the command line only, separately from the manifest and SBOM signing identity:
@@ -130,7 +132,7 @@ The key and the certificate are never part of `werf.yaml`; they come from the co
 
 The `--sign-build-file-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`.
 
-The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the environment. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected.
+The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the environment. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected. The authentication is validated as soon as werf resolves a declared `sign` — including a command that only has the certificate and never logs in to Vault at all.
 
 There is no way to build such an image unsigned: a declared `sign` is a requirement of the image, not a build-time choice.
 
@@ -140,4 +142,4 @@ A build of an image that declares `sign` fails before any stage runs when the ce
 
 With `hashivault://` the private key never leaves the KMS. The certificate is not fetched from the KMS: when it is issued by a PKI (Vault PKI, for example), the pipeline retrieves the PEM itself and passes it as a path or base64. The stage container always runs with `network: none`, whatever the image's `network` setting, and none of the image's commands run in it, so the directive works unchanged when `build.sbom.enable` is `true` and [network is disabled in shell stages]({{ "/usage/build/sbom.html" | true_relative_url }}).
 
-The stage is cached like any other. Its digest covers the signed paths and the signing certificate, so rotating the key rebuilds the signature and the stages after it, while a rebuild with the same key reuses the cached layer. Only the signing certificate is embedded in the `.p7s`; intermediates do not take part in the signature or the digest.
+The stage is cached like any other. Its digest covers the signed paths, signing position, signing certificate and signature format. Changing any of these invalidates the sign stage and the stages after it; with unchanged build inputs, the cached layer is reused. The private key reference and Vault authentication settings do not change the cache identity. When rotating the key, supply a matching certificate. Only the signing certificate is embedded in the `.p7s`; intermediates do not take part in the signature or the digest.

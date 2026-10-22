@@ -66,28 +66,50 @@ func (r *dockerImageReader) Close(ctx context.Context) error {
 }
 
 func (r *dockerImageReader) ReadFile(ctx context.Context, path string) ([]byte, error) {
-	var data []byte
-	found := false
-
-	err := r.copy(ctx, path, func(tr *tar.Reader, hdr *tar.Header) error {
-		if found || hdr.Typeflag != tar.TypeReg {
-			return nil
-		}
-		var err error
-		if data, err = io.ReadAll(tr); err != nil {
-			return fmt.Errorf("read %s content from image %q: %w", path, r.imageRef, err)
-		}
-		found = true
-		return nil
-	})
-	if err != nil {
+	collector := &fileTarCollector{path: path, imageRef: r.imageRef}
+	if err := r.copy(ctx, path, collector.collect); err != nil {
 		return nil, err
 	}
-	if !found {
-		return nil, fmt.Errorf("no regular file at %s in image %q: %w", path, r.imageRef, fs.ErrNotExist)
-	}
+	return collector.result()
+}
 
-	return data, nil
+// fileTarCollector takes the content of the object a `docker cp <path>` stream was
+// asked for. That object is the stream's first entry and whatever it contains follows
+// it, so a directory has to be refused there: otherwise an arbitrary file inside it
+// would be returned as the content of path.
+type fileTarCollector struct {
+	path     string
+	imageRef string
+
+	rootSeen bool
+	data     []byte
+	found    bool
+}
+
+func (c *fileTarCollector) collect(tr *tar.Reader, hdr *tar.Header) error {
+	if !c.rootSeen {
+		c.rootSeen = true
+		if hdr.Typeflag == tar.TypeDir {
+			return fmt.Errorf("%s in image %q is a directory, a regular file is required", c.path, c.imageRef)
+		}
+	}
+	if c.found || hdr.Typeflag != tar.TypeReg {
+		return nil
+	}
+	data, err := io.ReadAll(tr)
+	if err != nil {
+		return fmt.Errorf("read %s content from image %q: %w", c.path, c.imageRef, err)
+	}
+	c.data = data
+	c.found = true
+	return nil
+}
+
+func (c *fileTarCollector) result() ([]byte, error) {
+	if !c.found {
+		return nil, fmt.Errorf("no regular file at %s in image %q: %w", c.path, c.imageRef, fs.ErrNotExist)
+	}
+	return c.data, nil
 }
 
 func (r *dockerImageReader) ReadDir(ctx context.Context, path, destDir string, opts ReadDirOpts) error {

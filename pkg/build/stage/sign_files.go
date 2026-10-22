@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 
 	"al.essio.dev/pkg/shellescape"
 
@@ -109,7 +110,7 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 
 	legacy := c.UseLegacyStapelBuilder(cb)
 	var commands []string
-	for _, sign := range s.signs {
+	for i, sign := range s.signs {
 		content, err := cb.ReadFileFromImage(ctx, prevBuiltImage.Image.Name(), sign.Path, container_backend.ReadFileFromImageOpts{TargetPlatform: s.targetPlatform})
 		if err != nil {
 			return fmt.Errorf("read %s to sign from image %q: %w", sign.Path, s.imageName, err)
@@ -126,11 +127,18 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 
 		outputName := path.Base(sign.OutputPath())
 		if legacy {
-			hostPath := filepath.Join(signaturesDir, outputName)
+			// Two signed files can share a base name: keep every signature in its own
+			// directory, or the later one overwrites the earlier and both destinations
+			// receive the same signature.
+			entryDir := strconv.Itoa(i)
+			if err := os.MkdirAll(filepath.Join(signaturesDir, entryDir), os.ModePerm); err != nil {
+				return fmt.Errorf("create signature dir for %s: %w", sign.Path, err)
+			}
+			hostPath := filepath.Join(signaturesDir, entryDir, outputName)
 			if err := os.WriteFile(hostPath, signature, 0o644); err != nil {
 				return fmt.Errorf("write signature %s: %w", hostPath, err)
 			}
-			containerPath := path.Join(s.containerWerfDir, "sign", string(s.Name()), outputName)
+			containerPath := path.Join(s.containerWerfDir, "sign", string(s.Name()), entryDir, outputName)
 			commands = append(commands,
 				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellescape.Quote(path.Dir(sign.OutputPath()))),
 				fmt.Sprintf("%s -m 0644 %s %s", stapel.InstallBinPath(), shellescape.Quote(containerPath), shellescape.Quote(sign.OutputPath())),

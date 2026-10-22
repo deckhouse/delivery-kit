@@ -11,6 +11,12 @@ import (
 	"github.com/samber/lo"
 )
 
+// PropertyBinaries records completeness of binary evidence: "none" means an origin
+// checked its produced binaries and found no match; "unknown" means an origin could
+// not establish complete evidence and is preserved when components are merged.
+// Positive or digest-bound unknown occurrences replace "none", but do not erase an
+// inherited "unknown". With neither a recognized property nor a valid binary occurrence,
+// evidence is unknown; absence of this property alone does not prove anything.
 const PropertyBinaries = "werf:binaries"
 
 const (

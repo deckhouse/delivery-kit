@@ -18,6 +18,7 @@ import (
 	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
+	"github.com/werf/werf/v3/pkg/slug"
 	"github.com/werf/werf/v3/pkg/stapel"
 )
 
@@ -123,7 +124,10 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 		return fmt.Errorf("image %q declares files to sign and this stage is not built yet: specify the private key with --sign-build-file-key", s.imageName)
 	}
 
-	signaturesDir := filepath.Join(s.imageTmpDir, "sign", string(s.Name()))
+	// The platform variants of one image are independent graph nodes built in parallel and
+	// share imageTmpDir: without the platform in the path the signature of one platform
+	// replaces the other's before its container has installed it.
+	signaturesDir := filepath.Join(s.imageTmpDir, "sign", slug.Slug(s.targetPlatform), string(s.Name()))
 	if err := os.MkdirAll(signaturesDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create signatures dir %s: %w", signaturesDir, err)
 	}

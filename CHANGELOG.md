@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.12.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.1...v3.12.0-dk.2) (2026-10-22)
+
+
+### Features
+
+* **build, stapel:** sign files inside the image with a key the build container never sees ([#438](https://github.com/deckhouse/delivery-kit/issues/438)) ([09f22e7](https://github.com/deckhouse/delivery-kit/commit/09f22e7ea68e6760e73986e6f7e07b72b5d0f5e9))
+* **sbom:** track Go and Rust dependencies in shipped binaries ([#466](https://github.com/deckhouse/delivery-kit/issues/466)) ([359006b](https://github.com/deckhouse/delivery-kit/commit/359006b0a3e2996c83933c102e5825c550db5b1f))
+
+
+### Bug Fixes
+
+* **sbom:** preserve shipped-scope evidence across image imports ([#464](https://github.com/deckhouse/delivery-kit/issues/464)) ([ac29d1b](https://github.com/deckhouse/delivery-kit/commit/ac29d1bbf84c015e95f73284ace89bcbabfec896))
+
 ## [3.12.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v3.11.0-dk.1...v3.12.0-dk.1) (2026-10-20)
 
 

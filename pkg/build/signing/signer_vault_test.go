@@ -122,6 +122,18 @@ var _ = Describe("NewSigner with hashivault", func() {
 		Expect(vault.keyReads).To(Equal([]string{"/v1/env-transit/keys/engine-key|s.fake"}))
 	})
 
+	It("takes the authentication as a whole from the JWT option, without borrowing role or mount from the environment", func(ctx SpecContext) {
+		_, err := NewSigner(ctx, SignerOptions{
+			KeyRef:  "hashivault://engine-key",
+			CertRef: certRef,
+			Vault:   VaultOptions{Address: vault.URL, TransitPath: "dh-engine-signer", AuthJWT: "files-jwt"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(vault.logins).To(Equal([]fakeVaultLogin{{path: "/v1/auth/jwt/login", role: "", jwt: "files-jwt"}}),
+			"an explicit JWT replaces the environment authentication entirely: the role and the mount do not fall back to it one by one")
+	})
+
 	It("keeps the environment authentication when only the address and transit mount are given", func(ctx SpecContext) {
 		_, err := NewSigner(ctx, SignerOptions{
 			KeyRef:  "hashivault://engine-key",

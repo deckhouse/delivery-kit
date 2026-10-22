@@ -130,11 +130,7 @@ var _ = Describe("NetworkOverride enforcement", func() {
 				s.SetNetworkOverride(override)
 			}
 
-			effective := s.network
-			if s.networkOverride != "" {
-				effective = s.networkOverride
-			}
-			Expect(effective).To(Equal(expectedEffective))
+			Expect(s.Network()).To(Equal(expectedEffective))
 		},
 
 		Entry("override=none takes priority over host", "host", "none", "none"),

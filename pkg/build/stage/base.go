@@ -131,6 +131,12 @@ func (s *BaseStage) SetNetworkOverride(network string) {
 	s.networkOverride = network
 }
 
+// NetworkOverride returns the networking mode the stage pins for itself, empty when it
+// accepts whatever the image and the command line ask for.
+func (s *BaseStage) NetworkOverride() string {
+	return s.networkOverride
+}
+
 func (s *BaseStage) NeedsNetwork() bool {
 	return s.needsNetwork
 }

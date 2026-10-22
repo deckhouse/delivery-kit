@@ -142,6 +142,8 @@ func initStages(ctx context.Context, image *Image, metaConfig *config.Meta, stap
 		stages = append(stages, stage.NewGitLatestPatchStage(gitPatchStageOptions, baseStageOptions))
 	}
 
+	stages = appendIfExist(stages, stage.GenerateSignFilesStage(imageBaseConfig, opts.FilesSigningOptions, baseStageOptions))
+
 	if imageBaseConfig.ImageSpec != nil {
 		stages = appendIfExist(stages, stage.GenerateImageSpecStage(imageBaseConfig.ImageSpec, baseStageOptions))
 	}

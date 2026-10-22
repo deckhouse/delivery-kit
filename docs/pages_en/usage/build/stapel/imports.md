@@ -97,7 +97,9 @@ A trailing slash in `to` (anything other than `to: /`) is a configuration error 
 
 ## Signing files inside the image
 
-The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key. It fits the same place in the stage chain as `import`: the file must exist after the stage named by `before` or `after`, and the signature is in place for the stages that follow.
+The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key.
+
+With neither `before` nor `after`, the file is signed at the end of the image, once its filesystem is complete — that is what a signed artifact of the image usually means, and it is what another image importing the result gets. Naming a stage puts the signature earlier: it fits the same place in the stage chain as `import`, the file must exist after the stage named by `before` or `after`, and the signature is in place for the stages that follow. Setting both is a configuration error.
 
 ```yaml
 image: sysext

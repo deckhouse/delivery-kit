@@ -1,0 +1,27 @@
+project: werf-test-e2e-sign-files-default
+configVersion: 1
+---
+image: sysext
+from: alpine:3.20
+shell:
+  setup:
+  - mkdir -p /out
+  - printf '%s' 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b > /out/ext.roothash
+sign:
+- path: /out/ext.roothash
+---
+image: consumer
+from: alpine:3.20
+import:
+- image: sysext
+  add: /out/ext.roothash
+  to: /imported/ext.roothash
+  after: install
+- image: sysext
+  add: /out/ext.roothash.p7s
+  to: /imported/ext.roothash.p7s
+  after: install
+shell:
+  setup:
+  - test -s /imported/ext.roothash
+  - test -s /imported/ext.roothash.p7s

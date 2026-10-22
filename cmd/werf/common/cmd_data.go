@@ -123,7 +123,6 @@ type CmdData struct {
 	SignCert          *string
 	SignIntermediates *string
 
-	SignFiles                     *bool
 	SignBuildFileKey              *string
 	SignBuildFileCert             *string
 	SignBuildFileIntermediates    *string

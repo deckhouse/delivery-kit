@@ -76,6 +76,7 @@ var _ = Describe("rawStapelImage", func() {
 				"sign": []map[string]interface{}{
 					{"path": "/out/a.roothash", "after": "install"},
 					{"path": "/out/b.roothash", "before": "setup"},
+					{"path": "/out/c.roothash"},
 				},
 			},
 			&StapelImage{
@@ -87,6 +88,7 @@ var _ = Describe("rawStapelImage", func() {
 					Sign: []*Sign{
 						{Path: "/out/a.roothash", After: "install"},
 						{Path: "/out/b.roothash", Before: "setup"},
+						{Path: "/out/c.roothash"},
 					},
 
 					platform: []string{},
@@ -373,14 +375,6 @@ var _ = Describe("rawStapelImage", func() {
 				"image": "image1",
 				"from":  "alpine",
 				"sign":  []map[string]interface{}{{"path": "/", "after": "install"}},
-			},
-		),
-		Entry(
-			"with sign missing before/after",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine",
-				"sign":  []map[string]interface{}{{"path": "/out/x.roothash"}},
 			},
 		),
 		Entry(

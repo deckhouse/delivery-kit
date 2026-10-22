@@ -94,6 +94,27 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 		Expect(err).To(Succeed(), string(out))
 	}
 
+	DescribeTable("signs at the end of the image when the directive names no stage",
+		func(ctx SpecContext, testOpts signFilesTestOptions) {
+			setupEnv(testOpts.setupEnvOptions)
+
+			SuiteData.InitTestRepo(ctx, "repo0", "sign_files/state_default_position")
+			werfProject := report.NewProjectWithReport(werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo0")))
+
+			buildOut, buildReport := werfProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report0.json"), &werf.WithReportOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
+			Expect(buildOut).To(ContainSubstring("Building stage sysext/signFiles"))
+			Expect(buildOut).To(ContainSubstring("Signing " + signFilesPath))
+			Expect(buildOut).To(ContainSubstring("Building stage consumer/setup"),
+				"the dependent image imports the file together with its signature, so the signature must exist before the import")
+
+			expectSystemdProfile(readSignedFiles(buildReport.Images["sysext"].DockerImageName))
+		},
+		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "docker",
+			WithLocalRepo:        true,
+		}}),
+	)
+
 	DescribeTable("resolves a built image by its certificate alone, without the private key",
 		func(ctx SpecContext, testOpts signFilesTestOptions) {
 			setupEnv(testOpts.setupEnvOptions)

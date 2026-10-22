@@ -26,6 +26,7 @@ const (
 	SignFilesAfterInstall  StageName = "signFilesAfterInstall"
 	SignFilesBeforeSetup   StageName = "signFilesBeforeSetup"
 	SignFilesAfterSetup    StageName = "signFilesAfterSetup"
+	SignFiles              StageName = "signFiles"
 )
 
 // SignFilesStage signs the files the sign directive places at one position of the
@@ -42,29 +43,44 @@ type SignFilesStage struct {
 var _ Interface = (*SignFilesStage)(nil)
 
 func GenerateSignFilesBeforeInstallStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
-	return generateSignFilesStage(imageBaseConfig, SignFilesBeforeInstall, &getImportsOptions{Before: Install}, options, baseStageOptions)
+	return generateSignFilesStage(imageBaseConfig, SignFilesBeforeInstall, atStageBoundary(&getImportsOptions{Before: Install}), options, baseStageOptions)
 }
 
 func GenerateSignFilesAfterInstallStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
-	return generateSignFilesStage(imageBaseConfig, SignFilesAfterInstall, &getImportsOptions{After: Install}, options, baseStageOptions)
+	return generateSignFilesStage(imageBaseConfig, SignFilesAfterInstall, atStageBoundary(&getImportsOptions{After: Install}), options, baseStageOptions)
 }
 
 func GenerateSignFilesBeforeSetupStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
-	return generateSignFilesStage(imageBaseConfig, SignFilesBeforeSetup, &getImportsOptions{Before: Setup}, options, baseStageOptions)
+	return generateSignFilesStage(imageBaseConfig, SignFilesBeforeSetup, atStageBoundary(&getImportsOptions{Before: Setup}), options, baseStageOptions)
 }
 
 func GenerateSignFilesAfterSetupStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
-	return generateSignFilesStage(imageBaseConfig, SignFilesAfterSetup, &getImportsOptions{After: Setup}, options, baseStageOptions)
+	return generateSignFilesStage(imageBaseConfig, SignFilesAfterSetup, atStageBoundary(&getImportsOptions{After: Setup}), options, baseStageOptions)
 }
 
-func generateSignFilesStage(imageBaseConfig *config.StapelImageBase, name StageName, position *getImportsOptions, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
+// GenerateSignFilesStage covers the entries that name no stage: they are signed once the
+// image's filesystem is complete, so that whatever imports the image gets the signature
+// along with the file.
+func GenerateSignFilesStage(imageBaseConfig *config.StapelImageBase, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
+	return generateSignFilesStage(imageBaseConfig, SignFiles, func(s *config.Sign) bool {
+		return s.Before == "" && s.After == ""
+	}, options, baseStageOptions)
+}
+
+func atStageBoundary(position *getImportsOptions) func(*config.Sign) bool {
+	return func(s *config.Sign) bool {
+		return (position.After != "" && s.After == string(position.After)) || (position.Before != "" && s.Before == string(position.Before))
+	}
+}
+
+func generateSignFilesStage(imageBaseConfig *config.StapelImageBase, name StageName, matches func(*config.Sign) bool, options signing.FilesSigningOptions, baseStageOptions *BaseStageOptions) *SignFilesStage {
 	if !options.Enabled {
 		return nil
 	}
 
 	var signs []*config.Sign
 	for _, s := range imageBaseConfig.Sign {
-		if (position.After != "" && s.After == string(position.After)) || (position.Before != "" && s.Before == string(position.Before)) {
+		if matches(s) {
 			signs = append(signs, s)
 		}
 	}

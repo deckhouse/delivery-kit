@@ -358,6 +358,12 @@ packages:
   workdir: /app
   manager: ""
 `),
+		Entry("sign naming no stage, which signs at the end of the image", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+`),
 	)
 
 	DescribeTable("rejects a document the parser rejects",
@@ -667,12 +673,6 @@ image: app
 from: alpine
 sign:
 - after: install
-`),
-		Entry("sign without stage", `
-image: app
-from: alpine
-sign:
-- path: /out/x
 `),
 		Entry("sign with both before and after", `
 image: app

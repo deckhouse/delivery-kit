@@ -135,6 +135,7 @@ sign:
   before: setup
 - path: /out/c.roothash
   after: setup
+- path: /out/d.roothash
 `, sbomBlock)
 	}
 
@@ -166,13 +167,14 @@ sign:
 			stage.SignFilesBeforeSetup,
 			stage.Setup,
 			stage.SignFilesAfterSetup,
+			stage.SignFiles,
 		}))
 	})
 
 	It("generates no stage when files signing is disabled", func() {
 		image := newImage(context.Background(), "", signing.NewFilesSigningOptions("cert", &signing.Signer{}))
 
-		for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
+		for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup, stage.SignFiles} {
 			Expect(stageNames(image)).NotTo(ContainElement(name))
 		}
 	})
@@ -181,7 +183,7 @@ sign:
 		func(sbomBlock string) {
 			image := newImage(context.Background(), sbomBlock, enabled())
 
-			for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
+			for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup, stage.SignFiles} {
 				s := image.GetStage(name)
 				Expect(s).NotTo(BeNil(), string(name))
 				Expect(s.(*stage.SignFilesStage).Network()).To(Equal("none"), string(name))

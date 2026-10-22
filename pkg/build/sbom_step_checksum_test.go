@@ -16,6 +16,7 @@ var _ = Describe("SbomStep Checksum", func() {
 		mergeOpts      cyclonedxutil.MergeOpts
 		signerIdentity string
 		targetPlatform string
+		provenance     sbomStageProvenance
 	}
 
 	baseline := func() checksumInputs {
@@ -27,7 +28,7 @@ var _ = Describe("SbomStep Checksum", func() {
 
 	checksumOf := func(in checksumInputs) string {
 		step := &sbomStep{}
-		return step.calculateStableChecksum(in.scanOpts, in.mergeOpts, in.signerIdentity, in.targetPlatform)
+		return step.calculateStableChecksum(in.scanOpts, in.mergeOpts, in.signerIdentity, in.targetPlatform, in.provenance)
 	}
 
 	It("same inputs produce same checksum", func() {
@@ -61,6 +62,9 @@ var _ = Describe("SbomStep Checksum", func() {
 		}),
 		Entry("target platform", func(in *checksumInputs) {
 			in.targetPlatform = "linux/amd64"
+		}),
+		Entry("recovered stage provenance", func(in *checksumInputs) {
+			in.provenance.Layers.Known = true
 		}),
 	)
 

@@ -30,6 +30,10 @@ type FileIndex struct {
 	Files map[string]File
 	// Symlinks holds targets exactly as the image records them: possibly relative, possibly dangling.
 	Symlinks map[string]string
+	// Incomplete also covers hardlinks resolved against the final filesystem rather
+	// than their owning layer: later target changes may have hidden surviving bytes.
+	// Such an index cannot establish that a digest is absent.
+	Incomplete bool
 
 	// bodies holds the captured content by indexed name; targetBodies holds, by target
 	// path, the content a hardlink's name asked for while the layers were read.
@@ -124,6 +128,9 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 		return nil, nil, err
 	}
 
+	if len(remaining) > 0 {
+		index.Incomplete = true
+	}
 	resolveHardlinks(ctx, index, remaining)
 
 	captured := index.bodies
@@ -176,7 +183,18 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 	remaining := make(map[string]string, len(hardlinks))
 	for name, target := range hardlinks {
 		remaining[name] = target
-		targets[target] = targets[target] || capture(name)
+		keepBody := capture(name)
+		for !targets[target] {
+			targets[target] = keepBody
+			if !keepBody {
+				break
+			}
+			next, ok := hardlinks[target]
+			if !ok {
+				break
+			}
+			target = next
+		}
 	}
 
 	layers, err := img.Layers()
@@ -285,19 +303,30 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 // been read to the end.
 func resolveOwnedHardlinks(index *FileIndex, remaining, owned map[string]string, files map[string]File, bodies map[string][]byte, symlinks map[string]string) {
 	for name, target := range owned {
-		if file, ok := files[target]; ok {
-			index.Files[name] = file
-			if body, ok := bodies[target]; ok {
-				index.bodies[name] = body
+		visited := map[string]bool{name: true}
+		for {
+			if file, ok := files[target]; ok {
+				index.Files[name] = file
+				files[name] = file
+				if body, ok := bodies[target]; ok {
+					index.bodies[name] = body
+					bodies[name] = body
+				}
+				delete(remaining, name)
+				break
 			}
-			delete(remaining, name)
-
-			continue
-		}
-
-		if link, ok := symlinks[target]; ok {
-			index.Symlinks[name] = link
-			delete(remaining, name)
+			if link, ok := symlinks[target]; ok {
+				index.Symlinks[name] = link
+				symlinks[name] = link
+				delete(remaining, name)
+				break
+			}
+			next, ok := owned[target]
+			if !ok || visited[target] {
+				break
+			}
+			visited[target] = true
+			target = next
 		}
 	}
 }
@@ -353,6 +382,7 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 	}
 
 	if unresolved > 0 {
+		index.Incomplete = true
 		logboek.Context(ctx).Warn().LogF("WARNING: %d hardlinks could not be resolved to content and are left out of the file index\n", unresolved)
 	}
 }

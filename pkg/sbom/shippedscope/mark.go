@@ -32,10 +32,6 @@ const propertyShippedFalse = "false"
 // files this image has no manifest for they are the donor's, which is what lets the rule
 // find them by content wherever an import put them.
 //
-// Go modules and crates are kept untouched. Each is proven by the binaries this image's
-// own build produced, and that set is not established here, so the rule is given none and
-// fails open on all of them.
-//
 // Components are passed to the rule together rather than one at a time: whether a file
 // proves the component that claims it depends on which other components claim the same
 // bytes.
@@ -46,12 +42,23 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 
 	var components []Component
 	var judged []*cdx.Component
+	count := 0
+	byDigest := indexByDigest(filesets.Index)
 
 	walkComponents(bom, func(comp *cdx.Component) {
 		removeProperty(comp, PropertyShipped)
 
 		key, ok := keyOfComponent(comp)
 		if !ok {
+			return
+		}
+		if isBinaryBacked(key.ecosystem) {
+			decision := binaryDecision(comp, filesets.Index.Incomplete, byDigest)
+			if !decision.Shipped {
+				setProperty(comp, PropertyShipped, propertyShippedFalse)
+				count++
+				logboek.Context(ctx).Debug().LogF("not shipped %s %s@%s (%s)\n", key.ecosystem, key.name, key.version, decision.Reason)
+			}
 			return
 		}
 		// The image carries os-pm packages installed by a pm that wrote no file list, so
@@ -71,10 +78,9 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 	})
 
 	if len(components) == 0 {
-		return 0
+		return count
 	}
 
-	count := 0
 	for i, decision := range Match(ctx, components, ProducedBinaries{}, filesets.Index) {
 		if decision.Shipped {
 			continue

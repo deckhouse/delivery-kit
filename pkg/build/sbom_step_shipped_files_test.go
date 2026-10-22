@@ -146,7 +146,7 @@ var _ = Describe("recordShippedScope", func() {
 			{BOMRef: "libc6", Name: "libc6", PackageURL: "pkg:deb/debian/libc6@2.36"},
 		}}
 
-		recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+		recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 
 		Expect(backend.saved).To(Equal([]string{"werf-stages:app"}))
 		components := *bom.Components
@@ -177,7 +177,7 @@ var _ = Describe("recordShippedScope", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+			recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 		})
 
 		Expect(out).To(ContainSubstring("/var/lib/pm/files.json is not"))
@@ -198,7 +198,7 @@ var _ = Describe("recordShippedScope", func() {
 			}}},
 		}}
 
-		recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+		recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 
 		Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(BeEmpty(),
 			"the bytes are in the image, so the manifest naming a path they left must not mark the component")
@@ -213,7 +213,7 @@ var _ = Describe("recordShippedScope", func() {
 			{BOMRef: "tool", Name: "tool", PackageURL: "pkg:pypi/tool@1.0.0"},
 		}}
 
-		recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+		recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 
 		Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(ContainElement(cdx.Property{Name: "werf:shipped", Value: "false"}),
 			"a build toolchain removed by a later stage is not shipped, and its own manifest is all that could say so")
@@ -232,7 +232,7 @@ var _ = Describe("recordShippedScope", func() {
 			},
 		}}
 
-		recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+		recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 
 		Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(BeEmpty())
 	})
@@ -251,7 +251,7 @@ var _ = Describe("recordShippedScope", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+			recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 		})
 
 		components := *bom.Components
@@ -269,7 +269,7 @@ var _ = Describe("recordShippedScope", func() {
 			}}},
 		}}
 
-		recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+		recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 
 		Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(BeEmpty())
 	})
@@ -281,7 +281,7 @@ var _ = Describe("recordShippedScope", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+			recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 		})
 
 		Expect(out).To(ContainSubstring("image app: unable to read the built image werf-stages:app"))
@@ -296,7 +296,7 @@ var _ = Describe("recordShippedScope", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+			recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 		})
 
 		Expect(out).To(ContainSubstring("image app: unable to read the built image werf-stages:app"))
@@ -315,7 +315,7 @@ var _ = Describe("recordShippedScope", func() {
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+			recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 		})
 
 		Expect(out).To(ContainSubstring("image app: unable to read which files the components of the built image werf-stages:app consist of"))
@@ -323,15 +323,27 @@ var _ = Describe("recordShippedScope", func() {
 		Expect(savedTarballs()).To(BeEmpty())
 	})
 
+	It("reads the image even when every component is binary-backed", func(ctx SpecContext) {
+		backend := backendWith(map[string]string{"/app/go.mod": "module example.com/app"}, nil)
+		bom := &cdx.BOM{Components: &[]cdx.Component{
+			{BOMRef: "yaml", Name: "gopkg.in/yaml.v3", PackageURL: "pkg:golang/gopkg.in/yaml.v3@3.0.1"},
+		}}
+
+		recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+
+		Expect(backend.saved).To(Equal([]string{"werf-stages:app"}))
+		Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(ContainElement(cdx.Property{Name: "werf:binaries", Value: "unknown"}))
+		Expect(lo.FromPtr((*bom.Components)[0].Properties)).NotTo(ContainElement(cdx.Property{Name: "werf:shipped", Value: "false"}))
+	})
+
 	It("warns nothing and does not save the image when no component could be given files", func(ctx SpecContext) {
 		backend := &savedImageBackend{err: errors.New("must not be called")}
 		bom := &cdx.BOM{Components: &[]cdx.Component{
-			{BOMRef: "yaml", Name: "gopkg.in/yaml.v3", PackageURL: "pkg:golang/gopkg.in/yaml.v3@3.0.1"},
 			{BOMRef: "libc6", Name: "libc6", PackageURL: "pkg:deb/debian/libc6@2.36"},
 		}}
 
 		out := logged(ctx, func(ctx context.Context) {
-			recordShippedScope(ctx, bom, backend, "app", "werf-stages:app")
+			recordSavedShippedScope(ctx, bom, backend, "app", "werf-stages:app")
 		})
 
 		Expect(out).To(BeEmpty())

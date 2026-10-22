@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -93,6 +94,18 @@ func imageOf(layers ...[]tarEntry) (v1.Image, error) {
 	return img, nil
 }
 
+var _ v1.Layer = (*countedLayer)(nil)
+
+type countedLayer struct {
+	v1.Layer
+	opens int
+}
+
+func (layer *countedLayer) Uncompressed() (io.ReadCloser, error) {
+	layer.opens++
+	return layer.Layer.Uncompressed()
+}
+
 func digestOf(body string) string {
 	sum := sha256.Sum256([]byte(body))
 
@@ -107,4 +120,16 @@ func filesetOf(filesets *Filesets, ecosystem Ecosystem, name, version string) *F
 	}
 
 	return nil
+}
+
+func componentOf(purl string, occurrences ...cdx.EvidenceOccurrence) cdx.Component {
+	comp := cdx.Component{BOMRef: purl, PackageURL: purl, Name: purl}
+	if len(occurrences) > 0 {
+		comp.Evidence = &cdx.Evidence{Occurrences: &occurrences}
+	}
+	return comp
+}
+
+func filesetsOf(index *FileIndex) *Filesets {
+	return &Filesets{Index: index}
 }

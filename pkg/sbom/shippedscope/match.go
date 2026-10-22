@@ -104,7 +104,9 @@ type Decision struct {
 }
 
 // Match decides, for every component, whether the image ships it. Verdicts come back in
-// the order of components.
+// the order of components. Its inputs describe one normalized evidence set, not the
+// completeness of each origin in a merged BOM. For persisted BOMs, use MarkNotShipped:
+// it preserves per-origin binary uncertainty and calls Match for file-backed components.
 //
 // A component is dropped only when every check misses. Checks run from strongest to
 // weakest, each one there for the case the previous was defeated by a deliberate change to

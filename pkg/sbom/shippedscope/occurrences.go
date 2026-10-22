@@ -75,6 +75,9 @@ func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
 // record files for. Reading an image to find out costs a full download of its layers, and
 // an image whose components are all Go modules, deb packages or anything else no collector
 // reads has nothing to gain from it.
+//
+// Go and Rust are binary-backed, not file-backed: they need binary classification, not
+// file enumeration.
 func HasFileBackedComponents(bom *cdx.BOM) bool {
 	if bom == nil {
 		return false
@@ -82,9 +85,15 @@ func HasFileBackedComponents(bom *cdx.BOM) bool {
 
 	found := false
 	walkComponents(bom, func(comp *cdx.Component) {
-		if _, ok := keyOfComponent(comp); ok {
-			found = true
+		key, ok := keyOfComponent(comp)
+		if !ok {
+			return
 		}
+		// Binary-backed ecosystems don't need file collection.
+		if isBinaryBacked(key.ecosystem) {
+			return
+		}
+		found = true
 	})
 
 	return found
@@ -134,11 +143,15 @@ func keyOfComponent(comp *cdx.Component) (componentKey, bool) {
 // pkg:generic is not werf's alone — syft gives it to a runtime it recognizes by its binary
 // — but taking a fileset needs the same name and version as a package the pm recorded, and
 // a component agreeing with a pm entry on both is that package.
+//
+// Go and Rust are binary-backed: they carry no files, only binaries that embed them.
 var purlEcosystems = map[string]Ecosystem{
 	packageurl.TypeGeneric: EcosystemOSPM,
 	packageurl.TypePyPi:    EcosystemPython,
 	packageurl.TypeNPM:     EcosystemJavaScript,
 	luarocksPurlType:       EcosystemLua,
+	packageurl.TypeGolang:  EcosystemGo,
+	packageurl.TypeCargo:   EcosystemRust,
 }
 
 const luarocksPurlType = "luarocks"

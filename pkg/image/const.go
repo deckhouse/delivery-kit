@@ -10,6 +10,7 @@ const (
 	WerfImportSourceExternalImagePrefix    = "external-image"
 	WerfDependencySourceStageIDLabelPrefix = "werf-dependency-stage-id-"
 	WerfParentStageID                      = "werf.io/parent-stage-id"
+	WerfSBOMStageLabel                     = "werf.io/sbom-stage-v1"
 
 	WerfCustomTagMetadataStageIDLabel = "stage-id"
 	WerfCustomTagMetadataTag          = "tag"

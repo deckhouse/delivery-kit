@@ -114,6 +114,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupIntrospectBeforeError(&commonCmdData, cmd)
 	common.SetupIntrospectStage(&commonCmdData, cmd)
 
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
+
 	common.SetupSaveBuildReport(&commonCmdData, cmd)
 	common.SetupBuildReportPath(&commonCmdData, cmd)
 	common.SetupBuildReportOperations(&commonCmdData, cmd)
@@ -261,7 +263,7 @@ func initConveyorComponents(ctx context.Context, werfConfig *config.WerfConfig, 
 		return nil, build.BuildOptions{}, fmt.Errorf("unable to get build options: %w", err)
 	}
 
-	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imageToProcess, buildOptions)
+	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, werfConfig, imageToProcess, buildOptions)
 	if err != nil {
 		return nil, build.BuildOptions{}, fmt.Errorf("unable to get conveyor options: %w", err)
 	}

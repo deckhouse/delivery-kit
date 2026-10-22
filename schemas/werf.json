@@ -1506,6 +1506,35 @@
         }
       ]
     },
+    "sign": {
+      "description": "Signs a file the image produces at a user stage boundary and lays the detached PKCS#7 signature down next to it as `<path>.p7s`. Set at most one of `before` or `after`; with neither the file is signed at the end of the image.\nhttps://werf.io/docs/latest/usage/build/stapel/imports.html#signing-files-inside-the-image",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "description": "The absolute path of the file to sign.",
+          "type": "string",
+          "pattern": "^/"
+        },
+        "before": {
+          "description": "The stage before which to sign the file.",
+          "$ref": "#/definitions/stageName"
+        },
+        "after": {
+          "description": "The stage after which to sign the file.",
+          "$ref": "#/definitions/stageName"
+        }
+      },
+      "not": {
+        "required": [
+          "before",
+          "after"
+        ]
+      }
+    },
     "stapelImage": {
       "description": "Stapel image section: builds an image with werf's own assembly instructions. Define as many as you need.\nhttps://werf.io/docs/latest/usage/build/stapel/base.html",
       "type": "object",
@@ -1571,6 +1600,13 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/import"
+          }
+        },
+        "sign": {
+          "description": "Files to sign inside the image.\nhttps://werf.io/docs/latest/usage/build/stapel/imports.html#signing-files-inside-the-image",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/sign"
           }
         },
         "dependencies": {

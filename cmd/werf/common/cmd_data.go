@@ -118,6 +118,15 @@ type CmdData struct {
 	SignCert          *string
 	SignIntermediates *string
 
+	SignBuildFileKey              *string
+	SignBuildFileCert             *string
+	SignBuildFileIntermediates    *string
+	SignBuildFileVaultAddr        *string
+	SignBuildFileVaultTransitPath *string
+	SignBuildFileVaultAuthJWT     *string
+	SignBuildFileVaultAuthRole    *string
+	SignBuildFileVaultAuthPath    *string
+
 	VerifyManifest *bool
 	VerifyRoots    *[]string
 

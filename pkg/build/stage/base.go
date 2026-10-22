@@ -131,8 +131,23 @@ func (s *BaseStage) SetNetworkOverride(network string) {
 	s.networkOverride = network
 }
 
+// NetworkOverride returns the networking mode the stage pins for itself, empty when it
+// accepts whatever the image and the command line ask for.
+func (s *BaseStage) NetworkOverride() string {
+	return s.networkOverride
+}
+
 func (s *BaseStage) NeedsNetwork() bool {
 	return s.needsNetwork
+}
+
+// Network returns the networking mode the stage container will run with: the
+// override when one is set, otherwise the mode the image config asked for.
+func (s *BaseStage) Network() string {
+	if s.networkOverride != "" {
+		return s.networkOverride
+	}
+	return s.network
 }
 
 func (s *BaseStage) IsMutable() bool {
@@ -292,12 +307,7 @@ func (s *BaseStage) PrepareImage(ctx context.Context, c Conveyor, cb container_b
 
 	s.addProjectRepoCommitLabel(ctx, c, cb, stageImage)
 
-	network := s.network
-	if s.networkOverride != "" {
-		network = s.networkOverride
-	}
-
-	if network != "" {
+	if network := s.Network(); network != "" {
 		if c.UseLegacyStapelBuilder(cb) {
 			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddNetwork(network)
 		} else {

@@ -1,0 +1,19 @@
+project: werf-test-e2e-sign-files
+configVersion: 1
+---
+image: sysext
+from: alpine:3.20
+shell:
+  install:
+  - mkdir -p /out /other
+  - printf '%s' 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b > /out/ext.roothash
+  - printf '%s' 9f2c04a1b8e3d6570ac41b2e8d93f5061c7ab38e4d2f90b5c6137ae8d40f2b9c > /other/ext.roothash
+  setup:
+  - test -s /out/ext.roothash.p7s
+  - test -s /other/ext.roothash.p7s
+  - "! cmp -s /out/ext.roothash.p7s /other/ext.roothash.p7s"
+sign:
+- path: /out/ext.roothash
+  after: install
+- path: /other/ext.roothash
+  after: install

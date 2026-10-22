@@ -23,9 +23,18 @@ import (
 	"github.com/werf/werf/v3/pkg/storage"
 )
 
-func GetConveyorOptions(ctx context.Context, commonCmdData *CmdData, imagesToProcess config.ImagesToProcess) (build.ConveyorOptions, error) {
+func GetConveyorOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *config.WerfConfig, imagesToProcess config.ImagesToProcess) (build.ConveyorOptions, error) {
+	// The sign directive adds stages to the image, so every command that builds the
+	// stage chain needs them — resolving an already built image included, or its digest
+	// would not be the one the build published.
+	filesSigningOptions, err := getFilesSigningOptions(ctx, commonCmdData, werfConfig, imagesToProcess)
+	if err != nil {
+		return build.ConveyorOptions{}, err
+	}
+
 	conveyorOptions := build.ConveyorOptions{
-		ImagesToProcess: imagesToProcess,
+		ImagesToProcess:     imagesToProcess,
+		FilesSigningOptions: filesSigningOptions,
 	}
 
 	if len(commonCmdData.GetPlatform()) > 0 {
@@ -64,8 +73,8 @@ func GetDeferredBuildLog(ctx context.Context, commonCmdData *CmdData) bool {
 	return requireBuiltImage || !isVerbose
 }
 
-func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData, imagesToProcess config.ImagesToProcess, buildStagesOptions build.BuildOptions) (build.ConveyorOptions, error) {
-	conveyorOptions, err := GetConveyorOptions(ctx, commonCmdData, imagesToProcess)
+func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData, werfConfig *config.WerfConfig, imagesToProcess config.ImagesToProcess, buildStagesOptions build.BuildOptions) (build.ConveyorOptions, error) {
+	conveyorOptions, err := GetConveyorOptions(ctx, commonCmdData, werfConfig, imagesToProcess)
 	if err != nil {
 		return conveyorOptions, err
 	}

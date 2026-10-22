@@ -358,6 +358,12 @@ packages:
   workdir: /app
   manager: ""
 `),
+		Entry("sign naming no stage, which signs at the end of the image", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+`),
 	)
 
 	DescribeTable("rejects a document the parser rejects",
@@ -661,6 +667,34 @@ import:
 - from: builder
   before: beforeInstall
   add: /app
+`),
+		Entry("sign without path", `
+image: app
+from: alpine
+sign:
+- after: install
+`),
+		Entry("sign with both before and after", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+  before: install
+  after: install
+`),
+		Entry("sign with unknown stage", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+  after: beforeInstall
+`),
+		Entry("sign with relative path", `
+image: app
+from: alpine
+sign:
+- path: out/x
+  after: install
 `),
 		Entry("import with empty from", `
 image: app

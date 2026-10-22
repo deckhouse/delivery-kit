@@ -21,6 +21,7 @@ type rawStapelImage struct {
 	RawShell         *rawShell               `yaml:"shell,omitempty"`
 	RawMount         []*rawMount             `yaml:"mount,omitempty"`
 	RawImport        []*rawImport            `yaml:"import,omitempty"`
+	RawSign          []*rawSign              `yaml:"sign,omitempty"`
 	RawDependencies  []*rawDependency        `yaml:"dependencies,omitempty"`
 	Platform         []string                `yaml:"platform,omitempty"`
 	Network          string                  `yaml:"network,omitempty"`
@@ -193,6 +194,30 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 
 	if err := imageBase.exportsAutoExcluding(); err != nil {
 		return nil, err
+	}
+
+	signByPath := map[string]*Sign{}
+	signByOutputPath := map[string]*Sign{}
+	for _, rawSign := range c.RawSign {
+		signDirective, err := rawSign.toDirective()
+		if err != nil {
+			return nil, err
+		}
+		if _, exist := signByPath[signDirective.Path]; exist {
+			return nil, newDetailedConfigError(fmt.Sprintf("duplicated `path: %s` for sign!", signDirective.Path), rawSign, c.doc)
+		}
+		// All entries read the previous image, so an output cannot also be a signed
+		// input in the same stage.
+		if other, exist := signByPath[signDirective.OutputPath()]; exist && other.Before == signDirective.Before && other.After == signDirective.After {
+			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: its signature `%s` is signed at the same stage!", signDirective.Path, signDirective.OutputPath()), rawSign, c.doc)
+		}
+		if other, exist := signByOutputPath[signDirective.Path]; exist && other.Before == signDirective.Before && other.After == signDirective.After {
+			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: it is the signature of `path: %s` signed at the same stage!", signDirective.Path, other.Path), rawSign, c.doc)
+		}
+		signByPath[signDirective.Path] = signDirective
+		signByOutputPath[signDirective.OutputPath()] = signDirective
+
+		imageBase.Sign = append(imageBase.Sign, signDirective)
 	}
 
 	for _, rawDep := range c.RawDependencies {

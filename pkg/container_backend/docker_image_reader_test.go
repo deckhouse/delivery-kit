@@ -1,0 +1,81 @@
+package container_backend
+
+import (
+	"archive/tar"
+	"bytes"
+	"io"
+	"io/fs"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+)
+
+var _ = Describe("fileTarCollector", func() {
+	type entry struct {
+		name     string
+		typeflag byte
+		content  string
+		linkname string
+	}
+
+	// feed mimics what `docker cp <path>` streams: the requested object first, named
+	// by its base name, followed by whatever it contains.
+	feed := func(collector *fileTarCollector, entries []entry) error {
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		for _, e := range entries {
+			hdr := &tar.Header{Name: e.name, Typeflag: e.typeflag, Mode: 0o644, Linkname: e.linkname}
+			if e.typeflag == tar.TypeReg {
+				hdr.Size = int64(len(e.content))
+			}
+			Expect(tw.WriteHeader(hdr)).To(Succeed())
+			if e.typeflag == tar.TypeReg {
+				_, err := tw.Write([]byte(e.content))
+				Expect(err).To(Succeed())
+			}
+		}
+		Expect(tw.Close()).To(Succeed())
+
+		tr := tar.NewReader(&buf)
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				return nil
+			}
+			Expect(err).To(Succeed())
+			if err := collector.collect(tr, hdr); err != nil {
+				return err
+			}
+		}
+	}
+
+	It("reads the requested regular file", func() {
+		collector := &fileTarCollector{path: "/out/ext.roothash", imageRef: "image"}
+
+		Expect(feed(collector, []entry{
+			{name: "ext.roothash", typeflag: tar.TypeReg, content: "roothash"},
+		})).To(Succeed())
+		Expect(collector.result()).To(Equal([]byte("roothash")))
+	})
+
+	It("refuses a directory instead of returning a file it contains", func() {
+		collector := &fileTarCollector{path: "/out", imageRef: "image"}
+
+		err := feed(collector, []entry{
+			{name: "out/", typeflag: tar.TypeDir},
+			{name: "out/ext.roothash", typeflag: tar.TypeReg, content: "roothash"},
+		})
+		Expect(err).To(MatchError(ContainSubstring(`/out in image "image" is a directory`)))
+	})
+
+	It("reports a path that holds no regular file as not existing", func() {
+		collector := &fileTarCollector{path: "/out/link", imageRef: "image"}
+
+		Expect(feed(collector, []entry{
+			{name: "link", typeflag: tar.TypeSymlink, linkname: "/elsewhere"},
+		})).To(Succeed())
+
+		_, err := collector.result()
+		Expect(err).To(MatchError(fs.ErrNotExist))
+	})
+})

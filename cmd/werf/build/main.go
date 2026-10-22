@@ -93,6 +93,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupAnnotateLayersWithDmVerityRootHash(&commonCmdData, cmd)
 	common.SetupSigningOptions(&commonCmdData, cmd)
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
 	common.SetupELFSigningOptions(&commonCmdData, cmd)
 
 	common.SetupLogOptions(&commonCmdData, cmd)
@@ -223,7 +224,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 	}
 	buildOptions.RequireBuiltImages = common.GetRequireBuiltImages(&commonCmdData)
 
-	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
+	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, werfConfig, imagesToProcess, buildOptions)
 	if err != nil {
 		return err
 	}

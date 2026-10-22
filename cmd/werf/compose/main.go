@@ -303,6 +303,7 @@ func newCmd(ctx context.Context, composeCmdName string, options *newCmdOptions) 
 
 	common.SetupAnnotateLayersWithDmVerityRootHash(&commonCmdData, cmd)
 	common.SetupSigningOptions(&commonCmdData, cmd)
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
 	common.SetupELFSigningOptions(&commonCmdData, cmd)
 
 	common.SetupRequireBuiltImages(&commonCmdData, cmd)
@@ -474,7 +475,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 
 		logboek.Context(ctx).Default().LogOptionalLn()
 
-		conveyorOptions, err := common.GetConveyorOptions(ctx, &commonCmdData, imagesToProcess)
+		conveyorOptions, err := common.GetConveyorOptions(ctx, &commonCmdData, werfConfig, imagesToProcess)
 		if err != nil {
 			return err
 		}

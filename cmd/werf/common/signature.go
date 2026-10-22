@@ -15,6 +15,7 @@ import (
 
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v3/pkg/build/signing"
+	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/signature"
 	"github.com/werf/werf/v3/pkg/util/option"
 	"github.com/werf/werf/v3/pkg/werf/exec"
@@ -43,6 +44,40 @@ the certificate must be specified with --sign-cert option`)
 
 func GetSignManifest(cmdData *CmdData) bool {
 	return option.PtrValueOrDefault(cmdData.SignManifest, false)
+}
+
+func SetupSignBuildFileOptions(cmdData *CmdData, cmd *cobra.Command) {
+	cmdData.SignBuildFileKey = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileKey, "sign-build-file-key", "", os.Getenv("WERF_SIGN_BUILD_FILE_KEY"),
+		"The private key to sign files with as path to PEM file, base64-encoded PEM or hashivault://[KEY] (default $WERF_SIGN_BUILD_FILE_KEY)")
+
+	cmdData.SignBuildFileCert = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileCert, "sign-build-file-cert", "", os.Getenv("WERF_SIGN_BUILD_FILE_CERT"),
+		"The leaf certificate of the files signing key as path to PEM file or base64-encoded PEM (default $WERF_SIGN_BUILD_FILE_CERT)")
+
+	cmdData.SignBuildFileIntermediates = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileIntermediates, "sign-build-file-intermediates", "", os.Getenv("WERF_SIGN_BUILD_FILE_INTERMEDIATES"),
+		"The intermediate certificates of the files signing key as path to PEM file or base64-encoded PEM (default $WERF_SIGN_BUILD_FILE_INTERMEDIATES)")
+
+	cmdData.SignBuildFileVaultAddr = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileVaultAddr, "sign-build-file-vault-addr", "", os.Getenv("WERF_SIGN_BUILD_FILE_VAULT_ADDR"),
+		"The Vault address a hashivault:// files signing key is resolved against (default $WERF_SIGN_BUILD_FILE_VAULT_ADDR, then $VAULT_ADDR)")
+
+	cmdData.SignBuildFileVaultTransitPath = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileVaultTransitPath, "sign-build-file-vault-transit-path", "", os.Getenv("WERF_SIGN_BUILD_FILE_VAULT_TRANSIT_PATH"),
+		"The Vault transit engine mount of the files signing key (default $WERF_SIGN_BUILD_FILE_VAULT_TRANSIT_PATH, then $TRANSIT_SECRET_ENGINE_PATH)")
+
+	cmdData.SignBuildFileVaultAuthJWT = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileVaultAuthJWT, "sign-build-file-vault-auth-jwt", "", os.Getenv("WERF_SIGN_BUILD_FILE_VAULT_AUTH_JWT"),
+		"The JWT to log in to Vault with for the files signing key; when unset the Vault authentication is taken from the environment, as for --sign-key (default $WERF_SIGN_BUILD_FILE_VAULT_AUTH_JWT)")
+
+	cmdData.SignBuildFileVaultAuthRole = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileVaultAuthRole, "sign-build-file-vault-auth-role", "", os.Getenv("WERF_SIGN_BUILD_FILE_VAULT_AUTH_ROLE"),
+		"The Vault JWT role for --sign-build-file-vault-auth-jwt (default $WERF_SIGN_BUILD_FILE_VAULT_AUTH_ROLE)")
+
+	cmdData.SignBuildFileVaultAuthPath = new(string)
+	cmd.Flags().StringVarP(cmdData.SignBuildFileVaultAuthPath, "sign-build-file-vault-auth-path", "", os.Getenv("WERF_SIGN_BUILD_FILE_VAULT_AUTH_PATH"),
+		"The Vault JWT auth mount for --sign-build-file-vault-auth-jwt (default $WERF_SIGN_BUILD_FILE_VAULT_AUTH_PATH, then jwt)")
 }
 
 func SetupELFSigningOptions(cmdData *CmdData, cmd *cobra.Command) {
@@ -152,6 +187,68 @@ func getVexSigningOptions(commonCmdData *CmdData, signer *signing.Signer) signin
 	options := signing.NewVexSigningOptions(signer)
 	options.Enabled = lo.FromPtr(commonCmdData.SignKey) != ""
 	return options
+}
+
+// getFilesSigningOptions builds the options of the sign directive for the images that
+// are about to be processed. The certificate is the public identity of the signature
+// and takes part in the stage digest, so it is required as soon as one of those images
+// declares the directive. The private key only produces the signature: it stays
+// optional here, and a command that resolves an already built image never asks for it.
+func getFilesSigningOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *config.WerfConfig, imagesToProcess config.ImagesToProcess) (signing.FilesSigningOptions, error) {
+	var signingImages []string
+	for _, img := range werfConfig.GetImagesForProcessing(imagesToProcess) {
+		stapelImg, ok := img.(config.StapelImageInterface)
+		if !ok || len(stapelImg.ImageBaseConfig().Sign) == 0 {
+			continue
+		}
+		signingImages = append(signingImages, img.GetName())
+	}
+
+	if len(signingImages) == 0 {
+		return signing.FilesSigningOptions{}, nil
+	}
+
+	certRef := lo.FromPtr(commonCmdData.SignBuildFileCert)
+	if certRef == "" {
+		return signing.FilesSigningOptions{}, fmt.Errorf("images %s declare files to sign: specify the signing certificate with --sign-build-file-cert", strings.Join(signingImages, ", "))
+	}
+
+	cert, err := signing.ReadCertificatePEM(certRef)
+	if err != nil {
+		return signing.FilesSigningOptions{}, fmt.Errorf("read the files signing certificate: %w", err)
+	}
+
+	vault := signing.VaultOptions{
+		Address:     lo.FromPtr(commonCmdData.SignBuildFileVaultAddr),
+		TransitPath: lo.FromPtr(commonCmdData.SignBuildFileVaultTransitPath),
+		AuthJWT:     lo.FromPtr(commonCmdData.SignBuildFileVaultAuthJWT),
+		AuthRole:    lo.FromPtr(commonCmdData.SignBuildFileVaultAuthRole),
+		AuthPath:    lo.FromPtr(commonCmdData.SignBuildFileVaultAuthPath),
+	}
+	if (vault.AuthRole != "" || vault.AuthPath != "") && vault.AuthJWT == "" {
+		return signing.FilesSigningOptions{}, fmt.Errorf("--sign-build-file-vault-auth-role and --sign-build-file-vault-auth-path qualify --sign-build-file-vault-auth-jwt: specify the JWT as well, or drop them to log in to Vault as --sign-key does")
+	}
+
+	keyRef := lo.FromPtr(commonCmdData.SignBuildFileKey)
+	if keyRef == "" {
+		options := signing.NewFilesSigningOptions(cert, nil)
+		options.Enabled = true
+		return options, nil
+	}
+
+	signer, err := signing.NewSigner(ctx, signing.SignerOptions{
+		KeyRef:           keyRef,
+		CertRef:          certRef,
+		IntermediatesRef: lo.FromPtr(commonCmdData.SignBuildFileIntermediates),
+		Vault:            vault,
+	})
+	if err != nil {
+		return signing.FilesSigningOptions{}, fmt.Errorf("create files signer: %w", err)
+	}
+
+	options := signing.NewFilesSigningOptions(cert, signer)
+	options.Enabled = true
+	return options, nil
 }
 
 func getELFSigningOptions(commonCmdData *CmdData, signer *signing.Signer) (signing.ELFSigningOptions, error) {

@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/config"
 )
@@ -110,4 +111,126 @@ packages:
 		Entry("build.sbom.enable false", "build:\n  sbom:\n    enable: false"),
 		Entry("build.sbom.enable true", "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6"),
 	)
+})
+
+var _ = Describe("sign files stages", func() {
+	werfYaml := func(sbomBlock string) string {
+		return fmt.Sprintf(`project: test
+configVersion: 1
+%s
+---
+image: app
+from: alpine:3.20
+shell:
+  install:
+  - echo install
+  setup:
+  - echo setup
+sign:
+- path: /etc/os-release
+  before: install
+- path: /out/a.roothash
+  after: install
+- path: /out/b.roothash
+  before: setup
+- path: /out/c.roothash
+  after: setup
+- path: /out/d.roothash
+`, sbomBlock)
+	}
+
+	newImageFrom := func(ctx context.Context, files map[string]string, filesSigning signing.FilesSigningOptions) *Image {
+		projectDir := newProjectRepo(ctx, files)
+		metaConfig, imageConfig, opts := stapelImageConfig(ctx, projectDir)
+		opts.FilesSigningOptions = filesSigning
+
+		image, err := mapStapelConfigToImage(ctx, metaConfig, imageConfig, "linux/amd64", false, opts)
+		Expect(err).NotTo(HaveOccurred())
+		return image
+	}
+
+	newImage := func(ctx context.Context, sbomBlock string, filesSigning signing.FilesSigningOptions) *Image {
+		return newImageFrom(ctx, map[string]string{"werf.yaml": werfYaml(sbomBlock)}, filesSigning)
+	}
+
+	enabled := func() signing.FilesSigningOptions {
+		o := signing.NewFilesSigningOptions("cert", &signing.Signer{})
+		o.Enabled = true
+		return o
+	}
+
+	It("places one stage per position right after the matching dependencies position", func() {
+		image := newImage(context.Background(), "", enabled())
+
+		names := stageNames(image)
+		Expect(names).To(Equal([]stage.StageName{
+			stage.From,
+			stage.SignFilesBeforeInstall,
+			stage.Install,
+			stage.SignFilesAfterInstall,
+			stage.SignFilesBeforeSetup,
+			stage.Setup,
+			stage.SignFilesAfterSetup,
+			stage.SignFiles,
+		}))
+	})
+
+	It("signs the whole image only once every git stage has put its files in place", func() {
+		image := newImageFrom(context.Background(), map[string]string{
+			"werf.yaml": `project: test
+configVersion: 1
+---
+image: app
+from: alpine:3.20
+git:
+- add: /src
+  to: /app
+shell:
+  install:
+  - echo install
+sign:
+- path: /out/d.roothash
+`,
+			"src/app.txt": "app\n",
+		}, enabled())
+
+		Expect(stageNames(image)).To(Equal([]stage.StageName{
+			stage.From,
+			stage.GitArchive,
+			stage.Install,
+			stage.GitCache,
+			stage.GitLatestPatch,
+			stage.SignFiles,
+		}), "the final sign stage must see the files the git stages patch in last")
+	})
+
+	It("generates no stage when files signing is disabled", func() {
+		image := newImage(context.Background(), "", signing.NewFilesSigningOptions("cert", &signing.Signer{}))
+
+		for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup, stage.SignFiles} {
+			Expect(stageNames(image)).NotTo(ContainElement(name))
+		}
+	})
+
+	DescribeTable("runs the sign stages without network",
+		func(sbomBlock string) {
+			image := newImage(context.Background(), sbomBlock, enabled())
+
+			for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup, stage.SignFiles} {
+				s := image.GetStage(name)
+				Expect(s).NotTo(BeNil(), string(name))
+				Expect(s.(*stage.SignFilesStage).Network()).To(Equal("none"), string(name))
+			}
+		},
+		Entry("build.sbom absent", ""),
+		Entry("build.sbom.enable true", "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6"),
+	)
+
+	It("keeps shell stages offline under build.sbom.enable", func() {
+		image := newImage(context.Background(), "build:\n  sbom:\n    enable: true\n    standard: cyclonedx@1.6", enabled())
+
+		for _, name := range []stage.StageName{stage.Install, stage.Setup} {
+			Expect(image.GetStage(name).(interface{ Network() string }).Network()).To(Equal("none"), string(name))
+		}
+	})
 })

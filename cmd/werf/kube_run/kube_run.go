@@ -171,6 +171,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupAnnotateLayersWithDmVerityRootHash(&commonCmdData, cmd)
 	common.SetupSigningOptions(&commonCmdData, cmd)
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
 	common.SetupELFSigningOptions(&commonCmdData, cmd)
 	common.SetupRequireBuiltImages(&commonCmdData, cmd)
 
@@ -380,7 +381,7 @@ func run(ctx context.Context, pod, secret, namespace string, werfConfig *config.
 
 	logboek.Context(ctx).Info().LogOptionalLn()
 
-	conveyorOptions, err := common.GetConveyorOptions(ctx, &commonCmdData, imagesToProcess)
+	conveyorOptions, err := common.GetConveyorOptions(ctx, &commonCmdData, werfConfig, imagesToProcess)
 	if err != nil {
 		return err
 	}

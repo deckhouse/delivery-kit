@@ -1373,8 +1373,11 @@ func (phase *BuildPhase) getPrevNonEmptyStageCreationTs() int64 {
 	return 0
 }
 
-func (phase *BuildPhase) getLogImageNetwork(img *image.Image) string {
+func (phase *BuildPhase) getLogImageNetwork(img *image.Image, stg stage.Interface) string {
 	network := phase.ImageBuildOptions.Network
+	if n, ok := stg.(interface{ Network() string }); network == "" && ok {
+		network = n.Network()
+	}
 	if network == "" {
 		if img.IsDockerfileImage && img.DockerfileImageConfig != nil {
 			network = img.DockerfileImageConfig.Network
@@ -1454,7 +1457,7 @@ func (phase *BuildPhase) onImageStage(ctx context.Context, img *image.Image, stg
 	if foundSuitableStage {
 		phase.countStageCacheHit(ctx)
 		logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s\n", stg.LogDetailedName())
-		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img, stg))
 
 		logboek.Context(ctx).LogOptionalLn()
 
@@ -1622,7 +1625,7 @@ func (phase *BuildPhase) findAndFetchStageFromSecondaryStagesStorage(ctx context
 				}
 
 				logboek.Context(ctx).Default().LogFHighlight("Use previously built image for %s\n", stg.LogDetailedName())
-				container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+				container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img, stg))
 
 				return nil
 			}
@@ -1995,7 +1998,7 @@ func (phase *BuildPhase) buildStage(ctx context.Context, img *image.Image, stg s
 		if err != nil {
 			return
 		}
-		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img))
+		container_backend.LogImageInfo(ctx, stg.GetStageImage().Image, phase.getPrevNonEmptyStageImageSize(), img.ShouldLogPlatform(), phase.getLogImageNetwork(img, stg))
 	}
 
 	var reusedPublishedStage bool
@@ -2025,6 +2028,23 @@ func (phase *BuildPhase) buildStage(ctx context.Context, img *image.Image, stg s
 	return reusedPublishedStage, nil
 }
 
+// stageBuildOptions resolves the options one stage is built with. A stage that pins its
+// own networking — the sign stages run isolated from the network — keeps it: both stapel
+// builders let the build-time network win over the one the stage asked for, so
+// --backend-network would otherwise open up a stage that must stay closed.
+func stageBuildOptions(buildOptions container_backend.BuildOptions, targetPlatform string, stg stage.Interface) container_backend.BuildOptions {
+	opts := buildOptions
+	opts.TargetPlatform = targetPlatform
+
+	if n, ok := stg.(interface{ NetworkOverride() string }); ok {
+		if override := n.NetworkOverride(); override != "" {
+			opts.Network = override
+		}
+	}
+
+	return opts
+}
+
 // atomicBuildStageImage reports whether a stage published by another process has been reused
 // instead of the image this process was building.
 func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.Image, stg stage.Interface) (bool, error) {
@@ -2032,8 +2052,7 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 
 	if stg.IsBuildable() {
 		if err := logboek.Context(ctx).Streams().DoErrorWithTag(fmt.Sprintf("%s/%s", img.LogName(), stg.Name()), img.LogTagStyle(), func() error {
-			opts := phase.ImageBuildOptions
-			opts.TargetPlatform = img.TargetPlatform
+			opts := stageBuildOptions(phase.ImageBuildOptions, img.TargetPlatform, stg)
 			if err := stageImage.Builder.Build(ctx, opts); err != nil {
 				err = container_backend.SanitizeError(err)
 				return fmt.Errorf("error building stage %s: %w", stg.Name(), err)

@@ -92,6 +92,7 @@ werf converge --repo registry.mydomain.com/web --env production`,
 
 	common.SetupAnnotateLayersWithDmVerityRootHash(&commonCmdData, cmd)
 	common.SetupSigningOptions(&commonCmdData, cmd)
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
 	common.SetupELFSigningOptions(&commonCmdData, cmd)
 
 	common.SetupSecondaryStagesStorageOptions(&commonCmdData, cmd)
@@ -323,7 +324,7 @@ func run(
 
 			imagesRepo = storageManager.GetServiceValuesRepo()
 
-			conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
+			conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, werfConfig, imagesToProcess, buildOptions)
 			if err != nil {
 				return ctx, err
 			}

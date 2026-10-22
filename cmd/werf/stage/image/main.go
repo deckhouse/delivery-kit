@@ -69,6 +69,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupCacheStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupRepoOptions(&commonCmdData, cmd, common.RepoDataOptions{OptionalRepo: true})
 	common.SetupFinalRepo(&commonCmdData, cmd)
+
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
 	common.SetupMetaRepo(&commonCmdData, cmd)
 
 	common.SetupDockerConfig(&commonCmdData, cmd, "Command needs granted permissions to read and pull images from the specified stages storage")
@@ -163,7 +165,7 @@ func run(ctx context.Context, imageName string) error {
 		return fmt.Errorf("unable to init storage manager: %w", err)
 	}
 
-	conveyorOptions, err := common.GetConveyorOptions(ctx, &commonCmdData, imagesToProcess)
+	conveyorOptions, err := common.GetConveyorOptions(ctx, &commonCmdData, werfConfig, imagesToProcess)
 	if err != nil {
 		return err
 	}

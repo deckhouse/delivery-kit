@@ -18,6 +18,7 @@ type StapelImageBase struct {
 	Shell            *Shell
 	Mount            []*Mount
 	Import           []*Import
+	Sign             []*Sign
 	Dependencies     []*Dependency
 	Secrets          []Secret
 	ImageSpec        *ImageSpec

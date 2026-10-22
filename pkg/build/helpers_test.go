@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -148,6 +149,18 @@ func writeBuildReport(records ...ReportImageRecord) string {
 	gomega.Expect(os.WriteFile(path, data, 0o644)).To(gomega.Succeed())
 
 	return path
+}
+
+type optionsCapturingBuilder struct {
+	*stage_builder.StageBuilder
+	opts container_backend.BuildOptions
+}
+
+var _ stage_builder.StageBuilderInterface = (*optionsCapturingBuilder)(nil)
+
+func (b *optionsCapturingBuilder) Build(_ context.Context, opts container_backend.BuildOptions) error {
+	b.opts = opts
+	return errors.New("builder stopped the build")
 }
 
 func newReportPhase(reportPath string) *BuildPhase {

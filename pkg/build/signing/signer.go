@@ -1,13 +1,17 @@
 package signing
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"sync"
 
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signver"
+	"github.com/deckhouse/delivery-kit-sdk/pkg/signver/blob"
+	"github.com/deckhouse/delivery-kit-sdk/pkg/signver/hashivault"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 )
 
@@ -15,10 +19,35 @@ type SignerOptions struct {
 	KeyRef           string
 	CertRef          string
 	IntermediatesRef string
+	Vault            VaultOptions
 }
 
 func (o SignerOptions) IsZero() bool {
 	return o.KeyRef == "" || o.CertRef == ""
+}
+
+// VaultOptions configures the Vault a hashivault:// key is resolved against. Every
+// field is optional: an empty one falls back to the SDK's environment lookup, so a
+// signer with zero VaultOptions behaves exactly as before. Setting AuthJWT switches
+// authentication to that static JWT; AuthRole and AuthPath qualify it and are
+// ignored without it.
+type VaultOptions struct {
+	Address     string
+	TransitPath string
+	AuthJWT     string
+	AuthRole    string
+	AuthPath    string
+}
+
+func (o VaultOptions) sdkOpts() hashivault.VaultOpts {
+	opts := hashivault.VaultOpts{
+		Address:                 o.Address,
+		TransitSecretEnginePath: o.TransitPath,
+	}
+	if o.AuthJWT != "" {
+		opts.Auth = &hashivault.VaultAuth{JWT: &hashivault.JWTAuth{JWT: o.AuthJWT, Role: o.AuthRole, Path: o.AuthPath}}
+	}
+	return opts
 }
 
 type Signer struct {
@@ -71,13 +100,45 @@ func (s *Signer) Chain() string {
 	return string(s.sv.Chain)
 }
 
+// ReadCertificatePEM resolves a certificate reference — a file path, base64 or raw PEM,
+// DER as well — into the same normalized PEM a Signer built from that reference reports.
+// The certificate is the public identity of a signature, so it has to be readable
+// without the private key the signer needs.
+func ReadCertificatePEM(ref string) (string, error) {
+	data, err := blob.LoadBase64OrFile(ref)
+	if err != nil {
+		return "", fmt.Errorf("read certificate %q: %w", ref, err)
+	}
+
+	if bytes.HasPrefix(data, []byte("-----")) {
+		decoded, _ := pem.Decode(data)
+		if decoded == nil || decoded.Type != "CERTIFICATE" {
+			return "", fmt.Errorf("certificate %q is not a PEM certificate", ref)
+		}
+		data = decoded.Bytes
+	}
+
+	cert, err := x509.ParseCertificate(data)
+	if err != nil {
+		return "", fmt.Errorf("parse certificate %q: %w", ref, err)
+	}
+
+	certPEM, err := cryptoutils.MarshalCertificateToPEM(cert)
+	if err != nil {
+		return "", fmt.Errorf("encode certificate %q: %w", ref, err)
+	}
+
+	return string(certPEM), nil
+}
+
 func NewSigner(ctx context.Context, opts SignerOptions) (*Signer, error) {
 	if opts.IsZero() {
 		return &Signer{}, nil
 	}
 	sv, err := signver.NewSignerVerifier(ctx, opts.CertRef, opts.IntermediatesRef, signver.KeyOpts{
-		KeyRef:   opts.KeyRef,
-		PassFunc: cryptoutils.SkipPassword,
+		KeyRef:             opts.KeyRef,
+		PassFunc:           cryptoutils.SkipPassword,
+		SignerVerifierOpts: signver.SignerVerifierOpts{VaultOpts: opts.Vault.sdkOpts()},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create signer verifier: %w", err)

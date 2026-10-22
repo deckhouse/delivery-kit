@@ -1,0 +1,22 @@
+project: werf-test-e2e-sign-files-sbom
+configVersion: 1
+build:
+  platform:
+  - linux/amd64
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: sysext
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+shell:
+  install:
+  - mkdir -p /out
+  - printf '%s' 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b > /out/ext.roothash
+  - command -v ping >/dev/null || { echo 'network probe tool is missing' >&2; exit 1; }
+  - if ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then echo 'network is reachable' >&2; exit 1; fi
+  setup:
+  - test -s /out/ext.roothash.p7s
+sign:
+- path: /out/ext.roothash
+  after: install

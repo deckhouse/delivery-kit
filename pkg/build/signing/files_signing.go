@@ -16,8 +16,14 @@ import (
 	"github.com/smallstep/pkcs7"
 )
 
+// FilesSigningOptions carries what the sign directive needs at two different moments.
+// Cert is the public identity of a signature and takes part in the stage digest, so it
+// is known wherever the stage chain is built, including a command that only resolves an
+// already signed image. The signer holds the private key and is nil unless one was
+// configured: it is required only where a signature is actually produced.
 type FilesSigningOptions struct {
 	Enabled bool
+	Cert    string
 
 	signer *Signer
 }
@@ -26,8 +32,8 @@ func (o FilesSigningOptions) Signer() *Signer {
 	return o.signer
 }
 
-func NewFilesSigningOptions(signer *Signer) FilesSigningOptions {
-	return FilesSigningOptions{signer: signer}
+func NewFilesSigningOptions(cert string, signer *Signer) FilesSigningOptions {
+	return FilesSigningOptions{Cert: cert, signer: signer}
 }
 
 // SignDetachedPKCS7 wraps an RSASSA-PKCS1-v1_5/SHA-256 signature of content into a

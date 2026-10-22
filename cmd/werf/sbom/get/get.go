@@ -97,6 +97,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupIntrospectBeforeError(&commonCmdData, cmd)
 	common.SetupIntrospectStage(&commonCmdData, cmd)
 
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
+
 	common.SetupSecondaryStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupCacheStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupRepoOptions(&commonCmdData, cmd, common.RepoDataOptions{OptionalRepo: true})
@@ -360,7 +362,7 @@ func run(ctx context.Context, containerBackend container_backend.ContainerBacken
 
 	buildOptions.SkipImageMetadataPublication = *commonCmdData.Dev
 
-	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
+	conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, werfConfig, imagesToProcess, buildOptions)
 	if err != nil {
 		return err
 	}

@@ -136,7 +136,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	common.SetupAnnotateLayersWithDmVerityRootHash(&commonCmdData, cmd)
 	common.SetupSigningOptions(&commonCmdData, cmd)
-	common.SetupFilesSigningOptions(&commonCmdData, cmd)
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
 	common.SetupELFSigningOptions(&commonCmdData, cmd)
 
 	common.SetupRequireBuiltImages(&commonCmdData, cmd)
@@ -280,7 +280,7 @@ func runPublish(ctx context.Context, imageNameListFromArgs []string) error {
 
 		imagesRepo = storageManager.GetServiceValuesRepo()
 
-		conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
+		conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, werfConfig, imagesToProcess, buildOptions)
 		if err != nil {
 			return err
 		}

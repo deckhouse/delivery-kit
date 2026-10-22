@@ -94,13 +94,17 @@ func (s *SignFilesStage) digest() string {
 	for _, sign := range s.signs {
 		args = append(args, "Path", sign.Path)
 	}
-	args = append(args, "Cert", s.options.Signer().Cert())
+	args = append(args, "Cert", s.options.Cert)
 	return util.Sha256Hash(args...)
 }
 
 func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb container_backend.ContainerBackend, prevBuiltImage, stageImage *StageImage, buildContextArchive container_backend.BuildContextArchiver) error {
 	if err := s.BaseStage.PrepareImage(ctx, c, cb, prevBuiltImage, stageImage, buildContextArchive); err != nil {
 		return err
+	}
+
+	if s.options.Signer() == nil {
+		return fmt.Errorf("image %q declares files to sign and this stage is not built yet: specify the private key with --sign-build-file-key", s.imageName)
 	}
 
 	signaturesDir := filepath.Join(s.imageTmpDir, "sign", string(s.Name()))

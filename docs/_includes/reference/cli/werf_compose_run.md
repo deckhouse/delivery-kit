@@ -256,44 +256,37 @@ werf compose run [IMAGE_NAME...] [options] [--docker-compose-options="OPTIONS"] 
             cache.
             Also, can be specified with $WERF_SECONDARY_REPO or $WERF_SECONDARY_REPO_* (e.g.        
             $WERF_SECONDARY_REPO_1=..., $WERF_SECONDARY_REPO_2=...)
+      --sign-build-file-cert=""
+            The leaf certificate of the files signing key as path to PEM file or base64-encoded PEM 
+            (default $WERF_SIGN_BUILD_FILE_CERT)
+      --sign-build-file-intermediates=""
+            The intermediate certificates of the files signing key as path to PEM file or           
+            base64-encoded PEM (default $WERF_SIGN_BUILD_FILE_INTERMEDIATES)
+      --sign-build-file-key=""
+            The private key to sign files with as path to PEM file, base64-encoded PEM or           
+            hashivault://[KEY] (default $WERF_SIGN_BUILD_FILE_KEY)
+      --sign-build-file-vault-addr=""
+            The Vault address a hashivault:// files signing key is resolved against (default        
+            $WERF_SIGN_BUILD_FILE_VAULT_ADDR, then $VAULT_ADDR)
+      --sign-build-file-vault-auth-jwt=""
+            The JWT to log in to Vault with for the files signing key; when unset the Vault         
+            authentication is taken from the environment, as for --sign-key (default                
+            $WERF_SIGN_BUILD_FILE_VAULT_AUTH_JWT)
+      --sign-build-file-vault-auth-path=""
+            The Vault JWT auth mount for --sign-build-file-vault-auth-jwt (default                  
+            $WERF_SIGN_BUILD_FILE_VAULT_AUTH_PATH, then jwt)
+      --sign-build-file-vault-auth-role=""
+            The Vault JWT role for --sign-build-file-vault-auth-jwt (default                        
+            $WERF_SIGN_BUILD_FILE_VAULT_AUTH_ROLE)
+      --sign-build-file-vault-transit-path=""
+            The Vault transit engine mount of the files signing key (default                        
+            $WERF_SIGN_BUILD_FILE_VAULT_TRANSIT_PATH, then $TRANSIT_SECRET_ENGINE_PATH)
       --sign-cert=""
             The leaf certificate as path to PEM file or base64-encoded PEM (default $WERF_SIGN_CERT)
       --sign-elf-files=false
             Enable ELF files signing (default $WERF_SIGN_ELF_FILES).
             When enabled, the private signing key must be specified with --sign-key option and the  
             certificate must be specified with --sign-cert option
-      --sign-files=true
-            Sign the files declared with the sign directive of werf.yaml (default $WERF_SIGN_FILES  
-            or true).
-            When enabled and at least one image declares files to sign,
-            the private signing key must be specified with --sign-files-key option and
-            the certificate must be specified with --sign-files-cert option.
-            Disable to build such images without signatures
-      --sign-files-cert=""
-            The leaf certificate of the files signing key as path to PEM file or base64-encoded PEM 
-            (default $WERF_SIGN_FILES_CERT)
-      --sign-files-intermediates=""
-            The intermediate certificates of the files signing key as path to PEM file or           
-            base64-encoded PEM (default $WERF_SIGN_FILES_INTERMEDIATES)
-      --sign-files-key=""
-            The private key to sign files with as path to PEM file, base64-encoded PEM or           
-            hashivault://[KEY] (default $WERF_SIGN_FILES_KEY)
-      --sign-files-vault-addr=""
-            The Vault address a hashivault:// files signing key is resolved against (default        
-            $WERF_SIGN_FILES_VAULT_ADDR, then $VAULT_ADDR)
-      --sign-files-vault-auth-jwt=""
-            The JWT to log in to Vault with for the files signing key; when unset the Vault         
-            authentication is taken from the environment, as for --sign-key (default                
-            $WERF_SIGN_FILES_VAULT_AUTH_JWT)
-      --sign-files-vault-auth-path=""
-            The Vault JWT auth mount for --sign-files-vault-auth-jwt (default                       
-            $WERF_SIGN_FILES_VAULT_AUTH_PATH, then jwt)
-      --sign-files-vault-auth-role=""
-            The Vault JWT role for --sign-files-vault-auth-jwt (default                             
-            $WERF_SIGN_FILES_VAULT_AUTH_ROLE)
-      --sign-files-vault-transit-path=""
-            The Vault transit engine mount of the files signing key (default                        
-            $WERF_SIGN_FILES_VAULT_TRANSIT_PATH, then $TRANSIT_SECRET_ENGINE_PATH)
       --sign-intermediates=""
             The intermediate certificates as path to PEM file or base64-encoded PEM (default        
             $WERF_SIGN_INTERMEDIATES)

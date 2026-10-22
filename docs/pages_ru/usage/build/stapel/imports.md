@@ -117,19 +117,24 @@ werf читает файл из собранного к этому момент�
 
 | Флаг | Переменная окружения | Описание |
 |---|---|---|
-| `--sign-files` | `WERF_SIGN_FILES` | обрабатывать директивы `sign` (по умолчанию `true`); `false` пропускает их и собирает образ без подписей |
-| `--sign-files-key` | `WERF_SIGN_FILES_KEY` | приватный ключ: путь к PEM-файлу, PEM в base64 или `hashivault://[KEY]` |
-| `--sign-files-cert` | `WERF_SIGN_FILES_CERT` | сертификат подписанта: путь к PEM-файлу или PEM в base64 |
-| `--sign-files-intermediates` | `WERF_SIGN_FILES_INTERMEDIATES` | промежуточные сертификаты: путь к PEM-файлу или PEM в base64 |
-| `--sign-files-vault-addr` | `WERF_SIGN_FILES_VAULT_ADDR` | адрес Vault, в котором ищется ключ `hashivault://`; не задан → `VAULT_ADDR` |
-| `--sign-files-vault-transit-path` | `WERF_SIGN_FILES_VAULT_TRANSIT_PATH` | mount transit-движка с ключом; не задан → `TRANSIT_SECRET_ENGINE_PATH` |
-| `--sign-files-vault-auth-jwt` | `WERF_SIGN_FILES_VAULT_AUTH_JWT` | JWT для входа в Vault; не задан → та же аутентификация из окружения, что у `--sign-key` |
-| `--sign-files-vault-auth-role` | `WERF_SIGN_FILES_VAULT_AUTH_ROLE` | роль Vault JWT для этого JWT |
-| `--sign-files-vault-auth-path` | `WERF_SIGN_FILES_VAULT_AUTH_PATH` | mount JWT-аутентификации для этого JWT; не задан → `jwt` |
+| `--sign-build-file-key` | `WERF_SIGN_BUILD_FILE_KEY` | приватный ключ: путь к PEM-файлу, PEM в base64 или `hashivault://[KEY]` |
+| `--sign-build-file-cert` | `WERF_SIGN_BUILD_FILE_CERT` | сертификат подписанта: путь к PEM-файлу или PEM в base64 |
+| `--sign-build-file-intermediates` | `WERF_SIGN_BUILD_FILE_INTERMEDIATES` | промежуточные сертификаты: путь к PEM-файлу или PEM в base64 |
+| `--sign-build-file-vault-addr` | `WERF_SIGN_BUILD_FILE_VAULT_ADDR` | адрес Vault, в котором ищется ключ `hashivault://`; не задан → `VAULT_ADDR` |
+| `--sign-build-file-vault-transit-path` | `WERF_SIGN_BUILD_FILE_VAULT_TRANSIT_PATH` | mount transit-движка с ключом; не задан → `TRANSIT_SECRET_ENGINE_PATH` |
+| `--sign-build-file-vault-auth-jwt` | `WERF_SIGN_BUILD_FILE_VAULT_AUTH_JWT` | JWT для входа в Vault; не задан → та же аутентификация из окружения, что у `--sign-key` |
+| `--sign-build-file-vault-auth-role` | `WERF_SIGN_BUILD_FILE_VAULT_AUTH_ROLE` | роль Vault JWT; уточняет JWT выше, без него отвергается |
+| `--sign-build-file-vault-auth-path` | `WERF_SIGN_BUILD_FILE_VAULT_AUTH_PATH` | mount JWT-аутентификации; уточняет JWT выше, без него отвергается; не задан → `jwt` |
 
-Опции `--sign-files-vault-*` нужны, чтобы подписант файлов и подписант `--sign-key` могли жить в разных mount Vault и входить под разными ролями в рамках одного `werf build`; каждая незаданная опция берёт то, что использовал бы `--sign-key`.
+Опции `--sign-build-file-vault-*` нужны, чтобы подписант файлов и подписант `--sign-key` могли жить в разных mount Vault и входить под разными ролями в рамках одного `werf build`.
 
-Сборка образа с директивой `sign` завершается ошибкой ещё до запуска стадий, если ключ или сертификат не заданы, а `--sign-files` не равен `false`. Команды, которые не собирают образы (`lint`, `stages copy`, `sbom get`), не имеют флага `--sign-files` и считают его выключенным: такой `werf.yaml` они принимают без ключа.
+Адрес и transit-mount подхватываются по отдельности: незаданный берёт то, что использовал бы `--sign-key` (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). С аутентификацией так не работает — она берётся целиком. Если задан JWT, подписант файлов входит именно с этим JWT, ролью из `--sign-build-file-vault-auth-role` (пустой, если не задана) и mount из `--sign-build-file-vault-auth-path` (`jwt`, если не задан); ни одно из трёх не подхватывается из окружения. Без JWT вся аутентификация берётся из окружения, а роль или mount сами по себе отвергаются.
+
+Собрать такой образ без подписей нельзя: объявленная директива `sign` — требование образа, а не опция сборки.
+
+Сертификат и приватный ключ нужны в разные моменты. Сертификат — публичная идентичность подписи, он участвует в дайджесте стадии, поэтому его запрашивает любая команда, которая строит цепочку стадий образа, включая `--require-built-images`, которая только находит уже собранный образ. Приватный ключ создаёт подпись и нужен лишь там, где подпись действительно создаётся: чтобы найти, отрендерить или задеплоить собранный ранее образ, ни ключ, ни доступ к KMS не требуются.
+
+Сборка образа с директивой `sign` завершается ошибкой ещё до запуска стадий, если не задан сертификат. Без приватного ключа она падает на первой подписи, которую должна была бы создать.
 
 С `hashivault://` приватный ключ не покидает KMS. Сертификат из KMS не запрашивается: если его выпускает PKI (например, Vault PKI), пайплайн сам получает PEM и передаёт его путём или в base64. Контейнер стадии всегда запускается с `network: none` независимо от настройки `network` образа, и команды образа в нём не выполняются, поэтому директива работает без изменений при `build.sbom.enable: true`, когда [в shell-стадиях отключена сеть]({{ "/usage/build/sbom.html" | true_relative_url }}).
 

@@ -47,17 +47,17 @@ var _ = Describe("SignFilesStage", func() {
 	}
 
 	enabledOptions := func(signer *signing.Signer) signing.FilesSigningOptions {
-		options := signing.NewFilesSigningOptions(signer)
+		options := signing.NewFilesSigningOptions(signer.Cert(), signer)
 		options.Enabled = true
 		return options
 	}
 
-	digestOf := func(signer *signing.Signer, paths ...string) string {
+	digestOfOptions := func(options signing.FilesSigningOptions, paths ...string) string {
 		imageConfig := &config.StapelImageBase{}
 		for _, p := range paths {
 			imageConfig.Sign = append(imageConfig.Sign, &config.Sign{Path: p, After: "install"})
 		}
-		stage := GenerateSignFilesAfterInstallStage(imageConfig, enabledOptions(signer), &BaseStageOptions{})
+		stage := GenerateSignFilesAfterInstallStage(imageConfig, options, &BaseStageOptions{})
 		Expect(stage).NotTo(BeNil())
 
 		digest, err := stage.GetDependencies(context.Background(), nil, nil, nil, nil, nil)
@@ -68,6 +68,10 @@ var _ = Describe("SignFilesStage", func() {
 		return digest
 	}
 
+	digestOf := func(signer *signing.Signer, paths ...string) string {
+		return digestOfOptions(enabledOptions(signer), paths...)
+	}
+
 	It("keeps the digest stable for the same paths and signer and changes it with either", func() {
 		signerA := newSigner("a")
 		signerB := newSigner("b")
@@ -76,6 +80,15 @@ var _ = Describe("SignFilesStage", func() {
 		Expect(digestOf(signerA, "/out/x")).To(Equal(base))
 		Expect(digestOf(signerA, "/out/y")).NotTo(Equal(base), "a different signed path must change the digest")
 		Expect(digestOf(signerB, "/out/x")).NotTo(Equal(base), "a different signing certificate must change the digest")
+	})
+
+	It("identifies the stage by the certificate alone, so no private key is needed to resolve it", func() {
+		signer := newSigner("a")
+
+		withoutKey := signing.NewFilesSigningOptions(signer.Cert(), nil)
+		withoutKey.Enabled = true
+
+		Expect(digestOfOptions(withoutKey, "/out/x")).To(Equal(digestOf(signer, "/out/x")))
 	})
 
 	It("is generated only for the position the directive names and only when enabled", func() {

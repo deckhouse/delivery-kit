@@ -117,19 +117,24 @@ The key and the certificate are never part of `werf.yaml`; they come from the co
 
 | Flag | Environment variable | Description |
 |---|---|---|
-| `--sign-files` | `WERF_SIGN_FILES` | process `sign` directives (default `true`); `false` skips them and builds the image without the signatures |
-| `--sign-files-key` | `WERF_SIGN_FILES_KEY` | the private key: a path to a PEM file, a base64-encoded PEM, or `hashivault://[KEY]` |
-| `--sign-files-cert` | `WERF_SIGN_FILES_CERT` | the signing certificate: a path to a PEM file or a base64-encoded PEM |
-| `--sign-files-intermediates` | `WERF_SIGN_FILES_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
-| `--sign-files-vault-addr` | `WERF_SIGN_FILES_VAULT_ADDR` | the Vault address a `hashivault://` key is resolved against; unset → `VAULT_ADDR` |
-| `--sign-files-vault-transit-path` | `WERF_SIGN_FILES_VAULT_TRANSIT_PATH` | the transit engine mount of the key; unset → `TRANSIT_SECRET_ENGINE_PATH` |
-| `--sign-files-vault-auth-jwt` | `WERF_SIGN_FILES_VAULT_AUTH_JWT` | the JWT to log in to Vault with; unset → the authentication `--sign-key` uses, from the environment |
-| `--sign-files-vault-auth-role` | `WERF_SIGN_FILES_VAULT_AUTH_ROLE` | the Vault JWT role for that JWT |
-| `--sign-files-vault-auth-path` | `WERF_SIGN_FILES_VAULT_AUTH_PATH` | the JWT auth mount for that JWT; unset → `jwt` |
+| `--sign-build-file-key` | `WERF_SIGN_BUILD_FILE_KEY` | the private key: a path to a PEM file, a base64-encoded PEM, or `hashivault://[KEY]` |
+| `--sign-build-file-cert` | `WERF_SIGN_BUILD_FILE_CERT` | the signing certificate: a path to a PEM file or a base64-encoded PEM |
+| `--sign-build-file-intermediates` | `WERF_SIGN_BUILD_FILE_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
+| `--sign-build-file-vault-addr` | `WERF_SIGN_BUILD_FILE_VAULT_ADDR` | the Vault address a `hashivault://` key is resolved against; unset → `VAULT_ADDR` |
+| `--sign-build-file-vault-transit-path` | `WERF_SIGN_BUILD_FILE_VAULT_TRANSIT_PATH` | the transit engine mount of the key; unset → `TRANSIT_SECRET_ENGINE_PATH` |
+| `--sign-build-file-vault-auth-jwt` | `WERF_SIGN_BUILD_FILE_VAULT_AUTH_JWT` | the JWT to log in to Vault with; unset → the authentication `--sign-key` uses, from the environment |
+| `--sign-build-file-vault-auth-role` | `WERF_SIGN_BUILD_FILE_VAULT_AUTH_ROLE` | the Vault JWT role; qualifies the JWT above and is rejected without it |
+| `--sign-build-file-vault-auth-path` | `WERF_SIGN_BUILD_FILE_VAULT_AUTH_PATH` | the JWT auth mount; qualifies the JWT above and is rejected without it; unset → `jwt` |
 
-The `--sign-files-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`; each option left unset falls back to what `--sign-key` would use.
+The `--sign-build-file-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`.
 
-A build of an image that declares `sign` fails before any stage runs when the key or the certificate is missing and `--sign-files` is not `false`. Commands that do not build images (`lint`, `stages copy`, `sbom get`) have no `--sign-files` flag and treat it as off: they accept such a `werf.yaml` without a key.
+The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the environment. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected.
+
+There is no way to build such an image unsigned: a declared `sign` is a requirement of the image, not a build-time choice.
+
+The certificate and the private key are needed at different moments. The certificate is the public identity of the signature and takes part in the stage digest, so every command that works out the image's stages asks for it — including `--require-built-images`, which only resolves an already built image. The private key produces the signature and is needed only where a signature is actually produced: resolving, rendering or deploying an image built earlier needs no key and no access to the KMS.
+
+A build of an image that declares `sign` fails before any stage runs when the certificate is missing. Without the private key it fails at the first signature it would have to produce.
 
 With `hashivault://` the private key never leaves the KMS. The certificate is not fetched from the KMS: when it is issued by a PKI (Vault PKI, for example), the pipeline retrieves the PEM itself and passes it as a path or base64. The stage container always runs with `network: none`, whatever the image's `network` setting, and none of the image's commands run in it, so the directive works unchanged when `build.sbom.enable` is `true` and [network is disabled in shell stages]({{ "/usage/build/sbom.html" | true_relative_url }}).
 

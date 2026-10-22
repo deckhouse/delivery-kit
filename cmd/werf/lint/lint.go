@@ -85,6 +85,8 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupIntrospectBeforeError(&commonCmdData, cmd)
 	common.SetupIntrospectStage(&commonCmdData, cmd)
 
+	common.SetupSignBuildFileOptions(&commonCmdData, cmd)
+
 	common.SetupSecondaryStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupCacheStagesStorageOptions(&commonCmdData, cmd)
 	common.SetupRepoOptions(&commonCmdData, cmd, common.RepoDataOptions{OptionalRepo: true})
@@ -255,7 +257,7 @@ func runLint(ctx context.Context, imageNameListFromArgs []string) error {
 
 		imagesRepository = storageManager.GetServiceValuesRepo()
 
-		conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, imagesToProcess, buildOptions)
+		conveyorOptions, err := common.GetConveyorOptionsWithParallel(ctx, &commonCmdData, werfConfig, imagesToProcess, buildOptions)
 		if err != nil {
 			return err
 		}

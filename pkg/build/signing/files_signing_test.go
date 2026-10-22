@@ -68,32 +68,27 @@ func newTestKeyPair() (*rsa.PrivateKey, []byte) {
 	return key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 }
 
-func newTestSigner(ctx context.Context) (*Signer, *rsa.PrivateKey) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	Expect(err).NotTo(HaveOccurred())
-
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "files-signing-test"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	Expect(err).NotTo(HaveOccurred())
-
+func encryptedKeyPEM(key *rsa.PrivateKey) []byte {
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	Expect(err).NotTo(HaveOccurred())
 	encryptedKey, err := encrypted.Encrypt(keyDER, nil)
 	Expect(err).NotTo(HaveOccurred())
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: signver.PrivateKeyPemType, Bytes: encryptedKey})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	return pem.EncodeToMemory(&pem.Block{Type: signver.PrivateKeyPemType, Bytes: encryptedKey})
+}
+
+func newTestSignerWithCert(ctx context.Context) (*Signer, *rsa.PrivateKey, []byte) {
+	key, certPEM := newTestKeyPair()
 
 	signer, err := NewSigner(ctx, SignerOptions{
-		KeyRef:  base64.StdEncoding.EncodeToString(keyPEM),
+		KeyRef:  base64.StdEncoding.EncodeToString(encryptedKeyPEM(key)),
 		CertRef: base64.StdEncoding.EncodeToString(certPEM),
 	})
 	Expect(err).NotTo(HaveOccurred())
+	return signer, key, certPEM
+}
+
+func newTestSigner(ctx context.Context) (*Signer, *rsa.PrivateKey) {
+	signer, key, _ := newTestSignerWithCert(ctx)
 	return signer, key
 }
 
@@ -170,6 +165,18 @@ var _ = Describe("SignDetachedPKCS7", func() {
 		Expect(os.WriteFile(contentPath, tampered, 0o600)).To(Succeed())
 		_, err = exec.CommandContext(ctx, "openssl", "smime", "-verify", "-inform", "der", "-in", p7sPath, "-content", contentPath, "-noverify", "-out", os.DevNull).CombinedOutput()
 		Expect(err).To(HaveOccurred(), "openssl must reject the signature over different content")
+	})
+
+	It("reads the certificate of a reference exactly as the signer reports it", func(ctx SpecContext) {
+		signer, _, certPEM := newTestSignerWithCert(ctx)
+
+		certFile := filepath.Join(GinkgoT().TempDir(), "leaf.pem")
+		Expect(os.WriteFile(certFile, certPEM, 0o600)).To(Succeed())
+
+		for _, ref := range []string{base64.StdEncoding.EncodeToString(certPEM), certFile} {
+			Expect(ReadCertificatePEM(ref)).To(Equal(signer.Cert()),
+				"the stage digest must not depend on how the certificate was passed, nor on whether a key was configured")
+		}
 	})
 
 	It("fails when the signer is not configured", func(ctx SpecContext) {

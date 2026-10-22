@@ -23,9 +23,18 @@ import (
 	"github.com/werf/werf/v3/pkg/storage"
 )
 
-func GetConveyorOptions(ctx context.Context, commonCmdData *CmdData, imagesToProcess config.ImagesToProcess) (build.ConveyorOptions, error) {
+func GetConveyorOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *config.WerfConfig, imagesToProcess config.ImagesToProcess) (build.ConveyorOptions, error) {
+	// The sign directive adds stages to the image, so every command that builds the
+	// stage chain needs them — resolving an already built image included, or its digest
+	// would not be the one the build published.
+	filesSigningOptions, err := getFilesSigningOptions(ctx, commonCmdData, werfConfig, imagesToProcess)
+	if err != nil {
+		return build.ConveyorOptions{}, err
+	}
+
 	conveyorOptions := build.ConveyorOptions{
-		ImagesToProcess: imagesToProcess,
+		ImagesToProcess:     imagesToProcess,
+		FilesSigningOptions: filesSigningOptions,
 	}
 
 	if len(commonCmdData.GetPlatform()) > 0 {
@@ -64,8 +73,8 @@ func GetDeferredBuildLog(ctx context.Context, commonCmdData *CmdData) bool {
 	return requireBuiltImage || !isVerbose
 }
 
-func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData, imagesToProcess config.ImagesToProcess, buildStagesOptions build.BuildOptions) (build.ConveyorOptions, error) {
-	conveyorOptions, err := GetConveyorOptions(ctx, commonCmdData, imagesToProcess)
+func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData, werfConfig *config.WerfConfig, imagesToProcess config.ImagesToProcess, buildStagesOptions build.BuildOptions) (build.ConveyorOptions, error) {
+	conveyorOptions, err := GetConveyorOptions(ctx, commonCmdData, werfConfig, imagesToProcess)
 	if err != nil {
 		return conveyorOptions, err
 	}
@@ -75,7 +84,6 @@ func GetConveyorOptionsWithParallel(ctx context.Context, commonCmdData *CmdData,
 	conveyorOptions.ManifestSigningOptions = buildStagesOptions.ManifestSigningOptions
 	conveyorOptions.SbomSigningOptions = buildStagesOptions.SbomSigningOptions
 	conveyorOptions.VexSigningOptions = buildStagesOptions.VexSigningOptions
-	conveyorOptions.FilesSigningOptions = buildStagesOptions.FilesSigningOptions
 	conveyorOptions.VerityAnnotationOptions = buildStagesOptions.VerityAnnotationOptions
 
 	return conveyorOptions, nil
@@ -139,11 +147,6 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		return buildOptions, err
 	}
 
-	filesSigningOptions, err := getFilesSigningOptions(ctx, commonCmdData, werfConfig)
-	if err != nil {
-		return buildOptions, err
-	}
-
 	verityAnnotationOptions, err := getVerityAnnotationOptions(commonCmdData)
 	if err != nil {
 		return build.BuildOptions{}, fmt.Errorf("getting verity annotation options: %w", err)
@@ -163,7 +166,6 @@ func GetBuildOptions(ctx context.Context, commonCmdData *CmdData, werfConfig *co
 		SbomSigningOptions:      sbomSigningOptions,
 		VexSigningOptions:       vexSigningOptions,
 		ELFSigningOptions:       elfSigningOptions,
-		FilesSigningOptions:     filesSigningOptions,
 		VerityAnnotationOptions: verityAnnotationOptions,
 		ReportOperations:        GetBuildReportOperations(commonCmdData),
 	}

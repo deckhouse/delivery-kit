@@ -149,7 +149,7 @@ sign:
 	}
 
 	enabled := func() signing.FilesSigningOptions {
-		o := signing.NewFilesSigningOptions(&signing.Signer{})
+		o := signing.NewFilesSigningOptions("cert", &signing.Signer{})
 		o.Enabled = true
 		return o
 	}
@@ -170,7 +170,7 @@ sign:
 	})
 
 	It("generates no stage when files signing is disabled", func() {
-		image := newImage(context.Background(), "", signing.NewFilesSigningOptions(&signing.Signer{}))
+		image := newImage(context.Background(), "", signing.NewFilesSigningOptions("cert", &signing.Signer{}))
 
 		for _, name := range []stage.StageName{stage.SignFilesBeforeInstall, stage.SignFilesAfterInstall, stage.SignFilesBeforeSetup, stage.SignFilesAfterSetup} {
 			Expect(stageNames(image)).NotTo(ContainElement(name))

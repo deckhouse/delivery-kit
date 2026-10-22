@@ -1,13 +1,16 @@
 package signing
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"sync"
 
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signver"
+	"github.com/deckhouse/delivery-kit-sdk/pkg/signver/blob"
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signver/hashivault"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 )
@@ -95,6 +98,37 @@ func (s *Signer) Chain() string {
 		return ""
 	}
 	return string(s.sv.Chain)
+}
+
+// ReadCertificatePEM resolves a certificate reference — a file path, base64 or raw PEM,
+// DER as well — into the same normalized PEM a Signer built from that reference reports.
+// The certificate is the public identity of a signature, so it has to be readable
+// without the private key the signer needs.
+func ReadCertificatePEM(ref string) (string, error) {
+	data, err := blob.LoadBase64OrFile(ref)
+	if err != nil {
+		return "", fmt.Errorf("read certificate %q: %w", ref, err)
+	}
+
+	if bytes.HasPrefix(data, []byte("-----")) {
+		decoded, _ := pem.Decode(data)
+		if decoded == nil || decoded.Type != "CERTIFICATE" {
+			return "", fmt.Errorf("certificate %q is not a PEM certificate", ref)
+		}
+		data = decoded.Bytes
+	}
+
+	cert, err := x509.ParseCertificate(data)
+	if err != nil {
+		return "", fmt.Errorf("parse certificate %q: %w", ref, err)
+	}
+
+	certPEM, err := cryptoutils.MarshalCertificateToPEM(cert)
+	if err != nil {
+		return "", fmt.Errorf("encode certificate %q: %w", ref, err)
+	}
+
+	return string(certPEM), nil
 }
 
 func NewSigner(ctx context.Context, opts SignerOptions) (*Signer, error) {

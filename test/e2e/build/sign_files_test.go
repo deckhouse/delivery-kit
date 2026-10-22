@@ -40,8 +40,8 @@ type signFilesTestOptions struct {
 
 var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() {
 	signArgs := []string{
-		"--sign-files-key", base64.StdEncoding.EncodeToString(signFilesKeyData),
-		"--sign-files-cert", base64.StdEncoding.EncodeToString(signFilesCertData),
+		"--sign-build-file-key", base64.StdEncoding.EncodeToString(signFilesKeyData),
+		"--sign-build-file-cert", base64.StdEncoding.EncodeToString(signFilesCertData),
 	}
 
 	// readSignedFiles returns the signed file and its .p7s out of the built image.
@@ -94,6 +94,29 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 		Expect(err).To(Succeed(), string(out))
 	}
 
+	DescribeTable("resolves a built image by its certificate alone, without the private key",
+		func(ctx SpecContext, testOpts signFilesTestOptions) {
+			setupEnv(testOpts.setupEnvOptions)
+
+			SuiteData.InitTestRepo(ctx, "repo0", "sign_files/state")
+			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo0"))
+
+			By("building with key and certificate")
+			werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
+
+			By("resolving the same image with the certificate only")
+			out := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{
+				"--require-built-images",
+				"--sign-build-file-cert", base64.StdEncoding.EncodeToString(signFilesCertData),
+			}}})
+			Expect(out).To(ContainSubstring("Use previously built image for sysext"))
+		},
+		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "docker",
+			WithLocalRepo:        true,
+		}}),
+	)
+
 	DescribeTable("signs the declared file after the named stage",
 		func(ctx SpecContext, testOpts signFilesTestOptions) {
 			setupEnv(testOpts.setupEnvOptions)
@@ -145,24 +168,25 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 		}}),
 	)
 
-	DescribeTable("refuses to build without a key unless signing is switched off",
+	DescribeTable("refuses to build an image whose signatures it cannot produce",
 		func(ctx SpecContext, testOpts signFilesTestOptions) {
 			setupEnv(testOpts.setupEnvOptions)
 
 			SuiteData.InitTestRepo(ctx, "repo0", "sign_files/state")
 			werfProject := werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo0"))
 
-			By("no key: the build stops before any stage")
+			By("no certificate: the build stops before any stage, the signature has no identity")
 			out, err := werfProject.BuildWithErr(ctx, &werf.BuildOptions{})
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring("images sysext declare files to sign"))
 			Expect(out).NotTo(ContainSubstring("Building stage"))
 
-			By("--sign-files=false: the image is built without the signature")
-			out, err = werfProject.BuildWithErr(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--sign-files=false"}}})
-			Expect(err).To(HaveOccurred(), "the setup stage asserts the .p7s is present, so it must fail")
-			Expect(out).NotTo(ContainSubstring("signFilesAfterInstall"))
-			Expect(out).To(ContainSubstring("Building stage sysext/setup"))
+			By("certificate without a key: the stage that must sign refuses to build")
+			out, err = werfProject.BuildWithErr(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{
+				"--sign-build-file-cert", base64.StdEncoding.EncodeToString(signFilesCertData),
+			}}})
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("specify the private key with --sign-build-file-key"))
 		},
 		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
 			ContainerBackendMode: "docker",

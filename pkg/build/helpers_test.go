@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,18 @@ import (
 	"github.com/werf/werf/v3/pkg/storage/manager"
 	"github.com/werf/werf/v3/pkg/storage/synchronization/lock_manager"
 )
+
+type optionsCapturingBuilder struct {
+	*stage_builder.StageBuilder
+	opts container_backend.BuildOptions
+}
+
+var _ stage_builder.StageBuilderInterface = (*optionsCapturingBuilder)(nil)
+
+func (b *optionsCapturingBuilder) Build(_ context.Context, opts container_backend.BuildOptions) error {
+	b.opts = opts
+	return errors.New("builder stopped the build")
+}
 
 func newImage(name string, baseImageType buildImage.BaseImageType, opts buildImage.ImageOptions) *buildImage.Image {
 	img, err := buildImage.NewImage(context.Background(), "linux/amd64", name, baseImageType, opts)

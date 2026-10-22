@@ -38,4 +38,21 @@ var _ = Describe("stageBuildOptions", func() {
 
 		Expect(opts.Network).To(Equal("bridge"))
 	})
+
+	It("hands the closed network to the backend building a sign stage", func(ctx SpecContext) {
+		srv, _ := newPublicationLockServer()
+		phase, img, _ := newPublicationPhase(ctx, &publicationStorageManager{primary: &publicationStorage{}}, srv.URL, false, 10)
+		phase.ImageBuildOptions = container_backend.BuildOptions{Network: "bridge"}
+
+		stg := signStage()
+		stg.SetDigest("sign-digest")
+		builder := &optionsCapturingBuilder{}
+		stg.SetStageImage(&stage.StageImage{Builder: builder})
+
+		_, err := phase.atomicBuildStageImage(ctx, img, stg)
+		Expect(err).To(MatchError(ContainSubstring("builder stopped the build")))
+
+		Expect(builder.opts.Network).To(Equal("none"), "--backend-network must not reach the backend building a stage that signs files")
+		Expect(builder.opts.TargetPlatform).To(Equal(img.TargetPlatform))
+	})
 })

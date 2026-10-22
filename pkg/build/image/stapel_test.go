@@ -139,14 +139,18 @@ sign:
 `, sbomBlock)
 	}
 
-	newImage := func(ctx context.Context, sbomBlock string, filesSigning signing.FilesSigningOptions) *Image {
-		projectDir := newProjectRepo(ctx, map[string]string{"werf.yaml": werfYaml(sbomBlock)})
+	newImageFrom := func(ctx context.Context, files map[string]string, filesSigning signing.FilesSigningOptions) *Image {
+		projectDir := newProjectRepo(ctx, files)
 		metaConfig, imageConfig, opts := stapelImageConfig(ctx, projectDir)
 		opts.FilesSigningOptions = filesSigning
 
 		image, err := mapStapelConfigToImage(ctx, metaConfig, imageConfig, "linux/amd64", false, opts)
 		Expect(err).NotTo(HaveOccurred())
 		return image
+	}
+
+	newImage := func(ctx context.Context, sbomBlock string, filesSigning signing.FilesSigningOptions) *Image {
+		return newImageFrom(ctx, map[string]string{"werf.yaml": werfYaml(sbomBlock)}, filesSigning)
 	}
 
 	enabled := func() signing.FilesSigningOptions {
@@ -169,6 +173,35 @@ sign:
 			stage.SignFilesAfterSetup,
 			stage.SignFiles,
 		}))
+	})
+
+	It("signs the whole image only once every git stage has put its files in place", func() {
+		image := newImageFrom(context.Background(), map[string]string{
+			"werf.yaml": `project: test
+configVersion: 1
+---
+image: app
+from: alpine:3.20
+git:
+- add: /src
+  to: /app
+shell:
+  install:
+  - echo install
+sign:
+- path: /out/d.roothash
+`,
+			"src/app.txt": "app\n",
+		}, enabled())
+
+		Expect(stageNames(image)).To(Equal([]stage.StageName{
+			stage.From,
+			stage.GitArchive,
+			stage.Install,
+			stage.GitCache,
+			stage.GitLatestPatch,
+			stage.SignFiles,
+		}), "the final sign stage must see the files the git stages patch in last")
 	})
 
 	It("generates no stage when files signing is disabled", func() {

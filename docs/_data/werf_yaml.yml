@@ -946,13 +946,13 @@ sections:
           - name: before
             value: "string"
             description:
-              en: "The stage name before which to sign the file. At present, only install and setup stages are supported"
-              ru: "Стадия, перед которой подписать файл. Поддерживаются только стадии install и setup"
+              en: "The stage name before which to sign the file. At present, only install and setup stages are supported. Optional: with neither before nor after the file is signed at the end of the image"
+              ru: "Стадия, перед которой подписать файл. Поддерживаются только стадии install и setup. Необязательна: без before и after файл подписывается в конце образа"
           - name: after
             value: "string"
             description:
-              en: "The stage name after which to sign the file. At present, only install and setup stages are supported"
-              ru: "Стадия, после которой подписать файл. Поддерживаются только стадии install и setup"
+              en: "The stage name after which to sign the file. At present, only install and setup stages are supported. Optional: with neither before nor after the file is signed at the end of the image"
+              ru: "Стадия, после которой подписать файл. Поддерживаются только стадии install и setup. Необязательна: без before и after файл подписывается в конце образа"
       - name: dependencies
         description:
           en: "Dependencies images for current image"

@@ -97,25 +97,28 @@ A trailing slash in `to` (anything other than `to: /`) is a configuration error 
 
 ## Signing files inside the image
 
-The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key.
+The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key. For a step-by-step setup, including CI and deployment, see [Signing files inside the image]({{ "/usage/build/signing_files.html" | true_relative_url }}).
 
 With neither `before` nor `after`, the file is signed at the end of the image, once its filesystem is complete — that is what a signed artifact of the image usually means, and it is what another image importing the result gets. Naming a stage puts the signature earlier: it fits the same place in the stage chain as `import`, the file must exist after the stage named by `before` or `after`, and the signature is in place for the stages that follow. Setting both is a configuration error.
 
 ```yaml
-image: sysext
-from: registry.example.com/base/ubuntu:22.04
+image: policies
+from: alpine:3.20
+git:
+- add: /policies
+  to: /src/policies
 shell:
   install:
-  - mkfs.erofs /out/ext.raw /src
-  - veritysetup format --root-hash-file=/out/ext.roothash /out/ext.raw /out/ext.verity
+  - mkdir -p /out
+  - tar -C /src/policies -czf /out/policies.tar.gz .
 sign:
-- path: /out/ext.roothash
+- path: /out/policies.tar.gz
   after: install
 ```
 
 Entries at the same signing position must not use another entry's `<path>.p7s` as an input. For example, `path: /out/x` and `path: /out/x.p7s` at the same position are a configuration error, regardless of their order in the list. To sign a generated signature, put the second entry at a later signing position.
 
-werf reads the file out of the image built so far, signs it on the build host and adds `<path>.p7s` as a new layer. The signature is a detached PKCS#7 (CMS) `SignedData` over the file content — SHA-256, RSASSA-PKCS1-v1_5, no authenticated attributes, the signing certificate embedded — the same shape `systemd-keyutil pkcs7` produces, so systemd and the Linux kernel accept it as a dm-verity root hash signature. The key therefore has to be RSA.
+werf reads the file out of the image built so far, signs it on the build host and adds `<path>.p7s` as a new layer. The signature is a detached PKCS#7 (CMS) `SignedData` over the file content — SHA-256, RSASSA-PKCS1-v1_5, no authenticated attributes, the signing certificate embedded — the same shape `systemd-keyutil pkcs7` produces, verified by OpenSSL or any other CMS implementation. The key therefore has to be RSA.
 
 The key and the certificate are never part of `werf.yaml`; they come from the command line only, separately from the manifest and SBOM signing identity:
 
@@ -132,7 +135,7 @@ The key and the certificate are never part of `werf.yaml`; they come from the co
 
 The `--sign-build-file-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`.
 
-The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the environment. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected. The authentication is validated as soon as werf resolves a declared `sign` — including a command that only has the certificate and never logs in to Vault at all.
+The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the authentication `--sign-key` uses. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected. The authentication is validated as soon as werf resolves a declared `sign` — including a command that only has the certificate and never logs in to Vault at all.
 
 There is no way to build such an image unsigned: a declared `sign` is a requirement of the image, not a build-time choice.
 

@@ -64,6 +64,9 @@ entries:
               - title: SBOM roles and workflow
                 url: /usage/build/sbom_workflow.html
 
+              - title: Signing files inside the image
+                url: /usage/build/signing_files.html
+
           - title: Deploy
             f:
               - title: Overview
@@ -233,6 +236,9 @@ entries:
 
               - title: Роли и процесс работы со SBOM
                 url: /usage/build/sbom_workflow.html
+
+              - title: Подписание файлов внутри образа
+                url: /usage/build/signing_files.html
 
           - title: Развертывание
             f:

@@ -97,7 +97,7 @@ A trailing slash in `to` (anything other than `to: /`) is a configuration error 
 
 ## Signing files inside the image
 
-The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key.
+The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key. For a step-by-step setup, including CI and deployment, see [Signing files inside the image]({{ "/usage/build/signing_files.html" | true_relative_url }}).
 
 With neither `before` nor `after`, the file is signed at the end of the image, once its filesystem is complete — that is what a signed artifact of the image usually means, and it is what another image importing the result gets. Naming a stage puts the signature earlier: it fits the same place in the stage chain as `import`, the file must exist after the stage named by `before` or `after`, and the signature is in place for the stages that follow. Setting both is a configuration error.
 
@@ -132,7 +132,7 @@ The key and the certificate are never part of `werf.yaml`; they come from the co
 
 The `--sign-build-file-vault-*` options exist so that the files signer and the `--sign-key` signer can live in different Vault mounts and log in under different roles within one `werf build`.
 
-The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the environment. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected. The authentication is validated as soon as werf resolves a declared `sign` — including a command that only has the certificate and never logs in to Vault at all.
+The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the authentication `--sign-key` uses. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected. The authentication is validated as soon as werf resolves a declared `sign` — including a command that only has the certificate and never logs in to Vault at all.
 
 There is no way to build such an image unsigned: a declared `sign` is a requirement of the image, not a build-time choice.
 

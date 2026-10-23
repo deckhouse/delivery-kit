@@ -113,6 +113,60 @@ packages:
 	)
 })
 
+var _ = Describe("network isolation under build.sbom.enable", func() {
+	werfYaml := func(importPosition string) string {
+		return fmt.Sprintf(`project: test
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: alpine:3.20
+---
+image: app
+from: alpine:3.20
+import:
+- image: donor
+  add: /etc/os-release
+  to: /donor/os-release
+  %s
+shell:
+  install:
+  - echo install
+  setup:
+  - echo setup
+`, importPosition)
+	}
+
+	stageNetwork := func(image *Image, name stage.StageName) string {
+		s := image.GetStage(name)
+		Expect(s).NotTo(BeNil())
+		n, ok := s.(interface{ Network() string })
+		Expect(ok).To(BeTrue())
+		return n.Network()
+	}
+
+	DescribeTable("disables network for shell stages but leaves the import stage reachable",
+		func(importPosition string, importStage stage.StageName) {
+			ctx := context.Background()
+			projectDir := newProjectRepo(ctx, map[string]string{"werf.yaml": werfYaml(importPosition)})
+
+			image, err := stapelImage(ctx, projectDir)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(stageNetwork(image, stage.Install)).To(Equal("none"))
+			Expect(stageNetwork(image, stage.Setup)).To(Equal("none"))
+			Expect(stageNetwork(image, importStage)).To(BeEmpty())
+		},
+		Entry("before install", "before: install", stage.DependenciesBeforeInstall),
+		Entry("after install", "after: install", stage.DependenciesAfterInstall),
+		Entry("before setup", "before: setup", stage.DependenciesBeforeSetup),
+		Entry("after setup", "after: setup", stage.DependenciesAfterSetup),
+	)
+})
+
 var _ = Describe("sign files stages", func() {
 	werfYaml := func(sbomBlock string) string {
 		return fmt.Sprintf(`project: test

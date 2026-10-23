@@ -941,8 +941,8 @@ sections:
           - name: path
             value: "string"
             description:
-              en: "The absolute path of the file to sign; the detached PKCS#7 signature is written next to it as `<path>.p7s`"
-              ru: "Абсолютный путь к подписываемому файлу; отсоединённая подпись PKCS#7 записывается рядом как `<path>.p7s`"
+              en: "The absolute path of the file to sign, or an absolute glob pattern matching the files to sign; the detached PKCS#7 signature of each file is written next to it as `<path>.p7s`"
+              ru: "Абсолютный путь к подписываемому файлу либо абсолютный glob-шаблон подписываемых файлов; отсоединённая подпись PKCS#7 каждого файла записывается рядом как `<path>.p7s`"
           - name: before
             value: "string"
             description:

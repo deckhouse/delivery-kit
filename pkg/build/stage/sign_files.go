@@ -132,57 +132,116 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 		return fmt.Errorf("create signatures dir %s: %w", signaturesDir, err)
 	}
 
+	reader, err := cb.OpenImageReader(ctx, prevBuiltImage.Image.Name(), container_backend.ReadFileFromImageOpts{TargetPlatform: s.targetPlatform})
+	if err != nil {
+		return fmt.Errorf("open image %q to sign files of image %q: %w", prevBuiltImage.Image.Name(), s.imageName, err)
+	}
+	defer func() {
+		if err := reader.Close(ctx); err != nil {
+			logboek.Context(ctx).Warn().LogF("WARNING: %s\n", err)
+		}
+	}()
+
+	files, err := s.expandSigns(ctx, reader)
+	if err != nil {
+		return err
+	}
+
 	legacy := c.UseLegacyStapelBuilder(cb)
-	var commands []string
-	for i, sign := range s.signs {
-		content, err := cb.ReadFileFromImage(ctx, prevBuiltImage.Image.Name(), sign.Path, container_backend.ReadFileFromImageOpts{TargetPlatform: s.targetPlatform})
+	var installCommands []string
+	for i, filePath := range files {
+		content, err := reader.ReadFile(ctx, filePath)
 		if err != nil {
-			return fmt.Errorf("read %s to sign from image %q: %w", sign.Path, s.imageName, err)
+			return fmt.Errorf("read %s to sign from image %q: %w", filePath, s.imageName, err)
 		}
 
 		var signature []byte
-		if err := logboek.Context(ctx).Default().LogProcess("Signing %s", sign.Path).DoError(func() error {
+		if err := logboek.Context(ctx).Default().LogProcess("Signing %s", filePath).DoError(func() error {
 			var signErr error
 			signature, signErr = signing.SignDetachedPKCS7(ctx, content, s.options.Signer())
 			return signErr
 		}); err != nil {
-			return fmt.Errorf("sign %s of image %q: %w", sign.Path, s.imageName, err)
+			return fmt.Errorf("sign %s of image %q: %w", filePath, s.imageName, err)
 		}
 
-		outputName := path.Base(sign.OutputPath())
+		outputPath := config.SignatureOutputPath(filePath)
+		outputName := path.Base(outputPath)
 		if legacy {
 			// Two signed files can share a base name: keep every signature in its own
 			// directory, or the later one overwrites the earlier and both destinations
 			// receive the same signature.
 			entryDir := strconv.Itoa(i)
 			if err := os.MkdirAll(filepath.Join(signaturesDir, entryDir), os.ModePerm); err != nil {
-				return fmt.Errorf("create signature dir for %s: %w", sign.Path, err)
+				return fmt.Errorf("create signature dir for %s: %w", filePath, err)
 			}
 			hostPath := filepath.Join(signaturesDir, entryDir, outputName)
 			if err := os.WriteFile(hostPath, signature, 0o644); err != nil {
 				return fmt.Errorf("write signature %s: %w", hostPath, err)
 			}
 			containerPath := path.Join(s.containerWerfDir, "sign", string(s.Name()), entryDir, outputName)
-			commands = append(commands,
-				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellescape.Quote(path.Dir(sign.OutputPath()))),
-				fmt.Sprintf("%s -m 0644 %s %s", stapel.InstallBinPath(), shellescape.Quote(containerPath), shellescape.Quote(sign.OutputPath())),
+			installCommands = append(installCommands,
+				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellescape.Quote(path.Dir(outputPath))),
+				fmt.Sprintf("%s -m 0644 %s %s", stapel.InstallBinPath(), shellescape.Quote(containerPath), shellescape.Quote(outputPath)),
 			)
 			continue
 		}
 
 		archive, err := singleFileTar(outputName, signature)
 		if err != nil {
-			return fmt.Errorf("pack signature of %s: %w", sign.Path, err)
+			return fmt.Errorf("pack signature of %s: %w", filePath, err)
 		}
-		stageImage.Builder.StapelStageBuilder().AddDataArchive(io.NopCloser(archive), container_backend.FileArchive, sign.OutputPath(), container_backend.AddDataArchiveOptions{})
+		stageImage.Builder.StapelStageBuilder().AddDataArchive(io.NopCloser(archive), container_backend.FileArchive, outputPath, container_backend.AddDataArchiveOptions{})
 	}
 
 	if legacy {
-		stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddVolume(fmt.Sprintf("%s:%s:ro", signaturesDir, path.Join(s.containerWerfDir, "sign", string(s.Name()))))
-		stageImage.Builder.LegacyStapelStageBuilder().Container().AddServiceRunCommands(commands...)
+		// A pattern can expand to hundreds of files; a script keeps their install
+		// commands out of the container's command line, which has a fixed size limit.
+		const scriptName = "install.sh"
+		if err := stapel.CreateScript(filepath.Join(signaturesDir, scriptName), installCommands); err != nil {
+			return fmt.Errorf("create signatures install script: %w", err)
+		}
+		containerSignaturesDir := path.Join(s.containerWerfDir, "sign", string(s.Name()))
+		stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddVolume(fmt.Sprintf("%s:%s:ro", signaturesDir, containerSignaturesDir))
+		stageImage.Builder.LegacyStapelStageBuilder().Container().AddServiceRunCommands(path.Join(containerSignaturesDir, scriptName))
 	}
 
 	return nil
+}
+
+// expandSigns resolves the stage's entries to the files to sign, in entry order. A
+// pattern that matches nothing fails the build, like a single path that does not exist:
+// a declared signature is a requirement of the image. The same file reached through two
+// entries, or a file that is the signature of another file of this stage, is rejected
+// here for patterns the way the config parser rejects it for literal paths.
+func (s *SignFilesStage) expandSigns(ctx context.Context, reader container_backend.ImageReader) ([]string, error) {
+	var files []string
+	signByFile := map[string]*config.Sign{}
+	for _, sign := range s.signs {
+		matches := []string{sign.Path}
+		if sign.IsPattern() {
+			var err error
+			matches, err = reader.Glob(ctx, sign.Path)
+			if err != nil {
+				return nil, fmt.Errorf("expand `path: %s` of sign in image %q: %w", sign.Path, s.imageName, err)
+			}
+			if len(matches) == 0 {
+				return nil, fmt.Errorf("`path: %s` of sign in image %q matches no file", sign.Path, s.imageName)
+			}
+		}
+		for _, filePath := range matches {
+			if other, exist := signByFile[filePath]; exist {
+				return nil, fmt.Errorf("file %s of image %q is signed by both `path: %s` and `path: %s` of sign", filePath, s.imageName, other.Path, sign.Path)
+			}
+			signByFile[filePath] = sign
+			files = append(files, filePath)
+		}
+	}
+	for _, filePath := range files {
+		if other, exist := signByFile[config.SignatureOutputPath(filePath)]; exist {
+			return nil, fmt.Errorf("file %s of image %q matched by `path: %s` of sign is the signature of %s signed at the same stage", config.SignatureOutputPath(filePath), s.imageName, other.Path, filePath)
+		}
+	}
+	return files, nil
 }
 
 func singleFileTar(name string, content []byte) (*bytes.Buffer, error) {

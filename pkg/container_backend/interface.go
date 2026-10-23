@@ -53,6 +53,10 @@ type ImageReader interface {
 	// ReadFile returns the content of the regular file at path. When there is no
 	// regular file at path, the returned error wraps fs.ErrNotExist.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
+	// Glob returns the sorted absolute paths of the regular files matching pattern, an
+	// absolute doublestar pattern. Symlinks are neither matched nor followed, so a file
+	// is listed under its real path only. No match is not an error.
+	Glob(ctx context.Context, pattern string) ([]string, error)
 	// ReadDir copies the directory tree at path into destDir on the host, preserving
 	// the layout relative to path. Only regular files are written; a symlink to a
 	// directory inside the tree is materialized as a copy of its target. When there is

@@ -1,6 +1,7 @@
 package e2e_build_test
 
 import (
+	"archive/tar"
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -159,6 +160,56 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
 			Expect(rebuildOut).To(ContainSubstring("Use previously built image for sysext"))
 			Expect(rebuildOut).NotTo(ContainSubstring("Building stage"))
+		},
+		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "docker",
+			WithLocalRepo:        true,
+		}}),
+		backendEntry("with repo using Native Rootless", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "native-rootless",
+			WithLocalRepo:        true,
+		}}),
+	)
+
+	DescribeTable("signs every regular file a glob pattern matches",
+		func(ctx SpecContext, testOpts signFilesTestOptions) {
+			setupEnv(testOpts.setupEnvOptions)
+
+			SuiteData.InitTestRepo(ctx, "repo0", "sign_files/state_glob")
+			werfProject := report.NewProjectWithReport(werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo0")))
+
+			buildOut, buildReport := werfProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report0.json"), &werf.WithReportOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
+			Expect(buildOut).To(ContainSubstring("Signing /out/lib/modules/6.12/kernel/a.ko"))
+			Expect(buildOut).To(ContainSubstring("Signing /out/lib/modules/6.12/kernel/net/b.ko"))
+			Expect(buildOut).NotTo(ContainSubstring("Signing /out/lib/modules/6.12/modules.order"))
+			Expect(buildOut).To(ContainSubstring("Building stage kernel/setup"))
+
+			files := map[string][]byte{}
+			hardLinks := map[string]string{}
+			img := loadImageFromRegistry(buildReport.Images["kernel"].DockerImageName)
+			utils.ForEachImageFile(SuiteData.TmpDir, img, func(header *elfTar.Header, tmpLocalPath string) {
+				name := "/" + strings.TrimPrefix(header.Name, "/")
+				if !strings.HasPrefix(name, "/out/lib/modules/") {
+					return
+				}
+				if header.Typeflag == tar.TypeLink {
+					hardLinks[name] = "/" + strings.TrimPrefix(header.Linkname, "/")
+					return
+				}
+				if tmpLocalPath == "" {
+					return
+				}
+				data, err := os.ReadFile(tmpLocalPath)
+				Expect(err).To(Succeed())
+				files[name] = data
+			})
+			for name, target := range hardLinks {
+				files[name] = files[target]
+			}
+			for _, module := range []string{"/out/lib/modules/6.12/kernel/a.ko", "/out/lib/modules/6.12/kernel/hard.ko", "/out/lib/modules/6.12/kernel/net/b.ko"} {
+				Expect(files).To(HaveKey(module + ".p7s"))
+				expectSystemdProfile(files[module], files[module+".p7s"])
+			}
 		},
 		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
 			ContainerBackendMode: "docker",

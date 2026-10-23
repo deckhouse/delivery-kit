@@ -122,6 +122,34 @@ var _ = Describe("rawStapelImage", func() {
 				},
 			},
 		),
+		Entry(
+			"should handle sign with glob patterns, whose conflicts are checked against the files they expand to",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"sign": []map[string]interface{}{
+					{"path": "/out/lib/modules/**/*.ko", "after": "install"},
+					{"path": "/out/*.ko.p7s", "after": "install"},
+					{"path": "/out/lib/modules/**/*.ko.p7s", "after": "install"},
+				},
+			},
+			&StapelImage{
+				StapelImageBase: &StapelImageBase{
+					Name:    "image1",
+					From:    "alpine:latest",
+					Git:     &GitManager{},
+					Secrets: []Secret{},
+					Sign: []*Sign{
+						{Path: "/out/lib/modules/**/*.ko", After: "install"},
+						{Path: "/out/*.ko.p7s", After: "install"},
+						{Path: "/out/lib/modules/**/*.ko.p7s", After: "install"},
+					},
+
+					platform: []string{},
+					final:    true,
+				},
+			},
+		),
 	)
 
 	DescribeTable("unmarshal and convert to directive succeed and produce expected Dependencies",
@@ -450,6 +478,14 @@ var _ = Describe("rawStapelImage", func() {
 					{"path": "/out/x.roothash.p7s", "after": "install"},
 					{"path": "/out/x.roothash", "after": "install"},
 				},
+			},
+		),
+		Entry(
+			"with sign malformed glob pattern",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign":  []map[string]interface{}{{"path": "/out/[x.ko", "after": "install"}},
 			},
 		),
 		Entry(

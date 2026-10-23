@@ -206,18 +206,22 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 		if _, exist := signByPath[signDirective.Path]; exist {
 			return nil, newDetailedConfigError(fmt.Sprintf("duplicated `path: %s` for sign!", signDirective.Path), rawSign, c.doc)
 		}
+		signByPath[signDirective.Path] = signDirective
+		imageBase.Sign = append(imageBase.Sign, signDirective)
+		// The files of a pattern are known only at signing time, where the same
+		// conflicts are checked against the expanded set.
+		if signDirective.IsPattern() {
+			continue
+		}
 		// All entries read the previous image, so an output cannot also be a signed
 		// input in the same stage.
-		if other, exist := signByPath[signDirective.OutputPath()]; exist && other.Before == signDirective.Before && other.After == signDirective.After {
+		if other, exist := signByPath[signDirective.OutputPath()]; exist && !other.IsPattern() && other.Before == signDirective.Before && other.After == signDirective.After {
 			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: its signature `%s` is signed at the same stage!", signDirective.Path, signDirective.OutputPath()), rawSign, c.doc)
 		}
 		if other, exist := signByOutputPath[signDirective.Path]; exist && other.Before == signDirective.Before && other.After == signDirective.After {
 			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: it is the signature of `path: %s` signed at the same stage!", signDirective.Path, other.Path), rawSign, c.doc)
 		}
-		signByPath[signDirective.Path] = signDirective
 		signByOutputPath[signDirective.OutputPath()] = signDirective
-
-		imageBase.Sign = append(imageBase.Sign, signDirective)
 	}
 
 	for _, rawDep := range c.RawDependencies {

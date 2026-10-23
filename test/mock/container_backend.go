@@ -60,6 +60,21 @@ func (mr *MockImageReaderMockRecorder) Close(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockImageReader)(nil).Close), ctx)
 }
 
+// Glob mocks base method.
+func (m *MockImageReader) Glob(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Glob", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Glob indicates an expected call of Glob.
+func (mr *MockImageReaderMockRecorder) Glob(ctx, pattern any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Glob", reflect.TypeOf((*MockImageReader)(nil).Glob), ctx, pattern)
+}
+
 // ReadDir mocks base method.
 func (m *MockImageReader) ReadDir(ctx context.Context, path, destDir string, opts container_backend.ReadDirOpts) error {
 	m.ctrl.T.Helper()

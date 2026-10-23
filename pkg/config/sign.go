@@ -3,11 +3,15 @@ package config
 import (
 	"fmt"
 	"path"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
-// Sign declares a file of the image whose detached PKCS#7 signature werf writes
-// next to it as <Path>.p7s, right after the stage named by Before or After, or at
-// the end of the image when neither is set.
+// Sign declares files of the image whose detached PKCS#7 signatures werf writes next
+// to them as <file>.p7s, right after the stage named by Before or After, or at the end
+// of the image when neither is set. Path is either one absolute file path or an absolute
+// glob pattern expanded against the image filesystem when the signing stage runs.
 type Sign struct {
 	Path   string
 	Before string
@@ -20,8 +24,19 @@ func (c *Sign) GetRaw() interface{} {
 	return c.raw
 }
 
+// IsPattern reports whether Path is a glob pattern rather than one file path.
+func (c *Sign) IsPattern() bool {
+	return strings.ContainsAny(c.Path, "*?[{")
+}
+
+// OutputPath is the signature path of a single-file entry; it is meaningless for a
+// pattern, whose files are known only at signing time.
 func (c *Sign) OutputPath() string {
-	return c.Path + ".p7s"
+	return SignatureOutputPath(c.Path)
+}
+
+func SignatureOutputPath(filePath string) string {
+	return filePath + ".p7s"
 }
 
 func (c *Sign) validate() error {
@@ -29,7 +44,9 @@ func (c *Sign) validate() error {
 	case c.Path == "":
 		return newDetailedConfigError("`path: /PATH/TO/FILE` required for sign!", c.raw, c.raw.rawStapelImage.doc)
 	case !path.IsAbs(c.Path) || path.Clean(c.Path) != c.Path || c.Path == "/":
-		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: expected an absolute clean file path!", c.Path), c.raw, c.raw.rawStapelImage.doc)
+		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: expected an absolute clean file path or glob pattern!", c.Path), c.raw, c.raw.rawStapelImage.doc)
+	case c.IsPattern() && !doublestar.ValidatePattern(c.Path):
+		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: malformed glob pattern!", c.Path), c.raw, c.raw.rawStapelImage.doc)
 	case c.Before != "" && c.After != "":
 		return newDetailedConfigError("specify only one stage using `before: install|setup` or `after: install|setup` for sign!", c.raw, c.raw.rawStapelImage.doc)
 	case c.Before != "" && checkInvalidRelation(c.Before):

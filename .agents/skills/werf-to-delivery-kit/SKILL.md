@@ -1,11 +1,11 @@
 ---
 name: werf-to-delivery-kit
-description: Миграция сборочных конфигов модуля с werf на delivery-kit v3 (dk3, от v3.4.0). Переписывает werf.yaml и все images/*/werf.inc.yaml на новый синтаксис — from вместо fromImage, включение SBOM (cyclonedx@1.6), замена сетевых shell-инструкций (git clone, pm install, go mod download, npm install -g, cosign attest и т.п.) на директивы git, packages (в т.ч. manager и %secret% в env) и vex; перевод builder-образов на builder/distroless + os-pm. Использовать когда пользователь говорит "мигрируй на delivery-kit", "перепиши сборку на dk3", "werf-to-delivery-kit".
+description: Миграция сборочных конфигов модуля с werf на delivery-kit v3 (dk3, от v3.4.0). Переписывает werf.yaml и все images/*/werf.inc.yaml на новый синтаксис — from вместо fromImage, включение SBOM (cyclonedx@1.6), замена сетевых shell-инструкций (git clone, pm install, go mod download, npm install -g, cosign attest и т.п.) на директивы git, packages (в т.ч. manager и %secret% в env) и vex, а подпись файлов ключом из Vault/KMS в shell — на директиву sign; перевод builder-образов на builder/distroless + os-pm. Использовать когда пользователь говорит "мигрируй на delivery-kit", "перепиши сборку на dk3", "werf-to-delivery-kit", "перенеси подпись файлов на sign".
 ---
 
 # werf-to-delivery-kit
 
-Процедура миграции сборочных инструкций модуля (Deckhouse module) с werf на delivery-kit v3. Skill self-contained: правила синтаксиса, справочник директивы `packages`, порядок стадий и стоп-условия — внутри. Синтаксис соответствует delivery-kit **v3.4.0+** (`manager`, `%secret%` в `packages[].env`, `vex`); при сомнениях сверяться с `docs/pages_en/usage/build/stapel/instructions.md` этого репозитория. Скилл не зависит от CI-системы модуля: входные данные (файл базовых образов, версия delivery-kit) запрашиваются у пользователя, а настройка CI остаётся за ним (см. §0).
+Процедура миграции сборочных инструкций модуля (Deckhouse module) с werf на delivery-kit v3. Skill self-contained: правила синтаксиса, справочник директивы `packages`, порядок стадий и стоп-условия — внутри. Синтаксис соответствует delivery-kit **v3.4.0+** (`manager`, `%secret%` в `packages[].env`, `vex`); директива `sign` — **v3.12.0-dk.2+**; при сомнениях сверяться с `docs/pages_en/usage/build/stapel/instructions.md` этого репозитория. Скилл не зависит от CI-системы модуля: входные данные (файл базовых образов, версия delivery-kit) запрашиваются у пользователя, а настройка CI остаётся за ним (см. §0).
 
 ## Ключевая идея delivery-kit v3
 
@@ -28,6 +28,7 @@ description: Миграция сборочных конфигов модуля �
 | `npm install -g yarn` / `pip install uv` — менеджер, которого нет в базовом образе | предыдущая `packages`-запись ставит менеджер, следующая ссылается на него через `manager:` (см. §3) |
 | `export GOPROXY=$(cat /run/secrets/…)`, `~/.netrc` с токеном в shell | `packages[].env` с `%secret:ID%` (см. §3) |
 | образы `*-vex-artifact` (`cosign attest` + `curl` в Vault в shell) | директива `vex:` на финальном образе (см. §3) |
+| подпись файла ключом из Vault/KMS в shell (`vault write …/transit/sign/…`, `d8 stronghold …`, `openssl smime`/`systemd-keyutil pkcs7` с ключом, секреты `VAULT_*` и клиент Vault в `mount:`) | директива `sign:` — подпись на сборочном хосте, ключ в контейнер не попадает (см. §3) |
 
 ## 0. Инвентаризация
 
@@ -39,7 +40,7 @@ description: Миграция сборочных конфигов модуля �
    - иначе **спросить пользователя**: путь к локальному `base_images.yml` версии ≥ v3.0.0 либо номер версии для скачивания (каталог публикуется командой container-base как generic package `deckhouse/container-base/base-images` в fox.flant.com, файл `base_images/<version>/base_images.yml`; нужен доступ пользователя). Без каталога ≥ v3.0.0 миграцию не начинать — в более старых нет `builder/distroless`, `base/distroless`, `pm` и pm-пакетов.
    - полученный файл положить по пути из п. 2 (если файл в `.gitignore`/`allowUncommittedFiles` — не коммитить; если он tracked — коммитить обновлённую версию) и запомнить его `# version=` для отчёта.
 4. Версия delivery-kit: нужен бинарь ≥ v3.4.0 (`vX.Y.Z-dk.N`). Если пользователь не указал путь к бинарю для верификации (§5) — спросить (либо собрать из тега этого репозитория: `CGO_ENABLED=0 go build -tags "dfrunsecurity dfrunnetwork dfrunmount dfssh containers_image_openpgp" -o /tmp/dk-werf ./cmd/werf`). CI-конфиг модуля **не править**: где и как задаются версии werf/delivery-kit и каталога (переменные `.gitlab-ci.yml`, внешний GitHub Action, шаблоны) — у каждого модуля своё. В финальном отчёте выдать пользователю две величины, которые он должен обеспечить в CI: версию каталога, по которой шла миграция, и минимальную версию delivery-kit. Попутно проверить `werf-giterminism.yaml`: файл каталога должен быть либо tracked, либо в `allowUncommittedFiles`.
-5. Составить список всех образов и для каждого зафиксировать: базовый образ, импорты, shell-инструкции с сетью, git clone, а также все include-шаблоны (`image-build.build`, `fuzz image`, `vex mitigation` и т.п.) — их тела тоже вызывают бинари, которые нужно учесть в `os-pm`.
+5. Составить список всех образов и для каждого зафиксировать: базовый образ, импорты, shell-инструкции с сетью, git clone, подпись файлов в shell (что подписывается, каким ключом, в каком формате, кто проверяет подпись), а также все include-шаблоны (`image-build.build`, `fuzz image`, `vex mitigation` и т.п.) — их тела тоже вызывают бинари, которые нужно учесть в `os-pm`.
 
 ## 1. Правило базовых образов (жёсткое)
 
@@ -293,9 +294,55 @@ vex: known_vulnerabilities.vex
 
 После этого удалить `include "vex mitigation"`, сам `vex.tmpl` и образ `base/vex`. Совместимость с внешним сканером (ожидает ли он cosign-аттестацию с подписью Vault) — уточнить у пользователя, это не решается в сборочном конфиге.
 
+### Подпись файлов → директива sign
+
+Если образ подписывает свой артефакт в shell (входит в Vault/KMS, вызывает transit sign, собирает подпись `openssl`/`systemd-keyutil`), без сети это ломается. Замена — директива `sign:` (delivery-kit ≥ v3.12.0-dk.2): delivery-kit читает файл из уже собранного образа, подписывает его на сборочном хосте и добавляет рядом `<path>.p7s` новым слоем. Стадия подписи всегда без сети, команды образа в ней не выполняются, ключ и токены Vault в сборочный контейнер не попадают.
+
+```yaml
+image: {{ $.ImageName }}-build
+final: false
+from: builder/distroless
+git:
+  - add: /
+    to: /src
+    stageDependencies:
+      packages: [go.mod, go.sum]
+packages:
+  - type: os-pm
+    spec: [golang]
+  - type: go-mod
+    workdir: /src
+shell:
+  install:
+    - cd /src && CGO_ENABLED=0 go build -o /out/app .
+sign:
+  - path: /out/app        # без before/after — подпись в конце образа
+---
+image: {{ $.ImageName }}
+from: base/distroless
+import:
+  - from: {{ $.ImageName }}-build
+    add: /out
+    to: /opt/app
+    before: install
+    includePaths: [app, app.p7s]   # подпись импортировать вместе с файлом
+```
+
+Правила:
+
+- Формат подписи фиксирован: отсоединённый PKCS#7 (CMS) `SignedData`, SHA-256, RSASSA-PKCS1-v1_5, без подписываемых атрибутов, со встроенным leaf-сертификатом (intermediates не встраиваются) — как у `systemd-keyutil pkcs7` / `openssl smime -sign -binary -noattr -outform der`. Ключ только RSA. Если старая сборка делала то же самое — переписывать на `sign:`; иначе (в т.ч. потребителю нужна встроенная цепочка) — стоп-условие.
+- Все `sign:` одного запуска delivery-kit используют **одну** пару ключ/сертификат. Сверить, каким ключом подписывается каждый файл; если в конфиге сейчас разные ключи для разных файлов — остановиться и согласовать с пользователем, не объединять ключи и не менять CI.
+- `path` — абсолютный путь к обычному файлу (не каталог), каждый `path` один раз. Позиция: без `before`/`after` — в конце образа (по умолчанию, предпочтительно); `before|after: install|setup` — на границе стадии, тогда `.p7s` виден следующим стадиям. `before` и `after` вместе — ошибка.
+- Проверку подписи, которая раньше шла сразу после подписания, не удалять — перенести: стадия, которая производит файл, своей подписи не видит. Файл из `install` → `after: install`, проверка в `beforeSetup`/`setup`; файл из `beforeSetup` → `before: setup`, проверка в `setup`; файл из `setup` (последняя shell-стадия) → подпись без `before`/`after`, проверка в отдельном образе, который импортирует файл и `.p7s`. Если сохранить проверку так не получается — стоп-условие. Если проверке нужен `openssl` — пакет в `spec:` os-pm.
+- Зависимые образы, которые импортировали подписанный файл, импортируют и `<path>.p7s`.
+- Удалить вход в Vault и вызовы подписи из shell. `secrets:` с `VAULT_*`/JWT, `mount:` с клиентом Vault (`d8`, `vault`), запрос сертификата из shell и соответствующие `secrets.allowEnvVariables`/`mount.allowFromPaths` в `werf-giterminism.yaml` удалять только после проверки всех их использований: если они нужны другому образу или проверке подписи (например, CA-сертификат) — оставить.
+- Ключ и сертификат в `werf.yaml` не задаются — только CLI/env `WERF_SIGN_BUILD_FILE_*` (настройка CI — за пользователем, §4 п. 5). Сертификат входит в digest стадии подписи, поэтому без `WERF_SIGN_BUILD_FILE_CERT` падает **любая** команда, вычисляющая стадии образа с `sign:` (`build`, `converge`, `render`, `plan`, `run`, `lint`, `bundle publish` и т.п.; `config render`/`config graph` сертификат не требуют), а без ключа — только сборка ещё не собранной стадии подписи.
+
 ### Порядок стадий (важно для понимания)
 
 `from → beforeInstall → dependenciesBeforeInstall → gitArchive → packages → install → dependenciesAfterInstall → beforeSetup → setup → ...`
+
+Стадии подписи (`sign:`) встают сразу за соответствующей стадией `dependencies*`, как `import` с тем же `before`/`after`: `before: install` → после `dependenciesBeforeInstall`, то есть **до** gitArchive и packages (подписывать можно только то, что есть после `from`/`beforeInstall`/импортов); `after: install` → после `dependenciesAfterInstall`; `before: setup` → после `dependenciesBeforeSetup`; `after: setup` → после `dependenciesAfterSetup`; без `before`/`after` → в конце образа, после git-стадий. Все они без сети.
 
 Стадия `packages` идёт **после** gitArchive (spec/lock и исходники уже в контейнере) и **до** `install` — поэтому в `shell.install` зависимости уже установлены. Стадия `packages` — единственная пользовательская стадия с доступом в сеть. Следствия: `beforeInstall` выполняется **до** packages и годится для подготовки конфигов менеджеров (без сети); `import … before: install` попадает в контейнер до packages, поэтому `workdir` файловых типов может указывать на импортированный каталог; инструменты, установленные через `os-pm`, в `beforeInstall` ещё недоступны.
 
@@ -327,11 +374,17 @@ git:
    - каждую установку пакетов → `packages:` (OS-пакеты — один inline `spec:` список у `os-pm`, версии через `==` если были зафиксированы; языковые экосистемы — файловые манифесты go.mod/package.json и т.п.; отсутствующий менеджер — через `manager:`);
    - `GOPROXY`, `CI_JOB_TOKEN`/`~/.netrc`, `GOPRIVATE` из shell → `packages[].env` с `%secret:ID%`;
    - `include "vex mitigation"` → `vex:` на финальном образе; удалить `vex.tmpl`, `base/vex`, `packages-proxies.tmpl` (`apk`/`apt` proxy-хелперы больше не нужны);
+   - подпись файла в shell → `sign:` (формат и позиция — §3), проверку подписи — в следующую стадию, `.p7s` — в `import` зависимых образов; удалить секреты, mount клиента Vault и записи giterminism, которые обслуживали только подпись;
    - удалить из shell всё сетевое (`curl`, `wget`, `go mod download`, `git`, `pm install`, `npm install -g`); чистые локальные команды (cp, sed, build при скачанных зависимостях) остаются в shell — но каждый вызываемый ими бинарь должен быть в `spec:` os-pm;
    - после удаления/переноса shell-инструкций проверить каждый `stageDependencies.<стадия>`: если у образа больше нет `shell.<стадия>` — удалить stageDependencies (и не добавлять shell-заглушки ради них);
    - убрать ставшие ненужными `secrets:` (например SOURCE_REPO для clone).
 4. На каждом шаге сверяться с §1: чего-то нет в базовых образах → остановиться и доложить (список недостающего, для какого образа).
-5. В финальном отчёте выдать пользователю требования к CI (сам CI не править, §0 п. 4): версия каталога базовых образов, по которой шла миграция (`# version=`), и минимальная версия delivery-kit (≥ v3.4.0). Если каталог tracked в репо — обновлённую копию закоммитить вместе с миграцией.
+5. В финальном отчёте выдать пользователю требования к CI (сам CI не править, §0 п. 4): версия каталога базовых образов, по которой шла миграция (`# version=`), и минимальная версия delivery-kit (≥ v3.4.0; ≥ v3.12.0-dk.2, если появилась `sign:`). Если каталог tracked в репо — обновлённую копию закоммитить вместе с миграцией.
+   Если появилась `sign:`, дополнительно перечислить, что CI должен передать delivery-kit:
+   - `WERF_SIGN_BUILD_FILE_KEY` — `hashivault://<ключ>` (или путь к PEM в формате `ENCRYPTED DELIVERY-KIT PRIVATE KEY`) — в job'ы, которые собирают образы;
+   - `WERF_SIGN_BUILD_FILE_CERT` — leaf-сертификат ключа (путь или base64 PEM) — в **каждый** job, который запускает delivery-kit с этим конфигом, включая деплой и `render`; сертификат CI получает сам (из PKI/репозитория), delivery-kit его не запрашивает;
+   - для Vault: `WERF_SIGN_BUILD_FILE_VAULT_ADDR`, `…_VAULT_TRANSIT_PATH`, `…_VAULT_AUTH_JWT` (JWT job'а), `…_VAULT_AUTH_ROLE`, `…_VAULT_AUTH_PATH` — значения брать из того, что раньше использовал shell подписи;
+   - политике роли Vault нужны `update` на `<transit>/sign/<ключ>/sha2-256` и `read` на `<transit>/keys/<ключ>` (delivery-kit сверяет открытый ключ с сертификатом; одного права на sign мало).
 
 Типовые образы модульной инфраструктуры Deckhouse, которые **не переписывать**, а зафиксировать в отчёте (сеть в shell не выражается директивами), если они есть в модуле: fuzz-образы (`.werf/defines/fuzz.tmpl`: `curl` aws-cli/mc, S3, `go install`) — они `final: false` и собираются только отдельными job'ами; svace-ветка `image-build.tmpl` (`ssh`/`rsync` на analyze-сервер при `SVACE_ENABLED=true`). Решение по ним — за пользователем.
 
@@ -351,6 +404,8 @@ SOURCE_REPO=https://example.invalid CI_JOB_TOKEN=x werf config graph --dev >/dev
 grep -rn "fromImage" werf.yaml .werf/ images/*/werf.inc.yaml
 grep -rnE "git clone|curl |wget |go mod download|pm install|npm install|apt(-get)? install|apk add|\.netrc|cat /run/secrets/GOPROXY" images/*/werf.inc.yaml .werf/
 grep -rnE "vex mitigation|base/vex|base/scratch" werf.yaml .werf/ images/*/werf.inc.yaml
+# остатки подписи в shell: каждое совпадение разобрать (перенесено на sign:/используется ещё где-то/стоп-условие), а не удалять вслепую
+grep -rnE "transit/sign|stronghold|vault (write|login)|VAULT_|smime -sign|keyutil" werf.yaml .werf/ images/*/werf.inc.yaml werf-giterminism.yaml
 # единственный допустимый builder — builder/distroless
 grep -rnE "from: builder/" werf.yaml .werf/ images/*/werf.inc.yaml | grep -v "builder/distroless"
 # импорты только из собираемых образов: сверить список источников с ключами base_images.yml — пересечений быть не должно
@@ -365,10 +420,11 @@ grep -rnE "/relocate/(bin|sbin|lib|lib64)\b|to: /(bin|sbin|lib|lib64)/" images/*
 head -1 <путь-к-каталогу>
 ```
 
-Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Типовые падения на первом прогоне: `command not found` (бинарь не в `spec:` os-pm), `~/.x: No such file or directory` (нет `$HOME`, §1), `symbol lookup error` у пакета из pm (баг сборки пакета в container-base — проверить более новую версию каталога, не обходить в конфиге). Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).
+Затем пробная сборка (`werf build`): в логе должно быть предупреждение об отключении сети для shell-стадий, сборка должна пройти без сетевых ошибок. Для образов с `sign:` без `WERF_SIGN_BUILD_FILE_CERT` сборка ожидаемо падает до стадий с `images <names> declare files to sign: specify the signing certificate with --sign-build-file-cert` — это подтверждает, что директива подхвачена; для полной проверки локально можно передать тестовый RSA-ключ и самоподписанный сертификат (`WERF_SIGN_BUILD_FILE_KEY`/`WERF_SIGN_BUILD_FILE_CERT`), в логе — стадия `signFiles*` и `Signing <path>`. Типовые падения на первом прогоне: `command not found` (бинарь не в `spec:` os-pm), `~/.x: No such file or directory` (нет `$HOME`, §1), `symbol lookup error` у пакета из pm (баг сборки пакета в container-base — проверить более новую версию каталога, не обходить в конфиге). Проверить SBOM можно командами `werf attest ls|get|verify` (скрыты из help).
 
 ## Стоп-условия (повторно, критично)
 
 - Нет нужного OS-пакета/образа в файле базовых образов → **прекратить** переписывание, сообщить пользователю: запросить пакет у команды container-base. Для менеджеров языковых экосистем (yarn, pnpm, uv, poetry) сначала применить `manager:` (§3).
-- Не удаётся заменить сетевую shell-команду ни одной директивой (`git:`/`packages:`/`vex:`) → не оставлять её в shell "как есть" и не изобретать обходы, а зафиксировать проблему и спросить пользователя (типовые случаи — fuzz и svace, см. §4).
+- Не удаётся заменить сетевую shell-команду ни одной директивой (`git:`/`packages:`/`vex:`/`sign:`) → не оставлять её в shell "как есть" и не изобретать обходы, а зафиксировать проблему и спросить пользователя (типовые случаи — fuzz и svace, см. §4).
 - Пакет из pm не работает (`symbol lookup error`, нет манифеста в registry) → это дефект container-base, не конфига: сообщить пользователю, не тащить бинарь/библиотеку из другого базового образа через `import`.
+- Подпись в shell не сводится к отсоединённому PKCS#7 RSA/SHA-256 рядом с файлом (подпись встраивается в сам файл — Authenticode/`pesign`, `sbsign`, подпись модулей ядра; голая подпись без CMS; не-RSA ключ; подписываемые атрибуты) → `sign:` её не заменяет: не переписывать этот образ и не изобретать обходы, зафиксировать и сообщить пользователю.

@@ -102,6 +102,57 @@ var _ = Describe("InstalledPackageFiles", func() {
 		Expect(InstalledPackageFiles(ctx, index)[EcosystemJavaScript]).To(Equal(map[string]string{"/app/node_modules/pkg/package.json": "/vendor/pkg/package.json", "/app/node_modules/pkg/LICENSE": "/vendor/pkg/LICENSE"}))
 	})
 
+	It("projects directory links nested inside a linked tree and ignores links back to an ancestor", func(ctx SpecContext) {
+		index := &FileIndex{
+			Files: map[string]File{"/store/foo/package.json": {Size: 123}, "/store/foo/LICENSE": {Size: 100}},
+			Symlinks: map[string]string{
+				"/app/node_modules": "/packages",
+				"/packages/foo":     "/store/foo",
+			},
+		}
+		Expect(InstalledPackageFiles(ctx, index)[EcosystemJavaScript]).To(Equal(map[string]string{
+			"/app/node_modules/foo/package.json": "/store/foo/package.json",
+			"/app/node_modules/foo/LICENSE":      "/store/foo/LICENSE",
+		}))
+
+		index = &FileIndex{
+			Files: map[string]File{"/packages/foo/package.json": {Size: 123}},
+			Symlinks: map[string]string{
+				"/app/node_modules":          "/packages",
+				"/packages/foo/node_modules": "..",
+			},
+		}
+		Expect(InstalledPackageFiles(ctx, index)[EcosystemJavaScript]).To(Equal(map[string]string{
+			"/app/node_modules/foo/package.json":          "/packages/foo/package.json",
+			"/packages/foo/node_modules/foo/package.json": "/packages/foo/package.json",
+		}), "a link back to an ancestor is followed once, not repeatedly")
+	})
+
+	DescribeTable("stops at its path budgets with a warning",
+		func(specCtx SpecContext, index *FileIndex, maxSelected int, warning string) {
+			var output bytes.Buffer
+			ctx := logboek.NewContext(specCtx, logboek.NewLogger(&output, &output))
+			selected := InstalledPackageFiles(ctx, index)
+			Expect(len(selected[EcosystemJavaScript])).To(BeNumerically("<=", maxSelected))
+			Expect(output.String()).To(ContainSubstring(warning))
+		},
+		Entry("selected file count", func() *FileIndex {
+			index := &FileIndex{Files: make(map[string]File)}
+			for i := 0; i <= maxInstalledMetadataFiles; i++ {
+				index.Files[fmt.Sprintf("/app/node_modules/pkg%06d/package.json", i)] = File{}
+			}
+			return index
+		}(), maxInstalledMetadataFiles, "file count limit"),
+		Entry("paths examined through directory links", func() *FileIndex {
+			index := &FileIndex{Files: make(map[string]File), Symlinks: make(map[string]string)}
+			for i := 0; i < 1100; i++ {
+				index.Files[fmt.Sprintf("/data/file%04d", i)] = File{}
+				index.Symlinks[fmt.Sprintf("/app/node_modules/link%04d", i)] = "/data"
+			}
+			return index
+		}(), 0, "linked path limit"),
+	)
+
 	It("bounds additional reads by indexed sizes and warns instead of reading oversized metadata", func(specCtx SpecContext) {
 		var output bytes.Buffer
 		ctx := logboek.NewContext(specCtx, logboek.NewLogger(&output, &output))

@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	maxInstalledMetadataFileBytes int64 = 4 << 20
-	maxInstalledMetadataBytes     int64 = 64 << 20
-	maxInstalledMetadataFiles           = 65536
+	maxInstalledMetadataFileBytes   int64 = 4 << 20
+	maxInstalledMetadataBytes       int64 = 64 << 20
+	maxInstalledMetadataFiles             = 65536
+	maxInstalledMetadataLinkedPaths       = 1 << 20
+	maxInstalledMetadataLinkDepth         = 8
 )
 
 // InstalledPackageFiles maps logical installation paths to the regular files to read,
@@ -31,10 +33,22 @@ func InstalledPackageFiles(ctx context.Context, index *FileIndex) map[Ecosystem]
 		}
 	}
 
-	projected := 0
-links:
+	// Directory links are projected onto the paths they are reached by, including links
+	// nested inside a linked tree, such as node_modules entries pointing into a store.
+	type directoryLink struct {
+		path  string
+		depth int
+	}
+	var links []directoryLink
 	for _, link := range slices.Sorted(maps.Keys(index.Symlinks)) {
-		target, ok := resolveInstalledMetadataPath(index, link)
+		links = append(links, directoryLink{path: link})
+	}
+	examined := 0
+projection:
+	for len(links) > 0 {
+		link := links[0]
+		links = links[1:]
+		target, ok := resolveInstalledMetadataPath(index, link.path)
 		if !ok {
 			continue
 		}
@@ -44,16 +58,20 @@ links:
 		prefix := strings.TrimSuffix(target, "/") + "/"
 		start, _ := slices.BinarySearch(paths, prefix)
 		for i := start; i < len(paths) && strings.HasPrefix(paths[i], prefix); i++ {
-			logical := rootedJoin(link, strings.TrimPrefix(paths[i], prefix))
-			if !installedMetadataCandidate(logical) {
-				continue
-			}
-			if projected >= maxInstalledMetadataFiles {
+			if examined >= maxInstalledMetadataLinkedPaths {
 				logboek.Context(ctx).Warn().LogF("WARNING: installed package metadata exceeds the linked path limit; the inventory may be incomplete\n")
-				break links
+				break projection
 			}
-			candidates = append(candidates, logical)
-			projected++
+			examined++
+			logical := rootedJoin(link.path, strings.TrimPrefix(paths[i], prefix))
+			if _, nested := index.Symlinks[paths[i]]; nested && link.depth < maxInstalledMetadataLinkDepth {
+				if nestedTarget, ok := resolveInstalledMetadataPath(index, paths[i]); ok && !strings.HasPrefix(paths[i], strings.TrimSuffix(nestedTarget, "/")+"/") {
+					links = append(links, directoryLink{path: logical, depth: link.depth + 1})
+				}
+			}
+			if installedMetadataCandidate(logical) {
+				candidates = append(candidates, logical)
+			}
 		}
 	}
 	slices.Sort(candidates)

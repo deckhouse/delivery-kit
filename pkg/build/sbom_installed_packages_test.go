@@ -3,8 +3,10 @@ package build
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,7 +25,7 @@ import (
 
 var _ = Describe("Installed package scanning", func() {
 	DescribeTable("inventories metadata independently of declarations and preserves the declaration graph when merging",
-		func(specCtx SpecContext, metadataPath, catalogerName, language, purl, symlinkTarget string) {
+		func(specCtx SpecContext, metadataPath, catalogerName, language, purl, symlinkTarget, scannedMetadata string) {
 			ctx := logging.WithLogger(specCtx)
 			ctrl := gomock.NewController(GinkgoT())
 			backend := mock.NewMockContainerBackend(ctrl)
@@ -61,7 +63,7 @@ var _ = Describe("Installed package scanning", func() {
 				scanDir = cmd.SourcePath
 				body, err := os.ReadFile(filepath.Join(scanDir, metadataPath))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(string(body)).To(Equal("metadata"))
+				Expect(string(body)).To(Equal(scannedMetadata))
 				parent, err := os.Stat(filepath.Dir(scanDir))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(parent.Mode().Perm()).To(Equal(os.FileMode(0o700)))
@@ -113,10 +115,46 @@ var _ = Describe("Installed package scanning", func() {
 			Expect(found).To(BeTrue())
 			Expect(lo.FromPtr(dependency.Dependencies)).To(Equal([]string{mergedChild.BOMRef}))
 		},
-		Entry("Python", "/opt/vendor/installed-2.0.dist-info/METADATA", "python-installed-package-cataloger", "Python", "pkg:pypi/installed@2.0", ""),
-		Entry("JavaScript", "/app/node_modules/installed/package.json", "javascript-package-cataloger", "JavaScript", "pkg:npm/installed@2.0", ""),
-		Entry("Lua", "/usr/lib/luarocks/rocks-5.4/installed/2.0/installed-2.0.rockspec", "lua-rock-cataloger", "Lua", "pkg:luarocks/installed@2.0", ""),
-		Entry("symlinked JavaScript metadata", "/app/node_modules/installed/package.json", "javascript-package-cataloger", "JavaScript", "pkg:npm/installed@2.0", "/shared/manifest"),
+		Entry("Python", "/opt/vendor/installed-2.0.dist-info/METADATA", "python-installed-package-cataloger", "Python", "pkg:pypi/installed@2.0", "", "metadata"),
+		Entry("JavaScript", "/app/node_modules/installed/package.json", "javascript-package-cataloger", "JavaScript", "pkg:npm/installed@2.0", "", "metadata"),
+		Entry("Lua", "/usr/lib/luarocks/rocks-5.4/installed/2.0/installed-2.0.rockspec", "lua-rock-cataloger", "Lua", "pkg:luarocks/installed@2.0", "", "package = \"installed\"\nversion = \"2.0\"\nmetadata"),
+		Entry("symlinked JavaScript metadata", "/app/node_modules/installed/package.json", "javascript-package-cataloger", "JavaScript", "pkg:npm/installed@2.0", "/shared/manifest", "metadata"),
+	)
+
+	DescribeTable("drops the rockspec statements Syft cannot parse and pins the installed name and version",
+		func(rockspec string, dropped []string, name, version string) {
+			want := fmt.Sprintf("package = %q\nversion = %q\n", name, version) + rockspec
+			for _, line := range dropped {
+				Expect(strings.Count(want, line+"\n")).To(Equal(1), line)
+				want = strings.Replace(want, line+"\n", "", 1)
+			}
+			Expect(string(syftParsableRockspec([]byte(rockspec), name, version))).To(Equal(want))
+		},
+		Entry("luassert chooses its source with an if statement", installedRockspec("luassert-1.9.0-1.rockspec"),
+			[]string{`if package_version == "scm" then source.branch = "master" else source.tag = "v" .. package_version end`},
+			"luassert", "1.9.0-1"),
+		Entry("say chooses its source with boolean expressions and formats its version", installedRockspec("say-1.4.1-3.rockspec"),
+			[]string{`  branch = rock_version == "scm" and "master" or nil,`, `  tag = rock_version ~= "scm" and "v"..rock_version or nil,`},
+			"say", "1.4.1-3"),
+		Entry("multi-line blocks are dropped, strings and comments are not code",
+			"package = \"x\"\n"+
+				"if not ok then\n"+
+				"  local function f() if a then return end end\n"+
+				"  for _, v in ipairs(t) do print(v) end\n"+
+				"end\n"+
+				"-- version == scm or not\n"+
+				"--[==[ if this and that\n"+
+				"]==]\n"+
+				"description = {\n"+
+				"  summary = \"if this == that\",\n"+
+				"  stable = rock_version ~= \"scm\",\n"+
+				"  detailed = [[\n"+
+				"    fast and small, or not\n"+
+				"  ]],\n"+
+				"  license = 'MIT' -- and more\n"+
+				"}\n",
+			[]string{"if not ok then", "  local function f() if a then return end end", "  for _, v in ipairs(t) do print(v) end", "end", `  stable = rock_version ~= "scm",`},
+			"x", "1.0-1"),
 	)
 
 	It("does not start a scanner when no installed metadata exists", func(ctx SpecContext) {

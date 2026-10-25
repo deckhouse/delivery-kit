@@ -834,3 +834,11 @@ func recordSavedShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSav
 	filesets, produced := collectShippedScope(ctx, backend, werfImgName, imageName, sbomStageProvenance{})
 	recordShippedScope(ctx, bom, filesets, produced, werfImgName)
 }
+
+func installedRockspec(name string) string {
+	data, err := os.ReadFile(filepath.Join("testdata", "installed_rockspec", name))
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
+}

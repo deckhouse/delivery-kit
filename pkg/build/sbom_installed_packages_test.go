@@ -136,25 +136,35 @@ var _ = Describe("Installed package scanning", func() {
 		Entry("say chooses its source with boolean expressions and formats its version", installedRockspec("say-1.4.1-3.rockspec"),
 			[]string{`  branch = rock_version == "scm" and "master" or nil,`, `  tag = rock_version ~= "scm" and "v"..rock_version or nil,`},
 			"say", "1.4.1-3"),
-		Entry("multi-line blocks are dropped, strings and comments are not code",
-			"package = \"x\"\n"+
-				"if not ok then\n"+
-				"  local function f() if a then return end end\n"+
-				"  for _, v in ipairs(t) do print(v) end\n"+
-				"end\n"+
-				"-- version == scm or not\n"+
-				"--[==[ if this and that\n"+
-				"]==]\n"+
-				"description = {\n"+
-				"  summary = \"if this == that\",\n"+
-				"  stable = rock_version ~= \"scm\",\n"+
-				"  detailed = [[\n"+
-				"    fast and small, or not\n"+
-				"  ]],\n"+
-				"  license = 'MIT' -- and more\n"+
-				"}\n",
+		Entry("local expressions retain bindings used later", installedRockspec("local-expression-1.0-1.rockspec"),
+			[]string{}, "local-expression", "1.0-1"),
+		Entry("quoted-key local expressions retain bindings", installedRockspec("quoted-key-1.0-1.rockspec"),
+			[]string{}, "quoted-key", "1.0-1"),
+		Entry("mixed local values retain all bindings", installedRockspec("mixed-expression-1.0-1.rockspec"),
+			[]string{}, "mixed-expression", "1.0-1"),
+		Entry("boolean locals starting with strings remain unsupported", installedRockspec("quoted-expression-1.0-1.rockspec"),
+			[]string{`local is_scm = "scm" == version`}, "quoted-expression", "1.0-1"),
+		Entry("continued quoted strings are not code", installedRockspec("continued-string-1.0-1.rockspec"),
+			[]string{}, "continued-string", "1.0-1"),
+		Entry("multi-line blocks are dropped, strings and comments are not code", installedRockspec("block-strings-1.0-1.rockspec"),
 			[]string{"if not ok then", "  local function f() if a then return end end", "  for _, v in ipairs(t) do print(v) end", "end", `  stable = rock_version ~= "scm",`},
-			"x", "1.0-1"),
+			"block-strings", "1.0-1"),
+		Entry("long comments are preserved despite not being supported by Syft",
+			"--[==[ if this and that\n]==]\npackage = \"x\"\n",
+			[]string{}, "x", "1.0-1"),
+	)
+
+	DescribeTable("preserves only local expressions that Syft can skip without losing bindings",
+		func(declaration, nextLine string, supported bool) {
+			Expect(syftSkipsLocalBoolean(declaration, nextLine)).To(Equal(supported))
+		},
+		Entry("unquoted expression", "local a = flag and 'x' or ''\n", "\n", true),
+		Entry("literal values before an expression", "local a, b, c = 'x', 'y', flag and 'z' or ''\n", " \t\r\n", true),
+		Entry("wrong value count", "local a, b = flag and 'x' or ''\n", "\n", false),
+		Entry("quoted expression", "local a = 'x' == flag\n", "\n", false),
+		Entry("indexed expression", "local a = object[key] and 'x'\n", "\n", false),
+		Entry("no following line", "local a = flag and 'x'\n", "", false),
+		Entry("following comment is not a blank line", "local a = flag and 'x'\n", "-- blank\n", false),
 	)
 
 	It("does not start a scanner when no installed metadata exists", func(ctx SpecContext) {

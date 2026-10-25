@@ -63,11 +63,9 @@ func (step *sbomStep) scanInstalledPackages(ctx context.Context, imageInfo *imag
 	return boms, nil
 }
 
-// Syft discards a whole rockspec when it meets a conditional statement or a boolean
-// expression, which upstream rockspecs use to choose a source branch or tag. Such lines
-// never carry the name, version or license, so they are dropped before the scan. The
-// install directory supplies the name and version for rockspecs that compute them; they
-// lead the file because Syft ignores every top-level field after the build table.
+// The scan copy omits conditionals and boolean fields that Syft cannot parse. These
+// are not evaluated, so their metadata stays unknown. Directory-backed identity leads
+// the file because Syft ignores top-level fields after the build table.
 func rewriteInstalledRockspecs(dir string, paths map[string]string) error {
 	for logicalPath := range paths {
 		if !strings.HasSuffix(logicalPath, ".rockspec") {
@@ -91,9 +89,11 @@ func syftParsableRockspec(data []byte, name, version string) []byte {
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "package = %q\nversion = %q\n", name, version)
 	longClose := ""
+	var quote byte
 	blockDepth := 0
-	for _, line := range strings.SplitAfter(string(data), "\n") {
-		code := luaCode(line, &longClose)
+	lines := strings.SplitAfter(string(data), "\n")
+	for i, line := range lines {
+		code := luaCode(line, &longClose, &quote)
 		words := strings.FieldsFunc(code, func(r rune) bool {
 			return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
 		})
@@ -112,18 +112,86 @@ func syftParsableRockspec(data []byte, name, version string) []byte {
 		if strings.Contains(code, "==") || strings.Contains(code, "~=") || slices.ContainsFunc(words, func(word string) bool {
 			return word == "and" || word == "or" || word == "not"
 		}) {
-			continue
+			if len(words) == 0 || words[0] != "local" || i+1 >= len(lines) || !syftSkipsLocalBoolean(line, lines[i+1]) {
+				continue
+			}
 		}
 		out.WriteString(line)
 	}
 	return out.Bytes()
 }
 
-// luaCode returns the part of a line outside string literals and comments. longClose
-// carries an unterminated long string or comment over to the next line.
-func luaCode(line string, longClose *string) string {
+// Syft keeps literal local values and skips a final unquoted expression. The skip
+// consumes its newline, so a following blank line is needed to terminate the declaration.
+func syftSkipsLocalBoolean(line, nextLine string) bool {
+	if !strings.HasPrefix(strings.TrimLeft(nextLine, " \t"), "\n") && !strings.HasPrefix(strings.TrimLeft(nextLine, " \t"), "\r") {
+		return false
+	}
+	left, value, ok := strings.Cut(line, "=")
+	if !ok {
+		return false
+	}
+	names := strings.Split(strings.TrimPrefix(strings.TrimSpace(left), "local"), ",")
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || strings.IndexFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' }) >= 0 {
+			return false
+		}
+	}
+	for count := 1; ; count++ {
+		value = strings.TrimLeft(value, " \t")
+		if value == "" {
+			return false
+		}
+		if value[0] != '"' && value[0] != '\'' {
+			for {
+				value = strings.TrimLeftFunc(value, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == ']' })
+				if !strings.HasPrefix(value, "[") {
+					return count == len(names) && value != ""
+				}
+				if len(value) < 3 {
+					return false
+				}
+				close := value[1]
+				if close == '[' {
+					close = ']'
+				} else if close != '"' && close != '\'' {
+					return false
+				}
+				end := strings.IndexByte(value[2:], close)
+				if end < 0 || end+3 >= len(value) || value[end+3] != ']' {
+					return false
+				}
+				value = value[end+4:]
+			}
+		}
+		end := strings.IndexByte(value[1:], value[0])
+		if end < 0 {
+			return false
+		}
+		value = strings.TrimLeft(value[end+2:], " \t")
+		if !strings.HasPrefix(value, ",") {
+			return false
+		}
+		value = value[1:]
+	}
+}
+
+func luaCode(line string, longClose *string, quote *byte) string {
 	var code strings.Builder
 	for i := 0; i < len(line); {
+		if *quote != 0 {
+			switch line[i] {
+			case '\\':
+				i += 2
+			case *quote:
+				*quote = 0
+				i++
+			default:
+				i++
+			}
+			continue
+		}
 		if *longClose != "" {
 			end := strings.Index(line[i:], *longClose)
 			if end < 0 {
@@ -143,13 +211,7 @@ func luaCode(line string, longClose *string) string {
 			}
 			return code.String()
 		case c == '"' || c == '\'':
-			i++
-			for i < len(line) && line[i] != c {
-				if line[i] == '\\' {
-					i++
-				}
-				i++
-			}
+			*quote = c
 			i++
 			code.WriteByte(' ')
 		case c == '[':

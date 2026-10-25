@@ -1,0 +1,23 @@
+project: werf-test-e2e-sbom-installed-lua
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - werf-sbom-lua-installed-0.1-1.rockspec
+packages:
+  - type: os-pm
+    spec:
+      - lua==5.3.6
+      - luarocks==3.12.2
+  - type: lua-rock
+    workdir: /app
+    spec: werf-sbom-lua-installed-0.1-1.rockspec

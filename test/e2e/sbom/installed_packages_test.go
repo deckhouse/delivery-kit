@@ -66,7 +66,9 @@ var _ = Describe("SBOM installed-packages inventory", Label("e2e", "sbom", "inst
 
 		roots := sbomtest.RootDependencies(bom)
 		Expect(roots).To(ContainElement("is-odd"), "is-odd is declared prod dep")
-		Expect(roots).To(ContainElement("is-number"), "is-number@7 is declared prod dep")
+		isNumber7 := sbomtest.FindComponent(bom, "is-number", "7.0.0")
+		Expect(isNumber7).NotTo(BeNil())
+		sbomtest.AssertDependsOn(bom, bom.Metadata.Component.BOMRef, isNumber7.BOMRef)
 
 		isNumber6 := sbomtest.FindComponent(bom, "is-number", "6.0.0")
 		Expect(isNumber6).NotTo(BeNil())

@@ -1,0 +1,24 @@
+project: werf-test-e2e-sbom-inject-ospm-no-filelist
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+# builder/distroless of base-images v3.0.2: its pm writes /var/lib/pm/index.json but no
+# files.json, so nothing records which files a package put into the image.
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+packages:
+  - type: os-pm
+    spec:
+      - curl==8.12.1
+      - jq==1.8.1
+---
+image: app
+from: registry.werf.io/werf/scratch:latest
+import:
+  - from: donor
+    add: /usr/bin/curl
+    to: /usr/bin/curl
+    before: setup

@@ -1,11 +1,14 @@
 package e2e_build_test
 
 import (
+	"archive/tar"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -175,4 +178,101 @@ func assertProducedBinaryImages(ctx SpecContext, project *werf.Project) map[stri
 		}
 	}
 	return snapshot
+}
+
+func shippedProperty(comp *cdx.Component) (string, bool) {
+	for _, property := range lo.FromPtr(comp.Properties) {
+		if property.Name == shippedscope.PropertyShipped {
+			return property.Value, true
+		}
+	}
+
+	return "", false
+}
+
+func pullImage(ctx SpecContext, imageRef string) v1.Image {
+	ref, err := name.NewDigest(imageRef, name.Insecure)
+	Expect(err).NotTo(HaveOccurred())
+
+	img, err := remote.Image(ref, insecureRemoteOptions(ctx)...)
+	Expect(err).NotTo(HaveOccurred())
+
+	return img
+}
+
+// readImageFile returns a regular file as the flattened image holds it: the topmost layer
+// carrying the path wins.
+func readImageFile(img v1.Image, path string) []byte {
+	layers, err := img.Layers()
+	Expect(err).NotTo(HaveOccurred())
+
+	want := strings.TrimPrefix(path, "/")
+	for i := len(layers) - 1; i >= 0; i-- {
+		if body, found := readLayerFile(layers[i], want); found {
+			return body
+		}
+	}
+
+	Fail(fmt.Sprintf("file %s not found in image", path))
+	return nil
+}
+
+func readLayerFile(layer v1.Layer, want string) ([]byte, bool) {
+	rc, err := layer.Uncompressed()
+	Expect(err).NotTo(HaveOccurred())
+	defer rc.Close()
+
+	reader := tar.NewReader(rc)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, false
+		}
+		Expect(err).NotTo(HaveOccurred())
+
+		entry := strings.TrimPrefix(strings.TrimPrefix(header.Name, "./"), "/")
+		if entry != want || header.Typeflag != tar.TypeReg {
+			continue
+		}
+
+		body, err := io.ReadAll(reader)
+		Expect(err).NotTo(HaveOccurred())
+
+		return body, true
+	}
+}
+
+// ospmComponent finds the package pm installed under the given catalog version. The
+// base image's own packages are also cataloged under the version the base was built
+// with, so the qualifier tells the two records of one package apart.
+func ospmComponent(bom *cdx.BOM, name, containerFactoryVersion string) *cdx.Component {
+	for _, comp := range lo.FromPtr(bom.Components) {
+		if comp.Name == name && strings.HasPrefix(comp.PackageURL, "pkg:generic/") &&
+			strings.Contains(comp.PackageURL, "containerfactoryversion="+containerFactoryVersion) {
+			return &comp
+		}
+	}
+
+	return nil
+}
+
+func occurrencesOf(comp *cdx.Component) []cdx.EvidenceOccurrence {
+	if comp == nil || comp.Evidence == nil {
+		return nil
+	}
+
+	return lo.FromPtr(comp.Evidence.Occurrences)
+}
+
+func locationOf(occurrence cdx.EvidenceOccurrence, _ int) string {
+	return occurrence.Location
+}
+
+func stableBOM(bom *cdx.BOM) *cdx.BOM {
+	bom.SerialNumber = ""
+	if bom.Metadata != nil {
+		bom.Metadata.Timestamp = ""
+	}
+
+	return bom
 }

@@ -132,8 +132,9 @@ func (c *fileTarCollector) result() ([]byte, error) {
 
 // globTarCollector matches the regular-file entries of a `docker cp <base>` stream
 // against a doublestar pattern whose literal prefix is base. The stream names its
-// entries from the base name of the copied directory on, so they are rebased onto its
-// parent to get the in-image path the pattern is written for.
+// entries from the base name of the copied directory on (`out/a.ko` for base `/out`),
+// so joining them onto the base's parent gives the in-image path the pattern is written
+// for. A base of `/` never reaches here: the config rejects it.
 type globTarCollector struct {
 	base    string
 	pattern string

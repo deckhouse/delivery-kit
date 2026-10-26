@@ -208,11 +208,8 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 	return nil
 }
 
-// expandSigns resolves the stage's entries to the files to sign, in entry order. A
-// pattern that matches nothing fails the build, like a single path that does not exist:
-// a declared signature is a requirement of the image. The same file reached through two
-// entries, or a file that is the signature of another file of this stage, is rejected
-// here for patterns the way the config parser rejects it for literal paths.
+// expandSigns resolves the entries to the files to sign, in entry order, and applies to
+// the expanded set the conflict checks the config parser applies to literal paths.
 func (s *SignFilesStage) expandSigns(ctx context.Context, reader container_backend.ImageReader) ([]string, error) {
 	var files []string
 	signByFile := map[string]*config.Sign{}

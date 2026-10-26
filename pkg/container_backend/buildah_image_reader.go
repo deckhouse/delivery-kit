@@ -120,9 +120,7 @@ func (r *buildahImageReader) Glob(_ context.Context, pattern string) ([]string, 
 	return matches, nil
 }
 
-// ReadDir is intentionally unsupported on the Buildah backend: its only caller is the
-// SBOM directory-scan flow, which rejects Buildah upfront (see the SBOM guard in the
-// conveyor).
+// ReadDir's only caller, the SBOM directory scan, rejects the Buildah backend upfront.
 func (r *buildahImageReader) ReadDir(_ context.Context, _, _ string, _ ReadDirOpts) error {
 	return fmt.Errorf("ReadDir is not supported with the Buildah backend")
 }

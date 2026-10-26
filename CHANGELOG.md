@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.12.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.2...v3.12.0-dk.3) (2026-10-26)
+
+
+### Features
+
+* **build, stapel:** sign files matched by a glob pattern ([#471](https://github.com/deckhouse/delivery-kit/issues/471)) ([ffda24e](https://github.com/deckhouse/delivery-kit/commit/ffda24e2b31bcc89a2a8a3910f9a75549dd138de))
+* **sbom:** inventory installed Python, JavaScript and Lua packages ([#472](https://github.com/deckhouse/delivery-kit/issues/472)) ([7fde219](https://github.com/deckhouse/delivery-kit/commit/7fde219aa96e512f0d1a9bfcbf86336b99db643d))
+
+
+### Bug Fixes
+
+* **build, stapel, import:** stop imports failing with sbom enabled ([#470](https://github.com/deckhouse/delivery-kit/issues/470)) ([478b751](https://github.com/deckhouse/delivery-kit/commit/478b751282a6832e497693e53c1369bed792f529))
+* **sbom:** avoid marking editable Python packages as absent ([#474](https://github.com/deckhouse/delivery-kit/issues/474)) ([e0b4b66](https://github.com/deckhouse/delivery-kit/commit/e0b4b660d602be35fb4942d97f0beba35b79fbed))
+* **sbom:** retain legacy Python bytecode after source removal ([#476](https://github.com/deckhouse/delivery-kit/issues/476)) ([36debcb](https://github.com/deckhouse/delivery-kit/commit/36debcb28386676adf208a92edd92ad885535ad7))
+* **sbom:** stop marking os-pm packages under /lib64 as not shipped ([#475](https://github.com/deckhouse/delivery-kit/issues/475)) ([cd0a029](https://github.com/deckhouse/delivery-kit/commit/cd0a029c879ba7feb13666959700dbe3becc3e2f))
+
 ## [3.12.0-dk.2](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.1...v3.12.0-dk.2) (2026-10-22)
 
 

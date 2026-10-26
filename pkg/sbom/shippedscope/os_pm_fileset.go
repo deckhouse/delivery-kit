@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
+	"strings"
 
 	"github.com/werf/logboek"
 )
@@ -27,6 +29,12 @@ type pmFileList map[string]struct {
 // osPMFilesets takes a package's boundary from the list pm wrote while unpacking it. The
 // digest pm recorded is left aside: a file an install hook rewrote afterwards ships with
 // the content the image holds now, which is what the index gives.
+//
+// pm records a file under the path its archive spells, and the image holds it where that
+// path leads once the directory symlinks the base lays down are followed — a package whose
+// archive says /usr/lib64 lands in /usr/lib when /usr/lib64 points there. The declared
+// paths are resolved through those symlinks before the index is consulted, so that the
+// fileset names the file where the image has it.
 //
 // An image installed by a pm too old to write the list yields no os-pm filesets, a
 // warning, and the second result set: breaking every build still on an older base would
@@ -53,10 +61,10 @@ func osPMFilesets(ctx context.Context, index *FileIndex, manifests map[string][]
 		entry := list[name]
 		declared := make([]string, 0, len(entry.Files)+len(entry.Symlinks))
 		for file := range entry.Files {
-			declared = append(declared, rootedPath(file))
+			declared = append(declared, resolveDirSymlinks(index, rootedPath(file)))
 		}
 		for link := range entry.Symlinks {
-			declared = append(declared, rootedPath(link))
+			declared = append(declared, resolveDirSymlinks(index, rootedPath(link)))
 		}
 
 		files, symlinks := collect(index, declared)
@@ -72,4 +80,52 @@ func osPMFilesets(ctx context.Context, index *FileIndex, manifests map[string][]
 	}
 
 	return filesets, false, nil
+}
+
+const maxDirSymlinkHops = 40
+
+// resolveDirSymlinks follows every symlink among the directories above the leaf of a rooted
+// path, the leaf itself excluded: a symlink there is the entry the fileset wants, not a
+// detour. Targets are taken as the image spells them, absolute or relative to the link's
+// own directory, and a ".." inside one steps out of whatever the components before it
+// resolved to, as the kernel would walk it. A chain that does not settle within the hop
+// budget is returned as it stands.
+func resolveDirSymlinks(index *FileIndex, file string) string {
+	dir, rest := "/", strings.TrimPrefix(file, "/")
+	hops := 0
+	for {
+		name, tail, hasTail := strings.Cut(rest, "/")
+		if !hasTail {
+			return path.Join(dir, name)
+		}
+
+		switch name {
+		case "", ".":
+			rest = tail
+
+			continue
+		case "..":
+			dir, rest = path.Dir(dir), tail
+
+			continue
+		}
+
+		current := path.Join(dir, name)
+		target, ok := index.Symlinks[current]
+		if !ok {
+			dir, rest = current, tail
+
+			continue
+		}
+
+		hops++
+		if hops > maxDirSymlinkHops {
+			return file
+		}
+
+		if path.IsAbs(target) {
+			dir = "/"
+		}
+		rest = strings.TrimPrefix(target, "/") + "/" + tail
+	}
 }

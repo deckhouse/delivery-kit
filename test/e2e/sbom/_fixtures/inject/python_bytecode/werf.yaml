@@ -1,0 +1,98 @@
+project: werf-test-e2e-sbom-python-pip-bytecode
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - requirements.txt
+        - bytekept/**
+        - bytedropped/**
+packages:
+  - type: os-pm
+    spec:
+      - python==3.12.12
+  - type: python-pip
+    workdir: /app
+shell:
+  install:
+    - cd /usr/lib/python3.12/site-packages
+    - python3 -m compileall -q -b -f --invalidation-mode timestamp bytekept bytedropped
+    - python3 -m compileall -q -b -f --invalidation-mode checked-hash bytekept/checked.py
+    - python3 -m compileall -q -b -f --invalidation-mode unchecked-hash bytekept/unchecked.py
+    - find bytekept bytedropped -name '*.py' -delete
+    - rm -rf bytekept/__pycache__ bytedropped/__pycache__
+    - test -z "$(find bytekept bytedropped \( -name '*.py' -o -name __pycache__ \) -print)"
+    - |
+      cd / && python3 -B - <<'PY'
+      import importlib.machinery
+      import pathlib
+
+      import bytedropped
+      import bytedropped.legacy
+      import bytekept
+      import bytekept.checked
+      import bytekept.stamp
+      import bytekept.unchecked
+
+      site = pathlib.Path("/usr/lib/python3.12/site-packages")
+      for dist, sources in {
+          "bytekept": ["__init__", "stamp", "checked", "unchecked"],
+          "bytedropped": ["__init__", "legacy"],
+      }.items():
+          record = (site / f"{dist}-0.1.0.dist-info" / "RECORD").read_text().splitlines()
+          declared = {line.split(",")[0] for line in record}
+          for source in sources:
+              assert f"{dist}/{source}.py" in declared, (dist, source, record)
+              assert f"{dist}/{source}.pyc" not in declared, (dist, source, record)
+
+      flags = {
+          name: int.from_bytes((site / "bytekept" / f"{name}.pyc").read_bytes()[4:8], "little")
+          for name in ["stamp", "checked", "unchecked"]
+      }
+      assert flags == {"stamp": 0, "checked": 3, "unchecked": 1}, flags
+
+      modules = [bytekept, bytekept.stamp, bytekept.checked, bytekept.unchecked, bytedropped, bytedropped.legacy]
+      for module in modules:
+          assert isinstance(module.__spec__.loader, importlib.machinery.SourcelessFileLoader), module
+          assert module.__file__.startswith(str(site)), module
+      assert [module.payload for module in modules] == [
+          "bytekept package",
+          "bytekept timestamp module",
+          "bytekept checked-hash module",
+          "bytekept unchecked-hash module",
+          "bytedropped package",
+          "bytedropped legacy module",
+      ], modules
+      PY
+---
+image: source
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /usr/lib/python3.12/site-packages/bytekept
+    to: /runtime/bytekept
+    before: setup
+---
+image: grandchild
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: source
+    add: /runtime/bytekept
+    to: /relocated/bytekept
+    before: setup
+---
+image: empty
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/requirements.txt
+    to: /app/requirements.txt
+    before: setup

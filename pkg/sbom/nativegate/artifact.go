@@ -20,6 +20,7 @@ type inspector struct {
 	catalog   *Catalog
 	compiled  map[string]Compile
 	active    map[string]bool
+	resolved  map[string][]string
 	languages []string
 	tools     []Tool
 	archives  map[string][]byte
@@ -98,6 +99,10 @@ func (i *inspector) input(s Source) ([]string, error) {
 		}
 		s.Path = resolved
 	}
+	key := s.Path + "\x00" + s.SHA256
+	if refs, ok := i.resolved[key]; ok {
+		return refs, nil
+	}
 	var owners []string
 	for _, r := range i.catalog.Records {
 		if (r.Origin == "pm" || r.Origin == "sdk") && r.Path == s.Path && r.SHA256 == s.SHA256 {
@@ -159,6 +164,10 @@ func (i *inspector) input(s Source) ([]string, error) {
 		}
 		owners = appendUnique(owners, refs...)
 	}
+	if i.resolved == nil {
+		i.resolved = map[string][]string{}
+	}
+	i.resolved[key] = owners
 	return owners, nil
 }
 

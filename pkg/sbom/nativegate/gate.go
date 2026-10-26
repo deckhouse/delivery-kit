@@ -247,6 +247,11 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 		present[name] = *record
 	}
+	direct := map[string]Record{}
+	for name, r := range present {
+		r.Components = slices.Clone(r.Components)
+		direct[name] = r
+	}
 	if ip.Role == "final" {
 		cfg, err := img.ConfigFile()
 		if err != nil {
@@ -291,7 +296,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		sort.Strings(refs)
 		*target.Dependencies = append(*target.Dependencies, cdx.Dependency{Ref: target.Metadata.Component.BOMRef, Dependencies: &refs})
 	}
-	for name, r := range present {
+	for name, r := range direct {
 		r.Path = name
 		c.Records = append(c.Records, r)
 	}

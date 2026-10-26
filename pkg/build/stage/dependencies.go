@@ -44,11 +44,15 @@ func getDependencies(imageBaseConfig *config.StapelImageBase, options *getImport
 	return dependencies
 }
 
+// newDependenciesStage marks the stage as needing network: under the Docker backend imports
+// are rsynced from an import-server container, and the stage carries no shell: commands.
 func newDependenciesStage(imports []*config.Import, dependencies []*config.Dependency, name StageName, baseStageOptions *BaseStageOptions) *DependenciesStage {
+	opts := *baseStageOptions
+	opts.NeedsNetwork = true
 	s := &DependenciesStage{}
 	s.imports = imports
 	s.dependencies = dependencies
-	s.BaseStage = NewBaseStage(name, baseStageOptions)
+	s.BaseStage = NewBaseStage(name, &opts)
 	return s
 }
 

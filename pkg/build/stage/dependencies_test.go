@@ -13,6 +13,20 @@ import (
 )
 
 var _ = Describe("DependenciesStage", func() {
+	DescribeTable("needs network regardless of the base options",
+		func(name StageName) {
+			stage := newDependenciesStage(nil, nil, name, &BaseStageOptions{
+				ImageName:   "example-image",
+				ProjectName: "example-project",
+			})
+			Expect(stage.NeedsNetwork()).To(BeTrue())
+		},
+		Entry("dependenciesBeforeInstall", DependenciesBeforeInstall),
+		Entry("dependenciesAfterInstall", DependenciesAfterInstall),
+		Entry("dependenciesBeforeSetup", DependenciesBeforeSetup),
+		Entry("dependenciesAfterSetup", DependenciesAfterSetup),
+	)
+
 	DescribeTable("configuring images dependencies for dependencies stage",
 		func(ctx SpecContext, data TestDependencies) {
 			conveyor := NewConveyorStubForDependencies(NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"), NewGiterminismInspectorStub()), data.Dependencies)

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -118,6 +119,11 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 }
 
 func binaryLike(body []byte, executable bool, name string) bool {
+	for _, magic := range []string{"\xca\xfe\xba\xbe", "\xbe\xba\xfe\xca", "\xfe\xed\xfa\xce", "\xce\xfa\xed\xfe", "\xfe\xed\xfa\xcf", "\xcf\xfa\xed\xfe", "BC\xc0\xde"} {
+		if bytes.HasPrefix(body, []byte(magic)) {
+			return true
+		}
+	}
 	return executable || bytes.HasPrefix(body, []byte("\x7fELF")) || bytes.HasPrefix(body, []byte("MZ")) || bytes.HasPrefix(body, []byte("\x00asm")) || bytes.HasPrefix(body, []byte("!<arch>")) || bytes.HasPrefix(body, []byte("!<thin>")) || strings.HasSuffix(name, ".o") || strings.HasSuffix(name, ".so") || strings.HasSuffix(name, ".a")
 }
 
@@ -277,7 +283,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 				return fmt.Errorf("unsupported dynamic loader environment %s", key)
 			}
 		}
-		if err := dynamicClosure(fs, present); err != nil {
+		if err := dynamicClosure(fs, present, ip.RuntimeLoads); err != nil {
 			return err
 		}
 	}
@@ -314,6 +320,19 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		r.Path = name
 		c.Records = append(c.Records, r)
 	}
+	if target.Metadata == nil {
+		target.Metadata = &cdx.Metadata{}
+	}
+	declaration, err := json.Marshal(ip.RuntimeLoads)
+	if err != nil {
+		return err
+	}
+	props := []cdx.Property{}
+	if target.Metadata.Properties != nil {
+		props = append(props, (*target.Metadata.Properties)...)
+	}
+	props = append(props, cdx.Property{Name: "dk:runtimeLoads:image-scope", Value: string(declaration)})
+	target.Metadata.Properties = &props
 	return c.attach(target)
 }
 
@@ -340,7 +359,7 @@ func resolvePath(fs *filesystem, name string) (string, error) {
 	return "", fmt.Errorf("symlink cycle %s", name)
 }
 
-func dynamicClosure(fs *filesystem, present map[string]Record) error {
+func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []string) error {
 	edges := map[string][]string{}
 	for name := range present {
 		body := fs.bodies[name]
@@ -354,6 +373,10 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 		if f.Class != elf.ELFCLASS64 || f.Machine != elf.EM_X86_64 {
 			f.Close()
 			return fmt.Errorf("unsupported runtime ELF architecture")
+		}
+		if runtimeLoads == nil {
+			f.Close()
+			return fmt.Errorf("runtimeLoads declaration required; runtime loading is not inferred from linkage")
 		}
 		if f.Section(".dynamic") != nil {
 			for candidate := range fs.index.Files {
@@ -378,75 +401,31 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 				needed = append(needed, strings.TrimRight(string(raw), "\x00"))
 			}
 		}
-		dirs := []string{"/lib64", "/lib", "/usr/lib64", "/usr/lib"}
-		for _, tag := range []elf.DynTag{elf.DT_RUNPATH, elf.DT_RPATH} {
-			entries, err := f.DynString(tag)
-			if err != nil {
-				f.Close()
-				return err
-			}
-			if tag == elf.DT_RPATH && len(entries) > 0 {
-				f.Close()
-				return fmt.Errorf("DT_RPATH inheritance unsupported; use DT_RUNPATH")
-			}
-			search := []string{}
-			for _, entry := range entries {
-				for _, dir := range strings.Split(entry, ":") {
-					dir = strings.ReplaceAll(dir, "${ORIGIN}", path.Dir(name))
-					dir = strings.ReplaceAll(dir, "$ORIGIN", path.Dir(name))
-					if !strings.HasPrefix(dir, "/") || strings.Contains(dir, "$") {
-						f.Close()
-						return fmt.Errorf("unsupported runtime search path %s", dir)
-					}
-					search = append(search, dir)
-				}
-			}
-			dirs = append(search, dirs...)
+		dirs, err := runtimeDirs(f, name)
+		if err != nil {
+			f.Close()
+			return err
 		}
 		f.Close()
 		for _, soname := range needed {
-			candidates := []string{}
-			if strings.Contains(soname, "/") {
-				if !strings.HasPrefix(soname, "/") {
-					return fmt.Errorf("relative DT_NEEDED unsupported %s", soname)
-				}
-				candidates = append(candidates, soname)
-			} else {
-				for _, dir := range dirs {
-					candidates = append(candidates, path.Join(dir, soname))
-				}
+			resolved, err := resolveRuntime(fs, present, soname, dirs)
+			if err != nil {
+				return fmt.Errorf("%s: %w", name, err)
 			}
-			found := false
-			for _, candidate := range candidates {
-				resolved, err := resolvePath(fs, candidate)
-				if err != nil {
-					return err
-				}
-				if _, exists := fs.index.Files[resolved]; !exists {
-					continue
-				}
-				_, known := present[resolved]
-				if !known {
-					return fmt.Errorf("unknown runtime dependency %s", resolved)
-				}
-				df, err := elf.NewFile(bytes.NewReader(fs.bodies[resolved]))
-				if err != nil {
-					return fmt.Errorf("runtime dependency is not ELF %s", resolved)
-				}
-				names, err := df.DynString(elf.DT_SONAME)
-				df.Close()
-				if err != nil {
-					return err
-				}
-				if !strings.Contains(soname, "/") && !slices.Contains(names, soname) {
-					return fmt.Errorf("runtime SONAME mismatch %s", resolved)
-				}
-				edges[name] = appendUnique(edges[name], resolved)
-				found = true
-				break
-			}
-			if !found {
-				return fmt.Errorf("missing runtime dependency %s required by %s", soname, name)
+			edges[name] = appendUnique(edges[name], resolved)
+		}
+	}
+	for _, name := range runtimeLoads {
+		if !strings.HasPrefix(name, "/") {
+			return fmt.Errorf("runtimeLoads require absolute rootfs paths")
+		}
+		resolved, err := resolveRuntime(fs, present, name, nil)
+		if err != nil {
+			return err
+		}
+		for caller := range present {
+			if bytes.HasPrefix(fs.bodies[caller], []byte("\x7fELF")) {
+				edges[caller] = appendUnique(edges[caller], resolved)
 			}
 		}
 	}
@@ -470,4 +449,71 @@ func closeComponents(present map[string]Record, edges map[string][]string) {
 			present[name] = r
 		}
 	}
+}
+
+func runtimeDirs(f *elf.File, name string) ([]string, error) {
+	dirs := []string{"/lib64", "/lib", "/usr/lib64", "/usr/lib"}
+	rpath, err := f.DynString(elf.DT_RPATH)
+	if err != nil {
+		return nil, err
+	}
+	if len(rpath) > 0 {
+		return nil, fmt.Errorf("DT_RPATH inheritance unsupported; use DT_RUNPATH")
+	}
+	entries, err := f.DynString(elf.DT_RUNPATH)
+	if err != nil {
+		return nil, err
+	}
+	search := []string{}
+	for _, entry := range entries {
+		for _, dir := range strings.Split(entry, ":") {
+			dir = strings.ReplaceAll(dir, "${ORIGIN}", path.Dir(name))
+			dir = strings.ReplaceAll(dir, "$ORIGIN", path.Dir(name))
+			if !strings.HasPrefix(dir, "/") || strings.Contains(dir, "$") {
+				return nil, fmt.Errorf("unsupported runtime search path %s", dir)
+			}
+			search = append(search, dir)
+		}
+	}
+	return append(search, dirs...), nil
+}
+
+func resolveRuntime(fs *filesystem, present map[string]Record, soname string, dirs []string) (string, error) {
+	candidates := []string{}
+	if strings.Contains(soname, "/") {
+		if !strings.HasPrefix(soname, "/") {
+			return "", fmt.Errorf("relative DT_NEEDED unsupported %s", soname)
+		}
+		candidates = append(candidates, soname)
+	} else {
+		for _, dir := range dirs {
+			candidates = append(candidates, path.Join(dir, soname))
+		}
+	}
+	for _, candidate := range candidates {
+		resolved, err := resolvePath(fs, candidate)
+		if err != nil {
+			return "", err
+		}
+		if _, exists := fs.index.Files[resolved]; !exists {
+			continue
+		}
+		if _, known := present[resolved]; !known {
+			return "", fmt.Errorf("unknown runtime dependency %s", resolved)
+		}
+		df, err := elf.NewFile(bytes.NewReader(fs.bodies[resolved]))
+		if err != nil {
+			return "", fmt.Errorf("runtime dependency is not ELF %s", resolved)
+		}
+		names, err := df.DynString(elf.DT_SONAME)
+		df.Close()
+		if err != nil {
+			return "", err
+		}
+		if !strings.Contains(soname, "/") && !slices.Contains(names, soname) {
+			return "", fmt.Errorf("runtime SONAME mismatch %s", resolved)
+		}
+		return resolved, nil
+	}
+	return "", fmt.Errorf("missing runtime dependency %s", soname)
 }

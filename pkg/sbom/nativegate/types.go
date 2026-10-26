@@ -58,11 +58,12 @@ type Link struct {
 	Inputs []LinkInput `json:"inputs"`
 }
 type ImagePolicy struct {
-	Role    string            `json:"role"`
-	Outputs []string          `json:"outputs"`
-	Project cdx.Component     `json:"project"`
-	Sources map[string]string `json:"sources"`
-	MetaDir string            `json:"metaDir"`
+	RuntimeLoads []string          `json:"runtimeLoads"`
+	Role         string            `json:"role"`
+	Outputs      []string          `json:"outputs"`
+	Project      cdx.Component     `json:"project"`
+	Sources      map[string]string `json:"sources"`
+	MetaDir      string            `json:"metaDir"`
 }
 type Policy struct {
 	Distributions []Distribution         `json:"distributions"`

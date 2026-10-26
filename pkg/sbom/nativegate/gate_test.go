@@ -171,6 +171,9 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		src := Source{Path: "/src/raw.S", SHA256: digest([]byte("assembly"))}
 		tool := Tool{Name: "cc", Version: "1", SHA256: digest([]byte("cc"))}
 		ins := inspector{policy: &Policy{Tools: []Tool{tool}}, image: ImagePolicy{Sources: map[string]string{src.Path: src.SHA256}}, catalog: &c, active: map[string]bool{}, compiled: map[string]Compile{h: {Schema: "dk.compile/v2", SHA256: h, Tool: tool, Language: "asm", Sources: []Source{src}}}}
+		record := ins.compiled[h]
+		record.Language = "go"
+		ins.compiled[h] = record
 		_, err := ins.input(Source{Path: "/raw.o", SHA256: h})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("own-source assembly dependency tracing unsupported")))
 	})

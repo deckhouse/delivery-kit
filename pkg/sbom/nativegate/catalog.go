@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -29,6 +30,9 @@ func (c *Catalog) add(other Catalog) error {
 	for ref, comp := range other.Components {
 		if !validComponent(comp) || ref != comp.BOMRef {
 			return fmt.Errorf("incomplete catalog component %s", ref)
+		}
+		if old, exists := c.Components[ref]; exists && !reflect.DeepEqual(old, comp) {
+			return fmt.Errorf("ambiguous component identity %s", ref)
 		}
 		c.Components[ref] = comp
 	}

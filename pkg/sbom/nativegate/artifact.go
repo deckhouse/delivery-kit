@@ -56,6 +56,9 @@ func (i *inspector) source(s Source) ([]string, error) {
 		return nil, fmt.Errorf("invalid source hash %s", s.Path)
 	}
 	if expected, ok := i.image.Sources[s.Path]; ok {
+		if strings.HasSuffix(s.Path, ".s") || strings.HasSuffix(s.Path, ".S") {
+			return nil, fmt.Errorf("own-source assembly dependency tracing unsupported")
+		}
 		if expected != s.SHA256 {
 			return nil, fmt.Errorf("project source changed %s", s.Path)
 		}
@@ -72,6 +75,13 @@ func (i *inspector) source(s Source) ([]string, error) {
 	for _, r := range i.catalog.Records {
 		if (r.Origin == "pm" || r.Origin == "sdk" || r.Origin == "source") && r.Path == s.Path && r.SHA256 == s.SHA256 {
 			owners = appendUnique(owners, r.Components...)
+		}
+	}
+	if strings.HasSuffix(s.Path, ".s") || strings.HasSuffix(s.Path, ".S") {
+		for _, r := range i.catalog.Records {
+			if r.Origin == "source" && r.Path == s.Path && r.SHA256 == s.SHA256 {
+				return nil, fmt.Errorf("own-source assembly dependency tracing unsupported")
+			}
 		}
 	}
 	if len(owners) != 1 {

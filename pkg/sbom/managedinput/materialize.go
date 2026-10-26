@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 
 	"github.com/werf/logboek"
 	"github.com/werf/werf/v3/pkg/config"
@@ -32,6 +34,17 @@ import (
 // host other users cannot enumerate or read the extracted manifests. Bind-mount only the
 // returned directory. The caller must invoke the returned cleanup once the scan is done.
 func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.ContainerBackend, imageRef string, cataloger scanner.Cataloger, targetPlatform string, imageEnv []string) (string, func(context.Context), error) {
+	return materializeCatalogerInputs(ctx, backend, imageRef, cataloger, targetPlatform, imageEnv, nil)
+}
+
+// MaterializeInstalledFiles reads resolved regular files but writes them at their logical
+// installation paths. ImageReader.ReadFile need not follow file or directory symlinks.
+func MaterializeInstalledFiles(ctx context.Context, backend container_backend.ContainerBackend, imageRef string, files map[string]string, targetPlatform string) (string, func(context.Context), error) {
+	cataloger := scanner.Cataloger{Name: "installed-packages", SourcePaths: slices.Sorted(maps.Keys(files))}
+	return materializeCatalogerInputs(ctx, backend, imageRef, cataloger, targetPlatform, []string{}, files)
+}
+
+func materializeCatalogerInputs(ctx context.Context, backend container_backend.ContainerBackend, imageRef string, cataloger scanner.Cataloger, targetPlatform string, imageEnv []string, resolvedPaths map[string]string) (string, func(context.Context), error) {
 	parentDir, err := os.MkdirTemp("", "sbom-dirscan-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("create scan parent dir: %w", err)
@@ -66,7 +79,7 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 		}
 	}()
 
-	m := materializer{reader: reader, imageRef: imageRef, cataloger: cataloger, scanDir: scanDir}
+	m := materializer{reader: reader, imageRef: imageRef, cataloger: cataloger, scanDir: scanDir, resolvedPaths: resolvedPaths}
 
 	if err := m.materialize(ctx, imageEnv); err != nil {
 		cleanup(ctx)
@@ -86,18 +99,23 @@ func MaterializeCatalogerInputs(ctx context.Context, backend container_backend.C
 }
 
 type materializer struct {
-	reader    container_backend.ImageReader
-	imageRef  string
-	cataloger scanner.Cataloger
-	scanDir   string
+	reader        container_backend.ImageReader
+	imageRef      string
+	cataloger     scanner.Cataloger
+	scanDir       string
+	resolvedPaths map[string]string
 }
 
 func (m *materializer) materialize(ctx context.Context, imageEnv []string) error {
 	var specData []byte
 	for i, sourcePath := range m.cataloger.SourcePaths {
-		data, err := m.reader.ReadFile(ctx, sourcePath)
+		readPath := sourcePath
+		if resolved, ok := m.resolvedPaths[sourcePath]; ok {
+			readPath = resolved
+		}
+		data, err := m.reader.ReadFile(ctx, readPath)
 		if err != nil {
-			return m.readErr(sourcePath, err)
+			return m.readErr(readPath, err)
 		}
 		if err := writeMaterializedFile(m.scanDir, sourcePath, data); err != nil {
 			return err

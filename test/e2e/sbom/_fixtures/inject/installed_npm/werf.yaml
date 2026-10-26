@@ -1,0 +1,30 @@
+project: werf-test-e2e-sbom-installed-npm
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
+packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
+  - type: javascript-npm
+    workdir: /app
+shell:
+  install:
+    - node -e 'const fs = require("fs"); const p = "/app/node_modules/yocto-queue/package.json"; const m = JSON.parse(fs.readFileSync(p)); delete m.license; fs.writeFileSync(p, JSON.stringify(m));'
+    - mkdir -p /opt/vendor /metadata
+    - mv /app/node_modules/yocto-queue /opt/vendor/yocto-queue
+    - mv /opt/vendor/yocto-queue/package.json /metadata/yocto-package.json
+    - ln -s /metadata/yocto-package.json /opt/vendor/yocto-queue/package.json
+    - ln -s /opt/vendor/yocto-queue /app/node_modules/yocto-queue

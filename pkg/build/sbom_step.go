@@ -70,12 +70,6 @@ func newSbomStep(
 	}
 }
 
-// syftScanRequired reports whether the image content must be scanned by syft.
-// A stapel image is scanned only for the file-based ecosystems declared via the
-// packages directive (represented by catalogers): all its other content comes from
-// the base image, imports and werf-managed instructions, so without catalogers its
-// SBOM is fully derived from the base image and import SBOMs. Non-stapel
-// (Dockerfile) images are always scanned.
 func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 	return !isStapel || len(catalogers) > 0
 }
@@ -150,10 +144,17 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		var filesets *shippedscope.Filesets
 		produced := &shippedscope.ProducedFiles{}
 		inputs := append([]*cdx.BOM{targetBOM, mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...)
-		if len(osPmPackages) > 0 || lo.SomeBy(inputs, func(bom *cdx.BOM) bool {
+		if isStapel || len(osPmPackages) > 0 || lo.SomeBy(inputs, func(bom *cdx.BOM) bool {
 			return bom != nil && (shippedscope.HasFileBackedComponents(bom) || shippedscope.HasBinaryBackedComponents(ctx, bom))
 		}) {
 			filesets, produced = collectShippedScope(ctx, step.containerBackend, werfImgName, stageDesc.Info.Name, provenance)
+		}
+		if isStapel && filesets != nil {
+			installedBOMs, err := step.scanInstalledPackages(ctx, stageDesc.Info, scanOpts, filesets.Index, targetPlatform)
+			if err != nil {
+				return err
+			}
+			mergeOpts.ImportBOMs = append(slices.Clone(mergeOpts.ImportBOMs), installedBOMs...)
 		}
 		mergeOpts, err = prepareBinaryMerge(ctx, targetBOM, mergeOpts, produced)
 		if err != nil {
@@ -254,7 +255,7 @@ func collectShippedScope(ctx context.Context, backend imageSaver, werfImgName, i
 	unknown := &shippedscope.ProducedFiles{}
 	img, cleanup, err := savedImage(ctx, backend, imageName)
 	if err != nil {
-		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; the SBOM records none of the files its components consist of: %s\n", werfImgName, imageName, err)
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; installed package inventory and file evidence are incomplete: %s\n", werfImgName, imageName, err)
 
 		return nil, unknown
 	}
@@ -262,7 +263,7 @@ func collectShippedScope(ctx context.Context, backend imageSaver, werfImgName, i
 
 	filesets, err := shippedscope.CollectFilesets(ctx, img)
 	if err != nil {
-		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read which files the components of the built image %s consist of; the SBOM records none of them: %s\n", werfImgName, imageName, err)
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read which files the components of the built image %s consist of; installed package inventory and file evidence are incomplete: %s\n", werfImgName, imageName, err)
 
 		return nil, unknown
 	}
@@ -598,7 +599,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "14"
+const sbomArtifactFormatVersion = "15"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

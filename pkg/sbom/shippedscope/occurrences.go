@@ -17,8 +17,8 @@ import (
 // one or the other, so a reader can tell werf's own evidence from an occurrence that
 // arrived in a merged document and means something else entirely.
 //
-// A component no fileset names is left as it was, and so is one whose filesets all declare
-// no files at all. Nothing is then known about its files — its ecosystem records no file
+// A component no fileset names is left as it was, and so is one whose complete filesets
+// all declare no files at all. Nothing is then known about its files — its ecosystem records no file
 // lists, it was installed in a way none of them reads, or it is a metapackage that ships
 // nothing — and an empty occurrence list would instead claim its files were looked for and
 // none were found. That is what keeps os-pm components unmarked when the image was
@@ -34,7 +34,12 @@ import (
 // "its own file list names files it does not hold" is what an image that installed a
 // package and then deleted it looks like.
 //
-// Returns the number of components given occurrences.
+// An incomplete manifest records unknown instead of treating its listed files as complete
+// evidence. Existing occurrences are retained for provenance but ignored for the verdict.
+// Unknown survives merging and later complete installs of the same component: those
+// installs cannot establish completeness for an inherited origin.
+//
+// Returns the number of components whose file evidence was recorded or marked unknown.
 func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
 	if bom == nil || len(filesets) == 0 {
 		return 0
@@ -58,7 +63,7 @@ func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
 		}
 
 		sets, ok := owned[key]
-		if !ok || !lo.SomeBy(sets, func(fileset Fileset) bool { return fileset.DeclaresFiles }) {
+		if !ok || !lo.SomeBy(sets, func(fileset Fileset) bool { return fileset.DeclaresFiles || fileset.Incomplete }) {
 			return
 		}
 
@@ -170,13 +175,15 @@ func canonicalName(ecosystem Ecosystem, name string) string {
 	}
 }
 
-// PropertyFiles is written on a component whose files werf enumerated, and says what the
-// image holds of them. It exists because the answer "none" cannot be written as evidence:
-// an empty occurrence list says it in memory, and serialization drops the list along with
-// what it meant, leaving a component that reads as one nothing was ever looked for.
+// PropertyFiles records file evidence completeness. "none" preserves a checked-empty
+// list across serialization; "unknown" means an origin's manifest could omit payload.
+// Unknown survives merges even when another origin contributes a complete list.
 const PropertyFiles = "werf:files"
 
-const propertyFilesNone = "none"
+const (
+	propertyFilesNone    = "none"
+	propertyFilesUnknown = "unknown"
+)
 
 // symlinkContext marks an occurrence as a symlink, which has a path in the image but no
 // content of its own to compare.
@@ -190,6 +197,9 @@ const digestPrefix = "sha256:"
 // carrying none of werf's own is one nothing is known about, not one whose files were
 // looked for and missed.
 func recordedOccurrences(comp *cdx.Component) []Occurrence {
+	if incompleteFileEvidence(comp) {
+		return nil
+	}
 	if comp.Evidence == nil || comp.Evidence.Occurrences == nil {
 		if propertyValue(comp, PropertyFiles) == propertyFilesNone {
 			return []Occurrence{}
@@ -220,6 +230,12 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 // package more than once under different paths, and each copy is a fileset of its own;
 // what the component ships is all of them. Reports whether anything was recorded.
 func setOccurrences(comp *cdx.Component, sets []Fileset) bool {
+	if incompleteFileEvidence(comp) || lo.SomeBy(sets, func(fileset Fileset) bool { return fileset.Incomplete }) {
+		removeProperty(comp, PropertyFiles)
+		setProperty(comp, PropertyFiles, propertyFilesUnknown)
+		return true
+	}
+
 	contexts := make(map[string]string)
 	for _, fileset := range sets {
 		for file, entry := range fileset.Files {
@@ -254,6 +270,12 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) bool {
 	}
 
 	return true
+}
+
+func incompleteFileEvidence(comp *cdx.Component) bool {
+	return lo.SomeBy(lo.FromPtr(comp.Properties), func(property cdx.Property) bool {
+		return property.Name == PropertyFiles && property.Value == propertyFilesUnknown
+	})
 }
 
 func walkComponents(bom *cdx.BOM, visit func(comp *cdx.Component)) {

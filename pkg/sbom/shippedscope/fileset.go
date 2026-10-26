@@ -33,6 +33,9 @@ type Fileset struct {
 	// nor absent by its files, which is a different thing from one whose declared files are
 	// all gone.
 	DeclaresFiles bool
+	// Incomplete means the manifest can omit payload, such as an editable Python
+	// install whose RECORD lists hooks rather than the external source tree.
+	Incomplete bool
 }
 
 type Filesets struct {
@@ -97,6 +100,7 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 func isFilesetManifest(file string) bool {
 	return file == pmFilesPath ||
 		strings.HasSuffix(file, distInfoRecordSuffix) ||
+		strings.HasSuffix(file, ".dist-info/direct_url.json") ||
 		isNodePackageManifest(file) ||
 		path.Base(file) == rockManifestName
 }

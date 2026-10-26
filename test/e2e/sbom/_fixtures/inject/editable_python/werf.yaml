@@ -1,0 +1,47 @@
+project: werf-test-e2e-sbom-python-pip-editable
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - requirements.txt
+        - werfeditable/**
+        - werfordinary/**
+packages:
+  - type: os-pm
+    spec:
+      - python==3.12.12
+  - type: python-pip
+    workdir: /app
+---
+image: source
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/werfeditable
+    to: /app/werfeditable
+    before: setup
+---
+image: grandchild
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: source
+    add: /app/werfeditable
+    to: /app/werfeditable
+    before: setup
+---
+image: empty
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/requirements.txt
+    to: /app/requirements.txt
+    before: setup

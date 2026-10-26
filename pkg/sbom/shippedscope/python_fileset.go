@@ -3,6 +3,7 @@ package shippedscope
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"io"
 	"maps"
@@ -39,10 +40,20 @@ func pythonFilesets(ctx context.Context, index *FileIndex, manifests map[string]
 		}
 
 		siteDir := path.Dir(distInfo)
+		incomplete := false
+		originPath := path.Join(distInfo, "direct_url.json")
+		if origin, exists := manifests[originPath]; exists {
+			incomplete = pythonOriginMayBeEditable(origin)
+		} else if _, linked := index.Symlinks[originPath]; linked {
+			incomplete = true
+		}
 
 		var declared []string
 		for _, record := range recordPaths(ctx, manifest, body) {
 			file := rootedJoin(siteDir, record)
+			if strings.HasPrefix(path.Base(file), "__editable__") || strings.HasSuffix(file, ".egg-link") {
+				incomplete = true
+			}
 			declared = append(declared, file)
 			declared = append(declared, pycache[file]...)
 		}
@@ -56,10 +67,28 @@ func pythonFilesets(ctx context.Context, index *FileIndex, manifests map[string]
 			Files:         files,
 			Symlinks:      symlinks,
 			DeclaresFiles: len(declared) > 0,
+			Incomplete:    incomplete,
 		})
 	}
 
 	return filesets
+}
+
+func pythonOriginMayBeEditable(body []byte) bool {
+	var origin map[string]json.RawMessage
+	if err := json.Unmarshal(body, &origin); err != nil || origin == nil {
+		return true
+	}
+	raw, exists := origin["dir_info"]
+	if !exists {
+		return false
+	}
+	var directory map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &directory); err != nil || directory == nil {
+		return true
+	}
+	editable, exists := directory["editable"]
+	return exists && strings.TrimSpace(string(editable)) != "false"
 }
 
 func recordPaths(ctx context.Context, manifest string, body []byte) []string {

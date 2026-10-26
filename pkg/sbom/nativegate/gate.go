@@ -170,6 +170,20 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		return err
 	}
 	local := emptyCatalog()
+	for _, r := range c.Records {
+		if r.Origin == "source" {
+			local.Records = append(local.Records, r)
+			for _, ref := range r.Components {
+				local.Components[ref] = c.Components[ref]
+			}
+		}
+	}
+	if len(ip.Sources) > 0 && validComponent(ip.Project) {
+		local.Components[ip.Project.BOMRef] = ip.Project
+		for path, hash := range ip.Sources {
+			local.Records = append(local.Records, Record{Path: path, SHA256: hash, Components: []string{ip.Project.BOMRef}, Origin: "source"})
+		}
+	}
 	if err := local.addPM(ctx, fs.bodies); err != nil {
 		return err
 	}
@@ -198,7 +212,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			if err := decode(body, &r); err != nil {
 				return fmt.Errorf("decode compiler record %s: %w", name, err)
 			}
-			if path.Base(name) != strings.TrimPrefix(r.SHA256, "sha256:")+".json" {
+			if name != prefix+strings.TrimPrefix(r.SHA256, "sha256:")+".json" || r.Schema != "dk.compile/v2" || !digestPattern.MatchString(r.SHA256) {
 				return fmt.Errorf("compiler record filename/hash mismatch")
 			}
 			records[r.SHA256] = r

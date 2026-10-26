@@ -131,6 +131,16 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 				return err
 			}
 			defer cleanup()
+			if !isStapel {
+				return fmt.Errorf("native experimental gate requires Stapel source provenance")
+			}
+			sources, err := nativegate.ProjectSources(ctx, img, provenance.Sources)
+			if err != nil {
+				return err
+			}
+			ip := nativePolicy.Images[werfImgName]
+			ip.Sources = sources
+			nativePolicy.Images[werfImgName] = ip
 			result := cyclonedxutil.NewBOM()
 			restoreImageMetadata(result, stageDesc)
 			if err := nativegate.Apply(ctx, nativePolicy, werfImgName, img, append([]*cdx.BOM{mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...), result); err != nil {

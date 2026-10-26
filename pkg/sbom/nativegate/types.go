@@ -114,7 +114,7 @@ func Load(ctx context.Context) (*Policy, string, error) {
 	if err := decode(body, &p); err != nil {
 		return nil, "", fmt.Errorf("parse native policy: %w", err)
 	}
-	if p.Schema != "dk.policy/v2" {
+	if p.Schema != "dk.policy/v2" || len(p.Images) == 0 {
 		return nil, "", fmt.Errorf("unsupported native policy %q", p.Schema)
 	}
 	return &p, digest(body), nil

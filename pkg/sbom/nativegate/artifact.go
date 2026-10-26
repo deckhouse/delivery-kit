@@ -71,7 +71,7 @@ func (i *inspector) source(s Source) ([]string, error) {
 	}
 	var owners []string
 	for _, r := range i.catalog.Records {
-		if (r.Origin == "pm" || r.Origin == "sdk") && r.Path == s.Path && r.SHA256 == s.SHA256 {
+		if (r.Origin == "pm" || r.Origin == "sdk" || r.Origin == "source") && r.Path == s.Path && r.SHA256 == s.SHA256 {
 			owners = appendUnique(owners, r.Components...)
 		}
 	}

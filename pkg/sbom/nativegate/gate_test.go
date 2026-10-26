@@ -17,6 +17,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
 func TestNativeGate(t *testing.T) {
@@ -151,6 +153,17 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		bodies["/meta/sources.json"] = raw
 		c = emptyCatalog()
 		gomega.Expect(c.addDistributions(&Policy{}, ImagePolicy{MetaDir: "/meta"}, bodies)).To(gomega.MatchError(gomega.ContainSubstring("unknown SDK distribution")))
+	})
+	ginkgo.It("derives source ownership from Git layers and rejects prebuilt or vendor content", func() {
+		ranges := shippedscope.ProducedLayers{Known: true, Ranges: []shippedscope.ProducedLayerRange{{Start: 0, End: 1}}}
+		ctx := context.Background()
+		sources, err := ProjectSources(ctx, fixtureImage(map[string]string{"/src/main.c": "int main(void){return 0;}"}), ranges)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(sources["/src/main.c"]).To(gomega.Equal(digest([]byte("int main(void){return 0;}"))))
+		_, err = ProjectSources(ctx, fixtureImage(map[string]string{"/src/prebuilt": "\x7fELFknown package bytes"}), ranges)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("prebuilt binary in Git")))
+		_, err = ProjectSources(ctx, fixtureImage(map[string]string{"/src/vendor/lib/a.c": "source"}), ranges)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("vendored path in Git")))
 	})
 	ginkgo.It("rejects unknown metadata versions and properties", func() {
 		var m Method

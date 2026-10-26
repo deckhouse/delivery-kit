@@ -32,7 +32,7 @@ type sourceInventory struct {
 
 func (c *Catalog) addDistributions(p *Policy, ip ImagePolicy, bodies map[string][]byte) error {
 	for name, body := range bodies {
-		if !strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/") || (!strings.HasSuffix(name, "/sources.json") && !strings.HasSuffix(name, ".sources.json")) {
+		if !strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/") || (!strings.HasSuffix(name, "/sources.json") && !strings.HasSuffix(name, ".sources.json") && !(strings.Contains(name, "/sources/") && strings.HasSuffix(name, ".json"))) {
 			continue
 		}
 		var inv sourceInventory

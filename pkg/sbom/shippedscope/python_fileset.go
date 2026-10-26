@@ -25,7 +25,7 @@ const distInfoRecordSuffix = ".dist-info/RECORD"
 func pythonFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte) []Fileset {
 	var filesets []Fileset
 
-	pycache := compiledSources(index)
+	bytecode := compiledSources(index)
 
 	for _, manifest := range slices.Sorted(maps.Keys(manifests)) {
 		body := manifests[manifest]
@@ -55,7 +55,7 @@ func pythonFilesets(ctx context.Context, index *FileIndex, manifests map[string]
 				incomplete = true
 			}
 			declared = append(declared, file)
-			declared = append(declared, pycache[file]...)
+			declared = append(declared, bytecode[file]...)
 		}
 
 		files, symlinks := collect(index, declared)
@@ -118,9 +118,10 @@ func recordPaths(ctx context.Context, manifest string, body []byte) []string {
 	return paths
 }
 
-// compiledSources maps a source file to the bytecode compiled from it. A RECORD never
-// declares bytecode an installer did not write, and an image that ran compileall — or that
-// dropped the sources afterwards — holds it all the same.
+// compiledSources associates bytecode paths with RECORD-declared source paths, including
+// compileall output the installer never recorded. This establishes file ownership within
+// the installation layout, not bytecode validity or freshness. PEP 552 source hashes are
+// not comparable to RECORD hashes and cannot establish provenance after source removal.
 func compiledSources(index *FileIndex) map[string][]string {
 	compiled := make(map[string][]string)
 
@@ -131,6 +132,8 @@ func compiledSources(index *FileIndex) map[string][]string {
 
 		dir := path.Dir(file)
 		if path.Base(dir) != "__pycache__" {
+			source := strings.TrimSuffix(file, ".pyc") + ".py"
+			compiled[source] = append(compiled[source], file)
 			continue
 		}
 

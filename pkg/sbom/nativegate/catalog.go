@@ -120,26 +120,6 @@ func (c *Catalog) addPM(ctx context.Context, bodies map[string][]byte) error {
 	return nil
 }
 
-func (c *Catalog) owners(hash string) []string {
-	var refs []string
-	for _, r := range c.Records {
-		if r.SHA256 == hash {
-			refs = appendUnique(refs, r.Components...)
-		}
-	}
-	return refs
-}
-
-func (c *Catalog) pmOwners(hash string) []string {
-	var refs []string
-	for _, r := range c.Records {
-		if r.Origin == "pm" && r.SHA256 == hash {
-			refs = appendUnique(refs, r.Components...)
-		}
-	}
-	return refs
-}
-
 func (c *Catalog) attach(bom *cdx.BOM) error {
 	sort.Slice(c.Records, func(i, j int) bool {
 		return c.Records[i].Path+c.Records[i].SHA256 < c.Records[j].Path+c.Records[j].SHA256

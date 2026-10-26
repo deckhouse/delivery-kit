@@ -5,7 +5,6 @@ import (
 	"compress/zlib"
 	"debug/buildinfo"
 	"debug/elf"
-	"encoding/json"
 	"fmt"
 	"io"
 	"slices"
@@ -111,8 +110,24 @@ func (i *inspector) input(s Source) ([]string, error) {
 	if r.Schema != "dk.compile/v2" || r.SHA256 != s.SHA256 || !digestPattern.MatchString(r.SHA256) || len(r.Sources)+len(r.Inputs) == 0 {
 		return nil, fmt.Errorf("invalid compiler provenance %s", s.Path)
 	}
-	if !slices.Contains([]string{"c", "go", "rust"}, r.Language) {
+	if !slices.Contains([]string{"asm", "c", "go", "rust"}, r.Language) {
 		return nil, fmt.Errorf("unsupported compiler language %q", r.Language)
+	}
+	if r.Language == "asm" {
+		knownAssembly := false
+		for _, src := range r.Sources {
+			if _, own := i.image.Sources[src.Path]; own {
+				return nil, fmt.Errorf("own-source assembly dependency tracing unsupported")
+			}
+			for _, known := range i.catalog.Records {
+				if known.Origin == "sdk" && known.Path == src.Path && known.SHA256 == src.SHA256 && (strings.HasSuffix(src.Path, ".s") || strings.HasSuffix(src.Path, ".S")) {
+					knownAssembly = true
+				}
+			}
+		}
+		if !knownAssembly || len(r.Inputs) > 0 {
+			return nil, fmt.Errorf("assembly profile requires original inventoried SDK source")
+		}
 	}
 	if err := i.tool(r.Tool); err != nil {
 		return nil, err
@@ -159,7 +174,7 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		return r, fmt.Errorf("invalid build profile")
 	}
 	for _, l := range m.Languages {
-		if !slices.Contains([]string{"c", "go", "rust"}, l) {
+		if !slices.Contains([]string{"asm", "c", "go", "rust"}, l) {
 			return r, fmt.Errorf("unknown build language %s", l)
 		}
 	}
@@ -255,6 +270,9 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		if err != nil {
 			return r, fmt.Errorf("missing/corrupt Go buildinfo: %w", err)
 		}
+		if info.GoVersion != m.Tool.Version {
+			return r, fmt.Errorf("Go buildinfo version %s contradicts compiler %s", info.GoVersion, m.Tool.Version)
+		}
 		cgo := ""
 		for _, s := range info.Settings {
 			if s.Key == "CGO_ENABLED" {
@@ -326,7 +344,7 @@ func (i *inspector) rust(f *elf.File) ([]string, error) {
 			Dependencies []int  `json:"dependencies"`
 		} `json:"packages"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := decode(body, &data); err != nil {
 		return nil, fmt.Errorf("decode Rust packages: %w", err)
 	}
 	if len(data.Packages) == 0 {

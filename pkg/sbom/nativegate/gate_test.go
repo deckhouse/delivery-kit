@@ -165,6 +165,15 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		_, err = ProjectSources(ctx, fixtureImage(map[string]string{"/src/vendor/lib/a.c": "source"}), ranges)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("vendored path in Git")))
 	})
+	ginkgo.It("rejects generic own assembly until assembler dependencies are traced", func() {
+		c := fixtureCatalog()
+		h := digest([]byte("object"))
+		src := Source{Path: "/src/raw.S", SHA256: digest([]byte("assembly"))}
+		tool := Tool{Name: "cc", Version: "1", SHA256: digest([]byte("cc"))}
+		ins := inspector{policy: &Policy{Tools: []Tool{tool}}, image: ImagePolicy{Sources: map[string]string{src.Path: src.SHA256}}, catalog: &c, active: map[string]bool{}, compiled: map[string]Compile{h: {Schema: "dk.compile/v2", SHA256: h, Tool: tool, Language: "asm", Sources: []Source{src}}}}
+		_, err := ins.input(Source{Path: "/raw.o", SHA256: h})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("own-source assembly dependency tracing unsupported")))
+	})
 	ginkgo.It("rejects unknown metadata versions and properties", func() {
 		var m Method
 		gomega.Expect(decode([]byte(`{"schema":"dk.build/v2","unexpected":true}`), &m)).NotTo(gomega.Succeed())

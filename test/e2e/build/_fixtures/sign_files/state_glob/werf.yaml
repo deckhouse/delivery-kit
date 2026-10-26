@@ -1,0 +1,23 @@
+project: werf-test-e2e-sign-files-glob
+configVersion: 1
+---
+image: kernel
+from: alpine:3.20
+shell:
+  install:
+  - mkdir -p /out/lib/modules/6.12/kernel/net
+  - printf '%s' 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b > /out/lib/modules/6.12/kernel/a.ko
+  - printf '%s' 9f2c04a1b8e3d6570ac41b2e8d93f5061c7ab38e4d2f90b5c6137ae8d40f2b9c > /out/lib/modules/6.12/kernel/net/b.ko
+  - printf '%s' 'kernel/a.ko' > /out/lib/modules/6.12/modules.order
+  - ln -s a.ko /out/lib/modules/6.12/kernel/link.ko
+  - ln /out/lib/modules/6.12/kernel/a.ko /out/lib/modules/6.12/kernel/hard.ko
+  setup:
+  - test -s /out/lib/modules/6.12/kernel/a.ko.p7s
+  - test -s /out/lib/modules/6.12/kernel/net/b.ko.p7s
+  - test -s /out/lib/modules/6.12/kernel/hard.ko.p7s
+  - "! cmp -s /out/lib/modules/6.12/kernel/a.ko.p7s /out/lib/modules/6.12/kernel/net/b.ko.p7s"
+  - "! test -e /out/lib/modules/6.12/modules.order.p7s"
+  - "! test -e /out/lib/modules/6.12/kernel/link.ko.p7s"
+sign:
+- path: /out/lib/modules/**/*.ko
+  after: install

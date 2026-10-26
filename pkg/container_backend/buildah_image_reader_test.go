@@ -44,4 +44,34 @@ var _ = Describe("BuildahBackend ReadFileFromImage path resolution", func() {
 		_, err = readRegularFileFromRoot(root, "/out/dangling")
 		Expect(err).To(MatchError(os.ErrNotExist))
 	})
+
+	Describe("Glob", func() {
+		It("lists the regular files under the resolved base directory that the pattern matches, without following symlinks", func(ctx SpecContext) {
+			base := GinkgoT().TempDir()
+			root := filepath.Join(base, "root")
+			modules := filepath.Join(root, "usr", "lib", "modules", "6.12", "kernel")
+			Expect(os.MkdirAll(filepath.Join(modules, "net"), 0o755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(modules, "a.ko"), []byte("a"), 0o644)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(modules, "net", "b.ko"), []byte("b"), 0o644)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(modules, "net", "b.ko.d"), []byte("d"), 0o644)).To(Succeed())
+			Expect(os.Symlink("a.ko", filepath.Join(modules, "link.ko"))).To(Succeed())
+			Expect(os.MkdirAll(filepath.Join(base, "host"), 0o755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(base, "host", "c.ko"), []byte("host"), 0o644)).To(Succeed())
+			Expect(os.Symlink("../../../../../host", filepath.Join(modules, "escape"))).To(Succeed())
+			Expect(os.Symlink("/usr/lib", filepath.Join(root, "lib"))).To(Succeed())
+
+			reader := &buildahImageReader{container: &containerDesc{RootMount: root}}
+
+			Expect(reader.Glob(ctx, "/lib/modules/**/*.ko")).To(Equal([]string{
+				"/lib/modules/6.12/kernel/a.ko",
+				"/lib/modules/6.12/kernel/net/b.ko",
+			}), "the base directory is resolved through the container's own symlink, below it symlinks are not followed")
+		})
+
+		It("matches nothing when the base directory does not exist", func(ctx SpecContext) {
+			reader := &buildahImageReader{container: &containerDesc{RootMount: GinkgoT().TempDir()}}
+
+			Expect(reader.Glob(ctx, "/out/**/*.ko")).To(BeEmpty())
+		})
+	})
 })

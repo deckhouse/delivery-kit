@@ -113,7 +113,15 @@ sign:
   after: install
 ```
 
-Entries at the same signing position must not use another entry's `<path>.p7s` as an input. For example, `path: /out/x` and `path: /out/x.p7s` at the same position are a configuration error, regardless of their order in the list. To sign a generated signature, put the second entry at a later signing position.
+A `path` containing `*` is a glob pattern, expanded against the image filesystem when the signing stage runs: every regular file it matches gets its own `<file>.p7s`. `*` matches within one path segment and `**` across segments; every other character, `?`, `[` and `{` included, stands for itself, so a literal path such as `/out/file[1].bin` needs no escaping (a file with `*` in its name cannot be signed). The pattern must start with a literal directory below `/` (`/out/**/*.ko`, not `/**/*.ko`). Below that directory symlinks are neither matched nor followed, so a file is signed under its real path only; a hard link is a regular file under another name and is signed under each. A pattern that matches nothing fails the build — a declared signature is a requirement of the image, not a hint. This is how a set of files known only after the build is signed, such as the kernel modules `make modules_install` produces:
+
+```yaml
+sign:
+- path: /out/lib/modules/**/*.ko
+  after: install
+```
+
+Entries at the same signing position must not use another entry's `<path>.p7s` as an input. For example, `path: /out/x` and `path: /out/x.p7s` at the same position are a configuration error, regardless of their order in the list. The same holds for the files a pattern expands to, and a file reached through two entries is an error as well; both are detected when the pattern is expanded. To sign a generated signature, put the second entry at a later signing position.
 
 werf reads the file out of the image built so far, signs it on the build host and adds `<path>.p7s` as a new layer. The signature is a detached PKCS#7 (CMS) `SignedData` over the file content — SHA-256, RSASSA-PKCS1-v1_5, no authenticated attributes, the signing certificate embedded — the same shape `systemd-keyutil pkcs7` produces, so systemd and the Linux kernel accept it as a dm-verity root hash signature. The key therefore has to be RSA.
 

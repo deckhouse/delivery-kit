@@ -1515,7 +1515,7 @@
       ],
       "properties": {
         "path": {
-          "description": "The absolute path of the file to sign.",
+          "description": "The absolute path of the file to sign, or an absolute glob pattern expanded against the image filesystem when the signing stage runs.",
           "type": "string",
           "pattern": "^/"
         },

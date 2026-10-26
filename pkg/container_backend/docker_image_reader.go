@@ -4,13 +4,17 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 
@@ -73,6 +77,20 @@ func (r *dockerImageReader) ReadFile(ctx context.Context, path string) ([]byte, 
 	return collector.result()
 }
 
+// Glob streams the pattern's literal base directory out of the container and keeps the
+// regular-file entries the pattern matches. A missing base directory is no match.
+func (r *dockerImageReader) Glob(ctx context.Context, pattern string) ([]string, error) {
+	collector := newGlobTarCollector(pattern)
+	err := r.copy(ctx, collector.base, collector.collect)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return collector.result(), nil
+}
+
 // fileTarCollector takes the content of the object a `docker cp <path>` stream was
 // asked for. That object is the stream's first entry and whatever it contains follows
 // it, so a directory has to be refused there: otherwise an arbitrary file inside it
@@ -110,6 +128,52 @@ func (c *fileTarCollector) result() ([]byte, error) {
 		return nil, fmt.Errorf("no regular file at %s in image %q: %w", c.path, c.imageRef, fs.ErrNotExist)
 	}
 	return c.data, nil
+}
+
+// globTarCollector matches the regular-file entries of a `docker cp <base>` stream
+// against a doublestar pattern whose literal prefix is base. The stream names its
+// entries from the base name of the copied directory on (`out/a.ko` for base `/out`),
+// so joining them onto the base's parent gives the in-image path the pattern is written
+// for. A base of `/` never reaches here: the config rejects it.
+type globTarCollector struct {
+	base    string
+	pattern string
+	regular map[string]struct{}
+	matches []string
+}
+
+func newGlobTarCollector(pattern string) *globTarCollector {
+	base, _ := doublestar.SplitPattern(pattern)
+	return &globTarCollector{base: base, pattern: pattern, regular: map[string]struct{}{}}
+}
+
+// collect keeps the regular files. The second and later names of one inode arrive as
+// hard links to the first name, so those count when the first was a regular file.
+func (c *globTarCollector) collect(_ *tar.Reader, hdr *tar.Header) error {
+	switch hdr.Typeflag {
+	case tar.TypeReg:
+		c.regular[hdr.Name] = struct{}{}
+	case tar.TypeLink:
+		if _, ok := c.regular[hdr.Linkname]; !ok {
+			return nil
+		}
+	default:
+		return nil
+	}
+	filePath := path.Join(path.Dir(c.base), hdr.Name)
+	matched, err := doublestar.Match(c.pattern, filePath)
+	if err != nil {
+		return fmt.Errorf("match %s against %q: %w", filePath, c.pattern, err)
+	}
+	if matched {
+		c.matches = append(c.matches, filePath)
+	}
+	return nil
+}
+
+func (c *globTarCollector) result() []string {
+	sort.Strings(c.matches)
+	return c.matches
 }
 
 func (r *dockerImageReader) ReadDir(ctx context.Context, path, destDir string, opts ReadDirOpts) error {

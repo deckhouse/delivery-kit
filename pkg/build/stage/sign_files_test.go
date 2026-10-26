@@ -9,13 +9,16 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signver"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,22 +30,60 @@ import (
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/slug"
 )
 
 type signFilesContainerBackendStub struct {
 	*ContainerBackendStub
 
-	contentByTargetPlatform map[string][]byte
+	filesByTargetPlatform map[string]map[string][]byte
 }
 
 var _ container_backend.ContainerBackend = (*signFilesContainerBackendStub)(nil)
 
-func (backend *signFilesContainerBackendStub) ReadFileFromImage(_ context.Context, _, filePath string, opts container_backend.ReadFileFromImageOpts) ([]byte, error) {
-	content, found := backend.contentByTargetPlatform[opts.TargetPlatform]
+func (backend *signFilesContainerBackendStub) OpenImageReader(_ context.Context, _ string, opts container_backend.ReadFileFromImageOpts) (container_backend.ImageReader, error) {
+	files, found := backend.filesByTargetPlatform[opts.TargetPlatform]
 	if !found {
-		return nil, fmt.Errorf("read %s: no image built for platform %q", filePath, opts.TargetPlatform)
+		return nil, fmt.Errorf("no image built for platform %q", opts.TargetPlatform)
+	}
+	return &signFilesImageReaderStub{files: files}, nil
+}
+
+type signFilesImageReaderStub struct {
+	files map[string][]byte
+}
+
+var _ container_backend.ImageReader = (*signFilesImageReaderStub)(nil)
+
+func (r *signFilesImageReaderStub) ReadFile(_ context.Context, filePath string) ([]byte, error) {
+	content, found := r.files[filePath]
+	if !found {
+		return nil, fmt.Errorf("read %s: %w", filePath, fs.ErrNotExist)
 	}
 	return content, nil
+}
+
+func (r *signFilesImageReaderStub) Glob(_ context.Context, pattern string) ([]string, error) {
+	var matches []string
+	for filePath := range r.files {
+		matched, err := doublestar.Match(pattern, filePath)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			matches = append(matches, filePath)
+		}
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
+
+func (r *signFilesImageReaderStub) ReadDir(_ context.Context, _, _ string, _ container_backend.ReadDirOpts) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (r *signFilesImageReaderStub) Close(_ context.Context) error {
+	return nil
 }
 
 var _ = Describe("SignFilesStage", func() {
@@ -134,8 +175,11 @@ var _ = Describe("SignFilesStage", func() {
 			"linux/arm64": []byte("arm64 root hash"),
 		}
 		backend := &signFilesContainerBackendStub{
-			ContainerBackendStub:    NewContainerBackendStub(),
-			contentByTargetPlatform: contentByTargetPlatform,
+			ContainerBackendStub: NewContainerBackendStub(),
+			filesByTargetPlatform: map[string]map[string][]byte{
+				"linux/amd64": {signedPath: contentByTargetPlatform["linux/amd64"]},
+				"linux/arm64": {signedPath: contentByTargetPlatform["linux/arm64"]},
+			},
 		}
 		conveyor := NewConveyorStub(NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"), NewGiterminismInspectorStub()), nil, nil)
 		imageConfig := &config.StapelImageBase{Name: "sysext", Sign: []*config.Sign{{Path: signedPath}}}
@@ -190,6 +234,117 @@ var _ = Describe("SignFilesStage", func() {
 		Expect(verifies(arm64Signature, contentByTargetPlatform["linux/arm64"])).To(Succeed())
 		Expect(verifies(amd64Signature, contentByTargetPlatform["linux/amd64"])).To(Succeed(),
 			"preparing another platform must not overwrite the signature the first platform still has to install")
+	})
+
+	Describe("glob patterns", func() {
+		const targetPlatform = "linux/amd64"
+
+		prepare := func(ctx context.Context, files map[string][]byte, signs ...*config.Sign) (string, error) {
+			backend := &signFilesContainerBackendStub{
+				ContainerBackendStub:  NewContainerBackendStub(),
+				filesByTargetPlatform: map[string]map[string][]byte{targetPlatform: files},
+			}
+			conveyor := NewConveyorStub(NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"), NewGiterminismInspectorStub()), nil, nil)
+			imageConfig := &config.StapelImageBase{Name: "kernel", Sign: signs}
+			imageTmpDir := filepath.Join(GinkgoT().TempDir(), "image", imageConfig.Name)
+			stage := GenerateSignFilesAfterInstallStage(imageConfig, enabledOptions(newSigner("a")), &BaseStageOptions{
+				TargetPlatform:   targetPlatform,
+				ImageName:        imageConfig.Name,
+				ImageTmpDir:      imageTmpDir,
+				ContainerWerfDir: "/.werf",
+			})
+			Expect(stage).NotTo(BeNil())
+
+			prevBuiltImage := container_backend.NewLegacyStageImage(nil, "previous", backend, targetPlatform)
+			prevBuiltImage.SetStageDesc(&image.StageDesc{Info: &image.Info{}})
+			stageImage := NewStageImage(backend, prevBuiltImage.Name(), container_backend.NewLegacyStageImage(prevBuiltImage, "result", backend, targetPlatform))
+
+			if err := stage.PrepareImage(ctx, conveyor, backend, &StageImage{Image: prevBuiltImage}, stageImage, nil); err != nil {
+				return "", err
+			}
+			return filepath.Join(imageTmpDir, "sign", slug.Slug(targetPlatform), string(stage.Name())), nil
+		}
+
+		verifies := func(signaturePath string, content []byte) error {
+			der, err := os.ReadFile(signaturePath)
+			if err != nil {
+				return err
+			}
+			p7, err := pkcs7.Parse(der)
+			if err != nil {
+				return err
+			}
+			p7.Content = content
+			return p7.Verify()
+		}
+
+		It("signs every regular file the pattern matches, in sorted order, and nothing else", func(ctx SpecContext) {
+			files := map[string][]byte{
+				"/out/lib/modules/6.12/kernel/net/b.ko":   []byte("module b"),
+				"/out/lib/modules/6.12/kernel/a.ko":       []byte("module a"),
+				"/out/lib/modules/6.12/modules.order":     []byte("not a module"),
+				"/out/lib/modules/6.12/kernel/net/b.ko.d": []byte("not a module either"),
+			}
+
+			signaturesDir, err := prepare(ctx, files, &config.Sign{Path: "/out/lib/modules/**/*.ko", After: "install"})
+			Expect(err).NotTo(HaveOccurred())
+
+			script, err := os.ReadFile(filepath.Join(signaturesDir, "install.sh"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(script)).To(ContainSubstring(" /out/lib/modules/6.12/kernel/a.ko.p7s\n"))
+			Expect(string(script)).To(ContainSubstring(" /out/lib/modules/6.12/kernel/net/b.ko.p7s\n"))
+			Expect(string(script)).NotTo(ContainSubstring("modules.order"))
+			Expect(string(script)).NotTo(ContainSubstring("b.ko.d"))
+
+			Expect(verifies(filepath.Join(signaturesDir, "0", "a.ko.p7s"), files["/out/lib/modules/6.12/kernel/a.ko"])).To(Succeed())
+			Expect(verifies(filepath.Join(signaturesDir, "1", "b.ko.p7s"), files["/out/lib/modules/6.12/kernel/net/b.ko"])).To(Succeed())
+		})
+
+		It("treats every character but * literally, so file names with ?, [ or { need no escaping", func(ctx SpecContext) {
+			files := map[string][]byte{
+				"/out/lib[64]/a.ko":     []byte("a"),
+				"/out/lib6/a.ko":        []byte("not under lib[64]"),
+				"/out/file[1].bin":      []byte("literal path"),
+				"/out/file1.bin":        []byte("would match [1] as a class"),
+				"/out/{x}/what?.bin":    []byte("braces and question mark"),
+				"/out/{x}/what!.bin":    []byte("would match ? as a wildcard"),
+				"/out/lib[64]/b.ko.bak": []byte("not a .ko"),
+			}
+
+			signaturesDir, err := prepare(ctx, files,
+				&config.Sign{Path: "/out/lib[64]/*.ko", After: "install"},
+				&config.Sign{Path: "/out/file[1].bin", After: "install"},
+				&config.Sign{Path: "/out/{x}/what?.b*", After: "install"},
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			script, err := os.ReadFile(filepath.Join(signaturesDir, "install.sh"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(script)).To(ContainSubstring("/out/lib[64]/a.ko.p7s"))
+			Expect(string(script)).To(ContainSubstring("/out/file[1].bin.p7s"))
+			Expect(string(script)).To(ContainSubstring("/out/{x}/what?.bin.p7s"))
+			Expect(string(script)).NotTo(ContainSubstring("lib6/"))
+			Expect(string(script)).NotTo(ContainSubstring("file1.bin"))
+			Expect(string(script)).NotTo(ContainSubstring("what!.bin"))
+		})
+
+		It("fails when the pattern matches no file, since a declared signature is a requirement of the image", func(ctx SpecContext) {
+			_, err := prepare(ctx, map[string][]byte{"/out/notes.txt": []byte("x")}, &config.Sign{Path: "/out/**/*.ko", After: "install"})
+			Expect(err).To(MatchError(ContainSubstring("`path: /out/**/*.ko` of sign in image \"kernel\" matches no file")))
+		})
+
+		It("rejects a file reached through two entries", func(ctx SpecContext) {
+			_, err := prepare(ctx, map[string][]byte{"/out/a.ko": []byte("a")},
+				&config.Sign{Path: "/out/*.ko", After: "install"},
+				&config.Sign{Path: "/out/a.ko", After: "install"},
+			)
+			Expect(err).To(MatchError(ContainSubstring("file /out/a.ko of image \"kernel\" is signed by both `path: /out/*.ko` and `path: /out/a.ko` of sign")))
+		})
+
+		It("rejects a matched file that is the signature of another file signed at the same stage", func(ctx SpecContext) {
+			_, err := prepare(ctx, map[string][]byte{"/out/a": []byte("a"), "/out/a.p7s": []byte("old signature")}, &config.Sign{Path: "/out/*", After: "install"})
+			Expect(err).To(MatchError(ContainSubstring("file /out/a.p7s of image \"kernel\" matched by `path: /out/*` of sign is the signature of /out/a signed at the same stage")))
+		})
 	})
 
 	It("is generated only for the position the directive names and only when enabled", func() {

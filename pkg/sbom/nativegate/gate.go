@@ -25,7 +25,7 @@ type filesystem struct {
 	executable map[string]bool
 }
 
-func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
+func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesystem, error) {
 	index, err := shippedscope.IndexImageFiles(ctx, img)
 	if err != nil {
 		return nil, err
@@ -56,20 +56,48 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		if _, exists := fs.bodies[name]; exists {
 			continue
 		}
-		if h.Size > 512<<20 {
+		if h.Size > 512<<20 && (ip.Role == "final" || slices.Contains(ip.Outputs, name)) {
 			return nil, fmt.Errorf("file exceeds experimental limit %s", name)
 		}
-		body, err := io.ReadAll(tr)
+		_, ownSource := ip.Sources[name]
+		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json"
+		capture := ownSource || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || (ip.MetaDir != "" && strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/"))
+		if !capture {
+			for _, out := range ip.Outputs {
+				if index.Files[out].Digest == entry.Digest {
+					capture = true
+					break
+				}
+			}
+		}
+		if !capture {
+			continue
+		}
+		prefix := make([]byte, min(h.Size, 16))
+		if _, err := io.ReadFull(tr, prefix); err != nil {
+			return nil, err
+		}
+		body := prefix
+		var err error
+		full := metadata || ip.Role != "final" || bytes.HasPrefix(prefix, []byte("\x7fELF"))
+		if full {
+			rest, readErr := io.ReadAll(tr)
+			err = readErr
+			body = append(body, rest...)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if digest(body) != entry.Digest {
+		if full && digest(body) != entry.Digest {
 			return nil, fmt.Errorf("filesystem/index mismatch %s", name)
 		}
 		fs.bodies[name] = body
 		fs.executable[name] = h.Mode&0o111 != 0
 	}
 	for name, entry := range index.Files {
+		if ip.Role != "final" && !slices.Contains(ip.Outputs, name) {
+			continue
+		}
 		if _, ok := fs.bodies[name]; ok {
 			continue
 		}
@@ -82,7 +110,7 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 				break
 			}
 		}
-		if !found {
+		if !found && (ip.Role == "final" || slices.Contains(ip.Outputs, name)) {
 			return nil, fmt.Errorf("unreadable surviving file %s", name)
 		}
 	}
@@ -133,7 +161,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	if ip.Role != "produce" && ip.Role != "final" {
 		return fmt.Errorf("unknown native image role %s", ip.Role)
 	}
-	fs, err := readFilesystem(ctx, img)
+	fs, err := readFilesystem(ctx, img, ip)
 	if err != nil {
 		return fmt.Errorf("read final filesystem: %w", err)
 	}
@@ -149,6 +177,11 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		return err
 	}
 	if ip.Role == "produce" {
+		for source := range ip.Sources {
+			if prohibitedSource(source) || binaryLike(fs.bodies[source], false, source) {
+				return fmt.Errorf("prebuilt or vendored project source %s", source)
+			}
+		}
 		records := map[string]Compile{}
 		prefix := strings.TrimRight(ip.MetaDir, "/") + "/objects/"
 		if ip.MetaDir == "" {
@@ -245,6 +278,10 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		sort.Strings(refs)
 		*target.Dependencies = append(*target.Dependencies, cdx.Dependency{Ref: target.Metadata.Component.BOMRef, Dependencies: &refs})
 	}
+	for name, r := range present {
+		r.Path = name
+		c.Records = append(c.Records, r)
+	}
 	return c.attach(target)
 }
 
@@ -272,7 +309,8 @@ func resolvePath(fs *filesystem, name string) (string, error) {
 }
 
 func dynamicClosure(fs *filesystem, present map[string]Record) error {
-	for name, r := range present {
+	edges := map[string][]string{}
+	for name := range present {
 		body := fs.bodies[name]
 		if !bytes.HasPrefix(body, []byte("\x7fELF")) {
 			continue
@@ -303,6 +341,11 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 				f.Close()
 				return err
 			}
+			if tag == elf.DT_RPATH && len(entries) > 0 {
+				f.Close()
+				return fmt.Errorf("DT_RPATH inheritance unsupported; use DT_RUNPATH")
+			}
+			search := []string{}
 			for _, entry := range entries {
 				for _, dir := range strings.Split(entry, ":") {
 					dir = strings.ReplaceAll(dir, "${ORIGIN}", path.Dir(name))
@@ -311,9 +354,10 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 						f.Close()
 						return fmt.Errorf("unsupported runtime search path %s", dir)
 					}
-					dirs = append([]string{dir}, dirs...)
+					search = append(search, dir)
 				}
 			}
+			dirs = append(search, dirs...)
 		}
 		f.Close()
 		for _, soname := range needed {
@@ -337,7 +381,7 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 				if _, exists := fs.index.Files[resolved]; !exists {
 					continue
 				}
-				dep, known := present[resolved]
+				_, known := present[resolved]
 				if !known {
 					return fmt.Errorf("unknown runtime dependency %s", resolved)
 				}
@@ -353,7 +397,7 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 				if !strings.Contains(soname, "/") && !slices.Contains(names, soname) {
 					return fmt.Errorf("runtime SONAME mismatch %s", resolved)
 				}
-				r.Components = appendUnique(r.Components, dep.Components...)
+				edges[name] = appendUnique(edges[name], resolved)
 				found = true
 				break
 			}
@@ -361,7 +405,25 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 				return fmt.Errorf("missing runtime dependency %s required by %s", soname, name)
 			}
 		}
-		present[name] = r
 	}
+	closeComponents(present, edges)
 	return nil
+}
+
+func closeComponents(present map[string]Record, edges map[string][]string) {
+	for changed := true; changed; {
+		changed = false
+		for name, children := range edges {
+			r := present[name]
+			before := len(r.Components)
+			for _, child := range children {
+				r.Components = appendUnique(r.Components, present[child].Components...)
+			}
+			if len(r.Components) != before {
+				changed = true
+			}
+			sort.Strings(r.Components)
+			present[name] = r
+		}
+	}
 }

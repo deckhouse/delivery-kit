@@ -65,10 +65,11 @@ type ImagePolicy struct {
 	MetaDir string            `json:"metaDir"`
 }
 type Policy struct {
-	Schema   string                 `json:"schema"`
-	Tools    []Tool                 `json:"tools"`
-	Profiles []string               `json:"profiles"`
-	Images   map[string]ImagePolicy `json:"images"`
+	Distributions []Distribution         `json:"distributions"`
+	Schema        string                 `json:"schema"`
+	Tools         []Tool                 `json:"tools"`
+	Profiles      []string               `json:"profiles"`
+	Images        map[string]ImagePolicy `json:"images"`
 }
 type Record struct {
 	Path       string   `json:"path"`

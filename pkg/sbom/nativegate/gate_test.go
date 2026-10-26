@@ -3,6 +3,7 @@ package nativegate
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -109,6 +110,47 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 			gomega.Expect(p["A"].Components).To(gomega.Equal([]string{"a", "b", "c"}))
 			gomega.Expect(p["B"].Components).To(gomega.Equal([]string{"b", "c"}))
 		}
+	})
+	ginkgo.It("checks the selected archive member against original package bytes", func() {
+		member := []byte("object bytes")
+		body := []byte("!<arch>\n" + fmt.Sprintf("%-16s%-12d%-6d%-6d%-8s%-10d`\n", "a.o/", 0, 0, 0, "644", len(member)))
+		body = append(body, member...)
+		if len(body)%2 != 0 {
+			body = append(body, '\n')
+		}
+		whole := digest(body)
+		ins := inspector{image: ImagePolicy{MetaDir: "/meta"}, archives: map[string][]byte{"/meta/archives/" + strings.TrimPrefix(whole, "sha256:") + ".a": body}}
+		input := LinkInput{Archive: &Source{Path: "/lib/a.a", SHA256: whole}, Member: "a.o", SHA256: digest(member)}
+		gomega.Expect(ins.archiveMember(input)).To(gomega.Succeed())
+		input.SHA256 = digest([]byte("other"))
+		gomega.Expect(ins.archiveMember(input)).To(gomega.MatchError(gomega.ContainSubstring("member content mismatch")))
+	})
+	ginkgo.It("verifies SDK sources against the pinned distribution archive", func() {
+		var buffer bytes.Buffer
+		gz := gzip.NewWriter(&buffer)
+		tw := tar.NewWriter(gz)
+		source := []byte("sdk source")
+		gomega.Expect(tw.WriteHeader(&tar.Header{Name: "sdk/src/a.c", Mode: 0o644, Size: int64(len(source))})).To(gomega.Succeed())
+		_, err := tw.Write(source)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(tw.Close()).To(gomega.Succeed())
+		gomega.Expect(gz.Close()).To(gomega.Succeed())
+		dist := Distribution{URL: "https://example.invalid/sdk.tar.gz", SHA256: digest(buffer.Bytes())}
+		comp := fixtureCatalog().Components["pkg:generic/example@1"]
+		inventory := map[string]any{"schema": "dk.sources/v2", "distribution": dist, "components": []cdx.Component{comp}, "files": []map[string]string{{"path": "/opt/sdk/src/a.c", "sha256": digest(source), "component": comp.BOMRef, "archivePath": "sdk/src/a.c"}}}
+		raw, err := json.Marshal(inventory)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		bodies := map[string][]byte{"/meta/sources.json": raw, "/meta/distributions/" + strings.TrimPrefix(dist.SHA256, "sha256:") + ".tar.gz": buffer.Bytes()}
+		policy := &Policy{Distributions: []Distribution{dist}}
+		c := emptyCatalog()
+		gomega.Expect(c.addDistributions(policy, ImagePolicy{MetaDir: "/meta"}, bodies)).To(gomega.Succeed())
+		gomega.Expect(c.Records[0].SHA256).To(gomega.Equal(digest(source)))
+		bodies["/meta/sources.json"] = bytes.ReplaceAll(raw, []byte(digest(source)), []byte(digest([]byte("wrong"))))
+		c = emptyCatalog()
+		gomega.Expect(c.addDistributions(policy, ImagePolicy{MetaDir: "/meta"}, bodies)).To(gomega.MatchError(gomega.ContainSubstring("SDK source/member mismatch")))
+		bodies["/meta/sources.json"] = raw
+		c = emptyCatalog()
+		gomega.Expect(c.addDistributions(&Policy{}, ImagePolicy{MetaDir: "/meta"}, bodies)).To(gomega.MatchError(gomega.ContainSubstring("unknown SDK distribution")))
 	})
 	ginkgo.It("rejects unknown metadata versions and properties", func() {
 		var m Method

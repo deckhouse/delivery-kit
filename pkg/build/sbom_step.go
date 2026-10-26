@@ -144,6 +144,10 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 					}
 				}
 			}
+			if err := gost.Upsert(result, mergeOpts.Gost); err != nil {
+				return err
+			}
+			cyclonedxutil.Canonicalize(ctx, result)
 			data, err := cyclonedxutil.ToJSON(result)
 			if err != nil {
 				return err

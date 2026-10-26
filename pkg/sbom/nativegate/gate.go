@@ -173,6 +173,9 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	if err := local.addPM(ctx, fs.bodies); err != nil {
 		return err
 	}
+	if err := local.addDistributions(p, ip, fs.bodies); err != nil {
+		return err
+	}
 	if err := c.add(local); err != nil {
 		return err
 	}

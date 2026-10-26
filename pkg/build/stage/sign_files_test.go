@@ -300,6 +300,34 @@ var _ = Describe("SignFilesStage", func() {
 			Expect(verifies(filepath.Join(signaturesDir, "1", "b.ko.p7s"), files["/out/lib/modules/6.12/kernel/net/b.ko"])).To(Succeed())
 		})
 
+		It("treats every character but * literally, so file names with ?, [ or { need no escaping", func(ctx SpecContext) {
+			files := map[string][]byte{
+				"/out/lib[64]/a.ko":     []byte("a"),
+				"/out/lib6/a.ko":        []byte("not under lib[64]"),
+				"/out/file[1].bin":      []byte("literal path"),
+				"/out/file1.bin":        []byte("would match [1] as a class"),
+				"/out/{x}/what?.bin":    []byte("braces and question mark"),
+				"/out/{x}/what!.bin":    []byte("would match ? as a wildcard"),
+				"/out/lib[64]/b.ko.bak": []byte("not a .ko"),
+			}
+
+			signaturesDir, err := prepare(ctx, files,
+				&config.Sign{Path: "/out/lib[64]/*.ko", After: "install"},
+				&config.Sign{Path: "/out/file[1].bin", After: "install"},
+				&config.Sign{Path: "/out/{x}/what?.b*", After: "install"},
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			script, err := os.ReadFile(filepath.Join(signaturesDir, "install.sh"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(script)).To(ContainSubstring("/out/lib[64]/a.ko.p7s"))
+			Expect(string(script)).To(ContainSubstring("/out/file[1].bin.p7s"))
+			Expect(string(script)).To(ContainSubstring("/out/{x}/what?.bin.p7s"))
+			Expect(string(script)).NotTo(ContainSubstring("lib6/"))
+			Expect(string(script)).NotTo(ContainSubstring("file1.bin"))
+			Expect(string(script)).NotTo(ContainSubstring("what!.bin"))
+		})
+
 		It("fails when the pattern matches no file, since a declared signature is a requirement of the image", func(ctx SpecContext) {
 			_, err := prepare(ctx, map[string][]byte{"/out/notes.txt": []byte("x")}, &config.Sign{Path: "/out/**/*.ko", After: "install"})
 			Expect(err).To(MatchError(ContainSubstring("`path: /out/**/*.ko` of sign in image \"kernel\" matches no file")))

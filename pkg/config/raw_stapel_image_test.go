@@ -489,14 +489,6 @@ var _ = Describe("rawStapelImage", func() {
 			},
 		),
 		Entry(
-			"with sign malformed glob pattern",
-			map[string]interface{}{
-				"image": "image1",
-				"from":  "alpine",
-				"sign":  []map[string]interface{}{{"path": "/out/[x.ko", "after": "install"}},
-			},
-		),
-		Entry(
 			"with sign path and its signature at the end of the image",
 			map[string]interface{}{
 				"image": "image1",

@@ -10,9 +10,10 @@ import (
 
 // Sign declares files of the image whose detached PKCS#7 signatures werf writes next
 // to them as <file>.p7s, right after the stage named by Before or After, or at the end
-// of the image when neither is set. Path is either one absolute file path or an absolute
-// glob pattern expanded against the image filesystem when the signing stage runs; `*`,
-// `?`, `[` and `{` are metacharacters, a literal one is escaped with a backslash.
+// of the image when neither is set. Path is either one absolute file path or, when it
+// contains `*`, an absolute glob pattern expanded against the image filesystem when the
+// signing stage runs. `*` (and `**`) is the only metacharacter; every other character,
+// `?`, `[` and `{` included, stands for itself.
 type Sign struct {
 	Path   string
 	Before string
@@ -27,8 +28,16 @@ func (c *Sign) GetRaw() interface{} {
 
 // IsPattern reports whether Path is a glob pattern rather than one file path.
 func (c *Sign) IsPattern() bool {
-	return strings.ContainsAny(c.Path, "*?[{")
+	return strings.Contains(c.Path, "*")
 }
+
+// Pattern is Path as a doublestar pattern: the characters doublestar would otherwise
+// read as syntax are escaped, so that only `*` matches anything but itself.
+func (c *Sign) Pattern() string {
+	return doublestarEscaper.Replace(c.Path)
+}
+
+var doublestarEscaper = strings.NewReplacer(`\`, `\\`, `?`, `\?`, `[`, `\[`, `]`, `\]`, `{`, `\{`, `}`, `\}`)
 
 // OutputPath is the signature path of a single-file entry; it is meaningless for a
 // pattern, whose files are known only at signing time.
@@ -53,9 +62,7 @@ func (c *Sign) validate() error {
 		return newDetailedConfigError("`path: /PATH/TO/FILE` required for sign!", c.raw, c.raw.rawStapelImage.doc)
 	case !path.IsAbs(c.Path) || path.Clean(c.Path) != c.Path || c.Path == "/":
 		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: expected an absolute clean file path or glob pattern!", c.Path), c.raw, c.raw.rawStapelImage.doc)
-	case c.IsPattern() && !doublestar.ValidatePattern(c.Path):
-		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: malformed glob pattern!", c.Path), c.raw, c.raw.rawStapelImage.doc)
-	case c.IsPattern() && patternBase(c.Path) == "/":
+	case c.IsPattern() && patternBase(c.Pattern()) == "/":
 		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: a glob pattern must start with a literal directory below /!", c.Path), c.raw, c.raw.rawStapelImage.doc)
 	case c.Before != "" && c.After != "":
 		return newDetailedConfigError("specify only one stage using `before: install|setup` or `after: install|setup` for sign!", c.raw, c.raw.rawStapelImage.doc)

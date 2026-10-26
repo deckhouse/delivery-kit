@@ -217,7 +217,7 @@ func (s *SignFilesStage) expandSigns(ctx context.Context, reader container_backe
 		matches := []string{sign.Path}
 		if sign.IsPattern() {
 			var err error
-			matches, err = reader.Glob(ctx, sign.Path)
+			matches, err = reader.Glob(ctx, sign.Pattern())
 			if err != nil {
 				return nil, fmt.Errorf("expand `path: %s` of sign in image %q: %w", sign.Path, s.imageName, err)
 			}

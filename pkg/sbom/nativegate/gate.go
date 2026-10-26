@@ -78,7 +78,7 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 			return nil, err
 		}
 		body := prefix
-		var err error
+		err = nil
 		full := metadata || ip.Role != "final" || bytes.HasPrefix(prefix, []byte("\x7fELF"))
 		if full {
 			rest, readErr := io.ReadAll(tr)
@@ -245,6 +245,16 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		present[name] = *record
 	}
 	if ip.Role == "final" {
+		cfg, err := img.ConfigFile()
+		if err != nil {
+			return err
+		}
+		for _, env := range cfg.Config.Env {
+			key, value, _ := strings.Cut(env, "=")
+			if value != "" && slices.Contains([]string{"LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT"}, key) {
+				return fmt.Errorf("unsupported dynamic loader environment %s", key)
+			}
+		}
 		if err := dynamicClosure(fs, present); err != nil {
 			return err
 		}
@@ -318,6 +328,18 @@ func dynamicClosure(fs *filesystem, present map[string]Record) error {
 		f, err := elf.NewFile(bytes.NewReader(body))
 		if err != nil {
 			return err
+		}
+		if f.Class != elf.ELFCLASS64 || f.Machine != elf.EM_X86_64 {
+			f.Close()
+			return fmt.Errorf("unsupported runtime ELF architecture")
+		}
+		if f.Section(".dynamic") != nil {
+			for candidate := range fs.index.Files {
+				if candidate == "/etc/ld.so.cache" || candidate == "/etc/ld.so.preload" || strings.Contains(candidate, "/glibc-hwcaps/") {
+					f.Close()
+					return fmt.Errorf("unsupported dynamic loader feature %s", candidate)
+				}
+			}
 		}
 		needed, err := f.ImportedLibraries()
 		if err != nil {

@@ -34,7 +34,7 @@ import (
 )
 
 var _ = Describe("Installed inventory convergence", func() {
-	It("replaces a declaration-only cached BOM without any packages directive, then reuses the new inventory", func(specCtx SpecContext) {
+	DescribeTable("replaces an outdated cached BOM without any packages directive, then reuses the new inventory", func(specCtx SpecContext, oldVersion string) {
 		ctx := logging.WithLogger(specCtx)
 		Expect(werf.Init(GinkgoT().TempDir(), "")).To(Succeed())
 		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
@@ -66,7 +66,7 @@ var _ = Describe("Installed inventory convergence", func() {
 		opts.Commands[0].SourcePath = info.Name
 		mergeOpts := cyclonedxutil.MergeOpts{}
 		oldChecksum := util.Sha256Hash(
-			"14", "scan", opts.Checksum(), "merge", mergeOpts.Checksum(),
+			oldVersion, "scan", opts.Checksum(), "merge", mergeOpts.Checksum(),
 			"gost_attack_surface", mergeOpts.Gost.AttackSurface.String(),
 			"gost_security_function", mergeOpts.Gost.SecurityFunction.String(),
 			"signer", "", "platform", "", "produced", sbomProvenanceChecksum(sbomStageProvenance{}),
@@ -109,5 +109,8 @@ var _ = Describe("Installed inventory convergence", func() {
 				}
 			}
 		}
-	})
+	},
+		Entry("declaration-only inventory", "14"),
+		Entry("inventory before editable uncertainty", "15"),
+	)
 })

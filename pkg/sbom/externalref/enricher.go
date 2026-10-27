@@ -249,13 +249,16 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		// distribution an older enrichment left without a digest is replaced
 		// rather than kept: the base image it came from cannot be fixed from here,
 		// and keeping it would carry the unvalidatable link into this SBOM too.
-		if existing, idx, ok := findRefType(*comp.ExternalReferences, outcome.ref.Type); ok {
-			if hasHashes(existing) || outcome.ref.Hashes == nil {
-				continue
-			}
-			(*comp.ExternalReferences)[idx] = outcome.ref
-		} else {
-			*comp.ExternalReferences = append(*comp.ExternalReferences, outcome.ref)
+		// Duplicates merged before this point can have left several such links,
+		// so every link without a digest goes once one with a digest is at hand.
+		sameType := func(ref cdx.ExternalReference, _ int) bool { return ref.Type == outcome.ref.Type }
+		hashless := func(ref cdx.ExternalReference, i int) bool { return sameType(ref, i) && !hasHashes(ref) }
+		existing := lo.Filter(*comp.ExternalReferences, sameType)
+		switch {
+		case lo.SomeBy(existing, hasHashes):
+			*comp.ExternalReferences = lo.Reject(*comp.ExternalReferences, hashless)
+		case len(existing) == 0 || outcome.ref.Hashes != nil:
+			*comp.ExternalReferences = append(lo.Reject(*comp.ExternalReferences, hashless), outcome.ref)
 		}
 	}
 
@@ -461,10 +464,4 @@ func refHashes(kind string, hashes []Hash) *[]cdx.Hash {
 
 func hasHashes(ref cdx.ExternalReference) bool {
 	return ref.Hashes != nil && len(*ref.Hashes) > 0
-}
-
-func findRefType(refs []cdx.ExternalReference, refType cdx.ExternalReferenceType) (cdx.ExternalReference, int, bool) {
-	return lo.FindIndexOf(refs, func(ref cdx.ExternalReference) bool {
-		return ref.Type == refType
-	})
 }

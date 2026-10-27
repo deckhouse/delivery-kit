@@ -116,5 +116,6 @@ var _ = Describe("Installed inventory convergence", func() {
 		Entry("declaration-only inventory", "14"),
 		Entry("inventory before editable uncertainty", "15"),
 		Entry("inventory before legacy bytecode evidence", "16"),
+		Entry("inventory before external references resolved after deduplication", "17"),
 	)
 })

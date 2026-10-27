@@ -612,7 +612,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "17"
+const sbomArtifactFormatVersion = "18"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

@@ -42,6 +42,9 @@ func (c *Catalog) addDistributions(p *Policy, ip ImagePolicy, bodies map[string]
 		if inv.Schema != "dk.sources/v2" || !digestPattern.MatchString(inv.Distribution.SHA256) || !slices.Contains(p.Distributions, inv.Distribution) {
 			return fmt.Errorf("unknown SDK distribution %s", inv.Distribution.URL)
 		}
+		if err := c.verifyCargoDistribution(ip, inv, bodies); err != nil {
+			return err
+		}
 		prefix := strings.TrimRight(ip.MetaDir, "/") + "/distributions/" + strings.TrimPrefix(inv.Distribution.SHA256, "sha256:")
 		var stream io.Reader
 		if raw, ok := bodies[prefix+".tar.gz"]; ok {
@@ -90,10 +93,26 @@ func (c *Catalog) addDistributions(p *Policy, ip ImagePolicy, bodies map[string]
 				return fmt.Errorf("duplicate SDK member %s", h.Name)
 			}
 			sum := sha256.New()
-			if _, err := io.Copy(sum, tr); err != nil {
+			var archive []byte
+			if strings.HasSuffix(h.Name, ".rlib") || strings.HasSuffix(h.Name, ".a") {
+				var err error
+				archive, err = io.ReadAll(io.LimitReader(tr, (512<<20)+1))
+				if err != nil {
+					return err
+				}
+				if len(archive) > 512<<20 {
+					return fmt.Errorf("SDK archive member too large")
+				}
+				if _, err := sum.Write(archive); err != nil {
+					return err
+				}
+			} else if _, err := io.Copy(sum, tr); err != nil {
 				return err
 			}
 			hashes[h.Name] = fmt.Sprintf("sha256:%x", sum.Sum(nil))
+			if archive != nil {
+				bodies[strings.TrimRight(ip.MetaDir, "/")+"/archives/"+strings.TrimPrefix(hashes[h.Name], "sha256:")+".a"] = archive
+			}
 		}
 		for _, comp := range inv.Components {
 			if !validComponent(comp) {

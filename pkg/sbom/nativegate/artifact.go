@@ -10,8 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
 type inspector struct {
@@ -74,7 +72,7 @@ func (i *inspector) source(s Source) ([]string, error) {
 	}
 	var owners []string
 	for _, r := range i.catalog.Records {
-		if (r.Origin == "pm" || r.Origin == "sdk" || r.Origin == "source") && r.Path == s.Path && r.SHA256 == s.SHA256 {
+		if (r.Origin == "pm" || r.Origin == "sdk" || r.Origin == "source" || r.Origin == "module") && r.Path == s.Path && r.SHA256 == s.SHA256 {
 			owners = appendUnique(owners, r.Components...)
 		}
 	}
@@ -113,6 +111,10 @@ func (i *inspector) input(s Source) ([]string, error) {
 		return nil, fmt.Errorf("ambiguous package input %s", s.Path)
 	}
 	if len(owners) == 1 {
+		if i.resolved == nil {
+			i.resolved = map[string][]string{}
+		}
+		i.resolved[key] = owners
 		return owners, nil
 	}
 	r, ok := i.compiled[s.SHA256]
@@ -140,7 +142,7 @@ func (i *inspector) input(s Source) ([]string, error) {
 				}
 			}
 		}
-		if !knownAssembly || len(r.Inputs) > 0 {
+		if !knownAssembly && len(r.Inputs) == 0 {
 			return nil, fmt.Errorf("assembly profile requires original inventoried SDK source")
 		}
 	}
@@ -258,6 +260,10 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 				if err := i.archiveMember(input); err != nil {
 					return r, err
 				}
+			case "script":
+				if input.Disposition != "included" {
+					return r, fmt.Errorf("linker script requires conservative inclusion")
+				}
 			case "archive":
 				if input.Disposition != "participated" {
 					return r, fmt.Errorf("whole archive cannot imply inclusion")
@@ -273,7 +279,13 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 			default:
 				return r, fmt.Errorf("unsupported native input kind %s", input.Kind)
 			}
-			refs, err := i.input(source)
+			var refs []string
+			var err error
+			if input.Kind == "script" {
+				refs, err = i.source(source)
+			} else {
+				refs, err = i.input(source)
+			}
 			if err != nil {
 				return r, err
 			}
@@ -289,7 +301,11 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		if err != nil {
 			return r, fmt.Errorf("missing/corrupt Go buildinfo: %w", err)
 		}
-		if info.GoVersion != m.Tool.Version {
+		actualVersion, experiments, _ := strings.Cut(info.GoVersion, " ")
+		if experiments != "" {
+			return r, fmt.Errorf("unsupported Go experiments %q", experiments)
+		}
+		if actualVersion != m.Tool.Version {
 			return r, fmt.Errorf("Go buildinfo version %s contradicts compiler %s", info.GoVersion, m.Tool.Version)
 		}
 		cgo := ""
@@ -304,22 +320,18 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		if (m.Native && cgo != "1") || (cgo != "0" && cgo != "1") {
 			return r, fmt.Errorf("Go buildinfo contradicts profile")
 		}
+		deps := []goDependency{}
 		for _, dep := range info.Deps {
-			if dep.Replace != nil {
-				dep = dep.Replace
-			}
-			if dep.Version == "" || dep.Sum == "" {
-				return r, fmt.Errorf("Go module lacks version/checksum %s", dep.Path)
-			}
-			ref := "pkg:golang/" + dep.Path + "@" + dep.Version
-			i.catalog.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: ref, Name: dep.Path, Version: dep.Version, PackageURL: ref}
-			r.Components = appendUnique(r.Components, ref)
+			deps = append(deps, goDependency{Path: dep.Path, Version: dep.Version, Sum: dep.Sum, Replace: dep.Replace != nil})
+		}
+		if err := validateGoDependencies(deps, r.Components, i.catalog); err != nil {
+			return r, err
 		}
 	} else if _, err := buildinfo.Read(bytes.NewReader(body)); err == nil {
 		return r, fmt.Errorf("Go binary missing Go profile")
 	}
 	if slices.Contains(m.Languages, "rust") {
-		refs, err := i.rust(f)
+		refs, err := i.rust(f, r.Components)
 		if err != nil {
 			return r, err
 		}
@@ -339,7 +351,7 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 	return r, nil
 }
 
-func (i *inspector) rust(f *elf.File) ([]string, error) {
+func (i *inspector) rust(f *elf.File, owned []string) ([]string, error) {
 	raw, err := readSection(f, ".dep-v0")
 	if err != nil {
 		return nil, err
@@ -354,6 +366,7 @@ func (i *inspector) rust(f *elf.File) ([]string, error) {
 		return nil, fmt.Errorf("invalid Rust metadata size")
 	}
 	var data struct {
+		Format   int `json:"format"`
 		Packages []struct {
 			Name         string `json:"name"`
 			Version      string `json:"version"`
@@ -366,7 +379,7 @@ func (i *inspector) rust(f *elf.File) ([]string, error) {
 	if err := decode(body, &data); err != nil {
 		return nil, fmt.Errorf("decode Rust packages: %w", err)
 	}
-	if len(data.Packages) == 0 {
+	if len(data.Packages) == 0 || data.Format != 1 {
 		return nil, fmt.Errorf("empty Rust metadata")
 	}
 	var refs []string
@@ -390,7 +403,12 @@ func (i *inspector) rust(f *elf.File) ([]string, error) {
 			return nil, fmt.Errorf("unknown Rust dependency kind")
 		}
 		ref := "pkg:cargo/" + p.Name + "@" + p.Version
-		i.catalog.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: ref, Name: p.Name, Version: p.Version, PackageURL: ref}
+		if !slices.Contains(owned, ref) {
+			return nil, fmt.Errorf("Rust audit crate lacks matching source owner/version %s", ref)
+		}
+		if (p.Root && p.Source != "local") || (!p.Root && p.Source != "crates.io") {
+			return nil, fmt.Errorf("unsupported Rust crate source %s", p.Source)
+		}
 		refs = appendUnique(refs, ref)
 	}
 	if roots != 1 {

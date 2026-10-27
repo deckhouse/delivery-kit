@@ -61,8 +61,8 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 			return nil, fmt.Errorf("file exceeds experimental limit %s", name)
 		}
 		_, ownSource := ip.Sources[name]
-		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json"
-		capture := ownSource || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || (ip.MetaDir != "" && strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/"))
+		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || path.Base(name) == "go.sum" || path.Base(name) == "Cargo.lock"
+		capture := metadata || ownSource || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || (ip.MetaDir != "" && strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/"))
 		if !capture {
 			for _, out := range ip.Outputs {
 				if index.Files[out].Digest == entry.Digest {
@@ -191,6 +191,9 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 	}
 	if err := local.addPM(ctx, fs.bodies); err != nil {
+		return err
+	}
+	if err := local.addGoModules(ip, fs.bodies); err != nil {
 		return err
 	}
 	if err := local.addDistributions(p, ip, fs.bodies); err != nil {

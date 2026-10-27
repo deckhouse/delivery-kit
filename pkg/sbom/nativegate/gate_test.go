@@ -79,6 +79,21 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		_, err := matching(c, "/renamed", second.SHA256)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("ambiguous content ownership")))
 	})
+	ginkgo.It("keeps compiler evidence separate from final file ownership", func() {
+		c := fixtureCatalog()
+		for _, origin := range []string{"sdk", "source", "module"} {
+			c.Records[0].Origin = origin
+			record, err := matching(c, "/unrelated", c.Records[0].SHA256)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(record).To(gomega.BeNil())
+		}
+		for _, origin := range []string{"pm", "build"} {
+			c.Records[0].Origin = origin
+			record, err := matching(c, "/renamed", c.Records[0].SHA256)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(record).NotTo(gomega.BeNil())
+		}
+	})
 	ginkgo.It("checks original pm version and content hashes", func() {
 		hash := digest([]byte("original"))
 		index := fmt.Sprintf(`{"example":{"name":"example","version":"1","digest":%q}}`, hash)

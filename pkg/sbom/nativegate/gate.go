@@ -132,6 +132,9 @@ func matching(c Catalog, name, hash string) (*Record, error) {
 	pathSeen := false
 	pathMatch := false
 	for _, r := range c.Records {
+		if r.Origin != "pm" && r.Origin != "build" {
+			continue
+		}
 		if r.Path == name {
 			pathSeen = true
 			if r.SHA256 == hash {

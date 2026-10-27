@@ -74,6 +74,7 @@ type Policy struct {
 	Images        map[string]ImagePolicy `json:"images"`
 }
 type Record struct {
+	PMOverlap  string   `json:"pmOverlap,omitempty"`
 	Namespace  string   `json:"namespace,omitempty"`
 	Path       string   `json:"path"`
 	SHA256     string   `json:"sha256"`

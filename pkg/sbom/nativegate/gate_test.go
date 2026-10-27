@@ -204,6 +204,28 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		_, err = read(map[string]string{"vendor/lib.c": "source"}, "/src", "/")
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("vendored path in Git")))
 	})
+	ginkgo.It("requires explicit policy when consuming inherited coownership", func() {
+		c := fixtureCatalog()
+		other := c.Components["pkg:generic/example@1"]
+		other.Name = "other"
+		other.PackageURL = "pkg:generic/other@1"
+		other.BOMRef = other.PackageURL
+		c.Components[other.BOMRef] = other
+		c.Records[0].Namespace = "current"
+		c.Records[0].Components = append(c.Records[0].Components, other.BOMRef)
+		inherited := cdx.NewBOM()
+		gomega.Expect(c.attach(inherited)).To(gomega.Succeed())
+		img := fixtureImage(map[string]string{"/renamed": "package-script"})
+		policy := &Policy{PMOverlap: "all-active-exact-path-hash", Images: map[string]ImagePolicy{"final": {Role: "final"}}}
+		gomega.Expect(Apply(context.Background(), policy, "final", img, []*cdx.BOM{inherited}, cdx.NewBOM())).To(gomega.Succeed())
+		policy.PMOverlap = ""
+		gomega.Expect(Apply(context.Background(), policy, "final", img, []*cdx.BOM{inherited}, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("coownership requires current policy")))
+		c.Records[0].Origin = "build"
+		c.Records[0].PMOverlap = "all-active-exact-path-hash"
+		inherited = cdx.NewBOM()
+		gomega.Expect(c.attach(inherited)).To(gomega.Succeed())
+		gomega.Expect(Apply(context.Background(), policy, "final", img, []*cdx.BOM{inherited}, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("coownership requires current policy")))
+	})
 	ginkgo.It("groups only current pm exact-path/hash coowners", func() {
 		hash := digest([]byte("shared"))
 		makeCatalog := func() Catalog {

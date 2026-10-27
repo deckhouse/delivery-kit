@@ -272,6 +272,9 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			}
 			continue
 		}
+		if (record.PMOverlap != "" || (record.Origin == "pm" && len(record.Components) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
+			return fmt.Errorf("pm coownership requires current policy opt-in")
+		}
 		if record.Origin == "build" {
 			if !slices.Contains(p.Profiles, record.Profile) {
 				return fmt.Errorf("inherited unsupported profile %s", record.Profile)

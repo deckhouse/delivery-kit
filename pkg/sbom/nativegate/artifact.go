@@ -13,6 +13,7 @@ import (
 )
 
 type inspector struct {
+	pmOverlapUsed  bool
 	policy         *Policy
 	image          ImagePolicy
 	catalog        *Catalog
@@ -44,6 +45,20 @@ func (i *inspector) tool(t Tool) error {
 	return nil
 }
 
+func (i *inspector) attribution(s Source, origins []string) ([]string, error) {
+	owners, err := i.catalog.attribution(s, origins)
+	if err != nil {
+		return nil, err
+	}
+	if len(owners) > 1 {
+		if i.policy == nil || i.policy.PMOverlap != "all-active-exact-path-hash" {
+			return nil, fmt.Errorf("pm coownership requires current policy opt-in")
+		}
+		i.pmOverlapUsed = true
+	}
+	return owners, nil
+}
+
 func (i *inspector) source(s Source) ([]string, error) {
 	if i.fs != nil {
 		resolved, err := resolvePath(i.fs, s.Path)
@@ -71,7 +86,7 @@ func (i *inspector) source(s Source) ([]string, error) {
 		i.catalog.Components[i.image.Project.BOMRef] = i.image.Project
 		return []string{i.image.Project.BOMRef}, nil
 	}
-	owners, err := i.catalog.attribution(s, []string{"pm", "sdk", "source", "module"})
+	owners, err := i.attribution(s, []string{"pm", "sdk", "source", "module"})
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +115,7 @@ func (i *inspector) input(s Source) ([]string, error) {
 	if refs, ok := i.resolved[key]; ok {
 		return refs, nil
 	}
-	owners, err := i.catalog.attribution(s, []string{"pm", "sdk"})
+	owners, err := i.attribution(s, []string{"pm", "sdk"})
 	if err != nil {
 		return nil, err
 	}
@@ -341,6 +356,9 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		return r, fmt.Errorf("empty artifact composition")
 	}
 	sort.Strings(r.Components)
+	if i.pmOverlapUsed {
+		r.PMOverlap = i.policy.PMOverlap
+	}
 	r.Tools = i.tools
 	return r, nil
 }

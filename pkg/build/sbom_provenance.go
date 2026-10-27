@@ -26,7 +26,6 @@ type sbomStageRecord struct {
 
 type sbomStageProvenance struct {
 	Layers  shippedscope.ProducedLayers
-	Sources shippedscope.ProducedLayers
 	DiffIDs []v1.Hash
 }
 
@@ -82,8 +81,6 @@ func resolveSBOMStageProvenance(ctx context.Context, final *image.StageDesc, rea
 		previousPosition = position
 		if record.Stage == stage.From {
 			result.Layers.Known = true
-			result.Sources.Known = true
-			slices.Reverse(result.Sources.Ranges)
 			slices.Reverse(result.Layers.Ranges)
 
 			return result, nil
@@ -114,9 +111,6 @@ func resolveSBOMStageProvenance(ctx context.Context, final *image.StageDesc, rea
 		currentLayers := current.RootFS.DiffIDs
 		if len(parentLayers) > len(currentLayers) || !slices.Equal(parentLayers, currentLayers[:len(parentLayers)]) {
 			return unknown, fmt.Errorf("resolve SBOM stages: parent layers are not a prefix of stage %q", id)
-		}
-		if record.Stage == stage.GitArchive || record.Stage == stage.GitCache || record.Stage == stage.GitLatestPatch {
-			result.Sources.Ranges = append(result.Sources.Ranges, shippedscope.ProducedLayerRange{Start: len(parentLayers), End: len(currentLayers)})
 		}
 		if record.Stage == stage.Install || record.Stage == stage.BeforeSetup || record.Stage == stage.Setup {
 			result.Layers.Ranges = append(result.Layers.Ranges, shippedscope.ProducedLayerRange{Start: len(parentLayers), End: len(currentLayers)})

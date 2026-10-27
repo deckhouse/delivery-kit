@@ -8,45 +8,7 @@ import (
 	"io"
 	"path"
 	"strings"
-
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-
-	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
-
-func ProjectSources(ctx context.Context, img v1.Image, ranges shippedscope.ProducedLayers) (map[string]string, error) {
-	if !ranges.Known {
-		return nil, fmt.Errorf("unknown Git source layers")
-	}
-	layers, err := img.Layers()
-	if err != nil {
-		return nil, err
-	}
-	sources := map[string]string{}
-	for _, r := range ranges.Ranges {
-		if r.Start < 0 || r.End < r.Start || r.End > len(layers) {
-			return nil, fmt.Errorf("invalid Git layer range")
-		}
-		for index := r.Start; index < r.End; index++ {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			reader, err := layers[index].Uncompressed()
-			if err != nil {
-				return nil, err
-			}
-			err = readSources(tar.NewReader(reader), sources, "/", "/")
-			closeErr := reader.Close()
-			if err != nil {
-				return nil, err
-			}
-			if closeErr != nil {
-				return nil, closeErr
-			}
-		}
-	}
-	return sources, nil
-}
 
 func ReadSourceArchive(ctx context.Context, reader io.Reader, destination, repositoryPath string) (map[string]string, error) {
 	if err := ctx.Err(); err != nil {

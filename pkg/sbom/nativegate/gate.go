@@ -152,7 +152,7 @@ func matching(c Catalog, name, hash string) (*Record, error) {
 		a, b := slices.Clone(result.Components), slices.Clone(r.Components)
 		sort.Strings(a)
 		sort.Strings(b)
-		if !slices.Equal(a, b) || result.Origin != r.Origin {
+		if !slices.Equal(a, b) || result.Origin != r.Origin || result.Namespace != r.Namespace {
 			return nil, fmt.Errorf("ambiguous content ownership %s", name)
 		}
 	}
@@ -163,6 +163,9 @@ func matching(c Catalog, name, hash string) (*Record, error) {
 }
 
 func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*cdx.BOM, target *cdx.BOM) error {
+	if p.PMOverlap != "" && p.PMOverlap != "all-active-exact-path-hash" {
+		return fmt.Errorf("unsupported pm overlap policy")
+	}
 	ip, ok := p.Images[name]
 	if !ok {
 		return fmt.Errorf("image %s missing native policy", name)
@@ -204,6 +207,11 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	}
 	if err := local.resolvePaths(fs); err != nil {
 		return err
+	}
+	if p.PMOverlap != "" {
+		if err := local.coalescePM(); err != nil {
+			return err
+		}
 	}
 	if err := c.add(local); err != nil {
 		return err
@@ -341,6 +349,9 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		props = append(props, (*target.Metadata.Properties)...)
 	}
 	props = append(props, cdx.Property{Name: "dk:runtimeLoads:image-scope", Value: string(declaration)})
+	if p.PMOverlap != "" {
+		props = append(props, cdx.Property{Name: "dk:pm-overlap", Value: p.PMOverlap})
+	}
 	target.Metadata.Properties = &props
 	return c.attach(target)
 }

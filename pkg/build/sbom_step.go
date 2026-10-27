@@ -79,7 +79,7 @@ func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 // is the union of the os-pm directive specs of the image, the entries as written in
 // werf.yaml; when non-empty, the pm index of the image is read and the declared packages
 // recorded.
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, nativeSources map[string]string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -134,12 +134,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			if !isStapel {
 				return fmt.Errorf("native experimental gate requires Stapel source provenance")
 			}
-			sources, err := nativegate.ProjectSources(ctx, img, provenance.Sources)
-			if err != nil {
-				return err
-			}
 			ip := nativePolicy.Images[werfImgName]
-			ip.Sources = sources
+			ip.Sources = nativeSources
 			nativePolicy.Images[werfImgName] = ip
 			result := cyclonedxutil.NewBOM()
 			restoreImageMetadata(result, stageDesc)

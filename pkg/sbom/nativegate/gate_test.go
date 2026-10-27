@@ -182,16 +182,60 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		c = emptyCatalog()
 		gomega.Expect(c.addDistributions(&Policy{}, ImagePolicy{MetaDir: "/meta"}, bodies)).To(gomega.MatchError(gomega.ContainSubstring("unknown SDK distribution")))
 	})
-	ginkgo.It("derives source ownership from Git layers and rejects prebuilt or vendor content", func() {
-		ranges := shippedscope.ProducedLayers{Known: true, Ranges: []shippedscope.ProducedLayerRange{{Start: 0, End: 1}}}
-		ctx := context.Background()
-		sources, err := ProjectSources(ctx, fixtureImage(map[string]string{"/src/main.c": "int main(void){return 0;}"}), ranges)
+	ginkgo.It("reads only selected original archive sources and preserves repository vendor identity", func() {
+		read := func(files map[string]string, destination, repository string) (map[string]string, error) {
+			layers, err := fixtureImage(files).Layers()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			reader, err := layers[0].Uncompressed()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer reader.Close()
+			return ReadSourceArchive(context.Background(), reader, destination, repository)
+		}
+		sources, err := read(map[string]string{"main.c": "int main(void){return 0;}"}, "/renamed", "/src")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(sources["/src/main.c"]).To(gomega.Equal(digest([]byte("int main(void){return 0;}"))))
-		_, err = ProjectSources(ctx, fixtureImage(map[string]string{"/src/prebuilt": "\x7fELFknown package bytes"}), ranges)
+		gomega.Expect(sources).To(gomega.Equal(map[string]string{"/renamed/main.c": digest([]byte("int main(void){return 0;}"))}))
+		_, err = read(map[string]string{"prebuilt": "\x7fELFknown package bytes"}, "/src", "/")
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("prebuilt binary in Git")))
-		_, err = ProjectSources(ctx, fixtureImage(map[string]string{"/src/vendor/lib/a.c": "source"}), ranges)
+		_, err = read(map[string]string{"lib.c": "source"}, "/src/lib", "/vendor/lib")
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("vendored path in Git")))
+		sources, err = read(map[string]string{}, "/src/lib", "/vendor/lib")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(sources).To(gomega.BeEmpty())
+		_, err = read(map[string]string{"vendor/lib.c": "source"}, "/src", "/")
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("vendored path in Git")))
+	})
+	ginkgo.It("groups only current pm exact-path/hash coowners", func() {
+		hash := digest([]byte("shared"))
+		makeCatalog := func() Catalog {
+			c := emptyCatalog()
+			c.pmSnapshot = "current"
+			c.Records = []Record{
+				{Path: "/lib/same", SHA256: hash, Components: []string{"a"}, Origin: "pm", Namespace: "current"},
+				{Path: "/lib/same", SHA256: hash, Components: []string{"b"}, Origin: "pm", Namespace: "current"},
+				{Path: "/other/same", SHA256: hash, Components: []string{"c"}, Origin: "pm", Namespace: "current"},
+			}
+			return c
+		}
+		c := makeCatalog()
+		gomega.Expect(c.coalescePM()).To(gomega.Succeed())
+		owners, err := c.attribution(Source{Path: "/lib/same", SHA256: hash}, []string{"pm"})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(owners).To(gomega.ConsistOf("a", "b"))
+		_, err = matching(c, "/renamed", hash)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("ambiguous content ownership")))
+		c = makeCatalog()
+		c.Records[1].Namespace = "historical"
+		gomega.Expect(c.coalescePM()).To(gomega.MatchError(gomega.ContainSubstring("historical pm")))
+		_, err = c.attribution(Source{Path: "/lib/same", SHA256: hash}, []string{"pm"})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("ambiguous source attribution")))
+		c = makeCatalog()
+		c.Records[1].SHA256 = digest([]byte("different"))
+		gomega.Expect(c.coalescePM()).To(gomega.MatchError(gomega.ContainSubstring("conflicting active pm")))
+		c = makeCatalog()
+		gomega.Expect(c.coalescePM()).To(gomega.Succeed())
+		c.Records = append(c.Records, Record{Path: "/lib/same", SHA256: hash, Components: []string{"sdk"}, Origin: "sdk"})
+		_, err = c.attribution(Source{Path: "/lib/same", SHA256: hash}, []string{"pm", "sdk"})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("ambiguous source attribution")))
 	})
 	ginkgo.It("rejects generic own assembly until assembler dependencies are traced", func() {
 		c := fixtureCatalog()

@@ -638,6 +638,40 @@ func filterTarArchive(ctx context.Context, in io.Reader, out io.Writer, includeP
 	return
 }
 
+func (gm *GitMapping) VisitBuiltSourceArchive(ctx context.Context, labels map[string]string, visit func(io.Reader, string) error) error {
+	lock, err := git_repo.CommonGitDataManager.LockGC(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer werf.HostLocker().ReleaseLock(lock)
+	commit, err := gm.GetBuiltImageCommitInfo(labels)
+	if err != nil {
+		return err
+	}
+	opts, err := gm.makeArchiveOptions(ctx, commit.Commit)
+	if err != nil {
+		return err
+	}
+	archive, err := gm.GitRepo().GetOrCreateArchive(ctx, *opts)
+	if err != nil {
+		return err
+	}
+	kind, err := gm.getArchiveType(ctx, commit.Commit)
+	if err != nil {
+		return err
+	}
+	destination := gm.To
+	if kind == git_repo.FileArchive {
+		destination = path.Dir(destination)
+	}
+	reader, err := os.Open(archive.GetFilePath())
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	return visit(reader, destination)
+}
+
 func (gm *GitMapping) PrepareArchiveForImage(ctx context.Context, c Conveyor, cb container_backend.ContainerBackend, stageImage *StageImage) error {
 	lock, err := git_repo.CommonGitDataManager.LockGC(ctx, true)
 	if err != nil {

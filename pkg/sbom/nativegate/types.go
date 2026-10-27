@@ -66,6 +66,7 @@ type ImagePolicy struct {
 	MetaDir      string            `json:"metaDir"`
 }
 type Policy struct {
+	PMOverlap     string                 `json:"pmOverlap,omitempty"`
 	Distributions []Distribution         `json:"distributions"`
 	Schema        string                 `json:"schema"`
 	Tools         []Tool                 `json:"tools"`
@@ -73,6 +74,7 @@ type Policy struct {
 	Images        map[string]ImagePolicy `json:"images"`
 }
 type Record struct {
+	Namespace  string   `json:"namespace,omitempty"`
 	Path       string   `json:"path"`
 	SHA256     string   `json:"sha256"`
 	Components []string `json:"components"`
@@ -81,6 +83,7 @@ type Record struct {
 	Tools      []Tool   `json:"tools,omitempty"`
 }
 type Catalog struct {
+	pmSnapshot string
 	Schema     string                   `json:"schema"`
 	Records    []Record                 `json:"records"`
 	Components map[string]cdx.Component `json:"components"`

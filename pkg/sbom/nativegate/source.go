@@ -35,7 +35,7 @@ func ProjectSources(ctx context.Context, img v1.Image, ranges shippedscope.Produ
 			if err != nil {
 				return nil, err
 			}
-			err = readSources(tar.NewReader(reader), sources)
+			err = readSources(tar.NewReader(reader), sources, "/", "/")
 			closeErr := reader.Close()
 			if err != nil {
 				return nil, err
@@ -48,7 +48,18 @@ func ProjectSources(ctx context.Context, img v1.Image, ranges shippedscope.Produ
 	return sources, nil
 }
 
-func readSources(tr *tar.Reader, sources map[string]string) error {
+func ReadSourceArchive(ctx context.Context, reader io.Reader, destination, repositoryPath string) (map[string]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sources := map[string]string{}
+	if err := readSources(tar.NewReader(reader), sources, destination, repositoryPath); err != nil {
+		return nil, err
+	}
+	return sources, nil
+}
+
+func readSources(tr *tar.Reader, sources map[string]string, destination, repositoryPath string) error {
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -57,8 +68,11 @@ func readSources(tr *tar.Reader, sources map[string]string) error {
 		if err != nil {
 			return err
 		}
-		name := "/" + strings.TrimPrefix(path.Clean(h.Name), "/")
-		if prohibitedSource(name) {
+		name := path.Join(destination, strings.TrimPrefix(path.Clean(h.Name), "/"))
+		if h.Typeflag == tar.TypeDir {
+			continue
+		}
+		if prohibitedSource(name) || prohibitedSource(path.Join(repositoryPath, h.Name)) {
 			return fmt.Errorf("vendored path in Git sources %s", name)
 		}
 		if strings.HasPrefix(path.Base(name), ".wh.") {
@@ -66,7 +80,7 @@ func readSources(tr *tar.Reader, sources map[string]string) error {
 			continue
 		}
 		if h.Typeflag == tar.TypeLink {
-			source, ok := sources["/"+strings.TrimPrefix(h.Linkname, "/")]
+			source, ok := sources[path.Join(destination, strings.TrimPrefix(h.Linkname, "/"))]
 			if !ok {
 				return fmt.Errorf("unresolved source hardlink %s", name)
 			}

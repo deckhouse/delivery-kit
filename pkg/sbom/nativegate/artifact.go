@@ -71,11 +71,9 @@ func (i *inspector) source(s Source) ([]string, error) {
 		i.catalog.Components[i.image.Project.BOMRef] = i.image.Project
 		return []string{i.image.Project.BOMRef}, nil
 	}
-	var owners []string
-	for _, r := range i.catalog.Records {
-		if (r.Origin == "pm" || r.Origin == "sdk" || r.Origin == "source" || r.Origin == "module") && r.Path == s.Path && r.SHA256 == s.SHA256 {
-			owners = appendUnique(owners, r.Components...)
-		}
+	owners, err := i.catalog.attribution(s, []string{"pm", "sdk", "source", "module"})
+	if err != nil {
+		return nil, err
 	}
 	if strings.HasSuffix(s.Path, ".s") || strings.HasSuffix(s.Path, ".S") {
 		for _, r := range i.catalog.Records {
@@ -84,7 +82,7 @@ func (i *inspector) source(s Source) ([]string, error) {
 			}
 		}
 	}
-	if len(owners) != 1 {
+	if len(owners) == 0 {
 		return nil, fmt.Errorf("unknown/ambiguous source or header %s %s", s.Path, s.SHA256)
 	}
 	return owners, nil
@@ -102,16 +100,11 @@ func (i *inspector) input(s Source) ([]string, error) {
 	if refs, ok := i.resolved[key]; ok {
 		return refs, nil
 	}
-	var owners []string
-	for _, r := range i.catalog.Records {
-		if (r.Origin == "pm" || r.Origin == "sdk") && r.Path == s.Path && r.SHA256 == s.SHA256 {
-			owners = appendUnique(owners, r.Components...)
-		}
+	owners, err := i.catalog.attribution(s, []string{"pm", "sdk"})
+	if err != nil {
+		return nil, err
 	}
-	if len(owners) > 1 {
-		return nil, fmt.Errorf("ambiguous package input %s", s.Path)
-	}
-	if len(owners) == 1 {
+	if len(owners) > 0 {
 		if i.resolved == nil {
 			i.resolved = map[string][]string{}
 		}

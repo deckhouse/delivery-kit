@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -81,6 +82,7 @@ func (c *Catalog) addPM(ctx context.Context, bodies map[string][]byte) error {
 	if !hasIndex || !hasFiles {
 		return fmt.Errorf("incomplete pm source inventory")
 	}
+	c.pmSnapshot = digest(append(append([]byte{}, index...), files...))
 	pkgs, err := ospm.ParsePmInstalledJSON(index)
 	if err != nil {
 		return err
@@ -113,7 +115,7 @@ func (c *Catalog) addPM(ctx context.Context, bodies map[string][]byte) error {
 			if !digestPattern.MatchString(hash) {
 				return fmt.Errorf("invalid original pm hash: %s", path)
 			}
-			c.Records = append(c.Records, Record{Path: path, SHA256: hash, Components: []string{byName[name]}, Origin: "pm"})
+			c.Records = append(c.Records, Record{Path: path, SHA256: hash, Components: []string{byName[name]}, Origin: "pm", Namespace: c.pmSnapshot})
 		}
 	}
 	for name := range manifests {
@@ -146,4 +148,61 @@ func (c *Catalog) attach(bom *cdx.BOM) error {
 	props = append(props, cdx.Property{Name: catalogProperty, Value: string(data)})
 	bom.Metadata.Properties = &props
 	return nil
+}
+
+func (c *Catalog) coalescePM() error {
+	if c.pmSnapshot == "" {
+		return nil
+	}
+	grouped := map[string]Record{}
+	records := []Record{}
+	for _, r := range c.Records {
+		if r.Origin != "pm" {
+			records = append(records, r)
+			continue
+		}
+		if r.Namespace != c.pmSnapshot {
+			return fmt.Errorf("cannot coalesce historical pm attribution")
+		}
+		old, ok := grouped[r.Path]
+		if !ok {
+			grouped[r.Path] = r
+			continue
+		}
+		if old.SHA256 != r.SHA256 {
+			return fmt.Errorf("conflicting active pm content %s", r.Path)
+		}
+		old.Components = appendUnique(old.Components, r.Components...)
+		sort.Strings(old.Components)
+		grouped[r.Path] = old
+	}
+	for _, r := range grouped {
+		records = append(records, r)
+	}
+	c.Records = records
+	return nil
+}
+
+func (c *Catalog) attribution(s Source, origins []string) ([]string, error) {
+	var selected *Record
+	for _, r := range c.Records {
+		if !slices.Contains(origins, r.Origin) || r.Path != s.Path || r.SHA256 != s.SHA256 {
+			continue
+		}
+		if len(r.Components) > 1 && (r.Origin != "pm" || r.Namespace == "") {
+			return nil, fmt.Errorf("invalid attribution group %s", s.Path)
+		}
+		if selected != nil {
+			if selected.Namespace != r.Namespace || selected.Origin != r.Origin || !slices.Equal(selected.Components, r.Components) {
+				return nil, fmt.Errorf("ambiguous source attribution %s", s.Path)
+			}
+		} else {
+			copy := r
+			selected = &copy
+		}
+	}
+	if selected == nil {
+		return nil, nil
+	}
+	return slices.Clone(selected.Components), nil
 }

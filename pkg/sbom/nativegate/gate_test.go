@@ -94,6 +94,19 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 			gomega.Expect(record).NotTo(gomega.BeNil())
 		}
 	})
+	ginkgo.It("resolves package path aliases without replacing original hashes", func() {
+		c := fixtureCatalog()
+		c.Records[0].Path = "/usr/lib64/lib.a"
+		original := c.Records[0].SHA256
+		fs := &filesystem{index: &shippedscope.FileIndex{Symlinks: map[string]string{"/usr/lib64": "/usr/lib"}}}
+		gomega.Expect(c.resolvePaths(fs)).To(gomega.Succeed())
+		ins := inspector{catalog: &c, fs: fs}
+		refs, err := ins.input(Source{Path: "/usr/lib/lib.a", SHA256: original})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(refs).To(gomega.Equal(c.Records[0].Components))
+		_, err = ins.input(Source{Path: "/usr/lib/lib.a", SHA256: digest([]byte("changed"))})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unknown native input")))
+	})
 	ginkgo.It("checks original pm version and content hashes", func() {
 		hash := digest([]byte("original"))
 		index := fmt.Sprintf(`{"example":{"name":"example","version":"1","digest":%q}}`, hash)

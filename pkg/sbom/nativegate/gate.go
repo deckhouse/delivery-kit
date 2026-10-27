@@ -202,6 +202,9 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	if err := local.addDistributions(p, ip, fs.bodies); err != nil {
 		return err
 	}
+	if err := local.resolvePaths(fs); err != nil {
+		return err
+	}
 	if err := c.add(local); err != nil {
 		return err
 	}
@@ -340,6 +343,17 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	props = append(props, cdx.Property{Name: "dk:runtimeLoads:image-scope", Value: string(declaration)})
 	target.Metadata.Properties = &props
 	return c.attach(target)
+}
+
+func (c *Catalog) resolvePaths(fs *filesystem) error {
+	for n := range c.Records {
+		resolved, err := resolvePath(fs, c.Records[n].Path)
+		if err != nil {
+			return err
+		}
+		c.Records[n].Path = resolved
+	}
+	return nil
 }
 
 func resolvePath(fs *filesystem, name string) (string, error) {

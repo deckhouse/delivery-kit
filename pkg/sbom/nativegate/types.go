@@ -138,6 +138,14 @@ func (p *Policy) checkTool(t Tool) error {
 }
 
 func validComponent(c cdx.Component) bool {
+	_, query, _ := strings.Cut(c.PackageURL, "?")
+	query, _, _ = strings.Cut(query, "#")
+	for _, qualifier := range strings.Split(query, "&") {
+		key, value, _ := strings.Cut(qualifier, "=")
+		if key == "containerfactoryversion" && strings.TrimSpace(value) == "" {
+			return false
+		}
+	}
 	return c.Name != "" && c.Version != "" && c.PackageURL != "" && c.BOMRef == c.PackageURL
 }
 

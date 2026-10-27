@@ -119,6 +119,15 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		delete(bodies, "/var/lib/pm/container-factory-version")
 		gomega.Expect(Apply(context.Background(), policy, "producer", fixtureImage(bodies), nil, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("missing pm container-factory version")))
 	})
+	ginkgo.It("rejects inherited legacy empty package release qualifiers", func() {
+		ref := "pkg:generic/example@1?containerfactoryversion="
+		old := emptyCatalog()
+		old.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, Name: "example", Version: "1", PackageURL: ref, BOMRef: ref}
+		bom := cdx.NewBOM()
+		gomega.Expect(old.attach(bom)).To(gomega.Succeed())
+		policy := &Policy{Images: map[string]ImagePolicy{"final": {Role: "final", RuntimeLoads: []string{}}}}
+		gomega.Expect(Apply(context.Background(), policy, "final", fixtureImage(map[string]string{}), []*cdx.BOM{bom}, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("incomplete catalog component")))
+	})
 	ginkgo.It("requires current overlap opt-in inside compiler source inspection", func() {
 		c := fixtureCatalog()
 		c.Records[0].Namespace = "current"

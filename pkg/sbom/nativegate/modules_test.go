@@ -43,6 +43,9 @@ var _ = ginkgo.Describe("registry module provenance", func() {
 		gomega.Expect(componentProperty(c.Components[ref], "dk:go:sum")).To(gomega.Equal(checksum))
 		deps := []goDependency{{Path: "example.org/library", Version: "v1.0.0", Sum: checksum}}
 		gomega.Expect(validateGoDependencies(deps, []string{ref}, &c)).To(gomega.Succeed())
+		deps[0].Replace = true
+		gomega.Expect(validateGoDependencies(deps, []string{ref}, &c)).To(gomega.MatchError(gomega.ContainSubstring("matching registry owner/version/h1")))
+		deps[0].Replace = false
 		deps[0].Version = "v1.0.1"
 		gomega.Expect(validateGoDependencies(deps, []string{ref}, &c)).To(gomega.HaveOccurred())
 		wrong := "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -63,6 +66,8 @@ var _ = ginkgo.Describe("registry module provenance", func() {
 		refs, err := validateRustMetadata(raw, owned)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(refs).To(gomega.ConsistOf(owned))
+		_, err = validateRustMetadata(bytes.Replace(raw, []byte(`"source":"crates.io"`), []byte(`"source":"git"`), 1), owned)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported Rust crate source")))
 		missing := []byte(`{"format":1,"packages":[{"name":"app","version":"1","source":"local","root":true}]}`)
 		_, err = validateRustMetadata(missing, owned)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("Rust owner absent from runtime audit")))

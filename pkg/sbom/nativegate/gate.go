@@ -61,7 +61,7 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 			return nil, fmt.Errorf("file exceeds experimental limit %s", name)
 		}
 		_, ownSource := ip.Sources[name]
-		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || path.Base(name) == "go.sum" || path.Base(name) == "Cargo.lock"
+		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || name == "/var/lib/pm/container-factory-version" || path.Base(name) == "go.sum" || path.Base(name) == "Cargo.lock"
 		capture := metadata || ownSource || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || (ip.MetaDir != "" && strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/"))
 		if !capture {
 			for _, out := range ip.Outputs {
@@ -413,6 +413,10 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 			return fmt.Errorf("runtimeLoads declaration required; runtime loading is not inferred from linkage")
 		}
 		if f.Section(".dynamic") != nil {
+			if err := checkRuntimeLoader(fs, present, "/lib64/ld-linux-x86-64.so.2"); err != nil {
+				f.Close()
+				return err
+			}
 			for candidate := range fs.index.Files {
 				if candidate == "/etc/ld.so.cache" || candidate == "/etc/ld.so.preload" || strings.Contains(candidate, "/glibc-hwcaps/") {
 					f.Close()
@@ -432,7 +436,12 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 					f.Close()
 					return err
 				}
-				needed = append(needed, strings.TrimRight(string(raw), "\x00"))
+				interpreter := strings.TrimRight(string(raw), "\x00")
+				if err := checkRuntimeLoader(fs, present, interpreter); err != nil {
+					f.Close()
+					return err
+				}
+				needed = append(needed, interpreter)
 			}
 		}
 		dirs, err := runtimeDirs(f, name)
@@ -485,8 +494,23 @@ func closeComponents(present map[string]Record, edges map[string][]string) {
 	}
 }
 
+// This loader's --help reports these default paths; other x86-64 loaders can differ.
+const supportedRuntimeLoaderSHA256 = "sha256:606bf05526f326f0f4cd42450ff6ee0a7c9ff9391d7f37f38473874e0897e53c"
+
+func checkRuntimeLoader(fs *filesystem, present map[string]Record, name string) error {
+	resolved, err := resolvePath(fs, name)
+	if err != nil {
+		return err
+	}
+	record, known := present[resolved]
+	if !known || record.SHA256 != supportedRuntimeLoaderSHA256 || digest(fs.bodies[resolved]) != supportedRuntimeLoaderSHA256 {
+		return fmt.Errorf("unsupported or unknown runtime loader %s", name)
+	}
+	return nil
+}
+
 func runtimeDirs(f *elf.File, name string) ([]string, error) {
-	dirs := []string{"/lib64", "/lib", "/usr/lib64", "/usr/lib"}
+	dirs := []string{"/lib64", "/usr/lib64"}
 	rpath, err := f.DynString(elf.DT_RPATH)
 	if err != nil {
 		return nil, err

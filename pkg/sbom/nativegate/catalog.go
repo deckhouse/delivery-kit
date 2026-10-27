@@ -82,7 +82,11 @@ func (c *Catalog) addPM(ctx context.Context, bodies map[string][]byte) error {
 	if !hasIndex || !hasFiles {
 		return fmt.Errorf("incomplete pm source inventory")
 	}
-	c.pmSnapshot = digest(append(append([]byte{}, index...), files...))
+	version := strings.TrimSpace(string(bodies["/var/lib/pm/container-factory-version"]))
+	if version == "" {
+		return fmt.Errorf("missing pm container-factory version")
+	}
+	c.pmSnapshot = digest(append(append(append([]byte{}, index...), files...), []byte(version)...))
 	pkgs, err := ospm.ParsePmInstalledJSON(index)
 	if err != nil {
 		return err
@@ -91,7 +95,7 @@ func (c *Catalog) addPM(ctx context.Context, bodies map[string][]byte) error {
 	if err := decode(files, &manifests); err != nil {
 		return fmt.Errorf("decode original pm files: %w", err)
 	}
-	bom := ospm.ConvertToCycloneDX(ctx, pkgs, "")
+	bom := ospm.ConvertToCycloneDX(ctx, pkgs, version)
 	if bom == nil {
 		return fmt.Errorf("empty pm inventory")
 	}

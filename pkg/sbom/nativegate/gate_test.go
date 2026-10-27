@@ -112,12 +112,12 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		index := fmt.Sprintf(`{"example":{"name":"example","version":"1","digest":%q}}`, hash)
 		files := fmt.Sprintf(`{"example":{"version":"1","files":{"/bin/a":%q},"symlinks":{}}}`, strings.TrimPrefix(hash, "sha256:"))
 		c := emptyCatalog()
-		gomega.Expect(c.addPM(context.Background(), map[string][]byte{"/var/lib/pm/index.json": []byte(index), "/var/lib/pm/files.json": []byte(files), "/bin/a": []byte("modified")})).To(gomega.Succeed())
+		gomega.Expect(c.addPM(context.Background(), map[string][]byte{"/var/lib/pm/container-factory-version": []byte("v-test"), "/var/lib/pm/index.json": []byte(index), "/var/lib/pm/files.json": []byte(files), "/bin/a": []byte("modified")})).To(gomega.Succeed())
 		gomega.Expect(c.Records[0].SHA256).To(gomega.Equal(hash))
 		_, err := matching(c, "/bin/a", digest([]byte("modified")))
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		c = emptyCatalog()
-		gomega.Expect(c.addPM(context.Background(), map[string][]byte{"/var/lib/pm/index.json": []byte(index), "/var/lib/pm/files.json": []byte(strings.Replace(files, `"version":"1"`, `"version":"2"`, 1))})).To(gomega.MatchError(gomega.ContainSubstring("pm version/files mismatch")))
+		gomega.Expect(c.addPM(context.Background(), map[string][]byte{"/var/lib/pm/container-factory-version": []byte("v-test"), "/var/lib/pm/index.json": []byte(index), "/var/lib/pm/files.json": []byte(strings.Replace(files, `"version":"1"`, `"version":"2"`, 1))})).To(gomega.MatchError(gomega.ContainSubstring("pm version/files mismatch")))
 	})
 	ginkgo.It("requires known sources behind a content-addressed compiler record", func() {
 		c := fixtureCatalog()
@@ -152,6 +152,12 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		ins := inspector{image: ImagePolicy{MetaDir: "/meta"}, archives: map[string][]byte{"/meta/archives/" + strings.TrimPrefix(whole, "sha256:") + ".a": body}}
 		input := LinkInput{Archive: &Source{Path: "/lib/a.a", SHA256: whole}, Member: "a.o", SHA256: digest(member)}
 		gomega.Expect(ins.archiveMember(input)).To(gomega.Succeed())
+		changed := bytes.Replace(body, member, []byte("changed byte"), 1)
+		gomega.Expect(len(changed)).To(gomega.Equal(len(body)))
+		tampered := inspector{image: ins.image, archives: map[string][]byte{"/meta/archives/" + strings.TrimPrefix(whole, "sha256:") + ".a": changed}}
+		tamperedInput := input
+		tamperedInput.SHA256 = digest([]byte("changed byte"))
+		gomega.Expect(tampered.archiveMember(tamperedInput)).To(gomega.MatchError(gomega.ContainSubstring("missing/changed original archive evidence")))
 		input.SHA256 = digest([]byte("other"))
 		gomega.Expect(ins.archiveMember(input)).To(gomega.MatchError(gomega.ContainSubstring("member content mismatch")))
 	})

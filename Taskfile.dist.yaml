@@ -48,6 +48,11 @@ vars:
   distCgoTags: "{{.buildCgoTags}} embedwerfdeno"
 
 tasks:
+  test:native-poc:
+    desc: "Require pinned DK_LOADER_FIXTURE and DK_NATIVE_INSPECT_FIXTURE; run native POC acceptance without skips."
+    cmds:
+      - python3 scripts/test-native-poc.py
+
   format:
     desc: "Run all code formatters."
     cmds:

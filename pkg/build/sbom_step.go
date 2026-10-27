@@ -34,6 +34,7 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/externalref"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
@@ -78,7 +79,7 @@ func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 // is the union of the os-pm directive specs of the image, the entries as written in
 // werf.yaml; when non-empty, the pm index of the image is read and the declared packages
 // recorded.
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, nativeSources map[string]string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -97,7 +98,14 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			logboek.Context(ctx).Debug().LogF("image %s: produced binaries are unknown: %s\n", werfImgName, err)
 		}
 	}
+	nativePolicy, nativeIdentity, err := nativegate.Load(ctx)
+	if err != nil {
+		return err
+	}
 	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform, provenance)
+	if nativePolicy != nil {
+		checksum = util.Sha256Hash(checksum, nativeIdentity, "dk-native-gate-v2")
+	}
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -105,7 +113,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
 	}
-	if found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
+	if nativePolicy == nil && found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
 		logboek.Context(ctx).Default().LogF("image %s: Use previously generated SBOM from registry\n", werfImgName)
 		return nil
 	}
@@ -116,6 +124,46 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
+
+		if nativePolicy != nil {
+			img, cleanup, err := savedImage(ctx, step.containerBackend, stageDesc.Info.Name)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			if !isStapel {
+				return fmt.Errorf("native experimental gate requires Stapel source provenance")
+			}
+			ip := nativePolicy.Images[werfImgName]
+			ip.Sources = nativeSources
+			nativePolicy.Images[werfImgName] = ip
+			result := cyclonedxutil.NewBOM()
+			restoreImageMetadata(result, stageDesc)
+			if err := nativegate.Apply(ctx, nativePolicy, werfImgName, img, append([]*cdx.BOM{mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...), result); err != nil {
+				return fmt.Errorf("native final gate: %w", err)
+			}
+			for _, patcher := range patchers {
+				if patcher != nil {
+					result, err = patcher.Apply(ctx, result)
+					if err != nil {
+						return err
+					}
+				}
+			}
+			if err := gost.Upsert(result, mergeOpts.Gost); err != nil {
+				return err
+			}
+			cyclonedxutil.Canonicalize(ctx, result)
+			data, err := cyclonedxutil.ToJSON(result)
+			if err != nil {
+				return err
+			}
+			if err := cyclonedxutil.ValidateCycloneDX16Schema(data); err != nil {
+				return err
+			}
+			logboek.Context(ctx).Default().LogF("image %s: native gate v2 verified (cache does not bypass verification)\n", werfImgName)
+			return sbomImage.PushSBOM(ctx, data, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
+		}
 
 		switch {
 		case !syftScanRequired(isStapel, catalogers):

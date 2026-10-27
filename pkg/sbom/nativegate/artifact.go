@@ -7,6 +7,7 @@ import (
 	"debug/elf"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -249,13 +250,14 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		if err = i.tool(link.Linker); err != nil {
 			return r, err
 		}
-		seen := map[string]bool{}
-		for _, input := range link.Inputs {
-			key := input.Kind + input.Path + input.Member
-			if seen[key] || !digestPattern.MatchString(input.SHA256) || input.Path == "" {
+		inputs, err := uniqueNativeInputs(link.Inputs)
+		if err != nil {
+			return r, err
+		}
+		for _, input := range inputs {
+			if !digestPattern.MatchString(input.SHA256) || input.Path == "" {
 				return r, fmt.Errorf("invalid/duplicate native input %s", input.Path)
 			}
-			seen[key] = true
 			if input.Disposition != "included" && input.Disposition != "participated" {
 				return r, fmt.Errorf("invalid input disposition")
 			}
@@ -439,4 +441,22 @@ func validateRustMetadata(body []byte, owned []string) ([]string, error) {
 		}
 	}
 	return refs, nil
+}
+
+func uniqueNativeInputs(inputs []LinkInput) ([]LinkInput, error) {
+	type key struct{ kind, path, member string }
+	seen := map[key]LinkInput{}
+	result := []LinkInput{}
+	for _, input := range inputs {
+		k := key{input.Kind, input.Path, input.Member}
+		if old, ok := seen[k]; ok {
+			if !reflect.DeepEqual(old, input) {
+				return nil, fmt.Errorf("conflicting repeated native input %s", input.Path)
+			}
+			continue
+		}
+		seen[k] = input
+		result = append(result, input)
+	}
+	return result, nil
 }

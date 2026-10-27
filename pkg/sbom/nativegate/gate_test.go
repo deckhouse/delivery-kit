@@ -271,6 +271,20 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		_, err := ins.input(Source{Path: "/raw.o", SHA256: h})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("own-source assembly dependency tracing unsupported")))
 	})
+	ginkgo.It("accepts repeated identical linker inputs and rejects contradictions", func() {
+		input := LinkInput{Kind: "archive", Path: "/lib/libgcc.a", SHA256: digest([]byte("archive")), Disposition: "participated"}
+		values, err := uniqueNativeInputs([]LinkInput{input, input})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(values).To(gomega.HaveLen(1))
+		altered := input
+		altered.SHA256 = digest([]byte("other"))
+		_, err = uniqueNativeInputs([]LinkInput{input, altered})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("conflicting repeated native input")))
+		altered = input
+		altered.Disposition = "included"
+		_, err = uniqueNativeInputs([]LinkInput{input, altered})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+	})
 	ginkgo.It("rejects unknown metadata versions and properties", func() {
 		var m Method
 		gomega.Expect(decode([]byte(`{"schema":"dk.build/v2","unexpected":true}`), &m)).NotTo(gomega.Succeed())

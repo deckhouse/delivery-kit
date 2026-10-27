@@ -395,6 +395,8 @@ func resolvePath(fs *filesystem, name string) (string, error) {
 
 func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []string) error {
 	edges := map[string][]string{}
+	sonames := map[string][]string{}
+	roots := []string{}
 	for name := range present {
 		body := fs.bodies[name]
 		if !bytes.HasPrefix(body, []byte("\x7fELF")) {
@@ -429,8 +431,17 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 			f.Close()
 			return err
 		}
+		sonames[name], err = f.DynString(elf.DT_SONAME)
+		if err != nil {
+			f.Close()
+			return err
+		}
+		if f.Type == elf.ET_EXEC {
+			roots = appendUnique(roots, name)
+		}
 		for _, prog := range f.Progs {
 			if prog.Type == elf.PT_INTERP {
+				roots = appendUnique(roots, name)
 				raw, err := io.ReadAll(prog.Open())
 				if err != nil {
 					f.Close()
@@ -472,7 +483,38 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 			}
 		}
 	}
+	if err := rejectConflictingRuntimeSONAMEs(edges, sonames, roots); err != nil {
+		return err
+	}
 	closeComponents(present, edges)
+	return nil
+}
+
+// Per-object resolution cannot model glibc's reuse of already loaded objects.
+// Reject conflicting canonical paths within each executable's closure, including
+// declared runtime loads. Equal bytes at different paths still have distinct owners.
+func rejectConflictingRuntimeSONAMEs(edges, sonames map[string][]string, roots []string) error {
+	sort.Strings(roots)
+	for _, root := range roots {
+		owners := map[string]string{}
+		visited := map[string]bool{}
+		queue := []string{root}
+		for len(queue) > 0 {
+			name := queue[0]
+			queue = queue[1:]
+			if visited[name] {
+				continue
+			}
+			visited[name] = true
+			for _, soname := range sonames[name] {
+				if previous, exists := owners[soname]; exists && previous != name {
+					return fmt.Errorf("conflicting runtime SONAME %s in closure of %s: %s vs %s", soname, root, previous, name)
+				}
+				owners[soname] = name
+			}
+			queue = append(queue, edges[name]...)
+		}
+	}
 	return nil
 }
 

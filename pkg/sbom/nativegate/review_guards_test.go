@@ -49,6 +49,51 @@ func runtimeFixture(files map[string][]byte, app string, layout map[string]strin
 }
 
 var _ = ginkgo.Describe("independent review regressions", func() {
+	ginkgo.It("rejects conflicting SONAME owners per executable closure", func() {
+		files := loaderFixture()
+		for _, name := range []string{"app", "app2", "app-direct", "x/libmid.so.1", "v1/libpick.so.1", "v2/libpick.so.1"} {
+			body, err := os.ReadFile(filepath.Join(os.Getenv("DK_LOADER_FIXTURE"), "reuse", name))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			files["reuse/"+name] = body
+		}
+		gomega.Expect(digest(files["reuse/app"])).To(gomega.Equal("sha256:382dc401f824070bd526a48e8557ff704dfc4b8e331b9b866c2cdf7b430e107b"))
+		layout := map[string]string{"/opt/x/libmid.so.1": "reuse/x/libmid.so.1", "/opt/x/libpick.so.1": "reuse/v1/libpick.so.1", "/lib64/libpick.so.1": "reuse/v2/libpick.so.1"}
+		fs, present := runtimeFixture(files, "reuse/app", layout)
+		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
+
+		ginkgo.By("keeping independent executables in separate namespaces")
+		fs, present = runtimeFixture(files, "reuse/app2", map[string]string{"/lib64/libpick.so.1": "reuse/v2/libpick.so.1"})
+		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
+		delete(layout, "/opt/x/libmid.so.1")
+		layout["/app2"] = "reuse/app2"
+		fs, present = runtimeFixture(files, "reuse/app-direct", layout)
+		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
+		gomega.Expect(present["/app"].Components).To(gomega.ContainElement("reuse/v1/libpick.so.1"))
+		gomega.Expect(present["/app"].Components).NotTo(gomega.ContainElement("reuse/v2/libpick.so.1"))
+		gomega.Expect(present["/app2"].Components).To(gomega.ContainElement("reuse/v2/libpick.so.1"))
+		gomega.Expect(present["/app2"].Components).NotTo(gomega.ContainElement("reuse/v1/libpick.so.1"))
+
+		ginkgo.By("conservatively rejecting equal bytes at different owner paths")
+		delete(layout, "/app2")
+		layout["/opt/x/libmid.so.1"] = "reuse/x/libmid.so.1"
+		layout["/lib64/libpick.so.1"] = "reuse/v1/libpick.so.1"
+		fs, present = runtimeFixture(files, "reuse/app", layout)
+		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME")))
+
+		ginkgo.By("checking static executable runtime declarations and terminating cycles")
+		nativeDir := os.Getenv("DK_NATIVE_INSPECT_FIXTURE")
+		if nativeDir == "" {
+			ginkgo.Skip("DK_NATIVE_INSPECT_FIXTURE required for static runtime declaration regression")
+		}
+		body, err := os.ReadFile(filepath.Join(nativeDir, "app"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		files["static"] = body
+		delete(layout, "/opt/x/libmid.so.1")
+		layout["/lib64/libpick.so.1"] = "reuse/v2/libpick.so.1"
+		fs, present = runtimeFixture(files, "static", layout)
+		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
+		gomega.Expect(dynamicClosure(fs, present, []string{"/opt/x/libpick.so.1", "/lib64/libpick.so.1"})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
+	})
 	ginkgo.It("matches pinned loader default paths and rejects a different loader", func() {
 		files := loaderFixture()
 		fs, present := runtimeFixture(files, "app", map[string]string{"/lib/libpick.so.1": "v1/libpick.so.1"})

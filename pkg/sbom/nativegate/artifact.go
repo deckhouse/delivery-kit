@@ -13,16 +13,17 @@ import (
 )
 
 type inspector struct {
-	policy    *Policy
-	image     ImagePolicy
-	catalog   *Catalog
-	compiled  map[string]Compile
-	active    map[string]bool
-	resolved  map[string][]string
-	languages []string
-	tools     []Tool
-	archives  map[string][]byte
-	fs        *filesystem
+	policy         *Policy
+	image          ImagePolicy
+	catalog        *Catalog
+	compiled       map[string]Compile
+	active         map[string]bool
+	resolved       map[string][]string
+	languages      []string
+	tools          []Tool
+	archiveIndexes map[string]map[string][]string
+	archives       map[string][]byte
+	fs             *filesystem
 }
 
 func readSection(f *elf.File, name string) ([]byte, error) {
@@ -365,6 +366,10 @@ func (i *inspector) rust(f *elf.File, owned []string) ([]string, error) {
 	if err != nil || len(body) > 8<<20 {
 		return nil, fmt.Errorf("invalid Rust metadata size")
 	}
+	return validateRustMetadata(body, owned)
+}
+
+func validateRustMetadata(body []byte, owned []string) ([]string, error) {
 	var data struct {
 		Format   int `json:"format"`
 		Packages []struct {
@@ -380,7 +385,7 @@ func (i *inspector) rust(f *elf.File, owned []string) ([]string, error) {
 		return nil, fmt.Errorf("decode Rust packages: %w", err)
 	}
 	if len(data.Packages) == 0 || data.Format != 1 {
-		return nil, fmt.Errorf("empty Rust metadata")
+		return nil, fmt.Errorf("empty or unsupported Rust metadata format")
 	}
 	var refs []string
 	roots := 0
@@ -397,6 +402,9 @@ func (i *inspector) rust(f *elf.File, owned []string) ([]string, error) {
 			}
 		}
 		if p.Kind == "build" {
+			if p.Root {
+				return nil, fmt.Errorf("Rust root cannot be build-only")
+			}
 			continue
 		}
 		if p.Kind != "" && p.Kind != "runtime" {
@@ -413,6 +421,11 @@ func (i *inspector) rust(f *elf.File, owned []string) ([]string, error) {
 	}
 	if roots != 1 {
 		return nil, fmt.Errorf("Rust metadata must have exactly one root")
+	}
+	for _, ref := range owned {
+		if strings.HasPrefix(ref, "pkg:cargo/") && !slices.Contains(refs, ref) {
+			return nil, fmt.Errorf("Rust owner absent from runtime audit %s", ref)
+		}
 	}
 	return refs, nil
 }

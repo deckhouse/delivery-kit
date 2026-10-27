@@ -57,6 +57,21 @@ var _ = ginkgo.Describe("registry module provenance", func() {
 		delete(bodies, "/meta/library.zip")
 		gomega.Expect(c.addGoModules(ip, bodies)).To(gomega.MatchError(gomega.ContainSubstring("transport hash mismatch")))
 	})
+	ginkgo.It("requires complete runtime Rust audit and rejects build-only root", func() {
+		raw := []byte(`{"format":1,"packages":[{"name":"app","version":"1","source":"local","root":true,"dependencies":[1]},{"name":"itoa","version":"1.0.15","source":"crates.io"}]}`)
+		owned := []string{"pkg:cargo/app@1", "pkg:cargo/itoa@1.0.15"}
+		refs, err := validateRustMetadata(raw, owned)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(refs).To(gomega.ConsistOf(owned))
+		missing := []byte(`{"format":1,"packages":[{"name":"app","version":"1","source":"local","root":true}]}`)
+		_, err = validateRustMetadata(missing, owned)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("Rust owner absent from runtime audit")))
+		buildRoot := bytes.Replace(raw, []byte(`"root":true`), []byte(`"root":true,"kind":"build"`), 1)
+		_, err = validateRustMetadata(buildRoot, owned)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("Rust root cannot be build-only")))
+		_, err = validateRustMetadata(bytes.Replace(raw, []byte(`"format":1`), []byte(`"format":2`), 1), owned)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+	})
 	ginkgo.It("checks Cargo registry checksum against the committed lock", func() {
 		body := []byte(`version = 4
 [[package]]

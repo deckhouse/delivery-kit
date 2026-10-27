@@ -1,6 +1,6 @@
 """Mandatory native POC acceptance, separate from portable unit tests.
 
-Set DK_LOADER_FIXTURE to runtime-reuse-oracle.py's composite loader-v4/out and
+Set DK_LOADER_FIXTURE to runtime-pie-oracle.py's composite loader-v5/out and
 DK_NATIVE_INSPECT_FIXTURE to export-native-inspect-fixture.py's directory.
 Then run: TASK_X_REMOTE_TASKFILES=1 task --yes test:native-poc
 Both frozen fixtures must be present; no executable fixture is stored in Git.

@@ -7,6 +7,12 @@ inputs:
   installGolangciLint:
     default: "false"
     description: Whether to ensure golangci-lint is installed.
+  foxDeliveryKitSdkDeployToken:
+    required: true
+    description: read_repository deploy token of deckhouse/delivery/delivery-kit-sdk on fox.
+  foxElfeditDeployToken:
+    required: true
+    description: read_repository deploy token of deckhouse/delivery/elfedit on fox.
 runs:
   using: composite
   steps:
@@ -31,6 +37,24 @@ runs:
             exit 1
             ;;
         esac
+
+    - name: Set up git config
+      uses: ./.github/actions/set-up-git-config
+
+    - name: Reach the internal Go modules on fox
+      shell: bash
+      env:
+        FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN: ${{ inputs.foxDeliveryKitSdkDeployToken }}
+        FOX_ELFEDIT_DEPLOY_TOKEN: ${{ inputs.foxElfeditDeployToken }}
+      run: |
+        for name in FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN FOX_ELFEDIT_DEPLOY_TOKEN; do
+          [[ -n "${!name}" ]] || { echo "::error::$name is empty: the secret is missing, or this is a pull request from a fork"; exit 1; }
+        done
+        # GIT_CONFIG_GLOBAL is the job-local file set-up-git-config created: the runner is
+        # persistent and shared between jobs, so the tokens must not reach ~/.gitconfig.
+        git config --global url."https://delivery-kit-ci:${FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN}@fox.flant.com/deckhouse/delivery/delivery-kit-sdk".insteadOf "https://flant.internal/deckhouse/delivery/delivery-kit-sdk"
+        git config --global url."https://delivery-kit-ci:${FOX_ELFEDIT_DEPLOY_TOKEN}@fox.flant.com/deckhouse/delivery/elfedit".insteadOf "https://flant.internal/deckhouse/delivery/elfedit"
+        echo "GOPRIVATE=flant.internal" >> "$GITHUB_ENV"
 
     - name: Set up Go
       uses: actions/setup-go@v6

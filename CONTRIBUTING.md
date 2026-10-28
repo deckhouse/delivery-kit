@@ -58,6 +58,15 @@ You can also check the existing [issues](https://github.com/werf/werf/issues), [
 
    Additionally, to build the `werf` binary, you need to install the `libbtrfs-dev` package.
 
+   **Private Go modules.** Some dependencies live on a private GitLab, and the repository cannot be built without access to it: `go.mod` refers to them as `flant.internal/...`, a name that git rewrites to the real host. Set it up once, with SSH access to that GitLab:
+
+   ```shell
+   git config --global url."ssh://git@<private host>/".insteadOf "https://flant.internal/"
+   go env -w GOPRIVATE=flant.internal
+   ```
+
+   Without it `go build` fails on `flant.internal/...: unknown revision`. For the same reason CI cannot build pull requests from forks: they get no access to the private GitLab.
+
 4. Make your changes.
 5. Run `task` with no arguments to run all essential checks (build, lint, format, quick tests, and others).
 

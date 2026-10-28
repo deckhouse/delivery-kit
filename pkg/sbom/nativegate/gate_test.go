@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"debug/elf"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
@@ -51,6 +53,36 @@ func fixtureCatalog() Catalog {
 }
 
 var _ = ginkgo.Describe("strict native inventory", func() {
+	ginkgo.It("inventories an unreferenced library without inventing runtime loads", func() {
+		app, library := minimalRuntimeELF(elf.ET_EXEC), minimalRuntimeELF(elf.ET_DYN)
+		appRef, libraryRef := "pkg:generic/app@1", "pkg:generic/plugin@2"
+		catalog := emptyCatalog()
+		catalog.Components[appRef] = cdx.Component{Type: cdx.ComponentTypeApplication, BOMRef: appRef, PackageURL: appRef, Name: "app", Version: "1"}
+		catalog.Components[libraryRef] = cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: libraryRef, PackageURL: libraryRef, Name: "plugin", Version: "2"}
+		catalog.Records = []Record{
+			{Path: "/app", SHA256: digest(app), Components: []string{appRef}, Origin: "pm"},
+			{Path: "/plugins/plugin.so", SHA256: digest(library), Components: []string{libraryRef}, Origin: "pm"},
+		}
+		inherited := cdx.NewBOM()
+		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
+		policy := &Policy{Images: map[string]ImagePolicy{"image": {Role: "final"}}}
+		target := cdx.NewBOM()
+		img := fixtureImage(map[string]string{"/app": string(app), "/plugins/plugin.so": string(library)})
+		gomega.Expect(Apply(context.Background(), policy, "image", img, []*cdx.BOM{inherited}, target)).To(gomega.Succeed())
+		data, err := cyclonedxutil.ToJSON(target)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		restored, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(*restored.Components).To(gomega.ContainElement(catalog.Components[libraryRef]))
+		gomega.Expect(*restored.Dependencies).To(gomega.ContainElement(cdx.Dependency{Ref: digest(app) + ":/app", Dependencies: &[]string{appRef}}))
+		gomega.Expect(*restored.Dependencies).To(gomega.ContainElement(cdx.Dependency{Ref: digest(library) + ":/plugins/plugin.so", Dependencies: &[]string{libraryRef}}))
+		gomega.Expect(string(data)).NotTo(gomega.ContainSubstring("dk:runtimeLoads"))
+
+		ginkgo.By("rejecting an unregistered library instead of silently dropping it")
+		catalog.Records = catalog.Records[:1]
+		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
+		gomega.Expect(Apply(context.Background(), policy, "image", img, []*cdx.BOM{inherited}, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("unknown binary or unsupported format /plugins/plugin.so")))
+	})
 	ginkgo.It("preserves ownership on rename and drops the last removed component", func() {
 		c := fixtureCatalog()
 		bom := cdx.NewBOM()
@@ -133,13 +165,12 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		_, err = ins.input(Source{Path: "/new.o", SHA256: h})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("cyclic")))
 	})
-	ginkgo.It("computes transitive closure independent of map order and tolerates runtime cycles", func() {
-		for n := 0; n < 32; n++ {
-			p := map[string]Record{"A": {Components: []string{"a"}}, "B": {Components: []string{"b"}}, "C": {Components: []string{"c"}}}
-			closeComponents(p, map[string][]string{"A": {"B"}, "B": {"C"}, "C": {"B"}})
-			gomega.Expect(p["A"].Components).To(gomega.Equal([]string{"a", "b", "c"}))
-			gomega.Expect(p["B"].Components).To(gomega.Equal([]string{"b", "c"}))
-		}
+	ginkgo.It("terminates cycles while checking transitive SONAME conflicts", func() {
+		edges := map[string][]string{"app": {"a"}, "a": {"b"}, "b": {"a", "c"}}
+		sonames := map[string][]string{"a": {"liba.so"}, "b": {"libb.so"}, "c": {"libc.so"}}
+		gomega.Expect(rejectConflictingRuntimeSONAMEs(edges, sonames, []string{"app"})).To(gomega.Succeed())
+		sonames["c"] = []string{"liba.so"}
+		gomega.Expect(rejectConflictingRuntimeSONAMEs(edges, sonames, []string{"app"})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME liba.so")))
 	})
 	ginkgo.It("checks the selected archive member against original package bytes", func() {
 		member := []byte("object bytes")

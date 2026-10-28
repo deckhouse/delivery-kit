@@ -15,6 +15,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
@@ -50,6 +51,37 @@ func runtimeFixture(files map[string][]byte, app string, layout map[string]strin
 }
 
 var _ = ginkgo.Describe("independent review regressions", func() {
+	ginkgo.It("serializes direct runtime file edges without claiming programmatic loading", func() {
+		files := loaderFixture()
+		fs, present := runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1", "/opt/plugin.so": "v2/libpick.so.1"})
+		catalog := emptyCatalog()
+		imageFiles := map[string]string{}
+		for name, record := range present {
+			ref := "pkg:generic/runtime@" + strings.TrimPrefix(record.SHA256, "sha256:")
+			record.Components = []string{ref}
+			catalog.Records = append(catalog.Records, record)
+			catalog.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, Name: "runtime", Version: strings.TrimPrefix(record.SHA256, "sha256:"), PackageURL: ref, BOMRef: ref}
+			imageFiles[name] = string(fs.bodies[name])
+		}
+		inherited := cdx.NewBOM()
+		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
+		target := cdx.NewBOM()
+		policy := &Policy{Images: map[string]ImagePolicy{"image": {Role: "final"}}}
+		gomega.Expect(Apply(context.Background(), policy, "image", fixtureImage(imageFiles), []*cdx.BOM{inherited}, target)).To(gomega.Succeed())
+		data, err := cyclonedxutil.ToJSON(target)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		restored, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		edges := map[string][]string{}
+		for _, dependency := range *restored.Dependencies {
+			edges[dependency.Ref] = *dependency.Dependencies
+		}
+		fileRef := func(name string) string { return present[name].SHA256 + ":" + name }
+		gomega.Expect(edges[fileRef("/app")]).To(gomega.ContainElements(fileRef("/lib64/libpick.so.1"), fileRef("/lib64/ld-linux-x86-64.so.2")))
+		gomega.Expect(edges[fileRef("/app")]).NotTo(gomega.ContainElement(fileRef("/opt/plugin.so")))
+		gomega.Expect(edges).To(gomega.HaveKey(fileRef("/opt/plugin.so")))
+		gomega.Expect(edges[fileRef("/lib64/libpick.so.1")]).NotTo(gomega.ContainElement(fileRef("/app")))
+	})
 	ginkgo.It("rejects conflicting SONAME owners per executable closure", func() {
 		files := loaderFixture()
 		for _, name := range []string{"app", "app2", "app-direct", "app-pie", "app-nosoname", "nosoname/libpick.so.1", "x/libmid.so.1", "v1/libpick.so.1", "v2/libpick.so.1"} {
@@ -60,7 +92,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(digest(files["reuse/app"])).To(gomega.Equal("sha256:382dc401f824070bd526a48e8557ff704dfc4b8e331b9b866c2cdf7b430e107b"))
 		layout := map[string]string{"/opt/x/libmid.so.1": "reuse/x/libmid.so.1", "/opt/x/libpick.so.1": "reuse/v1/libpick.so.1", "/lib64/libpick.so.1": "reuse/v2/libpick.so.1"}
 		fs, present := runtimeFixture(files, "reuse/app", layout)
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
 
 		ginkgo.By("registering PIE executables through PT_INTERP")
 		pie, err := elf.NewFile(bytes.NewReader(files["reuse/app-pie"]))
@@ -73,7 +105,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(pie.Close()).To(gomega.Succeed())
 		gomega.Expect(hasInterpreter).To(gomega.BeTrue())
 		fs, present = runtimeFixture(files, "reuse/app-pie", layout)
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
 
 		ginkgo.By("rejecting basename NEEDED when the DSO has no SONAME")
 		dso, err := elf.NewFile(bytes.NewReader(files["reuse/nosoname/libpick.so.1"]))
@@ -89,31 +121,31 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(needed).To(gomega.ContainElement("libpick.so.1"))
 		gomega.Expect(nativeApp.Close()).To(gomega.Succeed())
 		fs, present = runtimeFixture(files, "reuse/app-nosoname", map[string]string{"/lib64/libpick.so.1": "reuse/nosoname/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("runtime SONAME mismatch /lib64/libpick.so.1")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("runtime SONAME mismatch /lib64/libpick.so.1")))
 
 		ginkgo.By("keeping independent executables in separate namespaces")
 		fs, present = runtimeFixture(files, "reuse/app2", map[string]string{"/lib64/libpick.so.1": "reuse/v2/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
+		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
 		delete(layout, "/opt/x/libmid.so.1")
 		layout["/app2"] = "reuse/app2"
 		fs, present = runtimeFixture(files, "reuse/app-direct", layout)
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
-		gomega.Expect(present["/app"].Components).To(gomega.ContainElement("reuse/v1/libpick.so.1"))
-		gomega.Expect(present["/app"].Components).NotTo(gomega.ContainElement("reuse/v2/libpick.so.1"))
-		gomega.Expect(present["/app2"].Components).To(gomega.ContainElement("reuse/v2/libpick.so.1"))
-		gomega.Expect(present["/app2"].Components).NotTo(gomega.ContainElement("reuse/v1/libpick.so.1"))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
+		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement("/opt/x/libpick.so.1"))
+		gomega.Expect(runtimeTargets(fs, present, "/app")).NotTo(gomega.ContainElement("/lib64/libpick.so.1"))
+		gomega.Expect(runtimeTargets(fs, present, "/app2")).To(gomega.ContainElement("/lib64/libpick.so.1"))
+		gomega.Expect(runtimeTargets(fs, present, "/app2")).NotTo(gomega.ContainElement("/opt/x/libpick.so.1"))
 
 		ginkgo.By("conservatively rejecting equal bytes at different owner paths")
 		delete(layout, "/app2")
 		layout["/opt/x/libmid.so.1"] = "reuse/x/libmid.so.1"
 		layout["/lib64/libpick.so.1"] = "reuse/v1/libpick.so.1"
 		fs, present = runtimeFixture(files, "reuse/app", layout)
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME")))
 
-		ginkgo.By("checking static executable runtime declarations and terminating cycles")
+		ginkgo.By("keeping unrelated libraries out of a static executable closure")
 		nativeDir := os.Getenv("DK_NATIVE_INSPECT_FIXTURE")
 		if nativeDir == "" {
-			ginkgo.Skip("DK_NATIVE_INSPECT_FIXTURE required for static runtime declaration regression")
+			ginkgo.Skip("DK_NATIVE_INSPECT_FIXTURE required for static runtime inventory regression")
 		}
 		body, err := os.ReadFile(filepath.Join(nativeDir, "app"))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -121,40 +153,40 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		delete(layout, "/opt/x/libmid.so.1")
 		layout["/lib64/libpick.so.1"] = "reuse/v2/libpick.so.1"
 		fs, present = runtimeFixture(files, "static", layout)
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
-		gomega.Expect(dynamicClosure(fs, present, []string{"/opt/x/libpick.so.1", "/lib64/libpick.so.1"})).To(gomega.MatchError(gomega.ContainSubstring("conflicting runtime SONAME libpick.so.1 in closure of /app")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
+		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.BeEmpty())
+		gomega.Expect(present).To(gomega.HaveKey("/opt/x/libpick.so.1"))
+		gomega.Expect(present).To(gomega.HaveKey("/lib64/libpick.so.1"))
 	})
 	ginkgo.It("matches pinned loader default paths and rejects a different loader", func() {
 		files := loaderFixture()
 		fs, present := runtimeFixture(files, "app", map[string]string{"/lib/libpick.so.1": "v1/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("missing runtime dependency libpick.so.1")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("missing runtime dependency libpick.so.1")))
 		fs, present = runtimeFixture(files, "app", map[string]string{"/lib/libpick.so.1": "v1/libpick.so.1", "/usr/lib64/libpick.so.1": "v2/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
-		gomega.Expect(present["/app"].Components).To(gomega.ContainElement("v2/libpick.so.1"))
-		gomega.Expect(present["/app"].Components).NotTo(gomega.ContainElement("v1/libpick.so.1"))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
+		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement("/usr/lib64/libpick.so.1"))
+		gomega.Expect(runtimeTargets(fs, present, "/app")).NotTo(gomega.ContainElement("/lib64/libpick.so.1"))
 		fs, present = runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1", "/usr/lib64/libpick.so.1": "v2/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.Succeed())
-		gomega.Expect(present["/app"].Components).To(gomega.ContainElement("v1/libpick.so.1"))
-		gomega.Expect(present["/app"].Components).NotTo(gomega.ContainElement("v2/libpick.so.1"))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
+		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement("/lib64/libpick.so.1"))
+		gomega.Expect(runtimeTargets(fs, present, "/app")).NotTo(gomega.ContainElement("/usr/lib64/libpick.so.1"))
 		fs.bodies["/lib64/ld-linux-x86-64.so.2"] = append(bytes.Clone(files["ld-linux-x86-64.so.2"]), 0)
 		r := present["/lib64/ld-linux-x86-64.so.2"]
 		r.SHA256 = digest(fs.bodies[r.Path])
 		present[r.Path] = r
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("unsupported or unknown runtime loader")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("unsupported or unknown runtime loader")))
 	})
 	ginkgo.It("rejects unmodelled loader features and mismatched SONAME", func() {
 		files := loaderFixture()
 		for _, feature := range []string{"/etc/ld.so.cache", "/etc/ld.so.preload", "/lib64/glibc-hwcaps/x86-64-v3/libpick.so.1"} {
 			fs, present := runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1"})
 			fs.index.Files[feature] = shippedscope.File{}
-			gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader feature")))
+			gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader feature")))
 		}
-		fs, present := runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, nil)).To(gomega.MatchError(gomega.ContainSubstring("runtimeLoads declaration required")))
-		fs, present = runtimeFixture(files, "app-rpath", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("DT_RPATH inheritance unsupported")))
+		fs, present := runtimeFixture(files, "app-rpath", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1"})
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("DT_RPATH inheritance unsupported")))
 		fs, present = runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "other/libpick.so.1"})
-		gomega.Expect(dynamicClosure(fs, present, []string{})).To(gomega.MatchError(gomega.ContainSubstring("runtime SONAME mismatch")))
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("runtime SONAME mismatch")))
 	})
 	ginkgo.It("rejects runtime environment overrides through Apply", func() {
 		for _, name := range []string{"LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT"} {
@@ -164,7 +196,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 			cfg.Config.Env = []string{name + "=/foreign"}
 			img, err = mutate.ConfigFile(img, cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			policy := &Policy{Images: map[string]ImagePolicy{"final": {Role: "final", RuntimeLoads: []string{}}}}
+			policy := &Policy{Images: map[string]ImagePolicy{"final": {Role: "final"}}}
 			gomega.Expect(Apply(context.Background(), policy, "final", img, nil, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader environment")))
 		}
 	})
@@ -200,7 +232,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		old.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, Name: "example", Version: "1", PackageURL: ref, BOMRef: ref}
 		bom := cdx.NewBOM()
 		gomega.Expect(old.attach(bom)).To(gomega.Succeed())
-		policy := &Policy{Images: map[string]ImagePolicy{"final": {Role: "final", RuntimeLoads: []string{}}}}
+		policy := &Policy{Images: map[string]ImagePolicy{"final": {Role: "final"}}}
 		gomega.Expect(Apply(context.Background(), policy, "final", fixtureImage(map[string]string{}), []*cdx.BOM{bom}, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("incomplete catalog component")))
 	})
 	ginkgo.It("requires current overlap opt-in inside compiler source inspection", func() {

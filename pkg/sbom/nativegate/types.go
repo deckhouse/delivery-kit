@@ -58,12 +58,11 @@ type Link struct {
 	Inputs []LinkInput `json:"inputs"`
 }
 type ImagePolicy struct {
-	RuntimeLoads []string          `json:"runtimeLoads"`
-	Role         string            `json:"role"`
-	Outputs      []string          `json:"outputs"`
-	Project      cdx.Component     `json:"project"`
-	Sources      map[string]string `json:"sources"`
-	MetaDir      string            `json:"metaDir"`
+	Role    string            `json:"role"`
+	Outputs []string          `json:"outputs"`
+	Project cdx.Component     `json:"project"`
+	Sources map[string]string `json:"sources"`
+	MetaDir string            `json:"metaDir"`
 }
 type Policy struct {
 	PMOverlap     string                 `json:"pmOverlap,omitempty"`

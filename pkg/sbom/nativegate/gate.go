@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
-	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -287,11 +286,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 		present[name] = *record
 	}
-	direct := map[string]Record{}
-	for name, r := range present {
-		r.Components = slices.Clone(r.Components)
-		direct[name] = r
-	}
+	runtimeEdges := map[string][]string{}
 	if ip.Role == "final" {
 		cfg, err := img.ConfigFile()
 		if err != nil {
@@ -303,7 +298,8 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 				return fmt.Errorf("unsupported dynamic loader environment %s", key)
 			}
 		}
-		if err := dynamicClosure(fs, present, ip.RuntimeLoads); err != nil {
+		runtimeEdges, err = runtimeDependencies(fs, present)
+		if err != nil {
 			return err
 		}
 	}
@@ -314,9 +310,12 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		hashes := []cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: strings.TrimPrefix(r.SHA256, "sha256:")}}
 		components[ref] = cdx.Component{Type: cdx.ComponentTypeFile, BOMRef: ref, Name: name, Hashes: &hashes}
 		refs := slices.Clone(r.Components)
+		for _, dependency := range runtimeEdges[name] {
+			refs = appendUnique(refs, present[dependency].SHA256+":"+dependency)
+		}
 		sort.Strings(refs)
 		deps = append(deps, cdx.Dependency{Ref: ref, Dependencies: &refs})
-		for _, ref := range refs {
+		for _, ref := range r.Components {
 			components[ref] = c.Components[ref]
 		}
 	}
@@ -336,22 +335,17 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		sort.Strings(refs)
 		*target.Dependencies = append(*target.Dependencies, cdx.Dependency{Ref: target.Metadata.Component.BOMRef, Dependencies: &refs})
 	}
-	for name, r := range direct {
+	for name, r := range present {
 		r.Path = name
 		c.Records = append(c.Records, r)
 	}
 	if target.Metadata == nil {
 		target.Metadata = &cdx.Metadata{}
 	}
-	declaration, err := json.Marshal(ip.RuntimeLoads)
-	if err != nil {
-		return err
-	}
 	props := []cdx.Property{}
 	if target.Metadata.Properties != nil {
 		props = append(props, (*target.Metadata.Properties)...)
 	}
-	props = append(props, cdx.Property{Name: "dk:runtimeLoads:image-scope", Value: string(declaration)})
 	if p.PMOverlap != "" {
 		props = append(props, cdx.Property{Name: "dk:pm-overlap", Value: p.PMOverlap})
 	}
@@ -393,7 +387,7 @@ func resolvePath(fs *filesystem, name string) (string, error) {
 	return "", fmt.Errorf("symlink cycle %s", name)
 }
 
-func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []string) error {
+func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string][]string, error) {
 	edges := map[string][]string{}
 	sonames := map[string][]string{}
 	roots := []string{}
@@ -404,37 +398,33 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 		}
 		f, err := elf.NewFile(bytes.NewReader(body))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if f.Class != elf.ELFCLASS64 || f.Machine != elf.EM_X86_64 {
 			f.Close()
-			return fmt.Errorf("unsupported runtime ELF architecture")
-		}
-		if runtimeLoads == nil {
-			f.Close()
-			return fmt.Errorf("runtimeLoads declaration required; runtime loading is not inferred from linkage")
+			return nil, fmt.Errorf("unsupported runtime ELF architecture")
 		}
 		if f.Section(".dynamic") != nil {
 			if err := checkRuntimeLoader(fs, present, "/lib64/ld-linux-x86-64.so.2"); err != nil {
 				f.Close()
-				return err
+				return nil, err
 			}
 			for candidate := range fs.index.Files {
 				if candidate == "/etc/ld.so.cache" || candidate == "/etc/ld.so.preload" || strings.Contains(candidate, "/glibc-hwcaps/") {
 					f.Close()
-					return fmt.Errorf("unsupported dynamic loader feature %s", candidate)
+					return nil, fmt.Errorf("unsupported dynamic loader feature %s", candidate)
 				}
 			}
 		}
 		needed, err := f.ImportedLibraries()
 		if err != nil {
 			f.Close()
-			return err
+			return nil, err
 		}
 		sonames[name], err = f.DynString(elf.DT_SONAME)
 		if err != nil {
 			f.Close()
-			return err
+			return nil, err
 		}
 		if f.Type == elf.ET_EXEC {
 			roots = appendUnique(roots, name)
@@ -445,12 +435,12 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 				raw, err := io.ReadAll(prog.Open())
 				if err != nil {
 					f.Close()
-					return err
+					return nil, err
 				}
 				interpreter := strings.TrimRight(string(raw), "\x00")
 				if err := checkRuntimeLoader(fs, present, interpreter); err != nil {
 					f.Close()
-					return err
+					return nil, err
 				}
 				needed = append(needed, interpreter)
 			}
@@ -458,41 +448,26 @@ func dynamicClosure(fs *filesystem, present map[string]Record, runtimeLoads []st
 		dirs, err := runtimeDirs(f, name)
 		if err != nil {
 			f.Close()
-			return err
+			return nil, err
 		}
 		f.Close()
 		for _, soname := range needed {
 			resolved, err := resolveRuntime(fs, present, soname, dirs)
 			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
+				return nil, fmt.Errorf("%s: %w", name, err)
 			}
 			edges[name] = appendUnique(edges[name], resolved)
 		}
 	}
-	for _, name := range runtimeLoads {
-		if !strings.HasPrefix(name, "/") {
-			return fmt.Errorf("runtimeLoads require absolute rootfs paths")
-		}
-		resolved, err := resolveRuntime(fs, present, name, nil)
-		if err != nil {
-			return err
-		}
-		for caller := range present {
-			if bytes.HasPrefix(fs.bodies[caller], []byte("\x7fELF")) {
-				edges[caller] = appendUnique(edges[caller], resolved)
-			}
-		}
-	}
 	if err := rejectConflictingRuntimeSONAMEs(edges, sonames, roots); err != nil {
-		return err
+		return nil, err
 	}
-	closeComponents(present, edges)
-	return nil
+	return edges, nil
 }
 
 // Per-object resolution cannot model glibc's reuse of already loaded objects.
 // Reject conflicting canonical paths within each executable's closure, including
-// declared runtime loads. Equal bytes at different paths still have distinct owners.
+// DT_NEEDED dependencies. Equal bytes at different paths still have distinct owners.
 func rejectConflictingRuntimeSONAMEs(edges, sonames map[string][]string, roots []string) error {
 	sort.Strings(roots)
 	for _, root := range roots {
@@ -516,24 +491,6 @@ func rejectConflictingRuntimeSONAMEs(edges, sonames map[string][]string, roots [
 		}
 	}
 	return nil
-}
-
-func closeComponents(present map[string]Record, edges map[string][]string) {
-	for changed := true; changed; {
-		changed = false
-		for name, children := range edges {
-			r := present[name]
-			before := len(r.Components)
-			for _, child := range children {
-				r.Components = appendUnique(r.Components, present[child].Components...)
-			}
-			if len(r.Components) != before {
-				changed = true
-			}
-			sort.Strings(r.Components)
-			present[name] = r
-		}
-	}
 }
 
 // This loader's --help reports these default paths; other x86-64 loaders can differ.

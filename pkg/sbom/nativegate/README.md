@@ -24,7 +24,11 @@ Linux/amd64 ELF and pinned toolchain profiles only. Dynamic resolution accepts a
 specific loader hash and its `/lib64`, `/usr/lib64` defaults, plus supported RUNPATH.
 Conflicting owners for the same SONAME within one executable closure are rejected;
 independent executables have separate closures. This is not a general loader emulator.
-`runtimeLoads` is a required user declaration for ELF images, including static ones.
+All libraries in the image remain in its inventory, including libraries loaded
+programmatically. No dlopen declaration is required. Runtime dependency edges follow
+DT_NEEDED and PT_INTERP only. CycloneDX retains these as direct file-to-file edges,
+separate from each file's intrinsic components. A complete programmatic loading
+graph is not promised.
 
 The build environment, tools and original inventories are trusted. Hash checking
 is not a signature scheme. Arbitrary generated sources, user assembly, unsupported

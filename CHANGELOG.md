@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.12.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.3...v3.12.0-dk.4) (2026-10-28)
+
+
+### Features
+
+* **build, stapel:** stop a sign stage of many files failing on the Vault rate limit ([#480](https://github.com/deckhouse/delivery-kit/issues/480)) ([057c0ee](https://github.com/deckhouse/delivery-kit/commit/057c0ee5913f42eabe13a7e934ed56caf5f47c12))
+
+
+### Bug Fixes
+
+* **ci:** keep the private-module git rewrite out of git's global scope ([#482](https://github.com/deckhouse/delivery-kit/issues/482)) ([c32a3c1](https://github.com/deckhouse/delivery-kit/commit/c32a3c15be30832bb8b82f54b7e08badf0e06582))
+* **sbom:** resolve external references after duplicate components are merged ([#477](https://github.com/deckhouse/delivery-kit/issues/477)) ([3d8a4bf](https://github.com/deckhouse/delivery-kit/commit/3d8a4bfd1311878f2a90bc5ecc02a53db6430276))
+* **sbom:** retain Go dependencies with case-sensitive module paths ([#481](https://github.com/deckhouse/delivery-kit/issues/481)) ([e250951](https://github.com/deckhouse/delivery-kit/commit/e2509517dafb4b663bacb4797ceb3432fe51a4be))
+
 ## [3.12.0-dk.3](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.2...v3.12.0-dk.3) (2026-10-26)
 
 

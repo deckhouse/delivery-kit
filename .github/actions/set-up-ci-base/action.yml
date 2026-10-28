@@ -38,9 +38,6 @@ runs:
             ;;
         esac
 
-    - name: Set up git config
-      uses: ./.github/actions/set-up-git-config
-
     - name: Reach the internal Go modules on fox
       shell: bash
       env:
@@ -50,11 +47,18 @@ runs:
         for name in FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN FOX_ELFEDIT_DEPLOY_TOKEN; do
           [[ -n "${!name}" ]] || { echo "::error::$name is empty: the secret is missing, or this is a pull request from a fork"; exit 1; }
         done
-        # GIT_CONFIG_GLOBAL is the job-local file set-up-git-config created: the runner is
-        # persistent and shared between jobs, so the tokens must not reach ~/.gitconfig.
-        git config --global url."https://delivery-kit-ci:${FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN}@fox.flant.com/deckhouse/delivery/delivery-kit-sdk".insteadOf "https://flant.internal/deckhouse/delivery/delivery-kit-sdk"
-        git config --global url."https://delivery-kit-ci:${FOX_ELFEDIT_DEPLOY_TOKEN}@fox.flant.com/deckhouse/delivery/elfedit".insteadOf "https://flant.internal/deckhouse/delivery/elfedit"
-        echo "GOPRIVATE=flant.internal" >> "$GITHUB_ENV"
+        # The rewrite rules travel in the environment, not in a git config file: the
+        # runner is persistent and shared, so the tokens must not reach ~/.gitconfig, and
+        # a job-local GIT_CONFIG_GLOBAL would change what the tests see in git's global
+        # scope.
+        {
+          echo "GIT_CONFIG_COUNT=2"
+          echo "GIT_CONFIG_KEY_0=url.https://delivery-kit-ci:${FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN}@fox.flant.com/deckhouse/delivery/delivery-kit-sdk.insteadOf"
+          echo "GIT_CONFIG_VALUE_0=https://flant.internal/deckhouse/delivery/delivery-kit-sdk"
+          echo "GIT_CONFIG_KEY_1=url.https://delivery-kit-ci:${FOX_ELFEDIT_DEPLOY_TOKEN}@fox.flant.com/deckhouse/delivery/elfedit.insteadOf"
+          echo "GIT_CONFIG_VALUE_1=https://flant.internal/deckhouse/delivery/elfedit"
+          echo "GOPRIVATE=flant.internal"
+        } >> "$GITHUB_ENV"
 
     - name: Set up Go
       uses: actions/setup-go@v6

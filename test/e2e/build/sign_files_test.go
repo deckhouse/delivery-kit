@@ -104,7 +104,8 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 
 			buildOut, buildReport := werfProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report0.json"), &werf.WithReportOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
 			Expect(buildOut).To(ContainSubstring("Building stage sysext/signFiles"))
-			Expect(buildOut).To(ContainSubstring("Signing " + signFilesPath))
+			Expect(buildOut).To(ContainSubstring("Signing 1 file(s)"))
+			Expect(buildOut).To(ContainSubstring("sign " + signFilesPath))
 			Expect(buildOut).To(ContainSubstring("Building stage consumer/setup"),
 				"the dependent image imports the file together with its signature, so the signature must exist before the import")
 
@@ -149,7 +150,9 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 			By("building with the files signer")
 			buildOut, buildReport := werfProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report0.json"), &werf.WithReportOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
 			Expect(buildOut).To(ContainSubstring("Building stage sysext/install"))
-			Expect(buildOut).To(ContainSubstring("Signing " + signFilesPath))
+			Expect(buildOut).To(ContainSubstring("Signing 2 file(s)"), "both entries of the stage are signed in one Signing block")
+			Expect(buildOut).To(ContainSubstring("sign " + signFilesPath))
+			Expect(buildOut).To(ContainSubstring("sign /other/ext.roothash"))
 			Expect(buildOut).To(ContainSubstring("Building stage sysext/signFilesAfterInstall"))
 			Expect(buildOut).To(ContainSubstring("Building stage sysext/setup"))
 
@@ -179,9 +182,10 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 			werfProject := report.NewProjectWithReport(werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo0")))
 
 			buildOut, buildReport := werfProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report0.json"), &werf.WithReportOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
-			Expect(buildOut).To(ContainSubstring("Signing /out/lib/modules/6.12/kernel/a.ko"))
-			Expect(buildOut).To(ContainSubstring("Signing /out/lib/modules/6.12/kernel/net/b.ko"))
-			Expect(buildOut).NotTo(ContainSubstring("Signing /out/lib/modules/6.12/modules.order"))
+			Expect(buildOut).To(ContainSubstring("Signing 3 file(s)"), "a.ko, hard.ko and net/b.ko, in one Signing block")
+			Expect(buildOut).To(ContainSubstring("sign /out/lib/modules/6.12/kernel/a.ko"))
+			Expect(buildOut).To(ContainSubstring("sign /out/lib/modules/6.12/kernel/net/b.ko"))
+			Expect(buildOut).NotTo(ContainSubstring("sign /out/lib/modules/6.12/modules.order"))
 			Expect(buildOut).To(ContainSubstring("Building stage kernel/setup"))
 
 			files := map[string][]byte{}

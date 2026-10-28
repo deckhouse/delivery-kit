@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signver"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/smallstep/pkcs7"
@@ -92,15 +94,177 @@ func newTestSigner(ctx context.Context) (*Signer, *rsa.PrivateKey) {
 	return signer, key
 }
 
-var _ = Describe("SignDetachedPKCS7", func() {
+// batchSigner is a backend that signs batches, the shape Vault Transit has: it records
+// every batch it receives and refuses to sign one digest at a time.
+type batchSigner struct {
+	signature.SignerVerifier
+
+	key     *rsa.PrivateKey
+	batches [][][]byte
+}
+
+var _ signver.BatchSigner = (*batchSigner)(nil)
+
+func (s *batchSigner) PublicKey(_ ...signature.PublicKeyOption) (crypto.PublicKey, error) {
+	return &s.key.PublicKey, nil
+}
+
+func (s *batchSigner) SignMessage(_ io.Reader, _ ...signature.SignOption) ([]byte, error) {
+	return nil, errors.New("digest-by-digest signing must not be used with a batch backend")
+}
+
+func (s *batchSigner) SignDigests(_ context.Context, digests [][]byte) ([][]byte, error) {
+	s.batches = append(s.batches, digests)
+	out := make([][]byte, 0, len(digests))
+	for _, d := range digests {
+		sig, err := rsa.SignPKCS1v15(rand.Reader, s.key, crypto.SHA256, d)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sig)
+	}
+	return out, nil
+}
+
+// shortBatchSigner drops the last signature of every batch.
+type shortBatchSigner struct {
+	batchSigner
+}
+
+func (s *shortBatchSigner) SignDigests(ctx context.Context, digests [][]byte) ([][]byte, error) {
+	sigs, err := s.batchSigner.SignDigests(ctx, digests)
+	if err != nil {
+		return nil, err
+	}
+	return sigs[:len(sigs)-1], nil
+}
+
+// countingSource counts the reads of every content and can hand out different bytes
+// on the second read of one of them.
+type countingSource struct {
+	contents           [][]byte
+	reads              []int
+	mutateOnSecondRead *int
+}
+
+var _ ContentSource = (*countingSource)(nil)
+
+func (s *countingSource) Len() int {
+	return len(s.contents)
+}
+
+func (s *countingSource) Content(_ context.Context, i int) ([]byte, error) {
+	if s.reads == nil {
+		s.reads = make([]int, len(s.contents))
+	}
+	s.reads[i]++
+	if s.reads[i] == 2 && s.mutateOnSecondRead != nil && i == *s.mutateOnSecondRead {
+		return []byte("changed"), nil
+	}
+	return s.contents[i], nil
+}
+
+var _ = Describe("SignDetachedPKCS7Batch", func() {
+	It("signs every content with one request to a backend that signs batches, each signature verifying against its own content", func(ctx SpecContext) {
+		key, certPEM := newTestKeyPair()
+		backend := &batchSigner{key: key}
+		signer := &Signer{sv: &signver.SignerVerifier{Cert: certPEM, SignerVerifier: backend}}
+		contents := [][]byte{[]byte("module a"), []byte("module b"), []byte("module c")}
+
+		ders, err := SignDetachedPKCS7Batch(ctx, Contents(contents), signer)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(backend.batches).To(HaveLen(1), "one signing request for the whole batch")
+		Expect(backend.batches[0]).To(HaveLen(len(contents)))
+		Expect(ders).To(HaveLen(len(contents)))
+		for i, content := range contents {
+			p7, err := pkcs7.Parse(ders[i])
+			Expect(err).NotTo(HaveOccurred())
+			p7.Content = content
+			Expect(p7.Verify()).To(Succeed(), "signature %d must verify against content %d", i, i)
+			if i > 0 {
+				p7.Content = contents[0]
+				Expect(p7.Verify()).NotTo(Succeed(), "signature %d must not verify against another content: signatures must be paired in order", i)
+			}
+		}
+	})
+
+	It("falls back to signing digest by digest with a backend that cannot sign batches, producing the same shape as SignDetachedPKCS7", func(ctx SpecContext) {
+		signer, _ := newTestSigner(ctx)
+		contents := [][]byte{[]byte("one"), []byte("two")}
+
+		ders, err := SignDetachedPKCS7Batch(ctx, Contents(contents), signer)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ders).To(HaveLen(2))
+		for i, content := range contents {
+			p7, err := pkcs7.Parse(ders[i])
+			Expect(err).NotTo(HaveOccurred())
+			p7.Content = content
+			Expect(p7.Verify()).To(Succeed())
+		}
+	})
+
+	It("refuses a backend that returns a different number of signatures than contents", func(ctx SpecContext) {
+		key, certPEM := newTestKeyPair()
+		backend := &shortBatchSigner{batchSigner: batchSigner{key: key}}
+		signer := &Signer{sv: &signver.SignerVerifier{Cert: certPEM, SignerVerifier: backend}}
+
+		_, err := SignDetachedPKCS7Batch(ctx, Contents{[]byte("x"), []byte("y")}, signer)
+		Expect(err).To(MatchError(ContainSubstring("signing 2 contents produced 1 signatures")))
+	})
+
+	It("refuses a batch whose signatures the certificate does not verify, naming the content", func(ctx SpecContext) {
+		key, certPEM := newTestKeyPair()
+		signer := &Signer{sv: &signver.SignerVerifier{
+			Cert:           certPEM,
+			SignerVerifier: &badSignatureSigner{pub: &key.PublicKey},
+		}}
+
+		_, err := SignDetachedPKCS7Batch(ctx, Contents{[]byte("x"), []byte("y")}, signer)
+		var contentErr *ContentError
+		Expect(errors.As(err, &contentErr)).To(BeTrue(), "the caller needs the index to name the file")
+		Expect(contentErr.Index).To(Equal(0))
+		Expect(err).To(MatchError(ContainSubstring("does not verify the signature the key produced")))
+	})
+
+	It("reads each content twice and refuses to wrap a content that changed between the reads", func(ctx SpecContext) {
+		signer, _ := newTestSigner(ctx)
+		source := &countingSource{contents: [][]byte{[]byte("stable"), []byte("changes")}}
+
+		_, err := SignDetachedPKCS7Batch(ctx, source, signer)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(source.reads).To(Equal([]int{2, 2}), "once to digest, once to wrap; never all contents at once")
+
+		source = &countingSource{contents: [][]byte{[]byte("stable"), []byte("changes")}, mutateOnSecondRead: lo.ToPtr(1)}
+		_, err = SignDetachedPKCS7Batch(ctx, source, signer)
+		var contentErr *ContentError
+		Expect(errors.As(err, &contentErr)).To(BeTrue())
+		Expect(contentErr.Index).To(Equal(1))
+		Expect(err).To(MatchError(ContainSubstring("differs from the digest that was signed")))
+	})
+
+	It("signs nothing without making a request when there is nothing to sign", func(ctx SpecContext) {
+		key, certPEM := newTestKeyPair()
+		backend := &batchSigner{key: key}
+		signer := &Signer{sv: &signver.SignerVerifier{Cert: certPEM, SignerVerifier: backend}}
+
+		ders, err := SignDetachedPKCS7Batch(ctx, Contents(nil), signer)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ders).To(BeEmpty())
+		Expect(backend.batches).To(BeEmpty())
+	})
+})
+
+var _ = Describe("SignDetachedPKCS7Batch with one content", func() {
 	// The content a dm-verity root hash signature covers: the hex digest, no newline.
 	content := []byte("3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b")
 
 	It("produces a detached SignedData without authenticated attributes that verifies against the leaf", func(ctx SpecContext) {
 		signer, key := newTestSigner(ctx)
 
-		der, err := SignDetachedPKCS7(ctx, content, signer)
+		ders, err := SignDetachedPKCS7Batch(ctx, Contents{content}, signer)
 		Expect(err).NotTo(HaveOccurred())
+		der := ders[0]
 
 		p7, err := pkcs7.Parse(der)
 		Expect(err).NotTo(HaveOccurred())
@@ -121,8 +285,9 @@ var _ = Describe("SignDetachedPKCS7", func() {
 	It("names the signature algorithm rsaEncryption, the only one the kernel parser resolves", func(ctx SpecContext) {
 		signer, _ := newTestSigner(ctx)
 
-		der, err := SignDetachedPKCS7(ctx, content, signer)
+		ders, err := SignDetachedPKCS7Batch(ctx, Contents{content}, signer)
 		Expect(err).NotTo(HaveOccurred())
+		der := ders[0]
 
 		p7, err := pkcs7.Parse(der)
 		Expect(err).NotTo(HaveOccurred())
@@ -138,7 +303,7 @@ var _ = Describe("SignDetachedPKCS7", func() {
 			SignerVerifier: &badSignatureSigner{pub: &key.PublicKey},
 		}}
 
-		_, err := SignDetachedPKCS7(ctx, content, signer)
+		_, err := SignDetachedPKCS7Batch(ctx, Contents{content}, signer)
 		Expect(err).To(MatchError(ContainSubstring("does not verify the signature the key produced")))
 	})
 
@@ -148,8 +313,9 @@ var _ = Describe("SignDetachedPKCS7", func() {
 		}
 		signer, _ := newTestSigner(ctx)
 
-		der, err := SignDetachedPKCS7(ctx, content, signer)
+		ders, err := SignDetachedPKCS7Batch(ctx, Contents{content}, signer)
 		Expect(err).NotTo(HaveOccurred())
+		der := ders[0]
 
 		dir := GinkgoT().TempDir()
 		p7sPath := filepath.Join(dir, "x.roothash.p7s")
@@ -180,7 +346,7 @@ var _ = Describe("SignDetachedPKCS7", func() {
 	})
 
 	It("fails when the signer is not configured", func(ctx SpecContext) {
-		_, err := SignDetachedPKCS7(ctx, content, &Signer{})
+		_, err := SignDetachedPKCS7Batch(ctx, Contents{content}, &Signer{})
 		Expect(err).To(MatchError(ContainSubstring("signer is not configured")))
 	})
 })

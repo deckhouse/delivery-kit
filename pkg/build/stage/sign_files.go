@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -147,23 +148,26 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 		return err
 	}
 
+	var signatures [][]byte
+	if err := logboek.Context(ctx).Default().LogProcess("Signing %d file(s)", len(files)).DoError(func() error {
+		for _, filePath := range files {
+			logboek.Context(ctx).Default().LogF("sign %s\n", filePath)
+		}
+		var signErr error
+		signatures, signErr = signing.SignDetachedPKCS7Batch(ctx, &imageFiles{reader: reader, paths: files}, s.options.Signer())
+		return signErr
+	}); err != nil {
+		var contentErr *signing.ContentError
+		if errors.As(err, &contentErr) {
+			return fmt.Errorf("sign %s of image %q: %w", files[contentErr.Index], s.imageName, contentErr.Err)
+		}
+		return fmt.Errorf("sign %d file(s) of image %q: %w", len(files), s.imageName, err)
+	}
+
 	legacy := c.UseLegacyStapelBuilder(cb)
 	var installCommands []string
 	for i, filePath := range files {
-		content, err := reader.ReadFile(ctx, filePath)
-		if err != nil {
-			return fmt.Errorf("read %s to sign from image %q: %w", filePath, s.imageName, err)
-		}
-
-		var signature []byte
-		if err := logboek.Context(ctx).Default().LogProcess("Signing %s", filePath).DoError(func() error {
-			var signErr error
-			signature, signErr = signing.SignDetachedPKCS7(ctx, content, s.options.Signer())
-			return signErr
-		}); err != nil {
-			return fmt.Errorf("sign %s of image %q: %w", filePath, s.imageName, err)
-		}
-
+		signature := signatures[i]
 		outputPath := config.SignatureOutputPath(filePath)
 		outputName := path.Base(outputPath)
 		if legacy {
@@ -254,4 +258,25 @@ func singleFileTar(name string, content []byte) (*bytes.Buffer, error) {
 		return nil, err
 	}
 	return &buf, nil
+}
+
+// imageFiles reads the files to sign out of the image one at a time, so a stage of
+// hundreds of files holds one in memory.
+type imageFiles struct {
+	reader container_backend.ImageReader
+	paths  []string
+}
+
+var _ signing.ContentSource = (*imageFiles)(nil)
+
+func (f *imageFiles) Len() int {
+	return len(f.paths)
+}
+
+func (f *imageFiles) Content(ctx context.Context, i int) ([]byte, error) {
+	content, err := f.reader.ReadFile(ctx, f.paths[i])
+	if err != nil {
+		return nil, fmt.Errorf("read %s from the image: %w", f.paths[i], err)
+	}
+	return content, nil
 }

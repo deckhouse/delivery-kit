@@ -96,7 +96,7 @@ var _ = Describe("Installed inventory convergence", func() {
 		step := &sbomStep{containerBackend: backend}
 
 		for range 2 {
-			Expect(step.ConvergeWithMerge(ctx, "app", desc, opts, mergeOpts, []BOMPatcherInterface{}, []string{}, map[string]string{}, true, "", nil, "")).To(Succeed())
+			Expect(step.ConvergeWithMerge(ctx, "app", desc, opts, mergeOpts, []BOMPatcherInterface{}, []string{}, true, "", nil, "")).To(Succeed())
 			bom, err := step.GetImageBOM(ctx, "app", info)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(lo.FromPtr(bom.Components)).To(HaveLen(1))

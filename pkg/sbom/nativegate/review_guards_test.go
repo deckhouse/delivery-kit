@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 			ref := "pkg:generic/runtime@" + strings.TrimPrefix(record.SHA256, "sha256:")
 			record.Components = []string{ref}
 			catalog.Records = append(catalog.Records, record)
+			present[name] = record
 			catalog.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, Name: "runtime", Version: strings.TrimPrefix(record.SHA256, "sha256:"), PackageURL: ref, BOMRef: ref}
 			imageFiles[name] = string(fs.bodies[name])
 		}
@@ -67,7 +68,11 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
 		target := cdx.NewBOM()
 		policy := &Policy{Images: map[string]ImagePolicy{"image": {Role: "final"}}}
-		gomega.Expect(Apply(context.Background(), policy, "image", fixtureImage(imageFiles), []*cdx.BOM{inherited}, target)).To(gomega.Succeed())
+		ginkgo.By("requiring embedded metadata even when an original package hash is known")
+		gomega.Expect(Apply(context.Background(), policy, "image", fixtureImage(imageFiles), []*cdx.BOM{inherited}, target)).To(gomega.MatchError(gomega.ContainSubstring("no-data")))
+		runtimeEdges, err := runtimeDependencies(fs, present)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(catalog.writeBOM(present, runtimeEdges, target)).To(gomega.Succeed())
 		data, err := cyclonedxutil.ToJSON(target)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		restored, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
@@ -209,11 +214,14 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		}
 	})
 	ginkgo.It("captures pm release identity and rejects a missing version", func() {
-		hash := digest([]byte("package"))
+		body := minimalRuntimeELF(elf.ET_EXEC)
+		hash := digest(body)
 		index := fmt.Sprintf(`{"example":{"name":"example","version":"1","digest":%q}}`, hash)
 		files := fmt.Sprintf(`{"example":{"version":"1","files":{"/bin/a":%q},"symlinks":{}}}`, hash)
-		bodies := map[string]string{"/var/lib/pm/index.json": index, "/var/lib/pm/files.json": files, "/var/lib/pm/container-factory-version": "v3.1.16\n"}
-		policy := &Policy{Images: map[string]ImagePolicy{"producer": {Role: "produce", MetaDir: "/meta"}}}
+		bodies := map[string]string{"/bin/a": string(body), "/var/lib/pm/index.json": index, "/var/lib/pm/files.json": files, "/var/lib/pm/container-factory-version": "v3.1.16\n"}
+		policy := fixturePolicy("producer")
+		policy.Images["producer"] = ImagePolicy{Role: "produce", Outputs: []string{"/bin/a"}}
+
 		bom := cdx.NewBOM()
 		gomega.Expect(Apply(context.Background(), policy, "producer", fixtureImage(bodies), nil, bom)).To(gomega.Succeed())
 		var catalog Catalog
@@ -234,27 +242,5 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(old.attach(bom)).To(gomega.Succeed())
 		policy := &Policy{Images: map[string]ImagePolicy{"final": {Role: "final"}}}
 		gomega.Expect(Apply(context.Background(), policy, "final", fixtureImage(map[string]string{}), []*cdx.BOM{bom}, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("incomplete catalog component")))
-	})
-	ginkgo.It("requires current overlap opt-in inside compiler source inspection", func() {
-		c := fixtureCatalog()
-		c.Records[0].Namespace = "current"
-		c.Records[0].Components = []string{"a", "b"}
-		ins := inspector{policy: &Policy{PMOverlap: "all-active-exact-path-hash"}, catalog: &c}
-		source := Source{Path: c.Records[0].Path, SHA256: c.Records[0].SHA256}
-		refs, err := ins.source(source)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(refs).To(gomega.ConsistOf("a", "b"))
-		ins.policy.PMOverlap = ""
-		_, err = ins.source(source)
-		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("pm coownership requires current policy opt-in")))
-	})
-	ginkgo.It("rejects compiler records whose filenames disagree with output hashes", func() {
-		record := Compile{Schema: "dk.compile/v2", SHA256: digest([]byte("object"))}
-		raw, err := json.Marshal(record)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		policy := &Policy{Images: map[string]ImagePolicy{"producer": {Role: "produce", MetaDir: "/meta"}}}
-		correct := "/meta/objects/" + strings.TrimPrefix(record.SHA256, "sha256:") + ".json"
-		gomega.Expect(Apply(context.Background(), policy, "producer", fixtureImage(map[string]string{correct: string(raw)}), nil, cdx.NewBOM())).To(gomega.Succeed())
-		gomega.Expect(Apply(context.Background(), policy, "producer", fixtureImage(map[string]string{"/meta/objects/wrong.json": string(raw)}), nil, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring("compiler record filename/hash mismatch")))
 	})
 })

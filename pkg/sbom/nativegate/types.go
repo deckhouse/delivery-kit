@@ -14,7 +14,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-const catalogProperty = "dk:catalog/v2"
+const catalogProperty = "dk:catalog/v3"
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
@@ -23,64 +23,27 @@ type Tool struct {
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
 }
-type Source struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
-type Compile struct {
-	Schema   string   `json:"schema"`
-	SHA256   string   `json:"sha256"`
-	Tool     Tool     `json:"tool"`
-	Language string   `json:"language"`
-	Sources  []Source `json:"sources"`
-	Inputs   []Source `json:"inputs"`
-}
-type Method struct {
-	Schema    string   `json:"schema"`
-	Languages []string `json:"languages"`
-	Native    bool     `json:"native"`
-	LinkMode  string   `json:"linkMode"`
-	Tool      Tool     `json:"tool"`
-	Inputs    []Source `json:"inputs"`
-}
-type LinkInput struct {
-	Path        string  `json:"path"`
-	SHA256      string  `json:"sha256"`
-	Kind        string  `json:"kind"`
-	Disposition string  `json:"disposition"`
-	Archive     *Source `json:"archive,omitempty"`
-	Member      string  `json:"member,omitempty"`
-}
-type Link struct {
-	Schema string      `json:"schema"`
-	Linker Tool        `json:"linker"`
-	Mode   string      `json:"mode"`
-	Inputs []LinkInput `json:"inputs"`
-}
 type ImagePolicy struct {
-	Role    string            `json:"role"`
-	Outputs []string          `json:"outputs"`
-	Project cdx.Component     `json:"project"`
-	Sources map[string]string `json:"sources"`
-	MetaDir string            `json:"metaDir"`
+	Role    string   `json:"role"`
+	Outputs []string `json:"outputs"`
 }
 type Policy struct {
-	PMOverlap     string                 `json:"pmOverlap,omitempty"`
-	Distributions []Distribution         `json:"distributions"`
-	Schema        string                 `json:"schema"`
-	Tools         []Tool                 `json:"tools"`
-	Profiles      []string               `json:"profiles"`
-	Images        map[string]ImagePolicy `json:"images"`
+	PMOverlap string                 `json:"pmOverlap,omitempty"`
+	Schema    string                 `json:"schema"`
+	Tools     []Tool                 `json:"tools"`
+	Profiles  []string               `json:"profiles"`
+	Images    map[string]ImagePolicy `json:"images"`
 }
 type Record struct {
-	PMOverlap  string   `json:"pmOverlap,omitempty"`
-	Namespace  string   `json:"namespace,omitempty"`
-	Path       string   `json:"path"`
-	SHA256     string   `json:"sha256"`
-	Components []string `json:"components"`
-	Origin     string   `json:"origin"`
-	Profile    string   `json:"profile,omitempty"`
-	Tools      []Tool   `json:"tools,omitempty"`
+	Composition json.RawMessage `json:"composition,omitempty"`
+	PMOverlap   string          `json:"pmOverlap,omitempty"`
+	Namespace   string          `json:"namespace,omitempty"`
+	Path        string          `json:"path"`
+	SHA256      string          `json:"sha256"`
+	Components  []string        `json:"components"`
+	Origin      string          `json:"origin"`
+	Profile     string          `json:"profile,omitempty"`
+	Tools       []Tool          `json:"tools,omitempty"`
 }
 type Catalog struct {
 	pmSnapshot string
@@ -133,7 +96,7 @@ func (p *Policy) checkTool(t Tool) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("unregistered tool %s %s %s", t.Name, t.Version, t.SHA256)
+	return fmt.Errorf("unsupported: unregistered tool %s %s %s", t.Name, t.Version, t.SHA256)
 }
 
 func validComponent(c cdx.Component) bool {
@@ -145,7 +108,7 @@ func validComponent(c cdx.Component) bool {
 			return false
 		}
 	}
-	return c.Name != "" && c.Version != "" && c.PackageURL != "" && c.BOMRef == c.PackageURL
+	return c.Name != "" && c.Version != "" && c.PackageURL != "" && c.BOMRef != ""
 }
 
 func appendUnique(list []string, entries ...string) []string {
@@ -162,13 +125,4 @@ func appendUnique(list []string, entries ...string) []string {
 		}
 	}
 	return list
-}
-
-func prohibitedSource(path string) bool {
-	for _, part := range strings.Split(path, "/") {
-		if part == "vendor" || part == "third_party" || part == "third-party" {
-			return true
-		}
-	}
-	return false
 }

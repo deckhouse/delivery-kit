@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 
+	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	ospm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
@@ -21,11 +21,11 @@ type pmFiles struct {
 }
 
 func emptyCatalog() Catalog {
-	return Catalog{Schema: "dk.catalog/v2", Components: map[string]cdx.Component{}}
+	return Catalog{Schema: "dk.catalog/v3", Components: map[string]cdx.Component{}}
 }
 
 func (c *Catalog) add(other Catalog) error {
-	if other.Schema != "dk.catalog/v2" {
+	if other.Schema != "dk.catalog/v3" {
 		return fmt.Errorf("unsupported inherited catalog %q", other.Schema)
 	}
 	for ref, comp := range other.Components {
@@ -46,6 +46,22 @@ func (c *Catalog) add(other Catalog) error {
 				return fmt.Errorf("missing catalog component %s", ref)
 			}
 		}
+		if r.Origin == "build" && len(r.Composition) == 0 {
+			return fmt.Errorf("%s: no-data: missing inherited embedded composition", r.Path)
+		}
+		if r.Composition != nil {
+			raw, err := json.Marshal(map[string]json.RawMessage{"sbom": r.Composition})
+			if err != nil {
+				return fmt.Errorf("encode inherited composition %s: %w", r.Path, err)
+			}
+			composition, status, err := shared.ParseBuildRecord(raw)
+			if err != nil {
+				return fmt.Errorf("%s: %s: %w", r.Path, status, err)
+			}
+			if r.Profile != composition.Profile.ID {
+				return fmt.Errorf("%s: invalid: inherited profile disagrees with composition", r.Path)
+			}
+		}
 		c.Records = append(c.Records, r)
 	}
 	return nil
@@ -59,6 +75,9 @@ func inherited(boms []*cdx.BOM) (Catalog, error) {
 		}
 		for _, prop := range *bom.Metadata.Properties {
 			if prop.Name != catalogProperty {
+				if strings.HasPrefix(prop.Name, "dk:catalog/") {
+					return c, fmt.Errorf("unsupported inherited catalog property %s", prop.Name)
+				}
 				continue
 			}
 			var other Catalog
@@ -185,28 +204,4 @@ func (c *Catalog) coalescePM() error {
 	}
 	c.Records = records
 	return nil
-}
-
-func (c *Catalog) attribution(s Source, origins []string) ([]string, error) {
-	var selected *Record
-	for _, r := range c.Records {
-		if !slices.Contains(origins, r.Origin) || r.Path != s.Path || r.SHA256 != s.SHA256 {
-			continue
-		}
-		if len(r.Components) > 1 && (r.Origin != "pm" || r.Namespace == "") {
-			return nil, fmt.Errorf("invalid attribution group %s", s.Path)
-		}
-		if selected != nil {
-			if selected.Namespace != r.Namespace || selected.Origin != r.Origin || !slices.Equal(selected.Components, r.Components) {
-				return nil, fmt.Errorf("ambiguous source attribution %s", s.Path)
-			}
-		} else {
-			copy := r
-			selected = &copy
-		}
-	}
-	if selected == nil {
-		return nil, nil
-	}
-	return slices.Clone(selected.Components), nil
 }

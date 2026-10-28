@@ -59,9 +59,8 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		if h.Size > 512<<20 && (ip.Role == "final" || slices.Contains(ip.Outputs, name)) {
 			return nil, fmt.Errorf("file exceeds experimental limit %s", name)
 		}
-		_, ownSource := ip.Sources[name]
-		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || name == "/var/lib/pm/container-factory-version" || path.Base(name) == "go.sum" || path.Base(name) == "Cargo.lock"
-		capture := metadata || ownSource || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || (ip.MetaDir != "" && strings.HasPrefix(name, strings.TrimRight(ip.MetaDir, "/")+"/"))
+		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || name == "/var/lib/pm/container-factory-version"
+		capture := metadata || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json"
 		if !capture {
 			for _, out := range ip.Outputs {
 				if index.Files[out].Digest == entry.Digest {
@@ -155,8 +154,8 @@ func matching(c Catalog, name, hash string) (*Record, error) {
 			return nil, fmt.Errorf("ambiguous content ownership %s", name)
 		}
 	}
-	if pathSeen && !pathMatch {
-		return nil, fmt.Errorf("known file content changed %s", name)
+	if pathSeen && !pathMatch && result == nil {
+		return nil, fmt.Errorf("hash-mismatch: known file content changed %s", name)
 	}
 	return result, nil
 }
@@ -181,27 +180,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		return err
 	}
 	local := emptyCatalog()
-	for _, r := range c.Records {
-		if r.Origin == "source" {
-			local.Records = append(local.Records, r)
-			for _, ref := range r.Components {
-				local.Components[ref] = c.Components[ref]
-			}
-		}
-	}
-	if len(ip.Sources) > 0 && validComponent(ip.Project) {
-		local.Components[ip.Project.BOMRef] = ip.Project
-		for path, hash := range ip.Sources {
-			local.Records = append(local.Records, Record{Path: path, SHA256: hash, Components: []string{ip.Project.BOMRef}, Origin: "source"})
-		}
-	}
 	if err := local.addPM(ctx, fs.bodies); err != nil {
-		return err
-	}
-	if err := local.addGoModules(ip, fs.bodies); err != nil {
-		return err
-	}
-	if err := local.addDistributions(p, ip, fs.bodies); err != nil {
 		return err
 	}
 	if err := local.resolvePaths(fs); err != nil {
@@ -216,44 +195,10 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		return err
 	}
 	if ip.Role == "produce" {
-		for source := range ip.Sources {
-			if prohibitedSource(source) || binaryLike(fs.bodies[source], false, source) {
-				return fmt.Errorf("prebuilt or vendored project source %s", source)
-			}
-		}
-		records := map[string]Compile{}
-		prefix := strings.TrimRight(ip.MetaDir, "/") + "/objects/"
-		if ip.MetaDir == "" {
-			return fmt.Errorf("missing compiler metadata directory")
-		}
-		for name, body := range fs.bodies {
-			if !strings.HasPrefix(name, prefix) {
-				continue
-			}
-			var r Compile
-			if err := decode(body, &r); err != nil {
-				return fmt.Errorf("decode compiler record %s: %w", name, err)
-			}
-			if name != prefix+strings.TrimPrefix(r.SHA256, "sha256:")+".json" || r.Schema != "dk.compile/v2" || !digestPattern.MatchString(r.SHA256) {
-				return fmt.Errorf("compiler record filename/hash mismatch")
-			}
-			records[r.SHA256] = r
-		}
 		for _, name := range ip.Outputs {
-			body, ok := fs.bodies[name]
-			if !ok {
+			if _, ok := fs.index.Files[name]; !ok {
 				return fmt.Errorf("missing declared output %s", name)
 			}
-			ins := inspector{policy: p, image: ip, catalog: &local, compiled: records, active: map[string]bool{}, archives: fs.bodies, fs: fs}
-			record, err := ins.inspect(body)
-			if err != nil {
-				return fmt.Errorf("finalize %s: %w", name, err)
-			}
-			record.Path = name
-			c.Records = append(c.Records, record)
-		}
-		for ref, comp := range local.Components {
-			c.Components[ref] = comp
 		}
 	}
 	present := map[string]Record{}
@@ -265,24 +210,37 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		if err != nil {
 			return err
 		}
-		if record == nil {
-			if binaryLike(fs.bodies[name], fs.executable[name], name) {
-				return fmt.Errorf("unknown binary or unsupported format %s", name)
-			}
-			continue
-		}
-		if (record.PMOverlap != "" || (record.Origin == "pm" && len(record.Components) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
+		if record != nil && (record.PMOverlap != "" || (record.Origin == "pm" && record.Composition == nil && len(record.Components) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
 			return fmt.Errorf("pm coownership requires current policy opt-in")
 		}
-		if record.Origin == "build" {
-			if !slices.Contains(p.Profiles, record.Profile) {
-				return fmt.Errorf("inherited unsupported profile %s", record.Profile)
+		if bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) {
+			ins := inspector{policy: p, catalog: &c}
+			embedded, err := ins.inspect(fs.bodies[name])
+			if err != nil {
+				return fmt.Errorf("%s: %w", name, err)
 			}
-			for _, t := range record.Tools {
-				if err := p.checkTool(t); err != nil {
-					return err
+			if record != nil {
+				embedded.Components = appendUnique(embedded.Components, record.Components...)
+				embedded.Origin = record.Origin
+				embedded.Namespace = record.Namespace
+				embedded.PMOverlap = record.PMOverlap
+				if record.Origin == "pm" && record.Composition == nil && len(record.Components) > 1 {
+					embedded.PMOverlap = p.PMOverlap
 				}
 			}
+			record = &embedded
+		}
+		if record != nil && record.Composition != nil && !bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) {
+			return fmt.Errorf("%s: invalid: recorded ELF composition does not match file", name)
+		}
+		if !bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) && binaryLike(fs.bodies[name], false, name) {
+			return fmt.Errorf("%s: unsupported: binary format has no embedded composition reader", name)
+		}
+		if record == nil {
+			if binaryLike(fs.bodies[name], fs.executable[name], name) {
+				return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
+			}
+			continue
 		}
 		present[name] = *record
 	}
@@ -303,6 +261,19 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			return err
 		}
 	}
+	if p.PMOverlap != "" {
+		if target.Metadata == nil {
+			target.Metadata = &cdx.Metadata{}
+		}
+		if target.Metadata.Properties == nil {
+			target.Metadata.Properties = &[]cdx.Property{}
+		}
+		*target.Metadata.Properties = append(*target.Metadata.Properties, cdx.Property{Name: "dk:pm-overlap", Value: p.PMOverlap})
+	}
+	return c.writeBOM(present, runtimeEdges, target)
+}
+
+func (c *Catalog) writeBOM(present map[string]Record, runtimeEdges map[string][]string, target *cdx.BOM) error {
 	components := map[string]cdx.Component{}
 	deps := []cdx.Dependency{}
 	for name, r := range present {
@@ -335,9 +306,13 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		sort.Strings(refs)
 		*target.Dependencies = append(*target.Dependencies, cdx.Dependency{Ref: target.Metadata.Component.BOMRef, Dependencies: &refs})
 	}
+	next := emptyCatalog()
 	for name, r := range present {
 		r.Path = name
-		c.Records = append(c.Records, r)
+		next.Records = append(next.Records, r)
+		for _, ref := range r.Components {
+			next.Components[ref] = c.Components[ref]
+		}
 	}
 	if target.Metadata == nil {
 		target.Metadata = &cdx.Metadata{}
@@ -346,11 +321,9 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	if target.Metadata.Properties != nil {
 		props = append(props, (*target.Metadata.Properties)...)
 	}
-	if p.PMOverlap != "" {
-		props = append(props, cdx.Property{Name: "dk:pm-overlap", Value: p.PMOverlap})
-	}
+
 	target.Metadata.Properties = &props
-	return c.attach(target)
+	return next.attach(target)
 }
 
 func (c *Catalog) resolvePaths(fs *filesystem) error {

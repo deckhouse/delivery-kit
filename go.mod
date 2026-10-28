@@ -6,6 +6,7 @@ toolchain go1.26.8
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.1
+	fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261028213942-44af37f870d5
 	github.com/Masterminds/goutils v1.1.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/Masterminds/sprig/v3 v3.3.0
@@ -54,7 +55,7 @@ require (
 	github.com/prometheus/procfs v0.22.0
 	github.com/rodaine/table v1.4.0
 	github.com/samber/lo v1.53.0
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/sirupsen/logrus v1.10.2
 	github.com/smallstep/pkcs7 v0.2.1
 	github.com/spf13/cobra v1.10.2

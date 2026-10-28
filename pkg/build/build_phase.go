@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,7 +45,6 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
-	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/stapel"
 	"github.com/werf/werf/v3/pkg/storage"
@@ -750,29 +748,9 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	patchers = append(patchers, externalRefPatcher)
 
-	nativeSources := map[string]string{}
-	if os.Getenv("WERF_DK_NATIVE_POLICY") != "" {
-		if gitStage := img.GetStage(stage.GitArchive); gitStage != nil {
-			for _, mapping := range gitStage.GetGitMappings() {
-				err := mapping.VisitBuiltSourceArchive(ctx, stageDesc.Info.Labels, func(reader io.Reader, destination string) error {
-					sources, err := nativegate.ReadSourceArchive(ctx, reader, destination, mapping.Add)
-					if err != nil {
-						return err
-					}
-					for name, hash := range sources {
-						nativeSources[name] = hash
-					}
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("read original built Git sources: %w", err)
-				}
-			}
-		}
-	}
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, nativeSources, isStapel, img.TargetPlatform, signer, signerIdentity); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}

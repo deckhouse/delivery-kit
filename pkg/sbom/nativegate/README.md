@@ -1,51 +1,44 @@
-# Experimental native SBOM gate
+# Embedded composition gate migration
 
-This opt-in proof of concept validates provenance before publishing a Stapel image
-SBOM. Set `WERF_DK_NATIVE_POLICY` to a JSON file with schema `dk.policy/v2`.
-Without this variable, the existing SBOM path remains selected. This is not a
-stable policy API or a production-default feature.
+The gate reads `pm.buildinfo/v1` from `.note.package` through the shared pm
+reader pinned in `go.mod`. There is no copied parser, compiler sidecar replay,
+Git source inventory, or embedded self-hash. An artifact retains its complete
+record in the versioned catalog; required metadata is re-read from surviving ELF
+bytes, including inherited package files. External catalog hashes detect changed
+known files. Missing metadata is an error even when a package owner is known.
 
-The policy declares tool identities, supported profiles, original SDK/module
-distributions and per-image roles (`produce` or `final`). See `types.go`,
-`distribution.go` and `modules.go` for the experimental fields. Original project
-source hashes come from the built Git commit and effective mappings, rather than
-from files created by shell commands. The gate checks original pm inventories,
-compiler sidecars, embedded build/link metadata and language-specific metadata.
-Final file hashes bind composition after transformations such as strip.
+Current integration supports C-static and C-dynamic on Linux/amd64. Other profiles
+fail explicitly. Go/CGO dependency and replacement agreement requires the pending
+producer mapping contract; the shared reader's basic Go settings checks alone do
+not establish it. The reader does not re-hash unavailable intermediate objects,
+archives or sources. Their composition is the trusted producer's verified claim.
 
-The policy contributes to SBOM cache identity; validation runs again even when an
-SBOM artifact already exists. Base/import catalogs preserve intrinsic ownership.
-Final composition follows surviving artifacts and selected static members, so
-removing a source archive does not remove its code from a surviving executable.
+Embedded component identity preserves source kind, locator, version and source checksum.
+The catalog keeps complete empty inputs distinct from missing or incomplete data,
+and only carries surviving files. Runtime DT_NEEDED/PT_INTERP edges are separate
+from intrinsic components. Every library in the checked scope is inventoried;
+no dlopen declaration or complete programmatic loading graph is implied.
 
-## Runtime and trust boundary
+Dynamic resolution still pins the Linux/amd64 loader and its default directories,
+and supports RUNPATH and symlinks. Unknown loader configurations and conflicting
+SONAME owners within an executable closure fail.
 
-Linux/amd64 ELF and pinned toolchain profiles only. Dynamic resolution accepts a
-specific loader hash and its `/lib64`, `/usr/lib64` defaults, plus supported RUNPATH.
-Conflicting owners for the same SONAME within one executable closure are rejected;
-independent executables have separate closures. This is not a general loader emulator.
-All libraries in the image remain in its inventory, including libraries loaded
-programmatically. No dlopen declaration is required. Runtime dependency edges follow
-DT_NEEDED and PT_INTERP only. CycloneDX retains these as direct file-to-file edges,
-separate from each file's intrinsic components. A complete programmatic loading
-graph is not promised.
+## Remaining integration
 
-The build environment, tools and original inventories are trusted. Hash checking
-is not a signature scheme. Arbitrary generated sources, user assembly, unsupported
-compiler features and ambiguous ownership can fail conservatively. Copied foreign
-source inside declared project files and opaque unrecognized file formats are not
-universally detected. Compiler evidence must survive alongside artifact caches.
-Invalidation for changed native headers/libraries in upstream Go caches is not
-implemented by this gate.
+This draft still selects the experimental path through `WERF_DK_NATIVE_POLICY`
+(`dk.policy/v2`): tools, profiles, and image roles/output lists. These are temporary
+POC controls, not the intended default-on interface. Policies no longer accept
+source inventories, SDK distributions or metadata directories. Example profile IDs
+are `c-static` and `c-dynamic`, not the old combined language/link-mode strings.
 
-## Acceptance and remaining delivery work
+The existing pm files inventory adapter also remains a migration dependency: its
+`files.json` assumptions must be replaced with pinned original package data and
+import mappings. This path must be joined to the ordinary pm/Go/Python/Node pipeline
+before enabling verification by default. PE/Mach-O and other pilot formats need
+their agreed profiles. None of these gaps is an exemption for toolchain binaries.
 
-`task test:native-poc` requires `DK_LOADER_FIXTURE` and
-`DK_NATIVE_INSPECT_FIXTURE`. It checks pinned fixture content and requires every
-nativegate spec to pass with zero skips. Portable unit runs may skip these specs.
-The fixture generators and complete end-to-end environment are not yet delivered
-in this repository; the target is not currently self-contained on a fresh checkout.
-
-The source was frozen after staged real-image experiments and independent review.
-Full-repository tests and an uninterrupted cold build of all producer tools have
-not been completed. Do not interpret a scoped acceptance pass as production readiness.
+`task test:native-poc` verifies the pinned loader fixtures and runs all nativegate
+specs without skips. They cover the reader/consumer and runtime layers; illustrative
+records are not producer attestations. End-to-end dev producer/package fixtures,
+registry publication/read-back, and complete pilot coverage remain separate
+acceptance requirements.

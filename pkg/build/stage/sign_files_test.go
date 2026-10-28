@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/fs"
 	"math/big"
@@ -37,6 +38,9 @@ type signFilesContainerBackendStub struct {
 	*ContainerBackendStub
 
 	filesByTargetPlatform map[string]map[string][]byte
+	// failSecondReadOf is a path whose second ReadFile — the one that wraps the
+	// signature, after the digest pass — fails.
+	failSecondReadOf string
 }
 
 var _ container_backend.ContainerBackend = (*signFilesContainerBackendStub)(nil)
@@ -46,11 +50,13 @@ func (backend *signFilesContainerBackendStub) OpenImageReader(_ context.Context,
 	if !found {
 		return nil, fmt.Errorf("no image built for platform %q", opts.TargetPlatform)
 	}
-	return &signFilesImageReaderStub{files: files}, nil
+	return &signFilesImageReaderStub{files: files, failSecondReadOf: backend.failSecondReadOf, reads: map[string]int{}}, nil
 }
 
 type signFilesImageReaderStub struct {
-	files map[string][]byte
+	files            map[string][]byte
+	failSecondReadOf string
+	reads            map[string]int
 }
 
 var _ container_backend.ImageReader = (*signFilesImageReaderStub)(nil)
@@ -59,6 +65,10 @@ func (r *signFilesImageReaderStub) ReadFile(_ context.Context, filePath string) 
 	content, found := r.files[filePath]
 	if !found {
 		return nil, fmt.Errorf("read %s: %w", filePath, fs.ErrNotExist)
+	}
+	r.reads[filePath]++
+	if filePath == r.failSecondReadOf && r.reads[filePath] == 2 {
+		return nil, errors.New("layer vanished")
 	}
 	return content, nil
 }
@@ -239,10 +249,12 @@ var _ = Describe("SignFilesStage", func() {
 	Describe("glob patterns", func() {
 		const targetPlatform = "linux/amd64"
 
+		var failSecondReadOf string
 		prepare := func(ctx context.Context, files map[string][]byte, signs ...*config.Sign) (string, error) {
 			backend := &signFilesContainerBackendStub{
 				ContainerBackendStub:  NewContainerBackendStub(),
 				filesByTargetPlatform: map[string]map[string][]byte{targetPlatform: files},
+				failSecondReadOf:      failSecondReadOf,
 			}
 			conveyor := NewConveyorStub(NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"), NewGiterminismInspectorStub()), nil, nil)
 			imageConfig := &config.StapelImageBase{Name: "kernel", Sign: signs}
@@ -339,6 +351,18 @@ var _ = Describe("SignFilesStage", func() {
 				&config.Sign{Path: "/out/a.ko", After: "install"},
 			)
 			Expect(err).To(MatchError(ContainSubstring("file /out/a.ko of image \"kernel\" is signed by both `path: /out/*.ko` and `path: /out/a.ko` of sign")))
+		})
+
+		It("names the file a failure belongs to, not the first of the batch", func(ctx SpecContext) {
+			failSecondReadOf = "/out/lib/modules/6.12/kernel/net/b.ko"
+			DeferCleanup(func() { failSecondReadOf = "" })
+
+			_, err := prepare(ctx, map[string][]byte{
+				"/out/lib/modules/6.12/kernel/a.ko":     []byte("a"),
+				"/out/lib/modules/6.12/kernel/net/b.ko": []byte("b"),
+			}, &config.Sign{Path: "/out/**/*.ko", After: "install"})
+			Expect(err).To(MatchError(HavePrefix(`sign /out/lib/modules/6.12/kernel/net/b.ko of image "kernel": `)))
+			Expect(err).To(MatchError(ContainSubstring("layer vanished")))
 		})
 
 		It("rejects a matched file that is the signature of another file signed at the same stage", func(ctx SpecContext) {

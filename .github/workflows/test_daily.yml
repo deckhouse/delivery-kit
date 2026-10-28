@@ -28,6 +28,8 @@ jobs:
       - name: Set up CI base
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           installGolangciLint: "true"
 
       - name: Lint
@@ -52,6 +54,9 @@ jobs:
 
       - name: Set up CI base
         uses: ./.github/actions/set-up-ci-base
+        with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
 
       - name: Unit tests
         run: task --yes test:unit -- --procs=3 --compilers=1 --race --keep-going
@@ -79,6 +84,9 @@ jobs:
 
       - name: Set up CI base
         uses: ./.github/actions/set-up-ci-base
+        with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
 
       - name: Build werf test binary
         uses: ./.github/actions/set-up-prebuilt-werf-test-binary
@@ -121,6 +129,8 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
@@ -183,6 +193,8 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
@@ -245,6 +257,8 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
@@ -307,6 +321,8 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
@@ -369,6 +385,8 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary
@@ -431,6 +449,8 @@ jobs:
         timeout-minutes: 10
         uses: ./.github/actions/set-up-ci-base
         with:
+          foxDeliveryKitSdkDeployToken: ${{ secrets.FOX_DELIVERY_KIT_SDK_DEPLOY_TOKEN }}
+          foxElfeditDeployToken: ${{ secrets.FOX_ELFEDIT_DEPLOY_TOKEN }}
           prepareMultiarch: "true"
 
       - name: Set up prebuilt werf test binary

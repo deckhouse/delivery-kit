@@ -3,6 +3,7 @@ package build
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -94,9 +95,11 @@ var _ = Describe("Installed inventory convergence", func() {
 		reader.EXPECT().Close(gomock.Any()).Return(nil).Times(1)
 		backend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(scannedJSON, nil).Times(1)
 		step := &sbomStep{containerBackend: backend}
+		externalRefPatcher := mock.NewMockBOMPatcher(ctrl)
+		externalRefPatcher.EXPECT().Apply(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, bom *cdx.BOM) (*cdx.BOM, error) { return bom, nil }).Times(1)
 
 		for range 2 {
-			Expect(step.ConvergeWithMerge(ctx, "app", desc, opts, mergeOpts, []BOMPatcherInterface{}, []string{}, true, "", nil, "")).To(Succeed())
+			Expect(step.ConvergeWithMerge(ctx, "app", desc, opts, mergeOpts, []BOMPatcherInterface{}, externalRefPatcher, []string{}, true, "", nil, "")).To(Succeed())
 			bom, err := step.GetImageBOM(ctx, "app", info)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(lo.FromPtr(bom.Components)).To(HaveLen(1))
@@ -113,5 +116,6 @@ var _ = Describe("Installed inventory convergence", func() {
 		Entry("declaration-only inventory", "14"),
 		Entry("inventory before editable uncertainty", "15"),
 		Entry("inventory before legacy bytecode evidence", "16"),
+		Entry("inventory before external references resolved after deduplication", "17"),
 	)
 })

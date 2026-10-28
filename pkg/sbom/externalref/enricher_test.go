@@ -621,6 +621,54 @@ var _ = Describe("Enricher", func() {
 			Entry("hashes empty", &[]cdx.Hash{}),
 		)
 
+		DescribeTable("drops every source distribution left without a digest once duplicates merged bring one with a digest",
+			func(inherited []cdx.ExternalReference, expectedURL string) {
+				enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {
+					return &ResolveResult{
+						URL:    "https://example.com/pkg.tgz",
+						Kind:   "source-distribution",
+						Hashes: []Hash{{Algorithm: "STREEBOG-256", Content: streebog256Content}},
+					}, nil
+				})
+
+				bom := &cdx.BOM{
+					Components: &[]cdx.Component{
+						{
+							Name:               "pkg-a",
+							Version:            "1.0",
+							PackageURL:         "pkg:npm/pkg-a@1.0",
+							Type:               cdx.ComponentTypeLibrary,
+							ExternalReferences: lo.ToPtr(append([]cdx.ExternalReference{{URL: "https://example.com/docs", Type: cdx.ERTypeDocumentation}}, inherited...)),
+						},
+					},
+				}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				refs := *(*bom.Components)[0].ExternalReferences
+				Expect(refs).To(ConsistOf(
+					HaveField("URL", "https://example.com/docs"),
+					SatisfyAll(HaveField("URL", expectedURL), HaveField("Hashes", HaveValue(HaveLen(1)))),
+				))
+				Expect(lo.Map(*bom.ExternalReferences, func(ref cdx.ExternalReference, _ int) string { return ref.URL })).To(ConsistOf(
+					"https://example.com/docs", expectedURL,
+				))
+			},
+			Entry("both without a digest: the resolved one replaces them",
+				[]cdx.ExternalReference{
+					{URL: "https://example.com/old-a.tgz", Type: cdx.ERTypeSourceDistribution},
+					{URL: "https://example.com/old-b.tgz", Type: cdx.ERTypeSourceDistribution},
+				},
+				"https://example.com/pkg.tgz",
+			),
+			Entry("one already with a digest: it stays and the other goes",
+				[]cdx.ExternalReference{
+					{URL: "https://example.com/old-a.tgz", Type: cdx.ERTypeSourceDistribution},
+					{URL: "https://example.com/old-b.tgz", Type: cdx.ERTypeSourceDistribution, Hashes: &[]cdx.Hash{{Algorithm: "STREEBOG-256", Value: streebog256Content}}},
+				},
+				"https://example.com/old-b.tgz",
+			),
+		)
+
 		DescribeTable("keeps a shared source distribution in the BOM list when another component's copy is replaced",
 			func(digestFirst bool) {
 				enricher := resolveOnly(func(ctx context.Context, purl string) (*ResolveResult, error) {

@@ -77,8 +77,9 @@ func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 // ConvergeWithMerge produces, caches and pushes the SBOM of one built image. osPmPackages
 // is the union of the os-pm directive specs of the image, the entries as written in
 // werf.yaml; when non-empty, the pm index of the image is read and the declared packages
-// recorded.
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+// recorded. patchers change which components the BOM holds or how they are identified and
+// run before duplicates are collapsed; externalRefPatcher runs on the collapsed BOM.
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, externalRefPatcher BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -198,37 +199,10 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			declared.AddRootEdge(resultBOM, refs)
 		}
 
-		for _, patcher := range patchers {
-			if patcher == nil {
-				continue
-			}
-			if _, isExternalRef := patcher.(*externalref.ExternalRefPatcher); isExternalRef {
-				if err := logboek.Context(ctx).Default().LogProcess("Resolve external references").DoError(func() error {
-					patchedBOM, applyErr := patcher.Apply(ctx, resultBOM)
-					if applyErr != nil {
-						if errors.Is(applyErr, externalref.ErrExternalRefEnrich) {
-							logboek.Context(ctx).Warn().LogF("WARNING: %s\n", applyErr)
-						}
-						return applyErr
-					}
-					resultBOM = patchedBOM
-					return nil
-				}); err != nil {
-					return err
-				}
-				continue
-			}
-			resultBOM, err = patcher.Apply(ctx, resultBOM)
-			if err != nil {
-				return err
-			}
+		resultBOM, err = patchBOM(ctx, resultBOM, patchers, externalRefPatcher, mergeOpts.Gost)
+		if err != nil {
+			return err
 		}
-
-		if err := gost.Upsert(resultBOM, mergeOpts.Gost); err != nil {
-			return fmt.Errorf("set GOST properties: %w", err)
-		}
-
-		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
 		recordShippedScope(ctx, resultBOM, filesets, produced, werfImgName)
 
@@ -249,6 +223,45 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		return nil
 	})
+}
+
+// patchBOM resolves external references only once the duplicates are collapsed: the
+// resolver then answers for the one component that ships, and the link it returns is not
+// left to the canonicalization to pick among the copies the duplicates carried — which
+// prefers a link the package manager recorded over a resolved one, digest or not.
+func patchBOM(ctx context.Context, bom *cdx.BOM, patchers []BOMPatcherInterface, externalRefPatcher BOMPatcherInterface, gostConfig gost.Config) (*cdx.BOM, error) {
+	for _, patcher := range patchers {
+		if patcher == nil {
+			continue
+		}
+		var err error
+		bom, err = patcher.Apply(ctx, bom)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := gost.Upsert(bom, gostConfig); err != nil {
+		return nil, fmt.Errorf("set GOST properties: %w", err)
+	}
+
+	cyclonedxutil.Canonicalize(ctx, bom)
+
+	if err := logboek.Context(ctx).Default().LogProcess("Resolve external references").DoError(func() error {
+		patchedBOM, err := externalRefPatcher.Apply(ctx, bom)
+		if err != nil {
+			if errors.Is(err, externalref.ErrExternalRefEnrich) {
+				logboek.Context(ctx).Warn().LogF("WARNING: %s\n", err)
+			}
+			return err
+		}
+		bom = patchedBOM
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return bom, nil
 }
 
 func collectShippedScope(ctx context.Context, backend imageSaver, werfImgName, imageName string, provenance sbomStageProvenance) (*shippedscope.Filesets, *shippedscope.ProducedFiles) {
@@ -599,7 +612,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "17"
+const sbomArtifactFormatVersion = "18"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

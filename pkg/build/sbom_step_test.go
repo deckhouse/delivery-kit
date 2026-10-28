@@ -57,6 +57,41 @@ var _ = Describe("SbomStep", func() {
 		})
 	})
 
+	Describe("patchBOM", func() {
+		It("resolves external references on the deduplicated BOM, after the other patchers", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			ctrl := gomock.NewController(GinkgoT())
+
+			const purl = "pkg:npm/lodash@4.17.21"
+			vcsRef := cdx.ExternalReference{Type: cdx.ERTypeVCS, URL: "https://github.com/lodash/lodash"}
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{
+				{BOMRef: "lodash-base", Type: cdx.ComponentTypeLibrary, Name: "lodash", Version: "4.17.21", PackageURL: purl, ExternalReferences: &[]cdx.ExternalReference{vcsRef}},
+				{BOMRef: "lodash-scan", Type: cdx.ComponentTypeLibrary, Name: "lodash", Version: "4.17.21", PackageURL: purl},
+			}
+
+			var seenByPatcher, seenByExternalRef []cdx.Component
+			patcher := mock.NewMockBOMPatcher(ctrl)
+			patcher.EXPECT().Apply(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
+				seenByPatcher = append([]cdx.Component(nil), *bom.Components...)
+				return bom, nil
+			})
+			externalRefPatcher := mock.NewMockBOMPatcher(ctrl)
+			externalRefPatcher.EXPECT().Apply(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
+				seenByExternalRef = append([]cdx.Component(nil), *bom.Components...)
+				return bom, nil
+			})
+
+			result, err := patchBOM(ctx, bom, []BOMPatcherInterface{patcher}, externalRefPatcher, gost.Config{})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(seenByPatcher).To(HaveLen(2), "a patcher that changes component identity must see the BOM before duplicates are collapsed")
+			Expect(seenByExternalRef).To(HaveLen(1), "the resolver must see one component per purl")
+			Expect(seenByExternalRef[0].ExternalReferences).To(HaveValue(ConsistOf(vcsRef)), "the resolver must see the links the duplicates carried, merged onto the survivor")
+			Expect(*result.Components).To(HaveLen(1))
+		})
+	})
+
 	Describe("GetImageBOM()", func() {
 		It("should return error if image info is nil", func(ctx SpecContext) {
 			step := &sbomStep{}

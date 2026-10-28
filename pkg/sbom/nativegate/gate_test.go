@@ -7,6 +7,7 @@ import (
 	"debug/elf"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ func fixtureImage(files map[string]string) v1.Image {
 	var buffer bytes.Buffer
 	tw := tar.NewWriter(&buffer)
 	for name, body := range files {
-		gomega.Expect(tw.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Mode: 0o755, Size: int64(len(body))})).To(gomega.Succeed())
+		gomega.Expect(tw.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Mode: fixtureFileMode(name), Size: int64(len(body))})).To(gomega.Succeed())
 		_, err := tw.Write([]byte(body))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -47,7 +48,7 @@ func fixtureCatalog() Catalog {
 	c := emptyCatalog()
 	ref := "pkg:generic/example@1"
 	c.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: ref, Name: "example", Version: "1", PackageURL: ref}
-	c.Records = []Record{{Path: "/bin/a", SHA256: digest([]byte("package-script")), Components: []string{ref}, Origin: "pm"}}
+	c.Records = []Record{{Path: "/bin/a", SHA256: digest([]byte("package-script")), Components: []string{ref}, Owners: []string{ref}, Origin: "pm"}}
 	return c
 }
 
@@ -59,8 +60,8 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		catalog.Components[appRef] = cdx.Component{Type: cdx.ComponentTypeApplication, BOMRef: appRef, PackageURL: appRef, Name: "app", Version: "1"}
 		catalog.Components[libraryRef] = cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: libraryRef, PackageURL: libraryRef, Name: "plugin", Version: "2"}
 		catalog.Records = []Record{
-			{Path: "/app", SHA256: digest(app), Components: []string{appRef}, Origin: "pm"},
-			{Path: "/plugins/plugin.so", SHA256: digest(library), Components: []string{libraryRef}, Origin: "pm"},
+			{Path: "/app", SHA256: digest(app), Components: []string{appRef}, Owners: []string{appRef}, Origin: "pm"},
+			{Path: "/plugins/plugin.so", SHA256: digest(library), Components: []string{libraryRef}, Owners: []string{libraryRef}, Origin: "pm"},
 		}
 		inherited := cdx.NewBOM()
 		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
@@ -116,6 +117,7 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		c := fixtureCatalog()
 		second := c.Records[0]
 		second.Components = []string{"pkg:generic/example@2"}
+		second.Owners = slices.Clone(second.Components)
 		c.Records = append(c.Records, second)
 		_, err := matching(c, "/renamed", second.SHA256)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("ambiguous content ownership")))
@@ -172,6 +174,7 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		c.Components[other.BOMRef] = other
 		c.Records[0].Namespace = "current"
 		c.Records[0].Components = append(c.Records[0].Components, other.BOMRef)
+		c.Records[0].Owners = slices.Clone(c.Records[0].Components)
 		inherited := cdx.NewBOM()
 		gomega.Expect(c.attach(inherited)).To(gomega.Succeed())
 		img := fixtureImage(map[string]string{"/renamed": "package-script"})
@@ -195,9 +198,9 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 			c := emptyCatalog()
 			c.pmSnapshot = "current"
 			c.Records = []Record{
-				{Path: "/lib/same", SHA256: hash, Components: []string{"a"}, Origin: "pm", Namespace: "current"},
-				{Path: "/lib/same", SHA256: hash, Components: []string{"b"}, Origin: "pm", Namespace: "current"},
-				{Path: "/other/same", SHA256: hash, Components: []string{"c"}, Origin: "pm", Namespace: "current"},
+				{Path: "/lib/same", SHA256: hash, Components: []string{"a"}, Owners: []string{"a"}, Origin: "pm", Namespace: "current"},
+				{Path: "/lib/same", SHA256: hash, Components: []string{"b"}, Owners: []string{"b"}, Origin: "pm", Namespace: "current"},
+				{Path: "/other/same", SHA256: hash, Components: []string{"c"}, Owners: []string{"c"}, Origin: "pm", Namespace: "current"},
 			}
 			return c
 		}

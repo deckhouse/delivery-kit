@@ -14,7 +14,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-const catalogProperty = "dk:catalog/v3"
+const catalogProperty = "dk:catalog/v4"
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
@@ -35,6 +35,7 @@ type Policy struct {
 	Images    map[string]ImagePolicy `json:"images"`
 }
 type Record struct {
+	Owners      []string        `json:"owners,omitempty"`
 	Composition json.RawMessage `json:"composition,omitempty"`
 	PMOverlap   string          `json:"pmOverlap,omitempty"`
 	Namespace   string          `json:"namespace,omitempty"`

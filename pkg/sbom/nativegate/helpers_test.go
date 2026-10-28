@@ -62,3 +62,10 @@ func runtimeTargets(fs *filesystem, present map[string]Record, name string) []st
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return edges[name]
 }
+
+func fixtureFileMode(name string) int64 {
+	if strings.HasPrefix(name, "/var/lib/pm/") {
+		return 0o644
+	}
+	return 0o755
+}

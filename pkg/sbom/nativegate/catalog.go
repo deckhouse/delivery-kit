@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,11 +22,11 @@ type pmFiles struct {
 }
 
 func emptyCatalog() Catalog {
-	return Catalog{Schema: "dk.catalog/v3", Components: map[string]cdx.Component{}}
+	return Catalog{Schema: "dk.catalog/v4", Components: map[string]cdx.Component{}}
 }
 
 func (c *Catalog) add(other Catalog) error {
-	if other.Schema != "dk.catalog/v3" {
+	if other.Schema != "dk.catalog/v4" {
 		return fmt.Errorf("unsupported inherited catalog %q", other.Schema)
 	}
 	for ref, comp := range other.Components {
@@ -44,6 +45,14 @@ func (c *Catalog) add(other Catalog) error {
 		for _, ref := range r.Components {
 			if _, ok := c.Components[ref]; !ok {
 				return fmt.Errorf("missing catalog component %s", ref)
+			}
+		}
+		if r.Origin == "pm" && len(r.Owners) == 0 {
+			return fmt.Errorf("%s: no-data: missing package owners", r.Path)
+		}
+		for _, owner := range r.Owners {
+			if !slices.Contains(r.Components, owner) {
+				return fmt.Errorf("%s: invalid: package owner absent from components", r.Path)
 			}
 		}
 		if r.Origin == "build" && len(r.Composition) == 0 {
@@ -138,7 +147,7 @@ func (c *Catalog) addPM(ctx context.Context, bodies map[string][]byte) error {
 			if !digestPattern.MatchString(hash) {
 				return fmt.Errorf("invalid original pm hash: %s", path)
 			}
-			c.Records = append(c.Records, Record{Path: path, SHA256: hash, Components: []string{byName[name]}, Origin: "pm", Namespace: c.pmSnapshot})
+			c.Records = append(c.Records, Record{Path: path, SHA256: hash, Components: []string{byName[name]}, Origin: "pm", Namespace: c.pmSnapshot, Owners: []string{byName[name]}})
 		}
 	}
 	for name := range manifests {
@@ -196,6 +205,8 @@ func (c *Catalog) coalescePM() error {
 			return fmt.Errorf("conflicting active pm content %s", r.Path)
 		}
 		old.Components = appendUnique(old.Components, r.Components...)
+		old.Owners = appendUnique(old.Owners, r.Owners...)
+		sort.Strings(old.Owners)
 		sort.Strings(old.Components)
 		grouped[r.Path] = old
 	}

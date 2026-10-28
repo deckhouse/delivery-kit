@@ -148,6 +148,9 @@ func matching(c Catalog, name, hash string) (*Record, error) {
 			continue
 		}
 		a, b := slices.Clone(result.Components), slices.Clone(r.Components)
+		if result.Origin == "pm" && r.Origin == "pm" {
+			a, b = slices.Clone(result.Owners), slices.Clone(r.Owners)
+		}
 		sort.Strings(a)
 		sort.Strings(b)
 		if !slices.Equal(a, b) || result.Origin != r.Origin || result.Namespace != r.Namespace {
@@ -210,7 +213,7 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		if err != nil {
 			return err
 		}
-		if record != nil && (record.PMOverlap != "" || (record.Origin == "pm" && record.Composition == nil && len(record.Components) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
+		if record != nil && (record.PMOverlap != "" || (record.Origin == "pm" && len(record.Owners) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
 			return fmt.Errorf("pm coownership requires current policy opt-in")
 		}
 		if bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) {
@@ -220,11 +223,12 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 				return fmt.Errorf("%s: %w", name, err)
 			}
 			if record != nil {
-				embedded.Components = appendUnique(embedded.Components, record.Components...)
+				embedded.Owners = slices.Clone(record.Owners)
+				embedded.Components = appendUnique(embedded.Components, record.Owners...)
 				embedded.Origin = record.Origin
 				embedded.Namespace = record.Namespace
 				embedded.PMOverlap = record.PMOverlap
-				if record.Origin == "pm" && record.Composition == nil && len(record.Components) > 1 {
+				if record.Origin == "pm" && len(record.Owners) > 1 {
 					embedded.PMOverlap = p.PMOverlap
 				}
 			}

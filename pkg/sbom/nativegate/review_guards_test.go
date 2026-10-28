@@ -45,7 +45,7 @@ func runtimeFixture(files map[string][]byte, app string, layout map[string]strin
 		body := files[file]
 		fs.bodies[name] = body
 		fs.index.Files[name] = shippedscope.File{Digest: digest(body)}
-		present[name] = Record{Path: name, SHA256: digest(body), Origin: "pm", Components: []string{file}}
+		present[name] = Record{Path: name, SHA256: digest(body), Origin: "pm", Components: []string{file}, Owners: []string{file}}
 	}
 	return fs, present
 }
@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		for name, record := range present {
 			ref := "pkg:generic/runtime@" + strings.TrimPrefix(record.SHA256, "sha256:")
 			record.Components = []string{ref}
+			record.Owners = []string{ref}
 			catalog.Records = append(catalog.Records, record)
 			present[name] = record
 			catalog.Components[ref] = cdx.Component{Type: cdx.ComponentTypeLibrary, Name: "runtime", Version: strings.TrimPrefix(record.SHA256, "sha256:"), PackageURL: ref, BOMRef: ref}

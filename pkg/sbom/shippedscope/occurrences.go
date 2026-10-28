@@ -128,6 +128,17 @@ func keyOfComponent(comp *cdx.Component) (componentKey, bool) {
 		return componentKey{}, false
 	}
 
+	if ecosystem == EcosystemGo {
+		// Go import paths are case-sensitive; generic parsing preserves their spelling
+		// while retaining the PURL parser's escaping and delimiter handling.
+		raw := strings.TrimLeft(strings.TrimPrefix(comp.PackageURL, "pkg:"), "/")
+		_, raw, _ = strings.Cut(raw, "/")
+		purl, err = packageurl.FromString("pkg:generic/" + raw)
+		if err != nil {
+			return componentKey{}, false
+		}
+	}
+
 	name := purl.Name
 	if purl.Namespace != "" {
 		name = purl.Namespace + "/" + purl.Name

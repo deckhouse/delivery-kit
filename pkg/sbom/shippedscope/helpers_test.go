@@ -3,15 +3,21 @@ package shippedscope
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 )
 
 type tarEntry struct {
@@ -132,4 +138,29 @@ func componentOf(purl string, occurrences ...cdx.EvidenceOccurrence) cdx.Compone
 
 func filesetsOf(index *FileIndex) *Filesets {
 	return &Filesets{Index: index}
+}
+
+func caseSensitiveGoBinary(ctx context.Context) []byte {
+	ginkgo.GinkgoHelper()
+	root := ginkgo.GinkgoT().TempDir()
+	files := map[string]string{
+		"lib/go.mod":  "module example.test/Owner/Library\n\ngo 1.24\n",
+		"lib/lib.go":  "package library\n\nfunc Value() string { return \"case-sensitive dependency\" }\n",
+		"app/go.mod":  "module example.test/app\n\ngo 1.24\n\nrequire example.test/Owner/Library v1.0.0\n\nreplace example.test/Owner/Library => ../lib\n",
+		"app/main.go": "package main\n\nimport \"example.test/Owner/Library\"\n\nfunc main() { println(library.Value()) }\n",
+	}
+	for name, body := range files {
+		path := filepath.Join(root, name)
+		gomega.Expect(os.MkdirAll(filepath.Dir(path), 0o755)).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(path, []byte(body), 0o644)).To(gomega.Succeed())
+	}
+	outputPath := filepath.Join(root, "app.bin")
+	command := exec.CommandContext(ctx, "go", "build", "-o", outputPath, ".")
+	command.Dir = filepath.Join(root, "app")
+	command.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0", "GOFLAGS=-mod=mod", "GOWORK=off", "GOPROXY=off")
+	output, err := command.CombinedOutput()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), string(output))
+	binary, err := os.ReadFile(outputPath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return binary
 }

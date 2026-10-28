@@ -276,3 +276,51 @@ func stableBOM(bom *cdx.BOM) *cdx.BOM {
 
 	return bom
 }
+
+func assertGoModuleCaseImages(ctx SpecContext, project *werf.Project) map[string]producedBinarySnapshot {
+	const (
+		upperModule = "github.com/Masterminds/semver/v3"
+		lowerModule = "gopkg.in/yaml.v3"
+	)
+	negative := cdx.Property{Name: shippedscope.PropertyShipped, Value: "false"}
+	unknown := cdx.Property{Name: shippedscope.PropertyBinaries, Value: "unknown"}
+
+	snapshot := make(map[string]producedBinarySnapshot)
+	for _, imageName := range []string{"donor", "consumer", "grandchild", "manifest-only"} {
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{imageName}}}))
+
+		for module, version := range map[string]string{upperModule: "v3.5.0", lowerModule: "v3.0.0"} {
+			comp := sbomtest.FindComponent(bom, module, version)
+			Expect(comp).NotTo(BeNil(), "%s must retain component %s", imageName, module)
+			Expect(comp.PackageURL).To(Equal("pkg:golang/" + module + "@" + version))
+			properties := lo.FromPtr(comp.Properties)
+
+			switch {
+			case imageName == "manifest-only":
+				Expect(slices.Contains(properties, negative) || slices.Contains(properties, unknown)).To(BeTrue(), "%s must mark %s not shipped", imageName, module)
+			case module == upperModule || imageName == "donor":
+				Expect(properties).NotTo(ContainElement(negative), "%s must ship %s", imageName, module)
+				Expect(occurrencesOf(comp)).To(ContainElement(HaveField("AdditionalContext", MatchRegexp(`^werf:binary:v1:sha256:[0-9a-f]{64}$`))), "%s must carry binary evidence for %s", imageName, module)
+			default:
+				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, module)
+			}
+		}
+
+		for _, comp := range lo.FromPtr(bom.Components) {
+			if !strings.HasPrefix(comp.PackageURL, "pkg:golang/") {
+				continue
+			}
+			properties := lo.FromPtr(comp.Properties)
+			if imageName == "manifest-only" && !slices.Contains(properties, unknown) {
+				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, comp.PackageURL)
+			}
+			snapshot[imageName+"/"+comp.PackageURL] = producedBinarySnapshot{
+				Shipped:     !slices.Contains(properties, negative),
+				Unknown:     slices.Contains(properties, unknown),
+				Occurrences: occurrencesOf(&comp),
+			}
+		}
+	}
+
+	return snapshot
+}

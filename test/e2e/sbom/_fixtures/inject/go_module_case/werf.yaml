@@ -1,0 +1,48 @@
+project: werf-test-e2e-sbom-go-module-case
+configVersion: 1
+build:
+  cacheVersion: go-module-case-v1
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:ef3bd2afef793bbaf31ce020550e577c7190cc7cb4cd9b3b3e9188587e3612cd
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - go.mod
+        - go.sum
+shell:
+  install:
+    - cd /app && CGO_ENABLED=0 go build -o /bin/app-case ./cmd/app-case
+    - cd /app && CGO_ENABLED=0 go build -o /bin/app-lower ./cmd/app-lower
+packages:
+  - type: go-mod
+    workdir: /app
+---
+image: consumer
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /bin/app-case
+    to: /usr/bin/app-case
+    before: setup
+---
+image: grandchild
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: consumer
+    add: /usr/bin/app-case
+    to: /app-case
+    before: setup
+---
+image: manifest-only
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/go.mod
+    to: /app/go.mod
+    before: setup

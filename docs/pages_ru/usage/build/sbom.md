@@ -177,6 +177,8 @@ WERF_EXTERNAL_REFS_SERVER_URL env var is required
 
 Команды `werf sbom get`, `werf sbom merge` и `werf sbom validate` флагов подписи не принимают: `get` выгружает артефакт как есть, `merge` и `validate` работают с уже выгруженными SBOM. Проверить подпись SBOM-артефакта можно командой `werf attest verify` с публичным ключом (`--key`).
 
+Тем же ключом подписывается и [VEX-документ]({{ "/usage/build/vex.html" | true_relative_url }}) образа, если он объявлен.
+
 ## Кеширование и пересборка
 
 Переключение `build.sbom.enable` изменяет дайджест стадии, поэтому включение или выключение генерации SBOM инвалидирует кеш и запускает полную пересборку.

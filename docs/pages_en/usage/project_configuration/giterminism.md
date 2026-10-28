@@ -93,6 +93,12 @@ To manage secrets and ensure their consistent use, you can configure the [werf-g
 
 We strongly recommend carefully considering the potential implications and avoiding the use of secrets unless absolutely necessary.
 
+#### VEX
+
+The [VEX document]({{ "usage/build/vex.html" | true_relative_url }}) referenced by the `vex` directive is published to the container registry as an attestation of the image, so werf reads it from the current commit like `werf.yaml` itself: an uncommitted or untracked document fails the build. Reading it from the working tree complicates the sharing and reproducibility of the configuration in CI jobs and among developers, since the statements published for an image would then depend on the local state of the checkout rather than on the commit.
+
+Certain VEX documents can be allowed to be read from the project directory with `config.vex.allowUncommitted` in [werf-giterminism.yaml]({{ "reference/werf_giterminism_yaml.html" | true_relative_url }}), but we strongly recommend that you carefully consider the possible implications of this.
+
 ### Deploying
 
 #### The --use-custom-tag option

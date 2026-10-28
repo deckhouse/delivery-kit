@@ -87,10 +87,6 @@ func (c Config) IsConfigStapelMountFromPathAccepted(fromPath string) bool {
 	return c.Config.Stapel.Mount.IsFromPathAccepted(fromPath)
 }
 
-func (c Config) IsConfigVexFileAccepted(relPath string) bool {
-	return c.Config.Vex.IsUncommittedAccepted(relPath)
-}
-
 func (c Config) IsConfigDockerfileContextAddFileAccepted(relPath string) bool {
 	return c.Config.Dockerfile.IsContextAddFileAccepted(relPath)
 }
@@ -101,6 +97,10 @@ func (c Config) IsUncommittedDockerfileAccepted(relPath string) bool {
 
 func (c Config) IsUncommittedDockerignoreAccepted(relPath string) bool {
 	return c.Config.Dockerfile.IsUncommittedDockerignoreAccepted(relPath)
+}
+
+func (c Config) IsUncommittedVexFileAccepted(relPath string) bool {
+	return c.Config.Vex.IsUncommittedAccepted(relPath)
 }
 
 func (c Config) UncommittedHelmFilePathMatcher() path_matcher.PathMatcher {

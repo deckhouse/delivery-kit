@@ -66,7 +66,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringVarP(&digestFlag, "digest", "", "", "Digest of the image (e.g. sha256:abc123)")
 	cmd.Flags().StringVarP(&tagFlag, "tag", "", "", "Tag of the image (resolved to digest)")
-	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Only list attestations of this platform when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]")
+	cmd.Flags().StringVarP(&platformFlag, "platform", "", "", "Only list attestations of this platform when the reference is a multi-platform index, format: OS/ARCH[/VARIANT]. Without it, the attestations attached to the index itself (e.g. OpenVEX) are listed under the platform \"index\"")
 
 	return cmd
 }
@@ -117,6 +117,10 @@ func runLs(ctx context.Context, digest, tag, platform string) error {
 		return err
 	}
 
+	if isIndex := len(entries) != 1 || entries[0].Platform != ""; isIndex {
+		entries = append([]artifact.PlatformDigest{{Platform: indexEntryPlatform, Digest: digest}}, entries...)
+	}
+
 	rows, err := collectRows(ctx, repoAddr, entries, platform)
 	if err != nil {
 		return err
@@ -136,6 +140,12 @@ func runLs(ctx context.Context, digest, tag, platform string) error {
 		return w.Flush()
 	})
 }
+
+// indexEntryPlatform labels the attestations attached to a multi-platform index
+// itself — image-level kinds such as OpenVEX — as opposed to those of its platform
+// manifests. The --platform filter never selects it: the flag asks for one
+// platform's attestations only.
+const indexEntryPlatform = "index"
 
 type lsRow struct {
 	platform      string

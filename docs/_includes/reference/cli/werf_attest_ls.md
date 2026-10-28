@@ -7,6 +7,8 @@ List all attestations attached to a container image.
 
 Shows a table of attestations with their predicate types, digests, and signature status.
 
+For a multi-platform image index the attestations of every platform manifest are listed under their platform, and the attestations attached to the index itself (image-level kinds such as OpenVEX) under the platform `index`.
+
 {{ header }} Syntax
 
 ```shell
@@ -57,7 +59,8 @@ werf attest ls [options]
             Enable verbose output (default $WERF_LOG_VERBOSE).
       --platform=""
             Only list attestations of this platform when the reference is a multi-platform index,   
-            format: OS/ARCH[/VARIANT]
+            format: OS/ARCH[/VARIANT]. Without it, the attestations attached to the index itself    
+            (e.g. OpenVEX) are listed under the platform "index"
       --repo=""
             Container registry storage address (default $WERF_REPO)
       --repo-container-registry=""

@@ -1,7 +1,14 @@
 package e2e_vex_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"os"
 	"path/filepath"
+	"regexp"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -229,6 +236,44 @@ var _ = Describe("VEX signing", Label("e2e", "vex", "signing", "simple"), func()
 		})
 		Expect(rejectOut).To(ContainSubstring("--platform is not applicable"))
 
+		By("attaching a signed non-VEX attestation to the linux/amd64 manifest")
+		amd64Digest := byPlatform["linux/amd64"].DockerImageDigest
+		Expect(amd64Digest).NotTo(BeEmpty())
+		spdxPath := filepath.Join(SuiteData.TmpDir, "vex_signing_multiplatform_sbom.spdx.json")
+		Expect(os.WriteFile(spdxPath, []byte(`{"spdxVersion":"SPDX-2.3","name":"e2e"}`), 0o644)).To(Succeed())
+		plainKeyPath := writePlainSigningKey(filepath.Join(SuiteData.TmpDir, "vex_signing_multiplatform_attest_sign.key"))
+		werfProject.AttestSign(ctx, &werf.AttestSignOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{
+					"--predicate", spdxPath,
+					"--type", "spdxjson",
+					"--sign-key", plainKeyPath,
+					"--repo", repo,
+					"--digest", amd64Digest,
+				},
+			},
+		})
+		spdxRow := `(?m)^linux/amd64\s+` + regexp.QuoteMeta(attestation.WellKnownPredicateTypes["spdxjson"]) + `\s+\S+\s+yes$`
+		indexRow := `(?m)^index\s+` + regexp.QuoteMeta(vex.VEXPredicateURIUnversioned) + `\s+\S+\s+yes$`
+
+		By("attest ls on the index reference lists the index-level VEX next to the platform attestations")
+		lsOut := werfProject.AttestLs(ctx, &werf.AttestLsOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{"--repo", repo, "--digest", indexDigest},
+			},
+		})
+		Expect(lsOut).To(MatchRegexp(indexRow))
+		Expect(lsOut).To(MatchRegexp(spdxRow))
+
+		By("attest ls with --platform keeps that platform's attestations and omits the index-level one")
+		lsPlatformOut := werfProject.AttestLs(ctx, &werf.AttestLsOptions{
+			CommonOptions: werf.CommonOptions{
+				ExtraArgs: []string{"--repo", repo, "--digest", indexDigest, "--platform", "linux/amd64"},
+			},
+		})
+		Expect(lsPlatformOut).To(MatchRegexp(spdxRow))
+		Expect(lsPlatformOut).NotTo(MatchRegexp(indexRow))
+
 		By("rebuilding unchanged hits the VEX cache")
 		rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{Envs: signEnv}})
 		Expect(rebuildOut).To(ContainSubstring("VEX artifact is up to date"))
@@ -279,3 +324,16 @@ var _ = Describe("VEX signing", Label("e2e", "vex", "signing", "simple"), func()
 		})
 	})
 })
+
+// writePlainSigningKey writes an unencrypted PKCS#8 key: attest sign accepts only
+// plain PEM keys, unlike the build-time --sign-key which takes the sigstore-encrypted one.
+func writePlainSigningKey(path string) string {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	ExpectWithOffset(1, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600)).To(Succeed())
+	return path
+}

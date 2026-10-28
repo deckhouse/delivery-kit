@@ -167,7 +167,7 @@ A VEX artifact exists only for images built after the `vex` directive was added 
 
 VEX documents are handled by the generic attestation commands of the [`werf attest`]({{ "/reference/cli/werf_attest_get.html" | true_relative_url }}) group. All of them read the registry, so `--repo` is required, and the image is identified with `--tag` or `--digest` (mutually exclusive); `--image` narrows the lookup to one image name when several images share a digest.
 
-[`werf attest ls`]({{ "/reference/cli/werf_attest_ls.html" | true_relative_url }}) lists the attestations attached to the image with their predicate type, digest and whether they are signed. For a single-platform image this includes the VEX document; for a multi-platform image the command walks the platform manifests only, so the VEX artifact attached to the index is not listed — use `werf attest get --type openvex` to check for it:
+[`werf attest ls`]({{ "/reference/cli/werf_attest_ls.html" | true_relative_url }}) lists the attestations attached to the image with their predicate type, digest and whether they are signed. For a multi-platform image the SBOMs are listed under their platforms and the VEX document, attached to the index itself, under the platform `index`; with `--platform` only that platform's attestations are listed, without the index-level ones:
 
 ```shell
 werf attest ls --repo registry.example.com/project --tag app-1.2.3

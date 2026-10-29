@@ -474,7 +474,20 @@ func producerRecipeDeclaration(packageName string) string {
 // committed source file, and a checked image that imports it and compiles it with the
 // mounted toolchain. packageName is what the checked image expects of the prepared source,
 // which is what the negative phase disagrees about.
-func producerRecipeConfig(project string, env producerRecipeEnvironment, packageName string) string {
+// producerRecipeVariant is the one controlled deviation a phase makes from the recipe:
+// the prepared source name the checked image expects, the commands run right before the
+// compile, and the file the compile is pointed at.
+type producerRecipeVariant struct {
+	packageName string
+	before      []string
+	source      string
+}
+
+func producerRecipeRecipe() producerRecipeVariant {
+	return producerRecipeVariant{packageName: producerRecipePackageName, source: "/src/main.c"}
+}
+
+func producerRecipeConfig(project string, env producerRecipeEnvironment, variant producerRecipeVariant) string {
 	ginkgo.GinkgoHelper()
 	var libraryPath []string
 	var mounts strings.Builder
@@ -496,14 +509,17 @@ func producerRecipeConfig(project string, env producerRecipeEnvironment, package
 		fmt.Sprintf(`if : > %s/originals/.rw-probe 2>/dev/null; then echo "build context originals are writable"; exit 1; fi`, producerContextMount),
 		fmt.Sprintf("%s -p %s /tmp", stapel.MkdirBinPath(), producerRecipeObjectDir),
 		"export TMPDIR=/tmp",
-		fmt.Sprintf("%s/gcc/xgcc -B%s/gcc/ -B%s/bin/ -nostdinc -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -c /src/main.c -o %s/app.o",
-			producerRecipeToolsMount, producerRecipeToolsMount, producerRecipeToolsMount, producerRecipeObjectDir),
+	}
+	install = append(install, variant.before...)
+	install = append(install,
+		fmt.Sprintf("%s/gcc/xgcc -B%s/gcc/ -B%s/bin/ -nostdinc -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -c %s -o %s/app.o",
+			producerRecipeToolsMount, producerRecipeToolsMount, producerRecipeToolsMount, variant.source, producerRecipeObjectDir),
 		fmt.Sprintf("%s -static -e _start %s/app.o -o /app", producerRecipeLinkerMount+"/"+filepath.Base(env.linker), producerRecipeObjectDir),
 		// The compiled sources are the producer's input, not part of what the image ships.
 		// They go only after the link succeeded, so nothing is deleted before it is used.
 		fmt.Sprintf("%s -rf /src", stapel.RmBinPath()),
 		fmt.Sprintf("%s -rf %s /tmp", stapel.RmBinPath(), producerRecipeObjectDir),
-	}
+	)
 	var commands strings.Builder
 	for _, command := range install {
 		// A command like `if : > …` would otherwise parse as a YAML mapping.
@@ -553,7 +569,7 @@ imageSpec:
 		producerRecipePackageName, producerRecipePackageVersion, producerRecipePackageType, producerRecipePlatform,
 		mounts.String(),
 		commands.String(),
-		stage.SBOMBuildContextLabel, producerRecipeDeclaration(packageName))
+		stage.SBOMBuildContextLabel, producerRecipeDeclaration(variant.packageName))
 }
 
 func producerRecipeGiterminism(env producerRecipeEnvironment) string {
@@ -586,7 +602,7 @@ func producerRecipeFixture(ctx context.Context, project string, env producerReci
 	directory := producerRecipeTempDir()
 	producerRecipeWrite(directory, "main.c", producerRecipeMain)
 	producerRecipeWrite(directory, "werf-giterminism.yaml", producerRecipeGiterminism(env))
-	producerRecipeWrite(directory, "werf.yaml", producerRecipeConfig(project, env, producerRecipePackageName))
+	producerRecipeWrite(directory, "werf.yaml", producerRecipeConfig(project, env, producerRecipeRecipe()))
 
 	producerRecipeGit(ctx, directory, "init", "--initial-branch", "main")
 	producerRecipeGit(ctx, directory, "config", "user.name", "producer recipe test")
@@ -792,6 +808,24 @@ func producerRecipeCleanup(repo string) {
 	})
 }
 
+// producerRecipeNegative commits one deviation of the recipe into the fixture repository
+// and builds it, requiring the build to fail and to produce no checked image.
+func producerRecipeNegative(ctx context.Context, env producerRecipeEnvironment, fixture, project, home, externalRefs, repo string, variant producerRecipeVariant, message, name string) (string, error) {
+	ginkgo.GinkgoHelper()
+	producerRecipeWrite(fixture, "werf.yaml", producerRecipeConfig(project, env, variant))
+	producerRecipeGit(ctx, fixture, "commit", "-am", message)
+	reportPath := filepath.Join(fixture, "report-"+name+".json")
+	output, err := producerRecipeRun(ctx, env, fixture, "build-"+name+".log",
+		producerRecipeBuildEnv(home, externalRefs), 300*time.Second,
+		producerRecipeBuildArgs(repo, reportPath)...)
+	gomega.Expect(err).To(gomega.HaveOccurred(), "%s must fail the build: %s", name, producerRecipeTail(output))
+	if _, statErr := os.Stat(reportPath); statErr == nil {
+		gomega.Expect(producerRecipeReport(ctx, reportPath).Images).NotTo(gomega.HaveKey("app"))
+	}
+
+	return output, err
+}
+
 func producerRecipeRecord(body []byte) *shared.BuildRecord {
 	ginkgo.GinkgoHelper()
 	record, status, err := shared.ReadELFBuildRecord(bytes.NewReader(body))
@@ -908,20 +942,27 @@ var _ = ginkgo.Describe("Actual SBOM producer recipe", ginkgo.Label("producer-re
 		gomega.Expect(producerRecipeFile(producerRecipeImage(ctx, warm.Images["app"]), "/app")).To(gomega.Equal(app))
 
 		ginkgo.By("disagreeing with the prepared source the recipe actually imports")
-		producerRecipeWrite(fixture, "werf.yaml", producerRecipeConfig(project, env, producerRecipePackageName+"-other"))
-		producerRecipeGit(ctx, fixture, "commit", "-am", "expect another prepared source")
-		mismatchReportPath := filepath.Join(fixture, "report-mismatch.json")
-		output, err = producerRecipeRun(ctx, env, fixture, "build-mismatch.log",
-			producerRecipeBuildEnv(home, externalRefs), 300*time.Second,
-			producerRecipeBuildArgs(repo, mismatchReportPath)...)
-		gomega.Expect(err).To(gomega.HaveOccurred(), "a disagreeing declaration must fail the build")
+		mismatch := producerRecipeRecipe()
+		mismatch.packageName = producerRecipePackageName + "-other"
+		output, _ = producerRecipeNegative(ctx, env, fixture, project, home, externalRefs, repo,
+			mismatch, "expect another prepared source", "mismatch")
 		gomega.Expect(output).To(gomega.ContainSubstring("producer context for install"))
 		gomega.Expect(output).To(gomega.ContainSubstring("invalid: producer source prepared has unexpected name"))
-		// The declaration is checked while the stage digest is calculated, so the failing
-		// build reports no image at all rather than one built by some other compiler.
-		if _, statErr := os.Stat(mismatchReportPath); statErr == nil {
-			gomega.Expect(producerRecipeReport(ctx, mismatchReportPath).Images).NotTo(gomega.HaveKey("app"))
-		}
+
+		ginkgo.By("compiling a source whose bytes no longer are the ones the context pinned")
+		changed := producerRecipeRecipe()
+		changed.before = []string{`printf '\n/* changed after the snapshot */\n' >> /src/main.c`}
+		output, _ = producerRecipeNegative(ctx, env, fixture, project, home, externalRefs, repo,
+			changed, "change the imported source after the snapshot", "changed-source")
+		gomega.Expect(output).To(gomega.ContainSubstring("hash-mismatch"))
+
+		ginkgo.By("compiling a copy of the source that no original maps onto")
+		unmapped := producerRecipeRecipe()
+		unmapped.before = []string{fmt.Sprintf("%s -m 0644 /src/main.c %s/unmapped.c", stapel.InstallBinPath(), producerRecipeObjectDir)}
+		unmapped.source = producerRecipeObjectDir + "/unmapped.c"
+		output, _ = producerRecipeNegative(ctx, env, fixture, project, home, externalRefs, repo,
+			unmapped, "compile an unmapped copy of the source", "unmapped")
+		gomega.Expect(output).To(gomega.ContainSubstring("no-data"))
 
 		ginkgo.By("leaving every copied file, and every file it was copied from, as it was")
 		producerRecipeCheckTools(env.tools, env.linker)

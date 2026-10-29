@@ -440,6 +440,23 @@ var _ = Describe("Resolving producer build contexts", func() {
 		Expect(string(body)).To(Equal(producerMainBody))
 	})
 
+	It("materializes into a conveyor temp directory no earlier stage had to create", func(specCtx SpecContext) {
+		ctx := logging.WithLogger(specCtx)
+		fixture := newProducerFixture(ctx, producerFixtureOptions{})
+		// A warm build reuses every preceding stage from the cache, so nothing has
+		// created the conveyor's temp directory yet.
+		fixture.phase.Conveyor.tmpDir = filepath.Join(fixture.phase.Conveyor.tmpDir, "not-created")
+
+		input, err := fixture.phase.producerContext(ctx, fixture.img, fixture.stg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(input).NotTo(BeNil())
+		DeferCleanup(func() { Expect(os.RemoveAll(input.directory)).To(Succeed()) })
+
+		Expect(fixture.phase.Conveyor.tmpDir).To(BeADirectory())
+		Expect(input.directory).To(BeADirectory())
+		Expect(producerWrittenContext(input).Imports).To(HaveLen(1))
+	})
+
 	It("keeps the checksum bound to the context it wrote, not to the host directory it wrote it in", func(specCtx SpecContext) {
 		ctx := logging.WithLogger(specCtx)
 		fixture := newProducerFixture(ctx, producerFixtureOptions{})

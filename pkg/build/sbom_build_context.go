@@ -143,6 +143,11 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
+	// A warm build reuses every preceding stage, so nothing has had to create the
+	// conveyor's temp directory before this plan needs a place to live in.
+	if err := os.MkdirAll(phase.Conveyor.tmpDir, 0o755); err != nil {
+		return nil, err
+	}
 	directory, err := os.MkdirTemp(phase.Conveyor.tmpDir, "producer-context-")
 	if err != nil {
 		return nil, err

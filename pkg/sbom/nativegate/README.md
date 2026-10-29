@@ -34,9 +34,16 @@ POC controls, not the intended default-on interface. Policies no longer accept
 source inventories, SDK distributions or metadata directories. Example profile IDs
 are `c-static` and `c-dynamic`, not the old combined language/link-mode strings.
 
+SBOM-enabled os-pm directives request `--sbom-sources-file` at the shared receipt
+path. The builder image must provide a pm binary supporting that option; command
+generation alone does not establish receipt capture or source verification.
+Non-SBOM directives retain their previous commands. The changed command also
+changes the packages-stage checksum for SBOM-enabled os-pm builds; there is no
+separate SBOM cache-version tag or migration.
+
 The existing pm files inventory adapter also remains a migration dependency: its
 `files.json` assumptions must be replaced with pinned original package data and
-import mappings. This path must be joined to the ordinary pm/Go/Python/Node pipeline
+scoped source candidates. This path must be joined to the ordinary pm/Go/Python/Node pipeline
 before enabling verification by default. PE/Mach-O and other pilot formats need
 their agreed profiles. None of these gaps is an exemption for toolchain binaries.
 

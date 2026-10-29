@@ -154,6 +154,12 @@ var _ = Describe("GeneratePackagesCommands os-pm", func() {
 			})
 			Expect(cmds).To(HaveLen(1))
 			Expect(cmds[0]).To(Equal(fmt.Sprintf(expected, stapel.MkdirBinPath(), packagesVersionMissingMessage)))
+
+			sbomCommands := generatePackagesCommands([]*PackagesDirective{
+				{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: env},
+			}, true)
+			sbomExpected := strings.Replace(fmt.Sprintf(expected, stapel.MkdirBinPath(), packagesVersionMissingMessage), "pm install curl jq", "pm install --sbom-sources-file /var/lib/pm/sbom-sources.json curl jq", 1)
+			Expect(sbomCommands).To(Equal([]string{sbomExpected}))
 		},
 
 		Entry("without env", nil,

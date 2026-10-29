@@ -267,7 +267,7 @@ var ecosystems = map[PackagesDirectiveType]PackageEcosystem{
 		DefaultLockFile: "",
 		CatalogerName:   metadata.CatalogerName,
 		InstallCmd: func(_ FileBasedSpec, pkgs []string, env map[string]string) string {
-			return formatInstallCommand(pkgs, env)
+			return formatInstallCommand(pkgs, env, "")
 		},
 	},
 }

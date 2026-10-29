@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"al.essio.dev/pkg/shellescape"
+	"fox.flant.com/deckhouse/container-base/pm.git/sbom/sources"
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
@@ -123,19 +124,27 @@ func formatVersionFileCommand() string {
 	)
 }
 
-func formatInstallCommand(pkgs []string, env map[string]string) string {
+func formatInstallCommand(pkgs []string, env map[string]string, sourcesFile string) string {
 	assignments, prefix := formatEnvVars(env, []string{packagesVersionEnvName})
+	args := strings.Join(pkgs, " ")
+	if sourcesFile != "" {
+		args = "--sbom-sources-file " + shellescape.Quote(sourcesFile) + " " + args
+	}
 
 	commands := []string{
 		formatMkdirCommand(),
 		formatVersionFileCommand(),
-		strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " "))),
+		strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, args)),
 	}
 
 	return joinDirective(assignments, commands)
 }
 
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {
+	return generatePackagesCommands(packages, false)
+}
+
+func generatePackagesCommands(packages []*PackagesDirective, sbomEnabled bool) []string {
 	var commands []string
 	for _, pkg := range packages {
 		eco, ok := ecosystems[pkg.Type]
@@ -143,6 +152,10 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
+		if sbomEnabled && pkg.Type == PackagesDirectiveTypeOSPM {
+			commands = append(commands, formatInstallCommand(pkg.Spec.Packages, pkg.Env, sources.DefaultPath))
+			continue
+		}
 		commands = append(commands, eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env))
 	}
 	return commands

@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -98,8 +99,8 @@ var _ = Describe("rawStapelImage packages stage commands", func() {
 		giterminismManager = NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"))
 	})
 
-	DescribeTable("are generated regardless of build.sbom.enable",
-		func(meta *Meta) {
+	DescribeTable("enable os-pm source receipts only for SBOM builds",
+		func(meta *Meta, wantReceipt bool) {
 			rawYAML, err := yaml.Marshal(map[string]interface{}{
 				"image": "image1",
 				"from":  "alpine",
@@ -116,11 +117,22 @@ var _ = Describe("rawStapelImage packages stage commands", func() {
 			stapelImage, err := rawImage.toStapelImageDirective(context.Background(), giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 			Expect(stapelImage.Shell).NotTo(BeNil())
-			Expect(stapelImage.Shell.Packages).To(Equal(GeneratePackagesCommands(stapelImage.Packages)))
+			legacyCommands := GeneratePackagesCommands(stapelImage.Packages)
+			expected := append([]string(nil), legacyCommands...)
+			if wantReceipt {
+				expected[1] = strings.Replace(expected[1], "pm install curl", "pm install --sbom-sources-file /var/lib/pm/sbom-sources.json curl", 1)
+			}
+			Expect(stapelImage.Shell.Packages).To(Equal(expected))
 			Expect(stapelImage.Shell.Packages).To(HaveLen(2))
+			Expect(stapelImage.Shell.Packages[0]).NotTo(ContainSubstring("--sbom-sources-file"))
+			if wantReceipt {
+				Expect(stapelImage.Shell.Packages[1]).To(ContainSubstring("pm install --sbom-sources-file /var/lib/pm/sbom-sources.json curl"))
+			} else {
+				Expect(stapelImage.Shell.Packages[1]).NotTo(ContainSubstring("--sbom-sources-file"))
+			}
 		},
-		Entry("build.sbom absent", &Meta{}),
-		Entry("build.sbom.enable false", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: false}}}),
-		Entry("build.sbom.enable true", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: true}}}),
+		Entry("build.sbom absent", &Meta{}, false),
+		Entry("build.sbom.enable false", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: false}}}, false),
+		Entry("build.sbom.enable true", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: true}}}, true),
 	)
 })

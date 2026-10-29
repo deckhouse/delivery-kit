@@ -55,6 +55,20 @@ var _ = Describe("Service", func() {
 		Entry("explicit value", 25*time.Second, 25*time.Second),
 	)
 
+	It("stops retrying once the configured retry timeout is spent", func() {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		svc := NewService(ServiceConfig{ServerURL: ts.URL, MaxElapsedTime: 100 * time.Millisecond})
+		Expect(svc.maxElapsedTime).To(Equal(100 * time.Millisecond))
+
+		start := time.Now()
+		_, err := svc.Resolve(timeoutCtx, "pkg:npm/server-error@1.0.0")
+		Expect(err).To(HaveOccurred())
+		Expect(timeoutCtx.Err()).NotTo(HaveOccurred())
+		Expect(time.Since(start)).To(BeNumerically("<", 2*time.Second))
+	})
+
 	Describe("Resolve", func() {
 		type resolveCase struct {
 			purl  string

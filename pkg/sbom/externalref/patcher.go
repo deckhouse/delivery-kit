@@ -13,8 +13,9 @@ import (
 var ErrExternalRefEnrich = errors.New("enrich external references")
 
 const (
-	EnvName        = "WERF_EXTERNAL_REFS_SERVER_URL"
-	TimeoutEnvName = "WERF_EXTERNAL_REFS_TIMEOUT"
+	EnvName             = "WERF_EXTERNAL_REFS_SERVER_URL"
+	TimeoutEnvName      = "WERF_EXTERNAL_REFS_TIMEOUT"
+	RetryTimeoutEnvName = "WERF_EXTERNAL_REFS_RETRY_TIMEOUT"
 )
 
 type ExternalRefPatcher struct {
@@ -42,19 +43,34 @@ func serviceConfigFromEnv() (ServiceConfig, error) {
 		return ServiceConfig{}, fmt.Errorf("%s env var is required", EnvName)
 	}
 
-	timeout := defaultServiceTimeout
-	if value := os.Getenv(TimeoutEnvName); value != "" {
-		parsed, err := time.ParseDuration(value)
-		if err != nil {
-			return ServiceConfig{}, fmt.Errorf("bad %s variable value %q: %w", TimeoutEnvName, value, err)
-		}
-		if parsed <= 0 {
-			return ServiceConfig{}, fmt.Errorf("bad %s variable value %q: must be positive", TimeoutEnvName, value)
-		}
-		timeout = parsed
+	timeout, err := durationFromEnv(TimeoutEnvName, defaultServiceTimeout)
+	if err != nil {
+		return ServiceConfig{}, err
 	}
 
-	return ServiceConfig{ServerURL: serverURL, Timeout: timeout}, nil
+	maxElapsedTime, err := durationFromEnv(RetryTimeoutEnvName, defaultMaxElapsedTime)
+	if err != nil {
+		return ServiceConfig{}, err
+	}
+
+	return ServiceConfig{ServerURL: serverURL, Timeout: timeout, MaxElapsedTime: maxElapsedTime}, nil
+}
+
+func durationFromEnv(envName string, fallback time.Duration) (time.Duration, error) {
+	value := os.Getenv(envName)
+	if value == "" {
+		return fallback, nil
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("bad %s variable value %q: %w", envName, value, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("bad %s variable value %q: must be positive", envName, value)
+	}
+
+	return parsed, nil
 }
 
 func (p *ExternalRefPatcher) Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error) {

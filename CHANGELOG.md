@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.12.0-dk.5](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.4...v3.12.0-dk.5) (2026-10-29)
+
+
+### Features
+
+* **sbom:** make the external references request timeouts configurable ([#484](https://github.com/deckhouse/delivery-kit/issues/484)) ([c033ba5](https://github.com/deckhouse/delivery-kit/commit/c033ba57f09736492bb1eef3606ea96ce4452c1a))
+
 ## [3.12.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.3...v3.12.0-dk.4) (2026-10-28)
 
 

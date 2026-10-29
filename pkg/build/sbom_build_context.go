@@ -128,6 +128,11 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 		imports = append(imports, resolved...)
 		identities = append(identities, sourceRef, string(packet), candidate.Platform)
 	}
+	assetScope, assetProofs, assetImports, err := phase.producerGoEmbed(ctx, img, stg.Name(), requested.GoEmbed, observed)
+	if err != nil {
+		return nil, err
+	}
+	contextSpec.GoEmbed = assetScope
 	selected := contextSpec.Packages[*requested.Subject]
 	packetIndex, err := json.Marshal(map[string]json.RawMessage{"subject": selected.Packet})
 	if err != nil {
@@ -157,6 +162,10 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 		_ = os.RemoveAll(directory)
 		return nil, err
 	}
+	if err := writeAssetProofs(directory, assetProofs); err != nil {
+		_ = os.RemoveAll(directory)
+		return nil, err
+	}
 	if err := os.Chmod(directory, 0o755); err != nil {
 		_ = os.RemoveAll(directory)
 		return nil, err
@@ -171,7 +180,11 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 		_ = os.RemoveAll(directory)
 		return nil, err
 	}
-	return &sbomProducerContext{directory: directory, path: path, checksum: util.Sha256Hash(append([]string{string(identity), string(encoded), sbomProvenanceChecksum(provenance), sbomSourceImportsChecksum(imports)}, identities...)...)}, nil
+	parts := []string{string(identity), string(encoded), sbomProvenanceChecksum(provenance), sbomSourceImportsChecksum(imports)}
+	if len(requested.GoEmbed) > 0 {
+		parts = append(parts, "go-embed", sbomSourceImportsChecksum(assetImports))
+	}
+	return &sbomProducerContext{directory: directory, path: path, checksum: util.Sha256Hash(append(parts, identities...)...)}, nil
 }
 
 func checkProducerPacket(data json.RawMessage, expected sbomBuildContextPackage) error {

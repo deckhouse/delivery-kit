@@ -2,9 +2,11 @@ package build
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -35,6 +37,14 @@ type sbomBuildContextStage struct {
 	// thing it builds. There is no default, a missing subject is an error.
 	Subject  *int                      `json:"subject"`
 	Packages []sbomBuildContextPackage `json:"packages"`
+	GoEmbed  []sbomBuildContextGoEmbed `json:"goEmbed,omitempty"`
+}
+
+type sbomBuildContextGoEmbed struct {
+	SourceImage string `json:"sourceImage"`
+	SourceRoot  string `json:"sourceRoot"`
+	TargetRoot  string `json:"targetRoot"`
+	ProofPath   string `json:"proofPath"`
 }
 
 type sbomBuildContextPackage struct {
@@ -80,6 +90,18 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: at least one stage is required")
 	}
 
+	var raw struct {
+		Stages map[string]map[string]json.RawMessage `json:"stages"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	for stageName, fields := range raw.Stages {
+		if value, present := fields["goEmbed"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: goEmbed must be an array", stageName)
+		}
+	}
+
 	for _, stageName := range slices.Sorted(maps.Keys(declaration.Stages)) {
 		if !slices.Contains(sbomBuildContextStageNames, stageName) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q is not allowed", stageName)
@@ -121,6 +143,20 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 			return fmt.Errorf("package %d: sourceImage %q is declared more than once", i, pkg.SourceImage)
 		}
 		sourceImages[pkg.SourceImage] = true
+	}
+
+	for i, binding := range declared.GoEmbed {
+		if err := validateSBOMBuildContextField("sourceImage", binding.SourceImage); err != nil {
+			return fmt.Errorf("goEmbed %d: %w", i, err)
+		}
+		for _, field := range []struct{ name, value string }{{"sourceRoot", binding.SourceRoot}, {"targetRoot", binding.TargetRoot}, {"proofPath", binding.ProofPath}} {
+			if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
+				return fmt.Errorf("goEmbed %d: %w", i, err)
+			}
+			if !path.IsAbs(field.value) || path.Clean(field.value) != field.value {
+				return fmt.Errorf("goEmbed %d: %s must be a clean absolute path", i, field.name)
+			}
+		}
 	}
 
 	if declared.Subject == nil {

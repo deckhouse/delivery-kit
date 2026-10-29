@@ -1,0 +1,14 @@
+{
+  "name": "dk-sbom-webpack-collector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Webpack asset composition collector emitting a dk sbom source proof.",
+  "main": "collector.cjs",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "copy-webpack-plugin": "6.1.1",
+    "webpack": "5.94.0"
+  }
+}

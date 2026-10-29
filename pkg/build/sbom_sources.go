@@ -120,6 +120,7 @@ type sourceImagePuller interface {
 type sbomSourceImage struct {
 	Index   *shippedscope.FileIndex
 	Receipt *sources.Receipt
+	Bodies  map[string][]byte
 }
 
 // captureSBOMSourceImages reads every image the imports copy from, once per pinned
@@ -145,6 +146,10 @@ func captureSBOMSourceImages(ctx context.Context, backend sourceImagePuller, inp
 }
 
 func captureSBOMSourceImage(ctx context.Context, backend sourceImagePuller, reference, targetPlatform string) (*sbomSourceImage, error) {
+	return captureSBOMSourceImagePaths(ctx, backend, reference, targetPlatform, []string{sources.DefaultPath})
+}
+
+func captureSBOMSourceImagePaths(ctx context.Context, backend sourceImagePuller, reference, targetPlatform string, paths []string) (*sbomSourceImage, error) {
 	if err := backend.Pull(ctx, reference, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
 		return nil, fmt.Errorf("pull import source %s: %w", reference, err)
 	}
@@ -162,7 +167,7 @@ func captureSBOMSourceImage(ctx context.Context, backend sourceImagePuller, refe
 		return nil, fmt.Errorf("read import source %s config: empty config", reference)
 	}
 	boundary := len(cfg.RootFS.DiffIDs)
-	views, err := shippedscope.CollectImageSnapshots(ctx, img, cfg.RootFS.DiffIDs, []int{boundary}, shippedscope.CollectImageSnapshotsOptions{CapturePaths: []string{sources.DefaultPath}})
+	views, err := shippedscope.CollectImageSnapshots(ctx, img, cfg.RootFS.DiffIDs, []int{boundary}, shippedscope.CollectImageSnapshotsOptions{CapturePaths: paths})
 	if err != nil {
 		return nil, fmt.Errorf("capture import source %s: %w", reference, err)
 	}
@@ -175,7 +180,7 @@ func captureSBOMSourceImage(ctx context.Context, backend sourceImagePuller, refe
 		return nil, fmt.Errorf("import source %s: %s: read source receipt %s: %w", reference, status, sources.DefaultPath, err)
 	}
 
-	return &sbomSourceImage{Index: view.Index, Receipt: receipt}, nil
+	return &sbomSourceImage{Index: view.Index, Receipt: receipt, Bodies: view.Bodies}, nil
 }
 
 // sbomSourceGateSnapshots hands the captured stage boundaries to the native gate with the

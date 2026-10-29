@@ -168,7 +168,7 @@ Each request to the service has a timeout, and a request that fails with an infr
 | `WERF_EXTERNAL_REFS_TIMEOUT` | timeout of a single request | `10s` |
 | `WERF_EXTERNAL_REFS_RETRY_TIMEOUT` | total time for all attempts of one request, including the pauses between them | `30s` |
 
-An unset or empty variable keeps the default. Any other value must be a positive duration, otherwise the build fails before the first request. A retry budget smaller than the request timeout leaves no room for a retry after a timed-out request.
+An unset or empty variable keeps the default. Any other value must be a positive duration, otherwise the build fails before the first request. The retry budget is checked between attempts and does not cut off a request in flight, so a request may run up to its full timeout even when the budget is already spent; a retry budget smaller than the request timeout leaves no room for a retry after a timed-out request.
 
 ```bash
 export WERF_EXTERNAL_REFS_TIMEOUT="30s"

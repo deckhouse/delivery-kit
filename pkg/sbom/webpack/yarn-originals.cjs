@@ -33,6 +33,13 @@ const ARCHIVE_FILE = '.yarn-tarball.tgz';
 const ARCHIVE_PREFIX = 'package';
 const BERRY_MARKER = /^__metadata:/m;
 const EXTRACTABLE_ENTRY_TYPES = ['File', 'OldFile', 'Directory'];
+const DIGEST_BYTES = new Map([
+	['sha1', 20],
+	['sha256', 32],
+	['sha384', 48],
+	['sha512', 64],
+]);
+const SUPPORTED_SPELLING = /^(sha1|sha256|sha384|sha512)(?![a-z0-9])/i;
 
 class DkSbomYarnOriginals {
 	constructor(options) {
@@ -81,17 +88,41 @@ class DkSbomYarnOriginals {
 		if (typeof entry.integrity !== 'string' || entry.integrity === '') {
 			throw fail('no-data', `lockfile entry for ${identityKey(identity)} carries no integrity`);
 		}
-		// This adapter supports standard SHA-256/384/512 SRI, and the archive is
-		// checked against the strongest spelling the entry carries: a weaker token
-		// may not stand in for a strong one that does not hold. A checksum is never
-		// synthesized from a URL fragment or a Git commit.
-		const checksum = ssri.parse(entry.integrity, { strict: true });
-		if (!checksum) {
+		// This adapter supports SHA-1/256/384/512 SRI, the spellings Yarn 1
+		// lockfiles carry, and the archive is checked against the strongest one the
+		// entry holds: a weaker token may not stand in for a strong one that does
+		// not hold, and a token whose digest cannot be read is a refusal rather than
+		// a reason to fall back. A checksum is never synthesized from a URL fragment
+		// or a Git commit.
+		//
+		// SHA-1 is collision-prone, so a sha1-only entry proves no more than that
+		// the archive is the one the package manager already trusted when it wrote
+		// the lockfile. It is reported verbatim, never restated as a stronger pin.
+		const checksum = ssri.parse(entry.integrity);
+		const algorithms = checksum ? Object.keys(checksum).filter((algorithm) => DIGEST_BYTES.has(algorithm)) : [];
+		const kept = new Set(algorithms.flatMap((algorithm) => checksum[algorithm].map((hash) => hash.source)));
+		for (const token of entry.integrity.trim().split(/\s+/)) {
+			// ssri drops a token it cannot read, which would leave the check to a
+			// weaker one: a token naming an algorithm this adapter supports is either
+			// kept or a refusal.
+			if (SUPPORTED_SPELLING.test(token) && !kept.has(token)) {
+				throw fail('invalid', `lockfile entry for ${identityKey(identity)} carries an unreadable checksum: ${token}`);
+			}
+		}
+		if (algorithms.length === 0) {
 			throw fail('unsupported', `unsupported checksum spelling for ${identityKey(identity)}: ${entry.integrity}`);
 		}
-		const strongest = checksum[checksum.pickAlgorithm()];
+		for (const algorithm of algorithms) {
+			for (const hash of checksum[algorithm]) {
+				if (!isCanonicalDigest(algorithm, hash.digest)) {
+					throw fail('invalid', `lockfile entry for ${identityKey(identity)} carries a malformed ${algorithm} checksum: ${hash.toString()}`);
+				}
+			}
+		}
+		const algorithm = checksum.pickAlgorithm(undefined, algorithms);
+		const strongest = checksum[algorithm];
 		if (strongest.length !== 1) {
-			throw fail('no-data', `lockfile entry for ${identityKey(identity)} carries ${strongest.length} ${checksum.pickAlgorithm()} checksums`);
+			throw fail('no-data', `lockfile entry for ${identityKey(identity)} carries ${strongest.length} ${algorithm} checksums`);
 		}
 		return { ...entry, checksum: strongest[0].toString() };
 	}
@@ -458,6 +489,14 @@ function fail(status, reason) {
 function worst(failures) {
 	const status = FAILURE_STATUSES.find((candidate) => failures.some((error) => error.status === candidate));
 	return failures.find((error) => error.status === status);
+}
+
+// The base64 spelling of exactly one digest of that algorithm. Node decodes
+// base64 leniently, so the digest is re-encoded: a truncated, repadded or
+// otherwise rewritten digest is not the checksum the lockfile claims.
+function isCanonicalDigest(algorithm, digest) {
+	const decoded = Buffer.from(digest, 'base64');
+	return decoded.length === DIGEST_BYTES.get(algorithm) && decoded.toString('base64') === digest;
 }
 
 function identityKey(identity) {

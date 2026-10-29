@@ -490,6 +490,91 @@ test('checks a multi-token integrity against its strongest spelling', async () =
 	resolver.close();
 });
 
+test('binds a distribution a Yarn 1 lockfile pins with sha1 alone', async () => {
+	const where = area('sha1-only');
+	const dist = distribution('pkg-a', '1.2.3');
+	const sha1 = `sha1-${crypto.createHash('sha1').update(dist.bytes).digest('base64')}`;
+	const installed = install(where, dist);
+	cache(where, dist, { integrity: sha1 });
+	lock(where, [lockEntry(dist, { integrity: sha1 })]);
+
+	const resolver = where.resolver();
+	const binding = await resolver.resolve(path.join(installed, 'index.js'));
+	assert.equal(binding.component.source.checksum, sha1, 'the lockfile integrity is reported verbatim');
+	assert.deepEqual(relativeFiles(binding.originalRoot).sort(), ['NOTICE.txt', 'index.js', 'package.json']);
+	for (const file of relativeFiles(binding.originalRoot)) {
+		assert.deepEqual(fs.readFileSync(path.join(binding.originalRoot, file)), fs.readFileSync(path.join(installed, file)), `${file} must be the archived bytes`);
+	}
+	resolver.close();
+
+	const corrupted = area('sha1-only-corrupt');
+	const corruptedInstalled = install(corrupted, dist);
+	const corrupt = Buffer.from(dist.bytes);
+	corrupt[corrupt.length - 10] ^= 0xff;
+	cache(corrupted, dist, { integrity: sha1, archive: corrupt });
+	lock(corrupted, [lockEntry(dist, { integrity: sha1 })]);
+	const error = await rejection(corrupted.resolver().resolve(path.join(corruptedInstalled, 'index.js')));
+	assert.equal(error.status, 'hash-mismatch', 'a sha1 entry still checks the archive bytes');
+	assert.deepEqual(fs.readdirSync(fs.realpathSync(corrupted.outputRoot)), []);
+});
+
+test('rejects a synthetic archive against the real raw-loader 0.5.1 pin', async () => {
+	// The integrity of raw-loader@0.5.1 as its yarn.lock entry spells it.
+	const rawLoader = 'sha1-DD0L6u2KAclm2Xh793goElKpeao=';
+	assert.equal(Buffer.from(rawLoader.slice('sha1-'.length), 'base64').toString('hex'), '0c3d0beaed8a01c966d9787bf778281252a979aa');
+
+	const where = area('registry-sha1');
+	const dist = distribution('raw-loader', '0.5.1');
+	const installed = install(where, dist);
+	cache(where, dist, { integrity: rawLoader });
+	lock(where, [lockEntry(dist, { integrity: rawLoader })]);
+
+	const error = await rejection(where.resolver().resolve(path.join(installed, 'index.js')));
+	assert.equal(error.status, 'hash-mismatch', 'an archive that is not the published one fails, it is not accepted on the locator');
+	assert.ok(error.message.includes(rawLoader), `${error.message} must name the locked checksum verbatim`);
+});
+
+test('reports invalid for a checksum that is not a canonical digest of its algorithm', async () => {
+	const dist = distribution('pkg-a', '1.2.3');
+	const sha1 = `sha1-${crypto.createHash('sha1').update(dist.bytes).digest('base64')}`;
+	const sha512 = `sha512-${crypto.createHash('sha512').update(dist.bytes).digest('base64')}`;
+	for (const [id, integrity] of [
+		['unpadded', sha1.replace(/=+$/, '')],
+		['not-base64', 'sha1-DD0L6u2KAclm2Xh793goElKpea*='],
+		['short-digest', `sha512-${crypto.createHash('sha256').update(dist.bytes).digest('base64')}`],
+		// A digest that cannot be read must not hand the check to a weaker token,
+		// whether ssri keeps that token or drops it as unreadable.
+		['broken-strong-token', `${sha512.slice(0, -8)} ${sha1}`],
+		['empty-strong-token', `sha512- ${sha1}`],
+		['uppercase-strong-token', `${sha512.toUpperCase()} ${sha1}`],
+		['separator-strong-token', `${sha512.replace('-', ':')} ${sha1}`],
+		['empty-strong-token-alone', 'sha512-'],
+	]) {
+		const where = area(`malformed-${id}`);
+		const installed = install(where, dist);
+		cache(where, dist, { integrity });
+		lock(where, [lockEntry(dist, { integrity })]);
+		const error = await rejection(where.resolver().resolve(path.join(installed, 'index.js')));
+		assert.equal(error.status, 'invalid', `${id}: ${error.message}`);
+		assert.deepEqual(fs.readdirSync(fs.realpathSync(where.outputRoot)), [], id);
+	}
+});
+
+test('checks a sha1 checksum that carries SRI options against the archive', async () => {
+	const where = area('sha1-options');
+	const dist = distribution('pkg-a', '1.2.3');
+	const integrity = `sha1-${crypto.createHash('sha1').update(dist.bytes).digest('base64')}?foo=bar`;
+	const installed = install(where, dist);
+	cache(where, dist, { integrity });
+	lock(where, [lockEntry(dist, { integrity })]);
+
+	const resolver = where.resolver();
+	const binding = await resolver.resolve(path.join(installed, 'index.js'));
+	assert.equal(binding.component.source.checksum, integrity, 'the options are part of the checksum reported verbatim');
+	assert.deepEqual(fs.readFileSync(path.join(binding.originalRoot, 'index.js')), fs.readFileSync(path.join(installed, 'index.js')));
+	resolver.close();
+});
+
 test('indexes a lock selector by its own name, Git ranges and aliases included', async () => {
 	const where = area('selector-names');
 	const dist = distribution('pkg-a', '1.2.3');
@@ -798,10 +883,10 @@ test('reports no-data for a lock entry without integrity and unsupported for a l
 	assert.equal(missing.status, 'no-data');
 	assert.match(missing.message, /no integrity/);
 
-	const legacy = area('sha1-integrity');
+	const legacy = area('md5-integrity');
 	const legacyInstalled = install(legacy, dist);
 	cache(legacy, dist);
-	lock(legacy, [lockEntry(dist, { integrity: `sha1-${crypto.createHash('sha1').update(dist.bytes).digest('base64')}` })]);
+	lock(legacy, [lockEntry(dist, { integrity: `md5-${crypto.createHash('md5').update(dist.bytes).digest('base64')}` })]);
 	const unsupported = await rejection(legacy.resolver().resolve(path.join(legacyInstalled, 'index.js')));
 	assert.equal(unsupported.status, 'unsupported');
 	assert.match(unsupported.message, /unsupported checksum spelling/);

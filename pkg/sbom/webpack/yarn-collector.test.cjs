@@ -6,6 +6,7 @@ require('./runtime-preload.cjs');
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const {before,after,test} = require('node:test');
@@ -18,16 +19,17 @@ let root,fixture;
 before(()=>{root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'dk-yarn-collector-')));fixture=createFixture(root,{bootstrap:true});});
 after(()=>fs.rmSync(root,{recursive:true,force:true}));
 
-function originals(area) {
+function originals(area, algorithm='sha512') {
 	const cacheDir=path.join(area.root,'cache');
 	fs.mkdirSync(cacheDir);
 	const entries=[];
 	for(const [name,dist] of Object.entries(fixture.distributions)) {
 		const resolved=`https://registry.example.test/${name}/download`;
-		entries.push(`${JSON.stringify(name+'@'+dist.component.version)}:\n  version ${JSON.stringify(dist.component.version)}\n  resolved ${JSON.stringify(resolved)}\n  integrity ${dist.integrity}\n`);
+		const integrity=algorithm+'-'+crypto.createHash(algorithm).update(fs.readFileSync(dist.tarball)).digest('base64');
+		entries.push(`${JSON.stringify(name+'@'+dist.component.version)}:\n  version ${JSON.stringify(dist.component.version)}\n  resolved ${JSON.stringify(resolved)}\n  integrity ${integrity}\n`);
 		const cached=path.join(cacheDir,name,'node_modules',name);
 		fs.mkdirSync(cached,{recursive:true});
-		fs.writeFileSync(path.join(cached,'.yarn-metadata.json'),JSON.stringify({manifest:{name,version:dist.component.version},remote:{type:'tarball',resolved,integrity:dist.integrity}}));
+		fs.writeFileSync(path.join(cached,'.yarn-metadata.json'),JSON.stringify({manifest:{name,version:dist.component.version},remote:{type:'tarball',resolved,integrity}}));
 		fs.copyFileSync(dist.tarball,path.join(cached,'.yarn-tarball.tgz'));
 	}
 	const lockPath=path.join(area.root,'yarn.lock');
@@ -80,5 +82,38 @@ test('never uses the static original when the selected locked archive is corrupt
 		assert.equal(main.status,'hash-mismatch');
 		assert.match(main.reason,/cached archive of pkg-b@4\.5\.6 does not satisfy sha512-/);
 		assert.deepEqual(main.components,[]);
+	} finally {resolver.close();}
+});
+
+test('preserves SHA1 manager integrity while checking selected source bytes',async()=>{
+	const area=fixture.workspace('sha1-yarn');
+	const {resolver}=originals(area,'sha1');
+	try {
+		const proof=await compile(area,resolver);
+		const main=proof.assets.find(a=>a.path==='main.js');
+		assert.equal(main.status,'present');
+		for(const component of main.components.filter(c=>c.name!=='webpack')) {
+			const archive=fs.readFileSync(fixture.distributions[component.name].tarball);
+			assert.equal(component.source.checksum,'sha1-'+crypto.createHash('sha1').update(archive).digest('base64'));
+		}
+		for(const input of main.inputs) assert.equal(input.sha256,'sha256:'+crypto.createHash('sha256').update(fs.readFileSync(input.path)).digest('hex'));
+	} finally {resolver.close();}
+});
+
+test('rejects changed selected members of a SHA1-verified distribution',async()=>{
+	const area=fixture.workspace('sha1-member-mismatch');
+	const {resolver}=originals(area,'sha1');
+	const installed=area.installed('pkg-b/index.js');
+	const bytes=fs.readFileSync(installed);
+	const altered=bytes.toString().replace('return "b"','return "z"');
+	assert.notEqual(altered,bytes.toString());
+	assert.equal(Buffer.byteLength(altered),bytes.length);
+	fs.writeFileSync(installed,altered);
+	try {
+		const proof=await compile(area,resolver);
+		const main=proof.assets.find(a=>a.path==='main.js');
+		assert.equal(main.status,'hash-mismatch');
+		assert.match(main.reason,/materialized source differs from its original/);
+		assert.deepEqual(main.includedComponents,[]);
 	} finally {resolver.close();}
 });

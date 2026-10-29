@@ -1,0 +1,433 @@
+diff --git a/cmd/esbuild/service.go b/cmd/esbuild/service.go
+index f705ba8..38c5389 100644
+--- a/cmd/esbuild/service.go
++++ b/cmd/esbuild/service.go
+@@ -1210,6 +1210,16 @@ func (service *serviceType) handleTransformRequest(id uint32, request map[string
+ 		response["mangleCache"] = result.MangleCache
+ 	}
+ 
++	if result.SBOM != nil {
++		response["sbom"] = map[string]interface{}{
++			"version":         result.SBOM.Version,
++			"producer":        result.SBOM.Producer,
++			"inputSHA256":     result.SBOM.InputSHA256,
++			"outputSHA256":    result.SBOM.OutputSHA256,
++			"runtimeSelected": result.SBOM.RuntimeSelected,
++		}
++	}
++
+ 	return encodePacket(packet{
+ 		id:    id,
+ 		value: response,
+diff --git a/internal/graph/input.go b/internal/graph/input.go
+index 7faa763..c930c6a 100644
+--- a/internal/graph/input.go
++++ b/internal/graph/input.go
+@@ -43,6 +43,9 @@ type OutputFile struct {
+ 	AbsPath      string
+ 	Contents     []byte
+ 	IsExecutable bool
++
++	// True if any runtime part was selected for printing into this output file
++	RuntimeSelected bool
+ }
+ 
+ type SideEffects struct {
+diff --git a/internal/linker/linker.go b/internal/linker/linker.go
+index e37ed9a..a8c282d 100644
+--- a/internal/linker/linker.go
++++ b/internal/linker/linker.go
+@@ -126,7 +126,8 @@ type chunkInfo struct {
+ 	sourceIndex   uint32 // An index into "c.sources"
+ 	isEntryPoint  bool
+ 
+-	isExecutable bool
++	isExecutable    bool
++	runtimeSelected bool
+ }
+ 
+ type chunkImport struct {
+@@ -768,6 +769,7 @@ func (c *linkerContext) generateChunksInParallel(additionalFiles []graph.OutputF
+ 				Contents:          outputContents,
+ 				JSONMetadataChunk: jsonMetadataChunk,
+ 				IsExecutable:      chunk.isExecutable,
++				RuntimeSelected:   chunk.runtimeSelected,
+ 			})
+ 
+ 			results[chunkIndex] = outputFiles
+@@ -5573,12 +5575,19 @@ func (c *linkerContext) generateChunkJS(chunkIndex int, chunkWaitGroup *sync.Wai
+ 	// Generate JavaScript for each file in parallel
+ 	timer.Begin("Print JavaScript files")
+ 	waitGroup := sync.WaitGroup{}
++	runtimeSelected := false
+ 	for _, partRange := range chunkRepr.partsInChunkInOrder {
+ 		// Skip the runtime in test output
+ 		if partRange.sourceIndex == runtime.SourceIndex && c.options.OmitRuntimeForTests {
+ 			continue
+ 		}
+ 
++		// This is per-chunk part selection, not a claim about which runtime
++		// bytes survive printing
++		if partRange.sourceIndex == runtime.SourceIndex {
++			runtimeSelected = true
++		}
++
+ 		// Create a goroutine for this file
+ 		compileResults = append(compileResults, compileResultJS{})
+ 		compileResult := &compileResults[len(compileResults)-1]
+@@ -5969,6 +5978,7 @@ func (c *linkerContext) generateChunkJS(chunkIndex int, chunkWaitGroup *sync.Wai
+ 
+ 	c.generateIsolatedHashInParallel(chunk)
+ 	chunk.isExecutable = isExecutable
++	chunk.runtimeSelected = runtimeSelected
+ 	chunkWaitGroup.Done()
+ }
+ 
+diff --git a/lib/shared/common.ts b/lib/shared/common.ts
+index ac7a2b2..db1845d 100644
+--- a/lib/shared/common.ts
++++ b/lib/shared/common.ts
+@@ -751,6 +751,7 @@ export function createChannel(streamIn: StreamIn): StreamOut {
+                 legalComments: undefined,
+               }
+               if ('legalComments' in response!) result.legalComments = response?.legalComments
++              if ('sbom' in response!) result.sbom = response!.sbom
+               if (response!.mangleCache) result.mangleCache = response?.mangleCache
+               callback(null, result)
+             }
+diff --git a/lib/shared/stdio_protocol.ts b/lib/shared/stdio_protocol.ts
+index 5f5749c..58ea791 100644
+--- a/lib/shared/stdio_protocol.ts
++++ b/lib/shared/stdio_protocol.ts
+@@ -125,6 +125,7 @@ export interface TransformResponse {
+ 
+   legalComments?: string
+   mangleCache?: Record<string, string | false>
++  sbom?: types.TransformSBOM
+ }
+ 
+ export interface FormatMsgsRequest {
+diff --git a/lib/shared/types.ts b/lib/shared/types.ts
+index d0ae510..52debfd 100644
+--- a/lib/shared/types.ts
++++ b/lib/shared/types.ts
+@@ -278,6 +278,16 @@ export interface TransformResult<ProvidedOptions extends TransformOptions = Tran
+   mangleCache: Record<string, string | false> | (ProvidedOptions['mangleCache'] extends Object ? never : undefined)
+   /** Only when "legalComments" is "external" */
+   legalComments: string | (ProvidedOptions['legalComments'] extends 'external' ? never : undefined)
++  /** Private DK evidence for successful transforms; absent on unpatched binaries. */
++  sbom?: TransformSBOM
++}
++
++export interface TransformSBOM {
++  version: number
++  producer: string
++  inputSHA256: string
++  outputSHA256: string
++  runtimeSelected: boolean
+ }
+ 
+ export interface TransformFailure extends Error {
+diff --git a/pkg/api/api.go b/pkg/api/api.go
+index 6f426b6..03b323d 100644
+--- a/pkg/api/api.go
++++ b/pkg/api/api.go
+@@ -460,6 +460,22 @@ type TransformResult struct {
+ 	LegalComments []byte
+ 
+ 	MangleCache map[string]interface{}
++
++	// Observational metadata about this specific transform call. It's only
++	// present for a successful transform.
++	SBOM *TransformSBOM
++}
++
++type TransformSBOM struct {
++	Version  int
++	Producer string
++
++	// These are "sha256:" followed by lower-case hex
++	InputSHA256  string
++	OutputSHA256 string
++
++	// True if any esbuild runtime part was selected for printing into the output
++	RuntimeSelected bool
+ }
+ 
+ // Documentation: https://esbuild.github.io/api/#transform
+diff --git a/pkg/api/api_impl.go b/pkg/api/api_impl.go
+index 0b62b95..9d64f7c 100644
+--- a/pkg/api/api_impl.go
++++ b/pkg/api/api_impl.go
+@@ -5,6 +5,7 @@ package api
+ 
+ import (
+ 	"bytes"
++	"crypto/sha256"
+ 	"encoding/base64"
+ 	"encoding/binary"
+ 	"errors"
+@@ -1804,10 +1805,12 @@ func transformImpl(input string, transformOpts TransformOptions) TransformResult
+ 	}
+ 
+ 	// Unpack the JavaScript file, the source map file, and the legal comments file
++	runtimeSelected := false
+ 	for _, result := range results {
+ 		switch result.AbsPath {
+ 		case shortestAbsPath:
+ 			code = result.Contents
++			runtimeSelected = result.RuntimeSelected
+ 		case shortestAbsPath + ".map":
+ 			sourceMap = result.Contents
+ 		case shortestAbsPath + ".LEGAL.txt":
+@@ -1820,6 +1823,17 @@ func transformImpl(input string, transformOpts TransformOptions) TransformResult
+ 		mangleCache = nil
+ 	}
+ 
++	var sbom *TransformSBOM
++	if !log.HasErrors() {
++		sbom = &TransformSBOM{
++			Version:         1,
++			Producer:        "dk-sbom/1 esbuild 0.25.0",
++			InputSHA256:     fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(input))),
++			OutputSHA256:    fmt.Sprintf("sha256:%x", sha256.Sum256(code)),
++			RuntimeSelected: runtimeSelected,
++		}
++	}
++
+ 	msgs := log.Done()
+ 	return TransformResult{
+ 		Errors:        convertMessagesToPublic(logger.Error, msgs),
+@@ -1828,6 +1842,7 @@ func transformImpl(input string, transformOpts TransformOptions) TransformResult
+ 		Map:           sourceMap,
+ 		LegalComments: legalComments,
+ 		MangleCache:   mangleCache,
++		SBOM:          sbom,
+ 	}
+ }
+ 
+diff --git a/pkg/api/api_sbom_test.go b/pkg/api/api_sbom_test.go
+new file mode 100644
+index 0000000..83392b9
+--- /dev/null
++++ b/pkg/api/api_sbom_test.go
+@@ -0,0 +1,95 @@
++package api_test
++
++import (
++	"crypto/sha256"
++	"fmt"
++	"testing"
++
++	"github.com/evanw/esbuild/internal/test"
++	"github.com/evanw/esbuild/pkg/api"
++)
++
++func expectedSBOMHash(contents []byte) string {
++	return fmt.Sprintf("sha256:%x", sha256.Sum256(contents))
++}
++
++func TestTransformSBOMRuntimeSelected(t *testing.T) {
++	check := func(name string, input string, options api.TransformOptions, expected bool) {
++		t.Helper()
++		t.Run(name, func(t *testing.T) {
++			t.Helper()
++			result := api.Transform(input, options)
++			if len(result.Errors) != 0 {
++				t.Fatalf("Unexpected errors: %v", result.Errors)
++			}
++			if result.SBOM == nil {
++				t.Fatalf("Expected a non-nil SBOM")
++			}
++			if result.SBOM.RuntimeSelected != expected {
++				t.Fatalf("Expected RuntimeSelected to be %v, got %v for output %q",
++					expected, result.SBOM.RuntimeSelected, string(result.Code))
++			}
++		})
++	}
++
++	check("plain JS has no runtime", "let n = 1", api.TransformOptions{
++		Target: api.ES2015,
++	}, false)
++
++	check("lowered class field needs runtime", "class Foo { bar = 1 }", api.TransformOptions{
++		Target: api.ES2015,
++	}, true)
++
++	check("runtime selection belongs to code beside map and legal outputs", "//! retained license\nclass Foo { bar = 1 }", api.TransformOptions{
++		Target:        api.ES2015,
++		Sourcefile:    "input.js",
++		Sourcemap:     api.SourceMapExternal,
++		LegalComments: api.LegalCommentsExternal,
++	}, true)
++
++	check("lowered async needs runtime", "async function foo() { await bar() }", api.TransformOptions{
++		Target: api.ES2015,
++	}, true)
++
++	check("ESM to CommonJS needs runtime", "export const foo = 1", api.TransformOptions{
++		Format: api.FormatCommonJS,
++	}, true)
++
++	check("CSS never selects the JS runtime", "a { color: red }", api.TransformOptions{
++		Loader: api.LoaderCSS,
++	}, false)
++}
++
++func TestTransformSBOMMetadata(t *testing.T) {
++	input := "class Foo { bar = 1 }"
++	result := api.Transform(input, api.TransformOptions{Target: api.ES2015})
++	if len(result.Errors) != 0 {
++		t.Fatalf("Unexpected errors: %v", result.Errors)
++	}
++	if result.SBOM == nil {
++		t.Fatalf("Expected a non-nil SBOM")
++	}
++	test.AssertEqual(t, result.SBOM.Version, 1)
++	test.AssertEqual(t, result.SBOM.Producer, "dk-sbom/1 esbuild 0.25.0")
++	test.AssertEqualWithDiff(t, result.SBOM.InputSHA256, expectedSBOMHash([]byte(input)))
++	test.AssertEqualWithDiff(t, result.SBOM.OutputSHA256, expectedSBOMHash(result.Code))
++
++	// The hashes must be bound to the actual bytes, not to a constant
++	other := api.Transform("let n = 2", api.TransformOptions{})
++	if other.SBOM.InputSHA256 == result.SBOM.InputSHA256 {
++		t.Fatalf("Expected different inputs to hash differently")
++	}
++	if other.SBOM.OutputSHA256 == result.SBOM.OutputSHA256 {
++		t.Fatalf("Expected different outputs to hash differently")
++	}
++}
++
++func TestTransformSBOMAbsentOnError(t *testing.T) {
++	result := api.Transform("let x = ;", api.TransformOptions{})
++	if len(result.Errors) == 0 {
++		t.Fatalf("Expected a syntax error")
++	}
++	if result.SBOM != nil {
++		t.Fatalf("Expected no SBOM for a failed transform, got %+v", *result.SBOM)
++	}
++}
+diff --git a/scripts/sbom-tests.js b/scripts/sbom-tests.js
+new file mode 100644
+index 0000000..1692321
+--- /dev/null
++++ b/scripts/sbom-tests.js
+@@ -0,0 +1,118 @@
++// Tests for the additive "sbom" member on transform results. Run with:
++//
++//   node scripts/sbom-tests.js
++//
++// This builds nothing: it uses "npm/esbuild/lib/main.js" plus the "esbuild"
++// binary in the repo root, both of which must already be up to date.
++
++const assert = require('assert')
++const crypto = require('crypto')
++const fs = require('fs')
++const path = require('path')
++
++const repoDir = path.dirname(__dirname)
++process.env.ESBUILD_BINARY_PATH = path.join(repoDir, process.platform === 'win32' ? 'esbuild.exe' : 'esbuild')
++const esbuild = require(path.join(repoDir, 'npm', 'esbuild', 'lib', 'main.js'))
++
++const sha256 = text => 'sha256:' + crypto.createHash('sha256').update(text, 'utf8').digest('hex')
++
++const assertSBOM = (result, input, expectedRuntimeSelected) => {
++  assert.notStrictEqual(result.sbom, undefined)
++  assert.strictEqual(result.sbom.version, 1)
++  assert.strictEqual(result.sbom.producer, 'dk-sbom/1 esbuild ' + fs.readFileSync(path.join(repoDir, 'version.txt'), 'utf8').trim())
++  assert.strictEqual(result.sbom.inputSHA256, sha256(input))
++  assert.strictEqual(result.sbom.outputSHA256, sha256(result.code))
++  assert.strictEqual(result.sbom.runtimeSelected, expectedRuntimeSelected)
++}
++
++const tests = {
++  async transformAsyncNoRuntime() {
++    const input = 'let n = 1'
++    const result = await esbuild.transform(input, { target: 'es2015' })
++    assertSBOM(result, input, false)
++  },
++
++  async transformAsyncWithRuntime() {
++    const input = 'class Foo { bar = 1 }'
++    const result = await esbuild.transform(input, { target: 'es2015' })
++    assertSBOM(result, input, true)
++  },
++
++  async transformSyncWithRuntime() {
++    const input = 'export const foo = 1'
++    const result = esbuild.transformSync(input, { format: 'cjs' })
++    assertSBOM(result, input, true)
++  },
++
++  async transformSyncNoRuntime() {
++    const input = 'let n = 1'
++    const result = esbuild.transformSync(input, { target: 'es2015' })
++    assertSBOM(result, input, false)
++  },
++
++  // Inputs over 1 MiB are passed to the child process through the file system,
++  // and the output comes back the same way. The hashes must still be the hashes
++  // of the real code, not of those temporary file names.
++  async transformLargeInputUsesFileSystem() {
++    const input = '/*' + 'x'.repeat(1024 * 1024) + '*/\nclass Foo { bar = 1 }\n'
++    assert.ok(input.length > 1024 * 1024)
++    const result = await esbuild.transform(input, { target: 'es2015' })
++    assertSBOM(result, input, true)
++  },
++
++  async transformErrorHasNoSBOM() {
++    try {
++      await esbuild.transform('let x = ;', {})
++      throw new Error('Expected a syntax error')
++    } catch (error) {
++      assert.ok(Array.isArray(error.errors) && error.errors.length > 0, 'expected a transform failure')
++      assert.strictEqual(error.sbom, undefined)
++    }
++  },
++
++  async legalCommentsAndMangleCacheStillWork() {
++    const input = '//! legal\nlet x = { foo_: 1 }'
++    const result = await esbuild.transform(input, {
++      legalComments: 'external',
++      mangleProps: /_$/,
++      mangleCache: {},
++    })
++    assert.strictEqual(result.legalComments, '//! legal\n')
++    assert.deepStrictEqual(result.mangleCache, { foo_: 'a' })
++    assertSBOM(result, input, false)
++  },
++
++  async buildResultHasNoSBOM() {
++    const result = await esbuild.build({
++      stdin: { contents: 'class Foo { bar = 1 }' },
++      target: 'es2015',
++      write: false,
++    })
++    assert.strictEqual(result.sbom, undefined)
++    assert.strictEqual(result.outputFiles.length, 1)
++  },
++}
++
++async function main() {
++  let failed = 0
++  for (const name of Object.keys(tests)) {
++    try {
++      await tests[name]()
++      console.log(`✅ ${name}`)
++    } catch (error) {
++      failed++
++      console.error(`❌ ${name}: ${error && error.stack || error}`)
++    }
++  }
++  await esbuild.stop()
++  if (failed > 0) {
++    console.error(`${failed} test(s) failed`)
++    process.exit(1)
++  }
++  console.log(`${Object.keys(tests).length} test(s) passed`)
++}
++
++main().catch(error => {
++  console.error(error)
++  process.exit(1)
++})

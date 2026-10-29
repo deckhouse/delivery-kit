@@ -51,6 +51,5 @@ type Inspector interface {
 	InspectConfigSecretEnvAccepted(secret string) error
 	InspectConfigSecretSrcAccepted(secret string) error
 	InspectConfigSecretValueAccepted(secret string) error
-	InspectConfigVexFilePath(relPath string) error
 	InspectIncludesAllowUpdate() error
 }

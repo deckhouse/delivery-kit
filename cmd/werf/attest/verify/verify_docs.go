@@ -14,7 +14,8 @@ If the signature is invalid, the command exits with a non-zero exit code and pri
 When the reference resolves to a multi-platform image index and --platform is not set,
 the attestations of all platforms in the index are verified: a per-platform result table
 is printed instead of the predicate, and the command succeeds only if every platform
-carries a valid signed attestation.`
+carries a valid signed attestation. OpenVEX attestations are image-level: with --type openvex
+the attestation attached to the index itself is verified and --platform is not applicable.`
 
 	docs.LongMD = "Verify a signed attestation attached to a container image.\n\n" +
 		"The attestation is pulled from the container registry, the DSSE signature is verified " +
@@ -23,7 +24,8 @@ carries a valid signed attestation.`
 		"When the reference resolves to a multi-platform image index and `--platform` is not set, " +
 		"the attestations of all platforms in the index are verified: a per-platform result table " +
 		"is printed instead of the predicate, and the command succeeds only if every platform " +
-		"carries a valid signed attestation."
+		"carries a valid signed attestation. OpenVEX attestations are image-level: with `--type openvex` " +
+		"the attestation attached to the index itself is verified and `--platform` is not applicable."
 
 	return docs
 }

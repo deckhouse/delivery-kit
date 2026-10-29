@@ -36,6 +36,7 @@ func (c fakeGiterminismConfig) UncommittedConfigGoTemplateRenderingFilePathMatch
 
 func (c fakeGiterminismConfig) IsUncommittedDockerfileAccepted(_ string) bool   { return true }
 func (c fakeGiterminismConfig) IsUncommittedDockerignoreAccepted(_ string) bool { return true }
+func (c fakeGiterminismConfig) IsUncommittedVexFileAccepted(_ string) bool      { return true }
 
 func (c fakeGiterminismConfig) UncommittedHelmFilePathMatcher() path_matcher.PathMatcher {
 	if c.uncommittedHelmFilesRejected {

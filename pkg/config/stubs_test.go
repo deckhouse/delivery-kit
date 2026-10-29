@@ -108,10 +108,6 @@ func (inspector *giterminismInspectorStub) InspectConfigSecretValueAccepted(secr
 	return nil
 }
 
-func (inspector *giterminismInspectorStub) InspectConfigVexFilePath(relPath string) error {
-	return nil
-}
-
 func (inspector *giterminismInspectorStub) InspectIncludesAllowUpdate() error {
 	return nil
 }

@@ -86,6 +86,20 @@ func (mr *MockgiterminismConfigMockRecorder) IsUncommittedDockerignoreAccepted(r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsUncommittedDockerignoreAccepted", reflect.TypeOf((*MockgiterminismConfig)(nil).IsUncommittedDockerignoreAccepted), relPath)
 }
 
+// IsUncommittedVexFileAccepted mocks base method.
+func (m *MockgiterminismConfig) IsUncommittedVexFileAccepted(relPath string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsUncommittedVexFileAccepted", relPath)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsUncommittedVexFileAccepted indicates an expected call of IsUncommittedVexFileAccepted.
+func (mr *MockgiterminismConfigMockRecorder) IsUncommittedVexFileAccepted(relPath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsUncommittedVexFileAccepted", reflect.TypeOf((*MockgiterminismConfig)(nil).IsUncommittedVexFileAccepted), relPath)
+}
+
 // UncommittedConfigGoTemplateRenderingFilePathMatcher mocks base method.
 func (m *MockgiterminismConfig) UncommittedConfigGoTemplateRenderingFilePathMatcher() path_matcher.PathMatcher {
 	m.ctrl.T.Helper()

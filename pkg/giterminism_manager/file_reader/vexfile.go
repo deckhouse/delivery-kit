@@ -28,9 +28,7 @@ func (r FileReader) ReadVEXFile(ctx context.Context, relPath string) (data []byt
 }
 
 func (r FileReader) readVEXFile(ctx context.Context, relPath string) ([]byte, error) {
-	return r.ReadAndCheckConfigurationFile(ctx, relPath, func(path string) bool {
-		return r.giterminismConfig.IsUncommittedConfigAccepted()
-	}, func(path string) (bool, error) {
+	return r.ReadAndCheckConfigurationFile(ctx, relPath, r.giterminismConfig.IsUncommittedVexFileAccepted, func(path string) (bool, error) {
 		return r.IsRegularFileExist(ctx, path)
 	})
 }

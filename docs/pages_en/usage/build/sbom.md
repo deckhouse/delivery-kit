@@ -191,6 +191,8 @@ If `--sign-key` is not provided, the SBOM is generated and published unsigned â€
 
 The `werf sbom get`, `werf sbom merge`, and `werf sbom validate` commands accept no signing flags: `get` downloads the artifact as is, while `merge` and `validate` operate on already downloaded SBOMs. To verify the signature of an SBOM artifact, use `werf attest verify` with a public key (`--key`).
 
+The same key also signs the [VEX]({{ "/usage/build/vex.html" | true_relative_url }}) document of the image, if one is declared.
+
 ## Caching and rebuilds
 
 Toggling `build.sbom.enable` changes the stage digest, so enabling or disabling SBOM generation invalidates the cache and triggers a full rebuild.

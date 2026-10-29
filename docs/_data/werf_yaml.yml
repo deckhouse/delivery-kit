@@ -324,6 +324,15 @@ sections:
           en: "/usage/build/images.html#using-intermediate-and-final-images"
           ru: "/usage/build/images.html#использование-промежуточных-и-конечных-образов"
       - <<: *image-section-sbom
+      - &image-section-vex
+        name: vex
+        value: "string || { document: string }"
+        description:
+          en: "Path to the OpenVEX document to attach to the image as an OCI artifact, relative to the project directory"
+          ru: "Путь к документу OpenVEX, прикрепляемому к образу как OCI-артефакт, относительно директории проекта"
+        detailsArticle:
+          en: "/usage/build/vex.html"
+          ru: "/usage/build/vex.html"
       - name: dockerfile
         value: "string"
         description:
@@ -576,6 +585,7 @@ sections:
       - << : *dockerfile-image-section-image
       - <<: *dockerfile-image-section-final
       - <<: *image-section-sbom
+      - <<: *image-section-vex
       - name: packages
         description:
           en: "Set of directives to catalog language package manifests into the SBOM"

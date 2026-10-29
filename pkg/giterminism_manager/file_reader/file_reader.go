@@ -41,6 +41,7 @@ type giterminismConfig interface {
 	UncommittedConfigGoTemplateRenderingFilePathMatcher() path_matcher.PathMatcher
 	IsUncommittedDockerfileAccepted(relPath string) bool
 	IsUncommittedDockerignoreAccepted(relPath string) bool
+	IsUncommittedVexFileAccepted(relPath string) bool
 	UncommittedHelmFilePathMatcher() path_matcher.PathMatcher
 }
 

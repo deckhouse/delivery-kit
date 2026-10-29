@@ -26,7 +26,6 @@ type giterminismConfig interface {
 	IsConfigStapelMountBuildDirAccepted() bool
 	IsConfigStapelMountFromPathAccepted(fromPath string) bool
 	IsConfigDockerfileContextAddFileAccepted(relPath string) bool
-	IsConfigVexFileAccepted(relPath string) bool
 	IsConfigSecretEnvAccepted(name string) bool
 	IsConfigSecretSrcAccepted(path string) bool
 	IsConfigSecretValueAccepted(name string) bool

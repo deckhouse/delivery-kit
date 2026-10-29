@@ -1,5 +1,9 @@
 'use strict';
 
+// Ahead of every webpack require of this file: the bootstrap evidence of the
+// collector is a recording of the sources this process loads.
+require('./runtime-preload.cjs');
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -17,7 +21,7 @@ let distributions;
 
 before(() => {
 	scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dk-webpack-collector-')));
-	fixture = createFixture(scratch);
+	fixture = createFixture(scratch, { bootstrap: true });
 	distributions = fixture.distributions;
 });
 
@@ -53,16 +57,28 @@ test('binds an emitted chunk to the concatenated modules it really contains', as
 	const main = asset(proof, 'main.js');
 	assert.equal(main.status, 'present');
 	assert.equal(main.reason, undefined);
-	assert.deepEqual(main.includedComponents, ['node:app@0.1.0', 'node:pkg-a@1.2.3', 'node:pkg-b@4.5.6']);
+	assert.deepEqual(main.includedComponents, ['node:app@0.1.0', 'node:pkg-a@1.2.3', 'node:pkg-b@4.5.6', 'node:webpack@5.94.0']);
+	// The bootstrap this chunk was rendered from: the chunk renderer of the pinned
+	// webpack, the three helper modules it reads, and the stock APIPlugin tap that
+	// shaped its module content.
+	const bootstrapSources = ['lib/javascript/JavascriptModulesPlugin.js', 'lib/RuntimeGlobals.js', 'lib/RuntimeTemplate.js', 'lib/Template.js', 'lib/APIPlugin.js'].map((relative) =>
+		path.join(fixture.bootstrap.binding.root, relative),
+	);
 	assert.deepEqual(
 		main.inputs,
 		[
 			{ kind: 'source', path: area.installed('app/index.js'), sha256: sha256(area.installed('app/index.js')), components: ['node:app@0.1.0'], disposition: 'included' },
 			{ kind: 'source', path: area.installed('pkg-a/index.js'), sha256: sha256(area.installed('pkg-a/index.js')), components: ['node:pkg-a@1.2.3'], disposition: 'included' },
 			{ kind: 'source', path: area.installed('pkg-b/index.js'), sha256: sha256(area.installed('pkg-b/index.js')), components: ['node:pkg-b@4.5.6'], disposition: 'included' },
+			...bootstrapSources.map((source) => ({ kind: 'source', path: source, sha256: sha256(source), components: ['node:webpack@5.94.0'], disposition: 'included' })),
 		].sort((left, right) => (left.path < right.path ? -1 : 1)),
 	);
-	assert.deepEqual(main.components, [distributions.app.component, distributions['pkg-a'].component, distributions['pkg-b'].component]);
+	assert.deepEqual(main.components, [
+		distributions.app.component,
+		distributions['pkg-a'].component,
+		distributions['pkg-b'].component,
+		fixture.bootstrap.binding.component,
+	]);
 	for (const component of main.components) {
 		assert.match(component.source.checksum, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
 	}
@@ -89,8 +105,8 @@ test('binds a declared plain copied asset to its own component only', async () =
 	assert.deepEqual(notice.tools, []);
 });
 
-test('refuses to claim a copied bundle or an undeclared copied asset', async () => {
-	const { proof } = await fixture.buildPrimary('opaque');
+test('refuses a copied bundle and binds an undeclared copy to its observed source', async () => {
+	const { area, proof } = await fixture.buildPrimary('opaque');
 
 	const vendor = asset(proof, 'vendor.js');
 	assert.equal(vendor.status, 'no-data');
@@ -98,10 +114,19 @@ test('refuses to claim a copied bundle or an undeclared copied asset', async () 
 	assert.deepEqual(vendor.components, []);
 	assert.deepEqual(vendor.includedComponents, []);
 
+	// Nothing declares this copy: the observed one is what binds it.
 	const undeclared = asset(proof, 'undeclared.txt');
-	assert.equal(undeclared.status, 'no-data');
-	assert.match(undeclared.reason, /copied asset has no declared origin/);
-	assert.deepEqual(undeclared.inputs, []);
+	assert.equal(undeclared.status, 'present');
+	assert.deepEqual(undeclared.includedComponents, ['node:pkg-a@1.2.3']);
+	assert.deepEqual(undeclared.inputs, [
+		{
+			kind: 'source',
+			path: area.installed('pkg-a/LICENSE'),
+			sha256: sha256(area.installed('pkg-a/LICENSE')),
+			components: ['node:pkg-a@1.2.3'],
+			disposition: 'included',
+		},
+	]);
 });
 
 test('reports hash-mismatch when a materialized source differs from its original', async () => {
@@ -124,7 +149,9 @@ test('reports hash-mismatch when a materialized source differs from its original
 	assert.equal(asset(proof, 'notice.txt').status, 'present', 'an unrelated asset keeps its own binding');
 });
 
-test('reports no-data for a chunk carrying runtime modules', async () => {
+// A commonjs2 library taps the chunk renderer, so the bootstrap of the chunk
+// carries code of a plugin this collector cannot attribute to a source.
+test('reports no-data for a chunk whose library shaping it cannot attribute', async () => {
 	const area = fixture.workspace('runtime');
 	await run(
 		configuration(area, {
@@ -136,7 +163,7 @@ test('reports no-data for a chunk carrying runtime modules', async () => {
 
 	const lib = asset(readProof(area), 'lib.js');
 	assert.equal(lib.status, 'no-data');
-	assert.match(lib.reason, /module without a physical source: webpack\/runtime\//);
+	assert.match(lib.reason, /AssignLibraryPlugin tapped render while renderMain ran/);
 	assert.deepEqual(lib.includedComponents, []);
 	assert.deepEqual(lib.components, []);
 });
@@ -165,7 +192,9 @@ test('reports invalid when one copied asset has conflicting declared origins', a
 	assert.deepEqual(notice.components, []);
 });
 
-test('reports hash-mismatch when a copied asset differs from its declared source bytes', async () => {
+// A transforming pattern hands the asset content the plugin made up on the way,
+// not the bytes any observed copy read.
+test('reports no-data for an asset a transforming copy pattern produced', async () => {
 	const area = fixture.workspace('transformed');
 	await run(
 		configuration(area, {
@@ -183,10 +212,11 @@ test('reports hash-mismatch when a copied asset differs from its declared source
 	);
 
 	const notice = asset(readProof(area), 'notice.txt');
-	assert.equal(notice.status, 'hash-mismatch');
-	assert.match(notice.reason, /copied asset differs from its source bytes/);
+	assert.equal(notice.status, 'no-data');
+	assert.match(notice.reason, /notice\.txt does not carry the bytes of an observed copy/);
 	assert.deepEqual(notice.includedComponents, []);
 	assert.equal(notice.sha256, sha256(path.join(area.output, 'notice.txt')));
+	assert.match(fs.readFileSync(path.join(area.output, 'notice.txt'), 'utf8'), /appended by the build/, 'the transformed bytes must be what the asset really carries');
 });
 
 test('reports invalid for a materialized source reached through a symlink', async () => {
@@ -334,6 +364,43 @@ test('refuses a module whose consumed source is not the bytes on disk', async ()
 	assert.equal(main.status, 'hash-mismatch');
 	assert.equal(main.reason, `consumed module source differs from its file: ${area.installed('pkg-b/index.js')}`);
 	assert.deepEqual(main.inputs, []);
+});
+
+// A directory pattern copies files nothing declared, one by one: each emitted
+// asset carries the package the file it was read from belongs to.
+test('binds every file of a directory copy pattern to the package it was read from', async () => {
+	const area = fixture.workspace('directory');
+	await run(
+		configuration(area, {
+			plugins: [
+				new CopyPlugin({ patterns: [{ from: area.installed('pkg-c'), to: 'bundled' }] }),
+				new DkSbomWebpackCollector({ proofPath: area.proofPath, originals: area.originals, copied: [] }),
+			],
+		}),
+	);
+
+	const proof = readProof(area);
+	assert.deepEqual(
+		proof.assets.filter((row) => row.path.startsWith('bundled/')).map((row) => [row.path, row.status, row.includedComponents]),
+		[
+			['bundled/LICENSE', 'present', ['node:pkg-c@7.8.9']],
+			['bundled/index.js', 'no-data', []],
+			['bundled/package.json', 'present', ['node:pkg-c@7.8.9']],
+			['bundled/vendor.js', 'no-data', []],
+		],
+	);
+	for (const name of ['LICENSE', 'package.json']) {
+		const row = asset(proof, `bundled/${name}`);
+		assert.deepEqual(row.inputs, [
+			{
+				kind: 'source',
+				path: area.installed(`pkg-c/${name}`),
+				sha256: sha256(area.installed(`pkg-c/${name}`)),
+				components: ['node:pkg-c@7.8.9'],
+				disposition: 'included',
+			},
+		]);
+	}
 });
 
 test('binds a copy pattern whose context is relative to the compiler context', async () => {

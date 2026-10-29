@@ -1,6 +1,6 @@
 # Webpack asset evidence
 
-This private producer adapter supports Webpack 5.94.0 and plain-file copies made by copy-webpack-plugin 6.1.1. It emits a source proof for the shared Go-embed validator; it is not an ELF record or a public SBOM sidecar.
+This private producer adapter supports a bounded set of Webpack 5.94.0 compilation paths and observed file, directory and glob copies made by copy-webpack-plugin 6.1.1. It emits a source proof for the shared Go-embed validator; it is not an ELF record or a public SBOM sidecar.
 
 ```js
 const AssetEvidence = require('./collector.cjs');
@@ -22,7 +22,7 @@ new AssetEvidence({
 
 The caller must first verify each distribution's identity and materialize an independent original tree. A private asynchronous `resolveOriginal(resourcePath)` callback may supply a verified binding for a selected resource before the static roots are consulted. Returning `undefined` delegates to those static roots; a typed failure (`status` plus `message`) refuses the asset instead of falling back to the containing project. The callback must have a fresh, bounded lifetime per compilation and must not replace a missing managed dependency with a project-owned input. The plugin does not fetch packages, infer versions from dependency ranges, validate the distribution archive itself, or turn a lockfile into an installed composition. A Git-backed package needs its separately verified Git/distribution binding; its commit is not tarball integrity. Installed and original roots must not overlap.
 
-For single-file chunks, the collector follows the final chunk graph, including concatenated inner modules. Selected units are checked against their physical original files and the source Webpack actually consumed. This accounts for selected contributor units, not individual surviving bytes after minification. Externals do not become embedded components. Copied files must match a configured, plain single-file CopyPlugin operation and its final emitted bytes.
+For single-file chunks, the collector follows the final chunk graph, including concatenated inner modules. Selected units are checked against their physical original files and the source Webpack actually consumed. This accounts for selected contributor units, not individual surviving bytes after minification. Externals do not become embedded components. Copied files are bound to the actual CopyPlugin post-processing result by Buffer identity at emission, then checked against their verified original and final output bytes. Directory/glob selection is observed, not repeated; skipped and forced-overwritten copies are distinguished without choosing an owner from equal bytes. An optional explicit `copied` declaration is a cross-check, not a substitute for observation. CopyPlugin's eight pinned implementation files must themselves have verified originals available through the resolver, and its load must be recorded by the preload. Missing or altered instrumentation cannot fall back to the old static declaration.
 
 Every observed output has its final SHA-256, size and a status. A `present` row contains a component dictionary, an explicit `includedComponents` set, included input evidence and tools. A valid dictionary is not itself proof that every component is present. Unknown runtime units, loader-transformed modules, multi-file chunks, unclassified output assets and copied prebundled JavaScript/Wasm/native payloads produce `no-data`, not incomplete `present` rows. Known byte changes produce `hash-mismatch`; contradictory bindings produce `invalid`. Unsupported Webpack versions or asset path spellings stop proof production.
 
@@ -59,6 +59,14 @@ resolveOriginal: async resource =>
 
 A Yarn error must propagate, not become a primary-project fallback. The stage's explicit PM subject and source distribution remain unchanged. This hash form only covers verified raw source inputs: loader-generated code still needs a supported transformation adapter.
 
+## Observed runtime and bootstrap units
+
+`node --require /path/to/runtime-preload.cjs …` records the CommonJS source and actual generator calls before Webpack loads. Without that observation, chunks requiring runtime/bootstrap evidence remain `no-data`. The adapter is limited to fingerprinted Webpack 5.94.0 implementations: three standard runtime classes and the main chunk renderer with its checked helper sources. Matching a version string alone does not make a fork supported.
+
+The observer records real calls and their helper state, not a second execution of a generator. A prefilled generated-code cache, a replaced implementation, or changed helper state must not become evidence of stock Webpack generation. The collector binds the observed render to the bytes actually left on the output filesystem. These checks do not claim to secure the entire Node process against a hostile configuration controlling the producer itself.
+
+Uncovered chunk renderers, additional text-producing plugin hooks and transformations between render and emission fail closed. Code splitting, library output plugins and minification therefore require further supported adapters; the initial runtime support is not complete Argo or Monaco coverage. Known generator/template units enter `inputs` as source contributions, while merely executing or formatting other units does not add the whole toolchain as composition.
+
 ## Stage delivery
 
 A checked stage may extend the existing private `werf.io/sbom-build-context-v1` declaration:
@@ -86,7 +94,25 @@ This first delivery path requires a directory import whose source is the declare
 
 The shared helper validates the complete proof before Go cache lookup and checks bytes for the actual `go:embed` selection. The instrumented Go SDK includes the validated semantic digest in the embedding package's action key and verifies the digest again on compilation. Neither an ordinary stage checksum nor a package's current lockfile can replace this check.
 
-This adapter is not automatically enabled by merely setting `SBOM_BUILD_CONTEXT`: the producing Webpack configuration must include the plugin and verified originals. Automatic manager-cache discovery and plugin deployment in the actual image graph, Git original acquisition, runtime/loader attribution, directory-copy patterns and complete Argo UI/prebundled-asset closure require additional integration. An opaque Redoc bundle is not accepted as a complete single-package composition.
+This adapter is not automatically enabled by merely setting `SBOM_BUILD_CONTEXT`: the producing Webpack configuration must include the plugin and verified originals. Automatic tool deployment in the actual image graph, Git original acquisition, additional runtime/loader and copy-transform adapters, and complete Argo UI/prebundled-asset closure require further integration. An opaque Redoc bundle is not accepted as a complete single-package composition.
+
+## Exact-config activation
+
+The private `activate.cjs` preload appends the collector only to the named CommonJS Webpack configuration, without rewriting that file or its package scripts. The generated UI job supplies:
+
+```sh
+export DK_SBOM_WEBPACK_CONFIG=/ui/src/app/webpack.config.js
+export DK_SBOM_WEBPACK_PROOF=/private-build-metadata/ui.json
+export DK_SBOM_YARN_CACHE="$(/tools/yarn/node_modules/.bin/yarn --silent cache dir)"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /tools/sbom/activate.cjs"
+/tools/yarn/node_modules/.bin/yarn build
+```
+
+The example paths describe the generated job's layout, not a discovered global installation. The job must make the pinned tool package available and request `webpackSources` in its compiler context. The producing stage and the consuming stage must agree on the proof path and output root. Existing `NODE_OPTIONS` flags remain in place.
+
+Without `DK_SBOM_WEBPACK_CONFIG`, activation loads nothing. In active mode the Yarn parent and tool children inherit the process-local load recorder, but only loading the exact configured module attaches the collector. An unmatched configuration produces no proof; the downstream required Go-embed obligation refuses it. Multi-compiler configurations, watch mode and unsupported export shapes fail closed. Each compilation gets an independent Yarn originals resolver and owned temporary directory; normal completion and failures clean that directory.
+
+Activation tests use real webpack-cli 4.9.2 and Node 22.20, preserving the original object/function config, CLI arguments and heap flags. They prove hook delivery and resolver execution, not complete composition of Argo assets.
 
 ## Tests
 

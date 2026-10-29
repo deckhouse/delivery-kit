@@ -1,5 +1,9 @@
 'use strict';
 
+// Ahead of every webpack require of this file: the bootstrap evidence of the
+// collector is a recording of the sources this process loads.
+require('./runtime-preload.cjs');
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -11,7 +15,7 @@ const YarnOriginals = require('./yarn-originals.cjs');
 const {createFixture,configuration,run,readProof} = require('./fixture.cjs');
 
 let root,fixture;
-before(()=>{root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'dk-yarn-collector-')));fixture=createFixture(root);});
+before(()=>{root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'dk-yarn-collector-')));fixture=createFixture(root,{bootstrap:true});});
 after(()=>fs.rmSync(root,{recursive:true,force:true}));
 
 function originals(area) {
@@ -33,7 +37,10 @@ function originals(area) {
 }
 
 async function compile(area,resolver) {
-	await run(configuration(area,{plugins:[new CopyPlugin({patterns:[{from:area.installed('pkg-a/NOTICE.txt'),to:'notice.txt'}]}),new Collector({proofPath:area.proofPath, originals:area.originals, copied:[{from:area.installed('pkg-a/NOTICE.txt'),to:'notice.txt'}],resolveOriginal:resource=>resolver.resolve(resource)})]}));
+	// The Yarn resolver owns the packages installed into this workspace; the
+	// webpack that is running is not one of them and keeps its static binding.
+	const resolveOriginal=resource=>resource.startsWith(area.root+path.sep)?resolver.resolve(resource):undefined;
+	await run(configuration(area,{plugins:[new CopyPlugin({patterns:[{from:area.installed('pkg-a/NOTICE.txt'),to:'notice.txt'}]}),new Collector({proofPath:area.proofPath, originals:area.originals, copied:[{from:area.installed('pkg-a/NOTICE.txt'),to:'notice.txt'}],resolveOriginal})]}));
 	return readProof(area);
 }
 
@@ -47,9 +54,14 @@ test('joins selected webpack units with SRI-verified Yarn archives only',async()
 		const copy=proof.assets.find(a=>a.path==='notice.txt');
 		assert.equal(main.status,'present');
 		assert.equal(copy.status,'present');
-		assert.deepEqual(main.components.map(c=>c.name).sort(),['app','pkg-a','pkg-b']);
+		assert.deepEqual(main.components.map(c=>c.name).sort(),['app','pkg-a','pkg-b','webpack']);
 		assert.deepEqual(copy.components.map(c=>c.name),['pkg-a']);
 		for(const c of main.components) {
+			if(c.name==='webpack') {
+				// Verified independently of the lockfile, as the static binding it is.
+				assert.deepEqual(c,fixture.bootstrap.binding.component);
+				continue;
+			}
 			assert.equal(c.source.checksum,fixture.distributions[c.name].integrity);
 			assert.equal(c.source.locator,`https://registry.example.test/${c.name}/download`);
 		}

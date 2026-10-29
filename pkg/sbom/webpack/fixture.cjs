@@ -7,6 +7,11 @@
 // Run directly with DK_WEBPACK_EVIDENCE=<absolute directory> to perform one
 // positive build and keep everything it consumed and produced in that directory.
 
+// The bootstrap evidence describes the webpack sources this process loaded, so
+// the load registry has to be in place before webpack is required below; a test
+// file installs it itself, ahead of its own first webpack require.
+if (require.main === module) require('./runtime-preload.cjs');
+
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -45,15 +50,64 @@ const PACKAGES = {
 	},
 };
 
-function createFixture(root) {
+function createFixture(root, options = {}) {
 	fs.mkdirSync(root, { recursive: true });
 	const resolved = fs.realpathSync(root);
 	const distributions = packDistributions(path.join(resolved, 'distributions'));
+	// The build tools this process is running are instruments, not packages of
+	// this workspace: they are bound where they are installed and never land in
+	// any node_modules of a fixture workspace.
+	const tools = options.bootstrap
+		? { bootstrap: bootstrapOriginal(path.join(resolved, 'webpack')), copy: bootstrapOriginal(path.join(resolved, 'copy-webpack-plugin'), 'copy-webpack-plugin') }
+		: {};
 	return {
 		root: resolved,
 		distributions,
-		workspace: (name, options) => workspace(resolved, distributions, name, options),
-		buildPrimary: (name, overrides) => buildPrimary(resolved, distributions, name, overrides),
+		bootstrap: tools.bootstrap,
+		copy: tools.copy,
+		workspace: (name, workspaceOptions) => workspace(resolved, distributions, name, workspaceOptions, tools),
+		buildPrimary: (name, overrides) => buildPrimary(resolved, distributions, name, overrides, tools),
+	};
+}
+
+// The bootstrap of a rendered chunk belongs to the webpack this process is
+// running, and an observed copy to the copy plugin it loaded, so the binding is
+// the installed distribution itself: packed into a real npm archive, bound to
+// the integrity npm reported and this code recomputed from the archive bytes,
+// and verified against an original extracted from that archive rather than
+// copied from the install.
+function bootstrapOriginal(root, packageName = 'webpack') {
+	const installed = fs.realpathSync(path.dirname(require.resolve(`${packageName}/package.json`)));
+	const tarballs = path.join(root, 'tarballs');
+	fs.mkdirSync(tarballs, { recursive: true });
+	const report = JSON.parse(
+		execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', tarballs, installed], {
+			encoding: 'utf8',
+			env: { ...process.env, NPM_CONFIG_UPDATE_NOTIFIER: 'false', NPM_CONFIG_AUDIT: 'false', NPM_CONFIG_FUND: 'false', GIT_TERMINAL_PROMPT: '0' },
+		}),
+	)[0];
+	const tarball = path.join(tarballs, report.filename);
+	const integrity = `sha512-${crypto.createHash('sha512').update(fs.readFileSync(tarball)).digest('base64')}`;
+	if (integrity !== report.integrity) throw new Error(`npm reported a different integrity for ${packageName}`);
+	const original = path.join(root, 'original');
+	fs.mkdirSync(original, { recursive: true });
+	execFileSync('tar', ['-xzf', tarball, '-C', original, '--strip-components=1']);
+	const version = JSON.parse(fs.readFileSync(path.join(original, 'package.json'), 'utf8')).version;
+	return {
+		tarball,
+		integrity,
+		binding: {
+			root: installed,
+			originalRoot: original,
+			component: {
+				id: `node:${packageName}@${version}`,
+				name: packageName,
+				version,
+				// The archive this fixture produced, not a registry one: nothing here
+				// claims the identity of a published distribution.
+				source: { kind: 'node', locator: `file://${tarball}`, checksum: integrity },
+			},
+		},
 	};
 }
 
@@ -97,7 +151,7 @@ function packDistributions(root) {
 	return packed;
 }
 
-function workspace(scratch, distributions, name, options) {
+function workspace(scratch, distributions, name, options, tools = {}) {
 	const root = path.join(scratch, name);
 	const modules = path.join(root, 'node_modules');
 	fs.mkdirSync(modules, { recursive: true });
@@ -113,6 +167,11 @@ function workspace(scratch, distributions, name, options) {
 			fs.cpSync(distribution.original, original, { recursive: true });
 		}
 		originals.push({ root: installed, originalRoot: original, component: distribution.component });
+	}
+	// Never materialized into this workspace: a tool binding has to be the
+	// distribution the compilation itself is running.
+	for (const tool of [tools.bootstrap, tools.copy]) {
+		if (tool) originals.push(tool.binding);
 	}
 	return {
 		root,
@@ -149,14 +208,15 @@ function run(config) {
 	});
 }
 
-async function buildPrimary(scratch, distributions, name, overrides) {
-	const area = workspace(scratch, distributions, name);
+async function buildPrimary(scratch, distributions, name, overrides, tools) {
+	const area = workspace(scratch, distributions, name, undefined, tools);
 	const plugins = [
 		new CopyPlugin({
 			patterns: [
 				{ from: area.installed('pkg-a/NOTICE.txt'), to: 'notice.txt' },
 				{ from: area.installed('pkg-c/vendor.js'), to: 'vendor.js' },
-				{ from: area.installed('pkg-c/index.js'), to: 'undeclared.txt' },
+				// Copied without being declared: the observed copy is the binding.
+				{ from: area.installed('pkg-a/LICENSE'), to: 'undeclared.txt' },
 			],
 		}),
 		new DkSbomWebpackCollector({
@@ -171,6 +231,18 @@ async function buildPrimary(scratch, distributions, name, overrides) {
 	if (overrides && overrides.beforeRun) overrides.beforeRun(area);
 	await run(configuration(area, { plugins }));
 	return { area, proof: readProof(area) };
+}
+
+function toolManifest(tool) {
+	return {
+		name: tool.binding.component.name,
+		version: tool.binding.component.version,
+		tarball: tool.tarball,
+		integrity: tool.integrity,
+		tarballSHA256: sha256(tool.tarball),
+		originalRoot: tool.binding.originalRoot,
+		installedRoot: tool.binding.root,
+	};
 }
 
 function readProof(area) {
@@ -189,7 +261,7 @@ async function exportEvidence(target) {
 	fs.mkdirSync(target, { recursive: true });
 	const root = fs.realpathSync(target);
 	if (fs.readdirSync(root).length > 0) throw new Error(`${root} is not empty`);
-	const fixture = createFixture(path.join(root, 'fixture'));
+	const fixture = createFixture(path.join(root, 'fixture'), { bootstrap: true });
 	const { area, proof } = await fixture.buildPrimary('workspace');
 
 	const rows = Object.fromEntries(proof.assets.map((row) => [row.path, row]));
@@ -226,6 +298,8 @@ async function exportEvidence(target) {
 			originalRoot: distribution.original,
 			installedRoot: path.join(area.modules, name),
 		})),
+		bootstrapDistribution: toolManifest(fixture.bootstrap),
+		copyDistribution: toolManifest(fixture.copy),
 	};
 	const manifestPath = path.join(root, 'manifest.json');
 	fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -247,7 +321,7 @@ async function exportEvidence(target) {
 	return location;
 }
 
-module.exports = { PACKAGES, createFixture, configuration, run, readProof, sha256, exportEvidence };
+module.exports = { PACKAGES, createFixture, bootstrapOriginal, configuration, run, readProof, sha256, exportEvidence };
 
 if (require.main === module) {
 	exportEvidence(process.env.DK_WEBPACK_EVIDENCE).then(

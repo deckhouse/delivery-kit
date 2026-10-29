@@ -13,6 +13,9 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const { runtimeEvidence } = require('./runtime-evidence.cjs');
+const { installCopyEvidence } = require('./copy-evidence.cjs');
+const { bootstrapEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const path = require('path');
 
 const PLUGIN = 'DkSbomWebpackCollector';
@@ -38,9 +41,13 @@ class DkSbomWebpackCollector {
 			throw new Error(`${PLUGIN}: unsupported webpack ${version || 'unknown'}, expected ${SUPPORTED_WEBPACK}`);
 		}
 		checkProofOutsideOutput(this.options.proofPath, compiler.options.output && compiler.options.output.path);
+		// The emitted bytes have to be taken before the compiler replaces every
+		// asset source with a size-only one.
+		observeAssets(compiler);
 		// Bound against the copy plugin instances this compiler really runs, so a
 		// declaration can never stand in for a copy operation that is not configured.
 		const options = { ...this.options, copied: bindCopied(this.options.copied, compiler) };
+		options.copyEvidence = installCopyEvidence(compiler, resource => verifyResource(options, resource));
 		compiler.hooks.afterEmit.tapAsync(PLUGIN, (compilation, callback) => {
 			buildProof(options, compilation)
 				.then(async proof => {
@@ -208,7 +215,7 @@ async function buildProof(options, compilation) {
 			throw new Error(`${PLUGIN}: unsupported asset name carrying a query or fragment: ${asset.name}`);
 		}
 		const assetPath = requireCleanRelativePath(asset.name, `emitted asset ${asset.name}`);
-		assets.push(await describeAsset(options, assetPath, asset, chunkUnits.get(asset.name)));
+		assets.push(await describeAsset(options, assetPath, asset, chunkUnits.get(asset.name), compilation));
 	}
 	assets.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	return { version: PROOF_VERSION, sourceRoot, assets };
@@ -226,23 +233,43 @@ async function collectChunkAssets(options, compilation) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
 		for (const module of compilation.chunkGraph.getChunkModulesIterable(chunk)) {
-			await collectModule(options, module, collected);
+			await collectModule(options, module, collected, compilation, chunk);
 		}
+		// Every chunk must account for generated wrapper/bootstrap code; an
+		// undescribed renderChunk path remains no-data rather than ordinary source.
+		const bootstrap = await bootstrapEvidence(compilation, chunk, resource => verifyResource(options, resource));
+		if (bootstrap.failure) addFailure(collected, bootstrap.failure);
+		for (const unit of bootstrap.units) collected.units.set(unit.path, unit);
 		for (const file of chunk.files) {
 			const target = byAsset.get(file) || { units: new Map(), failures: new Map() };
 			for (const [key, unit] of collected.units) target.units.set(key, unit);
 			for (const [reason, failure] of collected.failures) target.failures.set(reason, failure);
+			// The bytes the described render produced: whatever is on disk at the end
+			// has to be exactly these, no matter what ran after the emit.
+			if (bootstrap.requiredBytes) {
+				if (target.requiredBytes && !target.requiredBytes.equals(bootstrap.requiredBytes)) {
+					addFailure(target, failure('invalid', `asset ${file} is described by two different renders`));
+				} else {
+					target.requiredBytes = bootstrap.requiredBytes;
+				}
+			}
 			byAsset.set(file, target);
 		}
 	}
 	return byAsset;
 }
 
-async function collectModule(options, module, collected) {
+async function collectModule(options, module, collected, compilation, chunk) {
+	if (module.type === 'runtime') {
+		const result = await runtimeEvidence(compilation, chunk, module, resource => verifyResource(options, resource));
+		if (result.failure) addFailure(collected, result.failure);
+		for (const unit of result.units) collected.units.set(unit.path, unit);
+		return;
+	}
 	// A ConcatenatedModule is a scope-hoisting wrapper: its inner modules are the
 	// units that really ended up in the chunk.
 	if (module.constructor && module.constructor.name === 'ConcatenatedModule' && Array.isArray(module.modules) && module.rootModule) {
-		for (const inner of module.modules) await collectModule(options, inner, collected);
+		for (const inner of module.modules) await collectModule(options, inner, collected, compilation, chunk);
 		return;
 	}
 	// An external is referenced, not bundled, so it contributes no input here.
@@ -343,23 +370,25 @@ function readRegularFile(file) {
 	return { bytes: fs.readFileSync(file) };
 }
 
-function describeAsset(options, assetPath, asset, chunkCollected) {
+function describeAsset(options, assetPath, asset, chunkCollected, compilation) {
 	const copied = asset.info && asset.info.copied === true;
 	if (copied && chunkCollected) {
 		return incomplete(assetPath, failure('invalid', `asset is both copied and emitted by a chunk`));
 	}
-	if (copied) return describeCopiedAsset(options, assetPath);
+	if (copied) return describeCopiedAsset(options, assetPath, compilation);
 	if (!chunkCollected) return incomplete(assetPath, failure('no-data', `asset belongs to no chunk of this compilation`));
 	if (chunkCollected.failures.size > 0) return incomplete(assetPath, worst([...chunkCollected.failures.values()]));
 	if (chunkCollected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
-	return present(assetPath, [...chunkCollected.units.values()]);
+	return present(assetPath, [...chunkCollected.units.values()], chunkCollected.requiredBytes);
 }
 
-async function describeCopiedAsset(options, assetPath) {
+async function describeCopiedAsset(options, assetPath, compilation) {
+	const observed = options.copyEvidence(compilation, assetPath);
+	if (observed.failure) return incomplete(assetPath, observed.failure);
 	const binding = options.copied.get(assetPath);
-	if (!binding) return incomplete(assetPath, failure('no-data', `copied asset has no declared origin`));
-	if (binding.failure) return incomplete(assetPath, binding.failure);
-	const from = binding.from;
+	if (binding?.failure) return incomplete(assetPath, binding.failure);
+	if (binding && binding.from !== observed.from) return incomplete(assetPath, failure('invalid', `declared copy origin disagrees with the observed source of ${assetPath}`));
+	const from = observed.from;
 	const extension = path.extname(assetPath).toLowerCase();
 	const fromExtension = path.extname(from).toLowerCase();
 	if (OPAQUE_COPIED_EXTENSIONS.includes(extension) || OPAQUE_COPIED_EXTENSIONS.includes(fromExtension)) {
@@ -450,7 +479,7 @@ async function readEmittedAssets(compilation, assets) {
 			outputFileSystem.readFile(file, (error, data) => (error ? reject(new Error(`${PLUGIN}: emitted asset ${asset.row.path} is unreadable: ${error.message}`)) : resolve(data)));
 		});
 		if (asset.requiredBytes && !asset.requiredBytes.equals(bytes)) {
-			assets[index] = incomplete(asset.row.path, failure('hash-mismatch', `copied asset differs from its source bytes`));
+			assets[index] = incomplete(asset.row.path, failure('hash-mismatch', `emitted asset differs from the bytes it was described from`));
 			assets[index].row.sha256 = digest(bytes);
 			assets[index].row.size = bytes.length;
 			continue;

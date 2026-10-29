@@ -1,5 +1,9 @@
 'use strict';
 
+// Ahead of every webpack require of this file: the bootstrap evidence of the
+// collector is a recording of the sources this process loads.
+require('./runtime-preload.cjs');
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -12,7 +16,7 @@ const { createFixture, configuration, run, readProof } = require('./fixture.cjs'
 let root, fixture;
 before(() => {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dk-webpack-resolver-')));
-	fixture = createFixture(root);
+	fixture = createFixture(root, {bootstrap: true});
 });
 after(() => fs.rmSync(root, {recursive: true, force: true}));
 
@@ -25,13 +29,14 @@ test('resolves selected managed modules before a containing static project root'
 	fs.mkdirSync(projectOriginal);
 	const primary = {root: area.root, originalRoot: projectOriginal, component: {...area.originals[0].component, id:'primary'}};
 	await run(configuration(area, {plugins: [new CopyPlugin({patterns:[{from: area.installed('pkg-a/NOTICE.txt'), to:'notice.txt'}]}), new Collector({
-		proofPath: area.proofPath, originals:[primary], copied:[{from:area.installed('pkg-a/NOTICE.txt'),to:'notice.txt'}],
+		proofPath: area.proofPath, originals:[primary, fixture.bootstrap.binding], copied:[{from:area.installed('pkg-a/NOTICE.txt'),to:'notice.txt'}],
 		resolveOriginal: async resource => {
 			requested.add(resource);
 			return area.originals.find(binding => resource.startsWith(binding.root + path.sep));
 		}
 	})]}));
 	assert.equal(row(area, 'main.js').status, 'present');
+	assert.deepEqual(row(area, 'main.js').includedComponents, ['node:app@0.1.0', 'node:pkg-a@1.2.3', 'node:pkg-b@4.5.6', 'node:webpack@5.94.0']);
 	assert.equal(row(area, 'notice.txt').status, 'present');
 	assert.ok([...requested].some(p => p.endsWith('/pkg-b/index.js')));
 	assert.ok(![...requested].some(p => p.includes('/pkg-c/')));

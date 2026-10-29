@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.84.1-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.84.0-dk.1...v2.84.1-dk.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **build:** restore Docker Hub login for build and export ([#8119](https://github.com/deckhouse/delivery-kit/issues/8119)) ([65befdd](https://github.com/deckhouse/delivery-kit/commit/65befdde98501d11b51548ec3b340788b6150d32))
+* **deploy, tracking:** stop uninstall and dismiss hanging on elimination ([#8120](https://github.com/deckhouse/delivery-kit/issues/8120)) ([4dcffaf](https://github.com/deckhouse/delivery-kit/commit/4dcffafb5aceb3dd1ee808c3975145a98ca9d36a))
+* **deploy:** stop `helm dependency update` panicking without Chart.lock ([#8121](https://github.com/deckhouse/delivery-kit/issues/8121)) ([8f4f6fc](https://github.com/deckhouse/delivery-kit/commit/8f4f6fcf58f98b809462e4238df95e2a63ca8aa7))
+* **deploy:** use saved plans that contain a blind apply ([#8103](https://github.com/deckhouse/delivery-kit/issues/8103)) ([8a834d7](https://github.com/deckhouse/delivery-kit/commit/8a834d784c7ad9b1de8f4c091767413343a5522d))
+
+
+### Miscellaneous Chores
+
+* force release 2.84.1-dk.1 ([0c7ac38](https://github.com/deckhouse/delivery-kit/commit/0c7ac381d670487eea67bc718eb312dab2839879))
+
 ## [2.84.0-dk.1](https://github.com/deckhouse/delivery-kit/compare/v2.83.1-dk.1...v2.84.0-dk.1) (2026-10-20)
 
 

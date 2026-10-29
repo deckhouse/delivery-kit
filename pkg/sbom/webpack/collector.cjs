@@ -42,31 +42,26 @@ class DkSbomWebpackCollector {
 		// declaration can never stand in for a copy operation that is not configured.
 		const options = { ...this.options, copied: bindCopied(this.options.copied, compiler) };
 		compiler.hooks.afterEmit.tapAsync(PLUGIN, (compilation, callback) => {
-			let proof;
-			try {
-				proof = buildProof(options, compilation);
-			} catch (error) {
-				callback(error);
-				return;
-			}
-			readEmittedAssets(compilation, proof.assets)
-				.then(() => {
+			buildProof(options, compilation)
+				.then(async proof => {
+					await readEmittedAssets(compilation, proof.assets);
 					writeProof(this.options.proofPath, proof);
-					callback();
 				})
-				.catch(callback);
+				.then(() => callback(), callback);
 		});
 	}
 }
 
 function normalizeOptions(options) {
 	if (!isPlainObject(options)) throw new Error(`${PLUGIN}: options object is required`);
-	checkKeys(options, ['proofPath', 'originals', 'copied'], 'options');
+	checkKeys(options, ['proofPath', 'originals', 'copied', 'resolveOriginal'], 'options');
+	if (options.resolveOriginal !== undefined && typeof options.resolveOriginal !== 'function') throw new Error(`${PLUGIN}: resolveOriginal must be a function`);
 	const proofPath = requireAbsolutePath(options.proofPath, 'options.proofPath');
 	return {
 		proofPath,
 		originals: normalizeOriginals(options.originals),
 		copied: normalizeCopied(options.copied),
+		resolveOriginal: options.resolveOriginal,
 	};
 }
 
@@ -203,17 +198,17 @@ function resolvePattern(pattern, compiler) {
 	return { to, from };
 }
 
-function buildProof(options, compilation) {
+async function buildProof(options, compilation) {
 	const sourceRoot = requireDirectory(compilation.outputOptions.path, 'compilation output path');
 	checkProofOutsideOutput(options.proofPath, sourceRoot);
-	const chunkUnits = collectChunkAssets(options, compilation);
+	const chunkUnits = await collectChunkAssets(options, compilation);
 	const assets = [];
 	for (const asset of compilation.getAssets()) {
 		if (asset.name.includes('?') || asset.name.includes('#')) {
 			throw new Error(`${PLUGIN}: unsupported asset name carrying a query or fragment: ${asset.name}`);
 		}
 		const assetPath = requireCleanRelativePath(asset.name, `emitted asset ${asset.name}`);
-		assets.push(describeAsset(options, assetPath, asset, chunkUnits.get(asset.name)));
+		assets.push(await describeAsset(options, assetPath, asset, chunkUnits.get(asset.name)));
 	}
 	assets.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	return { version: PROOF_VERSION, sourceRoot, assets };
@@ -221,7 +216,7 @@ function buildProof(options, compilation) {
 
 // Only final chunks of this compilation and the asset names they really emitted;
 // modules reachable only through the build graph are not part of any output.
-function collectChunkAssets(options, compilation) {
+async function collectChunkAssets(options, compilation) {
 	const byAsset = new Map();
 	for (const chunk of compilation.chunks) {
 		const collected = { units: new Map(), failures: new Map() };
@@ -231,7 +226,7 @@ function collectChunkAssets(options, compilation) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
 		for (const module of compilation.chunkGraph.getChunkModulesIterable(chunk)) {
-			collectModule(options, module, collected);
+			await collectModule(options, module, collected);
 		}
 		for (const file of chunk.files) {
 			const target = byAsset.get(file) || { units: new Map(), failures: new Map() };
@@ -243,11 +238,11 @@ function collectChunkAssets(options, compilation) {
 	return byAsset;
 }
 
-function collectModule(options, module, collected) {
+async function collectModule(options, module, collected) {
 	// A ConcatenatedModule is a scope-hoisting wrapper: its inner modules are the
 	// units that really ended up in the chunk.
 	if (module.constructor && module.constructor.name === 'ConcatenatedModule' && Array.isArray(module.modules) && module.rootModule) {
-		for (const inner of module.modules) collectModule(options, inner, collected);
+		for (const inner of module.modules) await collectModule(options, inner, collected);
 		return;
 	}
 	// An external is referenced, not bundled, so it contributes no input here.
@@ -263,7 +258,7 @@ function collectModule(options, module, collected) {
 		addFailure(collected, failure('no-data', `module without a physical source: ${module.identifier()}`));
 		return;
 	}
-	const resolved = verifyResource(options, resource);
+	const resolved = await verifyResource(options, resource);
 	if (resolved.failure) {
 		addFailure(collected, resolved.failure);
 		return;
@@ -284,9 +279,27 @@ function collectModule(options, module, collected) {
 
 // Binds one materialized file to its read-only original counterpart and to the
 // component the caller declared for that distribution root.
-function verifyResource(options, resource) {
+async function verifyResource(options, resource) {
 	const actual = path.resolve(resource);
-	const binding = options.originals.find((candidate) => contains(candidate.root, actual));
+	let binding;
+	if (options.resolveOriginal) {
+		try {
+			const resolved = await options.resolveOriginal(actual);
+			if (resolved !== undefined) {
+				binding = normalizeOriginals([resolved])[0];
+				if (!contains(binding.root, actual)) return { failure: failure('invalid', `resolved original root does not cover ${actual}`) };
+				for (const declared of options.originals) {
+					if (contains(declared.root, binding.originalRoot) || contains(binding.originalRoot, declared.root) || contains(declared.originalRoot, binding.root) || contains(binding.root, declared.originalRoot)) {
+						return { failure: failure('invalid', `resolved original overlaps a materialized root: ${actual}`) };
+					}
+				}
+			}
+		} catch (error) {
+			if (!FAILURE_STATUSES.includes(error.status)) throw error;
+			return { failure: failure(error.status, error.message) };
+		}
+	}
+	if (!binding) binding = options.originals.find((candidate) => contains(candidate.root, actual));
 	if (!binding) return { failure: failure('no-data', `resource outside the declared roots: ${actual}`) };
 	const relative = path.relative(binding.root, actual);
 	const original = path.join(binding.originalRoot, relative);
@@ -333,7 +346,7 @@ function describeAsset(options, assetPath, asset, chunkCollected) {
 	return present(assetPath, [...chunkCollected.units.values()]);
 }
 
-function describeCopiedAsset(options, assetPath) {
+async function describeCopiedAsset(options, assetPath) {
 	const binding = options.copied.get(assetPath);
 	if (!binding) return incomplete(assetPath, failure('no-data', `copied asset has no declared origin`));
 	if (binding.failure) return incomplete(assetPath, binding.failure);
@@ -343,14 +356,14 @@ function describeCopiedAsset(options, assetPath) {
 	if (OPAQUE_COPIED_EXTENSIONS.includes(extension) || OPAQUE_COPIED_EXTENSIONS.includes(fromExtension)) {
 		return incomplete(assetPath, failure('no-data', `copied ${fromExtension || extension} carries an unsupplied nested composition`));
 	}
-	const resolved = verifyResource(options, from);
+	const resolved = await verifyResource(options, from);
 	if (resolved.failure) return incomplete(assetPath, resolved.failure);
 	return present(assetPath, [resolved.unit], resolved.unit.bytes);
 }
 
 // The statuses this collector may report, worst first: an unsafe or conflicting
 // claim outranks a known byte mismatch, which outranks absent evidence.
-const FAILURE_STATUSES = ['invalid', 'hash-mismatch', 'no-data'];
+const FAILURE_STATUSES = ['invalid', 'hash-mismatch', 'unsupported', 'no-data'];
 
 function failure(status, reason) {
 	return { status, reason };
@@ -381,7 +394,9 @@ function present(assetPath, units, requiredBytes) {
 		.sort((a, b) => (a.path < b.path ? -1 : 1));
 	const components = [];
 	for (const unit of units) {
-		if (!components.some((component) => component.id === unit.component.id)) components.push(unit.component);
+		const previous = components.find(component => component.id === unit.component.id);
+		if (previous && !sameJSON(previous, unit.component)) return incomplete(assetPath, failure('invalid', `conflicting identities for component ${unit.component.id}`));
+		if (!previous) components.push(unit.component);
 	}
 	components.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	return {

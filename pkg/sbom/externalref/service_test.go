@@ -37,13 +37,36 @@ var _ = Describe("Service", func() {
 	})
 
 	Describe("default constants", func() {
-		It("has default HTTP client timeout of 5 seconds", func() {
-			Expect(defaultServiceTimeout).To(Equal(5 * time.Second))
+		It("has default HTTP client timeout of 10 seconds", func() {
+			Expect(defaultServiceTimeout).To(Equal(10 * time.Second))
 		})
 
-		It("has MaxElapsedTime of 10 seconds", func() {
-			Expect(defaultMaxElapsedTime).To(Equal(10 * time.Second))
+		It("has MaxElapsedTime of 30 seconds", func() {
+			Expect(defaultMaxElapsedTime).To(Equal(30 * time.Second))
 		})
+	})
+
+	DescribeTable("applies the configured timeout to the HTTP client",
+		func(configured, expected time.Duration) {
+			svc := NewService(ServiceConfig{ServerURL: ts.URL, Timeout: configured})
+			Expect(svc.httpClient.Timeout).To(Equal(expected))
+		},
+		Entry("unset falls back to the default", time.Duration(0), defaultServiceTimeout),
+		Entry("explicit value", 25*time.Second, 25*time.Second),
+	)
+
+	It("stops retrying once the configured retry timeout is spent", func() {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		svc := NewService(ServiceConfig{ServerURL: ts.URL, MaxElapsedTime: 100 * time.Millisecond})
+		Expect(svc.maxElapsedTime).To(Equal(100 * time.Millisecond))
+
+		start := time.Now()
+		_, err := svc.Resolve(timeoutCtx, "pkg:npm/server-error@1.0.0")
+		Expect(err).To(HaveOccurred())
+		Expect(timeoutCtx.Err()).NotTo(HaveOccurred())
+		Expect(time.Since(start)).To(BeNumerically("<", 2*time.Second))
 	})
 
 	Describe("Resolve", func() {

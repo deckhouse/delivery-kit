@@ -17,21 +17,23 @@ import (
 )
 
 const (
-	defaultServiceTimeout = 5 * time.Second
-	defaultMaxElapsedTime = 10 * time.Second
+	defaultServiceTimeout = 10 * time.Second
+	defaultMaxElapsedTime = 30 * time.Second
 )
 
 type ServiceConfig struct {
-	ServerURL  string
-	Timeout    time.Duration
-	HTTPClient *http.Client
-	Breaker    *ResolverBreaker
+	ServerURL      string
+	Timeout        time.Duration
+	MaxElapsedTime time.Duration
+	HTTPClient     *http.Client
+	Breaker        *ResolverBreaker
 }
 
 type Service struct {
-	serverURL  string
-	httpClient *http.Client
-	breaker    *ResolverBreaker
+	serverURL      string
+	httpClient     *http.Client
+	maxElapsedTime time.Duration
+	breaker        *ResolverBreaker
 }
 
 func NewService(cfg ServiceConfig) *Service {
@@ -40,6 +42,11 @@ func NewService(cfg ServiceConfig) *Service {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = defaultServiceTimeout
+	}
+
+	maxElapsedTime := cfg.MaxElapsedTime
+	if maxElapsedTime <= 0 {
+		maxElapsedTime = defaultMaxElapsedTime
 	}
 
 	httpClient := cfg.HTTPClient
@@ -51,9 +58,10 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 
 	return &Service{
-		serverURL:  serverURL,
-		httpClient: httpClient,
-		breaker:    cfg.Breaker,
+		serverURL:      serverURL,
+		httpClient:     httpClient,
+		maxElapsedTime: maxElapsedTime,
+		breaker:        cfg.Breaker,
 	}
 }
 
@@ -80,7 +88,7 @@ func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveRes
 		return s.doQuery(ctx, u, op)
 	},
 		backoff.WithBackOff(backoff.NewExponentialBackOff()),
-		backoff.WithMaxElapsedTime(defaultMaxElapsedTime),
+		backoff.WithMaxElapsedTime(s.maxElapsedTime),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			logboek.Context(ctx).Warn().LogF(
 				"WARNING: %s %q failed, retrying in %v: %s\n",

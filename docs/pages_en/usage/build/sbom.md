@@ -161,6 +161,20 @@ WERF_EXTERNAL_REFS_SERVER_URL env var is required
 
 When SBOM is disabled, the variable is not used.
 
+Each request to the service has a timeout, and a request that fails with an infrastructure error (a timeout, a connection error, HTTP 429 or 5xx) is retried with exponential backoff within a retry budget. Both can be tuned for a slow service with environment variables that take a Go duration (`30s`, `1m`):
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `WERF_EXTERNAL_REFS_TIMEOUT` | timeout of a single request | `10s` |
+| `WERF_EXTERNAL_REFS_RETRY_TIMEOUT` | total time for all attempts of one request, including the pauses between them | `30s` |
+
+An unset or empty variable keeps the default. Any other value must be a positive duration, otherwise the build fails before the first request. The retry budget is checked between attempts and does not cut off a request in flight, so a request may run up to its full timeout even when the budget is already spent; a retry budget smaller than the request timeout leaves no room for a retry after a timed-out request.
+
+```bash
+export WERF_EXTERNAL_REFS_TIMEOUT="30s"
+export WERF_EXTERNAL_REFS_RETRY_TIMEOUT="2m"
+```
+
 A component that already carries a VCS link — the repository its package manager recorded for it, as `os-pm` packages do — is handled through the service's URL check (`/api/v1/vcs`) rather than purl resolution: the link is confirmed as it is, and the purl is not resolved. This keeps the check independent of the purl, so a package installed from a catalog the service cannot look up (for example, one published under a development branch) is still verified by its source repository. Only when the service does not confirm the link does werf fall back to resolving the purl (`/api/v1/resolve`); a confirmed answer then replaces the unconfirmed link, and if neither is confirmed the build fails naming both causes. Components without a VCS link are resolved by purl as before.
 
 ## SBOM signing

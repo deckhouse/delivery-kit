@@ -35,6 +35,8 @@ If you need to remove all werf labels, use the werf export command. By default, 
 To disable this warning, explicitly set the "keepEssentialWerfLabels" directive.`
 )
 
+const SBOMBuildContextLabel = "werf.io/sbom-build-context-v1"
+
 type ImageSpecStage struct {
 	*BaseStage
 	imageSpec *config.ImageSpec
@@ -288,6 +290,7 @@ func (s *ImageSpecStage) modifyLabels(ctx context.Context, labels, addLabels map
 	}
 
 	labels = util.MergeMaps(labels, processedAddLabels)
+	delete(labels, SBOMBuildContextLabel)
 
 	return labels, nil
 }

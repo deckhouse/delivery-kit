@@ -25,6 +25,16 @@ The current image carries two self-contained metadata properties:
 
 Inherited originals are rechecked against the actual source image and pinned original bytes. Current catalog properties replace inherited ones after the common merge. Scanner-only Go attribution is removed only when its complete binary evidence is superseded by the same verified bytes; independent file-based or unresolved evidence is not silently discarded.
 
+## Compiler context delivery
+
+Generated package jobs can bind checked shell stages to explicit prepared-source dependencies through the private `werf.io/sbom-build-context-v1` image-spec label. It identifies the stage, the subject's package-list index, and each declared source-image handle with expected package name/version/type/original platform. It does not supply a guessed digest or infer ownership from an image alias.
+
+Before a declared stage's cache lookup, DK resolves those earlier imports, checks the actual dependency image's `pkg.*` metadata and manifest digest, and derives physical source mappings from the observed import/stage scope. The canonical `sbom/buildcontext` codec writes Context v1; original OCI layouts and the context are mounted read-only under `/.werf/sbom-build-context`, and DK supplies `SBOM_BUILD_CONTEXT` before compiler execution. Compilers do not fetch originals. The private declaration is removed from published image labels.
+
+Context identity contributes to the stage checksum. Declared images cannot bypass this validation through the image-level cache shortcut; ordinary stage reuse remains available after validation. Scratch paths are not part of the checksum, and the context mount is cleaned up when the stage finishes or fails. Undeclared stages and builds without SBOM receive no compiler context. A declared stage must have earlier source imports; a `beforeInstall` declaration without such an observed dependency is refused rather than inferring sources from the base image.
+
+The subject remains the verified prepared-source package (for example, a source distribution shared by several runtime outputs), not the output image name. This path does not synthesize `ownRoots`, freeze newly generated inputs during a checked stage, or turn unobserved paths into package originals. Preparation/freeze must precede consumption. Original distribution platforms remain distinct from the binary target; cross-target commands require the Go SDK's per-invocation target handling.
+
 ## Native records
 
 The shared reader validates embedded records directly from ELF bytes. No native composition sidecar or guessed installed-package inventory is accepted as a replacement. Record schema, required tool identities, supported profile/platform/revision, ELF shape and available Go buildinfo contradictions are checked by the reader; rootfs interpreter/library closure is checked by DK.

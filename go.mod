@@ -6,7 +6,7 @@ toolchain go1.26.8
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.1
-	fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261029100146-52a451b39d70
+	fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261029150458-87f80283c712
 	github.com/Masterminds/goutils v1.1.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/Masterminds/sprig/v3 v3.3.0
@@ -508,7 +508,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/metrics v0.37.0 // indirect
 	rsc.io/letsencrypt v0.0.3 // indirect
-	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
+	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/kustomize/v5 v5.8.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect

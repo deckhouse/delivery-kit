@@ -126,7 +126,8 @@ type BuildPhase struct {
 	buildContextArchive       container_backend.BuildContextArchiver
 	finalPublicationSemaphore *semaphore.Weighted
 
-	sbomFailures *convergefailure.Tracker
+	sbomFailures  *convergefailure.Tracker
+	producerInput *sbomProducerContext
 }
 
 func GenerateImageEnv(werfImageName, imageName string) string {
@@ -1187,6 +1188,13 @@ func (phase *BuildPhase) resolveContentAnchor(ctx context.Context, img *image.Im
 		}
 	}
 
+	// The stages of a declared image are built against a producer context, so none of
+	// them may be adopted from an earlier build; its anchor digest is still needed by
+	// the image spec stage itself.
+	if phase.Conveyor.EnableSbom() && producerDeclarationPresent(img) {
+		return nil
+	}
+
 	// Reusing the content anchor short-circuits conveyor.doImage, so a stage
 	// requested for introspection would never be processed.
 	if slices.ContainsFunc(stages, func(stg stage.Interface) bool {
@@ -1408,6 +1416,12 @@ func (phase *BuildPhase) OnImageStage(ctx context.Context, img *image.Image, stg
 }
 
 func (phase *BuildPhase) onImageStage(ctx context.Context, img *image.Image, stg stage.Interface) error {
+	defer func() {
+		if phase.producerInput != nil {
+			_ = os.RemoveAll(phase.producerInput.directory)
+			phase.producerInput = nil
+		}
+	}()
 	if err := stg.FetchDependencies(ctx, phase.Conveyor, phase.Conveyor.ContainerBackend, docker_registry.API()); err != nil {
 		return fmt.Errorf("unable to fetch dependencies for stage %s: %w", stg.LogDetailedName(), err)
 	}
@@ -1724,7 +1738,23 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		if err != nil {
 			return false, nil, err
 		}
+		// A recalculated stage replaces its producer context: the scratch of the plan
+		// it drops is released here, so no failure below can strand it.
+		if phase.producerInput != nil {
+			directory := phase.producerInput.directory
+			phase.producerInput = nil
+			if err := os.RemoveAll(directory); err != nil {
+				return false, nil, fmt.Errorf("remove producer context of %s: %w", stg.Name(), err)
+			}
+		}
+		phase.producerInput, err = phase.producerContext(ctx, img, stg)
+		if err != nil {
+			return false, nil, fmt.Errorf("producer context for %s: %w", stg.Name(), err)
+		}
 		stageDependencies = deps
+		if phase.producerInput != nil {
+			stageDependencies = util.Sha256Hash(deps, "producer-context-v1", phase.producerInput.checksum)
+		}
 		prevNonEmptyStage = phase.StagesIterator.PrevNonEmptyStage
 
 		if img.IsDockerfileImage && img.DockerfileImageConfig.Staged {
@@ -1741,6 +1771,15 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		if err != nil {
 			return false, nil, err
 		}
+	} else if phase.Conveyor.EnableSbom() && producerDeclarationPresent(img) {
+		// The holistic anchor digest says nothing about the producer contexts the
+		// stages below were built against, so bind it to the stage it sits on
+		// instead of letting an older final image answer for it.
+		prevBuiltImage := phase.StagesIterator.GetPrevBuiltImage(img, stg)
+		if prevBuiltImage == nil || prevBuiltImage.Image.GetStageDesc() == nil {
+			return false, nil, fmt.Errorf("no-data: anchor of image %q has no preceding built stage", img.GetName())
+		}
+		stageDigest = util.Sha256Hash(stageDigest, "producer-parent-v1", prevBuiltImage.Image.GetStageDesc().StageID.String())
 	}
 	stg.SetDigest(stageDigest)
 
@@ -1900,6 +1939,18 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 			stageImage.Builder.DockerfileStageBuilder().AppendPostInstruction(
 				backend_instruction.NewLabel(*instructions.NewLabelCommand(k, v, true)),
 			)
+		}
+	}
+
+	if phase.producerInput != nil {
+		volume := fmt.Sprintf("%s:%s:ro", phase.producerInput.directory, producerContextMount)
+		env := map[string]string{"SBOM_BUILD_CONTEXT": phase.producerInput.path}
+		if phase.Conveyor.UseLegacyStapelBuilder(phase.Conveyor.ContainerBackend) {
+			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddVolume(volume)
+			stageImage.Builder.LegacyStapelStageBuilder().Container().AddBuildTimeEnv(env)
+		} else {
+			stageImage.Builder.StapelStageBuilder().AddBuildVolumes(volume)
+			stageImage.Builder.StapelStageBuilder().AddBuildTimeEnvs(env)
 		}
 	}
 
@@ -2747,6 +2798,7 @@ func (phase *BuildPhase) resolveImportImage(ctx context.Context, img *image.Imag
 
 func (phase *BuildPhase) Clone() Phase {
 	u := *phase
+	u.producerInput = nil
 	return &u
 }
 

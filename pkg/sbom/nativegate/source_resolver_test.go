@@ -232,3 +232,72 @@ var _ = ginkgo.Describe("pinned original source resolution", func() {
 		ginkgo.Entry("registry host that normalizes elsewhere", "docker.io/library/original", "linux/amd64", originalPacket([]string{"linux/amd64"}, "sha256:"+strings.Repeat("a", 64))),
 	)
 })
+
+func labeledOriginalImage(platform, variant string) v1.Image {
+	ginkgo.GinkgoHelper()
+	image := originalImageFixture(platform, map[string]string{"/usr/bin/tool": variant + " body"})
+	config, err := image.ConfigFile()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	config.Config.Labels = map[string]string{"dk.test/variant": variant}
+	image, err = mutate.ConfigFile(image, config)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return image
+}
+
+var _ = ginkgo.Describe("pinned original image config", func() {
+	ginkgo.It("reads the config of the architecture the caller named, not of the host", func(ctx ginkgo.SpecContext) {
+		repo := originalRegistryHost(ctx) + "/test/original"
+		pinned := pushOriginalIndex(ctx, repo, "index",
+			originalVariant{platform: "linux/amd64", image: labeledOriginalImage("linux/amd64", "amd64")},
+			originalVariant{platform: "linux/arm64", image: labeledOriginalImage("linux/arm64", "arm64")},
+		)
+
+		config, err := ReadPinnedOriginalConfig(ctx, repo+"@"+pinned, "linux/arm64")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(config.Architecture).To(gomega.Equal("arm64"))
+		gomega.Expect(config.Config.Labels).To(gomega.HaveKeyWithValue("dk.test/variant", "arm64"))
+
+		other, err := ReadPinnedOriginalConfig(ctx, repo+"@"+pinned, "linux/amd64")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(other.Architecture).To(gomega.Equal("amd64"))
+		gomega.Expect(other.Config.Labels).To(gomega.HaveKeyWithValue("dk.test/variant", "amd64"))
+	})
+
+	ginkgo.It("refuses an index that leaves the platform match open", func(ctx ginkgo.SpecContext) {
+		repo := originalRegistryHost(ctx) + "/test/original"
+		pinned := pushOriginalIndex(ctx, repo, "index",
+			originalVariant{platform: "linux/amd64", image: labeledOriginalImage("linux/amd64", "first")},
+			originalVariant{platform: "linux/amd64", image: labeledOriginalImage("linux/amd64", "second")},
+		)
+
+		_, err := ReadPinnedOriginalConfig(ctx, repo+"@"+pinned, "linux/amd64")
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("ambiguous platform linux/amd64")))
+	})
+
+	ginkgo.It("reads a reference pinned straight to an image manifest", func(ctx ginkgo.SpecContext) {
+		repo := originalRegistryHost(ctx) + "/test/original"
+		pinned := pushOriginalImage(ctx, repo, "image", labeledOriginalImage("linux/amd64", "amd64"))
+
+		config, err := ReadPinnedOriginalConfig(ctx, repo+"@"+pinned, "linux/amd64")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(config.Config.Labels).To(gomega.HaveKeyWithValue("dk.test/variant", "amd64"))
+
+		_, err = ReadPinnedOriginalConfig(ctx, repo+"@"+pinned, "linux/arm64")
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("does not match linux/arm64")))
+	})
+
+	ginkgo.DescribeTable("rejects a reference or target it cannot pin, without reaching a registry", func(ctx ginkgo.SpecContext, reference, platform string) {
+		_, err := ReadPinnedOriginalConfig(ctx, reference, platform)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+		gomega.Expect(err.Error()).NotTo(gomega.ContainSubstring("no-data"))
+	},
+		ginkgo.Entry("a tag instead of a digest", "example.test/original:latest", "linux/amd64"),
+		ginkgo.Entry("a repository without a digest", "example.test/original", "linux/amd64"),
+		ginkgo.Entry("a host that normalizes elsewhere", "docker.io/library/original@sha256:"+strings.Repeat("a", 64), "linux/amd64"),
+		ginkgo.Entry("a repository that is not canonical", "example.test/Original@sha256:"+strings.Repeat("a", 64), "linux/amd64"),
+		ginkgo.Entry("a digest that is not sha256 hex", "example.test/original@sha256:deadbeef", "linux/amd64"),
+		ginkgo.Entry("a target outside Linux", "example.test/original@sha256:"+strings.Repeat("a", 64), "darwin/arm64"),
+		ginkgo.Entry("a target without an architecture", "example.test/original@sha256:"+strings.Repeat("a", 64), "linux"),
+		ginkgo.Entry("a target carrying an os version", "example.test/original@sha256:"+strings.Repeat("a", 64), "linux/amd64:5.15"),
+	)
+})

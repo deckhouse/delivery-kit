@@ -5,11 +5,35 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 
 	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
+
+func pureGoFixture() ([]byte, []byte, *Policy) {
+	ginkgo.GinkgoHelper()
+	root := os.Getenv("DK_GO_FIXTURE")
+	if root == "" {
+		ginkgo.Skip("requires pinned DK_GO_FIXTURE (mandatory in task test:native-poc)")
+	}
+	body, err := os.ReadFile(filepath.Join(root, "go-pure-elf"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(digest(body)).To(gomega.Equal("sha256:6633c6efe582b616f97743a113cbbbf98a8cf43f22851613e6c36dd6e906280e"))
+	expected, err := os.ReadFile(filepath.Join(root, "go-pure-elf.sbom.json"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(digest(expected)).To(gomega.Equal("sha256:294d967f1256a93a69154829806ef3f7aa91190ea4625d55b6e7ba0f561b47e1"))
+	policy := &Policy{Schema: "dk.policy/v2", Profiles: []string{"go"}, Images: map[string]ImagePolicy{"app": {Role: "final"}}, Tools: []Tool{
+		{Name: "link", Version: "go1.27.3", SHA256: "sha256:c001887c397d482b4aa2f3c702884f36fc37478461cc7d713b6d18116e2ff4ef"},
+		{Name: "sbom-helper", Version: "0f8feba7a3e816ef243392a803381e7db37bf3af", SHA256: "sha256:8fbe79b2c7bb50d3abe12f7d02143320d23b1638360084ab3b154f69179fe675"},
+		{Name: "compile", Version: "go1.27.3", SHA256: "sha256:7402aee38211af0f5cd2927bb9bd4ea1ebbf54a3b45269c6b7bc73a2451c65d7"},
+		{Name: "asm", Version: "go1.27.3", SHA256: "sha256:d9d405813f1927c69177af9454adb84d5c9cc7d61122ba9f3c531694132004b7"},
+	}}
+	return body, expected, policy
+}
 
 func fixtureBuildRecord(kind elf.Type) *shared.BuildRecord {
 	profile := "c-static"

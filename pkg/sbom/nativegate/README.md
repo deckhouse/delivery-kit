@@ -7,11 +7,13 @@ record in the versioned catalog (`dk:catalog/v4`); required metadata is re-read 
 bytes, including inherited package files. External catalog hashes detect changed
 known files. Missing metadata is an error even when a package owner is known.
 
-Current integration supports C-static and C-dynamic on Linux/amd64. Other profiles
-fail explicitly. The shared reader validates typed Go module mappings against
-final ELF buildinfo Deps. DK Go/CGO integration and
-instrumented producer fixtures remain pending; this reader update does not enable
-those profiles. Main validation and filtering remain producer-side. The reader
+Current integration supports C-static, C-dynamic and pure Go on Linux/amd64.
+Other profiles fail explicitly. The shared reader validates typed Go module
+mappings against final ELF buildinfo Deps. The pure-Go consumer fixture is a real
+instrumented ELF with an explicit empty dependency mapping; its SDK originals
+were synthetic test inputs, not delivered SDK acceptance. CGO and the full module
+matrix remain separate integration work. Main validation and filtering remain
+producer-side. The reader
 does not re-hash unavailable intermediate objects, archives or sources. Their
 composition is the trusted producer's verified claim.
 
@@ -47,7 +49,8 @@ scoped source candidates. This path must be joined to the ordinary pm/Go/Python/
 before enabling verification by default. PE/Mach-O and other pilot formats need
 their agreed profiles. None of these gaps is an exemption for toolchain binaries.
 
-`task test:native-poc` verifies the pinned loader fixtures and runs all nativegate
+`task test:native-poc` verifies the pinned loader and native-inspect fixtures plus
+`DK_GO_FIXTURE` (the real pure-Go ELF and expected record), then runs all nativegate
 specs without skips. They cover the reader/consumer and runtime layers; illustrative
 records are not producer attestations. End-to-end dev producer/package fixtures,
 registry publication/read-back, and complete pilot coverage remain separate

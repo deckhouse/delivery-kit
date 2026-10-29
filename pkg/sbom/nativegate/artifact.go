@@ -28,7 +28,7 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 		return record, fmt.Errorf("unsupported: expected executable or shared ELF, got %s", composition.Artifact)
 	}
 	record.Profile = composition.Profile.ID
-	if composition.Profile.Platform != "linux/amd64" || !slices.Contains([]string{"c-static", "c-dynamic"}, record.Profile) {
+	if composition.Profile.Platform != "linux/amd64" || !slices.Contains([]string{"c-static", "c-dynamic", "go"}, record.Profile) {
 		return record, fmt.Errorf("unsupported: embedded profile %s on %s has no DK dependency agreement check", record.Profile, composition.Profile.Platform)
 	}
 	if !slices.Contains(i.policy.Profiles, record.Profile) {

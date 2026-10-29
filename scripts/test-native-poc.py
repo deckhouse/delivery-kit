@@ -1,9 +1,10 @@
 """Mandatory native POC acceptance, separate from portable unit tests.
 
 Set DK_LOADER_FIXTURE to runtime-pie-oracle.py's composite loader-v5/out and
-DK_NATIVE_INSPECT_FIXTURE to export-native-inspect-fixture.py's directory.
+DK_NATIVE_INSPECT_FIXTURE to export-native-inspect-fixture.py's directory, and
+DK_GO_FIXTURE to the frozen pure-Go ELF/record directory.
 Then run: TASK_X_REMOTE_TASKFILES=1 task --yes test:native-poc
-Both frozen fixtures must be present; no executable fixture is stored in Git.
+All three frozen fixtures must be present; no executable fixture is stored in Git.
 """
 
 import hashlib
@@ -28,6 +29,11 @@ def required_directory(name):
 def main():
     loader = required_directory("DK_LOADER_FIXTURE")
     native = required_directory("DK_NATIVE_INSPECT_FIXTURE")
+    go_fixture = required_directory("DK_GO_FIXTURE")
+    if sha256(go_fixture / "go-pure-elf") != "6633c6efe582b616f97743a113cbbbf98a8cf43f22851613e6c36dd6e906280e":
+        raise SystemExit("pure-Go fixture pin mismatch")
+    if sha256(go_fixture / "go-pure-elf.sbom.json") != "294d967f1256a93a69154829806ef3f7aa91190ea4625d55b6e7ba0f561b47e1":
+        raise SystemExit("pure-Go record pin mismatch")
     if sha256(loader / "ld-linux-x86-64.so.2") != "606bf05526f326f0f4cd42450ff6ee0a7c9ff9391d7f37f38473874e0897e53c":
         raise SystemExit("loader fixture pin mismatch")
     manifest_path = native / "manifest.json"

@@ -111,8 +111,16 @@ var _ = ginkgo.Describe("published embedded composition", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(found).To(gomega.BeTrue())
 		gomega.Expect(descriptor.Annotations).To(gomega.HaveKeyWithValue(imageMetadata.WerfPlatformAnnotation, "linux/amd64"))
+		expectedType := attestation.DSSEMediaType
+		if signed {
+			expectedType = attestation.BundleMediaType
+		}
+		gomega.Expect(descriptor.ArtifactType).To(gomega.Equal(expectedType))
 		envelope, err := attestation.PullAttestationEnvelope(ctx, store, parent.String(), sbomimage.CycloneDXPredicateTypes, attestation.PullAttestationEnvelopeOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		hasSignatures, err := attestation.HasSignatures(envelope)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(hasSignatures).To(gomega.Equal(signed))
 		statement, err := sbomimage.UnwrapDSSE(envelope, attestation.InTotoMediaType)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var header in_toto.StatementHeader

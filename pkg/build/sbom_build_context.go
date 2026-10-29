@@ -157,7 +157,7 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
-	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots})
+	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources})
 	if err != nil {
 		_ = os.RemoveAll(directory)
 		return nil, err

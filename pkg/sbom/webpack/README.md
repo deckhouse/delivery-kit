@@ -46,6 +46,19 @@ Create a new instance for every compilation. `close()` removes its extracted tre
 
 This path performs no network requests or installation scripts. It supports SHA-256/384/512 SRI for HTTP(S) registry archives, not a checksum synthesized from URL fragments. Missing archives are `no-data`; wrong archive bytes are `hash-mismatch`. Git/file locators, aliases, linked workspaces and archive link entries are not supported by this first adapter. In particular, a Yarn Git-cache commit string does not prove its archive: a separately verified Git/distribution binding is still required. Prepared or install-script-generated source files that differ from the distribution fail byte verification rather than being relabeled as original.
 
+## Primary prepared-source inputs
+
+A UI producer stage may request `"webpackSources": true` beside `subject` and `packages` in its private checked-stage declaration. After validating the scoped PM originals, DK writes `webpack-originals.json` beside the read-only `SBOM_BUILD_CONTEXT` file. This transient manifest contains the verified expected hashes and component identities for those physical source paths; it is not a second original archive, a durable receipt or a new public Context schema.
+
+`new (require('./context-originals.cjs'))(process.env.SBOM_BUILD_CONTEXT)` provides an exact-path `resolve(resource)` callback. The collector compares the bytes it actually reads with that trusted original hash before accepting a contributor. Missing mappings fail closed; a changed source is `hash-mismatch`. A manifest dictionary entry alone contributes nothing. Compose managed-package resolution first:
+
+```js
+resolveOriginal: async resource =>
+  (await yarnOriginals.resolve(resource)) ?? primaryOriginals.resolve(resource)
+```
+
+A Yarn error must propagate, not become a primary-project fallback. The stage's explicit PM subject and source distribution remain unchanged. This hash form only covers verified raw source inputs: loader-generated code still needs a supported transformation adapter.
+
 ## Stage delivery
 
 A checked stage may extend the existing private `werf.io/sbom-build-context-v1` declaration:

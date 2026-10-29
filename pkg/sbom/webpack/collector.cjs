@@ -59,14 +59,14 @@ function normalizeOptions(options) {
 	const proofPath = requireAbsolutePath(options.proofPath, 'options.proofPath');
 	return {
 		proofPath,
-		originals: normalizeOriginals(options.originals),
+		originals: normalizeOriginals(options.originals, typeof options.resolveOriginal === 'function'),
 		copied: normalizeCopied(options.copied),
 		resolveOriginal: options.resolveOriginal,
 	};
 }
 
-function normalizeOriginals(originals) {
-	if (!Array.isArray(originals) || originals.length === 0) {
+function normalizeOriginals(originals, allowEmpty = false) {
+	if (!Array.isArray(originals) || (!allowEmpty && originals.length === 0)) {
 		throw new Error(`${PLUGIN}: options.originals must be a non-empty array`);
 	}
 	const bindings = [];
@@ -286,6 +286,15 @@ async function verifyResource(options, resource) {
 		try {
 			const resolved = await options.resolveOriginal(actual);
 			if (resolved !== undefined) {
+				if (resolved && Object.hasOwn(resolved, 'sha256')) {
+					if (Object.keys(resolved).some(key => !['path', 'sha256', 'component'].includes(key)) || resolved.path !== actual || !/^sha256:[0-9a-f]{64}$/.test(resolved.sha256) || !isPlainObject(resolved.component) || typeof resolved.component.id !== 'string' || !resolved.component.id) return {failure: failure('invalid', `invalid expected-original binding for ${actual}`)};
+					try { checkComponent(resolved.component, 'resolveOriginal().component'); }
+					catch (error) { return {failure: failure('invalid', error.message)}; }
+					const observed = readRegularFile(actual);
+					if (observed.failure) return observed;
+					if (digest(observed.bytes) !== resolved.sha256) return {failure: failure('hash-mismatch', `source differs from its verified original hash: ${actual}`)};
+					return {unit: {path: actual, sha256: resolved.sha256, bytes: observed.bytes, component: resolved.component}};
+				}
 				binding = normalizeOriginals([resolved])[0];
 				if (!contains(binding.root, actual)) return { failure: failure('invalid', `resolved original root does not cover ${actual}`) };
 				for (const declared of options.originals) {

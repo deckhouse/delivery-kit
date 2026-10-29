@@ -35,9 +35,10 @@ type sbomBuildContextDeclaration struct {
 type sbomBuildContextStage struct {
 	// Subject indexes Packages: the stage declares that prepared source as the
 	// thing it builds. There is no default, a missing subject is an error.
-	Subject  *int                      `json:"subject"`
-	Packages []sbomBuildContextPackage `json:"packages"`
-	GoEmbed  []sbomBuildContextGoEmbed `json:"goEmbed,omitempty"`
+	Subject        *int                      `json:"subject"`
+	Packages       []sbomBuildContextPackage `json:"packages"`
+	GoEmbed        []sbomBuildContextGoEmbed `json:"goEmbed,omitempty"`
+	WebpackSources bool                      `json:"webpackSources,omitempty"`
 }
 
 type sbomBuildContextGoEmbed struct {
@@ -97,6 +98,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		return nil, err
 	}
 	for stageName, fields := range raw.Stages {
+		if value, present := fields["webpackSources"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: webpackSources must be a boolean", stageName)
+		}
 		if value, present := fields["goEmbed"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: goEmbed must be an array", stageName)
 		}

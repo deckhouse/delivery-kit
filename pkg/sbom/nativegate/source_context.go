@@ -37,6 +37,11 @@ type MaterializeBuildContextOptions struct {
 	// memory, which is not every import the build performs. The last snapshot must be the
 	// target the observed index was taken from.
 	Snapshots []SourceSnapshot
+
+	// WebpackSources asks for the private originals manifest beside the context. It
+	// states the digests the imports were just proven against, so the Node collector
+	// rehashes the sources a bundle consumed instead of reading the exported layouts.
+	WebpackSources bool
 }
 
 // MaterializeBuildContext fills a prepared build context declaration with the original
@@ -110,10 +115,13 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 	if err := os.Mkdir(originals, 0o755); err != nil {
 		return "", err
 	}
-	exported := false
+	exported, webpack := false, false
 	defer func() {
 		if !exported {
 			_ = os.RemoveAll(originals)
+			if webpack {
+				_ = os.Remove(filepath.Join(directory, materializedWebpackFile))
+			}
 		}
 	}()
 
@@ -138,6 +146,17 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 	data, err := buildcontext.Encode(&materialized)
 	if err != nil {
 		return "", err
+	}
+
+	if opts.WebpackSources {
+		manifest, err := webpackOriginalsManifest(imports, resolved, indexes)
+		if err != nil {
+			return "", err
+		}
+		if err := writeContext(filepath.Join(directory, materializedWebpackFile), manifest); err != nil {
+			return "", err
+		}
+		webpack = true
 	}
 	if err := writeContext(filepath.Join(directory, materializedContextFile), data); err != nil {
 		return "", err

@@ -954,7 +954,7 @@ var _ = ginkgo.Describe("Actual SBOM producer recipe", ginkgo.Label("producer-re
 		changed.before = []string{`printf '\n/* changed after the snapshot */\n' >> /src/main.c`}
 		output, _ = producerRecipeNegative(ctx, env, fixture, project, home, externalRefs, repo,
 			changed, "change the imported source after the snapshot", "changed-source")
-		gomega.Expect(output).To(gomega.ContainSubstring("hash-mismatch"))
+		gomega.Expect(output).To(gomega.ContainSubstring("sbom-helper: /src/main.c: installed source hash mismatch"))
 
 		ginkgo.By("compiling a copy of the source that no original maps onto")
 		unmapped := producerRecipeRecipe()
@@ -962,7 +962,7 @@ var _ = ginkgo.Describe("Actual SBOM producer recipe", ginkgo.Label("producer-re
 		unmapped.source = producerRecipeObjectDir + "/unmapped.c"
 		output, _ = producerRecipeNegative(ctx, env, fixture, project, home, externalRefs, repo,
 			unmapped, "compile an unmapped copy of the source", "unmapped")
-		gomega.Expect(output).To(gomega.ContainSubstring("no-data"))
+		gomega.Expect(output).To(gomega.ContainSubstring("sbom-helper: /build/unmapped.c: unmapped third-party source"))
 
 		ginkgo.By("leaving every copied file, and every file it was copied from, as it was")
 		producerRecipeCheckTools(env.tools, env.linker)

@@ -45,6 +45,7 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/stapel"
 	"github.com/werf/werf/v3/pkg/storage"
@@ -705,7 +706,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return err
 	}
 
-	importImageSboms, err := phase.collectImportImageSboms(ctx, img)
+	importImageSboms, sourceImports, err := phase.collectImportImageSboms(ctx, img)
 	if err != nil {
 		return err
 	}
@@ -750,7 +751,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports}); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
@@ -1836,9 +1837,14 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 		if _, ok := serviceLabels[imagePkg.WerfParentStageID]; !ok {
 			serviceLabels[imagePkg.WerfParentStageID] = ""
 		}
-		record, err := json.Marshal(sbomStageRecord{
-			Stage: stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID],
-		})
+		stageRecord := sbomStageRecord{Stage: stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID]}
+		if strings.HasPrefix(string(stg.Name()), "dependencies") {
+			stageRecord.ImportBackend = "copy-recurse"
+			if phase.sbomImportBackend() == nativegate.ImportBackendRsync {
+				stageRecord.ImportBackend = "rsync"
+			}
+		}
+		record, err := json.Marshal(stageRecord)
 		if err != nil {
 			return fmt.Errorf("encode SBOM stage record: %w", err)
 		}
@@ -2521,26 +2527,62 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 	return baseImageSbom, nil
 }
 
-func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, error) {
-	importImages, err := phase.resolveImportImages(ctx, img)
+// collectImportImageSboms reads the SBOM of every import source of the image, once per
+// SBOM artifact, and describes alongside it every import directive as the build applies
+// it: a source whose SBOM is read once can still be imported several times, with a
+// different scope each time.
+func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, []sbomSourceImportInput, error) {
+	importImages, err := phase.resolveScopedImportImages(ctx, img)
 	if err != nil {
-		return nil, fmt.Errorf("resolve import images: %w", err)
+		return nil, nil, fmt.Errorf("resolve import images: %w", err)
 	}
 
 	var importImageSboms []*cdx.BOM
+	boms := make(map[importSBOMKey]*cdx.BOM)
 
 	for _, importImage := range importImages {
+		if importImage.info == nil || !importImage.firstOfSbom {
+			continue
+		}
+		key := importImage.sbomKey()
 		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importImage.lookupName, importImage.info)
 		if err != nil {
 			if errors.Is(err, ErrSbomNotRequired) {
+				// A trusted builder image ships no SBOM; the import still has a source.
+				if key != (importSBOMKey{}) {
+					boms[key] = nil
+				}
 				continue
 			}
-			return nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
+			return nil, nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
+		}
+		if key != (importSBOMKey{}) {
+			boms[key] = importImageSbom
 		}
 		importImageSboms = append(importImageSboms, importImageSbom)
 	}
 
-	return importImageSboms, nil
+	sources := make([]sbomSourceImportInput, 0, len(importImages))
+	for _, importImage := range importImages {
+		var reference string
+		if importImage.info != nil {
+			if digest := importImage.info.GetDigest(); digest != "" {
+				reference = importImage.info.Repository + "@" + digest
+			}
+		}
+		var bom *cdx.BOM
+		if key := importImage.sbomKey(); key != (importSBOMKey{}) {
+			bom = boms[key]
+		}
+		sources = append(sources, sbomSourceImportInput{
+			Stage:     importImage.stage,
+			Reference: reference,
+			BOM:       bom,
+			Scope:     importImage.scope,
+		})
+	}
+
+	return importImageSboms, sources, nil
 }
 
 type importSBOMKey struct {
@@ -2555,6 +2597,32 @@ type resolvedImportImage struct {
 	info       *imagePkg.Info
 }
 
+// scopedImportImage is one import directive of the image: the resolved source image, the
+// stage the directive lands on and the scope of the copy. firstOfSbom marks the directive
+// whose source identity appears for the first time, the one that reads the SBOM.
+type scopedImportImage struct {
+	resolvedImportImage
+	stage       stage.StageName
+	scope       nativegate.ImportScope
+	firstOfSbom bool
+}
+
+func (i scopedImportImage) sbomKey() importSBOMKey {
+	if i.info == nil {
+		return importSBOMKey{}
+	}
+	digest := i.info.GetDigest()
+	if digest == "" {
+		return importSBOMKey{}
+	}
+
+	return importSBOMKey{
+		repository: imagePkg.NormalizeRepository(i.info.Repository),
+		digest:     digest,
+		lookupName: i.lookupName,
+	}
+}
+
 // resolveImportImages resolves every import source of the image to its image info,
 // keeping a single entry per SBOM artifact it would read: an image imported by
 // several import directives has one SBOM, and pulling and merging it more than once
@@ -2562,67 +2630,119 @@ type resolvedImportImage struct {
 // that identity because two internal images can share a digest while their SBOM
 // artifacts are told apart by the werf image name they are annotated with.
 func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Image) ([]resolvedImportImage, error) {
+	scoped, err := phase.resolveScopedImportImages(ctx, img)
+	if err != nil {
+		return nil, err
+	}
+
 	var result []resolvedImportImage
-	seenImages := make(map[importSBOMKey]struct{})
-
-	for _, importInfo := range img.GetImportImagesInfo() {
-		if !importInfo.ExternalImage {
-			if err, found := phase.sbomFailures.DependencyError(importInfo.ImageName); found {
-				return nil, err
-			}
-		}
-
-		var importImageInfo *imagePkg.Info
-
-		if importInfo.ExternalImage {
-			info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
-			if err != nil {
-				return nil, fmt.Errorf("unable to get external import image info for %q: %w", importInfo.ImageName, err)
-			}
-			importImageInfo = info
-		} else {
-			if importImg := phase.Conveyor.GetImage(img.TargetPlatform, importInfo.ImageName); importImg != nil {
-				importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
-			}
-		}
-
-		if importImageInfo == nil {
-			info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importInfo.ImageName, container_backend.GetImageInfoOpts{})
-			if err != nil {
-				return nil, fmt.Errorf("unable to get import image info for %q: %w", importInfo.ImageName, err)
-			}
-			importImageInfo = info
-		}
-
-		if importImageInfo == nil {
+	for _, entry := range scoped {
+		if entry.info == nil || !entry.firstOfSbom {
 			continue
 		}
-
-		var importLookupName string
-		if !importInfo.ExternalImage {
-			importLookupName = importInfo.ImageName
-		}
-
-		if digest := importImageInfo.GetDigest(); digest != "" {
-			key := importSBOMKey{
-				repository: imagePkg.NormalizeRepository(importImageInfo.Repository),
-				digest:     digest,
-				lookupName: importLookupName,
-			}
-			if _, seen := seenImages[key]; seen {
-				continue
-			}
-			seenImages[key] = struct{}{}
-		}
-
-		result = append(result, resolvedImportImage{
-			imageName:  importInfo.ImageName,
-			lookupName: importLookupName,
-			info:       importImageInfo,
-		})
+		result = append(result, entry.resolvedImportImage)
 	}
 
 	return result, nil
+}
+
+// resolveScopedImportImages walks the import directives of the image in build order — the
+// order of its stages, and within a stage the order of the directives — and resolves the
+// source image of each one.
+func (phase *BuildPhase) resolveScopedImportImages(ctx context.Context, img *image.Image) ([]scopedImportImage, error) {
+	var result []scopedImportImage
+	seenImages := make(map[importSBOMKey]struct{})
+
+	for _, stg := range img.GetStages() {
+		depStage, ok := stg.(interface{ GetImports() []*config.Import })
+		if !ok {
+			continue
+		}
+
+		for _, importElm := range depStage.GetImports() {
+			resolved, err := phase.resolveImportImage(ctx, img, importElm)
+			if err != nil {
+				return nil, err
+			}
+
+			entry := scopedImportImage{
+				resolvedImportImage: resolved,
+				stage:               stg.Name(),
+				firstOfSbom:         true,
+			}
+			if importElm.Export != nil && importElm.ExportBase != nil {
+				entry.scope = nativegate.ImportScope{
+					Backend:      phase.sbomImportBackend(),
+					FromPath:     importElm.Add,
+					ToPath:       importElm.To,
+					IncludePaths: importElm.IncludePaths,
+					ExcludePaths: importElm.ExcludePaths,
+				}
+			}
+			if key := entry.sbomKey(); key != (importSBOMKey{}) {
+				if _, seen := seenImages[key]; seen {
+					entry.firstOfSbom = false
+				}
+				seenImages[key] = struct{}{}
+			}
+
+			result = append(result, entry)
+		}
+	}
+
+	return result, nil
+}
+
+// The legacy Stapel builder applies an import with rsync and the native one copies the
+// source subtree, and the two read the include and exclude paths of the import
+// differently.
+func (phase *BuildPhase) sbomImportBackend() nativegate.ImportBackend {
+	if phase.Conveyor.UseLegacyStapelBuilder(phase.Conveyor.ContainerBackend) {
+		return nativegate.ImportBackendRsync
+	}
+
+	return nativegate.ImportBackendCopyRecurse
+}
+
+func (phase *BuildPhase) resolveImportImage(ctx context.Context, img *image.Image, importElm *config.Import) (resolvedImportImage, error) {
+	if !importElm.ExternalImage {
+		if err, found := phase.sbomFailures.DependencyError(importElm.From); found {
+			return resolvedImportImage{}, err
+		}
+	}
+
+	var importImageInfo *imagePkg.Info
+
+	if importElm.ExternalImage {
+		info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importElm.From, container_backend.GetImageInfoOpts{})
+		if err != nil {
+			return resolvedImportImage{}, fmt.Errorf("unable to get external import image info for %q: %w", importElm.From, err)
+		}
+		importImageInfo = info
+	} else {
+		if importImg := phase.Conveyor.GetImage(img.TargetPlatform, importElm.From); importImg != nil {
+			importImageInfo = importImg.GetLastNonEmptyStageImageInfo()
+		}
+	}
+
+	if importImageInfo == nil {
+		info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importElm.From, container_backend.GetImageInfoOpts{})
+		if err != nil {
+			return resolvedImportImage{}, fmt.Errorf("unable to get import image info for %q: %w", importElm.From, err)
+		}
+		importImageInfo = info
+	}
+
+	var importLookupName string
+	if !importElm.ExternalImage {
+		importLookupName = importElm.From
+	}
+
+	return resolvedImportImage{
+		imageName:  importElm.From,
+		lookupName: importLookupName,
+		info:       importImageInfo,
+	}, nil
 }
 
 func (phase *BuildPhase) Clone() Phase {

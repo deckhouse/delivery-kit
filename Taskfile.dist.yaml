@@ -49,7 +49,7 @@ vars:
 
 tasks:
   test:native-poc:
-    desc: "Require pinned DK_LOADER_FIXTURE, DK_NATIVE_INSPECT_FIXTURE and DK_GO_FIXTURE; run native POC acceptance without skips."
+    desc: "Require pinned DK_LOADER_FIXTURE, DK_NATIVE_INSPECT_FIXTURE, DK_GO_FIXTURE, DK_GO_MODULES_FIXTURE and DK_PM_BINARY; run SBOM verification without skips."
     cmds:
       - python3 scripts/test-native-poc.py
 

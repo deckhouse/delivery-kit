@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -261,13 +262,20 @@ func canonicalizeComponent(ctx context.Context, comp *cdx.Component) {
 	}
 }
 
-// componentKey identifies a component by its purl or, without one, by its
-// coordinates. A file is the exception: two files with the same name are the
-// same only if their content is, so files are identified by their name and
-// hashes and a file without hashes is never merged.
+// PropertyOriginalSource names the property carrying the identity of the
+// source a component was built from. Two sources may produce components with
+// the same purl — a bare pkg:generic one names nothing but a package name and
+// version — and a component of one source is not a component of the other.
+const PropertyOriginalSource = "dk:original-source"
+
+// componentKey identifies a component by its purl and the sources it was built
+// from or, without a purl, by its coordinates. A file is the exception: two
+// files with the same name are the same only if their content is, so files are
+// identified by their name and hashes and a file without hashes is never
+// merged.
 func componentKey(comp cdx.Component, index int) string {
 	if comp.PackageURL != "" {
-		return "purl:" + normalizePURL(comp.PackageURL)
+		return "purl:" + normalizePURL(comp.PackageURL) + originalSourceKey(comp.Properties)
 	}
 
 	if comp.Type == cdx.ComponentTypeFile {
@@ -281,6 +289,26 @@ func componentKey(comp cdx.Component, index int) string {
 	}
 
 	return strings.Join([]string{"coords", string(comp.Type), comp.Group, comp.Name, comp.Version}, "|")
+}
+
+// originalSourceKey tells apart components of different sources, and only
+// those: a component without the property keys as it did before the property
+// existed. The sources are quoted rather than joined, so that a single value
+// spelling the separator cannot pass for two values.
+func originalSourceKey(properties *[]cdx.Property) string {
+	var sources []string
+	for _, prop := range lo.FromPtr(properties) {
+		if prop.Name == PropertyOriginalSource && prop.Value != "" {
+			sources = append(sources, prop.Value)
+		}
+	}
+	if len(sources) == 0 {
+		return ""
+	}
+
+	sort.Strings(sources)
+
+	return "|source:" + fmt.Sprintf("%q", slices.Compact(sources))
 }
 
 func canonicalizeServices(ctx context.Context, services *[]cdx.Service, refMap map[string]string) *[]cdx.Service {

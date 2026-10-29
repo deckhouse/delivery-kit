@@ -1,8 +1,10 @@
 package build
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,8 +15,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -41,8 +46,15 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		mutations  atomic.Int64
 	)
 
-	pushRandomImage := func(ctx SpecContext, repo string) string {
+	// The SBOM of an image is produced from the stages it was built through, so the pushed
+	// image carries the record of the single base stage that holds its whole filesystem.
+	pushRandomImage := func(ctx SpecContext, repo string) (v1.Image, string) {
 		img, err := random.Image(256, 1)
+		Expect(err).To(Succeed())
+		cfg, err := img.ConfigFile()
+		Expect(err).To(Succeed())
+		cfg.Config.Labels = map[string]string{imagePkg.WerfSBOMStageLabel: `{"stage":"from","stageDigest":"digest","parentStageID":""}`}
+		img, err = mutate.ConfigFile(img, cfg)
 		Expect(err).To(Succeed())
 
 		ref, err := name.NewTag(repo + ":v1")
@@ -51,7 +63,16 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 
 		dgst, err := img.Digest()
 		Expect(err).To(Succeed())
-		return dgst.String()
+		return img, dgst.String()
+	}
+
+	savedImageStream := func(img v1.Image, repo string) func(any, string) (io.ReadCloser, error) {
+		ref, err := name.NewTag(repo + ":v1")
+		Expect(err).To(Succeed())
+		var saved bytes.Buffer
+		Expect(tarball.Write(ref, img, &saved)).To(Succeed())
+
+		return func(any, string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(saved.Bytes())), nil }
 	}
 
 	copyImageByDigest := func(ctx SpecContext, fromRepo, toRepo, digest string) {
@@ -89,7 +110,7 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		cacheRepo = host + "/test/cache"
 		remoteOpts = []remote.Option{remote.WithAuth(authn.Anonymous)}
 
-		srcDigest = pushRandomImage(ctx, srcRepo)
+		_, srcDigest = pushRandomImage(ctx, srcRepo)
 
 		srcStore := artifact.NewOCIStore(srcRepo, "app", remoteOpts...)
 		Expect(srcStore.Attach(ctx, srcDigest, attestation.DSSEMediaType, []byte(`{"v":1}`), "checksum-v1", "", "")).To(Succeed())
@@ -101,8 +122,9 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 
 	DescribeTable("AfterImages preserves check mode for fork artifacts", func(ctx SpecContext, check, generate bool) {
 		GinkgoT().Setenv("WERF_EXTERNAL_REFS_SERVER_URL", server.URL)
+		srcImage, _ := pushRandomImage(ctx, srcRepo)
 		if generate {
-			srcDigest = pushRandomImage(ctx, srcRepo)
+			srcImage, srcDigest = pushRandomImage(ctx, srcRepo)
 		}
 		copyImageByDigest(ctx, srcRepo, finalRepo, srcDigest)
 		copyImageByDigest(ctx, srcRepo, cacheRepo, srcDigest)
@@ -112,6 +134,8 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		if generate {
 			opts.Vex = &config.Vex{Document: "vex.json"}
 		}
+		// Only a Stapel image carries the provenance the SBOM is verified from.
+		opts.StapelImageConfig = &config.StapelImage{StapelImageBase: &config.StapelImageBase{Name: "app"}}
 		img := newImage("app", buildImage.NoBaseImage, opts)
 		img.AnchorReused = true
 		img.ForceTargetPlatformLogging = true
@@ -123,7 +147,9 @@ var _ = Describe("SbomStep PropagateArtifacts", func() {
 		backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
 		if generate && !check {
 			backend.EXPECT().Pull(gomock.Any(), desc.Info.Name, gomock.Any()).Return(nil)
-			backend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return([]byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"metadata":{"component":{"type":"container","name":"app","bom-ref":"app"}},"components":[]}`), nil)
+			// A Stapel image without any packages directive is not scanned; it is read out
+			// of the backend, verified against its stages and recorded as what it holds.
+			backend.EXPECT().SaveImageToStream(gomock.Any(), desc.Info.Name).DoAndReturn(savedImageStream(srcImage, srcRepo)).AnyTimes()
 		}
 		phase := newTestBuildPhase(sm, []string{"app"})
 		phase.Conveyor.ContainerBackend = backend

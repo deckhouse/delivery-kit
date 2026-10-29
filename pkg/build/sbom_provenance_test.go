@@ -67,6 +67,15 @@ var _ = ginkgo.Describe("SBOM stage provenance", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(provenance.Layers).To(gomega.Equal(shippedscope.ProducedLayers{Known: true, Ranges: []shippedscope.ProducedLayerRange{{Start: 4, End: 6}, {Start: 7, End: 8}}}))
 		gomega.Expect(provenance.DiffIDs).To(gomega.Equal(configs[final.Info.Name].RootFS.DiffIDs))
+		gomega.Expect(provenance.Snapshots).To(gomega.Equal([]sbomStageSnapshot{
+			{Stage: stage.From, LayerCount: 2},
+			{Stage: stage.BeforeInstall, LayerCount: 3},
+			{Stage: stage.Packages, LayerCount: 4},
+			{Stage: stage.Install, LayerCount: 6},
+			{Stage: stage.DependenciesAfterInstall, LayerCount: 7},
+			{Stage: stage.Setup, LayerCount: 8},
+			{Stage: stage.ImageSpec, LayerCount: 8},
+		}))
 		gomega.Expect(reads).To(gomega.HaveLen(len(ids)))
 	})
 
@@ -119,6 +128,7 @@ var _ = ginkgo.Describe("SBOM stage provenance", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		gomega.Expect(provenance.Layers.Known).To(gomega.BeFalse())
 		gomega.Expect(provenance.Layers.Ranges).To(gomega.BeEmpty())
+		gomega.Expect(provenance.Snapshots).To(gomega.BeEmpty())
 	},
 		ginkgo.Entry("missing ancestor", "missing ancestor"),
 		ginkgo.Entry("old cached image", "old cache"),
@@ -138,6 +148,39 @@ var _ = ginkgo.Describe("SBOM stage provenance", func() {
 		missing, err := resolveSBOMStageProvenance(ctx, final, readConfig)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		gomega.Expect(sbomProvenanceChecksum(missing)).NotTo(gomega.Equal(sbomProvenanceChecksum(complete)))
+	})
+
+	ginkgo.It("binds the checksum to the packages snapshot boundary", func(ctx ginkgo.SpecContext) {
+		before, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		cfg := configs["example.com/stages:"+ids[2]]
+		var record sbomStageRecord
+		gomega.Expect(json.Unmarshal([]byte(cfg.Config.Labels[image.WerfSBOMStageLabel]), &record)).To(gomega.Succeed())
+		record.Stage = stage.GitArchive
+		data, err := json.Marshal(record)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		cfg.Config.Labels[image.WerfSBOMStageLabel] = string(data)
+		after, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(after.DiffIDs).To(gomega.Equal(before.DiffIDs))
+		gomega.Expect(after.Layers).To(gomega.Equal(before.Layers))
+		gomega.Expect(sbomProvenanceChecksum(after)).NotTo(gomega.Equal(sbomProvenanceChecksum(before)))
+	})
+
+	ginkgo.It("preserves the actual dependency backend in snapshots and their checksum", func(ctx ginkgo.SpecContext) {
+		before, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		cfg := configs["example.com/stages:"+ids[4]]
+		var record sbomStageRecord
+		gomega.Expect(json.Unmarshal([]byte(cfg.Config.Labels[image.WerfSBOMStageLabel]), &record)).To(gomega.Succeed())
+		record.ImportBackend = "rsync"
+		data, err := json.Marshal(record)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		cfg.Config.Labels[image.WerfSBOMStageLabel] = string(data)
+		after, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(after.Snapshots[4].ImportBackend).To(gomega.Equal("rsync"))
+		gomega.Expect(sbomProvenanceChecksum(after)).NotTo(gomega.Equal(sbomProvenanceChecksum(before)))
 	})
 
 	ginkgo.It("recovers from a transient registry error before selecting the SBOM cache key", func(ctx ginkgo.SpecContext) {

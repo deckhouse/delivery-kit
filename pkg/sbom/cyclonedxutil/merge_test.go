@@ -555,6 +555,36 @@ var _ = Describe("MergeBOMs", func() {
 			2,
 		),
 	)
+
+	It("keeps the same package of two different sources apart across the merged BOMs", func(ctx SpecContext) {
+		targetBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Metadata:    &cdx.Metadata{Component: &cdx.Component{BOMRef: "app", Type: cdx.ComponentTypeContainer, Name: "app"}},
+			Components: &[]cdx.Component{{
+				BOMRef: "target/lib", PackageURL: "pkg:generic/lib@1.0", Name: "lib", Version: "1.0",
+				Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}},
+			}},
+			Dependencies: &[]cdx.Dependency{{Ref: "app", Dependencies: &[]string{"target/lib"}}},
+		}
+		importBOM := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{{
+				BOMRef: "import/lib", PackageURL: "pkg:generic/lib@1.0", Name: "lib", Version: "1.0",
+				Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "bbb"}},
+			}},
+		}
+
+		result, err := MergeBOMs(ctx, targetBOM, MergeOpts{ImportBOMs: []*cdx.BOM{importBOM}})
+		Expect(err).ToNot(HaveOccurred())
+
+		components := lo.FromPtr(result.Components)
+		Expect(components).To(HaveLen(2))
+		Expect(lo.Map(components, func(c cdx.Component, _ int) []cdx.Property { return lo.FromPtr(c.Properties) })).To(ConsistOf(
+			[]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}},
+			[]cdx.Property{{Name: PropertyOriginalSource, Value: "bbb"}},
+		))
+		Expect(components[0].BOMRef).ToNot(Equal(components[1].BOMRef))
+	})
 })
 
 var _ = Describe("ToJSON", func() {
@@ -828,6 +858,29 @@ var _ = Describe("MergeBOMs with isolated components", func() {
 				Text:     "about the document",
 			},
 		}))
+	})
+
+	It("keeps the same package of two different sources of one BOM apart and keeps their refs", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			SpecVersion: cdx.SpecVersion1_6,
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "a/lib", PackageURL: "pkg:generic/lib@1.0", Name: "lib", Version: "1.0",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}},
+				},
+				{
+					BOMRef: "b/lib", PackageURL: "pkg:generic/lib@1.0", Name: "lib", Version: "1.0",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "bbb"}},
+				},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "a/lib"}, {Ref: "b/lib"}},
+		}
+
+		result, err := MergeBOMs(ctx, nil, MergeOpts{ImportBOMs: []*cdx.BOM{bom}, PreserveBOMRefs: true, IsolateComponents: true})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(lo.Map(lo.FromPtr(result.Components), func(c cdx.Component, _ int) string { return c.BOMRef })).To(Equal([]string{"a/lib", "b/lib"}))
+		Expect(dependencyRefs(result)).To(Equal([]string{"a/lib", "b/lib"}))
 	})
 })
 

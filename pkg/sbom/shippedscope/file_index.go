@@ -29,7 +29,8 @@ type File struct {
 type FileIndex struct {
 	Files map[string]File
 	// Symlinks holds targets exactly as the image records them: possibly relative, possibly dangling.
-	Symlinks map[string]string
+	Symlinks    map[string]string
+	Directories map[string]struct{} `json:"-"`
 	// Incomplete also covers hardlinks resolved against the final filesystem rather
 	// than their owning layer: later target changes may have hidden surviving bytes.
 	// Such an index cannot establish that a digest is absent.
@@ -67,6 +68,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 	index := &FileIndex{
 		Files:        make(map[string]File),
 		Symlinks:     make(map[string]string),
+		Directories:  map[string]struct{}{"/": {}},
 		bodies:       make(map[string][]byte),
 		targetBodies: make(map[string][]byte),
 	}
@@ -97,7 +99,12 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 			continue
 		}
 
+		for parent := path.Dir(name); parent != "/"; parent = path.Dir(parent) {
+			index.Directories[parent] = struct{}{}
+		}
 		switch header.Typeflag {
+		case tar.TypeDir:
+			index.Directories[name] = struct{}{}
 		case tar.TypeReg:
 			file, body, err := readFile(reader, header, capture(name))
 			if err != nil {

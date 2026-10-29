@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +32,19 @@ func debugImportServer() bool {
 const rsyncServerPort = "873"
 
 var systemExcludeDirs = []string{"/proc", "/sys", "/dev", "/run", "/.werf"}
+
+// SystemExcludeDirs are the module paths the import daemon never serves, whatever an
+// import asks for.
+func SystemExcludeDirs() []string {
+	return slices.Clone(systemExcludeDirs)
+}
+
+// RsyncFilterRule is one filter rule of an import copy command, in the order rsync reads
+// them: the first rule matching a path decides whether it travels.
+type RsyncFilterRule struct {
+	Include bool
+	Pattern string
+}
 
 func buildRsyncdConf(port, authUser string) string {
 	return fmt.Sprintf(`pid file = /.werf/rsyncd.pid
@@ -261,17 +275,35 @@ func (srv *RsyncServer) GetCopyCommand(ctx context.Context, importConfig *config
 }
 
 func PrepareRsyncFilters(add string, includePaths, excludePaths []string) string {
-	rsyncCommand := ""
+	return formatRsyncFilters(RsyncFilterRules(add, includePaths, excludePaths))
+}
+
+// RsyncFilterRules is what PrepareRsyncFilters passes to rsync, as rules instead of as
+// command text, for callers that have to answer what such a copy carries.
+func RsyncFilterRules(add string, includePaths, excludePaths []string) []RsyncFilterRule {
+	var rules []RsyncFilterRule
 	if len(includePaths) != 0 {
 		// First, apply exclude filters to the specified paths.
-		rsyncCommand += PrepareRsyncExcludeFiltersForGlobs(add, excludePaths)
+		rules = append(rules, rsyncExcludeRulesForGlobs(add, excludePaths)...)
 		// Then include only the paths that are listed in include_paths.
-		rsyncCommand += PrepareRsyncIncludeFiltersForGlobs(add, includePaths)
+		rules = append(rules, rsyncIncludeRulesForGlobs(add, includePaths)...)
 	} else if len(excludePaths) != 0 {
 		// When include_paths is empty, simply apply exclude filters.
-		rsyncCommand += PrepareRsyncExcludeFiltersForGlobs(add, excludePaths)
+		rules = append(rules, rsyncExcludeRulesForGlobs(add, excludePaths)...)
 	}
-	return rsyncCommand
+	return rules
+}
+
+func formatRsyncFilters(rules []RsyncFilterRule) string {
+	var b string
+	for _, rule := range rules {
+		sign := "-"
+		if rule.Include {
+			sign = "+"
+		}
+		b += fmt.Sprintf(" --filter='%s/ %s'", sign, rule.Pattern)
+	}
+	return b
 }
 
 // PrepareRsyncExcludeFiltersForGlobs builds rsync --filter rules that exclude
@@ -284,8 +316,12 @@ func PrepareRsyncFilters(add string, includePaths, excludePaths []string) string
 //
 //	--filter='-/ base/excludeGlobPrefix...'
 func PrepareRsyncExcludeFiltersForGlobs(add string, excludeGlobs []string) string {
+	return formatRsyncFilters(rsyncExcludeRulesForGlobs(add, excludeGlobs))
+}
+
+func rsyncExcludeRulesForGlobs(add string, excludeGlobs []string) []RsyncFilterRule {
 	if len(excludeGlobs) == 0 {
-		return ""
+		return nil
 	}
 
 	paths := map[string]struct{}{}
@@ -300,11 +336,11 @@ func PrepareRsyncExcludeFiltersForGlobs(add string, excludeGlobs []string) strin
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var b string
+	rules := make([]RsyncFilterRule, 0, len(keys))
 	for _, p := range keys {
-		b += fmt.Sprintf(" --filter='-/ %s'", p)
+		rules = append(rules, RsyncFilterRule{Pattern: p})
 	}
-	return b
+	return rules
 }
 
 // PrepareRsyncIncludeFiltersForGlobs builds rsync --filter rules that include
@@ -323,8 +359,12 @@ func PrepareRsyncExcludeFiltersForGlobs(add string, excludeGlobs []string) strin
 //
 //	--filter='-/ base/**'
 func PrepareRsyncIncludeFiltersForGlobs(add string, includeGlobs []string) string {
+	return formatRsyncFilters(rsyncIncludeRulesForGlobs(add, includeGlobs))
+}
+
+func rsyncIncludeRulesForGlobs(add string, includeGlobs []string) []RsyncFilterRule {
 	if len(includeGlobs) == 0 {
-		return ""
+		return nil
 	}
 
 	paths := map[string]struct{}{}
@@ -345,13 +385,13 @@ func PrepareRsyncIncludeFiltersForGlobs(add string, includeGlobs []string) strin
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var b string
+	rules := make([]RsyncFilterRule, 0, len(keys)+1)
 	for _, k := range keys {
-		b += fmt.Sprintf(" --filter='+/ %s'", k)
+		rules = append(rules, RsyncFilterRule{Include: true, Pattern: k})
 	}
 	// Everything that did not match any include is excluded.
-	b += fmt.Sprintf(" --filter='-/ %s'", path.Join(add, "**"))
-	return b
+	rules = append(rules, RsyncFilterRule{Pattern: path.Join(add, "**")})
+	return rules
 }
 
 // globToRsyncFilterPaths builds rsync filter path components for a glob.

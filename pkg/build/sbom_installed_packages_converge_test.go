@@ -54,6 +54,13 @@ var _ = Describe("Installed inventory convergence", func() {
 		Expect(writer.Close()).To(Succeed())
 		img, err := mutate.AppendLayers(empty.Image, static.NewLayer(layer.Bytes(), types.DockerUncompressedLayer))
 		Expect(err).NotTo(HaveOccurred())
+		// The convergence verifies the composition of the image, which reads the stage the
+		// image was built as off its config: one base stage holding the whole filesystem.
+		cfg, err := img.ConfigFile()
+		Expect(err).NotTo(HaveOccurred())
+		cfg.Config.Labels = map[string]string{image.WerfSBOMStageLabel: `{"stage":"from","stageDigest":"installed","parentStageID":""}`}
+		img, err = mutate.ConfigFile(img, cfg)
+		Expect(err).NotTo(HaveOccurred())
 		Expect(remote.Write(ref, img, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))).To(Succeed())
 		digest, err := img.Digest()
 		Expect(err).NotTo(HaveOccurred())
@@ -86,13 +93,18 @@ var _ = Describe("Installed inventory convergence", func() {
 		Expect(err).NotTo(HaveOccurred())
 		ctrl := gomock.NewController(GinkgoT())
 		backend := mock.NewMockContainerBackend(ctrl)
-		backend.EXPECT().Pull(gomock.Any(), info.Name, gomock.Any()).Return(nil).Times(1)
-		backend.EXPECT().SaveImageToStream(gomock.Any(), info.Name).Return(io.NopCloser(bytes.NewReader(saved.Bytes())), nil).Times(1)
+		// Nothing is reused before the image is read and verified again, so every convergence
+		// pulls and reads the image — once, for the verification and the file evidence both.
+		backend.EXPECT().Pull(gomock.Any(), info.Name, gomock.Any()).Return(nil).Times(2)
+		backend.EXPECT().SaveImageToStream(gomock.Any(), info.Name).
+			DoAndReturn(func(_ any, _ string) (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(saved.Bytes())), nil
+			}).Times(2)
 		reader := mock.NewMockImageReader(ctrl)
-		backend.EXPECT().OpenImageReader(gomock.Any(), info.Name, gomock.Any()).Return(reader, nil).Times(1)
-		reader.EXPECT().ReadFile(gomock.Any(), metadataPath).Return([]byte(metadata), nil).Times(1)
-		reader.EXPECT().Close(gomock.Any()).Return(nil).Times(1)
-		backend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(scannedJSON, nil).Times(1)
+		backend.EXPECT().OpenImageReader(gomock.Any(), info.Name, gomock.Any()).Return(reader, nil).Times(2)
+		reader.EXPECT().ReadFile(gomock.Any(), metadataPath).Return([]byte(metadata), nil).Times(2)
+		reader.EXPECT().Close(gomock.Any()).Return(nil).Times(2)
+		backend.EXPECT().GenerateSBOM(gomock.Any(), gomock.Any()).Return(scannedJSON, nil).Times(2)
 		step := &sbomStep{containerBackend: backend}
 
 		for range 2 {

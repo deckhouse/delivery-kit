@@ -2,9 +2,13 @@
 
 Set DK_LOADER_FIXTURE to runtime-pie-oracle.py's composite loader-v5/out and
 DK_NATIVE_INSPECT_FIXTURE to export-native-inspect-fixture.py's directory, and
-DK_GO_FIXTURE to the frozen pure-Go ELF/record directory.
+DK_GO_FIXTURE to the frozen pure-Go ELF/record directory, and
+DK_GO_MODULES_FIXTURE to the frozen module/replacement/VCS ELF directory.
+DK_PM_BINARY must point to the frozen pm writer used for serial install/import verification.
 Then run: TASK_X_REMOTE_TASKFILES=1 task --yes test:native-poc
-All three frozen fixtures must be present; no executable fixture is stored in Git.
+All frozen inputs must be present; no executable fixture is stored in Git.
+The rsync oracle also requires Docker and the locally available stapel image
+pinned by pkg/stapel (the gate does not pull it implicitly).
 """
 
 import hashlib
@@ -26,10 +30,28 @@ def required_directory(name):
     return Path(value)
 
 
+GO_MODULE_PINS = {
+    "go-module-versioned-elf": ("309bc007183399cca557943000b2e1e5f1a66557c829485235ea7dc4a166faa7", "eec2cd68a8fb4e8225d38d8a61f59bb8525183037adebec07489290615bed488"),
+    "go-module-replaced-elf": ("fae4938464f5548ba6c58fff335390db4ff3317e65b4c01dfd2df9c3e9dbcfcc", "0711ad1f7a63f21449c657444d046708a857c0cee6c2f82994166cdb1550441b"),
+    "go-module-local-replaced-elf": ("4206d48c818160e69401ce98f6b9e0a614f7db30233c01350eda0459207d90a7", "76c57e02b8499024eab49d19621b6b908bf67e1347be724cfd82f5ac9216f85f"),
+    "go-module-vcs-tagged-elf": ("7e7c6cbf4c1d14f3ab058aad4a8fbd9a878ca9cb654ee521de5ae4e8aec50778", "0b690898633672e3fb2e5a5af511de5d237aee375cbc5affbd1328463c78b4bc"),
+    "go-module-vcs-dirty-elf": ("24f2dd1c4679b57294eae480d62264995837f5f8f18261b43da16a37822d6564", "9d2c59b89d89b7c8ce12e53f0aa63ec3700494a966a278738733cf7d56ca4b6f"),
+}
+
+
 def main():
     loader = required_directory("DK_LOADER_FIXTURE")
     native = required_directory("DK_NATIVE_INSPECT_FIXTURE")
     go_fixture = required_directory("DK_GO_FIXTURE")
+    go_modules = required_directory("DK_GO_MODULES_FIXTURE")
+    for name, (binary_pin, record_pin) in GO_MODULE_PINS.items():
+        if sha256(go_modules / name) != binary_pin or sha256(go_modules / (name + ".sbom.json")) != record_pin:
+            raise SystemExit(f"Go module fixture pin mismatch: {name}")
+    pm_binary = os.environ.get("DK_PM_BINARY")
+    if not pm_binary or not Path(pm_binary).is_file():
+        raise SystemExit("DK_PM_BINARY must name the pinned pm writer executable")
+    if sha256(Path(pm_binary)) != "d40ad4f58374fe296d367ef6b144d08fa49f2e51d81be650dd5eec92f4fe8ae1":
+        raise SystemExit("pm writer binary pin mismatch")
     if sha256(go_fixture / "go-pure-elf") != "6633c6efe582b616f97743a113cbbbf98a8cf43f22851613e6c36dd6e906280e":
         raise SystemExit("pure-Go fixture pin mismatch")
     if sha256(go_fixture / "go-pure-elf.sbom.json") != "294d967f1256a93a69154829806ef3f7aa91190ea4625d55b6e7ba0f561b47e1":

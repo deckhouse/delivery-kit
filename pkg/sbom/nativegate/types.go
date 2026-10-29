@@ -28,11 +28,12 @@ type ImagePolicy struct {
 	Outputs []string `json:"outputs"`
 }
 type Policy struct {
-	PMOverlap string                 `json:"pmOverlap,omitempty"`
-	Schema    string                 `json:"schema"`
-	Tools     []Tool                 `json:"tools"`
-	Profiles  []string               `json:"profiles"`
-	Images    map[string]ImagePolicy `json:"images"`
+	producerTools bool
+	PMOverlap     string                 `json:"pmOverlap,omitempty"`
+	Schema        string                 `json:"schema"`
+	Tools         []Tool                 `json:"tools"`
+	Profiles      []string               `json:"profiles"`
+	Images        map[string]ImagePolicy `json:"images"`
 }
 type Record struct {
 	Owners      []string        `json:"owners,omitempty"`
@@ -88,9 +89,17 @@ func Load(ctx context.Context) (*Policy, string, error) {
 	return &p, digest(body), nil
 }
 
+// NewDefaultPolicy applies the supported consumer checks to every file in the image.
+func NewDefaultPolicy(_ context.Context, imageName string) *Policy {
+	return &Policy{producerTools: true, Schema: "dk.policy/v2", Profiles: []string{"c-static", "c-dynamic", "go"}, Images: map[string]ImagePolicy{imageName: {Role: "final"}}}
+}
+
 func (p *Policy) checkTool(t Tool) error {
 	if t.Name == "" || t.Version == "" || !digestPattern.MatchString(t.SHA256) {
 		return fmt.Errorf("incomplete tool identity")
+	}
+	if p.producerTools {
+		return nil
 	}
 	for _, known := range p.Tools {
 		if known == t {

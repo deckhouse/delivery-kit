@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,7 +36,6 @@ import (
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
-	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
@@ -75,11 +75,28 @@ func syftScanRequired(isStapel bool, catalogers []scanner.Cataloger) bool {
 	return !isStapel || len(catalogers) > 0
 }
 
+// ConvergeWithMergeOptions carries the inputs of one convergence that belong to the image
+// being converged. They are passed per call rather than held by the step, which is shared
+// between the images converged in parallel.
+type ConvergeWithMergeOptions struct {
+	// Sources are the import directives of the image, in build order, each pinned to the
+	// source image the build copied from.
+	Sources []sbomSourceImportInput
+}
+
 // ConvergeWithMerge produces, caches and pushes the SBOM of one built image. osPmPackages
 // is the union of the os-pm directive specs of the image, the entries as written in
 // werf.yaml; when non-empty, the pm index of the image is read and the declared packages
 // recorded.
-func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string) error {
+func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, scanOpts scanner.ScanOptions, mergeOpts cyclonedxutil.MergeOpts, patchers []BOMPatcherInterface, osPmPackages []string, isStapel bool, targetPlatform string, signer signature.Signer, signerIdentity string, opts ...ConvergeWithMergeOptions) error {
+	if len(opts) > 1 {
+		return fmt.Errorf("image %s: more than one set of convergence options", werfImgName)
+	}
+	var options ConvergeWithMergeOptions
+	if len(opts) == 1 {
+		options = opts[0]
+	}
+
 	repo := stageDesc.Info.Repository
 	parentDigest := stageDesc.Info.GetDigest()
 
@@ -90,22 +107,24 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		return err
 	}
 
-	var provenance sbomStageProvenance
-	if isStapel {
-		var err error
-		provenance, err = resolveSBOMStageProvenance(ctx, stageDesc, docker_registry.API().GetRepoImageConfigFile)
-		if err != nil {
-			logboek.Context(ctx).Debug().LogF("image %s: produced binaries are unknown: %s\n", werfImgName, err)
-		}
+	if !isStapel {
+		return fmt.Errorf("image %s: no-data: the composition of the image cannot be verified, only a Stapel image carries the stage provenance the verification reads", werfImgName)
 	}
-	nativePolicy, nativeIdentity, err := nativegate.Load(ctx)
+	provenance, err := resolveSBOMStageProvenance(ctx, stageDesc, docker_registry.API().GetRepoImageConfigFile)
+	if err != nil {
+		return fmt.Errorf("image %s: no-data: the stage provenance of the image is unknown: %w", werfImgName, err)
+	}
+
+	policy := nativegate.NewDefaultPolicy(ctx, werfImgName)
+	policyChecksum, err := sbomPolicyChecksum(policy)
 	if err != nil {
 		return err
 	}
-	checksum := step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform, provenance)
-	if nativePolicy != nil {
-		checksum = util.Sha256Hash(checksum, nativeIdentity, "dk-native-gate-v2")
-	}
+	checksum := util.Sha256Hash(
+		step.calculateStableChecksum(scanOpts, mergeOpts, signerIdentity, targetPlatform, provenance),
+		"policy", policyChecksum,
+		"sources", sbomSourceImportsChecksum(options.Sources),
+	)
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -113,9 +132,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	if err != nil {
 		return fmt.Errorf("check SBOM cache: %w", err)
 	}
-	if nativePolicy == nil && found && desc.Annotations[image.WerfChecksumAnnotation] == checksum {
-		logboek.Context(ctx).Default().LogF("image %s: Use previously generated SBOM from registry\n", werfImgName)
-		return nil
+	// What is already published is reused as a publication only: every check below runs
+	// first, and the checksum then decides whether the result has to be pushed again.
+	var publishedChecksum string
+	if found {
+		publishedChecksum = desc.Annotations[image.WerfChecksumAnnotation]
 	}
 
 	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
@@ -125,41 +146,15 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	return logboek.Context(ctx).Default().LogProcess("image %s: SBOM processing", werfImgName).DoError(func() error {
 		var targetBOM *cdx.BOM
 
-		if nativePolicy != nil {
-			img, cleanup, err := savedImage(ctx, step.containerBackend, stageDesc.Info.Name)
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			if !isStapel {
-				return fmt.Errorf("native experimental gate requires Stapel source provenance")
-			}
-			result := cyclonedxutil.NewBOM()
-			restoreImageMetadata(result, stageDesc)
-			if err := nativegate.Apply(ctx, nativePolicy, werfImgName, img, append([]*cdx.BOM{mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...), result); err != nil {
-				return fmt.Errorf("native final gate: %w", err)
-			}
-			for _, patcher := range patchers {
-				if patcher != nil {
-					result, err = patcher.Apply(ctx, result)
-					if err != nil {
-						return err
-					}
-				}
-			}
-			if err := gost.Upsert(result, mergeOpts.Gost); err != nil {
-				return err
-			}
-			cyclonedxutil.Canonicalize(ctx, result)
-			data, err := cyclonedxutil.ToJSON(result)
-			if err != nil {
-				return err
-			}
-			if err := cyclonedxutil.ValidateCycloneDX16Schema(data); err != nil {
-				return err
-			}
-			logboek.Context(ctx).Default().LogF("image %s: native gate v2 verified (cache does not bypass verification)\n", werfImgName)
-			return sbomImage.PushSBOM(ctx, data, repo, parentDigest, werfImgName, checksum, targetPlatform, signer)
+		img, cleanup, err := savedImage(ctx, step.containerBackend, stageDesc.Info.Name)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		verifiedBOM, err := step.verifyImageComposition(ctx, werfImgName, stageDesc, img, provenance, policy, mergeOpts.BaseBOM, options.Sources, targetPlatform)
+		if err != nil {
+			return err
 		}
 
 		switch {
@@ -192,7 +187,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		if isStapel || len(osPmPackages) > 0 || lo.SomeBy(inputs, func(bom *cdx.BOM) bool {
 			return bom != nil && (shippedscope.HasFileBackedComponents(bom) || shippedscope.HasBinaryBackedComponents(ctx, bom))
 		}) {
-			filesets, produced = collectShippedScope(ctx, step.containerBackend, werfImgName, stageDesc.Info.Name, provenance)
+			filesets, produced = collectShippedScope(ctx, img, werfImgName, stageDesc.Info.Name, provenance)
 		}
 		if isStapel && filesets != nil {
 			installedBOMs, err := step.scanInstalledPackages(ctx, stageDesc.Info, scanOpts, filesets.Index, targetPlatform)
@@ -215,30 +210,47 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 		}
 
+		cyclonedxutil.Canonicalize(ctx, resultBOM)
+
+		// The file evidence of the scanned document is marked before the verified
+		// composition is grafted on, so that what the image was proven to be made of is
+		// never classified by the inventory the scan inherited.
+		recordShippedScope(ctx, resultBOM, filesets, produced, werfImgName)
+
+		if dropped := shippedscope.DropBinaryAttributionForVerifiedPaths(ctx, resultBOM, verifiedBinaryContents(verifiedBOM)); dropped > 0 {
+			logboek.Context(ctx).Debug().LogF("image %s: %d guessed module components replaced by the composition of the binaries they were read from\n", werfImgName, dropped)
+		}
+
+		resultBOM, err = cyclonedxutil.MergeBOMs(ctx, resultBOM, cyclonedxutil.MergeOpts{ImportBOMs: []*cdx.BOM{verifiedBOM}})
+		if err != nil {
+			return fmt.Errorf("merge verified composition: %w", err)
+		}
+
 		if len(osPmPackages) > 0 {
-			pmBOM, err := osPm.CollectBOM(ctx, step.containerBackend, stageDesc.Info.Name)
-			if err != nil {
-				return fmt.Errorf("collect os-pm BOM: %w", err)
-			}
-			if pmBOM != nil {
-				resultBOM, err = cyclonedxutil.MergeBOMs(ctx, resultBOM, cyclonedxutil.MergeOpts{
-					ImportBOMs: []*cdx.BOM{pmBOM},
-				})
-				if err != nil {
-					return fmt.Errorf("merge os-pm BOM: %w", err)
-				}
-			}
-			// The pm index lists everything installed, the base image's packages included, so
-			// the declared ones are picked out of the merged BOM by the directive spec.
+			// Only a component bound to an original source is a package the image was proven
+			// to be made of. A composition claim read out of a binary can carry the same name
+			// and version without being one, so the directive is matched against a view of the
+			// result holding the former alone — and the refs it returns are the result's own.
 			declaredPkgs := declared.FromOSPMSpec(osPmPackages)
-			refs, unmatched := declared.MatchComponents(ctx, resultBOM, config.PackagesDirectiveTypeOSPM, declaredPkgs)
+			originals := &cdx.BOM{
+				Dependencies: resultBOM.Dependencies,
+				Components: lo.ToPtr(lo.Filter(lo.FromPtr(resultBOM.Components), func(comp cdx.Component, _ int) bool {
+					return comp.Type == cdx.ComponentTypeLibrary && lo.SomeBy(lo.FromPtr(comp.Properties), func(property cdx.Property) bool {
+						return property.Name == cyclonedxutil.PropertyOriginalSource
+					})
+				})),
+			}
+			if resultBOM.Metadata != nil && resultBOM.Metadata.Component != nil {
+				originals.Metadata = &cdx.Metadata{Component: &cdx.Component{BOMRef: resultBOM.Metadata.Component.BOMRef}}
+			}
+			refs, unmatched := declared.MatchComponents(ctx, originals, config.PackagesDirectiveTypeOSPM, declaredPkgs)
 			if len(unmatched) > 0 {
 				unmatchedNames := lo.SliceToMap(unmatched, func(pkg declared.Package) (string, struct{}) { return pkg.Name, struct{}{} })
 				entries := lo.Filter(osPmPackages, func(entry string, _ int) bool {
 					_, ok := unmatchedNames[declared.OSPMSpecName(entry)]
 					return ok
 				})
-				return fmt.Errorf("record declared os-pm packages of image %q as its attack surface: %s not found among the packages pm installed into the image", werfImgName, strings.Join(entries, ", "))
+				return fmt.Errorf("record declared os-pm packages of image %q as its attack surface: %s left no verified file in the image, so nothing proves the image is made of them", werfImgName, strings.Join(entries, ", "))
 			}
 			declared.AddRootEdge(resultBOM, refs)
 		}
@@ -275,7 +287,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
-		recordShippedScope(ctx, resultBOM, filesets, produced, werfImgName)
+		graftVerifiedProperties(resultBOM, verifiedBOM)
 
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
@@ -284,6 +296,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		if err := cyclonedxutil.ValidateCycloneDX16Schema(resultJSON); err != nil {
 			return fmt.Errorf("validate BOM: %w", err)
+		}
+
+		if publishedChecksum == checksum {
+			logboek.Context(ctx).Default().LogF("image %s: composition verified; the SBOM already in the registry describes it\n", werfImgName)
+			return nil
 		}
 
 		if err := logboek.Context(ctx).Default().LogProcess("Push SBOM artifact").DoError(func() error {
@@ -296,15 +313,147 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	})
 }
 
-func collectShippedScope(ctx context.Context, backend imageSaver, werfImgName, imageName string, provenance sbomStageProvenance) (*shippedscope.Filesets, *shippedscope.ProducedFiles) {
-	unknown := &shippedscope.ProducedFiles{}
-	img, cleanup, err := savedImage(ctx, backend, imageName)
+// verifyImageComposition establishes what the image is made of from the stage boundaries
+// it was built through and the original sources they carry, under the default policy. It
+// is the authority on the packages of the image; the scan that runs beside it contributes
+// the language ecosystems the composition says nothing about.
+func (step *sbomStep) verifyImageComposition(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, img v1.Image, provenance sbomStageProvenance, policy *nativegate.Policy, baseBOM *cdx.BOM, sources []sbomSourceImportInput, targetPlatform string) (*cdx.BOM, error) {
+	snapshots, err := collectSBOMSourceSnapshots(ctx, img, provenance)
 	if err != nil {
-		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; installed package inventory and file evidence are incomplete: %s\n", werfImgName, imageName, err)
-
-		return nil, unknown
+		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
 	}
-	defer cleanup()
+	captured, err := captureSBOMSourceImages(ctx, step.containerBackend, sources, targetPlatform)
+	if err != nil {
+		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
+	}
+	sourceSnapshots, err := sbomSourceGateSnapshots(snapshots, sources, captured)
+	if err != nil {
+		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
+	}
+
+	verified := cyclonedxutil.NewBOM()
+	restoreImageMetadata(verified, stageDesc)
+	if err := nativegate.ApplySourceSnapshots(ctx, policy, werfImgName, img, sourceSnapshots, verified, nativegate.ApplySourceSnapshotsOptions{BaseBOM: baseBOM}); err != nil {
+		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
+	}
+	logboek.Context(ctx).Default().LogF("image %s: composition verified against its original sources\n", werfImgName)
+
+	return verified, nil
+}
+
+// verifiedBinaryContents is what the verification established the image holds, by path:
+// the file components of its document name the path and carry the content's digest.
+func verifiedBinaryContents(verified *cdx.BOM) map[string]string {
+	contents := make(map[string]string)
+	for _, comp := range lo.FromPtr(verified.Components) {
+		if comp.Type != cdx.ComponentTypeFile {
+			continue
+		}
+		for _, hash := range lo.FromPtr(comp.Hashes) {
+			if hash.Algorithm == cdx.HashAlgoSHA256 {
+				contents[comp.Name] = "sha256:" + hash.Value
+			}
+		}
+	}
+
+	return contents
+}
+
+func sbomPolicyChecksum(policy *nativegate.Policy) (string, error) {
+	data, err := json.Marshal(policy)
+	if err != nil {
+		return "", fmt.Errorf("read the composition policy: %w", err)
+	}
+
+	return util.Sha256Hash(string(data)), nil
+}
+
+// graftVerifiedProperties puts the catalog of the verified composition onto the result. A
+// merge keeps the metadata of its target, so the properties the verification wrote travel
+// separately; they are copied last, over any same-named property, and no other property
+// of the document is touched.
+func graftVerifiedProperties(target, verified *cdx.BOM) {
+	if target == nil || verified == nil || verified.Metadata == nil {
+		return
+	}
+	var grafted []cdx.Property
+	replaced := make(map[string]bool)
+	for _, property := range lo.FromPtr(verified.Metadata.Properties) {
+		if !strings.HasPrefix(property.Name, verifiedPropertyPrefix) {
+			continue
+		}
+		replaced[property.Name] = true
+		grafted = append(grafted, property)
+	}
+	if len(grafted) == 0 {
+		return
+	}
+	if target.Metadata == nil {
+		target.Metadata = &cdx.Metadata{}
+	}
+	kept := lo.Filter(lo.FromPtr(target.Metadata.Properties), func(property cdx.Property, _ int) bool {
+		return !replaced[property.Name]
+	})
+	target.Metadata.Properties = lo.ToPtr(append(kept, grafted...))
+}
+
+const verifiedPropertyPrefix = "dk:"
+
+// dropSupersededPackageAttribution removes from an inherited document the package
+// attribution the verified composition of this image establishes anew: the pm packages an
+// image recorded from its pm index, the ones it recorded from original sources, and the
+// composition claims it read out of the binaries it carried. The verification rebuilds all
+// three for the binaries this image actually holds, so what a donor claimed about a binary
+// an import left behind would otherwise survive as a package of this image. The purl-less
+// file components of a directory scan go with them. Language package evidence — Go,
+// Python, Node — is not attribution of this kind and stays.
+func dropSupersededPackageAttribution(bom *cdx.BOM) {
+	cyclonedxutil.DropSyftSourceFileComponents(bom)
+	if bom == nil || bom.Components == nil {
+		return
+	}
+	kept := lo.Filter(*bom.Components, func(comp cdx.Component, _ int) bool {
+		return !supersededPackageAttribution(comp)
+	})
+	if len(kept) == 0 {
+		bom.Components = nil
+
+		return
+	}
+	*bom.Components = kept
+}
+
+func supersededPackageAttribution(comp cdx.Component) bool {
+	if comp.Type != cdx.ComponentTypeLibrary {
+		return false
+	}
+	for _, property := range lo.FromPtr(comp.Properties) {
+		if property.Name == cyclonedxutil.PropertyOriginalSource || property.Name == nativeCompositionProperty {
+			return true
+		}
+	}
+	purl, err := packageurl.FromString(comp.PackageURL)
+	if err != nil || purl.Type != packageurl.TypeGeneric {
+		return false
+	}
+	qualifiers := purl.Qualifiers.Map()
+	if _, pmAttributed := qualifiers["containerfactoryversion"]; pmAttributed {
+		return true
+	}
+	_, kind := qualifiers["source_kind"]
+	_, locator := qualifiers["source_locator"]
+
+	return kind && locator
+}
+
+// nativeCompositionProperty is what a component read out of a binary's embedded
+// composition carries. The verification writes it; an inherited one is a donor's claim.
+const nativeCompositionProperty = "dk:source"
+
+// collectShippedScope reads the built image the caller already holds: one convergence
+// reads it once, for the verification and for the file evidence both.
+func collectShippedScope(ctx context.Context, img v1.Image, werfImgName, imageName string, provenance sbomStageProvenance) (*shippedscope.Filesets, *shippedscope.ProducedFiles) {
+	unknown := &shippedscope.ProducedFiles{}
 
 	filesets, err := shippedscope.CollectFilesets(ctx, img)
 	if err != nil {
@@ -344,6 +493,7 @@ func prepareBinaryMerge(ctx context.Context, target *cdx.BOM, opts cyclonedxutil
 			return opts, fmt.Errorf("clone binary evidence source: %w", err)
 		}
 		shippedscope.NormalizeInheritedBinaryOccurrences(ctx, clone)
+		dropSupersededPackageAttribution(clone)
 		inputs[i] = clone
 	}
 	opts.BaseBOM = inputs[0]

@@ -487,6 +487,129 @@ var _ = Describe("Canonicalize", func() {
 		Expect(*(*bom.Components)[1].Components).To(HaveLen(1))
 	})
 
+	It("keeps components of the same purl built from different sources apart", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Metadata: &cdx.Metadata{Component: &cdx.Component{BOMRef: "root", Type: cdx.ComponentTypeContainer, Name: "img"}},
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "src-a/lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}},
+				},
+				{
+					BOMRef: "src-b/lib", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "bbb"}},
+				},
+			},
+			Dependencies: &[]cdx.Dependency{{Ref: "root", Dependencies: &[]string{"src-a/lib", "src-b/lib"}}},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*bom.Components).To(HaveLen(2))
+		Expect(lo.Map(*bom.Components, func(c cdx.Component, _ int) string { return c.BOMRef })).To(Equal([]string{"src-a/lib", "src-b/lib"}))
+		Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}}))
+		Expect(*(*bom.Components)[1].Properties).To(Equal([]cdx.Property{{Name: PropertyOriginalSource, Value: "bbb"}}))
+		Expect(*bom.Dependencies).To(Equal([]cdx.Dependency{{Ref: "root", Dependencies: &[]string{"src-a/lib", "src-b/lib"}}}))
+	})
+
+	It("merges components of one source reported with different package-id qualifiers", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "ref-a", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0?package-id=aaa",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}},
+				},
+				{
+					BOMRef: "ref-b", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0?package-id=bbb",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}},
+				},
+			},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+		Expect((*bom.Components)[0].BOMRef).To(Equal("ref-a"))
+		Expect(*(*bom.Components)[0].Properties).To(Equal([]cdx.Property{{Name: PropertyOriginalSource, Value: "aaa"}}))
+	})
+
+	It("merges components listing the same sources in another order or twice", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "ref-a", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{
+						{Name: PropertyOriginalSource, Value: "aaa"},
+						{Name: PropertyOriginalSource, Value: "bbb"},
+					},
+				},
+				{
+					BOMRef: "ref-b", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{
+						{Name: PropertyOriginalSource, Value: "bbb"},
+						{Name: PropertyOriginalSource, Value: "aaa"},
+						{Name: PropertyOriginalSource, Value: "bbb"},
+					},
+				},
+			},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+		Expect((*bom.Components)[0].BOMRef).To(Equal("ref-a"))
+	})
+
+	It("keeps a component of one source apart from a component of two sources spelling it", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "ref-a", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: `aaa" "bbb`}},
+				},
+				{
+					BOMRef: "ref-b", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{
+						{Name: PropertyOriginalSource, Value: "aaa"},
+						{Name: PropertyOriginalSource, Value: "bbb"},
+					},
+				},
+			},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*bom.Components).To(HaveLen(2))
+	})
+
+	It("merges components whose original-source property is empty", func(ctx SpecContext) {
+		bom := &cdx.BOM{
+			Components: &[]cdx.Component{
+				{
+					BOMRef: "ref-a", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+					Properties: &[]cdx.Property{{Name: PropertyOriginalSource, Value: ""}},
+				},
+				{
+					BOMRef: "ref-b", Type: cdx.ComponentTypeLibrary, Name: "lib", Version: "1.0",
+					PackageURL: "pkg:generic/lib@1.0",
+				},
+			},
+		}
+
+		Canonicalize(ctx, bom)
+
+		Expect(*bom.Components).To(HaveLen(1))
+	})
+
 	It("redirects a ref through a chain of merges onto the component that survives", func(ctx SpecContext) {
 		kid := func(ref string) cdx.Component {
 			return cdx.Component{BOMRef: ref, Type: cdx.ComponentTypeLibrary, Name: "kid", Version: "1"}

@@ -1,6 +1,8 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,11 +22,13 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
 	"github.com/werf/lockgate/pkg/distributed_locker"
 	"github.com/werf/lockgate/pkg/distributed_locker/optimistic_locking_store"
+	"github.com/werf/logboek"
 	buildImage "github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/build/stage"
@@ -46,6 +50,38 @@ import (
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/test/pkg/utils"
 )
+
+type sourceSnapshotFile struct {
+	Name   string
+	Body   string
+	Target string
+}
+
+func sourceSnapshotImage(layers ...[]sourceSnapshotFile) v1.Image {
+	ginkgo.GinkgoHelper()
+	img := empty.Image
+	for _, files := range layers {
+		var buf bytes.Buffer
+		writer := tar.NewWriter(&buf)
+		for _, file := range files {
+			header := &tar.Header{Name: file.Name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(file.Body))}
+			if file.Target != "" {
+				header.Typeflag, header.Linkname, header.Size = tar.TypeSymlink, file.Target, 0
+			}
+			gomega.Expect(writer.WriteHeader(header)).To(gomega.Succeed())
+			if file.Target == "" {
+				_, err := writer.Write([]byte(file.Body))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+		gomega.Expect(writer.Close()).To(gomega.Succeed())
+		layer, err := tarball.LayerFromReader(&buf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		img, err = mutate.AppendLayers(img, layer)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	return img
+}
 
 func newSBOMStageOrderImage(ctx context.Context) *buildImage.Image {
 	tmpDir, homeDir := ginkgo.GinkgoT().TempDir(), ginkgo.GinkgoT().TempDir()
@@ -831,7 +867,14 @@ func recordSavedShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSav
 	if !shippedscope.HasFileBackedComponents(bom) && !shippedscope.HasBinaryBackedComponents(ctx, bom) {
 		return
 	}
-	filesets, produced := collectShippedScope(ctx, backend, werfImgName, imageName, sbomStageProvenance{})
+	img, cleanup, err := savedImage(ctx, backend, imageName)
+	if err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: image %s: unable to read the built image %s; installed package inventory and file evidence are incomplete: %s\n", werfImgName, imageName, err)
+
+		return
+	}
+	defer cleanup()
+	filesets, produced := collectShippedScope(ctx, img, werfImgName, imageName, sbomStageProvenance{})
 	recordShippedScope(ctx, bom, filesets, produced, werfImgName)
 }
 

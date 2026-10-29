@@ -129,6 +129,76 @@ func RecordProducedBinaryOccurrences(_ context.Context, bom *cdx.BOM, produced *
 	})
 }
 
+// DropBinaryAttributionForVerifiedPaths removes the components a scanner attributed to a
+// binary whose composition is already known from the binary itself: verified maps the path
+// of such a binary to the content it holds, and a component whose every piece of evidence
+// is that binary says nothing the embedded composition does not say better.
+//
+// Only that case is removed. A component is kept when any of its binary occurrences names
+// a path the verification does not cover or content other than what the verified binary
+// holds, when a binary could not be classified, when its origin's binary evidence is
+// incomplete, and when it carries file evidence of its own: an uncertain claim is still
+// evidence, and dropping it would turn uncertainty into a clean document.
+//
+// Returns how many components were dropped.
+func DropBinaryAttributionForVerifiedPaths(_ context.Context, bom *cdx.BOM, verified map[string]string) int {
+	if bom == nil || len(verified) == 0 {
+		return 0
+	}
+
+	dropped := make(map[string]struct{})
+	kept := lo.Filter(lo.FromPtr(bom.Components), func(comp cdx.Component, _ int) bool {
+		if !attributedToVerifiedBinaries(&comp, verified) {
+			return true
+		}
+		dropped[comp.BOMRef] = struct{}{}
+
+		return false
+	})
+	if len(dropped) == 0 {
+		return 0
+	}
+
+	bom.Components = lo.ToPtr(kept)
+	if len(kept) == 0 {
+		bom.Components = nil
+	}
+	if bom.Dependencies != nil {
+		dependencies := lo.FilterMap(*bom.Dependencies, func(dependency cdx.Dependency, _ int) (cdx.Dependency, bool) {
+			if _, gone := dropped[dependency.Ref]; gone {
+				return cdx.Dependency{}, false
+			}
+			if dependency.Dependencies != nil {
+				dependency.Dependencies = lo.ToPtr(lo.Filter(*dependency.Dependencies, func(ref string, _ int) bool {
+					_, gone := dropped[ref]
+
+					return !gone
+				}))
+			}
+
+			return dependency, true
+		})
+		bom.Dependencies = &dependencies
+	}
+
+	return len(dropped)
+}
+
+func attributedToVerifiedBinaries(comp *cdx.Component, verified map[string]string) bool {
+	key, ok := keyOfComponent(comp)
+	if !ok || !isBinaryBacked(key.ecosystem) {
+		return false
+	}
+	occurrences, incomplete := binaryOccurrences(comp)
+	if incomplete || len(occurrences) == 0 || len(recordedOccurrences(comp)) > 0 {
+		return false
+	}
+
+	return lo.EveryBy(occurrences, func(occurrence binaryOccurrence) bool {
+		return !occurrence.Unknown && verified[occurrence.Path] == occurrence.Digest
+	})
+}
+
 func HasBinaryBackedComponents(_ context.Context, bom *cdx.BOM) bool {
 	found := false
 	walkComponents(bom, func(comp *cdx.Component) {

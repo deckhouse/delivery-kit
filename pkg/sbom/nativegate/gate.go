@@ -7,6 +7,7 @@ import (
 	"debug/elf"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"slices"
 	"sort"
@@ -78,7 +79,9 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		}
 		body := prefix
 		err = nil
-		full := metadata || ip.Role != "final" || bytes.HasPrefix(prefix, []byte("\x7fELF"))
+		// A script is classified from its whole body, so a shebang is read in full the way
+		// an ELF is; the digest check below then ties those bytes to the index.
+		full := metadata || ip.Role != "final" || bytes.HasPrefix(prefix, []byte("\x7fELF")) || bytes.HasPrefix(prefix, []byte("#!"))
 		if full {
 			rest, readErr := io.ReadAll(tr)
 			err = readErr
@@ -164,6 +167,26 @@ func matching(c Catalog, name, hash string) (*Record, error) {
 }
 
 func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*cdx.BOM, target *cdx.BOM) error {
+	return apply(ctx, p, name, img, inputs, target, nil)
+}
+
+type ApplySourceSnapshotsOptions struct {
+	BaseBOM *cdx.BOM
+}
+
+// ApplySourceSnapshots verifies the final image using observed, scoped original sources.
+func ApplySourceSnapshots(ctx context.Context, p *Policy, name string, img v1.Image, snapshots []SourceSnapshot, target *cdx.BOM, opts ApplySourceSnapshotsOptions) error {
+	evidence, err := collectSourceEvidence(ctx, snapshots, opts.BaseBOM)
+	if err != nil {
+		return err
+	}
+	if err := apply(ctx, p, name, img, nil, target, evidence); err != nil {
+		return err
+	}
+	return evidence.attach(target)
+}
+
+func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*cdx.BOM, target *cdx.BOM, evidence *sourceEvidence) error {
 	if p.PMOverlap != "" && p.PMOverlap != "all-active-exact-path-hash" {
 		return fmt.Errorf("unsupported pm overlap policy")
 	}
@@ -183,7 +206,14 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		return err
 	}
 	local := emptyCatalog()
-	if err := local.addPM(ctx, fs.bodies); err != nil {
+	if evidence != nil {
+		if !maps.Equal(fs.index.Files, evidence.index.Files) || !maps.Equal(fs.index.Symlinks, evidence.index.Symlinks) {
+			return fmt.Errorf("invalid: final source snapshot differs from the verified image")
+		}
+		if err := local.addOriginalSources(ctx, evidence); err != nil {
+			return err
+		}
+	} else if err := local.addPM(ctx, fs.bodies); err != nil {
 		return err
 	}
 	if err := local.resolvePaths(fs); err != nil {
@@ -204,14 +234,36 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			}
 		}
 	}
+	scoped := map[string]Record{}
+	if evidence != nil {
+		for _, record := range c.Records {
+			if _, exists := scoped[record.Path]; exists {
+				return fmt.Errorf("invalid: duplicate original record at %s", record.Path)
+			}
+			scoped[record.Path] = record
+		}
+	}
 	present := map[string]Record{}
 	for name, entry := range fs.index.Files {
 		if ip.Role == "produce" && !slices.Contains(ip.Outputs, name) {
 			continue
 		}
-		record, err := matching(c, name, entry.Digest)
-		if err != nil {
-			return err
+		if evidence != nil && binaryLike(fs.bodies[name], fs.executable[name], name) && len(evidence.matches[name]) > 0 {
+			if _, err := uniqueOriginalBinding(evidence.matches[name]); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
+		var record *Record
+		if evidence != nil {
+			if known, exists := scoped[name]; exists && known.SHA256 == entry.Digest {
+				record = &known
+			}
+		} else {
+			var err error
+			record, err = matching(c, name, entry.Digest)
+			if err != nil {
+				return err
+			}
 		}
 		if record != nil && (record.PMOverlap != "" || (record.Origin == "pm" && len(record.Owners) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
 			return fmt.Errorf("pm coownership requires current policy opt-in")
@@ -242,7 +294,14 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 		if record == nil {
 			if binaryLike(fs.bodies[name], fs.executable[name], name) {
-				return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
+				if !interpretedScript(fs.bodies[name], name) {
+					return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
+				}
+				// Reading the script as ordinary text must not drop the answer the binary
+				// route gave about a path an original source bound before it changed.
+				if evidence != nil && evidence.unverified[name] {
+					return fmt.Errorf("no-data: content an original source bound at %s changed", name)
+				}
 			}
 			continue
 		}

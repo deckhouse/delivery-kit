@@ -1,57 +1,42 @@
-# Embedded composition gate migration
+# Composition verification
 
-The gate reads `pm.buildinfo/v1` from `.note.package` through the shared pm
-reader pinned in `go.mod`. There is no copied parser, compiler sidecar replay,
-Git source inventory, or embedded self-hash. An artifact retains its complete
-record in the versioned catalog (`dk:catalog/v4`); required metadata is re-read from surviving ELF
-bytes, including inherited package files. External catalog hashes detect changed
-known files. Missing metadata is an error even when a package owner is known.
+SBOM-enabled Stapel builds use one pipeline: ordinary Go/Python/Node and installed-package evidence is combined with verified original files and embedded native composition. Verification runs before a cached SBOM publication can be reused. Builds without SBOM retain their previous package commands.
 
-Current integration supports C-static, C-dynamic and pure Go on Linux/amd64.
-Other profiles fail explicitly. The shared reader validates typed Go module
-mappings against final ELF buildinfo Deps. The pure-Go consumer fixture is a real
-instrumented ELF with an explicit empty dependency mapping; its SDK originals
-were synthetic test inputs, not delivered SDK acceptance. CGO and the full module
-matrix remain separate integration work. Main validation and filtering remain
-producer-side. The reader
-does not re-hash unavailable intermediate objects, archives or sources. Their
-composition is the trusted producer's verified claim.
+`WERF_DK_NATIVE_POLICY` is no longer a production feature switch. The default checks cover every shipped binary/executable. Whole-file UTF-8 text with a recognized shell/Python/Node shebang is routed through ordinary file/language evidence rather than required to carry a native note. This classification does not assert ownership or interpreter availability; unknown formats and raw binary payloads remain strict, and a changed previously-bound foreign executable script is rejected. The explicit `Policy`/`Apply` APIs remain available for the isolated policy fixtures; production uses `NewDefaultPolicy` and `ApplySourceSnapshots`.
 
-Embedded component identity preserves source kind, locator, version and source checksum.
-The catalog keeps complete empty inputs distinct from missing or incomplete data,
-and only carries surviving files. Package owners are stored separately from
-embedded composition so repeated checks against the package inventory remain stable. Runtime DT_NEEDED/PT_INTERP edges are separate
-from intrinsic components. Every library in the checked scope is inventoried;
-no dlopen declaration or complete programmatic loading graph is implied.
+The conservative script classifier recognizes `ash`, `bash`, `dash`, `node`, `python`, `python3` and `sh` as the basename of an absolute interpreter path, or through `/usr/bin/env` with optional `-S`. Other interpreter spellings, quoted shebangs and binary control bytes are unsupported. Classification is not a claim that the script is runnable (for example, CRLF text is still text), nor that text cannot encode executable payloads.
 
-Dynamic resolution still pins the Linux/amd64 loader and its default directories,
-and supports RUNPATH and symlinks. Unknown loader configurations and conflicting
-SONAME owners within an executable closure fail.
+## Original files and scope
 
-## Remaining integration
+SBOM-enabled os-pm directives request `--sbom-sources-file /var/lib/pm/sbom-sources.json`. The builder must provide a pm binary supporting that option. Calls writing one receipt are sequential; atomic replacement alone does not make concurrent writers safe.
 
-This draft still selects the experimental path through `WERF_DK_NATIVE_POLICY`
-(`dk.policy/v2`): tools, profiles, and image roles/output lists. These are temporary
-POC controls, not the intended default-on interface. Policies no longer accept
-source inventories, SDK distributions or metadata directories. Example profile IDs
-are `c-static` and `c-dynamic`, not the old combined language/link-mode strings.
+The shared `sbom/sources` codec carries source candidates, not successful-install claims. DK captures actual base, packages and subsequent stage rootfs snapshots. It resolves pinned originals using the shared `sbom/original` OCI validation API and its filesystem reader, with DK's existing registry transport/authentication. Selected original bytes are verified to EOF in a batched layer walk. Missing data, unknown schemas, invalid receipts and incomplete snapshots are not replaced with `files.json` or current-file hashes.
 
-SBOM-enabled os-pm directives request `--sbom-sources-file` at the shared receipt
-path. The builder image must provide a pm binary supporting that option; command
-generation alone does not establish receipt capture or source verification.
-Non-SBOM directives retain their previous commands. The changed command also
-changes the packages-stage checksum for SBOM-enabled os-pm builds; there is no
-separate SBOM cache-version tag or migration.
+Import filter semantics are read from the backend recorded in the actual cached stage label, not guessed from the current builder. Older import stages without this evidence fail with `no-data` and require the agreed clean rebuild.
 
-The existing pm files inventory adapter also remains a migration dependency: its
-`files.json` assumptions must be replaced with pinned original package data and
-scoped source candidates. This path must be joined to the ordinary pm/Go/Python/Node pipeline
-before enabling verification by default. PE/Mach-O and other pilot formats need
-their agreed profiles. None of these gaps is an exemption for toolchain binaries.
+Initial bindings require an original path actually present in the source snapshot. Later shell snapshots can match bytes from the scoped before snapshot; this establishes content correspondence, not proof of a physical move or copy. Imports retain their actual From/To paths and include/exclude rules. A lost import boundary is not permission to search the whole package.
 
-`task test:native-poc` verifies the pinned loader and native-inspect fixtures plus
-`DK_GO_FIXTURE` (the real pure-Go ELF and expected record), then runs all nativegate
-specs without skips. They cover the reader/consumer and runtime layers; illustrative
-records are not producer attestations. End-to-end dev producer/package fixtures,
-registry publication/read-back, and complete pilot coverage remain separate
-acceptance requirements.
+Equal-byte distinct sources remain alternatives. A consumer requiring one original binding reports `no-data` if none can be established. Alternatives are never merged into an invented package owner. Distinct pinned sources of the same package name/version remain distinct through CycloneDX canonicalization.
+
+The current image carries two self-contained metadata properties:
+
+- `dk:catalog/v4`: verified file/native records, raw embedded composition and their component graph.
+- `dk:originals/v1`: canonical source candidates with raw Packet JSON and scoped file SHA-256/size/original-path alternatives.
+
+Inherited originals are rechecked against the actual source image and pinned original bytes. Current catalog properties replace inherited ones after the common merge. Scanner-only Go attribution is removed only when its complete binary evidence is superseded by the same verified bytes; independent file-based or unresolved evidence is not silently discarded.
+
+## Native records
+
+The shared reader validates embedded records directly from ELF bytes. No native composition sidecar or guessed installed-package inventory is accepted as a replacement. Record schema, required tool identities, supported profile/platform/revision, ELF shape and available Go buildinfo contradictions are checked by the reader; rootfs interpreter/library closure is checked by DK.
+
+Tool hashes describe the trusted producer's actual executables. DK does not require those compiler/helper bytes in the final image. If a tool is itself shipped, its own composition must pass the same binary checks. Unavailable intermediate object/archive/source hashes remain producer claims. An observed final-file digest is not a final-ELF self-hash guarantee: arbitrary code changes with unchanged valid notes/buildinfo are not detected by the record reader alone. Expected original-byte verification is a separate consumer check.
+
+Supported executable profiles are C-static, C-dynamic and pure Go on Linux/amd64. The Go fixture matrix covers explicit empty dependencies, versioned modules, versioned/local replacement, and tagged/dirty Main metadata. Its SDK originals were synthetic test inputs, not delivered SDK acceptance. CGO, other platforms and the full producer/pilot matrix remain separate gates.
+
+Non-Stapel images currently fail with `no-data` because this path has no verified stage/import boundary chain for them. This is an open coverage limit, not a claim that Dockerfile builds are outside the required final matrix. Ambiguous intermediate destination type/link changes within a multi-import stage also fail rather than guess where bytes were copied.
+
+## Verification
+
+`task test:native-poc` requires `DK_LOADER_FIXTURE`, `DK_NATIVE_INSPECT_FIXTURE`, `DK_GO_FIXTURE`, `DK_GO_MODULES_FIXTURE` and `DK_PM_BINARY`, checks their frozen hashes, and rejects every skipped or missing spec. It includes serial real-pm install/skip calls, observed shell relocation, scoped import, and JSON read-back. The fixture binaries are not stored in Git.
+
+The ordinary packages-stage command checksum changes when the receipt option is enabled. There is no separate SBOM cache-version tag or migration; the agreed transition is a manual clean rebuild. No cache purge is performed by this code.

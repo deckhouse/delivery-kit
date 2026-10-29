@@ -22,11 +22,19 @@ type sbomStageRecord struct {
 	Stage         stage.StageName `json:"stage"`
 	StageDigest   string          `json:"stageDigest"`
 	ParentStageID string          `json:"parentStageID"`
+	ImportBackend string          `json:"importBackend,omitempty"`
+}
+
+type sbomStageSnapshot struct {
+	Stage         stage.StageName
+	LayerCount    int
+	ImportBackend string
 }
 
 type sbomStageProvenance struct {
-	Layers  shippedscope.ProducedLayers
-	DiffIDs []v1.Hash
+	Layers    shippedscope.ProducedLayers
+	DiffIDs   []v1.Hash
+	Snapshots []sbomStageSnapshot
 }
 
 func resolveSBOMStageProvenance(ctx context.Context, final *image.StageDesc, readConfig func(context.Context, string) (*v1.ConfigFile, error)) (sbomStageProvenance, error) {
@@ -79,9 +87,11 @@ func resolveSBOMStageProvenance(ctx context.Context, final *image.StageDesc, rea
 			return unknown, fmt.Errorf("resolve SBOM stages: unexpected stage %q at %q", record.Stage, id)
 		}
 		previousPosition = position
+		result.Snapshots = append(result.Snapshots, sbomStageSnapshot{Stage: record.Stage, LayerCount: len(current.RootFS.DiffIDs), ImportBackend: record.ImportBackend})
 		if record.Stage == stage.From {
 			result.Layers.Known = true
 			slices.Reverse(result.Layers.Ranges)
+			slices.Reverse(result.Snapshots)
 
 			return result, nil
 		}
@@ -130,6 +140,10 @@ func sbomProvenanceChecksum(provenance sbomStageProvenance) string {
 	parts = append(parts, "ranges")
 	for _, layerRange := range provenance.Layers.Ranges {
 		parts = append(parts, fmt.Sprintf("%d:%d", layerRange.Start, layerRange.End))
+	}
+	parts = append(parts, "snapshots")
+	for _, snapshot := range provenance.Snapshots {
+		parts = append(parts, string(snapshot.Stage), strconv.Itoa(snapshot.LayerCount), snapshot.ImportBackend)
 	}
 
 	return util.Sha256Hash(parts...)

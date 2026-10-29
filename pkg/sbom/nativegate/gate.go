@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
+	"debug/pe"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"maps"
@@ -81,7 +83,7 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		err = nil
 		// A script is classified from its whole body, so a shebang is read in full the way
 		// an ELF is; the digest check below then ties those bytes to the index.
-		full := metadata || ip.Role != "final" || bytes.HasPrefix(prefix, []byte("\x7fELF")) || bytes.HasPrefix(prefix, []byte("#!"))
+		full := metadata || ip.Role != "final" || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!"))
 		if full {
 			rest, readErr := io.ReadAll(tr)
 			err = readErr
@@ -117,6 +119,37 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		}
 	}
 	return fs, nil
+}
+
+// nativeMagic reports whether prefix starts a container the record reader
+// selects by magic alone.
+func nativeMagic(prefix []byte) bool {
+	for _, magic := range []string{"\x7fELF", "MZ", "\xca\xfe\xba\xbe", "\xbe\xba\xfe\xca", "\xca\xfe\xba\xbf", "\xbf\xba\xfe\xca", "\xfe\xed\xfa\xce", "\xce\xfa\xed\xfe", "\xfe\xed\xfa\xcf", "\xcf\xfa\xed\xfe"} {
+		if bytes.HasPrefix(prefix, []byte(magic)) {
+			return true
+		}
+	}
+	return false
+}
+
+// nativeCandidate reports whether a whole body must be captured for the record
+// reader to judge it. A bare COFF object has no magic, only the machine id the
+// reader classifies on, so that id is enough to read the file in full; the
+// reader, not this guess, decides whether the file is native at all.
+func nativeCandidate(prefix []byte) bool {
+	if nativeMagic(prefix) {
+		return true
+	}
+	if len(prefix) < 2 {
+		return false
+	}
+	// Keep capture candidates aligned with the shared reader's classifyCOFFObject.
+	switch binary.LittleEndian.Uint16(prefix) {
+	case pe.IMAGE_FILE_MACHINE_AMD64, pe.IMAGE_FILE_MACHINE_I386, pe.IMAGE_FILE_MACHINE_ARM,
+		pe.IMAGE_FILE_MACHINE_ARMNT, pe.IMAGE_FILE_MACHINE_ARM64, pe.IMAGE_FILE_MACHINE_IA64:
+		return true
+	}
+	return false
 }
 
 func binaryLike(body []byte, executable bool, name string) bool {
@@ -268,12 +301,12 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		if record != nil && (record.PMOverlap != "" || (record.Origin == "pm" && len(record.Owners) > 1)) && p.PMOverlap != "all-active-exact-path-hash" {
 			return fmt.Errorf("pm coownership requires current policy opt-in")
 		}
-		if bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) {
-			ins := inspector{policy: p, catalog: &c}
-			embedded, err := ins.inspect(fs.bodies[name])
-			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
+		ins := inspector{policy: p, catalog: &c}
+		embedded, native, err := ins.inspect(fs.bodies[name])
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if native {
 			if record != nil {
 				embedded.Owners = slices.Clone(record.Owners)
 				embedded.Components = appendUnique(embedded.Components, record.Owners...)
@@ -286,10 +319,10 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			}
 			record = &embedded
 		}
-		if record != nil && record.Composition != nil && !bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) {
-			return fmt.Errorf("%s: invalid: recorded ELF composition does not match file", name)
+		if record != nil && record.Composition != nil && !native {
+			return fmt.Errorf("%s: invalid: recorded native composition does not match file", name)
 		}
-		if !bytes.HasPrefix(fs.bodies[name], []byte("\x7fELF")) && binaryLike(fs.bodies[name], false, name) {
+		if !native && binaryLike(fs.bodies[name], false, name) {
 			return fmt.Errorf("%s: unsupported: binary format has no embedded composition reader", name)
 		}
 		if record == nil {
@@ -429,6 +462,9 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 	roots := []string{}
 	for name := range present {
 		body := fs.bodies[name]
+		// Mach-O and PE executables name their dylibs and DLLs for a foreign
+		// operating system; those references are never resolved against this
+		// Linux rootfs, so they contribute no edge here.
 		if !bytes.HasPrefix(body, []byte("\x7fELF")) {
 			continue
 		}
@@ -437,8 +473,15 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 			return nil, err
 		}
 		if f.Class != elf.ELFCLASS64 || f.Machine != elf.EM_X86_64 {
+			foreign, err := crossBuiltELF(f)
 			f.Close()
-			return nil, fmt.Errorf("unsupported runtime ELF architecture")
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", name, err)
+			}
+			if !foreign {
+				return nil, fmt.Errorf("unsupported runtime ELF architecture %s", name)
+			}
+			continue
 		}
 		if f.Section(".dynamic") != nil {
 			if err := checkRuntimeLoader(fs, present, "/lib64/ld-linux-x86-64.so.2"); err != nil {
@@ -499,6 +542,30 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 		return nil, err
 	}
 	return edges, nil
+}
+
+// crossBuiltELF reports whether f is an accepted ELF built for another machine
+// than this image runs. Such a file has no closure here, so the record reader's
+// guarantee that it loads nothing is confirmed rather than assumed: a foreign
+// loader or shared dependency would have to be resolved somewhere, and this
+// rootfs is not that somewhere.
+func crossBuiltELF(f *elf.File) (bool, error) {
+	if f.Class != elf.ELFCLASS32 || f.Machine != elf.EM_ARM {
+		return false, nil
+	}
+	needed, err := f.ImportedLibraries()
+	if err != nil {
+		return false, err
+	}
+	for _, prog := range f.Progs {
+		if prog.Type == elf.PT_INTERP {
+			return false, fmt.Errorf("unsupported: cross-built executable needs a runtime loader")
+		}
+	}
+	if len(needed) > 0 {
+		return false, fmt.Errorf("unsupported: cross-built executable needs %s", strings.Join(needed, ", "))
+	}
+	return true, nil
 }
 
 // Per-object resolution cannot model glibc's reuse of already loaded objects.

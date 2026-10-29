@@ -18,36 +18,71 @@ type inspector struct {
 	catalog *Catalog
 }
 
-func (i *inspector) inspect(body []byte) (Record, error) {
+// Each accepted container is pinned to the exact artifact, profile and platform
+// the record reader reports together. A policy lists the same canonical profile
+// IDs, so a target is reachable only when its own ID is allowed.
+var acceptedTargets = []struct{ artifact, profile, platform string }{
+	{"elf", "c-static", "linux/amd64"},
+	{"elf", "c-dynamic", "linux/amd64"},
+	{"elf", "go", "linux/amd64"},
+	{"elf", "go", "linux/arm"},
+	{"macho", "go-macho", "darwin/amd64"},
+	{"macho", "go-macho", "darwin/arm64"},
+	{"pe", "go-pe", "windows/amd64"},
+}
+
+// inspect reads the build record of the native container in body. It reports
+// whether the file is a native container at all: a file the reader confirms is
+// not one carries no record and is left to the caller's ordinary handling.
+func (i *inspector) inspect(body []byte) (Record, bool, error) {
 	record := Record{SHA256: digest(body), Origin: "build"}
-	composition, status, err := shared.ReadELFBuildRecord(bytes.NewReader(body))
+	bin, err := shared.ReadBuildInfo(bytes.NewReader(body))
+	if bin == nil {
+		if err != nil {
+			return record, false, fmt.Errorf("invalid: %w", err)
+		}
+		// A file carrying a native magic the reader does not select never
+		// falls back to ordinary content, whatever binaryLike recognizes.
+		if nativeMagic(body) {
+			return record, true, fmt.Errorf("unsupported: not a selected native executable or shared object")
+		}
+		return record, false, nil
+	}
 	if err != nil {
-		return record, fmt.Errorf("%s: %w", status, err)
+		return record, true, fmt.Errorf("%s: %w", bin.Status, err)
 	}
-	if composition.Artifact != "elf" {
-		return record, fmt.Errorf("unsupported: expected executable or shared ELF, got %s", composition.Artifact)
+	if bin.Status != "present" || bin.SBOM == nil {
+		return record, true, fmt.Errorf("%s: missing build record", bin.Status)
 	}
+	composition := bin.SBOM
 	record.Profile = composition.Profile.ID
-	if composition.Profile.Platform != "linux/amd64" || !slices.Contains([]string{"c-static", "c-dynamic", "go"}, record.Profile) {
-		return record, fmt.Errorf("unsupported: embedded profile %s on %s has no DK dependency agreement check", record.Profile, composition.Profile.Platform)
+	accepted := false
+	for _, target := range acceptedTargets {
+		if target.artifact == composition.Artifact && target.profile == record.Profile && target.platform == composition.Profile.Platform {
+			accepted = true
+			break
+		}
+	}
+	if !accepted {
+		return record, true, fmt.Errorf("unsupported: embedded %s profile %s on %s has no DK dependency agreement check", composition.Artifact, record.Profile, composition.Profile.Platform)
 	}
 	if !slices.Contains(i.policy.Profiles, record.Profile) {
-		return record, fmt.Errorf("unsupported: build profile %s", record.Profile)
+		return record, true, fmt.Errorf("unsupported: build profile %s", record.Profile)
 	}
 	for _, tool := range composition.Tools {
 		identity := Tool{Name: tool.Name, Version: tool.Version, SHA256: tool.SHA256}
 		if err := i.policy.checkTool(identity); err != nil {
-			return record, err
+			return record, true, err
 		}
 		record.Tools = append(record.Tools, identity)
 	}
 	for _, component := range composition.IncludedComponents() {
 		converted, err := embeddedComponent(component)
 		if err != nil {
-			return record, err
+			return record, true, err
 		}
 		if previous, ok := i.catalog.Components[converted.BOMRef]; ok && !reflect.DeepEqual(previous, converted) {
-			return record, fmt.Errorf("invalid: conflicting component identity %s", converted.BOMRef)
+			return record, true, fmt.Errorf("invalid: conflicting component identity %s", converted.BOMRef)
 		}
 		i.catalog.Components[converted.BOMRef] = converted
 		record.Components = appendUnique(record.Components, converted.BOMRef)
@@ -55,10 +90,10 @@ func (i *inspector) inspect(body []byte) (Record, error) {
 	sort.Strings(record.Components)
 	raw, err := json.Marshal(composition)
 	if err != nil {
-		return record, fmt.Errorf("encode embedded composition: %w", err)
+		return record, true, fmt.Errorf("encode embedded composition: %w", err)
 	}
 	record.Composition = raw
-	return record, nil
+	return record, true, nil
 }
 
 func embeddedComponent(component shared.BuildComponent) (cdx.Component, error) {

@@ -3,7 +3,8 @@
 Set DK_LOADER_FIXTURE to runtime-pie-oracle.py's composite loader-v5/out and
 DK_NATIVE_INSPECT_FIXTURE to export-native-inspect-fixture.py's directory, and
 DK_GO_FIXTURE to the frozen pure-Go ELF/record directory, and
-DK_GO_MODULES_FIXTURE to the frozen module/replacement/VCS ELF directory.
+DK_GO_MODULES_FIXTURE to the frozen module/replacement/VCS ELF directory,
+and DK_CROSS_CLI_FIXTURE to the frozen Mach-O/PE/Linux-ARM binaries and records.
 DK_PM_BINARY must point to the frozen pm writer used for serial install/import verification.
 Then run: TASK_X_REMOTE_TASKFILES=1 task --yes test:native-poc
 All frozen inputs must be present; no executable fixture is stored in Git.
@@ -39,11 +40,23 @@ GO_MODULE_PINS = {
 }
 
 
+CROSS_CLI_PINS = {
+    "go-darwin-amd64": ("afe276bc8515aecd23db43566d8cd611790cebfe42d2a5b797345544446c8335", "ee2417d1fb19f1a7533394183228581a272482e7cbc9e8b2751a5d8bacaee368"),
+    "go-darwin-arm64": ("46435400faca319060974e9037ea06b85c8c92fb8e980806aecfd02f357c2d42", "f5e5bda2e340b9b406cfe59afe15795fff91184aaa6fd70bb59c9c6eecaff565"),
+    "go-windows-amd64.exe": ("7ef28a2b2ed55e33052283d8c2480b3ec7aa7212ac97696143bc8ede73c35247", "dc90f9346dd07c840bf175792d7088768d84cc90e6d2ec572d4b45d44737da09"),
+    "go-linux-arm": ("8846d60614cc49d8d15675c12df9e7ab9c13b68d00a88c5294289772fd7b7e5c", "25d2b37f532f780f60c54591cf8f040b49081496db5369db82b30a4f54b087ee"),
+}
+
+
 def main():
     loader = required_directory("DK_LOADER_FIXTURE")
     native = required_directory("DK_NATIVE_INSPECT_FIXTURE")
     go_fixture = required_directory("DK_GO_FIXTURE")
     go_modules = required_directory("DK_GO_MODULES_FIXTURE")
+    cross_cli = required_directory("DK_CROSS_CLI_FIXTURE")
+    for name, (binary_pin, record_pin) in CROSS_CLI_PINS.items():
+        if sha256(cross_cli / name) != binary_pin or sha256(cross_cli / (name + ".sbom.json")) != record_pin:
+            raise SystemExit(f"Cross CLI fixture pin mismatch: {name}")
     for name, (binary_pin, record_pin) in GO_MODULE_PINS.items():
         if sha256(go_modules / name) != binary_pin or sha256(go_modules / (name + ".sbom.json")) != record_pin:
             raise SystemExit(f"Go module fixture pin mismatch: {name}")

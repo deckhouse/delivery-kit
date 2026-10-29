@@ -6,7 +6,7 @@ toolchain go1.26.8
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.1
-	fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261029150458-87f80283c712
+	fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261029172835-7cbbfbef9310
 	github.com/Masterminds/goutils v1.1.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/Masterminds/sprig/v3 v3.3.0

@@ -40,14 +40,14 @@ var _ = ginkgo.Describe("embedded composition", func() {
 		gomega.Expect(repeated.Records[0].Owners).To(gomega.HaveLen(1))
 		gomega.Expect(repeated.Records[0].Components).To(gomega.HaveLen(2))
 	})
-	ginkgo.DescribeTable("does not accept a package hash as composition for unsupported binaries", func(body string) {
+	ginkgo.DescribeTable("does not accept a package hash as composition for unsupported binaries", func(body, expected string) {
 		catalog := fixtureCatalog()
 		catalog.Records[0].SHA256 = digest([]byte(body))
 		bom := cdx.NewBOM()
 		gomega.Expect(catalog.attach(bom)).To(gomega.Succeed())
 		err := Apply(context.Background(), fixturePolicy("image"), "image", fixtureImage(map[string]string{"/bin/a": body}), []*cdx.BOM{bom}, cdx.NewBOM())
-		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("/bin/a: unsupported")))
-	}, ginkgo.Entry("PE", "MZpayload"), ginkgo.Entry("Mach-O", "\xfe\xed\xfa\xcfpayload"), ginkgo.Entry("archive", "!<arch>\npayload"))
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+	}, ginkgo.Entry("PE", "MZpayload", "/bin/a: unsupported"), ginkgo.Entry("Mach-O", "\xfe\xed\xfa\xcfpayload", "/bin/a: invalid"), ginkgo.Entry("archive", "!<arch>\npayload", "/bin/a: unsupported"))
 	ginkgo.It("reads a standalone artifact and preserves confirmed empty inputs across serialization and rename", func() {
 		body := minimalRuntimeELF(elf.ET_EXEC)
 		policy := fixturePolicy("build")

@@ -46,6 +46,15 @@ var _ = Describe("Service", func() {
 		})
 	})
 
+	DescribeTable("applies the configured timeout to the HTTP client",
+		func(configured, expected time.Duration) {
+			svc := NewService(ServiceConfig{ServerURL: ts.URL, Timeout: configured})
+			Expect(svc.httpClient.Timeout).To(Equal(expected))
+		},
+		Entry("unset falls back to the default", time.Duration(0), defaultServiceTimeout),
+		Entry("explicit value", 25*time.Second, 25*time.Second),
+	)
+
 	Describe("Resolve", func() {
 		type resolveCase struct {
 			purl  string

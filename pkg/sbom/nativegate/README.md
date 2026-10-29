@@ -8,10 +8,12 @@ bytes, including inherited package files. External catalog hashes detect changed
 known files. Missing metadata is an error even when a package owner is known.
 
 Current integration supports C-static and C-dynamic on Linux/amd64. Other profiles
-fail explicitly. Go/CGO dependency and replacement agreement requires the pending
-producer mapping contract; the shared reader's basic Go settings checks alone do
-not establish it. The reader does not re-hash unavailable intermediate objects,
-archives or sources. Their composition is the trusted producer's verified claim.
+fail explicitly. The shared reader validates typed Go module mappings against
+final ELF buildinfo Deps. DK Go/CGO integration and
+instrumented producer fixtures remain pending; this reader update does not enable
+those profiles. Main validation and filtering remain producer-side. The reader
+does not re-hash unavailable intermediate objects, archives or sources. Their
+composition is the trusted producer's verified claim.
 
 Embedded component identity preserves source kind, locator, version and source checksum.
 The catalog keeps complete empty inputs distinct from missing or incomplete data,

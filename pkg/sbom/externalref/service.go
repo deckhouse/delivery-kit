@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	defaultServiceTimeout = 5 * time.Second
-	defaultMaxElapsedTime = 10 * time.Second
+	defaultServiceTimeout = 10 * time.Second
+	defaultMaxElapsedTime = 30 * time.Second
 )
 
 type ServiceConfig struct {

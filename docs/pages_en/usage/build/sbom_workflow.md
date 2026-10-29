@@ -40,6 +40,7 @@ registry.
 |----------|---------|----------|
 | `WERF_REPO` | registry for images and SBOM artifacts | yes |
 | `WERF_EXTERNAL_REFS_SERVER_URL` | URL of the VCS external refs enrichment service | yes — the build fails without it |
+| `WERF_EXTERNAL_REFS_TIMEOUT` | per-request timeout for the enrichment service, a Go duration (default `10s`) | no |
 
 ```bash
 export WERF_REPO="registry.example.com/my-project"

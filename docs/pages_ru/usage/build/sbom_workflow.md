@@ -39,6 +39,7 @@ SBOM не собирает образы. Всё, что нужно ответс�
 |------------|-------|-------------|
 | `WERF_REPO` | registry для образов и SBOM-артефактов | да |
 | `WERF_EXTERNAL_REFS_SERVER_URL` | URL сервиса обогащения VCS external refs | да — без неё сборка упадёт |
+| `WERF_EXTERNAL_REFS_TIMEOUT` | таймаут одного запроса к сервису обогащения, Go duration (по умолчанию `10s`) | нет |
 
 ```bash
 export WERF_REPO="registry.example.com/my-project"

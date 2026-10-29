@@ -494,14 +494,15 @@ func producerRecipeConfig(project string, env producerRecipeEnvironment, package
 		// build's evidence: the build must not be able to edit them.
 		fmt.Sprintf(`if : > %s/.rw-probe 2>/dev/null; then echo "build context is writable"; exit 1; fi`, producerContextMount),
 		fmt.Sprintf(`if : > %s/originals/.rw-probe 2>/dev/null; then echo "build context originals are writable"; exit 1; fi`, producerContextMount),
-		fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), producerRecipeObjectDir),
+		fmt.Sprintf("%s -p %s /tmp", stapel.MkdirBinPath(), producerRecipeObjectDir),
+		"export TMPDIR=/tmp",
 		fmt.Sprintf("%s/gcc/xgcc -B%s/gcc/ -B%s/bin/ -nostdinc -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -c /src/main.c -o %s/app.o",
 			producerRecipeToolsMount, producerRecipeToolsMount, producerRecipeToolsMount, producerRecipeObjectDir),
 		fmt.Sprintf("%s -static -e _start %s/app.o -o /app", producerRecipeLinkerMount+"/"+filepath.Base(env.linker), producerRecipeObjectDir),
 		// The compiled sources are the producer's input, not part of what the image ships.
 		// They go only after the link succeeded, so nothing is deleted before it is used.
 		fmt.Sprintf("%s -rf /src", stapel.RmBinPath()),
-		fmt.Sprintf("%s -rf %s", stapel.RmBinPath(), producerRecipeObjectDir),
+		fmt.Sprintf("%s -rf %s /tmp", stapel.RmBinPath(), producerRecipeObjectDir),
 	}
 	var commands strings.Builder
 	for _, command := range install {
@@ -835,7 +836,7 @@ var _ = ginkgo.Describe("Actual SBOM producer recipe", ginkgo.Label("producer-re
 		externalRefs := externalrefmock.Start().URL
 
 		ginkgo.By("rendering the recipe without any SBOM environment at all")
-		rendered, err := producerRecipeRun(ctx, env, fixture, "config-render.log", nil, 120*time.Second, "config", "render")
+		rendered, err := producerRecipeRun(ctx, env, fixture, "config-render.log", []string{"HOME=" + home}, 120*time.Second, "config", "render")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "config render: %s", producerRecipeTail(rendered))
 		gomega.Expect(rendered).To(gomega.ContainSubstring(stage.SBOMBuildContextLabel))
 		gomega.Expect(rendered).To(gomega.ContainSubstring(producerRecipeDeclaration(producerRecipePackageName)))

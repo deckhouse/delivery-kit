@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/werf/common-go/pkg/util"
 	"go.uber.org/mock/gomock"
 
 	buildImage "github.com/werf/werf/v3/pkg/build/image"
@@ -750,12 +752,21 @@ var _ = Describe("Resolving producer build contexts", func() {
 			older := &imagePkg.StageDesc{StageID: imagePkg.NewStageID(strings.Repeat("e", 56), 10), Info: &imagePkg.Info{Name: "repo:install-old"}}
 			newer := &imagePkg.StageDesc{StageID: imagePkg.NewStageID(strings.Repeat("f", 56), 10), Info: &imagePkg.Info{Name: "repo:install-new"}}
 
-			Expect(anchorOf(true, older)).NotTo(Equal(anchorOf(true, newer)),
+			bound := anchorOf(true, older)
+			Expect(bound).NotTo(Equal(anchorOf(true, newer)),
 				"an image rebuilt against another producer context does not adopt the final image of the old one")
-			Expect(anchorOf(true, older)).To(Equal(anchorOf(true, older)), "the same build selects the same stage twice")
+			Expect(bound).To(Equal(anchorOf(true, older)), "the same build selects the same stage twice")
 			Expect(anchorOf(false, older)).To(Equal(anchorOf(false, newer)),
 				"an image that declares no producer context keeps the plain holistic anchor")
 			Expect(anchorOf(false, older)).To(Equal("holistic-anchor"))
+
+			// The stage digest travels in the metadata tag of a published image, which an
+			// OCI reference has to hold.
+			Expect(bound).To(HaveLen(len(strings.Repeat("e", 56))), "the anchor digest is a stage digest like any other")
+			tag := fmt.Sprintf(storage.RepoImageMetadataByCommitRecord_TagFormat,
+				util.LegacyMurmurHash("app"), strings.Repeat("c", 40), imagePkg.NewStageID(bound, 1700000000000).String())
+			_, err := name.NewTag("example.org/project/stages:" + tag)
+			Expect(err).NotTo(HaveOccurred(), "the metadata tag of a stage carrying this digest must stay a valid reference")
 		})
 
 		It("takes the materialized context away from the phase when the stage ends", func(specCtx SpecContext) {

@@ -1779,7 +1779,7 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		if prevBuiltImage == nil || prevBuiltImage.Image.GetStageDesc() == nil {
 			return false, nil, fmt.Errorf("no-data: anchor of image %q has no preceding built stage", img.GetName())
 		}
-		stageDigest = util.Sha256Hash(stageDigest, "producer-parent-v1", prevBuiltImage.Image.GetStageDesc().StageID.String())
+		stageDigest = util.Sha3_224Hash(stageDigest, "producer-parent-v1", prevBuiltImage.Image.GetStageDesc().StageID.String())
 	}
 	stg.SetDigest(stageDigest)
 

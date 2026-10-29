@@ -171,6 +171,15 @@ func goEmbedRecipeReadProof(env goEmbedRecipeEnvironment) goEmbedRecipeProof {
 			"%s of the output root is not the one the proof covers", name)
 	}
 
+	main := goEmbedRecipeAsset(proof, goEmbedRecipeAssets[0])
+	var bootstrap bool
+	for _, component := range main.Components {
+		if component.Name == "webpack" && component.Version == "5.94.0" && component.Source.Kind == "node" && slices.Contains(main.IncludedComponents, component.ID) {
+			bootstrap = true
+		}
+	}
+	gomega.Expect(bootstrap).To(gomega.BeTrue(), "the fixture requires the observed webpack bootstrap, not the earlier module-only proof")
+
 	return proof
 }
 
@@ -784,13 +793,15 @@ var _ = ginkgo.Describe("Actual SBOM go embed recipe", ginkgo.Label("go-embed-re
 				}
 			}
 		}
-		gomega.Expect(contributors).To(gomega.HaveLen(3))
-		for _, id := range contributors {
-			gomega.Expect(included).To(gomega.HaveKey(id))
-		}
-		for _, component := range goEmbedRecipeAsset(env.proof, goEmbedRecipeAssets[0]).Components {
-			gomega.Expect(included[component.ID]).To(gomega.Equal(component),
-				"the identity of %s must be the one the proof carries", component.ID)
+		gomega.Expect(contributors).To(gomega.HaveLen(4))
+		for _, assetName := range goEmbedRecipeAssets {
+			asset := goEmbedRecipeAsset(env.proof, assetName)
+			for _, component := range asset.Components {
+				if slices.Contains(asset.IncludedComponents, component.ID) {
+					gomega.Expect(goEmbedRecipeHasContributor(included, component)).To(gomega.BeTrue(),
+						"the identity of %s must survive the helper's local ID rebasing", component.ID)
+				}
+			}
 		}
 		names := []string{}
 		for _, component := range included {
@@ -798,7 +809,7 @@ var _ = ginkgo.Describe("Actual SBOM go embed recipe", ginkgo.Label("go-embed-re
 		}
 		gomega.Expect(names).To(gomega.ContainElement(goEmbedRecipePrimaryPackage))
 		gomega.Expect(names).To(gomega.ContainElement(goEmbedRecipeSDKPackage))
-		gomega.Expect(names).To(gomega.HaveLen(5))
+		gomega.Expect(names).To(gomega.HaveLen(6))
 
 		ginkgo.By("keeping the diagnostic input paths the collector observed")
 		paths := []string{}
@@ -857,5 +868,36 @@ var _ = ginkgo.Describe("Actual SBOM go embed recipe", ginkgo.Label("go-embed-re
 
 		ginkgo.By("leaving every copied file, and every file it was copied from, as it was")
 		goEmbedRecipeCheckTools(env)
+	})
+})
+
+func goEmbedRecipeHasContributor(included map[string]shared.BuildComponent, expected shared.BuildComponent) bool {
+	expected.ID = ""
+	for _, actual := range included {
+		actual.ID = ""
+		if actual == expected {
+			return true
+		}
+	}
+	return false
+}
+
+var _ = ginkgo.Describe("Go embed recipe contributor identity", func() {
+	ginkgo.It("accepts rebased local IDs but not changed source identity", func() {
+		expected := shared.BuildComponent{ID: "node:webpack", Name: "webpack", Version: "5.94.0", Source: shared.BuildSource{Kind: "node", Locator: "https://example.test/webpack.tgz", Checksum: "fixture-checksum"}}
+		rebased := expected
+		rebased.ID = "c2"
+		actual := map[string]shared.BuildComponent{"c2": rebased}
+		gomega.Expect(goEmbedRecipeHasContributor(actual, expected)).To(gomega.BeTrue())
+		expected.Source.Checksum = "different"
+		gomega.Expect(goEmbedRecipeHasContributor(actual, expected)).To(gomega.BeFalse())
+	})
+	ginkgo.It("checks the selected proof includes the webpack bootstrap", func() {
+		proofPath := os.Getenv(goEmbedRecipeProofEnv)
+		outputRoot := os.Getenv(goEmbedRecipeOutputRootEnv)
+		if proofPath == "" || outputRoot == "" {
+			ginkgo.Skip("the collector proof and emitted files are not provided")
+		}
+		goEmbedRecipeReadProof(goEmbedRecipeEnvironment{proofPath: proofPath, outputRoot: outputRoot})
 	})
 })

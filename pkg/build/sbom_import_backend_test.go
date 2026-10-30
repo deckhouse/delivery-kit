@@ -118,28 +118,37 @@ var _ = Describe("SBOM import backend", func() {
 			repo = strings.TrimPrefix(server.URL, "http://") + "/warm"
 		})
 
-		// publishedChain pushes the two stages of such an image - the base stage and the
-		// one applying the import - and answers with the descriptor of the last of them.
-		publishedChain := func(ctx SpecContext, backend string) *imagePkg.StageDesc {
+		const parentStageID = "a1b2c3-1"
+		const stageDigest = "d4e5f6"
+
+		labeled := func(img v1.Image, labels map[string]string) v1.Image {
 			GinkgoHelper()
-			const parentStageID = "a1b2c3-1"
-			const stageDigest = "d4e5f6"
+			config, err := img.ConfigFile()
+			Expect(err).NotTo(HaveOccurred())
+			config.Config.Labels = labels
+			labeledImg, err := mutate.ConfigFile(img, config)
+			Expect(err).NotTo(HaveOccurred())
 
-			labeled := func(img v1.Image, labels map[string]string) v1.Image {
-				config, err := img.ConfigFile()
-				Expect(err).NotTo(HaveOccurred())
-				config.Config.Labels = labels
-				labeledImg, err := mutate.ConfigFile(img, config)
-				Expect(err).NotTo(HaveOccurred())
+			return labeledImg
+		}
+		push := func(ctx SpecContext, stageID *imagePkg.StageID, img v1.Image) *imagePkg.StageDesc {
+			GinkgoHelper()
+			ref, err := name.NewTag(repo + ":" + stageID.String())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(remote.Write(ref, img, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))).To(Succeed())
+			digest, err := img.Digest()
+			Expect(err).NotTo(HaveOccurred())
 
-				return labeledImg
+			return &imagePkg.StageDesc{
+				StageID: stageID,
+				Info:    &imagePkg.Info{Name: ref.String(), Repository: repo, RepoDigest: repo + "@" + digest.String()},
 			}
-			push := func(tag string, img v1.Image) {
-				ref, err := name.NewTag(repo + ":" + tag)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(remote.Write(ref, img, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))).To(Succeed())
-			}
+		}
 
+		// publishedBase pushes the base stage of such an image and answers with that stage
+		// image and its descriptor.
+		publishedBase := func(ctx SpecContext) (v1.Image, *imagePkg.StageDesc) {
+			GinkgoHelper()
 			baseLayer, err := fixtureLayer([]byte("base"))
 			Expect(err).NotTo(HaveOccurred())
 			base, err := mutate.AppendLayers(empty.Image, baseLayer)
@@ -147,7 +156,15 @@ var _ = Describe("SBOM import backend", func() {
 			baseRecord, err := json.Marshal(sbomStageRecord{Stage: stage.From, StageDigest: "a1b2c3"})
 			Expect(err).NotTo(HaveOccurred())
 			base = labeled(base, map[string]string{imagePkg.WerfSBOMStageLabel: string(baseRecord)})
-			push(parentStageID, base)
+
+			return base, push(ctx, imagePkg.NewStageID("a1b2c3", 1), base)
+		}
+
+		// publishedChain pushes the two stages of such an image - the base stage and the
+		// one applying the import - and answers with the descriptor of the last of them.
+		publishedChain := func(ctx SpecContext, backend string) *imagePkg.StageDesc {
+			GinkgoHelper()
+			base, _ := publishedBase(ctx)
 
 			importLayer, err := fixtureLayer([]byte("import"))
 			Expect(err).NotTo(HaveOccurred())
@@ -164,14 +181,8 @@ var _ = Describe("SBOM import backend", func() {
 				imagePkg.WerfSBOMStageLabel: string(importRecord),
 				imagePkg.WerfParentStageID:  parentStageID,
 			})
-			push(stageDigest+"-2", imported)
-			digest, err := imported.Digest()
-			Expect(err).NotTo(HaveOccurred())
 
-			return &imagePkg.StageDesc{
-				StageID: imagePkg.NewStageID(stageDigest, 2),
-				Info:    &imagePkg.Info{Name: repo + ":" + stageDigest + "-2", Repository: repo, RepoDigest: repo + "@" + digest.String()},
-			}
+			return push(ctx, imagePkg.NewStageID(stageDigest, 2), imported)
 		}
 
 		scopeOfReusedImport := func(ctx SpecContext, desc *imagePkg.StageDesc) (nativegate.ImportScope, error) {
@@ -200,6 +211,16 @@ var _ = Describe("SBOM import backend", func() {
 		It("refuses an import whose published stage records no backend", func(ctx SpecContext) {
 			_, err := scopeOfReusedImport(ctx, publishedChain(ctx, ""))
 			Expect(err).To(MatchError(ContainSubstring("records no import copy backend")))
+		})
+
+		// A chain that is readable but holds no record of the importing stage states
+		// nothing about what copied the import, which is not the same as recording no
+		// backend for it.
+		It("refuses an import the published stage chain holds no such stage of", func(ctx SpecContext) {
+			_, base := publishedBase(ctx)
+
+			_, err := scopeOfReusedImport(ctx, base)
+			Expect(err).To(MatchError(ContainSubstring("states no such stage")))
 		})
 	})
 })

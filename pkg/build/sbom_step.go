@@ -79,6 +79,10 @@ type ConvergeWithMergeOptions struct {
 	Sources []sbomSourceImportInput
 	// PreparedSource states that the recipe declares this image a prepared source.
 	PreparedSource bool
+	// CapturedSources are the import source images already read while their documents
+	// were being scoped, keyed by pinned reference. The verification reads the same
+	// images, and reading them twice would answer the same.
+	CapturedSources map[string]*sbomSourceImage
 }
 
 // ConvergeWithMerge produces, caches and pushes the SBOM of one built image. osPmPackages
@@ -356,7 +360,7 @@ func (step *sbomStep) verifyImageComposition(ctx context.Context, werfImgName st
 	if err != nil {
 		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
 	}
-	captured, err := captureSBOMSourceImages(ctx, step.containerBackend, sources, targetPlatform)
+	captured, err := captureSBOMSourceImages(ctx, step.containerBackend, sources, targetPlatform, options.CapturedSources)
 	if err != nil {
 		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
 	}

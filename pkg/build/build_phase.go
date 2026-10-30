@@ -46,6 +46,7 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/stapel"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
@@ -717,7 +718,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return err
 	}
 
-	importImageSboms, sourceImports, err := phase.collectImportImageSboms(ctx, img)
+	importImageSboms, sourceImports, capturedSources, err := phase.collectImportImageSboms(ctx, img)
 	if err != nil {
 		return err
 	}
@@ -767,7 +768,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource}); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource, CapturedSources: capturedSources}); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
@@ -2594,10 +2595,10 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 // SBOM artifact, and describes alongside it every import directive as the build applies
 // it: a source whose SBOM is read once can still be imported several times, with a
 // different scope each time.
-func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, []sbomSourceImportInput, error) {
+func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image.Image) ([]*cdx.BOM, []sbomSourceImportInput, map[string]*sbomSourceImage, error) {
 	importImages, err := phase.resolveScopedImportImages(ctx, img)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve import images: %w", err)
+		return nil, nil, nil, fmt.Errorf("resolve import images: %w", err)
 	}
 
 	// The scopes of every directive that imports from one source: its SBOM describes
@@ -2611,6 +2612,9 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 
 	var importImageSboms []*cdx.BOM
 	boms := make(map[importSBOMKey]*cdx.BOM)
+	// Every import source is read once, here, and the reading is handed on to the
+	// verification rather than made again there.
+	captured := make(map[string]*sbomSourceImage)
 
 	for _, importImage := range importImages {
 		if importImage.info == nil || !importImage.firstOfSbom {
@@ -2628,12 +2632,29 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 		}
 		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importImage.lookupName, importImage.info)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
+			return nil, nil, nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
+		}
+		// What that document says about the packages of its own distribution is
+		// decided again here, from the database the source image carries, before
+		// anything is projected onto what this image received. A document claiming
+		// no such package gives no reason to read the image at all.
+		var source *sbomSourceImage
+		if shippedscope.HasDistroPackageComponents(importImageSbom) {
+			source, err = phase.captureImportSource(ctx, img, importImage, captured)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		if source != nil {
+			placed, absent := shippedscope.RecomputeDonorPackages(ctx, importImageSbom, source.Database)
+			if placed+absent > 0 {
+				logboek.Context(ctx).Debug().LogF("import source %s: %d distribution packages placed by its own package database, %d marked absent from it\n", importImage.imageName, placed, absent)
+			}
 		}
 		if key != (importSBOMKey{}) {
 			importImageSbom, err = scopeImportBOM(ctx, importImageSbom, scopes[key])
 			if err != nil {
-				return nil, nil, fmt.Errorf("scope the sbom of import source %q: %w", importImage.imageName, err)
+				return nil, nil, nil, fmt.Errorf("scope the sbom of import source %q: %w", importImage.imageName, err)
 			}
 			boms[key] = importImageSbom
 		}
@@ -2643,11 +2664,11 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	sources := make([]sbomSourceImportInput, 0, len(importImages))
 	originals, err := phase.bootstrapImportOriginals(img, importImages)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	packages, err := phase.bootstrapImportPackages(ctx, img, importImages, originals)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, importImage := range importImages {
 		var reference string
@@ -2671,7 +2692,32 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 		})
 	}
 
-	return importImageSboms, sources, nil
+	return importImageSboms, sources, captured, nil
+}
+
+// captureImportSource reads the image an import copies from, once per pinned reference.
+// The reading answers two questions - what the source image holds, for the verification,
+// and what its own package database says, for its document - and both are asked of the
+// same capture.
+//
+// A source that is not pinned to a digest is not read: there is no telling which image
+// would answer.
+func (phase *BuildPhase) captureImportSource(ctx context.Context, img *image.Image, importImage scopedImportImage, captured map[string]*sbomSourceImage) (*sbomSourceImage, error) {
+	digest := importImage.info.GetDigest()
+	if digest == "" {
+		return nil, nil
+	}
+	reference := importImage.info.Repository + "@" + digest
+	if source, read := captured[reference]; read {
+		return source, nil
+	}
+	source, err := captureSBOMSourceImage(ctx, phase.Conveyor.ContainerBackend, reference, img.TargetPlatform)
+	if err != nil {
+		return nil, fmt.Errorf("read import source %q: %w", importImage.imageName, err)
+	}
+	captured[reference] = source
+
+	return source, nil
 }
 
 type importSBOMKey struct {

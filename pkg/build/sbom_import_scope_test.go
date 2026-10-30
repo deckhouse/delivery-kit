@@ -145,7 +145,7 @@ var _ = Describe("SBOM contributions of an import source", func() {
 			BasePhase: BasePhase{Conveyor: &Conveyor{ContainerBackend: backend, imagesTree: tree}},
 			sbomStep:  newSbomStep(backend, nil),
 		}
-		boms, _, err := phase.collectImportImageSboms(ctx, img)
+		boms, _, _, err := phase.collectImportImageSboms(ctx, img)
 		Expect(err).NotTo(HaveOccurred())
 
 		return boms

@@ -11,6 +11,25 @@ import (
 	"github.com/werf/logboek"
 )
 
+// distroPurlTypes are the package managers whose packages belong to the image's own
+// distribution, and whose file lists a distribution keeps rather than this project.
+var distroPurlTypes = map[string]struct{}{"deb": {}, "rpm": {}, "apk": {}}
+
+// distroPackageComponent answers whether this component is a package of a distribution,
+// whichever of them keeps it.
+func distroPackageComponent(comp *cdx.Component) bool {
+	if comp.PackageURL == "" {
+		return false
+	}
+	purl, err := packageurl.FromString(comp.PackageURL)
+	if err != nil {
+		return false
+	}
+	_, ok := distroPurlTypes[purl.Type]
+
+	return ok
+}
+
 // dpkgPurlType is the one package manager whose database this reads. A component of
 // another manager is left exactly as it arrived: an rpm package is not absent from an
 // image because the image's dpkg database does not mention it, and saying so would be a

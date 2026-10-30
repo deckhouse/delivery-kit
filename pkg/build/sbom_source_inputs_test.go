@@ -99,7 +99,7 @@ var _ = Describe("SBOM source import inputs", func() {
 			sbomStep:  newSbomStep(backend, nil),
 		}
 
-		boms, inputs, err := phase.collectImportImageSboms(ctx, img)
+		boms, inputs, _, err := phase.collectImportImageSboms(ctx, img)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(boms).To(HaveLen(1), "the two references of one source image share a single SBOM artifact")
 
@@ -210,16 +210,64 @@ var _ = Describe("SBOM source import inputs", func() {
 				{Stage: stage.DependenciesBeforeInstall, Reference: reference, Scope: nativegate.ImportScope{FromPath: "/app/bin", ToPath: "/usr/local/bin"}},
 				{Stage: stage.DependenciesAfterInstall, Reference: reference, Scope: nativegate.ImportScope{FromPath: "/app/bin", ToPath: "/opt/bin"}},
 			}
-			captured, err := captureSBOMSourceImages(ctx, backend, inputs, targetPlatform)
+			captured, err := captureSBOMSourceImages(ctx, backend, inputs, targetPlatform, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(captured).To(HaveLen(1))
 			Expect(captured[reference].Index.Files).To(HaveKey("/app/bin/tool"))
 			Expect(captured[reference].Receipt.Sources).To(HaveLen(1))
 		})
 
+		// The database travels with the same reading the snapshots come from: what the
+		// source's own document claims about its packages is answered from it, and
+		// walking the image a second time would answer the same.
+		It("reads the package database the import source carries, from the same reading", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			Expect(werf.Init(GinkgoT().TempDir(), "")).To(Succeed())
+
+			img := sourceSnapshotImage([]sourceSnapshotFile{
+				{Name: "var/lib/dpkg/status", Body: "Package: libfoo\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n"},
+				{Name: "var/lib/dpkg/info/libfoo.list", Body: "/app/lib/libfoo.so\n"},
+				{Name: "app/lib/libfoo.so", Body: "foo"},
+			})
+			ref, err := name.NewTag("example.org/builder:latest")
+			Expect(err).NotTo(HaveOccurred())
+			var saved bytes.Buffer
+			Expect(tarball.Write(ref, img, &saved)).To(Succeed())
+
+			const reference = "example.org/supplier@sha256:ccc"
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			backend.EXPECT().Pull(gomock.Any(), reference, container_backend.PullOpts{TargetPlatform: targetPlatform}).Return(nil).Times(1)
+			backend.EXPECT().SaveImageToStream(gomock.Any(), reference).Return(io.NopCloser(bytes.NewReader(saved.Bytes())), nil).Times(1)
+
+			inputs := []sbomSourceImportInput{{Stage: stage.DependenciesBeforeInstall, Reference: reference, Scope: nativegate.ImportScope{FromPath: "/app", ToPath: "/opt"}}}
+			captured, err := captureSBOMSourceImages(ctx, backend, inputs, targetPlatform, nil)
+
+			Expect(err).NotTo(HaveOccurred())
+			database := captured[reference].Database
+			Expect(database.Present).To(BeTrue())
+			entry := database.Packages[shippedscope.DistroPackageKey("libfoo", "1.0", "amd64")]
+			Expect(shippedscope.InheritedPackagePaths(entry)).To(ConsistOf("/app/lib/libfoo.so"))
+		})
+
+		// The backend is asked for nothing it was asked for already: a source read while
+		// its document was being scoped is the same image at the same digest.
+		It("reads no import source twice when one reading was already made", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			const reference = "example.org/supplier@sha256:ddd"
+			already := map[string]*sbomSourceImage{reference: {Index: &shippedscope.FileIndex{}}}
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+
+			captured, err := captureSBOMSourceImages(ctx, backend,
+				[]sbomSourceImportInput{{Stage: stage.DependenciesBeforeInstall, Reference: reference, Scope: nativegate.ImportScope{FromPath: "/a", ToPath: "/b"}}},
+				targetPlatform, already)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(captured[reference]).To(BeIdenticalTo(already[reference]))
+		})
+
 		It("refuses an import whose source image the build could not pin", func(ctx SpecContext) {
 			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
-			_, err := captureSBOMSourceImages(ctx, backend, []sbomSourceImportInput{{Stage: stage.DependenciesBeforeInstall}}, targetPlatform)
+			_, err := captureSBOMSourceImages(ctx, backend, []sbomSourceImportInput{{Stage: stage.DependenciesBeforeInstall}}, targetPlatform, nil)
 			Expect(err).To(MatchError(ContainSubstring("no-data: import source of stage dependenciesBeforeInstall is not pinned")))
 		})
 	})

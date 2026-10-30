@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -135,13 +136,22 @@ type sbomSourceImage struct {
 	Index   *shippedscope.FileIndex
 	Receipt *sources.Receipt
 	Bodies  map[string][]byte
+	// Database is what this image's own distribution records about itself, read from
+	// the same capture: the one first-hand answer to what the packages of its document
+	// consist of and where they stand.
+	Database *shippedscope.DistroDatabase
 }
 
 // captureSBOMSourceImages reads every image the imports copy from, once per pinned
 // reference. The image is read as its own final filesystem — what the import sees — and
 // the package source receipt it carries comes from the same capture.
-func captureSBOMSourceImages(ctx context.Context, backend sourceImagePuller, inputs []sbomSourceImportInput, targetPlatform string) (map[string]*sbomSourceImage, error) {
-	captured := make(map[string]*sbomSourceImage)
+//
+// A source already read while its document was being scoped is taken from alreadyRead
+// rather than read again: it is the same image at the same digest, and the capture asks
+// it the same questions.
+func captureSBOMSourceImages(ctx context.Context, backend sourceImagePuller, inputs []sbomSourceImportInput, targetPlatform string, alreadyRead map[string]*sbomSourceImage) (map[string]*sbomSourceImage, error) {
+	captured := make(map[string]*sbomSourceImage, len(alreadyRead))
+	maps.Copy(captured, alreadyRead)
 	for _, input := range inputs {
 		if input.Reference == "" {
 			return nil, fmt.Errorf("no-data: import source of stage %s is not pinned to a digest", input.Stage)
@@ -181,7 +191,18 @@ func captureSBOMSourceImagePaths(ctx context.Context, backend sourceImagePuller,
 		return nil, fmt.Errorf("read import source %s config: empty config", reference)
 	}
 	boundary := len(cfg.RootFS.DiffIDs)
-	views, err := shippedscope.CollectImageSnapshots(ctx, img, cfg.RootFS.DiffIDs, []int{boundary}, shippedscope.CollectImageSnapshotsOptions{CapturePaths: paths})
+	views, err := shippedscope.CollectImageSnapshots(ctx, img, cfg.RootFS.DiffIDs, []int{boundary}, shippedscope.CollectImageSnapshotsOptions{
+		CapturePaths: paths,
+		// The package database of the source travels with the same reading: what its
+		// document claims about its own packages is answered from it, and walking the
+		// image a second time would answer the same.
+		//
+		// It travels with every reading and not only with the ones that go on to ask
+		// the question. A reading that answered some questions about an image and not
+		// others would be a trap for whoever held it next, and what this adds is the
+		// file lists of the source's own packages and nothing else.
+		CaptureMatch: shippedscope.IsDistroPackageDatabase,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("capture import source %s: %w", reference, err)
 	}
@@ -194,7 +215,10 @@ func captureSBOMSourceImagePaths(ctx context.Context, backend sourceImagePuller,
 		return nil, fmt.Errorf("import source %s: %s: read source receipt %s: %w", reference, status, sources.DefaultPath, err)
 	}
 
-	return &sbomSourceImage{Index: view.Index, Receipt: receipt, Bodies: view.Bodies}, nil
+	return &sbomSourceImage{
+		Index: view.Index, Receipt: receipt, Bodies: view.Bodies,
+		Database: shippedscope.DistroPackagesFrom(view.Index, view.Bodies),
+	}, nil
 }
 
 // sbomSourceGateSnapshots hands the captured stage boundaries to the native gate with the

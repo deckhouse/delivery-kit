@@ -24,6 +24,9 @@ type CollectImageSnapshotsOptions struct {
 	// CapturePaths names the rooted paths whose bytes travel with every snapshot. No other
 	// content is retained, so a consumer that needs a file must name it here.
 	CapturePaths []string
+	// CaptureMatch names the rest: a file this answers for is captured as if it had been
+	// listed, which is how a consumer asks for a set it cannot spell out in advance.
+	CaptureMatch func(file string) bool
 }
 
 // CollectImageSnapshots reads the image at the given layer boundaries — a boundary of n
@@ -62,7 +65,9 @@ func CollectImageSnapshots(ctx context.Context, img v1.Image, diffIDs []v1.Hash,
 		}
 		captured[rootedPath(capturePath)] = true
 	}
-	capture := func(file string) bool { return captured[file] }
+	capture := func(file string) bool {
+		return captured[file] || (opts.CaptureMatch != nil && opts.CaptureMatch(file))
+	}
 
 	for _, boundary := range boundaries {
 		if boundary < 0 || boundary > len(layers) {

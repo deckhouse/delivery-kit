@@ -57,11 +57,18 @@ type DistroDatabase struct {
 // stating no whereabouts, and a partial import of an image carrying them yields no data,
 // which is what it did before this.
 func DistroPackages(ctx context.Context, img v1.Image) (*DistroDatabase, error) {
-	index, manifests, err := indexImageFiles(ctx, img, isDistroPackageDatabase)
+	index, manifests, err := indexImageFiles(ctx, img, IsDistroPackageDatabase)
 	if err != nil {
 		return nil, err
 	}
 
+	return DistroPackagesFrom(index, manifests), nil
+}
+
+// DistroPackagesFrom reads the database out of a reading of the image somebody else made.
+// The caller is holding the index and the bodies of IsDistroPackageDatabase already - a
+// snapshot capture, say - and reading the image a second time would answer the same.
+func DistroPackagesFrom(index *FileIndex, manifests map[string][]byte) *DistroDatabase {
 	database := &DistroDatabase{Packages: make(map[string]DistroPackage), Index: index}
 	for file := range manifests {
 		if dpkgStatusFile(file) {
@@ -72,18 +79,32 @@ func DistroPackages(ctx context.Context, img v1.Image) (*DistroDatabase, error) 
 	}
 	for _, entry := range dpkgStatusEntries(manifests) {
 		declared := dpkgFileList(manifests, entry)
+		rooted := make([]string, 0, len(declared))
 		resolved := make([]string, 0, len(declared))
 		for _, file := range declared {
+			rooted = append(rooted, rootedPath(file))
 			resolved = append(resolved, resolveDirSymlinks(index, rootedPath(file)))
 		}
 		files, symlinks := collect(index, resolved)
+		// A base that merged /lib into /usr/lib holds the file at one spelling and
+		// dpkg names it at the other, and both name it truly. Both are kept: what
+		// reads these paths afterwards compares them letter by letter, and would
+		// otherwise answer that a copy naming one spelling carries nothing.
+		for i, spelling := range rooted {
+			if file, held := files[resolved[i]]; held {
+				files[spelling] = file
+			}
+			if target, held := symlinks[resolved[i]]; held {
+				symlinks[spelling] = target
+			}
+		}
 		database.Packages[DistroPackageKey(entry.Name, entry.Version, entry.Arch)] = DistroPackage{
 			Name: entry.Name, Version: entry.Version, Arch: entry.Arch,
 			Files: files, Symlinks: symlinks, DeclaresFiles: len(declared) > 0,
 		}
 	}
 
-	return database, nil
+	return database
 }
 
 // DistroPackageKey keys a package by everything that tells it apart from another build of
@@ -99,7 +120,9 @@ const (
 	dpkgInfoDir    = "/var/lib/dpkg/info"
 )
 
-func isDistroPackageDatabase(file string) bool {
+// IsDistroPackageDatabase answers whether a file belongs to the package database this
+// reads, so that a caller already walking the image can capture it on the way past.
+func IsDistroPackageDatabase(file string) bool {
 	switch {
 	case file == dpkgStatusPath:
 		return true

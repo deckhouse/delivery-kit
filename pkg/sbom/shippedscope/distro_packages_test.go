@@ -62,6 +62,17 @@ func databaseOf(ctx context.Context, entries []tarEntry) *DistroDatabase {
 	return database
 }
 
+// mergedUsrLayout is a base that merged /lib into /usr/lib: dpkg names the file under
+// /lib, and the image holds it under /usr/lib.
+func mergedUsrLayout() []tarEntry {
+	return []tarEntry{
+		regularFile("var/lib/dpkg/status", "Package: libfoo\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n"),
+		regularFile("var/lib/dpkg/info/libfoo.list", "/lib/x86_64-linux-gnu/libfoo.so\n"),
+		symlink("lib", "usr/lib"),
+		regularFile("usr/lib/x86_64-linux-gnu/libfoo.so", "foo"),
+	}
+}
+
 func packagesOf(ctx context.Context, entries []tarEntry) (map[string]DistroPackage, *FileIndex) {
 	GinkgoHelper()
 	database := databaseOf(ctx, entries)
@@ -146,15 +157,43 @@ var _ = Describe("The package database an image carries", func() {
 		Expect(InheritedPackagePaths(packages[DistroPackageKey("zlib1g", "1.2", "amd64")])).To(Equal([]string{"/lib/libz.so.1"}))
 	})
 
-	It("names a file where the image has it when a directory above it is a symlink", func(ctx SpecContext) {
+	// A package names a symlink of its own - the soname beside the library it points at -
+	// and that leaf needs the second spelling as much as a file does.
+	It("names a symlink of the package at both spellings when a directory above it is merged", func(ctx SpecContext) {
 		packages, _ := packagesOf(ctx, []tarEntry{
 			regularFile("var/lib/dpkg/status", "Package: libfoo\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n"),
-			regularFile("var/lib/dpkg/info/libfoo.list", "/lib64/libfoo.so\n"),
-			symlink("lib64", "/usr/lib"),
-			regularFile("usr/lib/libfoo.so", "foo"),
+			regularFile("var/lib/dpkg/info/libfoo.list", "/lib/x86_64-linux-gnu/libfoo.so\n/lib/x86_64-linux-gnu/libfoo.so.1\n"),
+			symlink("lib", "usr/lib"),
+			regularFile("usr/lib/x86_64-linux-gnu/libfoo.so.1", "foo"),
+			symlink("usr/lib/x86_64-linux-gnu/libfoo.so", "libfoo.so.1"),
 		})
 
-		Expect(InheritedPackagePaths(packages[DistroPackageKey("libfoo", "1.0", "amd64")])).To(Equal([]string{"/usr/lib/libfoo.so"}))
+		entry := packages[DistroPackageKey("libfoo", "1.0", "amd64")]
+		Expect(entry.Symlinks).To(HaveKey("/lib/x86_64-linux-gnu/libfoo.so"), "the spelling dpkg names it by")
+		Expect(entry.Symlinks).To(HaveKey("/usr/lib/x86_64-linux-gnu/libfoo.so"), "the spelling the image holds it at")
+		Expect(entry.Symlinks["/lib/x86_64-linux-gnu/libfoo.so"]).
+			To(Equal(entry.Symlinks["/usr/lib/x86_64-linux-gnu/libfoo.so"]), "the two spellings name one link")
+	})
+
+	It("names a file once where the spellings agree", func(ctx SpecContext) {
+		packages, _ := packagesOf(ctx, debianLayout())
+
+		Expect(InheritedPackagePaths(packages[DistroPackageKey("zlib1g", "1:1.2.13.dfsg-1", "amd64")])).
+			To(Equal([]string{"/lib/x86_64-linux-gnu/libz.so.1"}))
+	})
+
+	// A base that merged the directories holds the file at one spelling and dpkg names
+	// it at the other. Both name it, and what reads these paths afterwards compares them
+	// letter by letter, so both are kept.
+	It("names a file at both spellings when a directory above it is a symlink", func(ctx SpecContext) {
+		packages, _ := packagesOf(ctx, mergedUsrLayout())
+
+		entry := packages[DistroPackageKey("libfoo", "1.0", "amd64")]
+		Expect(InheritedPackagePaths(entry)).To(ConsistOf(
+			"/lib/x86_64-linux-gnu/libfoo.so", "/usr/lib/x86_64-linux-gnu/libfoo.so",
+		))
+		Expect(entry.Files["/lib/x86_64-linux-gnu/libfoo.so"]).To(Equal(entry.Files["/usr/lib/x86_64-linux-gnu/libfoo.so"]),
+			"the two spellings name one file, with one digest")
 	})
 
 	// An entry with no list at all is installed and placed nowhere, which is not the
@@ -350,5 +389,148 @@ var _ = Describe("Placing the packages an image inherited from its supplier", fu
 
 		Expect(placed).To(Equal(1))
 		Expect(recordedOccurrences(&(*bom.Components)[0])).To(HaveLen(1))
+	})
+})
+
+var _ = Describe("Deciding afresh what an import source says about its own packages", func() {
+	supplierBOM := func(comps ...cdx.Component) *cdx.BOM {
+		return &cdx.BOM{Components: &comps}
+	}
+
+	debComponent := func(name, version, arch string) cdx.Component {
+		purl := "pkg:deb/debian/" + name + "@" + version
+		if arch != "" {
+			purl += "?arch=" + arch
+		}
+
+		return cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: purl, Name: name, Version: version, PackageURL: purl}
+	}
+
+	// A document of a supplier is the supplier's statement, verdict and all. Taking
+	// "not shipped" on trust would let a document hide a package the image does ship
+	// from everything downstream of the import.
+	It("does not let a source's own verdict hide a package its database records", func(ctx SpecContext) {
+		hidden := debComponent("libc6", "2.36-9+deb12u7", "amd64")
+		hidden.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+		bom := supplierBOM(hidden)
+
+		placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, debianLayout()))
+
+		Expect([]int{placed, absent}).To(Equal([]int{1, 0}))
+		Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(BeEmpty(), "the package is in the image, whatever its document says")
+		Expect(recordedOccurrences(&(*bom.Components)[0])).To(HaveLen(2))
+	})
+
+	// The other direction of the same rule: a package the source says it ships, and its
+	// database has never heard of, is marked absent by this build rather than taken on
+	// the document's word.
+	It("marks a package the source's database does not record, whatever the source claims", func(ctx SpecContext) {
+		bom := supplierBOM(debComponent("ghost", "1.0", "amd64"))
+
+		placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, debianLayout()))
+
+		Expect([]int{placed, absent}).To(Equal([]int{0, 1}))
+		Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(Equal(PropertyShippedFalse))
+	})
+
+	// With no database to read, this build knows nothing - and a verdict it cannot
+	// check is not a verdict it may publish. The component stays as pathless as it
+	// arrived, which a partial import answers with no data.
+	It("clears a verdict it cannot reach itself, leaving the component placed nowhere", func(ctx SpecContext) {
+		claimed := debComponent("libc6", "2.36-9+deb12u7", "amd64")
+		claimed.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+		bom := supplierBOM(claimed)
+
+		placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, []tarEntry{regularFile("usr/bin/app", "app")}))
+
+		Expect([]int{placed, absent}).To(Equal([]int{0, 0}))
+		Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(BeEmpty())
+		Expect((*bom.Components)[0].Evidence).To(BeNil())
+	})
+
+	// A verdict has more than one spelling, and taking any of them on trust would let a
+	// document hide a package the image ships.
+	DescribeTable("does not let any spelling of the source's verdict hide a package its database records",
+		func(ctx SpecContext, state func(*cdx.Component)) {
+			hidden := debComponent("libc6", "2.36-9+deb12u7", "amd64")
+			state(&hidden)
+			bom := supplierBOM(hidden)
+
+			placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, debianLayout()))
+
+			Expect([]int{placed, absent}).To(Equal([]int{1, 0}))
+			Expect(recordedOccurrences(&(*bom.Components)[0])).To(HaveLen(2))
+			Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(BeEmpty())
+			Expect(propertyValue(&(*bom.Components)[0], PropertyFiles)).To(BeEmpty())
+			Expect((*bom.Components)[0].Scope).NotTo(Equal(cdx.ScopeExcluded))
+		},
+		Entry("saying it is not shipped", func(comp *cdx.Component) {
+			comp.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+		}),
+		Entry("saying it describes no files", func(comp *cdx.Component) {
+			comp.Properties = &[]cdx.Property{{Name: PropertyFiles, Value: PropertyFilesNone}}
+		}),
+		Entry("excluding it from the document", func(comp *cdx.Component) {
+			comp.Scope = cdx.ScopeExcluded
+		}),
+	)
+
+	// A document may name any path it likes. One nothing checked would decide what the
+	// importing image is said to have received, so the paths are taken from the database
+	// like everything else.
+	It("replaces the paths the source wrote with the ones its database records", func(ctx SpecContext) {
+		invented := debComponent("libc6", "2.36-9+deb12u7", "amd64")
+		invented.Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/opt/anywhere/at/all"}}}
+		bom := supplierBOM(invented)
+
+		placed, _ := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, debianLayout()))
+
+		Expect(placed).To(Equal(1))
+		locations := make([]string, 0)
+		for _, occurrence := range recordedOccurrences(&(*bom.Components)[0]) {
+			locations = append(locations, occurrence.Path)
+		}
+		Expect(locations).To(ConsistOf("/lib/x86_64-linux-gnu/libc.so.6", "/usr/share/doc/libc6/copyright"))
+	})
+
+	It("leaves a component placed nowhere when it wrote paths and no database answers", func(ctx SpecContext) {
+		invented := debComponent("libc6", "2.36-9+deb12u7", "amd64")
+		invented.Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/opt/anywhere/at/all"}}}
+		bom := supplierBOM(invented)
+
+		placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, []tarEntry{regularFile("usr/bin/app", "app")}))
+
+		Expect([]int{placed, absent}).To(Equal([]int{0, 0}))
+		Expect(recordedOccurrences(&(*bom.Components)[0])).To(BeNil())
+	})
+
+	// rpm and apk databases are not read, so their verdicts cannot be checked either,
+	// and an unchecked verdict is cleared like any other.
+	DescribeTable("clears the verdict of a package whose database this does not read",
+		func(ctx SpecContext, purl string) {
+			comp := cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: purl, Name: "musl", Version: "1.2", PackageURL: purl}
+			comp.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+			bom := supplierBOM(comp)
+
+			Expect(RecomputeDonorPackages(ctx, bom, databaseOf(ctx, debianLayout()))).To(BeZero())
+			Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(BeEmpty())
+		},
+		Entry("an rpm package", "pkg:rpm/fedora/glibc@2.38?arch=x86_64"),
+		Entry("an apk package", "pkg:apk/alpine/musl@1.2.4-r2?arch=x86_64"),
+	)
+
+	It("leaves the components of every other ecosystem exactly as they arrived", func(ctx SpecContext) {
+		comp := cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: "flask", Name: "flask", Version: "3.0", PackageURL: "pkg:pypi/flask@3.0"}
+		comp.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+		bom := supplierBOM(comp)
+
+		Expect(RecomputeDonorPackages(ctx, bom, databaseOf(ctx, debianLayout()))).To(BeZero())
+		Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(Equal(PropertyShippedFalse))
+	})
+
+	It("reads an image only for a document that claims a package of a distribution", func() {
+		Expect(HasDistroPackageComponents(supplierBOM(debComponent("libc6", "2.36", "amd64")))).To(BeTrue())
+		Expect(HasDistroPackageComponents(supplierBOM(cdx.Component{Name: "flask", PackageURL: "pkg:pypi/flask@3.0"}))).To(BeFalse())
+		Expect(HasDistroPackageComponents(nil)).To(BeFalse())
 	})
 })

@@ -273,6 +273,23 @@ const PropertyOriginalSource = "dk:original-source"
 // files with the same name are the same only if their content is, so files are
 // identified by their name and hashes and a file without hashes is never
 // merged.
+// ComponentIdentity is what tells one component of a document from another through
+// every rewriting this package does. Two components that answer to it are the same
+// component, whatever bom-ref each happens to carry: a ref is a label a document hands
+// out and renames as it merges, and a caller holding a ref from before such a pass finds
+// what it pointed at by asking this.
+//
+// It answers "" for a component this cannot identify - one with neither a purl nor a
+// hashed file identity - whose place in a document is only its position.
+func ComponentIdentity(comp cdx.Component) string {
+	key := componentKey(comp, -1)
+	if strings.HasPrefix(key, "file-unique:") {
+		return ""
+	}
+
+	return key
+}
+
 func componentKey(comp cdx.Component, index int) string {
 	if comp.PackageURL != "" {
 		return "purl:" + normalizePURL(comp.PackageURL) + originalSourceKey(comp.Properties)

@@ -299,6 +299,12 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		graftVerifiedProperties(resultBOM, verifiedBOM)
 
+		// The catalog arrives naming components by the refs the verification gave them,
+		// and the document it now stands on renamed those refs on its way here.
+		if err := rewriteCatalogRefs(resultBOM, verifiedBOM); err != nil {
+			return fmt.Errorf("resolve the verified catalog against the published document: %w", err)
+		}
+
 		resultJSON, err := cyclonedxutil.ToJSON(resultBOM)
 		if err != nil {
 			return fmt.Errorf("serialize BOM: %w", err)

@@ -138,6 +138,102 @@ var _ = Describe("Common SBOM pipeline", func() {
 		scanOpts.Commands[0].Catalogers = nil
 	})
 
+	// The catalog of a published document is only worth the refs it names: a reader takes
+	// a record, reads the components it says the file was made of, and looks each of them
+	// up among the document's components. The shape here is the acceptance capture's - a
+	// record over a built file, naming catalog keys - and the question asked of it is the
+	// one that capture answers wrongly: does every ref resolve.
+	Describe("the catalog of the published document", func() {
+		publishedOf := func(ctx context.Context, base *cdx.BOM, files map[string][]byte) (*cdx.BOM, verifiedCatalog, map[string]bool) {
+			GinkgoHelper()
+			desc := pipelineImage(ctx, files)
+			Expect(step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{BaseBOM: base}, nil, nil, true, "", nil, "")).To(Succeed())
+			bom, err := step.GetImageBOM(ctx, "app", desc.Info)
+			Expect(err).NotTo(HaveOccurred())
+
+			property, found := catalogPropertyOf(bom)
+			Expect(found).To(BeTrue(), "the published document carries a catalog")
+			var catalog verifiedCatalog
+			Expect(json.Unmarshal([]byte(property.Value), &catalog)).To(Succeed())
+
+			declared := map[string]bool{}
+			eachComponent(bom, func(comp cdx.Component) {
+				if comp.BOMRef != "" {
+					declared[comp.BOMRef] = true
+				}
+			})
+
+			return bom, catalog, declared
+		}
+
+		It("names components the published document declares", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			_, catalog, declared := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+
+			Expect(catalog.Records).NotTo(BeEmpty())
+			named := 0
+			for _, record := range catalog.Records {
+				for _, ref := range append(append([]string{}, record.Components...), record.Owners...) {
+					named++
+					Expect(declared).To(HaveKey(ref), "record "+record.Path+" names a component the document does not declare")
+					Expect(catalog.Components).To(HaveKey(ref), "record "+record.Path+" names a component the catalog does not hold")
+				}
+			}
+			Expect(named).NotTo(BeZero(), "a catalog that names nothing proves nothing")
+		})
+
+		It("names them by the refs the document gives rather than the ones the verification used", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			_, catalog, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+
+			for ref := range catalog.Components {
+				Expect(ref).NotTo(HavePrefix("urn:dk:component:"),
+					"the verification's own ref does not survive publication and must not be published")
+			}
+		})
+
+		// The merge renames refs to keep two documents apart; the canonicalisation
+		// renames them again when it finds two components to be one, keeping the ref of
+		// whichever stood first. A base holding the very component the record names, and
+		// holding it first, exercises both at once.
+		It("resolves after a base document is merged in and folded together", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			base := cyclonedxutil.NewBOM()
+			base.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeContainer, Name: "base", BOMRef: "base"}}
+			base.Components = &[]cdx.Component{
+				{Type: cdx.ComponentTypeLibrary, Name: "requests", Version: "2.0", BOMRef: "py", PackageURL: "pkg:pypi/requests@2.0"},
+				{
+					Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "donor-app",
+					PackageURL: "pkg:generic/app@1?source_kind=declared&source_locator=https:%2F%2Fexample.invalid%2Fapp",
+				},
+			}
+
+			bom, catalog, declared := publishedOf(ctx, base, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+
+			for _, record := range catalog.Records {
+				for _, ref := range record.Components {
+					Expect(declared).To(HaveKey(ref))
+				}
+			}
+			folded := lo.Filter(lo.FromPtr(bom.Components), func(comp cdx.Component, _ int) bool {
+				return comp.Name == "app" && comp.Version == "1"
+			})
+			Expect(folded).To(HaveLen(1), "the donor's claim and the proven component are one component")
+		})
+
+		It("leaves everything but the refs as the verification wrote it", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			_, catalog, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+
+			Expect(catalog.Schema).To(Equal("dk.catalog/v4"), "the schema the verification wrote, which is not the property name")
+			record, found := lo.Find(catalog.Records, func(record verifiedCatalogRecord) bool { return record.Path == "/app/tool" })
+			Expect(found).To(BeTrue())
+			Expect(record.Origin).To(Equal("build"))
+			Expect(record.SHA256).To(HavePrefix("sha256:"))
+			Expect(record.Composition).NotTo(BeEmpty(), "the composition the record carries is untouched")
+		})
+	})
+
 	It("keeps the inherited language packages, drops the package attribution the verification replaces, and shows the patchers one document", func(specCtx SpecContext) {
 		ctx := logging.WithLogger(specCtx)
 		desc := pipelineImage(ctx, map[string][]byte{

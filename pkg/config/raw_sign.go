@@ -2,6 +2,7 @@ package config
 
 type rawSign struct {
 	Path   string `yaml:"path,omitempty"`
+	Format string `yaml:"format,omitempty"`
 	Before string `yaml:"before,omitempty"`
 	After  string `yaml:"after,omitempty"`
 
@@ -37,9 +38,13 @@ func (c *rawSign) UnmarshalYAML(unmarshal func(interface{}) error) error {
 func (c *rawSign) toDirective() (*Sign, error) {
 	sign := &Sign{
 		Path:   c.Path,
+		Format: SignFormat(c.Format),
 		Before: c.Before,
 		After:  c.After,
 		raw:    c,
+	}
+	if sign.Format == "" {
+		sign.Format = SignFormatDetachedPKCS7
 	}
 
 	if err := sign.validate(); err != nil {

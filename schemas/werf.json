@@ -1507,7 +1507,7 @@
       ]
     },
     "sign": {
-      "description": "Signs a file the image produces at a user stage boundary and lays the detached PKCS#7 signature down next to it as `<path>.p7s`. Set at most one of `before` or `after`; with neither the file is signed at the end of the image.\nhttps://werf.io/docs/latest/usage/build/stapel/imports.html#signing-files-inside-the-image",
+      "description": "Signs a file the image produces at a user stage boundary: by default lays the detached PKCS#7 signature down next to it as `<path>.p7s`; with `format: authenticode` embeds the signature into the PE binary in place. Set at most one of `before` or `after`; with neither the file is signed at the end of the image.\nhttps://werf.io/docs/latest/usage/build/stapel/imports.html#signing-files-inside-the-image",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1518,6 +1518,14 @@
           "description": "The absolute path of the file to sign, or an absolute glob pattern expanded against the image filesystem when the signing stage runs.",
           "type": "string",
           "pattern": "^/"
+        },
+        "format": {
+          "description": "What the signature is: `detached-pkcs7` (default) writes `<path>.p7s` next to the file; `authenticode` embeds a UEFI Secure Boot signature into the PE binary, replacing the file.",
+          "type": "string",
+          "enum": [
+            "detached-pkcs7",
+            "authenticode"
+          ]
         },
         "before": {
           "description": "The stage before which to sign the file.",

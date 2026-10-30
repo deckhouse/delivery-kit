@@ -1,0 +1,33 @@
+project: werf-test-e2e-sign-files-authenticode
+configVersion: 1
+---
+image: engine
+from: alpine:3.20
+git:
+- add: /boot.efi
+  to: /out/boot.efi
+  stageDependencies:
+    install: ['**/*']
+- add: /sign-cert.pem
+  to: /run/sign-cert.pem
+  stageDependencies:
+    install: ['**/*']
+shell:
+  install:
+  - apk add --no-cache sbsigntool
+  - cp /out/boot.efi /out/boot.unsigned.efi
+  - printf '%s' roothash > /out/rootfs.roothash
+  setup:
+  - test -x /out/boot.efi
+  - "! test -e /out/boot.efi.p7s"
+  - test "$(stat -c %s /out/boot.efi)" -gt "$(stat -c %s /out/boot.unsigned.efi)"
+  - sbverify --list /out/boot.efi
+  - sbverify --cert /run/sign-cert.pem /out/boot.efi
+  - "! sbverify --cert /run/sign-cert.pem /out/boot.unsigned.efi"
+  - test -s /out/rootfs.roothash.p7s
+sign:
+- path: /out/boot.efi
+  format: authenticode
+  after: install
+- path: /out/rootfs.roothash
+  after: install

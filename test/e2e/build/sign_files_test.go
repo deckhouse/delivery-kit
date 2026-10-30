@@ -2,16 +2,20 @@ package e2e_build_test
 
 import (
 	"archive/tar"
+	"bytes"
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	_ "embed"
 	"encoding/base64"
+	"encoding/pem"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/foxboron/go-uefi/authenticode"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
@@ -163,6 +167,57 @@ var _ = Describe("sign directive", Label("e2e", "sign-files", "simple"), func() 
 			rebuildOut := werfProject.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
 			Expect(rebuildOut).To(ContainSubstring("Use previously built image for sysext"))
 			Expect(rebuildOut).NotTo(ContainSubstring("Building stage"))
+		},
+		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "docker",
+			WithLocalRepo:        true,
+		}}),
+		backendEntry("with repo using Native Rootless", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
+			ContainerBackendMode: "native-rootless",
+			WithLocalRepo:        true,
+		}}),
+	)
+
+	DescribeTable("embeds an Authenticode signature into a PE binary and keeps the detached format for the other entry of the stage",
+		func(ctx SpecContext, testOpts signFilesTestOptions) {
+			setupEnv(testOpts.setupEnvOptions)
+
+			SuiteData.InitTestRepo(ctx, "repo0", "sign_files/state_authenticode")
+			werfProject := report.NewProjectWithReport(werf.NewProject(SuiteData.WerfBinPath, SuiteData.GetTestRepoPath("repo0")))
+
+			buildOut, buildReport := werfProject.BuildWithReport(ctx, SuiteData.GetBuildReportPath("report0.json"), &werf.WithReportOptions{CommonOptions: werf.CommonOptions{ExtraArgs: signArgs}})
+			Expect(buildOut).To(ContainSubstring("Signing /out/boot.efi (authenticode)"))
+			Expect(buildOut).To(ContainSubstring("Signing 1 file(s)"), "the detached entry of the same stage")
+			Expect(buildOut).To(ContainSubstring("Building stage engine/setup"), "sbverify --cert accepted the embedded signature in setup")
+
+			var signedPE, unsignedPE []byte
+			img := loadImageFromRegistry(buildReport.Images["engine"].DockerImageName)
+			utils.ForEachImageFile(SuiteData.TmpDir, img, func(header *elfTar.Header, tmpLocalPath string) {
+				if tmpLocalPath == "" {
+					return
+				}
+				switch "/" + strings.TrimPrefix(header.Name, "/") {
+				case "/out/boot.efi":
+					var err error
+					signedPE, err = os.ReadFile(tmpLocalPath)
+					Expect(err).To(Succeed())
+				case "/out/boot.unsigned.efi":
+					var err error
+					unsignedPE, err = os.ReadFile(tmpLocalPath)
+					Expect(err).To(Succeed())
+				}
+			})
+			Expect(signedPE).NotTo(BeEmpty())
+			Expect(len(signedPE)).To(BeNumerically(">", len(unsignedPE)))
+			bin, err := authenticode.Parse(bytes.NewReader(signedPE))
+			Expect(err).To(Succeed())
+			leafBlock, _ := pem.Decode(signFilesCertData)
+			Expect(leafBlock).NotTo(BeNil())
+			leaf, err := x509.ParseCertificate(leafBlock.Bytes)
+			Expect(err).To(Succeed())
+			verified, err := bin.Verify(leaf)
+			Expect(err).To(Succeed())
+			Expect(verified).To(BeTrue())
 		},
 		backendEntry("with repo using Docker", signFilesTestOptions{setupEnvOptions: setupEnvOptions{
 			ContainerBackendMode: "docker",

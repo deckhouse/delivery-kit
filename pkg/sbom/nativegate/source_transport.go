@@ -308,7 +308,7 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 			e.index, e.matches, e.bootstrap = snapshot.Index, inherited, heldBootstrapMarks(marks, snapshot.Index)
 			continue
 		}
-		next := make(originalMatches)
+		var next originalMatches
 		if snapshot.Stage != "packages" && !declaredImport(snapshot) {
 			if err := checkInstallBoundary(snapshots[i-1], snapshot); err != nil {
 				return nil, err

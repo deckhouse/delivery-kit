@@ -235,7 +235,7 @@ var _ = ginkgo.Describe("Verifying a Git-pinned Node original", func() {
 		work, commit := gitFixtureWorktree(gitFixtureManifest, map[string]string{"index.js": "module.exports = 1;\n"})
 		shallow := filepath.Join(filepath.Dir(work), "shallow.git")
 		// A local clone hardlinks the whole object database, so the mirror is
-		// fetched over a transport that honours the depth.
+		// fetched over a transport that honors the depth.
 		gitFixtureCommand(filepath.Dir(work))("", "clone", "-q", "--depth", "1", "--bare", "file://"+work, shallow)
 		gomega.Expect(filepath.Join(shallow, "shallow")).To(gomega.BeAnExistingFile())
 		observed := fixtureIndex(map[string]string{

@@ -33,7 +33,7 @@ type sbomBuildContextDeclaration struct {
 	// a toolchain, a compiler, an environment nothing of which this project claims to
 	// describe. Its own composition is neither converged nor published, and the files
 	// an image imports from it carry no claim unless something else accounts for them.
-	Bootstrap bool                                      `json:"bootstrap,omitempty"`
+	Bootstrap bool `json:"bootstrap,omitempty"`
 	// PreparedSource marks an image that is nothing but a prepared source: it stands on
 	// no base, runs nothing, and only collects files other images already answer for,
 	// so that builds downstream can consume it as the pinned package it declares itself
@@ -45,7 +45,7 @@ type sbomBuildContextDeclaration struct {
 	// path of that source they stand. A bootstrap image describes no composition of its
 	// own, so a file taken out of it is answered for by the record of its own build or
 	// by one of these bindings, and by nothing else.
-	BootstrapOriginals []sbomBuildContextBootstrapOriginal `json:"bootstrapOriginals,omitempty"`
+	BootstrapOriginals []sbomBuildContextBootstrapOriginal       `json:"bootstrapOriginals,omitempty"`
 	Stages             map[stage.StageName]sbomBuildContextStage `json:"stages"`
 }
 

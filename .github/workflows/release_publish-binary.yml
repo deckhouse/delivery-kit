@@ -3,30 +3,52 @@ name: release:publish-binary
 on:
   push:
     tags:
-      - "v[0-9]*.[0-9]*.[0-9]*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to build and publish (e.g. v2.72.1-dk)"
-        required: true
+      - "v3.12.0-dk.3.sbom.5"
 
 env:
   DEBIAN_FRONTEND: "noninteractive"
   TASK_X_REMOTE_TASKFILES: 1
   LD_LIBRARY_PATH: "/usr/local/lib/libgost"
+  GIT_TERMINAL_PROMPT: "0"
+  GIT_ASKPASS: "/usr/bin/false"
+  SSH_ASKPASS: "/usr/bin/false"
+  GIT_SSH_COMMAND: "ssh -o BatchMode=yes -o ConnectTimeout=10"
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: "url.git@fox.flant.com:.insteadOf"
+  GIT_CONFIG_VALUE_0: "https://fox.flant.com/"
+  GOPRIVATE: "fox.flant.com"
 
 jobs:
   publish:
     name: Build and publish binary
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v3.12.0-dk.3.sbom.5'
     runs-on: [self-hosted, regular]
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Verify release source and existing access
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          test "$GITHUB_REF_NAME" = v3.12.0-dk.3.sbom.5
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
+          git diff --exit-code
+          git diff --exit-code 295079d548536cab873a08008ef1501a9772547b HEAD -- . ':!.github/workflows/release_publish-binary.yml'
+          test -n "$RELEASE_TOKEN" || { echo '::error::RELEASE_PLEASE_TOKEN is missing'; exit 1; }
+          status="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")"
+          test "$status" = 404 || { echo "::error::Release absence check returned HTTP $status"; exit 1; }
+          timeout 15s git ls-remote git@fox.flant.com:deckhouse/container-base/pm.git HEAD > /dev/null
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -35,19 +57,36 @@ jobs:
           go-version-file: go.mod
 
       - name: Set version
-        run: echo "VERSION=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
+        run: echo "VERSION=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
 
       - name: Build binary (linux/amd64)
         run: |
           task --yes build:dist:linux:amd64 version="$VERSION"
-          file dist/$VERSION/linux-amd64/bin/werf | grep -Eq "x86-64.*statically linked.*Linux"
+          binary="dist/$VERSION/linux-amd64/bin/werf"
+          file "$binary" | grep -Eq "x86-64.*statically linked.*Linux"
+          test "$("$binary" version)" = "$VERSION"
+          go version -m "$binary" | tee "$RUNNER_TEMP/werf-buildinfo.txt"
+          grep -Fx "$(printf '\tbuild\tvcs.revision=%s' "$GITHUB_SHA")" "$RUNNER_TEMP/werf-buildinfo.txt"
+          grep -Fx "$(printf '\tbuild\tvcs.modified=false')" "$RUNNER_TEMP/werf-buildinfo.txt"
+          git diff --exit-code
+          (cd "$(dirname "$binary")" && sha256sum werf > werf.sha256 && sha256sum --check werf.sha256)
 
       - name: Upload binary to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           tag_name: ${{ env.VERSION }}
-          files: dist/${{ env.VERSION }}/linux-amd64/bin/werf
+          prerelease: true
+          make_latest: "false"
+          overwrite_files: false
+          fail_on_unmatched_files: true
+          body: |
+            Development prerelease. Source commit: ${{ github.sha }}.
+            Runtime source is unchanged from 295079d548536cab873a08008ef1501a9772547b; the delta is this publisher workflow only.
+            CI run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: |
+            dist/${{ env.VERSION }}/linux-amd64/bin/werf
+            dist/${{ env.VERSION }}/linux-amd64/bin/werf.sha256
 
   notify:
     if: always()

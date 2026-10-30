@@ -14,6 +14,7 @@
 const path = require('node:path');
 
 const { internals } = require('./runtime-evidence.cjs');
+const { chunkEvidence } = require('./chunk-evidence.cjs');
 
 const { SUPPORTED_WEBPACK, FINGERPRINTS, compareMembers, relativeName, prototypeOf, entryProblem, sameJSON, failed, noData } = internals;
 const REGISTRY = Symbol.for('dk.sbom.webpack.cjs');
@@ -55,7 +56,48 @@ function observeAssets(compiler) {
 	});
 }
 
-async function bootstrapEvidence(compilation, chunk, verifyResource, evidence = {}) {
+// The bytes of the one file a chunk emits, from the render that produced them
+// through whatever described stages stand between that render and the emit.
+// A chunk that carries the runtime is described by its bootstrap, every other
+// one by the chunk renderer.
+async function assetEvidence(compilation, chunk, verifyResource, evidence = {}) {
+	if (typeof chunk.hasRuntime !== 'function') return noData(`chunk ${chunk.name || chunk.id} does not say whether it carries the runtime`);
+	if (chunk.files.size !== 1) return noData(`chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`);
+	const file = [...chunk.files][0];
+	const bytes = emitted.get(compilation);
+	if (!bytes || !bytes.has(file)) return noData(`the bytes of ${file} were not observed before they were emitted`);
+	const described = chunk.hasRuntime() ? await bootstrapEvidence(compilation, chunk, verifyResource) : await chunkEvidence(compilation, chunk, verifyResource);
+	if (described.failure) return described;
+	const renderedBytes = described.rendered;
+	// The two stages that are allowed to stand between the render and the emit,
+	// in the order they run, each for exactly the bytes the one before left: a
+	// described minification, and the replacement of the content hashes, which
+	// also gave this asset the name it is emitted under.
+	const hashed = evidence.contentHash ? await evidence.contentHash(compilation, file) : { status: 'none' };
+	if (hashed.failure) return { units: [], failure: hashed.failure };
+	const minified = evidence.minifier ? await evidence.minifier(compilation, hashed.name || file) : { status: 'none' };
+	if (minified.failure) return { units: [], failure: minified.failure };
+	let produced = renderedBytes;
+	if (minified.input) {
+		if (!minified.input.equals(produced)) return noData(`${file} was changed between its render and its minification`);
+		produced = minified.output;
+	}
+	if (hashed.input) {
+		if (!hashed.input.equals(produced)) return noData(`${file} was changed before its content hash was replaced`);
+		produced = hashed.output;
+	}
+	// Anything else between the render and the emit - another minifier, a banner -
+	// leaves bytes this adapter cannot attribute; it refuses rather than guesses.
+	if (!produced.equals(bytes.get(file))) {
+		return noData(`${file} was changed between its render and its emit`);
+	}
+	// The emit snapshot is not the end of the story: a plugin can still rewrite
+	// the file afterwards, so the caller has to compare these bytes with the ones
+	// that stayed on disk.
+	return { units: described.units, requiredBytes: produced };
+}
+
+async function bootstrapEvidence(compilation, chunk, verifyResource) {
 	const registry = globalThis[REGISTRY];
 	if (!registry || typeof registry.getRender !== 'function' || typeof registry.snapshot !== 'function') {
 		return noData('the commonjs load registry is not installed in this process');
@@ -126,37 +168,10 @@ async function bootstrapEvidence(compilation, chunk, verifyResource, evidence = 
 		const drift = compareMembers(entry.members, registry.snapshot(entry.exports), 'exports') || compareMembers(entry.prototypeMembers, registry.snapshot(prototypeOf(entry.exports)), 'prototype');
 		if (drift) return noData(`${relativeName(lib, entry.file)} no longer exports what it exported when it was loaded: ${drift}`);
 	}
-	if (chunk.files.size !== 1) return noData(`chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`);
-	const file = [...chunk.files][0];
-	const bytes = emitted.get(compilation);
-	if (!bytes || !bytes.has(file)) return noData(`the bytes of ${file} were not observed before they were emitted`);
 	const source = observed.renderMain.result;
-	if (!source || typeof source.source !== 'function') return noData(`the render of ${file} produced no source`);
+	if (!source || typeof source.source !== 'function') return noData(`the render of chunk ${chunk.name || chunk.id} produced no source`);
 	const rendered = source.source();
-	if (typeof rendered !== 'string') return noData(`the render of ${file} produced no text`);
-	const renderedBytes = Buffer.from(rendered, 'utf8');
-	// The two stages that are allowed to stand between the render and the emit,
-	// in the order they run, each for exactly the bytes the one before left: a
-	// described minification, and the replacement of the content hashes, which
-	// also gave this asset the name it is emitted under.
-	const hashed = evidence.contentHash ? await evidence.contentHash(compilation, file) : { status: 'none' };
-	if (hashed.failure) return { units: [], failure: hashed.failure };
-	const minified = evidence.minifier ? await evidence.minifier(compilation, hashed.name || file) : { status: 'none' };
-	if (minified.failure) return { units: [], failure: minified.failure };
-	let produced = renderedBytes;
-	if (minified.input) {
-		if (!minified.input.equals(produced)) return noData(`${file} was changed between its render and its minification`);
-		produced = minified.output;
-	}
-	if (hashed.input) {
-		if (!hashed.input.equals(produced)) return noData(`${file} was changed before its content hash was replaced`);
-		produced = hashed.output;
-	}
-	// Anything else between the render and the emit - another minifier, a banner -
-	// leaves bytes this adapter cannot attribute; it refuses rather than guesses.
-	if (!produced.equals(bytes.get(file))) {
-		return noData(`${file} was changed between its render and its emit`);
-	}
+	if (typeof rendered !== 'string') return noData(`the render of chunk ${chunk.name || chunk.id} produced no text`);
 
 	const units = [];
 	let component;
@@ -174,10 +189,7 @@ async function bootstrapEvidence(compilation, chunk, verifyResource, evidence = 
 		units.push({ path: unit.path, sha256: unit.sha256, component: unit.component });
 	}
 	if (component.version !== api.version) return failed('invalid', `component ${component.id} is not the webpack ${api.version} that is running`);
-	// The emit snapshot is not the end of the story: a plugin can still rewrite
-	// the file afterwards, so the caller has to compare these bytes with the ones
-	// that stayed on disk.
-	return { units, requiredBytes: produced };
+	return { units, rendered: Buffer.from(rendered, 'utf8') };
 }
 
 // A tap on a shaping hook contributes code this adapter cannot attribute to a
@@ -193,4 +205,4 @@ function tapsProblem(taps) {
 	return null;
 }
 
-module.exports = { bootstrapEvidence, observeAssets };
+module.exports = { assetEvidence, observeAssets };

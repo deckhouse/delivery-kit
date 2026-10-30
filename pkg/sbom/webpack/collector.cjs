@@ -19,7 +19,7 @@ const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
 const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
-const { bootstrapEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
+const { assetEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const path = require('path');
 
 const PLUGIN = 'DkSbomWebpackCollector';
@@ -246,7 +246,7 @@ async function collectChunkAssets(options, compilation) {
 		}
 		// Every chunk must account for generated wrapper/bootstrap code; an
 		// undescribed renderChunk path remains no-data rather than ordinary source.
-		const bootstrap = await bootstrapEvidence(compilation, chunk, resource => verifyResource(options, resource), { minifier: options.minifierEvidence, contentHash: options.contentHashEvidence });
+		const bootstrap = await assetEvidence(compilation, chunk, resource => verifyResource(options, resource), { minifier: options.minifierEvidence, contentHash: options.contentHashEvidence });
 		if (bootstrap.failure) addFailure(collected, bootstrap.failure);
 		for (const unit of bootstrap.units) collected.units.set(unit.path, unit);
 		for (const file of chunk.files) {

@@ -15,12 +15,62 @@ const SUPPORTED_WEBPACK = '5.94.0';
 const SOURCE_TYPE = 'runtime';
 const BASE_FILE = 'RuntimeModule.js';
 const HELPER_BASE_FILE = 'runtime/HelperRuntimeModule.js';
-const CLASS_FILES = [
-	'runtime/DefinePropertyGettersRuntimeModule.js',
-	'runtime/HasOwnPropertyRuntimeModule.js',
-	'runtime/MakeNamespaceObjectRuntimeModule.js',
-	'runtime/NonceRuntimeModule.js',
-];
+const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const DOTTED = /^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$/;
+const PATH_HOOK = 'assetPath';
+const PATH_PLUGIN = 'TemplatedPathPlugin';
+const COMPILATION_FILE = 'Compilation.js';
+const CLASS_FILES = new Map([
+	['runtime/DefinePropertyGettersRuntimeModule.js', {}],
+	['runtime/HasOwnPropertyRuntimeModule.js', {}],
+	['runtime/MakeNamespaceObjectRuntimeModule.js', {}],
+	['runtime/NonceRuntimeModule.js', {}],
+	['runtime/EnsureChunkRuntimeModule.js', {}],
+	['runtime/GlobalRuntimeModule.js', {}],
+	// Its text runs through a hook another plugin can rewrite, and carries the
+	// load timeout unquoted.
+	['runtime/LoadScriptRuntimeModule.js', { hooks: ['createScript'], check: (compilation) => (Number.isFinite(compilation.outputOptions.chunkLoadTimeout) ? null : 'its load timeout is not a number') }],
+	// It reads the chunk condition map and the initial chunk ids off three more
+	// pinned files, offers two hooks nothing may tap, and carries the name of the
+	// global object unquoted.
+	[
+		'web/JsonpChunkLoadingRuntimeModule.js',
+		{
+			helpers: ['javascript/JavascriptModulesPlugin.js', 'javascript/StartupHelpers.js', 'util/compileBooleanMatcher.js'],
+			hooks: ['linkPreload', 'linkPrefetch'],
+			check: (compilation) => (IDENTIFIER.test(compilation.runtimeTemplate.globalObject) ? null : 'the name of its global object is not an identifier'),
+		},
+	],
+	// The three that build a filename out of a template of the output options.
+	// Each of them is described only while that is the one stock substitution,
+	// and the chunk filename map of the first is generated again while the chunk
+	// hashes are computed.
+	[
+		'runtime/GetChunkFilenameRuntimeModule.js',
+		{
+			helpers: [COMPILATION_FILE, 'TemplatedPathPlugin.js', 'util/SetHelpers.js'],
+			// One for every chunk it can reach, and never none.
+			paths: { min: 1 },
+			dependentHash: true,
+			// The function it was built with decides nothing this adapter has to
+			// trust: every template it returns is checked against the output
+			// options where the filename is built. The name it assigns to is
+			// carried into the text unquoted.
+			ownFunctions: ['getFilenameForChunk'],
+			check: (compilation, runtimeModule) => (DOTTED.test(runtimeModule.global) ? null : 'the name it assigns its function to is not an identifier'),
+		},
+	],
+	['runtime/PublicPathRuntimeModule.js', { helpers: [COMPILATION_FILE, 'TemplatedPathPlugin.js'], paths: { exact: 1 } }],
+	[
+		'runtime/AutoPublicPathRuntimeModule.js',
+		{
+			helpers: [COMPILATION_FILE, 'TemplatedPathPlugin.js', 'util/identifier.js', 'javascript/JavascriptModulesPlugin.js'],
+			paths: { exact: 1 },
+			check: (compilation) =>
+				compilation.outputOptions.scriptType !== 'module' || DOTTED.test(compilation.outputOptions.importMetaName) ? null : 'the name it reads its own url from is not an identifier',
+		},
+	],
+]);
 const HELPER_FILES = ['Template.js', 'RuntimeTemplate.js', 'RuntimeGlobals.js'];
 // The raw bytes of every file this adapter describes, in the pinned webpack
 // 5.94.0 distribution. A fork or a patched install that keeps the version
@@ -37,6 +87,20 @@ const FINGERPRINTS = new Map([
 	['javascript/JavascriptModulesPlugin.js', 'sha256:a62f97847080a4f4ebf2e5075bd14f55f29ab5e862e7fac608e6cd081dfb3198'],
 	['APIPlugin.js', 'sha256:b6b1aa7b66f08aeaa2ea8e141ee7567120200855a9fbc88bc3351988a9fe686e'],
 	['runtime/NonceRuntimeModule.js', 'sha256:a5f4cdf3351b259a972eefe4bb7d48c94f13933dd415c0a7108d645bfe026fcf'],
+	['runtime/EnsureChunkRuntimeModule.js', 'sha256:ce45b3ec61b19811f95e0bd5ef9c3be813fce036a3b9c39d7fd2fd84790e9439'],
+	['runtime/GlobalRuntimeModule.js', 'sha256:38f5f7ccac8a7aa838f527a36fa957a618b7b86cccdb6e4d6742a9c6989d1102'],
+	['runtime/LoadScriptRuntimeModule.js', 'sha256:9933ec291ccb384df3ef81f80f21804f683adfb791a74ed126b96211badc21ef'],
+	['web/JsonpChunkLoadingRuntimeModule.js', 'sha256:b7a2ebf120a529026ca03507fdb208d0f2c5231f7ab084f0d4e95c1c173d0d47'],
+	['javascript/StartupHelpers.js', 'sha256:ded5e4278e62a46aef92b411f29987c8bb9f60b5c995077224d2225830831f9f'],
+	['util/compileBooleanMatcher.js', 'sha256:cb762da791f38be832cfc25fcb01d9e2493860e1379f00f60699d35e8457592b'],
+	['javascript/ArrayPushCallbackChunkFormatPlugin.js', 'sha256:f2ab83fbc0c9b3e00a6f5a2a0c9faf1ddcb129ebe2dc6655245f36c4d1a1493e'],
+	['runtime/GetChunkFilenameRuntimeModule.js', 'sha256:fcfd0150ea1cf23bc14ae55353cff99a84bf4df21a0c93a1408deb98801da787'],
+	['runtime/PublicPathRuntimeModule.js', 'sha256:7f635d52043494b753948bef9ce8e965d4923b490f245e5ba0e972b10d248f1e'],
+	['runtime/AutoPublicPathRuntimeModule.js', 'sha256:e0b7c5868ced21164319290833361f4b3bde46dd0bf2ca0440f73e26acffdd35'],
+	['TemplatedPathPlugin.js', 'sha256:3fe4b95afb8dad6a3d08f947515b827c1a7086273c88a902be663ac4ef2a0878'],
+	['util/identifier.js', 'sha256:c62d0fdafde3137620eeab4c20dcba7ed6d82d8634b8770ed824b30c096ee5ed'],
+	['util/SetHelpers.js', 'sha256:d89244af8666d3885f545b6bc8eb36a9b896e97c89542b0f7beece0752a8dd0f'],
+	['Compilation.js', 'sha256:de23e5130f99b6ee579790d32a333e144ce52bbb9db08b258f8f615b81914a1e'],
 ]);
 
 async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource) {
@@ -66,8 +130,10 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 		const problem = entryProblem(entry, 'the class of the runtime module');
 		if (problem) return problem;
 		const relative = relativeName(lib, entry.file);
-		const known = chain.length === 0 ? CLASS_FILES : [HELPER_BASE_FILE];
-		if (!known.includes(relative)) return noData(`${identify(runtimeModule)} is built by ${entry.file}, which is not a described webpack runtime module`);
+		const known = chain.length === 0 ? [...CLASS_FILES.keys()] : [HELPER_BASE_FILE];
+		if (!known.includes(relative)) {
+			return noData(`${identify(runtimeModule)} is built by ${entry.file}, which is not a described webpack runtime module`);
+		}
 		chain.push(entry);
 	}
 	if (chain.length === 0 || Object.getPrototypeOf(chain[chain.length - 1].exports) !== api.RuntimeModule) {
@@ -76,13 +142,16 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 	chain.push(base);
 
 	const helpers = [];
-	for (const relative of HELPER_FILES) {
+	const described = CLASS_FILES.get(relativeName(lib, chain[0].file));
+	for (const relative of [...HELPER_FILES, ...(described.helpers || [])]) {
 		const entry = registry.getByFile(path.join(lib, ...relative.split('/')));
 		const problem = entryProblem(entry, relative);
 		if (problem) return problem;
 		helpers.push(entry);
 	}
 	const [template, runtimeTemplate, runtimeGlobals] = helpers;
+	// The one implementation a described filename may be built with.
+	const builder = described.paths ? memberOf(helpers.find((entry) => relativeName(lib, entry.file) === COMPILATION_FILE), 'getAssetPath') : null;
 	if (api.Template !== template.exports || api.RuntimeGlobals !== runtimeGlobals.exports) {
 		return noData('the compiler exposes helper modules other than the ones loaded from its lib directory');
 	}
@@ -91,7 +160,7 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 		if (drift) return noData(`${relativeName(lib, entry.file)} no longer exports what it exported when it was loaded: ${drift}`);
 	}
 
-	const own = ownImplementation(registry.snapshot(runtimeModule));
+	const own = ownImplementation(registry.snapshot(runtimeModule), described.ownFunctions);
 	if (own) return noData(`${identify(runtimeModule)} carries an own ${own}`);
 	const generate = memberOf(chain[0], 'generate');
 	if (!generate || runtimeModule.generate !== generate.value) return noData(`${identify(runtimeModule)} would not run the generator its class exported`);
@@ -99,10 +168,15 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 		const inherited = memberOf(base, name);
 		if (!inherited || runtimeModule[name] !== inherited.value) return noData(`${identify(runtimeModule)} would not run the loaded ${name}`);
 	}
-	if (runtimeModule.fullHash !== false || runtimeModule.dependentHash !== false) {
-		return noData(`${identify(runtimeModule)} regenerates its code for the compilation hash`);
+	if (runtimeModule.fullHash !== false) return noData(`${identify(runtimeModule)} regenerates its code for the compilation hash`);
+	if (runtimeModule.dependentHash !== (described.dependentHash === true)) {
+		return noData(`${identify(runtimeModule)} does not regenerate its code for the chunk hashes the way its class does`);
 	}
 	if (runtimeModule.compilation !== compilation) return noData(`${identify(runtimeModule)} is attached to another compilation`);
+	// Values of the output options this class interpolates unquoted: a shape that
+	// is not the one its text is built for is text this adapter cannot describe.
+	const unusable = described.check ? described.check(compilation, runtimeModule) : null;
+	if (unusable) return noData(`${identify(runtimeModule)} is generated while ${unusable}`);
 	// The generators read their strings off this instance.
 	const instance = compilation.runtimeTemplate;
 	const runtimeTemplatePrototype = prototypeOf(runtimeTemplate.exports);
@@ -112,23 +186,37 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 
 	// What the generator really returned, seen from inside its own call: a
 	// prefilled cache, a generator swapped only for the call, or a helper put back
-	// before this point are all invisible to any later reading.
+	// before this point are all invisible to any later reading. A class whose code
+	// depends on the chunk hashes generates again while they are computed, so every
+	// run has to have been the verified one, and the used code one of their results.
 	const observed = registry.getGeneration(runtimeModule);
-	if (!observed || typeof observed.code !== 'string' || !Array.isArray(observed.states)) {
-		return noData(`the generator of ${identify(runtimeModule)} was not observed running${observed && observed.reason ? `: ${observed.reason}` : ''}`);
+	if (!observed || !Array.isArray(observed.runs) || observed.runs.length === 0) {
+		return noData(`the generator of ${identify(runtimeModule)} was not observed running`);
 	}
 	if (observed.file !== chain[0].file || observed.method !== runtimeModule.generate) return noData(`${identify(runtimeModule)} was generated by another implementation`);
-	if (observed.compilation !== compilation) return noData(`${identify(runtimeModule)} was generated for another compilation`);
-	for (const state of observed.states) {
-		for (const entry of [...chain, ...helpers]) {
-			const atCall = state.helpers.get(entry.file);
-			if (!atCall) return noData(`${relativeName(lib, entry.file)} was not loaded when the generator ran`);
-			const drift = compareMembers(entry.members, atCall.members, 'exports') || compareMembers(entry.prototypeMembers, atCall.prototypeMembers, 'prototype');
-			if (drift) return noData(`${relativeName(lib, entry.file)} was not what it exported when it was loaded while the generator ran: ${drift}`);
+	for (const run of observed.runs) {
+		if (typeof run.code !== 'string') return noData(`a run of the generator of ${identify(runtimeModule)} produced no text`);
+		if (run.compilation !== compilation) return noData(`${identify(runtimeModule)} was generated for another compilation`);
+		const built = pathsProblem(run.paths, described.paths, templates(compilation, chunk), builder);
+		if (built) return noData(`${built} while ${identify(runtimeModule)} was generated`);
+		for (const state of run.states) {
+			for (const entry of [...chain, ...helpers]) {
+				const atCall = state.helpers.get(entry.file);
+				if (!atCall) return noData(`${relativeName(lib, entry.file)} was not loaded when the generator ran`);
+				const drift = compareMembers(entry.members, atCall.members, 'exports') || compareMembers(entry.prototypeMembers, atCall.prototypeMembers, 'prototype');
+				if (drift) return noData(`${relativeName(lib, entry.file)} was not what it exported when it was loaded while the generator ran: ${drift}`);
+			}
+			if (!state.runtimeTemplate || state.runtimeTemplate.prototype !== runtimeTemplatePrototype) return noData('another runtime template was in place while the generator ran');
+			const ownAtCall = ownImplementation(state.runtimeTemplate.own);
+			if (ownAtCall) return noData(`the runtime template carried an own ${ownAtCall} while the generator ran`);
+			// A tap on a hook this class calls contributes text no verified source
+			// holds; the taps are the ones in place while it generated.
+			for (const name of described.hooks || []) {
+				const tapped = state.hooks && state.hooks.get(name);
+				if (!tapped) return noData(`the ${name} taps could not be observed while ${identify(runtimeModule)} was generated`);
+				if (tapped.length > 0) return noData(`${tapped.join(', ')} tapped ${name} while ${identify(runtimeModule)} was generated`);
+			}
 		}
-		if (!state.runtimeTemplate || state.runtimeTemplate.prototype !== runtimeTemplatePrototype) return noData('another runtime template was in place while the generator ran');
-		const ownAtCall = ownImplementation(state.runtimeTemplate.own);
-		if (ownAtCall) return noData(`the runtime template carried an own ${ownAtCall} while the generator ran`);
 	}
 
 	const chunkGraph = compilation.chunkGraph;
@@ -149,7 +237,7 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 	const usedCode = used.source();
 	const generated = runtimeModule._cachedGeneratedCode;
 	if (typeof usedCode !== 'string' || typeof generated !== 'string') return noData(`the runtime source of ${identify(runtimeModule)} is not text`);
-	if (observed.code !== generated) {
+	if (!observed.runs.some((run) => run.code === generated)) {
 		return failed('hash-mismatch', `the cached runtime code of ${identify(runtimeModule)} is not what its generator returned`);
 	}
 	if (!Buffer.from(usedCode, 'utf8').equals(Buffer.from(generated, 'utf8'))) {
@@ -183,6 +271,45 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 	return { units };
 }
 
+// Every filename this generator built, and how. A class that is not described
+// as building one may not have built one at all; a class that is builds it from
+// a template string of the output options, through the one stock substitution,
+// and never from path data naming a file of its own.
+function pathsProblem(record, expected, known, builder) {
+	if (!record || !Array.isArray(record.calls)) return 'the filenames it built could not be observed';
+	if (record.ownBefore) return 'its compilation already built filenames with a method of its own';
+	if (!record.intact) return 'the method it built its filenames with was replaced while it generated';
+	if (!expected) return record.calls.length === 0 ? null : 'it built a filename this adapter does not describe';
+	if (!builder || record.delegate !== builder.value) return 'it built its filenames with another implementation';
+	if (expected.exact !== undefined && record.calls.length !== expected.exact) return `it built ${record.calls.length} filenames instead of ${expected.exact}`;
+	if (expected.min !== undefined && record.calls.length < expected.min) return `it built ${record.calls.length} filenames`;
+	for (const built of record.calls) {
+		if (typeof built.template !== 'string') return 'it built a filename from a template of its own making';
+		if (!known.has(built.template)) return 'it built a filename from a template that is not one of the output options';
+		if (!built.data || built.data.includes('filename')) return 'it built a filename from path data this adapter does not describe';
+		if (!built.taps) return `the ${PATH_HOOK} taps could not be observed`;
+		const foreign = built.taps.filter((tap) => tap !== PATH_PLUGIN);
+		if (foreign.length > 0 || built.taps.length !== 1) return `${built.taps.join(', ') || 'nothing'} tapped ${PATH_HOOK}`;
+	}
+	return null;
+}
+
+// The templates a filename may be built from: what the output options hold for
+// this chunk, as the generators pass them on - bare, or quoted for the text.
+// Only this chunk's own template is among them: a filename built from the
+// template of some other chunk is one this adapter has not seen configured, and
+// stays refused.
+function templates(compilation, chunk) {
+	const options = compilation.outputOptions;
+	const known = new Set();
+	for (const candidate of [options.filename, options.chunkFilename, options.publicPath, chunk.filenameTemplate, '']) {
+		if (typeof candidate !== 'string') continue;
+		known.add(candidate);
+		known.add(JSON.stringify(candidate));
+	}
+	return known;
+}
+
 function entryProblem(entry, what) {
 	if (!entry) return noData(`${what} was not recorded as a loaded commonjs module`);
 	if (!entry.usable) return noData(`${what} was ${entry.reason}`);
@@ -205,11 +332,11 @@ function prototypeOf(value) {
 
 // An own function, or an own accessor that could return one, shadows whatever
 // the verified prototypes hold.
-function ownImplementation(snapshot) {
+function ownImplementation(snapshot, allowed = []) {
 	if (snapshot === null) return null;
 	for (const [key, descriptor] of snapshot) {
 		if (descriptor.kind !== 'data') return `${String(key)} accessor`;
-		if (typeof descriptor.value === 'function') return `${String(key)} implementation`;
+		if (typeof descriptor.value === 'function' && !allowed.includes(key)) return `${String(key)} implementation`;
 	}
 	return null;
 }

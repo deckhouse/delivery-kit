@@ -371,7 +371,7 @@ func (step *sbomStep) verifyImageComposition(ctx context.Context, werfImgName st
 
 	verified := cyclonedxutil.NewBOM()
 	restoreImageMetadata(verified, stageDesc)
-	if err := nativegate.ApplySourceSnapshots(ctx, policy, werfImgName, img, sourceSnapshots, verified, nativegate.ApplySourceSnapshotsOptions{BaseBOM: baseBOM, PreparedSource: options.PreparedSource, RegistryDigest: stageDesc.Info.GetDigest()}); err != nil {
+	if err := nativegate.ApplySourceSnapshots(ctx, policy, werfImgName, img, sourceSnapshots, verified, nativegate.ApplySourceSnapshotsOptions{BaseBOM: baseBOM, PreparedSource: options.PreparedSource, RegistryDigest: stageDesc.Info.GetDigest(), RegistryRepository: stageDesc.Info.Repository}); err != nil {
 		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
 	}
 	logboek.Context(ctx).Default().LogF("image %s: composition verified against its original sources\n", werfImgName)

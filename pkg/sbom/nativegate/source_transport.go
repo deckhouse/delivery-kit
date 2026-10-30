@@ -80,6 +80,9 @@ type sourceEvidence struct {
 	// registryDigest is the manifest digest of the image under verification in the
 	// registry, which is what the package of a prepared source is pinned by.
 	registryDigest string
+	// registryRepository is the repository that digest names bytes in: the pair is what
+	// anything downstream resolves.
+	registryRepository string
 	// bootstrap holds the paths this image received from a bootstrap source, directly or
 	// through a base image or an import of an image that received them. Nothing describes
 	// those files but this image, so each of them has to carry its own build record or
@@ -265,11 +268,14 @@ func changedReceipt(previous, current *sources.Receipt) (bool, error) {
 	return !bytes.Equal(encoded, known), nil
 }
 
-func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base *cdx.BOM, preparedSource bool, registryDigest string) (*sourceEvidence, error) {
+func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base *cdx.BOM, preparedSource bool, registryDigest, registryRepository string) (*sourceEvidence, error) {
 	if len(snapshots) == 0 || snapshots[0].Stage != "from" {
 		return nil, fmt.Errorf("no-data: original sources require the actual base snapshot")
 	}
-	e := &sourceEvidence{resolved: make(map[string]*resolvedSource), preparedSource: preparedSource, registryDigest: registryDigest}
+	e := &sourceEvidence{
+		resolved: make(map[string]*resolvedSource), preparedSource: preparedSource,
+		registryDigest: registryDigest, registryRepository: registryRepository,
+	}
 	for i, snapshot := range snapshots {
 		if snapshot.Index == nil || snapshot.Index.Incomplete {
 			return nil, fmt.Errorf("no-data: incomplete source snapshot for %s", snapshot.Stage)

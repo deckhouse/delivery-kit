@@ -213,11 +213,14 @@ type ApplySourceSnapshotsOptions struct {
 	// read here was saved out of the daemon and re-assembled, so its own digest is this
 	// process's making; only the registry's is what anything downstream can pin.
 	RegistryDigest string
+	// RegistryRepository is the repository that digest is a digest in. A digest names
+	// bytes and not where they are; what pins an image is the pair.
+	RegistryRepository string
 }
 
 // ApplySourceSnapshots verifies the final image using observed, scoped original sources.
 func ApplySourceSnapshots(ctx context.Context, p *Policy, name string, img v1.Image, snapshots []SourceSnapshot, target *cdx.BOM, opts ApplySourceSnapshotsOptions) error {
-	evidence, err := collectSourceEvidence(ctx, snapshots, opts.BaseBOM, opts.PreparedSource, opts.RegistryDigest)
+	evidence, err := collectSourceEvidence(ctx, snapshots, opts.BaseBOM, opts.PreparedSource, opts.RegistryDigest, opts.RegistryRepository)
 	if err != nil {
 		return err
 	}
@@ -258,7 +261,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			if err := checkPreparedSourceContent(fs); err != nil {
 				return err
 			}
-			if err := local.addPreparedSourcePackage(ctx, img, evidence.registryDigest, fs, evidence.bootstrap); err != nil {
+			if err := local.addPreparedSourcePackage(ctx, img, evidence.registryDigest, evidence.registryRepository, fs, evidence.bootstrap); err != nil {
 				return err
 			}
 		}

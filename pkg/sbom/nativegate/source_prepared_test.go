@@ -16,6 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/package-url/packageurl-go"
 
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
@@ -79,6 +80,8 @@ func verifyPreparedSource(ctx context.Context, sourceFiles map[string]string, im
 	return verifyPreparedSourceAt(ctx, sourceFiles, image, preparedSource, registryDigestOf(image))
 }
 
+const preparedSourceRepository = "registry.example.com/stages/project"
+
 func verifyPreparedSourceAt(ctx context.Context, sourceFiles map[string]string, image v1.Image, preparedSource bool, registryDigest string) (*cdx.BOM, error) {
 	ginkgo.GinkgoHelper()
 	index, err := shippedscope.IndexImageFiles(ctx, image)
@@ -96,7 +99,10 @@ func verifyPreparedSourceAt(ctx context.Context, sourceFiles map[string]string, 
 
 	return target, ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
 		[]SourceSnapshot{from, install}, target,
-		ApplySourceSnapshotsOptions{PreparedSource: preparedSource, RegistryDigest: registryDigest})
+		ApplySourceSnapshotsOptions{
+			PreparedSource: preparedSource, RegistryDigest: registryDigest,
+			RegistryRepository: preparedSourceRepository,
+		})
 }
 
 // pushPreparedSource publishes a verified prepared source image as the package it says it
@@ -145,8 +151,72 @@ var _ = ginkgo.Describe("A prepared source image", func() {
 
 		component := onlyBOMComponent(bom, id)
 		gomega.Expect(component.Name).To(gomega.Equal("go-source"))
+		// The version is what the package calls itself, and it settles nothing: what
+		// the purl and the hash name is this image, which two builds of one version
+		// never share.
 		gomega.Expect(component.Version).To(gomega.Equal("1.0"))
-		gomega.Expect(component.PackageURL).To(gomega.Equal("pkg:generic/go-source@1.0"))
+		gomega.Expect(component.PackageURL).To(gomega.Equal(
+			"pkg:oci/go-source@sha256%3A" + strings.TrimPrefix(registryDigestOf(image), "sha256:") +
+				"?repository_url=registry.example.com%2Fstages%2Fproject"))
+		gomega.Expect(component.Hashes).To(gomega.HaveValue(gomega.Equal([]cdx.Hash{
+			{Algorithm: cdx.HashAlgoSHA256, Value: strings.TrimPrefix(registryDigestOf(image), "sha256:")},
+		})))
+	})
+
+	// A digest names bytes; where those bytes stand is the other half, and an image is
+	// resolved by the pair.
+	ginkgo.It("names the repository the digest is a digest in", func(ctx ginkgo.SpecContext) {
+		files := preparedTree()
+		image := preparedSourceImage(preparedImported(files), preparedSourceLabels("go-source"))
+
+		bom, err := verifyPreparedSource(ctx, files, image, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		component := onlyBOMComponent(bom, "urn:dk:prepared-source:"+strings.TrimPrefix(registryDigestOf(image), "sha256:"))
+		purl, err := packageurl.FromString(component.PackageURL)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(purl.Type).To(gomega.Equal("oci"))
+		gomega.Expect(purl.Version).To(gomega.Equal(registryDigestOf(image)))
+		gomega.Expect(purl.Qualifiers.Map()).To(gomega.HaveKeyWithValue("repository_url", preparedSourceRepository))
+	})
+
+	ginkgo.It("refuses to name a package it cannot say the repository of", func(ctx ginkgo.SpecContext) {
+		files := preparedTree()
+		image := preparedSourceImage(preparedImported(files), preparedSourceLabels("go-source"))
+		index, err := shippedscope.IndexImageFiles(ctx, image)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		from, _ := transportStage(ctx, "from", map[string]string{})
+		install := SourceSnapshot{Stage: "install", Index: index, Imports: []SourceImport{{
+			Index:     bootstrapIndex(ctx, files),
+			Bootstrap: true,
+			Scope:     ImportScope{FromPath: "/usr/local/go/src", ToPath: "/src"},
+		}}}
+
+		err = ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
+			[]SourceSnapshot{from, install}, cdx.NewBOM(),
+			ApplySourceSnapshotsOptions{PreparedSource: true, RegistryDigest: registryDigestOf(image)})
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the repository the image stands in is unknown")))
+	})
+
+	// Two builds of one declared version are two images, and nothing that names the
+	// version alone could tell them apart.
+	ginkgo.It("names two builds of one version as two packages", func(ctx ginkgo.SpecContext) {
+		files := preparedTree()
+		first := preparedSourceImage(preparedImported(files), preparedSourceLabels("go-source"))
+		second := preparedSourceImage(preparedImported(files), preparedSourceLabels("go-source"))
+		other := "sha256:" + strings.Repeat("cd", 32)
+
+		firstBOM, err := verifyPreparedSource(ctx, files, first, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		secondBOM, err := verifyPreparedSourceAt(ctx, files, second, true, other)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		firstComp := onlyBOMComponent(firstBOM, "urn:dk:prepared-source:"+strings.TrimPrefix(registryDigestOf(first), "sha256:"))
+		secondComp := onlyBOMComponent(secondBOM, "urn:dk:prepared-source:"+strings.TrimPrefix(other, "sha256:"))
+		gomega.Expect(firstComp.Version).To(gomega.Equal(secondComp.Version))
+		gomega.Expect(firstComp.PackageURL).NotTo(gomega.Equal(secondComp.PackageURL))
+		gomega.Expect(firstComp.Hashes).NotTo(gomega.Equal(secondComp.Hashes))
 	})
 
 	// The image the verification reads was saved out of the daemon and re-assembled
@@ -270,7 +340,10 @@ var _ = ginkgo.Describe("A prepared source image", func() {
 		}}
 
 		err = ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image, []SourceSnapshot{from, install},
-			cdx.NewBOM(), ApplySourceSnapshotsOptions{PreparedSource: true, RegistryDigest: registryDigestOf(image)})
+			cdx.NewBOM(), ApplySourceSnapshotsOptions{
+				PreparedSource: true, RegistryDigest: registryDigestOf(image),
+				RegistryRepository: preparedSourceRepository,
+			})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"no-data: /src/marked.h comes from a bootstrap source with neither a build record nor an original binding")))
 	})

@@ -53,8 +53,15 @@ func checkPreparedSourceContent(fs *filesystem) error {
 
 // addPreparedSourcePackage describes the files of a prepared source image as the package
 // the image declares itself to be: the identity comes from its own pkg.* labels and from
-// the digest the image has in the registry, so what this document names is what a build
-// downstream pins when it resolves that image as a prepared source.
+// the image itself, so what this document names is what a build downstream pins when it
+// resolves that image as a prepared source.
+//
+// That identity is the image, written the way an image is written: a pkg:oci purl over the
+// digest, qualified by the repository it is a digest in, beside the SHA-256 the package
+// conversion takes from that same digest. A digest names bytes and not where they are, so
+// neither half pins anything alone. The declared version travels as the component's version because that is
+// what the package calls itself, and it settles nothing: two builds of one version are two
+// images, and the purl tells them apart where the version cannot.
 //
 // The registry digest is passed in rather than read off the image at hand. That image was
 // saved out of the daemon and re-assembled here, and re-compressing its layers yields a
@@ -69,13 +76,16 @@ func checkPreparedSourceContent(fs *filesystem) error {
 // that image's statement that the path is unaccounted for, and collecting the file is not
 // what answers it. Such a file needs a binding of its own here, and without one the gate
 // refuses it as it would in any other image.
-func (c *Catalog) addPreparedSourcePackage(ctx context.Context, img v1.Image, registryDigest string, fs *filesystem, obliged map[string]bool) error {
+func (c *Catalog) addPreparedSourcePackage(ctx context.Context, img v1.Image, registryDigest, registryRepository string, fs *filesystem, obliged map[string]bool) error {
 	config, err := img.ConfigFile()
 	if err != nil {
 		return err
 	}
 	if registryDigest == "" {
 		return fmt.Errorf("prepared source image: no-data: the digest the image has in the registry is unknown, and nothing else can be pinned")
+	}
+	if registryRepository == "" {
+		return fmt.Errorf("prepared source image: no-data: the repository the image stands in is unknown, and a digest alone names bytes rather than an image")
 	}
 	packet, err := ospm.PacketJSONFromImageLabels(ctx, config.Config.Labels, registryDigest)
 	if err != nil {
@@ -91,10 +101,17 @@ func (c *Catalog) addPreparedSourcePackage(ctx context.Context, img v1.Image, re
 		return fmt.Errorf("prepared source image: invalid: the declared package has no metadata")
 	}
 
-	id := "urn:dk:prepared-source:" + strings.TrimPrefix(registryDigest, "sha256:")
+	digestHex := strings.TrimPrefix(registryDigest, "sha256:")
+	id := "urn:dk:prepared-source:" + digestHex
 	component := (*bom.Components)[0]
 	component.BOMRef = id
-	component.PackageURL = packageurl.NewPackageURL("generic", "", metadata.Name, metadata.Version, nil, "").ToString()
+	purl := packageurl.NewPackageURL(
+		"oci", "", strings.ToLower(metadata.Name), registryDigest,
+		packageurl.QualifiersFromMap(map[string]string{"repository_url": registryRepository}), "",
+	).ToString()
+	// A canonical purl escapes the colon of the digest, which the renderer leaves as it
+	// found it. Readers take either, and only one of them is the form to publish.
+	component.PackageURL = strings.Replace(purl, "@"+registryDigest, "@"+strings.ReplaceAll(registryDigest, ":", "%3A"), 1)
 	properties := []cdx.Property{{Name: cyclonedxutil.PropertyOriginalSource, Value: id}}
 	if component.Properties != nil {
 		for _, property := range *component.Properties {

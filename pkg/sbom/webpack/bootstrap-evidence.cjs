@@ -45,15 +45,24 @@ const API_PLUGIN_FILE = 'APIPlugin.js';
 const emitted = new WeakMap();
 
 function observeAssets(compiler) {
-	compiler.hooks.emit.tap(OBSERVER, (compilation) => {
-		const bytes = new Map();
-		for (const asset of compilation.getAssets()) {
-			const source = asset.source;
-			if (!source || (typeof source.buffer !== 'function' && typeof source.source !== 'function')) continue;
-			bytes.set(asset.name, Buffer.from(typeof source.buffer === 'function' ? source.buffer() : source.source()));
-		}
-		emitted.set(compilation, bytes);
+	compiler.hooks.emit.tap(OBSERVER, (compilation) => snapshot(compilation));
+	// A child compilation never reaches that hook: it hands its assets to the
+	// compilation that made it as soon as it is done with them, which is where
+	// its own bytes stop changing.
+	compiler.hooks.compilation.tap(OBSERVER, (compilation) => {
+		if (!compilation.compiler.isChild()) return;
+		compilation.hooks.afterProcessAssets.tap(OBSERVER, () => snapshot(compilation));
 	});
+}
+
+function snapshot(compilation) {
+	const bytes = new Map();
+	for (const asset of compilation.getAssets()) {
+		const source = asset.source;
+		if (!source || (typeof source.buffer !== 'function' && typeof source.source !== 'function')) continue;
+		bytes.set(asset.name, Buffer.from(typeof source.buffer === 'function' ? source.buffer() : source.source()));
+	}
+	emitted.set(compilation, bytes);
 }
 
 // The bytes of the one file a chunk emits, from the render that produced them
@@ -205,4 +214,10 @@ function tapsProblem(taps) {
 	return null;
 }
 
-module.exports = { assetEvidence, observeAssets };
+// The bytes an asset had when its compilation was done with it.
+function observedBytes(compilation, name) {
+	const bytes = emitted.get(compilation);
+	return (bytes && bytes.get(name)) || null;
+}
+
+module.exports = { assetEvidence, observeAssets, observedBytes };

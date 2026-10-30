@@ -21,6 +21,7 @@ const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
 const { installHtmlEvidence } = require('./html-evidence.cjs');
 const { assetEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
+const { childEvidence } = require('./child-evidence.cjs');
 const path = require('path');
 
 const PLUGIN = 'DkSbomWebpackCollector';
@@ -237,21 +238,37 @@ async function buildProof(options, compilation) {
 
 // Only final chunks of this compilation and the asset names they really emitted;
 // modules reachable only through the build graph are not part of any output.
+//
+// A compilation this one made - the one a worker entry point is compiled in -
+// hands its finished assets over to be emitted here, so its chunks account for
+// assets of this compilation as well.
 async function collectChunkAssets(options, compilation) {
 	const byAsset = new Map();
-	for (const chunk of compilation.chunks) {
+	await collectChunksInto(options, compilation, compilation, byAsset);
+	for (const child of Array.isArray(compilation.children) ? compilation.children : []) {
+		await collectChunksInto(options, child, compilation, byAsset);
+	}
+	return byAsset;
+}
+
+async function collectChunksInto(options, source, compilation, byAsset) {
+	for (const chunk of source.chunks) {
 		const collected = { units: new Map(), failures: new Map() };
 		// One chunk emitting several files would need per-file attribution of its
 		// modules, which this version does not do.
 		if (chunk.files.size !== 1) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
-		for (const module of compilation.chunkGraph.getChunkModulesIterable(chunk)) {
-			await collectModule(options, module, collected, compilation, chunk);
+		for (const module of source.chunkGraph.getChunkModulesIterable(chunk)) {
+			await collectModule(options, module, collected, source, chunk);
 		}
 		// Every chunk must account for generated wrapper/bootstrap code; an
 		// undescribed renderChunk path remains no-data rather than ordinary source.
-		const bootstrap = await assetEvidence(compilation, chunk, resource => verifyResource(options, resource), { minifier: options.minifierEvidence, contentHash: options.contentHashEvidence });
+		const evidence = { minifier: options.minifierEvidence, contentHash: options.contentHashEvidence };
+		const bootstrap =
+			source === compilation
+				? await assetEvidence(compilation, chunk, resource => verifyResource(options, resource), evidence)
+				: await childEvidence(compilation, chunk, source, resource => verifyResource(options, resource), evidence);
 		if (bootstrap.failure) addFailure(collected, bootstrap.failure);
 		for (const unit of bootstrap.units) collected.units.set(unit.path, unit);
 		for (const file of chunk.files) {
@@ -270,7 +287,6 @@ async function collectChunkAssets(options, compilation) {
 			byAsset.set(file, target);
 		}
 	}
-	return byAsset;
 }
 
 async function collectModule(options, module, collected, compilation, chunk) {

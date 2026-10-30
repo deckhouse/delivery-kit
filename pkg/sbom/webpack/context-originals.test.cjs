@@ -170,6 +170,28 @@ test('refuses a node component that pins no commit and a lifecycle record of nob
 	assert.ok(new ContextOriginals(f.contextPath));
 });
 
+// The mirror DK fetched the commit from. The component is the repository its
+// locator names either way, so this record is evidence about the build and the
+// reader only holds it to a shape that carries no credentials.
+test('reads the recorded mirror and refuses one that is no origin or nobody\'s',t=>{
+	const f=gitFixture(t);
+	f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git'}];f.save();
+	assert.ok(new ContextOriginals(f.contextPath));
+	for (const [label,mutate] of [
+		['credentials in the origin',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'https://gitlab-ci-token:secret@fox.flant.com/deckhouse/3p/argoproj/argo-ui.git'}]],
+		['an origin of an unknown component',()=>f.manifest.mirrors=[{component:'node:absent',fetchedFrom:'https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git'}]],
+		['an unknown member',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'https://fox.flant.com/x.git',token:'secret'}]],
+		['an origin that is no remote',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'/srv/mirrors/argo-ui.git'}]],
+		['mirrors that are not an array',()=>f.manifest.mirrors={component:'node:argo-ui',fetchedFrom:'https://fox.flant.com/x.git'}],
+		['an unknown manifest field',()=>{delete f.manifest.mirrors;f.manifest.origins=[];}],
+	]) {
+		mutate();f.save();
+		assert.throws(()=>new ContextOriginals(f.contextPath),error=>error.status==='invalid',label);
+		delete f.manifest.origins;f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'fox.flant.com:deckhouse/3p/argoproj/argo-ui.git'}];f.save();
+	}
+	assert.ok(new ContextOriginals(f.contextPath));
+});
+
 // The stage's own sources, bound to the commit they were checked out from. A
 // project is not a dependency of itself, so no lockfile names it and no package
 // manager resolves it: the manifest is the whole of the binding, and the files

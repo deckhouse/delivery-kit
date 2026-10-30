@@ -15,6 +15,7 @@ import (
 	"github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/git_repo"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/werf"
 )
@@ -132,7 +133,7 @@ var _ = ginkgo.Describe("producer git sources", func() {
 		clone, commit := gitMappingFixture(manifest, body)
 		img := fixtureGitImage(mapping(commit, clone))
 
-		originals, identities, err := producerGitSources(ctx, img, []sbomBuildContextGitSource{binding(commit)}, observed)
+		originals, identities, err := producerGitSources(ctx, img, []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(originals).To(gomega.HaveLen(1))
 		gomega.Expect(originals[0].Component.Source.Checksum).To(gomega.Equal("git-commit:sha1:" + commit))
@@ -146,26 +147,26 @@ var _ = ginkgo.Describe("producer git sources", func() {
 	ginkgo.It("refuses a binding no single fetched mapping answers", func(ctx ginkgo.SpecContext) {
 		clone, commit := gitMappingFixture(manifest, body)
 
-		_, _, err := producerGitSources(ctx, fixtureGitImage(), []sbomBuildContextGitSource{binding(commit)}, observed)
+		_, _, err := producerGitSources(ctx, fixtureGitImage(), []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no git mapping at /src/originals/argo-ui")))
 
-		_, _, err = producerGitSources(ctx, fixtureGitImage(mapping(commit, clone), mapping(commit, clone)), []sbomBuildContextGitSource{binding(commit)}, observed)
+		_, _, err = producerGitSources(ctx, fixtureGitImage(mapping(commit, clone), mapping(commit, clone)), []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("more than one git mapping")))
 
 		unpinned := mapping("", clone)
-		_, _, err = producerGitSources(ctx, fixtureGitImage(unpinned), []sbomBuildContextGitSource{binding(commit)}, observed)
+		_, _, err = producerGitSources(ctx, fixtureGitImage(unpinned), []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not pinned to a commit")))
 
 		checkout := mapping(commit, clone)
 		checkout.SetGitRepo(localGitRepo{})
-		_, _, err = producerGitSources(ctx, fixtureGitImage(checkout), []sbomBuildContextGitSource{binding(commit)}, observed)
+		_, _, err = producerGitSources(ctx, fixtureGitImage(checkout), []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("adds a local checkout, which is not a verifiable source")))
 
 		// A mirror DK never fetched into: the mapping names a repository whose
 		// objects are not there to be read.
 		unfetched := mapping(commit, clone)
 		unfetched.SetGitRepo(fixtureRemoteRepo("https://github.com/argoproj/argo-ui.git", ""))
-		_, _, err = producerGitSources(ctx, fixtureGitImage(unfetched), []sbomBuildContextGitSource{binding(commit)}, observed)
+		_, _, err = producerGitSources(ctx, fixtureGitImage(unfetched), []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})
 
@@ -174,7 +175,7 @@ var _ = ginkgo.Describe("producer git sources", func() {
 		forked := mapping(commit, clone)
 		forked.SetGitRepo(fixtureRemoteRepo("https://github.com/fork-owner/argo-ui.git", clone))
 
-		_, _, err := producerGitSources(ctx, fixtureGitImage(forked), []sbomBuildContextGitSource{binding(commit)}, observed)
+		_, _, err := producerGitSources(ctx, fixtureGitImage(forked), []sbomBuildContextGitSource{binding(commit)}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("git source /src/originals/argo-ui: invalid: the mapping fetches")))
 	})
 })
@@ -205,7 +206,7 @@ var _ = ginkgo.Describe("producer git sources of the project itself", func() {
 	ginkgo.It("verifies the project against the remote mapping that adds it", func(ctx ginkgo.SpecContext) {
 		work, commit := gitMappingFixture(manifest, body)
 
-		originals, identities, err := producerGitSources(ctx, fixtureGitImage(mapping(commit, work)), []sbomBuildContextGitSource{binding}, observed)
+		originals, identities, err := producerGitSources(ctx, fixtureGitImage(mapping(commit, work)), []sbomBuildContextGitSource{binding}, nil, observed)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(originals).To(gomega.HaveLen(1))
 		gomega.Expect(originals[0].Component.Name).To(gomega.Equal("redoc"))
@@ -230,14 +231,14 @@ var _ = ginkgo.Describe("producer git sources of the project itself", func() {
 		checkout := mapping(commit, work)
 		checkout.SetGitRepo(localGitRepo{})
 
-		_, _, err := producerGitSources(ctx, fixtureGitImage(checkout), []sbomBuildContextGitSource{binding}, observed)
+		_, _, err := producerGitSources(ctx, fixtureGitImage(checkout), []sbomBuildContextGitSource{binding}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("git mapping /app adds a local checkout, which is not a verifiable source: it pins no commit and its origin is unverified")))
 	})
 
 	ginkgo.It("refuses a project mapping that is not pinned to a commit", func(ctx ginkgo.SpecContext) {
 		work, _ := gitMappingFixture(manifest, body)
 
-		_, _, err := producerGitSources(ctx, fixtureGitImage(mapping("", work)), []sbomBuildContextGitSource{binding}, observed)
+		_, _, err := producerGitSources(ctx, fixtureGitImage(mapping("", work)), []sbomBuildContextGitSource{binding}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not pinned to a commit")))
 	})
 
@@ -248,7 +249,76 @@ var _ = ginkgo.Describe("producer git sources of the project itself", func() {
 		partial := mapping(commit, work)
 		partial.Add = "/packages/redoc"
 
-		_, _, err := producerGitSources(ctx, fixtureGitImage(partial), []sbomBuildContextGitSource{binding}, observed)
+		_, _, err := producerGitSources(ctx, fixtureGitImage(partial), []sbomBuildContextGitSource{binding}, nil, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("adds /packages/redoc of the project, not the whole repository")))
+	})
+})
+
+var _ = ginkgo.Describe("producer git sources fetched from an internal mirror", func() {
+	const manifest = `{"name":"argo-ui","version":"1.0.0"}`
+	const body = "export const ui = 1;\n"
+	const mirrorURL = "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git"
+
+	mirrors := []nativegate.GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"}}
+	binding := func(commit string) sbomBuildContextGitSource {
+		return sbomBuildContextGitSource{
+			To:             "/src/originals/argo-ui",
+			Locator:        "git+https://github.com/argoproj/argo-ui.git#" + commit,
+			InstalledPath:  "/app/node_modules/argo-ui",
+			PackageName:    "argo-ui",
+			PackageVersion: "1.0.0",
+		}
+	}
+	mapping := func(commit, work, url string) *stage.GitMapping {
+		gitMapping := stage.NewGitMapping()
+		gitMapping.To = "/src/originals/argo-ui"
+		gitMapping.Commit = commit
+		gitMapping.SetGitRepo(fixtureRemoteRepo(url, work))
+
+		return gitMapping
+	}
+	observed := fixtureInstalledIndex(map[string]string{
+		"/app/node_modules/argo-ui/package.json": manifest,
+		"/app/node_modules/argo-ui/index.js":     body,
+	})
+
+	// The recipe fetches every source through the internal mirror, so the mapping's
+	// url is the mirror's: the lock entry it is held against is still the one the
+	// lockfile carries, and the component keeps it.
+	ginkgo.It("accepts a mapping of a mirror the declaration lists", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+		img := fixtureGitImage(mapping(commit, work, mirrorURL))
+
+		originals, identities, err := producerGitSources(ctx, img, []sbomBuildContextGitSource{binding(commit)}, mirrors, observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(originals).To(gomega.HaveLen(1))
+		gomega.Expect(originals[0].Component.Source.Locator).To(gomega.Equal("git+https://github.com/argoproj/argo-ui.git#" + commit))
+		gomega.Expect(originals[0].Mirror).To(gomega.Equal(mirrorURL))
+		gomega.Expect(identities).To(gomega.ContainElement(mirrorURL))
+	})
+
+	ginkgo.It("refuses the same mapping where the declaration lists no mirror", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+		img := fixtureGitImage(mapping(commit, work, mirrorURL))
+
+		_, _, err := producerGitSources(ctx, img, []sbomBuildContextGitSource{binding(commit)}, nil, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("the mapping fetches fox.flant.com/deckhouse/3p/argoproj/argo-ui, the locator pins github.com/argoproj/argo-ui")))
+	})
+
+	ginkgo.It("refuses a fork served under the listed prefix", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+		img := fixtureGitImage(mapping(commit, work, "https://fox.flant.com/deckhouse/3p/fork-owner/argo-ui.git"))
+
+		_, _, err := producerGitSources(ctx, img, []sbomBuildContextGitSource{binding(commit)}, mirrors, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("which serves github.com/fork-owner/argo-ui, the locator pins github.com/argoproj/argo-ui")))
+	})
+
+	ginkgo.It("refuses a malformed mirror allowlist", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+		img := fixtureGitImage(mapping(commit, work, mirrorURL))
+
+		_, _, err := producerGitSources(ctx, img, []sbomBuildContextGitSource{binding(commit)},
+			[]nativegate.GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p"}}, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(`gitMirror 0: upstreamHost "" is not a bare host`)))
 	})
 })

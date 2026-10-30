@@ -176,7 +176,7 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
-	gitOriginals, gitIdentities, err := producerGitSources(ctx, img, requested.GitSources, observed[len(observed)-1].Index)
+	gitOriginals, gitIdentities, err := producerGitSources(ctx, img, requested.GitSources, gitMirrorAllowlist(declaration.GitMirrors), observed[len(observed)-1].Index)
 	if err != nil {
 		return nil, err
 	}
@@ -336,8 +336,10 @@ func imageEnvironmentValue(env []string, name string) string {
 //
 // The repository a locator is held against is the url of the config, not the
 // `remote.origin.url` of the mirror DK fetched into: that file is written by whatever
-// fetched it, and the recipe is the only thing here the consumer of the SBOM read.
-func producerGitSources(ctx context.Context, img *imagePkg.Image, declared []sbomBuildContextGitSource, observed *shippedscope.FileIndex) ([]nativegate.GitOriginal, []string, error) {
+// fetched it, and the recipe is the only thing here the consumer of the SBOM read. A
+// url the config's own mirror allowlist states to serve the pinned repository is that
+// repository; everything the allowlist does not name is a different one, as before.
+func producerGitSources(ctx context.Context, img *imagePkg.Image, declared []sbomBuildContextGitSource, mirrors []nativegate.GitMirror, observed *shippedscope.FileIndex) ([]nativegate.GitOriginal, []string, error) {
 	var originals []nativegate.GitOriginal
 	var identities []string
 	for _, binding := range declared {
@@ -369,6 +371,7 @@ func producerGitSources(ctx context.Context, img *imagePkg.Image, declared []sbo
 			RemoteURL:      fetched.Url,
 			Commit:         mapping.Commit,
 			Locator:        binding.Locator,
+			Mirrors:        mirrors,
 			PackageName:    binding.PackageName,
 			PackageVersion: binding.PackageVersion,
 			InstalledRoot:  binding.InstalledPath,

@@ -24,6 +24,11 @@ type webpackOriginals struct {
 	// is why a file the component holds may be absent: what a hook wrote is not the
 	// original's bytes, and the reader attributes no path it does not list.
 	Lifecycle []webpackOriginalLifecycle `json:"lifecycle,omitempty"`
+	// Mirrors name, per component, the mirror its objects were really fetched from.
+	// The component is the repository its locator names either way - that is what the
+	// verified commit says - so this is evidence about this build and nothing a reader
+	// resolves anything by.
+	Mirrors []webpackOriginalMirror `json:"mirrors,omitempty"`
 }
 
 // webpackOriginalFile carries the expected digest of an imported path, not a claim that
@@ -37,6 +42,11 @@ type webpackOriginalFile struct {
 type webpackOriginalLifecycle struct {
 	Component string   `json:"component"`
 	Hooks     []string `json:"hooks"`
+}
+
+type webpackOriginalMirror struct {
+	Component   string `json:"component"`
+	FetchedFrom string `json:"fetchedFrom"`
 }
 
 // webpackOriginalsManifest states each import as the original entry it was just verified
@@ -76,6 +86,9 @@ func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string
 		manifest.Components = append(manifest.Components, original.Component)
 		if len(original.Lifecycle) > 0 {
 			manifest.Lifecycle = append(manifest.Lifecycle, webpackOriginalLifecycle{Component: original.Component.ID, Hooks: original.Lifecycle})
+		}
+		if original.Mirror != "" {
+			manifest.Mirrors = append(manifest.Mirrors, webpackOriginalMirror{Component: original.Component.ID, FetchedFrom: original.Mirror})
 		}
 		for _, file := range original.Files {
 			if err := namespacePath(file.Path); err != nil {

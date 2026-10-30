@@ -123,3 +123,45 @@ var _ = ginkgo.Describe("producer git source declarations of the project itself"
 		}
 	})
 })
+
+var _ = ginkgo.Describe("producer git mirror declarations", func() {
+	const mirror = `{"host":"fox.flant.com","pathPrefix":"deckhouse/3p","upstreamHost":"github.com"}`
+	declaration := func(mirrors string) []byte {
+		return []byte(`{"version":1,"gitMirrors":` + mirrors + `,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`)
+	}
+
+	ginkgo.It("lists the mirror a Git-locked source may be fetched from", func() {
+		parsed, err := parseSBOMBuildContextDeclaration(declaration("[" + mirror + "]"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(parsed.GitMirrors).To(gomega.Equal([]sbomBuildContextGitMirror{{
+			Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com",
+		}}))
+	})
+
+	ginkgo.It("leaves a declaration without mirrors alone", func() {
+		parsed, err := parseSBOMBuildContextDeclaration(declaration("[]"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(parsed.GitMirrors).To(gomega.BeEmpty())
+	})
+
+	ginkgo.DescribeTable("refuses an entry that states no mirror", func(mirrors, message string) {
+		_, err := parseSBOMBuildContextDeclaration(declaration(mirrors))
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(message)))
+	},
+		ginkgo.Entry("missing members", `[{}]`, `gitMirror 0: host "" is not a bare host`),
+		ginkgo.Entry("unknown member", "["+strings.Replace(mirror, `"pathPrefix"`, `"token":"secret","pathPrefix"`, 1)+"]", "unknown field"),
+		ginkgo.Entry("credentials in the host", "["+strings.Replace(mirror, `"fox.flant.com"`, `"gitlab-ci-token:secret@fox.flant.com"`, 1)+"]", "is not a bare host"),
+		ginkgo.Entry("a transport in the host", "["+strings.Replace(mirror, `"fox.flant.com"`, `"https://fox.flant.com"`, 1)+"]", "is not a bare host"),
+		ginkgo.Entry("an absolute prefix", "["+strings.Replace(mirror, `"deckhouse/3p"`, `"/deckhouse/3p"`, 1)+"]", "is not a path of the mirror host"),
+		ginkgo.Entry("a relative segment", "["+strings.Replace(mirror, `"deckhouse/3p"`, `"deckhouse/../3p"`, 1)+"]", "is not a path of the mirror host"),
+		ginkgo.Entry("the same mirror twice", "["+mirror+","+strings.Replace(mirror, `"github.com"`, `"gitlab.example"`, 1)+"]", "is listed more than once"),
+	)
+
+	// The declaration is the image's own label, and the stage is rebuilt from the
+	// encoding of it: a mirror added to the allowlist changes what is accepted.
+	ginkgo.It("keeps the mirrors in the encoded declaration", func() {
+		parsed, err := parseSBOMBuildContextDeclaration(declaration("[" + mirror + "]"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(json.Marshal(parsed)).To(gomega.ContainSubstring(`"gitMirrors":[` + mirror + `]`))
+	})
+})

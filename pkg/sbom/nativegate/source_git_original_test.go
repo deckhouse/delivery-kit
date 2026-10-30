@@ -446,3 +446,141 @@ var _ = ginkgo.Describe("Verifying the stage's own sources as a Git original", f
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not a full commit")))
 	})
 })
+
+var _ = ginkgo.Describe("Verifying a Git original fetched from a listed mirror", func() {
+	mirrors := []GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"}}
+	mirrored := func(bare, commit, remote string) GitOriginalRequest {
+		return GitOriginalRequest{
+			GitDir:         bare,
+			RemoteURL:      remote,
+			Commit:         commit,
+			Locator:        "git+https://github.com/argoproj/argo-ui.git#" + commit,
+			Mirrors:        mirrors,
+			PackageName:    "argo-ui",
+			PackageVersion: "1.0.0",
+			InstalledRoot:  "/app/node_modules/argo-ui",
+		}
+	}
+	fixture := func() (string, string, *shippedscope.FileIndex) {
+		ginkgo.GinkgoHelper()
+		bare, commit := gitFixtureRepository(gitFixtureManifest, map[string]string{"index.js": "body\n"})
+
+		return bare, commit, fixtureIndex(map[string]string{"/app/node_modules/argo-ui/index.js": "body\n"})
+	}
+
+	// The objects are the commit's either way, so the component stays the one the
+	// lockfile named: only where they were fetched from differs, and that is recorded
+	// as evidence beside it rather than as a second identity.
+	ginkgo.It("accepts the mirror the configuration lists and keeps the locator of the lock", func(ctx ginkgo.SpecContext) {
+		bare, commit, observed := fixture()
+
+		original, err := VerifyGitOriginal(ctx, mirrored(bare, commit, "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git"), observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(original.Component.Source).To(gomega.Equal(shared.BuildSource{
+			Kind: "node", Locator: "git+https://github.com/argoproj/argo-ui.git#" + commit, Checksum: "git-commit:sha1:" + commit,
+		}))
+		gomega.Expect(original.Files).To(gomega.HaveLen(1))
+		gomega.Expect(original.Mirror).To(gomega.Equal("https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git"))
+	})
+
+	// Whatever the fetch authenticated itself with is the build's business: a job
+	// token in the url of the mirror is never written into the evidence.
+	ginkgo.It("records the mirror it fetched from without the credentials of the fetch", func(ctx ginkgo.SpecContext) {
+		bare, commit, observed := fixture()
+
+		for remote, recorded := range map[string]string{
+			"https://gitlab-ci-token:secret@fox.flant.com/deckhouse/3p/argoproj/argo-ui.git": "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git",
+			"ssh://git@fox.flant.com/deckhouse/3p/argoproj/argo-ui.git":                      "ssh://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git",
+			"git@fox.flant.com:deckhouse/3p/argoproj/argo-ui.git":                            "fox.flant.com:deckhouse/3p/argoproj/argo-ui.git",
+			"https://FOX.flant.com/deckhouse/3p/argoproj/argo-ui.git":                        "https://FOX.flant.com/deckhouse/3p/argoproj/argo-ui.git",
+		} {
+			original, err := VerifyGitOriginal(ctx, mirrored(bare, commit, remote), observed)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), remote)
+			gomega.Expect(original.Mirror).To(gomega.Equal(recorded), remote)
+			gomega.Expect(original.Mirror).NotTo(gomega.ContainSubstring("secret"))
+		}
+	})
+
+	ginkgo.It("records no mirror for a mapping that fetches the pinned repository itself", func(ctx ginkgo.SpecContext) {
+		bare, commit, observed := fixture()
+
+		original, err := VerifyGitOriginal(ctx, mirrored(bare, commit, "https://github.com/argoproj/argo-ui.git"), observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(original.Mirror).To(gomega.BeEmpty())
+	})
+
+	// A mirror buys the host it is fetched from and nothing else: below its prefix it
+	// must be the very repository the locator pins, and a host, a prefix or an
+	// upstream nothing lists is a different repository as before.
+	ginkgo.DescribeTable("refuses what the configuration does not list", func(ctx ginkgo.SpecContext, remote string, listed []GitMirror) {
+		bare, commit, observed := fixture()
+		request := mirrored(bare, commit, remote)
+		request.Mirrors = listed
+
+		_, err := VerifyGitOriginal(ctx, request, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: the mapping fetches")))
+	},
+		ginkgo.Entry("no mirror is listed at all", "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git", nil),
+		ginkgo.Entry("another host", "https://mirror.example/deckhouse/3p/argoproj/argo-ui.git", mirrors),
+		ginkgo.Entry("another path of the mirror", "https://fox.flant.com/deckhouse/other/argoproj/argo-ui.git", mirrors),
+		ginkgo.Entry("the prefix itself as a repository", "https://fox.flant.com/deckhouse/3p.git", mirrors),
+		ginkgo.Entry("another owner below the prefix", "https://fox.flant.com/deckhouse/3p/fork-owner/argo-ui.git", mirrors),
+		ginkgo.Entry("another repository below the prefix", "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui-fork.git", mirrors),
+		ginkgo.Entry("a prefix of the listed prefix", "https://fox.flant.com/deckhouse/3party/argoproj/argo-ui.git", mirrors),
+		ginkgo.Entry("another upstream than the locator pins", "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git",
+			[]GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "gitlab.example"}}),
+	)
+
+	// An entry nothing can match would silently narrow what is accepted, so a
+	// malformed allowlist refuses the verification it was supplied for.
+	ginkgo.DescribeTable("refuses a malformed allowlist", func(ctx ginkgo.SpecContext, listed []GitMirror, message string) {
+		bare, commit, observed := fixture()
+		request := mirrored(bare, commit, "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git")
+		request.Mirrors = listed
+
+		_, err := VerifyGitOriginal(ctx, request, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(message)))
+	},
+		ginkgo.Entry("credentials in the host", []GitMirror{{Host: "gitlab-ci-token:secret@fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"}},
+			`gitMirror 0: host "gitlab-ci-token:secret@fox.flant.com" is not a bare host`),
+		ginkgo.Entry("a transport in the host", []GitMirror{{Host: "https://fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"}},
+			"host \"https://fox.flant.com\" is not a bare host"),
+		ginkgo.Entry("a path in the host", []GitMirror{{Host: "fox.flant.com/deckhouse", PathPrefix: "3p", UpstreamHost: "github.com"}},
+			"host \"fox.flant.com/deckhouse\" is not a bare host"),
+		ginkgo.Entry("no host", []GitMirror{{PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"}}, `host "" is not a bare host`),
+		ginkgo.Entry("no upstream host", []GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p"}}, `upstreamHost "" is not a bare host`),
+		ginkgo.Entry("credentials in the upstream host", []GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "user@github.com"}},
+			`upstreamHost "user@github.com" is not a bare host`),
+		ginkgo.Entry("no prefix", []GitMirror{{Host: "fox.flant.com", UpstreamHost: "github.com"}}, `pathPrefix "" is not a path of the mirror host`),
+		ginkgo.Entry("an absolute prefix", []GitMirror{{Host: "fox.flant.com", PathPrefix: "/deckhouse/3p", UpstreamHost: "github.com"}},
+			`pathPrefix "/deckhouse/3p" is not a path of the mirror host`),
+		ginkgo.Entry("a trailing slash", []GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/3p/", UpstreamHost: "github.com"}},
+			`pathPrefix "deckhouse/3p/" is not a path of the mirror host`),
+		ginkgo.Entry("a relative segment", []GitMirror{{Host: "fox.flant.com", PathPrefix: "deckhouse/../3p", UpstreamHost: "github.com"}},
+			`pathPrefix "deckhouse/../3p" is not a path of the mirror host`),
+		ginkgo.Entry("the same mirror twice", []GitMirror{
+			{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"},
+			{Host: "FOX.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "gitlab.example"},
+		}, "gitMirror 1: fox.flant.com/deckhouse/3p is listed more than once"),
+	)
+
+	// The project is named by nothing but its own mapping, so a mirrored mapping must
+	// spell the repository the mirror serves, not the mirror.
+	ginkgo.It("spells the locator of a mirrored project from the repository the mirror serves", func(ctx ginkgo.SpecContext) {
+		const manifest = `{"name":"redoc","version":"2.4.0"}`
+		bare, commit := gitFixtureRepository(manifest, map[string]string{"src/index.ts": "export const app = 1;\n"})
+		observed := fixtureIndex(map[string]string{"/app/package.json": manifest})
+
+		original, err := VerifyGitOriginal(ctx, GitOriginalRequest{
+			GitDir:        bare,
+			RemoteURL:     "https://fox.flant.com/deckhouse/3p/Redocly/redoc.git",
+			Commit:        commit,
+			Mirrors:       mirrors,
+			InstalledRoot: "/app",
+			Project:       true,
+		}, observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(original.Component.Source.Locator).To(gomega.Equal("git+https://github.com/Redocly/redoc.git#" + commit))
+		gomega.Expect(original.Mirror).To(gomega.Equal("https://fox.flant.com/deckhouse/3p/Redocly/redoc.git"))
+	})
+})

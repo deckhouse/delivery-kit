@@ -15,6 +15,7 @@ import (
 	sigsjson "sigs.k8s.io/json"
 
 	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 )
 
 // sbomBuildContextLabel marks an image whose config declares the producer intent
@@ -45,8 +46,34 @@ type sbomBuildContextDeclaration struct {
 	// path of that source they stand. A bootstrap image describes no composition of its
 	// own, so a file taken out of it is answered for by the record of its own build or
 	// by one of these bindings, and by nothing else.
-	BootstrapOriginals []sbomBuildContextBootstrapOriginal       `json:"bootstrapOriginals,omitempty"`
-	Stages             map[stage.StageName]sbomBuildContextStage `json:"stages"`
+	BootstrapOriginals []sbomBuildContextBootstrapOriginal `json:"bootstrapOriginals,omitempty"`
+	// GitMirrors are the internal mirrors this project accepts a Git-locked source to
+	// be fetched from instead of the host its locator names. Each entry is the
+	// project's own statement that the repositories of one host are served, under one
+	// path of the mirror, with the same owner and name; nothing else is accepted, and
+	// the commit and its objects are verified by hash either way.
+	GitMirrors []sbomBuildContextGitMirror               `json:"gitMirrors,omitempty"`
+	Stages     map[stage.StageName]sbomBuildContextStage `json:"stages"`
+}
+
+type sbomBuildContextGitMirror struct {
+	// Host is the bare host of the mirror, with a port where it is not the default
+	// one. Credentials belong to the fetch, never here.
+	Host string `json:"host"`
+	// PathPrefix is the path of that host the mirrored repositories stand under.
+	PathPrefix string `json:"pathPrefix"`
+	// UpstreamHost is the host whose repositories are served there.
+	UpstreamHost string `json:"upstreamHost"`
+}
+
+// gitMirrorAllowlist states the declared mirrors as the verifier takes them.
+func gitMirrorAllowlist(declared []sbomBuildContextGitMirror) []nativegate.GitMirror {
+	mirrors := make([]nativegate.GitMirror, 0, len(declared))
+	for _, mirror := range declared {
+		mirrors = append(mirrors, nativegate.GitMirror{Host: mirror.Host, PathPrefix: mirror.PathPrefix, UpstreamHost: mirror.UpstreamHost})
+	}
+
+	return mirrors
 }
 
 // sbomBuildContextBootstrapOriginal binds one subtree of a bootstrap source image to the
@@ -230,6 +257,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: at least one stage is required")
 	}
 	if err := validateSBOMBuildContextBootstrapOriginals(declaration.BootstrapOriginals); err != nil {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: %w", err)
+	}
+	if err := nativegate.CheckGitMirrors(gitMirrorAllowlist(declaration.GitMirrors)); err != nil {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: %w", err)
 	}
 

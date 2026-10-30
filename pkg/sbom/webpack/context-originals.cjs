@@ -15,6 +15,9 @@ const path = require('node:path');
 const GIT_LOCATOR = /^git\+(?:https|ssh):\/\/[^\s#]+#([0-9a-f]{40})$/;
 // Kept in lockstep with gitLifecycleHooks of the writer.
 const LIFECYCLE_HOOKS = ['preinstall','install','postinstall','prepare','prepublish','prepack','postpack'];
+// A recorded fetch origin: a remote with no user info in it, because credentials of the
+// build are never evidence about a component.
+const MIRROR_ORIGIN = /^(?:(?:https|http|ssh|git):\/\/[^\s/@]+(?:\/[^\s@]*)?|[^\s/@:]+:[^\s@]+)$/;
 
 class ContextOriginals {
 	constructor(contextPath) {
@@ -30,7 +33,7 @@ class ContextOriginals {
 		if (!Object.hasOwn(manifest, 'version')) throw failure('no-data', 'primary-source manifest version is missing');
 		if (!Number.isInteger(manifest.version) || manifest.version < 1) throw failure('invalid', 'primary-source manifest version is invalid');
 		if (manifest.version !== 1) throw failure('unsupported', `primary-source manifest version ${manifest.version}`);
-		if (Object.keys(manifest).some(key => !['version','components','files','lifecycle'].includes(key))) throw failure('invalid', 'unknown primary-source manifest field');
+		if (Object.keys(manifest).some(key => !['version','components','files','lifecycle','mirrors'].includes(key))) throw failure('invalid', 'unknown primary-source manifest field');
 		if (!Array.isArray(manifest.components) || !Array.isArray(manifest.files)) throw failure('invalid', 'primary-source manifest requires component and file arrays');
 		const components = new Map();
 		for (const component of manifest.components) {
@@ -48,6 +51,15 @@ class ContextOriginals {
 		for (const entry of manifest.lifecycle || []) {
 			if (!object(entry) || Object.keys(entry).some(key=>!['component','hooks'].includes(key)) || !components.has(entry.component) ||
 				!Array.isArray(entry.hooks) || entry.hooks.some(hook => !LIFECYCLE_HOOKS.includes(hook))) throw failure('invalid', 'invalid primary-source lifecycle record');
+		}
+		// The mirror a component's objects were really fetched from. A component is the
+		// repository its locator names whatever the mirror is called, so nothing is
+		// resolved by this; it is read only to be held to a shape that carries no
+		// credentials.
+		if (manifest.mirrors !== undefined && !Array.isArray(manifest.mirrors)) throw failure('invalid', 'primary-source mirrors must be an array');
+		for (const entry of manifest.mirrors || []) {
+			if (!object(entry) || Object.keys(entry).some(key=>!['component','fetchedFrom'].includes(key)) || !components.has(entry.component) ||
+				!MIRROR_ORIGIN.test(entry.fetchedFrom)) throw failure('invalid', 'invalid primary-source mirror record');
 		}
 		this.files = new Map();
 		for (const file of manifest.files) {

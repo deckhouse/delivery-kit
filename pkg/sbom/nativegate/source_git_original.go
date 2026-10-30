@@ -57,6 +57,95 @@ var gitLifecycleHooks = []string{"preinstall", "install", "postinstall", "prepar
 // unbounded; no real package tree comes anywhere near it.
 const gitTreeDepthLimit = 64
 
+// gitMirrorHostRegexp is a bare host, optionally with a port: what a mirror is named by.
+// Credentials, a transport and a path are not part of a host and are refused here, so
+// that no access token can be written into the configuration of a mirror.
+var gitMirrorHostRegexp = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]+)?$`)
+
+// gitMirrorPrefixRegexp is the path under the mirror host that the mirrored repositories
+// stand below, without a leading or trailing slash.
+var gitMirrorPrefixRegexp = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
+
+// GitMirror states that the repositories of UpstreamHost are served, under PathPrefix of
+// Host, with the same owner and repository name below that prefix.
+//
+// It is an explicit statement of the project's own configuration, never a discovered
+// one: a host nothing lists stays a different repository, as before. What a listed
+// mirror buys is where the objects may be fetched from and nothing else - the commit and
+// every object below it are verified by hash exactly as they are for a repository
+// fetched from the host the lockfile names.
+type GitMirror struct {
+	Host         string
+	PathPrefix   string
+	UpstreamHost string
+}
+
+// CheckGitMirrors holds a configured allowlist to what a mirror entry can say: a bare
+// host, the path of that host the mirrored repositories stand under, and the host whose
+// repositories those are. A malformed entry is refused rather than ignored, because an
+// entry nothing can match silently narrows what is accepted.
+func CheckGitMirrors(mirrors []GitMirror) error {
+	listed := map[string]bool{}
+	for i, mirror := range mirrors {
+		for _, field := range []struct{ name, value string }{{"host", mirror.Host}, {"upstreamHost", mirror.UpstreamHost}} {
+			if !gitMirrorHostRegexp.MatchString(field.value) {
+				return fmt.Errorf("gitMirror %d: %s %q is not a bare host", i, field.name, field.value)
+			}
+		}
+		if !gitMirrorPrefixRegexp.MatchString(mirror.PathPrefix) || slices.ContainsFunc(strings.Split(mirror.PathPrefix, "/"), func(segment string) bool {
+			return segment == "." || segment == ".."
+		}) {
+			return fmt.Errorf("gitMirror %d: pathPrefix %q is not a path of the mirror host", i, mirror.PathPrefix)
+		}
+		prefix := strings.ToLower(mirror.Host) + "/" + mirror.PathPrefix
+		if listed[prefix] {
+			return fmt.Errorf("gitMirror %d: %s is listed more than once", i, prefix)
+		}
+		listed[prefix] = true
+	}
+
+	return nil
+}
+
+// gitUpstreamRepository answers the repository whose objects a fetched one serves: a
+// listed mirror stands for the upstream repository it carries at the same owner and
+// name below its prefix, and every other remote stands for itself.
+func gitUpstreamRepository(mirrors []GitMirror, fetched string) (string, bool, error) {
+	if err := CheckGitMirrors(mirrors); err != nil {
+		return "", false, fmt.Errorf("invalid: %w", err)
+	}
+	for _, mirror := range mirrors {
+		repository, served := strings.CutPrefix(fetched, strings.ToLower(mirror.Host)+"/"+mirror.PathPrefix+"/")
+		if !served || repository == "" {
+			continue
+		}
+
+		return strings.ToLower(mirror.UpstreamHost) + "/" + repository, true, nil
+	}
+
+	return fetched, false, nil
+}
+
+// gitRemoteWithoutCredentials answers the remote as it may be recorded: whatever the
+// fetch authenticated itself with is the build's, never part of the evidence.
+func gitRemoteWithoutCredentials(remote string) string {
+	if !strings.Contains(remote, "://") {
+		host, repository, scp := strings.Cut(remote, ":")
+		if _, user, found := strings.Cut(host, "@"); scp && found {
+			return user + ":" + repository
+		}
+
+		return remote
+	}
+	parsed, err := url.Parse(remote)
+	if err != nil {
+		return ""
+	}
+	parsed.User = nil
+
+	return parsed.String()
+}
+
 // GitOriginalRequest states which commit of which repository a Node package was
 // installed from, as the caller's own declaration. Nothing here is read back from the
 // built image, a ref or a worktree.
@@ -73,6 +162,9 @@ type GitOriginalRequest struct {
 	// package.json of the verified commit must hold exactly these.
 	PackageName    string
 	PackageVersion string
+	// Mirrors are the mirrors the project's configuration accepts in place of the host
+	// the locator names. Nothing that is not listed here is accepted.
+	Mirrors []GitMirror
 	// InstalledRoot is the absolute path the package is installed at in the observed
 	// stage, that is `<…>/node_modules/<name>` for a dependency and the project root
 	// itself for the project.
@@ -92,6 +184,10 @@ type GitOriginal struct {
 	// Lifecycle names the install hooks the verified package.json defines. Their
 	// outputs are not the commit's bytes and are never listed as files.
 	Lifecycle []string
+	// Mirror is the remote the objects were really fetched from, without credentials,
+	// when that was a listed mirror rather than the repository the locator names. It is
+	// evidence about this build, not part of the component's identity.
+	Mirror string
 }
 
 // GitOriginalFile binds an installed path to the digest of the blob the commit serves at
@@ -121,7 +217,15 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 	if err := namespacePath(request.InstalledRoot); err != nil {
 		return nil, fmt.Errorf("installed %w", err)
 	}
-	request, err := resolvedGitRequest(request)
+	mappedRepository, err := gitRepositoryIdentity(request.RemoteURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid: mapping remote %q: %w", request.RemoteURL, err)
+	}
+	upstreamRepository, mirrored, err := gitUpstreamRepository(request.Mirrors, mappedRepository)
+	if err != nil {
+		return nil, err
+	}
+	request, err = resolvedGitRequest(request, upstreamRepository)
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +242,11 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 	if err != nil {
 		return nil, fmt.Errorf("invalid: locator %q: %w", request.Locator, err)
 	}
-	mappedRepository, err := gitRepositoryIdentity(request.RemoteURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid: mapping remote %q: %w", request.RemoteURL, err)
-	}
-	if locatorRepository != mappedRepository {
+	if locatorRepository != upstreamRepository {
+		if mirrored {
+			return nil, fmt.Errorf("invalid: the mapping fetches %s, which serves %s, the locator pins %s", mappedRepository, upstreamRepository, locatorRepository)
+		}
+
 		return nil, fmt.Errorf("invalid: the mapping fetches %s, the locator pins %s", mappedRepository, locatorRepository)
 	}
 
@@ -164,6 +268,9 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 		},
 		Files:     []GitOriginalFile{},
 		Lifecycle: lifecycle,
+	}
+	if mirrored {
+		original.Mirror = gitRemoteWithoutCredentials(request.RemoteURL)
 	}
 	for _, relative := range slices.Sorted(maps.Keys(blobs)) {
 		// A project vendors its dependencies under its own root, and what stands
@@ -196,9 +303,10 @@ func gitVendored(relative string) bool {
 //
 // A dependency is named by the lockfile that pins it, and every one of those facts is
 // the caller's to state. A project is named by nothing outside itself: its locator is
-// spelled here from the remote the mapping fetches, in the one spelling this adapter
-// reads back, and its identity is left to the package.json of the commit.
-func resolvedGitRequest(request GitOriginalRequest) (GitOriginalRequest, error) {
+// spelled here from the repository the mapping fetches - the upstream one, where that
+// mapping is a listed mirror of it - in the one spelling this adapter reads back, and
+// its identity is left to the package.json of the commit.
+func resolvedGitRequest(request GitOriginalRequest, repository string) (GitOriginalRequest, error) {
 	if !request.Project {
 		if request.PackageName == "" || request.PackageVersion == "" {
 			return request, fmt.Errorf("invalid: the declared package identity of %s is incomplete", request.Locator)
@@ -208,10 +316,6 @@ func resolvedGitRequest(request GitOriginalRequest) (GitOriginalRequest, error) 
 	}
 	if request.Locator != "" || request.PackageName != "" || request.PackageVersion != "" {
 		return request, fmt.Errorf("invalid: a project original is named by its own commit, not by a lock entry")
-	}
-	repository, err := gitRepositoryIdentity(request.RemoteURL)
-	if err != nil {
-		return request, fmt.Errorf("invalid: mapping remote %q: %w", request.RemoteURL, err)
 	}
 	if !gitCommitRegexp.MatchString(request.Commit) {
 		return request, fmt.Errorf("invalid: %q is not a full commit", request.Commit)

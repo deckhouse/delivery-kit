@@ -119,6 +119,7 @@ function activationPlugin() {
 	const path = require('node:path');
 	const Collector = require('./collector.cjs');
 	const ContextOriginals = require('./context-originals.cjs');
+	const PrebuiltOriginals = require('./prebuilt-originals.cjs');
 
 	// Which package manager installed this project, said by the lockfile it was
 	// built from. Two of them, or none, leave no single account of where the
@@ -195,6 +196,10 @@ function activationPlugin() {
 			// The verified primary sources of this very build context, read where
 			// the compiler runs rather than in the Yarn parent that spawned it.
 			const primary = new ContextOriginals(this.settings.contextPath);
+			// What the dependencies this build installs as prebundles are made of,
+			// proven by the instrumented rebuilds DK read them from. Empty unless
+			// this context delivers any.
+			const prebuilt = new PrebuiltOriginals(this.settings.contextPath);
 			const { cacheDir, contextPath } = this.settings;
 			let scope = null;
 			compiler.hooks.thisCompilation.tap(NAME, () => {
@@ -209,6 +214,7 @@ function activationPlugin() {
 				// package it names, never a reason to look for those bytes among
 				// the project's own sources.
 				resolveOriginal: async (resource) => installed(await scope.originals.resolve(resource)) ?? primary.resolve(resource),
+				prebuilt,
 			}).apply(compiler);
 			for (const outcome of ['done', 'failed']) {
 				compiler.hooks[outcome].tap(NAME, () => {

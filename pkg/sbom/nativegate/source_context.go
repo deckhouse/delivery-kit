@@ -2,6 +2,7 @@ package nativegate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -48,6 +49,12 @@ type MaterializeBuildContextOptions struct {
 	// private manifest, which is the only place the Node resolver may learn that a
 	// Git-locked package has an original at all.
 	GitOriginals []GitOriginal
+
+	// PrebuiltAssets are the compositions the caller read out of the proofs of
+	// instrumented rebuilds, each for one file installed in this stage. They are
+	// written beside the originals manifest, and only for a file that manifest proves
+	// the installed bytes of.
+	PrebuiltAssets []PrebuiltAsset
 }
 
 // MaterializeBuildContext fills a prepared build context declaration with the original
@@ -121,12 +128,15 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 	if err := os.Mkdir(originals, 0o755); err != nil {
 		return "", err
 	}
-	exported, webpack := false, false
+	exported, webpack, prebuilt := false, false, false
 	defer func() {
 		if !exported {
 			_ = os.RemoveAll(originals)
 			if webpack {
 				_ = os.Remove(filepath.Join(directory, materializedWebpackFile))
+			}
+			if prebuilt {
+				_ = os.Remove(filepath.Join(directory, materializedWebpackPrebuiltFile))
 			}
 		}
 	}()
@@ -155,7 +165,11 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 	}
 
 	if opts.WebpackSources {
-		manifest, err := webpackOriginalsManifest(imports, resolved, indexes, opts.GitOriginals)
+		originals, err := webpackOriginalsManifest(imports, resolved, indexes, opts.GitOriginals)
+		if err != nil {
+			return "", err
+		}
+		manifest, err := json.Marshal(originals)
 		if err != nil {
 			return "", err
 		}
@@ -163,6 +177,18 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 			return "", err
 		}
 		webpack = true
+		if len(opts.PrebuiltAssets) > 0 {
+			delivered, err := webpackPrebuiltManifest(originals, opts.PrebuiltAssets)
+			if err != nil {
+				return "", err
+			}
+			if err := writeContext(filepath.Join(directory, materializedWebpackPrebuiltFile), delivered); err != nil {
+				return "", err
+			}
+			prebuilt = true
+		}
+	} else if len(opts.PrebuiltAssets) > 0 {
+		return "", fmt.Errorf("invalid: a delivered composition needs the verified imports of this context")
 	}
 	if err := writeContext(filepath.Join(directory, materializedContextFile), data); err != nil {
 		return "", err

@@ -2,7 +2,6 @@ package nativegate
 
 import (
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -44,21 +43,21 @@ type webpackOriginalLifecycle struct {
 // against, under the pm identity that serves it. The digest is the original's own, never
 // the observed file's: the observed bytes are evidence only because the verification
 // this follows found them equal.
-func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string]*resolvedSource, indexes []string, gitOriginals []GitOriginal) ([]byte, error) {
+func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string]*resolvedSource, indexes []string, gitOriginals []GitOriginal) (webpackOriginals, error) {
 	manifest := webpackOriginals{Version: 1, Components: []shared.BuildComponent{}, Files: []webpackOriginalFile{}}
 	held := map[string]webpackOriginalFile{}
 	for _, mapping := range imports {
 		source := resolved[indexes[*mapping.Package]]
 		entry, err := source.Original.Lookup(mapping.OriginalPath)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", mapping.Path, err)
+			return webpackOriginals{}, fmt.Errorf("%s: %w", mapping.Path, err)
 		}
 		if entry.SHA256 == "" {
-			return nil, fmt.Errorf("%s: the original serves no digest for %q", mapping.Path, mapping.OriginalPath)
+			return webpackOriginals{}, fmt.Errorf("%s: the original serves no digest for %q", mapping.Path, mapping.OriginalPath)
 		}
 		file := webpackOriginalFile{Path: mapping.Path, SHA256: entry.SHA256, Component: source.ID}
 		if claimed, taken := held[mapping.Path]; taken && claimed != file {
-			return nil, fmt.Errorf("%s: claimed for a second original identity or digest", mapping.Path)
+			return webpackOriginals{}, fmt.Errorf("%s: claimed for a second original identity or digest", mapping.Path)
 		}
 		held[mapping.Path] = file
 
@@ -72,7 +71,7 @@ func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string
 
 	for _, original := range gitOriginals {
 		if slices.ContainsFunc(manifest.Components, func(component shared.BuildComponent) bool { return component.ID == original.Component.ID }) {
-			return nil, fmt.Errorf("%s: a second original claims the identity %s", original.Component.Name, original.Component.ID)
+			return webpackOriginals{}, fmt.Errorf("%s: a second original claims the identity %s", original.Component.Name, original.Component.ID)
 		}
 		manifest.Components = append(manifest.Components, original.Component)
 		if len(original.Lifecycle) > 0 {
@@ -80,11 +79,11 @@ func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string
 		}
 		for _, file := range original.Files {
 			if err := namespacePath(file.Path); err != nil {
-				return nil, fmt.Errorf("%s: installed %w", original.Component.Name, err)
+				return webpackOriginals{}, fmt.Errorf("%s: installed %w", original.Component.Name, err)
 			}
 			entry := webpackOriginalFile{Path: file.Path, SHA256: file.SHA256, Component: original.Component.ID}
 			if claimed, taken := held[file.Path]; taken && claimed != entry {
-				return nil, fmt.Errorf("%s: claimed for a second original identity or digest", file.Path)
+				return webpackOriginals{}, fmt.Errorf("%s: claimed for a second original identity or digest", file.Path)
 			}
 			held[file.Path] = entry
 		}
@@ -95,5 +94,5 @@ func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string
 	}
 	slices.SortFunc(manifest.Components, func(a, b shared.BuildComponent) int { return cmp.Compare(a.ID, b.ID) })
 
-	return json.Marshal(manifest)
+	return manifest, nil
 }

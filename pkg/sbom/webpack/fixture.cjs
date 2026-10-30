@@ -226,8 +226,10 @@ async function buildPrimary(scratch, distributions, name, overrides, tools) {
 				{ from: area.installed('pkg-a/NOTICE.txt'), to: 'notice.txt' },
 				{ from: area.installed('pkg-c/vendor.js'), to: 'vendor.js' },
 			],
+			...(overrides && overrides.prebuilt ? { prebuilt: overrides.prebuilt(area) } : {}),
 		}),
 	];
+	if (overrides && overrides.plugins) plugins.push(...overrides.plugins);
 	if (overrides && overrides.beforeRun) overrides.beforeRun(area);
 	await run(configuration(area, { plugins }));
 	return { area, proof: readProof(area) };

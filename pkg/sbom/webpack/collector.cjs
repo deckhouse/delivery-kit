@@ -96,7 +96,7 @@ class DkSbomWebpackCollector {
 
 function normalizeOptions(options) {
 	if (!isPlainObject(options)) throw new Error(`${PLUGIN}: options object is required`);
-	checkKeys(options, ['proofPath', 'originals', 'copied', 'resolveOriginal', 'esbuild'], 'options');
+	checkKeys(options, ['proofPath', 'originals', 'copied', 'resolveOriginal', 'esbuild', 'prebuilt'], 'options');
 	if (options.resolveOriginal !== undefined && typeof options.resolveOriginal !== 'function') throw new Error(`${PLUGIN}: resolveOriginal must be a function`);
 	const proofPath = requireAbsolutePath(options.proofPath, 'options.proofPath');
 	return {
@@ -105,7 +105,16 @@ function normalizeOptions(options) {
 		copied: normalizeCopied(options.copied),
 		resolveOriginal: options.resolveOriginal,
 		esbuild: options.esbuild,
+		prebuilt: normalizePrebuilt(options.prebuilt),
 	};
+}
+
+// What a file this build installs but did not build is made of, answered by the
+// digest of its bytes.
+function normalizePrebuilt(prebuilt) {
+	if (prebuilt === undefined) return undefined;
+	if (prebuilt === null || typeof prebuilt.resolve !== 'function') throw new Error(`${PLUGIN}: options.prebuilt must answer resolve`);
+	return prebuilt;
 }
 
 function normalizeOriginals(originals, allowEmpty = false) {
@@ -662,13 +671,20 @@ async function describeCopiedAsset(options, assetPath, compilation) {
 	if (binding?.failure) return incomplete(assetPath, binding.failure);
 	if (binding && binding.from !== observed.from) return incomplete(assetPath, failure('invalid', `declared copy origin disagrees with the observed source of ${assetPath}`));
 	const from = observed.from;
+	const resolved = await verifyResource(options, from);
+	if (resolved.failure) return incomplete(assetPath, resolved.failure);
+	// A file this build installs but did not build carries the composition the
+	// rebuild that emitted these very bytes proved for them. It is looked up by
+	// the digest of bytes already bound to their own verified original, and the
+	// claim is that composition: what the prebundle is made of, not the identity
+	// of the archive it was shipped in.
+	const delivered = options.prebuilt ? options.prebuilt.resolve(resolved.unit.sha256) : null;
+	if (delivered && delivered.length > 0) return present(assetPath, delivered, resolved.unit.bytes);
 	const extension = path.extname(assetPath).toLowerCase();
 	const fromExtension = path.extname(from).toLowerCase();
 	if (OPAQUE_COPIED_EXTENSIONS.includes(extension) || OPAQUE_COPIED_EXTENSIONS.includes(fromExtension)) {
 		return incomplete(assetPath, failure('no-data', `copied ${fromExtension || extension} carries an unsupplied nested composition`));
 	}
-	const resolved = await verifyResource(options, from);
-	if (resolved.failure) return incomplete(assetPath, resolved.failure);
 	return present(assetPath, [resolved.unit], resolved.unit.bytes);
 }
 

@@ -39,6 +39,11 @@ type sbomBuildContextStage struct {
 	Packages       []sbomBuildContextPackage `json:"packages"`
 	GoEmbed        []sbomBuildContextGoEmbed `json:"goEmbed,omitempty"`
 	WebpackSources bool                      `json:"webpackSources,omitempty"`
+	// PrebuiltAssets bind a file installed in this stage to the instrumented rebuild
+	// that produced it. The binding is the producer's claim about its own recipe; that
+	// the named image really emitted those bytes, and that the installed file really is
+	// them, is the consumer's to verify.
+	PrebuiltAssets []sbomBuildContextPrebuilt `json:"prebuiltAssets,omitempty"`
 	// GitSources bind a Node dependency a lockfile pins to a Git commit to the git
 	// mapping of this very config that DK fetches that commit through. The binding is
 	// the producer's claim about its own recipe; the verification that the mapping is
@@ -57,6 +62,21 @@ type sbomBuildContextGitSource struct {
 	InstalledPath  string `json:"installedPath"`
 	PackageName    string `json:"packageName"`
 	PackageVersion string `json:"packageVersion"`
+}
+
+// sbomBuildContextPrebuilt names one file of a dependency that was built elsewhere,
+// and the proof of the rebuild that observed what went into it.
+type sbomBuildContextPrebuilt struct {
+	// SourceImage is a logical werf image name of the instrumented rebuild.
+	SourceImage string `json:"sourceImage"`
+	// ProofPath is where that rebuild's proof stands in its own image.
+	ProofPath string `json:"proofPath"`
+	// AssetPath is the proof row of the one file this binding delivers, relative to
+	// the output root that proof covers.
+	AssetPath string `json:"assetPath"`
+	// InstalledPath is where that very file stands in this stage, under a
+	// node_modules directory of the project.
+	InstalledPath string `json:"installedPath"`
 }
 
 type sbomBuildContextGoEmbed struct {
@@ -129,6 +149,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		if value, present := fields["gitSources"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: gitSources must be an array", stageName)
 		}
+		if value, present := fields["prebuiltAssets"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: prebuiltAssets must be an array", stageName)
+		}
 	}
 
 	for _, stageName := range slices.Sorted(maps.Keys(declaration.Stages)) {
@@ -192,6 +215,42 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 	// else, so a binding without that manifest could prove nothing.
 	if len(declared.GitSources) > 0 && !declared.WebpackSources {
 		return fmt.Errorf("gitSources require webpackSources")
+	}
+
+	// The delivered composition is only written out beside the originals manifest,
+	// and the installed file is only held against a digest that manifest states.
+	if len(declared.PrebuiltAssets) > 0 && !declared.WebpackSources {
+		return fmt.Errorf("prebuiltAssets require webpackSources")
+	}
+
+	delivered := make(map[string]bool, len(declared.PrebuiltAssets))
+	for i, binding := range declared.PrebuiltAssets {
+		for _, field := range []struct{ name, value string }{
+			{"sourceImage", binding.SourceImage}, {"proofPath", binding.ProofPath},
+			{"assetPath", binding.AssetPath}, {"installedPath", binding.InstalledPath},
+		} {
+			if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
+				return fmt.Errorf("prebuiltAsset %d: %w", i, err)
+			}
+		}
+		for _, field := range []struct{ name, value string }{{"proofPath", binding.ProofPath}, {"installedPath", binding.InstalledPath}} {
+			if !path.IsAbs(field.value) || path.Clean(field.value) != field.value {
+				return fmt.Errorf("prebuiltAsset %d: %s must be a clean absolute path", i, field.name)
+			}
+		}
+		// The asset path names a row of that proof, which states its assets relative
+		// to the output root they were emitted into.
+		if path.IsAbs(binding.AssetPath) || path.Clean(binding.AssetPath) != binding.AssetPath ||
+			binding.AssetPath == "." || binding.AssetPath == ".." || strings.HasPrefix(binding.AssetPath, "../") || strings.Contains(binding.AssetPath, "\\") {
+			return fmt.Errorf("prebuiltAsset %d: assetPath must be a clean relative path", i)
+		}
+		if !strings.Contains(binding.InstalledPath, "/node_modules/") {
+			return fmt.Errorf("prebuiltAsset %d: installedPath %q is not installed under node_modules", i, binding.InstalledPath)
+		}
+		if delivered[binding.InstalledPath] {
+			return fmt.Errorf("prebuiltAsset %d: installedPath %q is declared more than once", i, binding.InstalledPath)
+		}
+		delivered[binding.InstalledPath] = true
 	}
 
 	mappings := make(map[string]bool, len(declared.GitSources))

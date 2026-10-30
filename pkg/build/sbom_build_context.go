@@ -137,6 +137,10 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
+	prebuiltAssets, prebuiltIdentities, err := phase.producerPrebuiltAssets(ctx, img, stg.Name(), requested.PrebuiltAssets)
+	if err != nil {
+		return nil, err
+	}
 	contextSpec.GoEmbed = assetScope
 	selected := contextSpec.Packages[*requested.Subject]
 	packetIndex, err := json.Marshal(map[string]json.RawMessage{"subject": selected.Packet})
@@ -162,7 +166,7 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
-	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources, GitOriginals: gitOriginals})
+	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources, GitOriginals: gitOriginals, PrebuiltAssets: prebuiltAssets})
 	if err != nil {
 		_ = os.RemoveAll(directory)
 		return nil, err
@@ -191,6 +195,9 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	}
 	if len(gitIdentities) > 0 {
 		parts = append(append(parts, "git-sources"), gitIdentities...)
+	}
+	if len(prebuiltIdentities) > 0 {
+		parts = append(append(parts, "prebuilt-assets"), prebuiltIdentities...)
 	}
 	return &sbomProducerContext{directory: directory, path: path, checksum: util.Sha256Hash(append(parts, identities...)...)}, nil
 }

@@ -95,10 +95,10 @@ var _ = Describe("SBOM source import inputs", func() {
 			importElm(registryHost+"/unknown:v1", "/out", "/srv", nil, nil, "", string(stage.Install)),
 		}}
 		stageOpts := &stage.BaseStageOptions{ImageName: "app", TargetPlatform: targetPlatform}
-		img.SetStages([]stage.Interface{
+		img.SetStages(recordingImportBackend("copy-recurse",
 			stage.GenerateDependenciesBeforeInstallStage(baseConfig, stageOpts),
 			stage.GenerateDependenciesAfterInstallStage(baseConfig, stageOpts),
-		})
+		))
 
 		phase := &BuildPhase{
 			BasePhase: BasePhase{Conveyor: &Conveyor{ContainerBackend: backend, imagesTree: buildImage.NewImagesTree(nil, buildImage.ImagesTreeOptions{})}},

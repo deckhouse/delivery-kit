@@ -2588,6 +2588,15 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 		return nil, nil, fmt.Errorf("resolve import images: %w", err)
 	}
 
+	// The scopes of every directive that imports from one source: its SBOM describes
+	// the whole of that image, and what it contributes here is what these carry.
+	scopes := make(map[importSBOMKey][]nativegate.ImportScope)
+	for _, importImage := range importImages {
+		if key := importImage.sbomKey(); key != (importSBOMKey{}) {
+			scopes[key] = append(scopes[key], importImage.scope)
+		}
+	}
+
 	var importImageSboms []*cdx.BOM
 	boms := make(map[importSBOMKey]*cdx.BOM)
 
@@ -2608,6 +2617,10 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			return nil, nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
 		}
 		if key != (importSBOMKey{}) {
+			importImageSbom, err = scopeImportBOM(ctx, importImageSbom, scopes[key])
+			if err != nil {
+				return nil, nil, fmt.Errorf("scope the sbom of import source %q: %w", importImage.imageName, err)
+			}
 			boms[key] = importImageSbom
 		}
 		importImageSboms = append(importImageSboms, importImageSbom)
@@ -2722,8 +2735,12 @@ func (phase *BuildPhase) resolveScopedImportImages(ctx context.Context, img *ima
 				firstOfSbom:         true,
 			}
 			if importElm.Export != nil && importElm.ExportBase != nil {
+				backend, err := importScopeBackend(stg)
+				if err != nil {
+					return nil, err
+				}
 				entry.scope = nativegate.ImportScope{
-					Backend:      phase.sbomImportBackend(),
+					Backend:      backend,
 					FromPath:     importElm.Add,
 					ToPath:       importElm.To,
 					IncludePaths: importElm.IncludePaths,

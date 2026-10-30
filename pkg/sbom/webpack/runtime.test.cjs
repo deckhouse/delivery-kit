@@ -231,8 +231,9 @@ test('writes a collector proof whose chunk asset includes the webpack runtime an
 	const inputs = asset.inputs.filter((input) => input.path.startsWith(distribution.root + path.sep)).map((input) => path.relative(distribution.root, input.path)).sort();
 	// This entry needs no runtime module, so the webpack sources in the proof are
 	// exactly the ones its bootstrap was rendered from, including the stock
-	// renderModuleContent tap.
-	assert.deepEqual(inputs, ['lib/javascript/JavascriptModulesPlugin.js', 'lib/APIPlugin.js', 'lib/RuntimeGlobals.js', 'lib/RuntimeTemplate.js', 'lib/Template.js'].sort());
+	// renderModuleContent tap and the class that wrote the line reaching the
+	// external this build references.
+	assert.deepEqual(inputs, ['lib/javascript/JavascriptModulesPlugin.js', 'lib/APIPlugin.js', 'lib/RuntimeGlobals.js', 'lib/RuntimeTemplate.js', 'lib/Template.js', 'lib/ExternalModule.js'].sort());
 	for (const input of asset.inputs) {
 		assert.equal(input.sha256, sha256(input.path));
 		assert.equal(input.disposition, 'included');

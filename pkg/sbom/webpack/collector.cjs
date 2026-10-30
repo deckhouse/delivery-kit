@@ -18,6 +18,8 @@ const { installCopyEvidence } = require('./copy-evidence.cjs');
 const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
 const { installIncludeEvidence, isIncludeLoader } = require('./include-evidence.cjs');
+const { contextModuleEvidence, isContextModule } = require('./context-module-evidence.cjs');
+const { externalEvidence, isExternalModule } = require('./external-evidence.cjs');
 const { voidEvidence, isVoidModule } = require('./void-evidence.cjs');
 const { installWorkerEvidence, isWorkerLoader, isWorkerEntryLoader } = require('./worker-evidence.cjs');
 const { installStylesheet3Evidence, isStylesheet3Module } = require('./stylesheet3-evidence.cjs');
@@ -445,7 +447,7 @@ async function collectChunksInto(options, source, compilation, byAsset) {
 	}
 }
 
-async function collectModule(options, module, collected, compilation, chunk, evidence = {}) {
+async function collectModule(options, module, collected, compilation, chunk, evidence = {}, concatenated = false) {
 	if (module.type === 'runtime') {
 		const result = await runtimeEvidence(compilation, chunk, module, resource => verifyResource(options, resource));
 		if (result.failure) addFailure(collected, result.failure);
@@ -455,11 +457,26 @@ async function collectModule(options, module, collected, compilation, chunk, evi
 	// A ConcatenatedModule is a scope-hoisting wrapper: its inner modules are the
 	// units that really ended up in the chunk.
 	if (module.constructor && module.constructor.name === 'ConcatenatedModule' && Array.isArray(module.modules) && module.rootModule) {
-		for (const inner of module.modules) await collectModule(options, inner, collected, compilation, chunk, evidence);
+		for (const inner of module.modules) await collectModule(options, inner, collected, compilation, chunk, evidence, true);
 		return;
 	}
-	// An external is referenced, not bundled, so it contributes no input here.
-	if (typeof module.externalType === 'string') return;
+	// An external is referenced, not bundled: the package it names is not here,
+	// and what stands in the chunk is the line webpack writes to reach it.
+	if (isExternalModule(module)) {
+		const result = await externalEvidence(compilation, chunk, module, resource => verifyResource(options, resource), concatenated);
+		if (result.failure) addFailure(collected, result.failure);
+		for (const unit of result.units) collected.units.set(unit.path, unit);
+		return;
+	}
+	// A module webpack built for the requests of a `require.context` reads no
+	// file: its text is a map of the modules that answer them, each of which is
+	// described on its own as a module of this chunk.
+	if (isContextModule(module)) {
+		const result = await contextModuleEvidence(compilation, chunk, module, resource => verifyResource(options, resource));
+		if (result.failure) addFailure(collected, result.failure);
+		for (const unit of result.units) collected.units.set(unit.path, unit);
+		return;
+	}
 	// A module webpack built for a request it was told to drop reads no file.
 	if (isVoidModule(module)) {
 		const result = await voidEvidence(compilation, chunk, module, resource => verifyResource(options, resource));

@@ -117,6 +117,44 @@ function bootstrapOriginal(root, packageName = 'webpack') {
 	};
 }
 
+// A webpack distribution of its own, extracted from an archive of the installed
+// one into a live copy and into the original that copy is verified against, so
+// a test may rewrite both and still have every file bind to its component. Its
+// own dependencies are taken from the installation: they are part of no claim.
+//
+// `patch` is called once per copy with that copy's root, which is how a test
+// builds a distribution that is byte-for-byte its own original and still not
+// the pinned webpack.
+function forkedWebpack(root, patch) {
+	const { tarball, integrity, binding } = bootstrapOriginal(root);
+	const live = path.join(root, 'distribution');
+	fs.mkdirSync(live, { recursive: true });
+	execFileSync('tar', ['-xzf', tarball, '-C', live, '--strip-components=1']);
+	// Its own nested installation first, where a dependency it pins for itself
+	// stands, and then the hoisted ones beside the copy.
+	const nested = path.join(binding.root, 'node_modules');
+	if (fs.existsSync(nested)) fs.cpSync(nested, path.join(live, 'node_modules'), { recursive: true });
+	// What that copy resolves its own dependencies through: the installed ones,
+	// beside the copy rather than inside it, since this fixture's installation
+	// hoists them. They are part of no claim.
+	const dependencies = path.join(root, 'node_modules');
+	fs.mkdirSync(dependencies, { recursive: true });
+	const installed = path.join(__dirname, 'node_modules');
+	for (const entry of fs.readdirSync(installed)) {
+		if (entry.startsWith('.') || entry === 'webpack') continue;
+		fs.symlinkSync(path.join(installed, entry), path.join(dependencies, entry));
+	}
+	if (patch) {
+		for (const copy of [live, binding.originalRoot]) patch(copy);
+	}
+	return {
+		root: live,
+		tarball,
+		integrity,
+		binding: { root: live, originalRoot: binding.originalRoot, component: binding.component },
+	};
+}
+
 // Each synthetic package becomes a real npm tarball whose integrity is the one
 // npm reported and this code re-computed from the archive bytes; the read-only
 // original root is extracted from that archive, never copied from the sources.
@@ -329,7 +367,7 @@ async function exportEvidence(target) {
 	return location;
 }
 
-module.exports = { PACKAGES, createFixture, bootstrapOriginal, configuration, run, readProof, sha256, exportEvidence };
+module.exports = { PACKAGES, createFixture, bootstrapOriginal, forkedWebpack, configuration, run, readProof, sha256, exportEvidence };
 
 if (require.main === module) {
 	exportEvidence(process.env.DK_WEBPACK_EVIDENCE).then(

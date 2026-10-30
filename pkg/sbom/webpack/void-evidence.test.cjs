@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { before, after, test } = require('node:test');
 
-const { createFixture, bootstrapOriginal } = require('./fixture.cjs');
+const { createFixture, forkedWebpack } = require('./fixture.cjs');
 const { MARKER, addSources, child } = require('./void-fixture.cjs');
 
 const PRELOAD = path.join(__dirname, 'runtime-preload.cjs');
@@ -30,9 +30,13 @@ after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 // One real webpack build per scenario, collected whole, in its own process
 // whose commonjs loader is recorded from the very first module on.
-function build(scenario) {
+function build(scenario, options = {}) {
 	const area = fixture.workspace(`${scenario}-${builds++}`, { isolateOriginals: true });
 	addSources(area);
+	// A distribution of its own, patched in the live copy and in the original
+	// alike: every file still binds to its component, and the one that was
+	// rewritten is no longer the pinned webpack.
+	const fork = options.fork ? forkedWebpack(path.join(area.root, 'fork'), (copy) => fs.appendFileSync(path.join(copy, 'lib', 'RawModule.js'), '\n// patched fork\n')) : undefined;
 	const setup = {
 		scenario,
 		context: area.root,
@@ -40,8 +44,10 @@ function build(scenario) {
 		modules: area.modules,
 		output: area.output,
 		proofPath: area.proofPath,
-		originals: area.originals,
-		webpackRoot: WEBPACK,
+		// The forked distribution stands in place of the installed one: two roots
+		// of one identity would be two answers about the same component.
+		originals: fork ? [...area.originals.filter((original) => original.component.id !== fork.binding.component.id), fork.binding] : area.originals,
+		webpackRoot: fork ? fork.root : WEBPACK,
 	};
 	const output = execFileSync(process.execPath, ['--require', PRELOAD, child], {
 		cwd: setup.context,
@@ -105,6 +111,16 @@ test('reports no data for a module of a class derived from the loaded one', () =
 	const row = build('subclass').row;
 	assert.equal(row.status, 'no-data', row.reason);
 	assert.match(row.reason, /is not built by the loaded RawModule\.js/);
+	assert.deepEqual(row.inputs, []);
+});
+
+// A distribution that is byte-for-byte its own original and still not the
+// webpack this adapter was pinned against: its file verifies, and the text it
+// writes is not the text that was read when the pin was taken.
+test('refuses a patched distribution that verifies against its own original', () => {
+	const row = build('plain', { fork: true }).row;
+	assert.equal(row.status, 'unsupported', row.reason);
+	assert.match(row.reason, /RawModule\.js is not the source of the pinned webpack 5\.94\.0/);
 	assert.deepEqual(row.inputs, []);
 });
 

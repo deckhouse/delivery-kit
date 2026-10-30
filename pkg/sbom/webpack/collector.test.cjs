@@ -59,9 +59,10 @@ test('binds an emitted chunk to the concatenated modules it really contains', as
 	assert.equal(main.reason, undefined);
 	assert.deepEqual(main.includedComponents, ['node:app@0.1.0', 'node:pkg-a@1.2.3', 'node:pkg-b@4.5.6', 'node:webpack@5.94.0']);
 	// The bootstrap this chunk was rendered from: the chunk renderer of the pinned
-	// webpack, the three helper modules it reads, and the stock APIPlugin tap that
-	// shaped its module content.
-	const bootstrapSources = ['lib/javascript/JavascriptModulesPlugin.js', 'lib/RuntimeGlobals.js', 'lib/RuntimeTemplate.js', 'lib/Template.js', 'lib/APIPlugin.js'].map((relative) =>
+	// webpack, the three helper modules it reads, the stock APIPlugin tap that
+	// shaped its module content, and the class that wrote the line reaching the
+	// external this bundle references.
+	const bootstrapSources = ['lib/javascript/JavascriptModulesPlugin.js', 'lib/RuntimeGlobals.js', 'lib/RuntimeTemplate.js', 'lib/Template.js', 'lib/APIPlugin.js', 'lib/ExternalModule.js'].map((relative) =>
 		path.join(fixture.bootstrap.binding.root, relative),
 	);
 	assert.deepEqual(

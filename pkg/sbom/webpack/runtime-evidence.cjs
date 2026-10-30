@@ -164,6 +164,8 @@ const FINGERPRINTS = new Map([
 	['runtime/CreateFakeNamespaceObjectRuntimeModule.js', 'sha256:80f9597afddd4b3d6798a8f7cb854a5446965bfa98b9c7aa740d88426f227625'],
 	['dependencies/CommonJsPlugin.js', 'sha256:d6d1c3fd918161c21f4eb794b00fe8e792f3b74f8c43f8796c50a2c83caae4bb'],
 	['RawModule.js', 'sha256:358fb3c0a3563420c6957d8a3c71c60e2cce75463dfa5014a32238392ac54556'],
+	['ContextModule.js', 'sha256:303d4e2012d224249c8b8c5ab337295111d5d3768cbada0c418062e1dffcef20'],
+	['ExternalModule.js', 'sha256:099213db88a5a229f94ee7c21db6c794ceae88be97215f963190c1cb518fdb60'],
 ]);
 
 async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource) {

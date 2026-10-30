@@ -24,6 +24,8 @@ const { assetEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const path = require('path');
 
 const PLUGIN = 'DkSbomWebpackCollector';
+// What the default extracted-comments filename of the minifier appends.
+const COMMENTS_SUFFIX = '.LICENSE.txt';
 const PROOF_VERSION = 1;
 const SUPPORTED_WEBPACK = '5.94.0';
 const COPY_PLUGIN = 'CopyPlugin';
@@ -56,6 +58,7 @@ class DkSbomWebpackCollector {
 		if (options.esbuild) options.esbuildEvidence = installEsbuildEvidence(compiler, options.esbuild, resource => verifyResource(options, resource));
 		options.stylesheetEvidence = installStylesheetEvidence(compiler, resource => verifyResource(options, resource));
 		options.minifierEvidence = installTerserEvidence(compiler, resource => verifyResource(options, resource));
+		options.licenseEvidence = options.minifierEvidence.license;
 		options.contentHashEvidence = installContentHashEvidence(compiler, resource => verifyResource(options, resource));
 		options.htmlEvidence = installHtmlEvidence(compiler, resource => verifyResource(options, resource));
 		compiler.hooks.afterEmit.tapAsync(PLUGIN, (compilation, callback) => {
@@ -226,7 +229,7 @@ async function buildProof(options, compilation) {
 			throw new Error(`${PLUGIN}: unsupported asset name carrying a query or fragment: ${asset.name}`);
 		}
 		const assetPath = requireCleanRelativePath(asset.name, `emitted asset ${asset.name}`);
-		assets.push(await describeAsset(options, assetPath, asset, chunkUnits.get(asset.name), compilation));
+		assets.push(await describeAsset(options, assetPath, asset, chunkUnits, compilation));
 	}
 	assets.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	return { version: PROOF_VERSION, sourceRoot, assets };
@@ -390,16 +393,51 @@ function readRegularFile(file) {
 	return { bytes: fs.readFileSync(file) };
 }
 
-function describeAsset(options, assetPath, asset, chunkCollected, compilation) {
+function describeAsset(options, assetPath, asset, chunkUnits, compilation) {
+	const chunkCollected = chunkUnits.get(assetPath);
 	const copied = asset.info && asset.info.copied === true;
 	if (copied && chunkCollected) {
 		return incomplete(assetPath, failure('invalid', `asset is both copied and emitted by a chunk`));
 	}
 	if (copied) return describeCopiedAsset(options, assetPath, compilation);
+	if (!chunkCollected && asset.info && asset.info.extractedComments === true) {
+		return describeExtractedComments(options, assetPath, compilation, chunkUnits);
+	}
 	if (!chunkCollected) return describeEmittedAsset(options, assetPath, compilation);
 	if (chunkCollected.failures.size > 0) return incomplete(assetPath, worst([...chunkCollected.failures.values()]));
 	if (chunkCollected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
 	return present(assetPath, [...chunkCollected.units.values()], chunkCollected.requiredBytes);
+}
+
+// The comments a described minification took out of one asset and wrote to a
+// file of their own. They are no code of their own: the file is claimed with
+// the sources of the asset its comments came from, which is the asset named by
+// the one filename the minifier writes - this one, without its suffix.
+async function describeExtractedComments(options, assetPath, compilation, chunkUnits) {
+	const hashed = await options.contentHashEvidence(compilation, assetPath);
+	if (hashed.failure) return incomplete(assetPath, hashed.failure);
+	const name = hashed.name || assetPath;
+	const observed = await options.licenseEvidence(compilation, name);
+	if (observed.failure) return incomplete(assetPath, observed.failure);
+	if (!observed.bytes) return incomplete(assetPath, failure('no-data', `no described minification wrote ${assetPath}`));
+	if (!assetPath.endsWith(COMMENTS_SUFFIX)) return incomplete(assetPath, failure('no-data', `${assetPath} is not the comments file of an asset of this compilation`));
+	const ownerPath = assetPath.slice(0, -COMMENTS_SUFFIX.length);
+	const hashedOwner = await options.contentHashEvidence(compilation, ownerPath);
+	if (hashedOwner.failure) return incomplete(assetPath, hashedOwner.failure);
+	const owner = hashedOwner.name || ownerPath;
+	if (observed.owner !== owner || `${owner}${COMMENTS_SUFFIX}` !== name) {
+		return incomplete(assetPath, failure('no-data', `${assetPath} holds the comments of ${observed.owner}, which is not the asset it is named after`));
+	}
+	const collected = chunkUnits.get(ownerPath);
+	if (!collected) return incomplete(assetPath, failure('no-data', `${ownerPath} belongs to no chunk of this compilation`));
+	if (collected.failures.size > 0) return incomplete(assetPath, worst([...collected.failures.values()]));
+	if (collected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
+	let produced = observed.bytes;
+	if (hashed.input) {
+		if (!hashed.input.equals(produced)) return incomplete(assetPath, failure('no-data', `${assetPath} was changed before its content hash was replaced`));
+		produced = hashed.output;
+	}
+	return present(assetPath, [...collected.units.values()], produced);
 }
 
 // An asset no chunk emitted and no copy produced: the html a described plugin

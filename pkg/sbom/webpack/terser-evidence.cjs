@@ -62,7 +62,7 @@ function installTerserEvidence(compiler, verifyResource) {
 		if (!prepared) prepared = prepare(compiler);
 	});
 	const verified = new WeakMap();
-	return async function evidenceFor(compilation, assetName) {
+	async function evidenceFor(compilation, assetName) {
 		const observer = prepared && prepared.observer;
 		// Nothing observable minified anything here; an asset that was changed all
 		// the same no longer carries the bytes it was described from.
@@ -75,7 +75,50 @@ function installTerserEvidence(compiler, verifyResource) {
 		const failure = await verify(observer, verified, verifyResource, compilation);
 		if (failure) return { failure };
 		return { input: record.input, output: record.output };
+	}
+
+	// The comments the minifier took out of one asset and wrote to a file of
+	// their own. They are not code it produced: they were in the bytes it was
+	// given, which is what is checked here, fragment by fragment.
+	evidenceFor.license = async function licenseFor(compilation, assetName) {
+		const observer = prepared && prepared.observer;
+		if (!observer) return { status: 'none' };
+		const entry = (observer.licenses.get(compilation) || new Map()).get(assetName);
+		if (!entry) return { status: 'none' };
+		// Only the plugin's own default filename reaches this, so two assets can
+		// never share one file; a shared one is a merge of comment fragments that
+		// reconstructs neither of its inputs.
+		if (entry.records.size !== 1) return noData(`${assetName} holds the comments of ${entry.records.size} assets`);
+		const [record] = entry.records;
+		if (record.problem) return noData(`${assetName} was written while ${record.problem}`);
+		if (!entry.bytes || !record.input) return noData(`the bytes of ${assetName} or of the asset it came from could not be read`);
+		const extracted = fragments(entry.bytes);
+		if (typeof extracted === 'string') return noData(`${assetName} ${extracted}`);
+		for (const fragment of extracted) {
+			if (!record.input.includes(Buffer.from(fragment, 'utf8'))) {
+				return noData(`${assetName} holds a comment that is not in the bytes ${record.name} was minified from`);
+			}
+		}
+		const failure = await verify(observer, verified, verifyResource, compilation);
+		if (failure) return { failure };
+		return { owner: record.name, bytes: entry.bytes };
 	};
+	return evidenceFor;
+}
+
+// What the plugin writes is every comment it took, sorted, separated by a blank
+// line and closed by a newline. Anything else was not written that way.
+function fragments(bytes) {
+	const text = bytes.toString('utf8');
+	if (!text.endsWith('\n')) return 'does not end in a newline';
+	const parts = text.slice(0, -1).split('\n\n');
+	for (const [index, part] of parts.entries()) {
+		if (part === '') return 'holds an empty comment';
+		// The plugin rebuilds every comment as a block or a line comment.
+		if (!/^\/\*[\s\S]*\*\/$/.test(part) && !/^\/\/[^\n]*$/.test(part)) return 'holds text that is not a comment';
+		if (index > 0 && !(parts[index - 1] < part)) return 'holds comments that are not sorted, or holds one of them twice';
+	}
+	return parts;
 }
 
 function prepare(compiler) {
@@ -124,7 +167,7 @@ function observe(registry, modules, terserEntry) {
 	// exported, or the call runs code no fingerprint covers.
 	const minify = modules[2].entry.members && modules[2].entry.members.get('terserMinify');
 	if (!minify || minify.kind !== 'data' || !Object.is(minify.value, plugin.terserMinify)) return null;
-	const observer = { registry, modules, index, plugin, terserEntry, original: descriptor.value, records: new WeakMap(), minified: new Map() };
+	const observer = { registry, modules, index, plugin, terserEntry, original: descriptor.value, records: new WeakMap(), licenses: new WeakMap(), minified: new Map() };
 	observer.wrapper = function (compiler, compilation, assets, optimizeOptions) {
 		const call = { records: [], problem: drift(observer) || pluginProblem(observer, this) };
 		let active = true;
@@ -212,6 +255,8 @@ function complete(observer, compilation, call) {
 	let byName = observer.records.get(compilation);
 	if (!byName) observer.records.set(compilation, (byName = new Map()));
 	const drifted = call.problem || drift(observer);
+	let licenses = observer.licenses.get(compilation);
+	if (!licenses) observer.licenses.set(compilation, (licenses = new Map()));
 	for (const record of call.records) {
 		const asset = compilation.getAsset(record.name);
 		record.output = bytesOf(asset && asset.source);
@@ -219,6 +264,16 @@ function complete(observer, compilation, call) {
 		const previous = byName.get(record.name) || [];
 		previous.push(record);
 		byName.set(record.name, previous);
+		// Where the minifier says it put the comments of this asset: read once
+		// the call that wrote them has resolved, before anything else can.
+		const related = asset && asset.info && asset.info.related;
+		const name = related && related.license;
+		if (typeof name !== 'string') continue;
+		const written = compilation.getAsset(name);
+		const entry = licenses.get(name) || { records: new Set(), bytes: null };
+		entry.records.add(record);
+		entry.bytes = bytesOf(written && written.source);
+		licenses.set(name, entry);
 	}
 }
 

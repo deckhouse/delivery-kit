@@ -227,7 +227,10 @@ test('describes a minified bundle whose preserved comment the minifier extracted
 	assert.match(emitted, /^\/\*! For license information please see main\.js\.LICENSE\.txt \*\//);
 	assert.equal(row.sha256, sha256(path.join(area.output, 'main.js')));
 	assert.match(fs.readFileSync(path.join(area.output, 'main.js.LICENSE.txt'), 'utf8'), /preserved notice of the application/);
+	// The comments file it wrote is described with the sources of the asset they
+	// were taken out of; license-evidence.test.cjs covers that on its own.
 	const license = rowOf(result.report, 0, 'main.js.LICENSE.txt');
-	assert.equal(license.status, 'no-data');
+	assert.equal(license.status, 'present', license.reason);
+	assert.deepEqual(license.inputs, row.inputs);
 	assert.ok(row.inputs.some((input) => input.path === area.installed('app/banner.js')), 'the entry is not an input');
 });

@@ -36,6 +36,54 @@ var _ = ginkgo.Describe("carrying original matches", func() {
 		}))
 	})
 
+	// The function serves the gate's evidence chain as well as the producer context, so
+	// the rule holds wherever it is called from: a file the stage did not touch is not
+	// one of the files it is byte for byte.
+	// The function serves the gate's evidence chain as well as the producer context, so
+	// the rule holds wherever it is called from: a file the stage did not touch is not
+	// one of the files it happens to be byte for byte. Here the base's own binary and
+	// an imported one share their bytes, and only the imported one is attributed.
+	ginkgo.It("leaves an untouched path alone though an imported path's bytes match it", func() {
+		before := fixtureIndex(map[string]string{"/usr/bin/tool": "tool-bytes", "/bin/sh": "shell", "/opt/tool": "tool-bytes"})
+		after := fixtureIndex(map[string]string{"/usr/bin/tool": "tool-bytes", "/bin/sh": "shell", "/opt/tool": "tool-bytes"})
+		matches := originalMatches{"/opt/tool": {{Source: "src-tool", Path: "bin/tool"}}}
+
+		carried, err := carryOriginalMatches(before, matches, after)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(slices.Sorted(maps.Keys(carried))).To(gomega.Equal([]string{"/opt/tool"}),
+			"the base's own binary was not imported from anywhere")
+	})
+
+	// The shape a real strict builder arrived in: the base holds an empty /.dockerenv
+	// the container runtime wrote, and the packet several empty files of its own.
+	ginkgo.It("binds no empty file of the base to the empty files an import carried", func() {
+		before := fixtureIndex(map[string]string{
+			"/.dockerenv": "", "/bin/sh": "shell",
+			"/opt/empty_a": "", "/opt/empty_b": "",
+		})
+		after := fixtureIndex(map[string]string{
+			"/.dockerenv": "", "/bin/sh": "shell",
+			"/opt/empty_a": "", "/opt/empty_b": "",
+		})
+		matches := originalMatches{
+			"/opt/empty_a": {{Source: "src-a", Path: "testdata/a"}},
+			"/opt/empty_b": {{Source: "src-b", Path: "testdata/b"}},
+		}
+
+		carried, err := carryOriginalMatches(before, matches, after)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(carried).To(gomega.Equal(originalMatches{
+			"/opt/empty_a": {{Source: "src-a", Path: "testdata/a"}},
+			"/opt/empty_b": {{Source: "src-b", Path: "testdata/b"}},
+		}), "each keeps the evidence of its own import, and the runtime's file gains none")
+
+		binding, err := uniqueOriginalBinding(carried["/opt/empty_a"])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(binding).To(gomega.Equal(originalBinding{Source: "src-a", Path: "testdata/a"}))
+	})
+
 	ginkgo.It("never attributes a file the scoped matches do not cover", func() {
 		before := fixtureIndex(map[string]string{"/opt/tool": "tool-bytes", "/opt/unscoped": "unscoped-bytes"})
 		after := fixtureIndex(map[string]string{"/opt/tool": "tool-bytes", "/opt/unscoped": "unscoped-bytes", "/opt/copy": "unscoped-bytes"})
@@ -190,7 +238,11 @@ var _ = ginkgo.Describe("carrying original matches", func() {
 		}
 	})
 
-	ginkgo.It("carries an empty file by its bytes like any other", func() {
+	// An empty file holds its own evidence where it stands and gives none away. Its
+	// bytes are every empty file's bytes: letting them speak would hand each of these
+	// three to all of them at once, and hand the same to every empty file the build
+	// happens to write.
+	ginkgo.It("keeps an empty file's own evidence and lets its bytes name nothing", func() {
 		before := fixtureIndex(map[string]string{"/a/empty": "", "/b/empty": "", "/kept/empty": ""})
 		after := fixtureIndex(map[string]string{"/kept/empty": "", "/renamed/empty": ""})
 		matches := originalMatches{
@@ -200,15 +252,10 @@ var _ = ginkgo.Describe("carrying original matches", func() {
 		}
 
 		carried, err := carryOriginalMatches(before, matches, after)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(carried["/kept/empty"]).To(gomega.Equal([]originalBinding{{Source: "src-kept", Path: "share/empty"}}))
-		gomega.Expect(carried["/renamed/empty"]).To(gomega.Equal([]originalBinding{
-			{Source: "src-a", Path: "share/empty"},
-			{Source: "src-b", Path: "share/empty"},
-			{Source: "src-kept", Path: "share/empty"},
-		}))
 
-		_, err = uniqueOriginalBinding(carried["/renamed/empty"])
-		gomega.Expect(err).To(gomega.MatchError(gomega.HavePrefix("no-data")))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(carried).To(gomega.Equal(originalMatches{
+			"/kept/empty": {{Source: "src-kept", Path: "share/empty"}},
+		}), "the file that stayed keeps what was proven of it, and the one that appeared is attributed to nothing")
 	})
 })

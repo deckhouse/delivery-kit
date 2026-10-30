@@ -39,6 +39,12 @@ func carryOriginalMatches(before *shippedscope.FileIndex, matches originalMatche
 			if binding.Source == "" || binding.Path == "" {
 				return nil, fmt.Errorf("original match %q carries an incomplete binding", path)
 			}
+			// An empty file is every empty file. Its bytes single nothing out, and
+			// letting them speak would bind every empty file in the image to all of
+			// them at once.
+			if file.Size == 0 {
+				continue
+			}
 			byFile[file] = append(byFile[file], binding)
 		}
 	}
@@ -49,6 +55,14 @@ func carryOriginalMatches(before *shippedscope.FileIndex, matches originalMatche
 		if kept, ok := matches[path]; ok && before.Files[path] == file {
 			carried[path] = sortedOriginalBindings(kept)
 
+			continue
+		}
+		// Bytes carry a binding to where content went, and a path that came through
+		// this stage untouched is not where anything went. It stood there before,
+		// with nothing bound to it, and the stage that did not write it has said
+		// nothing new about it - least of all that it is now one of the files it
+		// happens to be byte for byte.
+		if previous, stood := before.Files[path]; stood && previous == file {
 			continue
 		}
 		if alternatives, ok := byFile[file]; ok {

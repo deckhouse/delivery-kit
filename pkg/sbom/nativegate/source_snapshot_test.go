@@ -13,7 +13,6 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
@@ -54,7 +53,7 @@ func (l mutableLayer) Uncompressed() (io.ReadCloser, error) {
 
 func fixtureMutableOriginal(files map[string]string) (*original.OriginalPackage, func(old, new string)) {
 	body := fixtureLayerBytes(files)
-	base, err := tarball.LayerFromReader(bytes.NewReader(body))
+	base, err := fixtureLayer(body)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	image, err := mutate.AppendLayers(empty.Image, mutableLayer{Layer: base, body: &body})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -84,7 +83,7 @@ func fixtureOriginalWithSymlink(files map[string]string, link, target string) *o
 	gomega.Expect(tw.WriteHeader(&tar.Header{Name: strings.TrimPrefix(link, "/"), Typeflag: tar.TypeSymlink, Linkname: target, Mode: 0o777})).To(gomega.Succeed())
 	gomega.Expect(tw.Close()).To(gomega.Succeed())
 
-	layer, err := tarball.LayerFromReader(bytes.NewReader(buffer.Bytes()))
+	layer, err := fixtureLayer(buffer.Bytes())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	image, err := mutate.AppendLayers(empty.Image, layer)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

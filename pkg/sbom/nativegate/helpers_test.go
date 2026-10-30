@@ -5,11 +5,14 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
@@ -92,4 +95,15 @@ func fixtureFileMode(name string) int64 {
 		return 0o644
 	}
 	return 0o755
+}
+
+// fixtureLayer makes a layer out of bytes already in hand.
+//
+// ggcr's LayerFromReader buffers whatever it is given into a temp file it never closes and
+// never removes, so a suite that builds a layer per spec leaves thousands of them behind.
+// The bytes are here already; handing them back on demand costs nothing and leaves nothing.
+func fixtureLayer(body []byte) (v1.Layer, error) {
+	return tarball.LayerFromOpener(func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	})
 }

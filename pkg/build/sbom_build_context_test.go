@@ -105,7 +105,7 @@ func producerImage(labels map[string]string, layers ...map[string]string) v1.Ima
 			Expect(err).NotTo(HaveOccurred())
 		}
 		Expect(writer.Close()).To(Succeed())
-		layer, err := tarball.LayerFromReader(&buf)
+		layer, err := fixtureLayer(buf.Bytes())
 		Expect(err).NotTo(HaveOccurred())
 		img, err = mutate.AppendLayers(img, layer)
 		Expect(err).NotTo(HaveOccurred())

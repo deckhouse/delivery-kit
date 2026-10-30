@@ -52,7 +52,7 @@ var _ = Describe("Shipped scripts of an SBOM build", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 		Expect(writer.Close()).To(Succeed())
-		layer, err := tarball.LayerFromReader(&buf)
+		layer, err := fixtureLayer(buf.Bytes())
 		Expect(err).NotTo(HaveOccurred())
 		img, err := mutate.AppendLayers(empty.Image, layer)
 		Expect(err).NotTo(HaveOccurred())

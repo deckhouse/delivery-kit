@@ -15,7 +15,6 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -38,7 +37,7 @@ func fixtureImage(files map[string]string) v1.Image {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	gomega.Expect(tw.Close()).To(gomega.Succeed())
-	layer, err := tarball.LayerFromReader(&buffer)
+	layer, err := fixtureLayer(buffer.Bytes())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	img, err := mutate.AppendLayers(empty.Image, layer)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

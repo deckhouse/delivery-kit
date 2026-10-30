@@ -18,7 +18,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -535,7 +534,7 @@ func inheritedPackageImage() (v1.Image, error) {
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-	layer, err := tarball.LayerFromReader(&buffer)
+	layer, err := fixtureLayer(buffer.Bytes())
 	if err != nil {
 		return nil, err
 	}

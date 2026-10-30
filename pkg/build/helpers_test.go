@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,7 +76,7 @@ func sourceSnapshotImage(layers ...[]sourceSnapshotFile) v1.Image {
 			}
 		}
 		gomega.Expect(writer.Close()).To(gomega.Succeed())
-		layer, err := tarball.LayerFromReader(&buf)
+		layer, err := fixtureLayer(buf.Bytes())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		img, err = mutate.AppendLayers(img, layer)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -884,4 +885,15 @@ func installedRockspec(name string) string {
 		panic(err)
 	}
 	return string(data)
+}
+
+// fixtureLayer makes a layer out of bytes already in hand.
+//
+// ggcr's LayerFromReader buffers whatever it is given into a temp file it never closes and
+// never removes, so a suite that builds a layer per spec leaves thousands of them behind.
+// The bytes are here already; handing them back on demand costs nothing and leaves nothing.
+func fixtureLayer(body []byte) (v1.Layer, error) {
+	return tarball.LayerFromOpener(func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	})
 }

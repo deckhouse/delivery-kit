@@ -13,7 +13,6 @@ import (
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
@@ -116,7 +115,7 @@ func treeIndex(ctx context.Context, root string) *shippedscope.FileIndex {
 	})).To(gomega.Succeed())
 	gomega.Expect(writer.Close()).To(gomega.Succeed())
 
-	layer, err := tarball.LayerFromReader(&buffer)
+	layer, err := fixtureLayer(buffer.Bytes())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	image, err := mutate.AppendLayers(empty.Image, layer)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

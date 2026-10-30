@@ -1,7 +1,6 @@
 package nativegate
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
@@ -53,7 +51,7 @@ func (r *countingReader) Read(b []byte) (int, error) {
 }
 
 func fixtureCountedOriginal(files map[string]string) (*original.OriginalPackage, *layerIO) {
-	base, err := tarball.LayerFromReader(bytes.NewReader(fixtureLayerBytes(files)))
+	base, err := fixtureLayer(fixtureLayerBytes(files))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	counted := &layerIO{}
 	image, err := mutate.AppendLayers(empty.Image, countingLayer{Layer: base, io: counted})

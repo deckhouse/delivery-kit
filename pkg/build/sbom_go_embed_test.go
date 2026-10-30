@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -160,7 +159,7 @@ func assetSourceImage(files, symlinks map[string]string, directories ...string) 
 		gomega.Expect(writer.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Typeflag: tar.TypeSymlink, Mode: 0o777, Linkname: symlinks[name]})).To(gomega.Succeed())
 	}
 	gomega.Expect(writer.Close()).To(gomega.Succeed())
-	layer, err := tarball.LayerFromReader(&buf)
+	layer, err := fixtureLayer(buf.Bytes())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	img, err := mutate.AppendLayers(producerImage(map[string]string{}), layer)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

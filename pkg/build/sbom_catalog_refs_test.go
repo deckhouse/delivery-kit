@@ -179,6 +179,36 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 			"the rewritten catalog does not load: /app: no-data: missing package owners")))
 	})
 
+	// Two components the catalog tells apart that the document declares as one would
+	// leave one record naming a component describing the other.
+	It("refuses two proven components the document declares as one", func() {
+		catalog := `{"schema":"dk.catalog/v4","records":[` +
+			`{"path":"/app","sha256":"sha256:` + strings.Repeat("6", 64) + `","origin":"pm",` +
+			`"components":["urn:dk:component:sha256:aaaa"],"owners":["urn:dk:component:sha256:aaaa"]}],` +
+			`"components":{` +
+			`"urn:dk:component:sha256:aaaa":{"type":"library","name":"app","version":"1","purl":"pkg:generic/app@1","bom-ref":"urn:dk:component:sha256:aaaa"},` +
+			`"urn:dk:component:sha256:bbbb":{"type":"library","name":"app","version":"1","purl":"pkg:generic/app@1","bom-ref":"urn:dk:component:sha256:bbbb"}}}`
+		published, _ := documentWith(catalog, cdx.Component{
+			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",
+		})
+		verified := &cdx.BOM{Components: &[]cdx.Component{
+			{Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "urn:dk:component:sha256:aaaa", PackageURL: "pkg:generic/app@1"},
+			{Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "urn:dk:component:sha256:bbbb", PackageURL: "pkg:generic/app@1"},
+		}}
+
+		Expect(rewrite(published, verified)).To(MatchError(ContainSubstring(
+			"invalid: the published document declares urn:dk:component:sha256:aaaa and urn:dk:component:sha256:bbbb as one component derived")))
+	})
+
+	It("refuses a catalog carrying a field this does not understand", func() {
+		catalog := `{"schema":"dk.catalog/v4","records":[],"components":{},"invented":1}`
+		published, verified := documentWith(catalog, cdx.Component{
+			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",
+		})
+
+		Expect(rewrite(published, verified)).To(MatchError(ContainSubstring("read the verified catalog")))
+	})
+
 	It("says nothing about a document carrying no catalog", func() {
 		published := &cdx.BOM{Components: &[]cdx.Component{{
 			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",

@@ -3,6 +3,8 @@ package build
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -128,19 +130,36 @@ func (c *catalogRefs) rewrite(published *cdx.BOM) error {
 	}
 
 	var catalog nativegate.Catalog
-	if err := json.Unmarshal([]byte(property.Value), &catalog); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(property.Value))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&catalog); err != nil {
 		return fmt.Errorf("read the verified catalog: %w", err)
 	}
 
 	// A catalog holds each component under its own ref, and a reader of it checks that
 	// the two agree. Renaming the key alone would leave the component inside still
 	// answering to the name the verification gave it.
+	//
+	// Only the ref is rewritten. What the component says of itself - its name, version
+	// and purl - stays as the verification wrote it, because that is what was proven;
+	// the document beside it may have been given a version a tag resolved to since,
+	// and the catalog is the record of the build rather than of what came after.
 	components := make(map[string]cdx.Component, len(catalog.Components))
-	for ref, component := range catalog.Components {
+	named := make(map[string]string, len(catalog.Components))
+	for _, ref := range slices.Sorted(maps.Keys(catalog.Components)) {
+		component := catalog.Components[ref]
 		name, err := translate(ref)
 		if err != nil {
 			return err
 		}
+		// Two proven components that the document declares as one would leave the
+		// catalog holding whichever was translated last, and the records of the
+		// other naming a component describing something else.
+		if taken, collides := named[name]; collides {
+			return fmt.Errorf("invalid: the published document declares %s and %s as one component %s",
+				taken, ref, name)
+		}
+		named[name] = ref
 		component.BOMRef = name
 		components[name] = component
 	}

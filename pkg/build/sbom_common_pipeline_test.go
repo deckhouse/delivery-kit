@@ -231,6 +231,39 @@ var _ = Describe("Common SBOM pipeline", func() {
 				"the base this was merged with did survive the drop of superseded attribution")
 		})
 
+		// A patcher of the pipeline rewrites a component after the verification was
+		// merged in: the Go patcher gives a module whose build left it at `(devel)`
+		// the version a tag resolves to, changing its version and its purl. It is the
+		// same component - the one the record named - and the catalog must still reach
+		// it, at the purl it now carries.
+		It("reaches a component a patcher rewrote after the verification", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": goModuleRecordELF()})
+			resolve := &resolveGoVersionsPatcher{version: "v1.2.3", modulePath: "example.invalid/app"}
+
+			Expect(step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{},
+				[]BOMPatcherInterface{resolve}, nil, true, "", nil, "")).To(Succeed())
+
+			bom, err := step.GetImageBOM(ctx, "app", desc.Info)
+			Expect(err).NotTo(HaveOccurred())
+			catalog, err := nativegate.ReadCatalog([]*cdx.BOM{bom})
+			Expect(err).NotTo(HaveOccurred())
+
+			resolved, found := lo.Find(lo.FromPtr(bom.Components), func(comp cdx.Component) bool {
+				return comp.Name == "example.invalid/app"
+			})
+			Expect(found).To(BeTrue())
+			Expect(resolved.Version).To(Equal("v1.2.3"), "the patcher did rewrite the component")
+			Expect(resolved.PackageURL).To(ContainSubstring("@v1.2.3"))
+			Expect(catalog.Components).To(HaveKey(resolved.BOMRef),
+				"the catalog reaches the component as the patcher left it")
+			Expect(catalog.Records).To(HaveLen(1))
+			Expect(catalog.Records[0].Components).To(ContainElement(resolved.BOMRef))
+			// What the catalog holds is what was proven, not what the patcher made
+			// of it afterwards.
+			Expect(catalog.Components[resolved.BOMRef].Version).To(Equal("(devel)"))
+		})
+
 		It("leaves everything but the refs as the verification wrote it", func(specCtx SpecContext) {
 			ctx := logging.WithLogger(specCtx)
 			_, catalog, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})

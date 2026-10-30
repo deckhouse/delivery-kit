@@ -78,15 +78,21 @@ async function assetEvidence(compilation, chunk, verifyResource, evidence = {}) 
 	const described = chunk.hasRuntime() ? await bootstrapEvidence(compilation, chunk, verifyResource) : await chunkEvidence(compilation, chunk, verifyResource);
 	if (described.failure) return described;
 	const renderedBytes = described.rendered;
-	// The two stages that are allowed to stand between the render and the emit,
-	// in the order they run, each for exactly the bytes the one before left: a
-	// described minification, and the replacement of the content hashes, which
-	// also gave this asset the name it is emitted under.
+	// The stages that are allowed to stand between the render and the emit, in
+	// the order they run, each for exactly the bytes the one before left: a
+	// described banner, a described minification, and the replacement of the
+	// content hashes, which also gave this asset the name it is emitted under.
 	const hashed = evidence.contentHash ? await evidence.contentHash(compilation, file) : { status: 'none' };
 	if (hashed.failure) return { units: [], failure: hashed.failure };
+	const bannered = evidence.banner ? await evidence.banner(compilation, hashed.name || file) : { status: 'none' };
+	if (bannered.failure) return { units: [], failure: bannered.failure };
 	const minified = evidence.minifier ? await evidence.minifier(compilation, hashed.name || file) : { status: 'none' };
 	if (minified.failure) return { units: [], failure: minified.failure };
 	let produced = renderedBytes;
+	if (bannered.input) {
+		if (!bannered.input.equals(produced)) return noData(`${file} was changed between its render and its banner`);
+		produced = bannered.output;
+	}
 	if (minified.input) {
 		if (!minified.input.equals(produced)) return noData(`${file} was changed between its render and its minification`);
 		produced = minified.output;
@@ -95,15 +101,16 @@ async function assetEvidence(compilation, chunk, verifyResource, evidence = {}) 
 		if (!hashed.input.equals(produced)) return noData(`${file} was changed before its content hash was replaced`);
 		produced = hashed.output;
 	}
-	// Anything else between the render and the emit - another minifier, a banner -
-	// leaves bytes this adapter cannot attribute; it refuses rather than guesses.
+	// Anything else between the render and the emit - another minifier, another
+	// plugin writing into the asset - leaves bytes this adapter cannot
+	// attribute; it refuses rather than guesses.
 	if (!produced.equals(bytes.get(file))) {
 		return noData(`${file} was changed between its render and its emit`);
 	}
 	// The emit snapshot is not the end of the story: a plugin can still rewrite
 	// the file afterwards, so the caller has to compare these bytes with the ones
 	// that stayed on disk.
-	return { units: described.units, requiredBytes: produced };
+	return { units: [...described.units, ...(bannered.units || [])], requiredBytes: produced };
 }
 
 async function bootstrapEvidence(compilation, chunk, verifyResource) {

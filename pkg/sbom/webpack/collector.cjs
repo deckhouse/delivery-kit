@@ -18,8 +18,11 @@ const { installCopyEvidence } = require('./copy-evidence.cjs');
 const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
 const { installIncludeEvidence, isIncludeLoader } = require('./include-evidence.cjs');
+const { voidEvidence, isVoidModule } = require('./void-evidence.cjs');
+const { installDefineEvidence, defineProblem } = require('./define-evidence.cjs');
 const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
+const { installBannerEvidence } = require('./banner-evidence.cjs');
 const { installHtmlEvidence } = require('./html-evidence.cjs');
 const { assetEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const { childEvidence } = require('./child-evidence.cjs');
@@ -63,6 +66,9 @@ class DkSbomWebpackCollector {
 		options.minifierEvidence = installTerserEvidence(compiler, resource => verifyResource(options, resource));
 		options.licenseEvidence = options.minifierEvidence.license;
 		options.contentHashEvidence = installContentHashEvidence(compiler, resource => verifyResource(options, resource));
+		options.bannerEvidence = installBannerEvidence(compiler, resource => verifyResource(options, resource));
+		options.compiler = compiler;
+		options.definePlugins = installDefineEvidence(compiler);
 		options.htmlEvidence = installHtmlEvidence(compiler, resource => verifyResource(options, resource));
 		compiler.hooks.afterEmit.tapAsync(PLUGIN, (compilation, callback) => {
 			buildProof(options, compilation)
@@ -284,6 +290,15 @@ function refuseClaims(child, compilation, byAsset, error) {
 	}
 }
 
+function definedProblem(options, compilation) {
+	if (!options.compiler) return Promise.resolve(null);
+	if (!options.defined) options.defined = new WeakMap();
+	if (!options.defined.has(compilation)) {
+		options.defined.set(compilation, defineProblem(options.compiler, options.definePlugins, resource => verifyResource(options, resource), compilation));
+	}
+	return options.defined.get(compilation);
+}
+
 // Which compilation a reason is about, said the one way everywhere.
 function madeBy(child) {
 	return child && child.name ? `the compilation of ${child.name}` : 'a compilation this one made';
@@ -302,6 +317,10 @@ function chunksOf(child) {
 }
 
 async function collectChunksInto(options, source, compilation, byAsset) {
+	// What the constants of this build are spliced into the modules as, decided
+	// for the compilation that built them: a compiler this one makes may have
+	// been given definers of its own after it was made.
+	const defined = await definedProblem(options, source);
 	for (const chunk of source.chunks) {
 		const collected = { units: new Map(), failures: new Map(), compilation: source };
 		// One chunk emitting several files would need per-file attribution of its
@@ -309,7 +328,8 @@ async function collectChunksInto(options, source, compilation, byAsset) {
 		if (chunk.files.size !== 1) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
-		const evidence = { minifier: options.minifierEvidence, contentHash: options.contentHashEvidence };
+		const evidence = { banner: options.bannerEvidence, minifier: options.minifierEvidence, contentHash: options.contentHashEvidence };
+		if (defined) addFailure(collected, defined);
 		try {
 			for (const module of source.chunkGraph.getChunkModulesIterable(chunk)) {
 				await collectModule(options, module, collected, source, chunk);
@@ -371,6 +391,13 @@ async function collectModule(options, module, collected, compilation, chunk) {
 	}
 	// An external is referenced, not bundled, so it contributes no input here.
 	if (typeof module.externalType === 'string') return;
+	// A module webpack built for a request it was told to drop reads no file.
+	if (isVoidModule(module)) {
+		const result = await voidEvidence(compilation, chunk, module, resource => verifyResource(options, resource));
+		if (result.failure) addFailure(collected, result.failure);
+		for (const unit of result.units) collected.units.set(unit.path, unit);
+		return;
+	}
 	// A loader rewrites the module before webpack consumes it, so the file on disk
 	// is no longer the unit that was bundled.
 	if (Array.isArray(module.loaders) && module.loaders.length > 0) {

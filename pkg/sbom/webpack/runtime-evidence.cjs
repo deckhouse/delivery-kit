@@ -134,6 +134,7 @@ const FINGERPRINTS = new Map([
 	['dependencies/AMDRuntimeModules.js', 'sha256:50d240952310f884e3b46834b4b1e098cab22a0050dbd18457eb79fccfd70a09'],
 	['runtime/CompatGetDefaultExportRuntimeModule.js', 'sha256:dc3f62221eb87296467e3f2d2783b46c6d3910d6a0b0086038b7b108fe16e0b2'],
 	['dependencies/CommonJsPlugin.js', 'sha256:d6d1c3fd918161c21f4eb794b00fe8e792f3b74f8c43f8796c50a2c83caae4bb'],
+	['RawModule.js', 'sha256:358fb3c0a3563420c6957d8a3c71c60e2cce75463dfa5014a32238392ac54556'],
 ]);
 
 async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource) {

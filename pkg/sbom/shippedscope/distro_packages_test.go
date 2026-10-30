@@ -504,9 +504,10 @@ var _ = Describe("Deciding afresh what an import source says about its own packa
 		Expect(recordedOccurrences(&(*bom.Components)[0])).To(BeNil())
 	})
 
-	// rpm and apk databases are not read, so their verdicts cannot be checked either,
-	// and an unchecked verdict is cleared like any other.
-	DescribeTable("clears the verdict of a package whose database this does not read",
+	// Every manager's component is answered by its own manager's database. A Debian
+	// source carries no rpm database, so of an rpm package it says nothing - and a
+	// verdict nothing can check is cleared like any other.
+	DescribeTable("clears the verdict of a package whose database the source does not carry",
 		func(ctx SpecContext, purl string) {
 			comp := cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: purl, Name: "musl", Version: "1.2", PackageURL: purl}
 			comp.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
@@ -518,6 +519,53 @@ var _ = Describe("Deciding afresh what an import source says about its own packa
 		Entry("an rpm package", "pkg:rpm/fedora/glibc@2.38?arch=x86_64"),
 		Entry("an apk package", "pkg:apk/alpine/musl@1.2.4-r2?arch=x86_64"),
 	)
+
+	// The source's own manager answers for it, whichever manager that is.
+	DescribeTable("decides a package from the database of the manager that keeps it",
+		func(ctx SpecContext, purl string, entries []tarEntry, occurrences int) {
+			hidden := cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: purl, Name: "pkg", Version: "1", PackageURL: purl}
+			hidden.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+			hidden.Scope = cdx.ScopeExcluded
+			bom := supplierBOM(hidden)
+
+			placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, entries))
+
+			Expect([]int{placed, absent}).To(Equal([]int{1, 0}))
+			Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(BeEmpty())
+			Expect((*bom.Components)[0].Scope).NotTo(Equal(cdx.ScopeExcluded))
+			Expect(recordedOccurrences(&(*bom.Components)[0])).To(HaveLen(occurrences))
+		},
+		Entry("an rpm source", ubi9GMP, ubi9Layout(), 2),
+		Entry("an apk source", alpineBusybox, alpineLayout(), 1),
+	)
+
+	DescribeTable("marks a package of a manager the source does carry, and that does not record it",
+		func(ctx SpecContext, purl string, entries []tarEntry) {
+			bom := supplierBOM(cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: purl, Name: "ghost", Version: "9.9", PackageURL: purl})
+
+			placed, absent := RecomputeDonorPackages(ctx, bom, databaseOf(ctx, entries))
+
+			Expect([]int{placed, absent}).To(Equal([]int{0, 1}))
+			Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(Equal(PropertyShippedFalse))
+		},
+		Entry("an rpm source", "pkg:rpm/redhat/ghost@9.9-1.el9?arch=x86_64", ubi9Layout()),
+		Entry("an apk source", "pkg:apk/alpine/ghost@9.9-r0?arch=x86_64", alpineLayout()),
+	)
+
+	// A manager whose database did not read whole has said nothing, and a verdict that
+	// rests on nothing is not published either.
+	It("clears the verdict of a package whose database the source could not read whole", func(ctx SpecContext) {
+		comp := cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: ubi9GMP, Name: "gmp", Version: "1:6.2.0-13.el9", PackageURL: ubi9GMP}
+		comp.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: PropertyShippedFalse}}
+		bom := supplierBOM(comp)
+
+		placed, absent := RecomputeDonorPackages(ctx, bom,
+			databaseOf(ctx, ubi9Layout(regularFile("var/lib/rpm/rpmdb.sqlite-wal", "frames"))))
+
+		Expect([]int{placed, absent}).To(Equal([]int{0, 0}))
+		Expect(propertyValue(&(*bom.Components)[0], PropertyShipped)).To(BeEmpty())
+		Expect(recordedOccurrences(&(*bom.Components)[0])).To(BeNil())
+	})
 
 	It("leaves the components of every other ecosystem exactly as they arrived", func(ctx SpecContext) {
 		comp := cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: "flask", Name: "flask", Version: "3.0", PackageURL: "pkg:pypi/flask@3.0"}

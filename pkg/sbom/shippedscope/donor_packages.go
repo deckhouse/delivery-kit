@@ -32,13 +32,14 @@ func HasDistroPackageComponents(bom *cdx.BOM) bool {
 // nothing checked. The donor image is read here anyway, for the snapshots the verification
 // works from, and its own database answers all of it first-hand.
 //
-// So every such statement is cleared and the question reached again: a package the database
-// records is placed at the files the donor holds, which the import scope then projects onto
-// what this image received; one the database does not record is marked as not shipped, by
-// this build rather than on anybody's word; and where there is no database to read, or no
-// file list in it, nothing is concluded and the component ends up placed nowhere - a
-// partial import of it yields no data, which is the answer when nobody can say where a
-// thing stands.
+// So every such statement is cleared and the question reached again, of the database of the
+// manager that keeps the package and of no other: a package that database records is placed
+// at the files the donor holds, which the import scope then projects onto what this image
+// received; one it does not record is marked as not shipped, by this build rather than on
+// anybody's word; and where the donor carries no database of that manager, or it did not
+// read whole, or it holds no file list for the package, nothing is concluded and the
+// component ends up placed nowhere - a partial import of it yields no data, which is the
+// answer when nobody can say where a thing stands.
 //
 // Only the packages of a distribution are touched. Every other component of the donor's
 // document is its own affair, decided by the passes that own those ecosystems.

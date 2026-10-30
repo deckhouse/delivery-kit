@@ -217,7 +217,7 @@ func captureSBOMSourceImagePaths(ctx context.Context, backend sourceImagePuller,
 
 	return &sbomSourceImage{
 		Index: view.Index, Receipt: receipt, Bodies: view.Bodies,
-		Database: shippedscope.DistroPackagesFrom(view.Index, view.Bodies),
+		Database: shippedscope.DistroPackagesFrom(ctx, view.Index, view.Bodies),
 	}, nil
 }
 

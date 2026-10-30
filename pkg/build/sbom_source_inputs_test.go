@@ -249,6 +249,37 @@ var _ = Describe("SBOM source import inputs", func() {
 			Expect(shippedscope.InheritedPackagePaths(entry)).To(ConsistOf("/app/lib/libfoo.so"))
 		})
 
+		// The reading answers for every manager the source keeps a database of, not for
+		// dpkg alone: an apk source's packages are as much its own statement as a
+		// Debian one's.
+		It("reads an apk database the import source carries, from the same reading", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			Expect(werf.Init(GinkgoT().TempDir(), "")).To(Succeed())
+
+			img := sourceSnapshotImage([]sourceSnapshotFile{
+				{Name: "lib/apk/db/installed", Body: "P:libfoo\nV:1.0-r0\nA:x86_64\nF:app/lib\nR:libfoo.so\n\n"},
+				{Name: "app/lib/libfoo.so", Body: "foo"},
+			})
+			ref, err := name.NewTag("example.org/builder:latest")
+			Expect(err).NotTo(HaveOccurred())
+			var saved bytes.Buffer
+			Expect(tarball.Write(ref, img, &saved)).To(Succeed())
+
+			const reference = "example.org/alpine-supplier@sha256:eee"
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			backend.EXPECT().Pull(gomock.Any(), reference, container_backend.PullOpts{TargetPlatform: targetPlatform}).Return(nil).Times(1)
+			backend.EXPECT().SaveImageToStream(gomock.Any(), reference).Return(io.NopCloser(bytes.NewReader(saved.Bytes())), nil).Times(1)
+
+			inputs := []sbomSourceImportInput{{Stage: stage.DependenciesBeforeInstall, Reference: reference, Scope: nativegate.ImportScope{FromPath: "/app", ToPath: "/opt"}}}
+			captured, err := captureSBOMSourceImages(ctx, backend, inputs, targetPlatform, nil)
+
+			Expect(err).NotTo(HaveOccurred())
+			database := captured[reference].Database
+			Expect(database.Managers).To(HaveKeyWithValue("apk", true))
+			entry := database.Packages[shippedscope.ManagerPackageKey("apk", "libfoo", "1.0-r0", "x86_64")]
+			Expect(shippedscope.InheritedPackagePaths(entry)).To(ConsistOf("/app/lib/libfoo.so"))
+		})
+
 		// The backend is asked for nothing it was asked for already: a source read while
 		// its document was being scoped is the same image at the same digest.
 		It("reads no import source twice when one reading was already made", func(specCtx SpecContext) {

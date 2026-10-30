@@ -11,12 +11,9 @@ import (
 	"github.com/werf/logboek"
 )
 
-// distroPurlTypes are the package managers whose packages belong to the image's own
-// distribution, and whose file lists a distribution keeps rather than this project.
-var distroPurlTypes = map[string]struct{}{"deb": {}, "rpm": {}, "apk": {}}
-
 // distroPackageComponent answers whether this component is a package of a distribution,
-// whichever of them keeps it.
+// whichever manager keeps it - including one whose database this does not read, since what
+// a document says of such a package is as much the distribution's affair as the rest.
 func distroPackageComponent(comp *cdx.Component) bool {
 	if comp.PackageURL == "" {
 		return false
@@ -25,16 +22,20 @@ func distroPackageComponent(comp *cdx.Component) bool {
 	if err != nil {
 		return false
 	}
-	_, ok := distroPurlTypes[purl.Type]
 
-	return ok
+	return slices.Contains(distroPurlTypes, purl.Type)
 }
 
-// dpkgPurlType is the one package manager whose database this reads. A component of
-// another manager is left exactly as it arrived: an rpm package is not absent from an
-// image because the image's dpkg database does not mention it, and saying so would be a
-// statement about a database nobody opened.
+// dpkgPurlType is dpkg's purl type. Each package manager's components are judged by its own
+// database alone: an rpm package is not absent from an image because the image's dpkg
+// database does not mention it, and saying so would be a statement about a database nobody
+// opened.
 const dpkgPurlType = "deb"
+
+// distroPurlTypes are the package managers whose packages belong to the image's own
+// distribution, and whose file lists a distribution keeps rather than this project. These
+// are the databases DistroPackages reads.
+var distroPurlTypes = []string{dpkgPurlType, rpmPurlType, apkPurlType}
 
 // PlaceInheritedPackages gives the package components an image inherited from its base's
 // SBOM the whereabouts the image's own package database records for them.
@@ -51,14 +52,16 @@ const dpkgPurlType = "deb"
 //
 // A package the database records at the name, version and architecture the component
 // claims is placed at the files it holds. One whose name the database knows at some other
-// version or architecture, or does not know at all, is marked as not shipped: dpkg keeps
-// one installed version of a name per architecture, so another version of it is not in
-// this image. One the database records with no file list of its own is left pathless,
-// which says where it stands and not whether it ships anything.
+// version or architecture, or does not know at all, is marked as not shipped: the database
+// lists every installed version of a name, so another version of it is not in this image.
+// One the database records with no file list of its own is left pathless, which says where
+// it stands and not whether it ships anything. An rpm purl stating no epoch, for a name the
+// database records at that version only under an epoch, is left alone: which build it
+// names is not settled.
 //
-// Nothing at all is concluded where the image carries no database this reads. Its silence
-// is not a statement that the packages of its base are absent; it is the absence of a
-// statement.
+// Nothing at all is concluded for a package manager whose database the image does not carry
+// or that is not read whole. Its silence is not a statement that the packages of its base
+// are absent; it is the absence of a statement.
 //
 // It touches nothing else. A component the scan already placed keeps its occurrences, one
 // already judged keeps that judgement, and a component of any other ecosystem - or of a
@@ -73,16 +76,18 @@ func PlaceInheritedPackages(ctx context.Context, bom *cdx.BOM, database *DistroD
 	}
 	known := make(map[string]bool, len(database.Packages))
 	for _, entry := range database.Packages {
-		known[entry.Name] = true
+		known[entry.Manager+"\x00"+entry.Name] = true
 	}
 
 	placed, absent := 0, 0
 	walkComponents(bom, func(comp *cdx.Component) {
 		purl, ok := inheritedDistroPurl(comp)
-		if !ok {
+		if !ok || !database.Managers[purl.Type] {
 			return
 		}
-		entry, installed := database.Packages[DistroPackageKey(purl.Name, purl.Version, purl.Qualifiers.Map()["arch"])]
+		version, epochStated := purlPackageVersion(purl)
+		arch := purl.Qualifiers.Map()["arch"]
+		entry, installed := database.Packages[ManagerPackageKey(purl.Type, purl.Name, version, arch)]
 		switch {
 		case installed && entry.DeclaresFiles:
 			if setOccurrences(comp, []Fileset{{
@@ -95,13 +100,15 @@ func PlaceInheritedPackages(ctx context.Context, bom *cdx.BOM, database *DistroD
 			// Installed, and the database recorded no files for it. Nothing here
 			// can say where it stands, and saying it ships nothing would be a
 			// different claim entirely.
-		case !known[purl.Name]:
+		case !installed && !epochStated && database.epochUnsettled(purl.Name, purl.Version, arch):
+			logboek.Context(ctx).Debug().LogF("inherited package %s %s names no epoch, and the package database records it only under one\n", purl.Name, purl.Version)
+		case !known[purl.Type+"\x00"+purl.Name]:
 			// The database of the image is the authority on what dpkg installed
 			// in it, and it has never heard of this one.
 			setProperty(comp, PropertyShipped, PropertyShippedFalse)
 			absent++
 			logboek.Context(ctx).Debug().LogF("inherited package %s %s is not in the package database of the image\n", purl.Name, purl.Version)
-		case purl.Qualifiers.Map()["arch"] != "":
+		case arch != "":
 			// The name is installed, at another version or for another
 			// architecture. Either way, not this package.
 			setProperty(comp, PropertyShipped, PropertyShippedFalse)
@@ -130,7 +137,7 @@ func inheritedDistroPurl(comp *cdx.Component) (packageurl.PackageURL, bool) {
 		return packageurl.PackageURL{}, false
 	}
 	purl, err := packageurl.FromString(comp.PackageURL)
-	if err != nil || purl.Type != dpkgPurlType || purl.Name == "" || purl.Version == "" {
+	if err != nil || !slices.Contains(distroPurlTypes, purl.Type) || purl.Name == "" || purl.Version == "" {
 		return packageurl.PackageURL{}, false
 	}
 

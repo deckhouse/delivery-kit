@@ -106,7 +106,7 @@ test('describes an asset a child compilation built', () => {
 test('reports no data for an asset two child compilations built', () => {
 	const row = workerRow(build('two-children').report);
 	assert.equal(row.status, 'no-data');
-	assert.match(row.reason, /is emitted by 2 chunks of this compilation and the ones it made/);
+	assert.match(row.reason, /^the compilation of (worker|other): worker\.js is emitted by 2 chunks of this compilation and the ones it made/);
 	assert.deepEqual(row.inputs, []);
 });
 
@@ -115,7 +115,7 @@ test('reports no data for an asset two child compilations built', () => {
 test('reports no data for a child asset the compilation rewrote', () => {
 	const row = workerRow(build('rewritten-by-parent').report);
 	assert.equal(row.status, 'no-data');
-	assert.match(row.reason, /is not the asset the child compilation handed over/);
+	assert.match(row.reason, /^the compilation of worker: worker\.js is not the asset the child compilation handed over/);
 	assert.deepEqual(row.inputs, []);
 });
 
@@ -124,7 +124,7 @@ test('reports no data for a child asset the compilation rewrote', () => {
 test('reports no data for a child chunk another plugin shaped', () => {
 	const row = workerRow(build('tapped-child-render').report);
 	assert.equal(row.status, 'no-data');
-	assert.match(row.reason, /fixture tapped render/);
+	assert.match(row.reason, /^the compilation of worker: .*fixture tapped render/);
 	assert.deepEqual(row.inputs, []);
 });
 
@@ -141,7 +141,7 @@ test('reports no data for a worker that loads chunks of its own', () => {
 	const report = build('split-worker').report;
 	const row = workerRow(report);
 	assert.equal(row.status, 'no-data', row.reason);
-	assert.match(row.reason, /ImportScriptsChunkLoadingRuntimeModule\.js, which is not a described webpack runtime module/);
+	assert.match(row.reason, /^the compilation of worker: .*ImportScriptsChunkLoadingRuntimeModule\.js, which is not a described webpack runtime module/);
 	assert.deepEqual(row.inputs, []);
 	// The chunk it loads is an asset of a child compilation too, and is
 	// described like any other.
@@ -158,6 +158,55 @@ test('reports no data for a chunk of a compilation this one did not make', () =>
 	const row = report.proof.assets.find((candidate) => candidate.path === 'grand.js');
 	assert.ok(row, report.proof.assets.map((candidate) => candidate.path).join(', '));
 	assert.equal(row.status, 'no-data');
-	assert.match(row.reason, /belongs to a compilation that is not a child of this one/);
+	assert.match(row.reason, /^the compilation of grand: chunk .* belongs to a compilation that is not a child of this one/);
 	assert.deepEqual(row.inputs, []);
+});
+
+// The comments the minifier took out of a worker bundle were taken in the
+// compilation that built it, and are claimed with the sources of that chunk.
+test('describes the comments taken out of an asset a child compilation built', () => {
+	const result = build('minified');
+	const comments = `${WORKER}.LICENSE.txt`;
+	const row = result.report.proof.assets.find((candidate) => candidate.path === comments);
+	assert.ok(row, result.report.proof.assets.map((candidate) => candidate.path).join(', '));
+	assert.equal(row.status, 'present', row.reason);
+	assert.equal(row.sha256, result.report.emitted[comments]);
+	assert.equal(row.sha256, sha256(path.join(result.setup.output, comments)));
+	// The same claim as the worker bundle the comment was taken out of.
+	const worker = workerRow(result.report);
+	assert.deepEqual(row.inputs, worker.inputs);
+	assert.ok(
+		row.inputs.some((input) => path.basename(input.path) === 'worker-entry.js'),
+		row.inputs.map((input) => input.path).join(', '),
+	);
+});
+
+// A compilation whose result its plugin keeps to itself accounts for no asset
+// here: nothing of it is emitted, and nothing of it is claimed.
+test('ignores a compilation whose files this one does not emit', () => {
+	const result = build('template-child');
+	assert.ok(
+		result.report.proof.assets.every((row) => !row.path.startsWith('__child-')),
+		result.report.proof.assets.map((row) => row.path).join(', '),
+	);
+	const main = result.report.proof.assets.find((row) => row.path === 'main.js');
+	assert.equal(main.status, 'present', main.reason);
+	assert.equal(main.sha256, result.report.emitted['main.js']);
+	// It was built from a file of its own, which is no input of this asset.
+	assert.ok(
+		main.inputs.every((input) => path.basename(input.path) !== 'worker-entry.js'),
+		main.inputs.map((input) => input.path).join(', '),
+	);
+});
+
+// Whatever stands on that list, looking at it costs a reason and not a build.
+test('refuses the claims of a compilation that cannot be looked at', () => {
+	const result = build('throwing-child');
+	const row = result.report.proof.assets.find((candidate) => candidate.path === 'grand.js');
+	assert.ok(row, result.report.proof.assets.map((candidate) => candidate.path).join(', '));
+	assert.equal(row.status, 'no-data');
+	assert.match(row.reason, /^the compilation of grand: chunk .* could not be described: this compilation is gone/);
+	assert.deepEqual(row.inputs, []);
+	// The worker of the same build is described as before.
+	assert.equal(workerRow(result.report).status, 'present');
 });

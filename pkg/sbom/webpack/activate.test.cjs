@@ -19,6 +19,15 @@ function emitted(area) {
 	return fs.existsSync(path.join(area.output, 'main.js'));
 }
 
+// Every recorder an adapter of this set reads has to be in place before the
+// first file of the build is compiled, which is what the activation is for.
+test('installs every load recorder of this adapter set', () => {
+	const area = createArea(fixture, 'recorders');
+	const result = run(area, {});
+	assert.equal(result.status, 0, result.stderr);
+	assert.deepEqual(result.probe.recorders, ['dk.sbom.webpack.cjs', 'dk.sbom.webpack.include', 'dk.sbom.webpack.stylesheet']);
+});
+
 test('attaches the collector to the named configuration of a real CLI build', () => {
 	const area = createArea(fixture, 'object');
 	const result = run(area);
@@ -51,7 +60,7 @@ test('attaches the collector to the named configuration of a real CLI build', ()
 });
 
 test('preserves the env, argv and node options of a function configuration', () => {
-	const area = createArea(fixture, 'function', { asFunction: true });
+	const area = createArea(fixture, 'function', { shape: 'function' });
 	const result = run(area, { args: ['--env', 'fixture=on'] });
 	assert.equal(result.status, 0, result.stderr);
 	assert.equal(result.probe.exportsType, 'function');
@@ -63,6 +72,23 @@ test('preserves the env, argv and node options of a function configuration', () 
 	const heapLimit = result.probe.heapLimit / 1048576;
 	assert.ok(heapLimit > HEAP_LIMIT_MB * 0.9 && heapLimit < HEAP_LIMIT_MB * 2, `heap limit ${heapLimit}MB must come from the forwarded option`);
 	assert.deepEqual(result.scratch, []);
+});
+
+// A typescript or esm configuration reaches the CLI transpiled, as a namespace
+// whose default the CLI unwraps; the attachment belongs on what it unwraps to.
+test('attaches the collector to a transpiled configuration the CLI unwraps', () => {
+	const area = createArea(fixture, 'transpiled', { shape: 'transpiled' });
+	const result = run(area, {});
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(result.probe.exportsIsConfig, false, 'the namespace is not the configuration itself');
+	// The flag a transpiler marks non-enumerable survives the attachment.
+	assert.deepEqual(result.probe.esModule, { value: true, writable: false, enumerable: false, configurable: false });
+	assert.ok(result.probe.compilerPlugins.includes('DkSbomWebpackActivation'), result.probe.compilerPlugins.join(', '));
+	assert.equal(result.proof.version, 1);
+	assert.equal(result.proof.assets.length, 1);
+	// The same proof an ordinary configuration of this fixture produces, over
+	// the asset the build really wrote.
+	assert.equal(result.proof.assets[0].sha256, `sha256:${require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(area.output, 'main.js'))).digest('hex')}`);
 });
 
 test('fails the build before any output when the primary-source manifest is missing', () => {
@@ -95,6 +121,7 @@ test('observes nothing at all when the activation is not configured', () => {
 	assert.equal(result.probe.exportsIsConfig, true);
 	assert.deepEqual(result.probe.compilerPlugins, ['CLIPlugin', 'DkFixtureProbe']);
 	assert.equal(result.probe.observer, false, 'a build without the activation must load no load recorder');
+	assert.deepEqual(result.probe.recorders, [], 'a build without the activation must load no recorder at all');
 	assert.equal(result.proof, undefined);
 	assert.deepEqual(result.scratch, []);
 });

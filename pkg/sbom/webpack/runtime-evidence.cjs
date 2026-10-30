@@ -27,6 +27,24 @@ const CLASS_FILES = new Map([
 	['runtime/NonceRuntimeModule.js', {}],
 	['runtime/EnsureChunkRuntimeModule.js', {}],
 	['runtime/GlobalRuntimeModule.js', {}],
+	// It writes one more of the pinned runtime globals into its text.
+	['runtime/CompatGetDefaultExportRuntimeModule.js', {}],
+	// Declared inside the plugin that installs it and exported by nothing, so
+	// there is no exported class to bind this instance to, and no load-time
+	// wrapper that observed it generating. What makes the claim sound is the
+	// comparison of the emitted code with what this rebuild produces out of the
+	// verified helpers; finding the class's source in the pinned file only says
+	// which file to claim for it.
+	[
+		'dependencies/CommonJsPlugin.js',
+		{
+			declares: 'NodeModuleDecoratorRuntimeModule',
+			rebuild: (api, runtimeTemplate) =>
+				api.Template.asString([
+					`${api.RuntimeGlobals.nodeModuleDecorator} = ${runtimeTemplate.basicFunction('module', ['module.paths = [];', 'if (!module.children) module.children = [];', 'return module;'])};`,
+				]),
+		},
+	],
 	// Its text runs through a hook another plugin can rewrite, and carries the
 	// load timeout unquoted.
 	['runtime/LoadScriptRuntimeModule.js', { hooks: ['createScript'], check: (compilation) => (Number.isFinite(compilation.outputOptions.chunkLoadTimeout) ? null : 'its load timeout is not a number') }],
@@ -61,6 +79,18 @@ const CLASS_FILES = new Map([
 		},
 	],
 	['runtime/PublicPathRuntimeModule.js', { helpers: [COMPILATION_FILE, 'TemplatedPathPlugin.js'], paths: { exact: 1 } }],
+	// Two classes of one file, exported as members of a namespace rather than as
+	// the whole of its exports. The options of the second are written into its
+	// text as json, so they have to be data this adapter can write out again.
+	[
+		'dependencies/AMDRuntimeModules.js',
+		{
+			members: new Map([
+				['AMDDefineRuntimeModule', {}],
+				['AMDOptionsRuntimeModule', { check: (compilation, runtimeModule) => (plainData(runtimeModule.options) ? null : 'the amd options it writes out are not plain data') }],
+			]),
+		},
+	],
 	[
 		'runtime/AutoPublicPathRuntimeModule.js',
 		{
@@ -101,6 +131,9 @@ const FINGERPRINTS = new Map([
 	['util/identifier.js', 'sha256:c62d0fdafde3137620eeab4c20dcba7ed6d82d8634b8770ed824b30c096ee5ed'],
 	['util/SetHelpers.js', 'sha256:d89244af8666d3885f545b6bc8eb36a9b896e97c89542b0f7beece0752a8dd0f'],
 	['Compilation.js', 'sha256:de23e5130f99b6ee579790d32a333e144ce52bbb9db08b258f8f615b81914a1e'],
+	['dependencies/AMDRuntimeModules.js', 'sha256:50d240952310f884e3b46834b4b1e098cab22a0050dbd18457eb79fccfd70a09'],
+	['runtime/CompatGetDefaultExportRuntimeModule.js', 'sha256:dc3f62221eb87296467e3f2d2783b46c6d3910d6a0b0086038b7b108fe16e0b2'],
+	['dependencies/CommonJsPlugin.js', 'sha256:d6d1c3fd918161c21f4eb794b00fe8e792f3b74f8c43f8796c50a2c83caae4bb'],
 ]);
 
 async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource) {
@@ -126,23 +159,34 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 	if (!moduleClass || moduleClass.prototype !== prototype) return noData(`${identify(runtimeModule)} does not carry its own class`);
 	for (let current = moduleClass; current !== api.RuntimeModule && chain.length < 2; current = Object.getPrototypeOf(current)) {
 		if (typeof current !== 'function') break;
-		const entry = registry.findByExport(current);
-		const problem = entryProblem(entry, 'the class of the runtime module');
+		// The file that exports the class, whether as the whole of its exports or
+		// as one named member of them. A class no file exports at all - one
+		// declared inside the plugin that installs it - is not described, and
+		// saying it was never loaded would name the wrong thing.
+		const exporting = registry.findByExport(current);
+		const member = exporting ? null : registry.findByExportedMember(current);
+		const declaring = exporting || member ? null : declaredBy(registry, lib, current);
+		const entry = exporting || (member && member.entry) || declaring;
+		if (!entry) return noData(`${identify(runtimeModule)} is built by ${current.name}, which no file of this process exports or declares`);
+		const problem = entryProblem(entry, `the class ${current.name} of ${identify(runtimeModule)}`);
 		if (problem) return problem;
 		const relative = relativeName(lib, entry.file);
 		const known = chain.length === 0 ? [...CLASS_FILES.keys()] : [HELPER_BASE_FILE];
 		if (!known.includes(relative)) {
 			return noData(`${identify(runtimeModule)} is built by ${entry.file}, which is not a described webpack runtime module`);
 		}
-		chain.push(entry);
+		chain.push({ ...entry, member: member ? member.key : null, declared: declaring ? current.name : null, class: current });
 	}
-	if (chain.length === 0 || Object.getPrototypeOf(chain[chain.length - 1].exports) !== api.RuntimeModule) {
+	if (chain.length === 0 || Object.getPrototypeOf(chain[chain.length - 1].class) !== api.RuntimeModule) {
 		return noData(`${identify(runtimeModule)} does not derive from the loaded RuntimeModule`);
 	}
-	chain.push(base);
+	chain.push({ ...base, member: null, class: base.exports });
 
 	const helpers = [];
-	const described = CLASS_FILES.get(relativeName(lib, chain[0].file));
+	const declared = CLASS_FILES.get(relativeName(lib, chain[0].file));
+	// A file of several classes describes each of them on its own.
+	const described = declared.members ? declared.members.get(chain[0].member) : declared;
+	if (!described) return noData(`${identify(runtimeModule)} is built by a class ${chain[0].file} does not declare`);
 	for (const relative of [...HELPER_FILES, ...(described.helpers || [])]) {
 		const entry = registry.getByFile(path.join(lib, ...relative.split('/')));
 		const problem = entryProblem(entry, relative);
@@ -156,14 +200,22 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 		return noData('the compiler exposes helper modules other than the ones loaded from its lib directory');
 	}
 	for (const entry of [...chain, ...helpers]) {
-		const drift = compareMembers(entry.members, registry.snapshot(entry.exports), 'exports') || compareMembers(entry.prototypeMembers, registry.snapshot(prototypeOf(entry.exports)), 'prototype');
+		// A class the file only declares was never part of its exports, so there
+		// is nothing of it to have drifted; its own source text is what binds it.
+		const drift =
+			compareMembers(entry.members, registry.snapshot(entry.exports), 'exports') ||
+			(entry.declared ? null : compareMembers(prototypeSnapshot(entry), registry.snapshot(prototypeOf(entry.class !== undefined ? entry.class : entry.exports)), 'prototype'));
 		if (drift) return noData(`${relativeName(lib, entry.file)} no longer exports what it exported when it was loaded: ${drift}`);
 	}
 
 	const own = ownImplementation(registry.snapshot(runtimeModule), described.ownFunctions);
 	if (own) return noData(`${identify(runtimeModule)} carries an own ${own}`);
-	const generate = memberOf(chain[0], 'generate');
-	if (!generate || runtimeModule.generate !== generate.value) return noData(`${identify(runtimeModule)} would not run the generator its class exported`);
+	if (chain[0].declared) {
+		if (runtimeModule.generate !== prototypeOf(chain[0].class).generate) return noData(`${identify(runtimeModule)} would not run the generator of the class it carries`);
+	} else {
+		const generate = memberOf(chain[0], 'generate', chain[0].member);
+		if (!generate || runtimeModule.generate !== generate.value) return noData(`${identify(runtimeModule)} would not run the generator its class exported`);
+	}
 	for (const name of ['getGeneratedCode', 'codeGeneration']) {
 		const inherited = memberOf(base, name);
 		if (!inherited || runtimeModule[name] !== inherited.value) return noData(`${identify(runtimeModule)} would not run the loaded ${name}`);
@@ -189,12 +241,14 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 	// before this point are all invisible to any later reading. A class whose code
 	// depends on the chunk hashes generates again while they are computed, so every
 	// run has to have been the verified one, and the used code one of their results.
-	const observed = registry.getGeneration(runtimeModule);
-	if (!observed || !Array.isArray(observed.runs) || observed.runs.length === 0) {
+	const observed = chain[0].declared ? null : registry.getGeneration(runtimeModule);
+	if (!chain[0].declared && (!observed || !Array.isArray(observed.runs) || observed.runs.length === 0)) {
 		return noData(`the generator of ${identify(runtimeModule)} was not observed running`);
 	}
-	if (observed.file !== chain[0].file || observed.method !== runtimeModule.generate) return noData(`${identify(runtimeModule)} was generated by another implementation`);
-	for (const run of observed.runs) {
+	if (observed && (observed.file !== chain[0].file || (observed.member || null) !== chain[0].member || observed.method !== runtimeModule.generate)) {
+		return noData(`${identify(runtimeModule)} was generated by another implementation`);
+	}
+	for (const run of observed ? observed.runs : []) {
 		if (typeof run.code !== 'string') return noData(`a run of the generator of ${identify(runtimeModule)} produced no text`);
 		if (run.compilation !== compilation) return noData(`${identify(runtimeModule)} was generated for another compilation`);
 		const built = pathsProblem(run.paths, described.paths, templates(compilation, chunk), builder);
@@ -237,8 +291,14 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 	const usedCode = used.source();
 	const generated = runtimeModule._cachedGeneratedCode;
 	if (typeof usedCode !== 'string' || typeof generated !== 'string') return noData(`the runtime source of ${identify(runtimeModule)} is not text`);
-	if (!observed.runs.some((run) => run.code === generated)) {
+	if (observed && !observed.runs.some((run) => run.code === generated)) {
 		return failed('hash-mismatch', `the cached runtime code of ${identify(runtimeModule)} is not what its generator returned`);
+	}
+	// A class that was never observed generating is held to what its own pinned
+	// source builds out of the verified helpers instead. This is the comparison
+	// the whole claim for such a class rests on.
+	if (chain[0].declared && generated !== described.rebuild(api, instance)) {
+		return failed('hash-mismatch', `the runtime code of ${identify(runtimeModule)} is not what ${relativeName(lib, chain[0].file)} builds`);
 	}
 	if (!Buffer.from(usedCode, 'utf8').equals(Buffer.from(generated, 'utf8'))) {
 		return failed('hash-mismatch', `the runtime source used for ${identify(runtimeModule)} is not the code its generator produced`);
@@ -262,6 +322,12 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 		if (component === undefined) component = unit.component;
 		else if (!sameJSON(component, unit.component)) {
 			return failed('invalid', `the webpack runtime sources bind to conflicting components ${component.id} and ${unit.component.id}`);
+		}
+		// Which file to claim for a class nothing exports: its whole source text
+		// stands in the bytes just verified. This decides attribution, not
+		// soundness - what the code is made of is settled by the rebuild above.
+		if (entry.declared && !(unit.bytes || Buffer.alloc(0)).includes(Buffer.from(Function.prototype.toString.call(entry.class), 'utf8'))) {
+			return noData(`the class ${entry.declared} of ${identify(runtimeModule)} is not the one ${relativeName(lib, entry.file)} declares`);
 		}
 		units.push({ path: unit.path, sha256: unit.sha256, component: unit.component });
 	}
@@ -320,9 +386,44 @@ function relativeName(lib, file) {
 	return path.relative(lib, file).split(path.sep).join('/');
 }
 
-function memberOf(entry, name) {
-	const snapshot = entry.prototypeMembers && entry.prototypeMembers.get(name);
+function memberOf(entry, name, member) {
+	const prototype = member ? prototypeSnapshot(entry) : entry.prototypeMembers;
+	const snapshot = prototype && prototype.get(name);
 	return snapshot && snapshot.kind === 'data' && typeof snapshot.value === 'function' ? snapshot : null;
+}
+
+// What the prototype of this entry's class held when the file was loaded: of
+// its whole exports, or of the one member it was found under.
+// The file whose pinned source declares a class of this name without exporting
+// it. Only the files this adapter describes are searched, and a name it does
+// not describe finds nothing.
+function declaredBy(registry, lib, current) {
+	for (const [relative, described] of CLASS_FILES) {
+		if (described.declares !== current.name) continue;
+		return registry.getByFile(path.join(lib, ...relative.split('/')));
+	}
+	return undefined;
+}
+
+function prototypeSnapshot(entry) {
+	if (!entry.member) return entry.prototypeMembers;
+	return (entry.memberPrototypes && entry.memberPrototypes.get(entry.member)) || null;
+}
+
+// Values this adapter can write out as json again: the plugin interpolates them
+// with JSON.stringify, which a getter or a toJSON of its own would make
+// something other than what is here.
+function plainData(value) {
+	if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+	if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+	for (const key of Reflect.ownKeys(value)) {
+		if (typeof key !== 'string') return false;
+		const descriptor = Object.getOwnPropertyDescriptor(value, key);
+		if (!('value' in descriptor) || !descriptor.enumerable) return false;
+		const held = descriptor.value;
+		if (typeof held !== 'boolean' && typeof held !== 'number' && typeof held !== 'string') return false;
+	}
+	return true;
 }
 
 function prototypeOf(value) {

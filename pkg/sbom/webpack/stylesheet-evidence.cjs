@@ -151,9 +151,14 @@ async function describeStyle(context, module, pitch) {
 		return noData(`${identify(module)} was pitched without a request of its own`);
 	}
 
+	// The loader names both of them from where the module it pitches for stands,
+	// so the requests are rebuilt from that directory rather than read off the
+	// code they appear in.
+	const from = pitch.context.context;
+	if (typeof from !== 'string' || from === '') return noData(`${identify(module)} was pitched without a directory of its own`);
 	const required = requiredModules(context, module, pitch, info);
 	if (required.failure) return required;
-	if (pitch.output !== template(required.content.rawRequest, required.api.rawRequest)) {
+	if (pitch.output !== template(relativeRequest(from, `!!${pitch.request}`), relativeRequest(from, `!${required.runtimeFile}`))) {
 		return failed('invalid', `style-loader did not pitch its own template for ${identify(module)}`);
 	}
 	const kept = keptSource(module);
@@ -196,7 +201,34 @@ function requiredModules(context, module, pitch, info) {
 	}
 	if (!content) return noData(`${identify(module)} does not require the stylesheet of the request it was pitched for`);
 	if (!api) return noData(`${identify(module)} does not require the runtime of ${info.file}`);
-	return { content, api };
+	return { content, api, runtimeFile };
+}
+
+// What loader-utils 2 writes for a request of absolute paths: every part of it
+// relative to the directory the loader ran in, with the separators of a
+// request rather than of this platform. Reimplemented rather than called,
+// because a helper of the loader's own is not a file this adapter verified: a
+// request it would build differently is one that no longer matches the code
+// that was really pitched, and the module behind it is checked in the graph
+// either way.
+function relativeRequest(from, request) {
+	return request
+		.split('!')
+		.map((part) => {
+			const split = part.match(/^(.*?)(\?.*)/);
+			const query = split ? split[2] : '';
+			let single = split ? split[1] : part;
+			if (!absolute(single)) return single.replace(/\\/g, '/') + query;
+			single = path.relative(from, single);
+			if (absolute(single)) return single + query;
+			if (!/^\.\.?[/\\]/.test(single)) single = `./${single}`;
+			return single.replace(/\\/g, '/') + query;
+		})
+		.join('!');
+}
+
+function absolute(request) {
+	return path.posix.isAbsolute(request) || path.win32.isAbsolute(request);
 }
 
 // style-loader 1.3.0 with no options of its own: a style tag inserted into the

@@ -60,8 +60,8 @@ function createArea(fixture, name, options = {}) {
 	fs.mkdirSync(path.dirname(area.contextPath), { recursive: true });
 	fs.writeFileSync(area.contextPath, `${JSON.stringify({ version: 1 }, null, 2)}\n`);
 	writeManifest(area, options.git === 'listed');
-	fs.writeFileSync(area.configPath, config(area, options.asFunction === true));
-	fs.writeFileSync(area.unmatchedConfigPath, config(area, false));
+	fs.writeFileSync(area.configPath, config(area, options.shape));
+	fs.writeFileSync(area.unmatchedConfigPath, config(area, undefined));
 	return area;
 }
 
@@ -112,7 +112,7 @@ function writeYarn(fixture, area) {
 // object is still the one this file built, which plugins the CLI unshifted into
 // the array literal it carries, which plugins the compiler ended up with, and
 // every answer the Yarn resolver gave the activation.
-function config(area, asFunction) {
+function config(area, shape) {
 	const body = `'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -161,9 +161,11 @@ function write(compiler) {
 	fs.writeFileSync(${JSON.stringify(area.probePath)}, JSON.stringify({
 		exportsIsConfig: module.exports === config,
 		exportsType: typeof module.exports,
+		esModule: Object.getOwnPropertyDescriptor(module.exports, '__esModule') || null,
 		declaredPlugins: plugins.map(name),
 		compilerPlugins: compiler.options.plugins.map(name),
 		observer: Object.getOwnPropertySymbols(globalThis).map(symbol => symbol.description).includes('dk.sbom.webpack.cjs'),
+		recorders: Object.getOwnPropertySymbols(globalThis).map(symbol => symbol.description).filter(name => name.startsWith('dk.sbom.webpack.')).sort(),
 		heapLimit: v8.getHeapStatistics().heap_size_limit,
 		nodeOptions: process.env.NODE_OPTIONS || '',
 		argv: process.argv.slice(2),
@@ -178,7 +180,12 @@ function name(plugin) {
 
 plugins.push(new DkFixtureProbe());
 `;
-	return asFunction ? `${body}module.exports = function (env, argv) { call = {env: env ?? null, argv: {mode: argv && argv.mode}}; return config; };\n` : `${body}module.exports = config;\n`;
+	// What a transpiled typescript or esm configuration looks like by the time
+	// the CLI requires it: a namespace with a default the CLI unwraps.
+	// Marked the way a transpiler marks it: not enumerable, so an activation that
+	// spread the namespace would lose the flag the CLI reads.
+	if (shape === 'transpiled') return `${body}Object.defineProperty(module.exports, "__esModule", {value: true});\nmodule.exports.default = config;\n`;
+	return shape === 'function' ? `${body}module.exports = function (env, argv) { call = {env: env ?? null, argv: {mode: argv && argv.mode}}; return config; };\n` : `${body}module.exports = config;\n`;
 }
 
 // The actual CLI, started the way the image recipe starts it: the heap option

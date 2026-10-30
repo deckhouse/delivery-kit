@@ -312,3 +312,75 @@ test('reports no data when the filenames were not built by the loaded implementa
 		assert.deepEqual(module.units, []);
 	}
 });
+
+// A library written in the amd style makes webpack add two runtime modules of
+// its own, declared side by side in one file and exported as members of it.
+test('describes the runtime modules a library in the amd style asks for', () => {
+	const modules = runtimeModules(build('amd', { chunks: 2 }).report);
+	for (const name of ['AMDDefineRuntimeModule', 'AMDOptionsRuntimeModule']) {
+		const module = modules.get(name);
+		assert.ok(module, [...modules.keys()].join(', '));
+		assert.equal(module.status, 'present', `${name}: ${module.reason}`);
+		assert.deepEqual(
+			module.units.map(relative).sort(),
+			['RuntimeGlobals.js', 'RuntimeModule.js', 'RuntimeTemplate.js', 'Template.js', 'dependencies/AMDRuntimeModules.js'],
+		);
+	}
+});
+
+// Those options are written out as json, so they have to be data this adapter
+// can write out again.
+test('reports no data for amd options that are not plain data', () => {
+	const module = runtimeModules(build('forged-amd-options', { chunks: 2 }).report).get('AMDOptionsRuntimeModule');
+	assert.equal(module.status, 'no-data', module.reason);
+	assert.match(module.reason, /the amd options it writes out are not plain data/);
+	assert.deepEqual(module.units, []);
+});
+
+// What the configuration says about amd is written into that text as json.
+test('describes the amd options a build configured', () => {
+	const result = build('amd-options', { chunks: 2 });
+	const module = runtimeModules(result.report).get('AMDOptionsRuntimeModule');
+	assert.equal(module.status, 'present', module.reason);
+	const main = Object.keys(result.report.emitted).find((name) => name.startsWith('main.'));
+	assert.match(fs.readFileSync(path.join(result.setup.output, main), 'utf8'), /amdO = \{"jQuery":true,"name":"argo"\}/);
+});
+
+// A commonjs module imported from an esm one makes webpack carry its
+// compatibility helper, and asking that module for its own paths makes it carry
+// the decorator that gives it them.
+test('describes the runtime modules a commonjs interop build asks for', () => {
+	const modules = runtimeModules(build('interop', { chunks: 2 }).report);
+	const compat = modules.get('CompatGetDefaultExportRuntimeModule');
+	assert.ok(compat, [...modules.keys()].join(', '));
+	assert.equal(compat.status, 'present', compat.reason);
+	assert.deepEqual(
+		compat.units.map(relative).sort(),
+		['RuntimeGlobals.js', 'RuntimeModule.js', 'RuntimeTemplate.js', 'Template.js', 'runtime/CompatGetDefaultExportRuntimeModule.js', 'runtime/HelperRuntimeModule.js'],
+	);
+	// The decorator is declared inside the plugin that installs it and exported
+	// by nothing, so it is claimed with that plugin's own source.
+	const decorator = modules.get('NodeModuleDecoratorRuntimeModule');
+	assert.ok(decorator, [...modules.keys()].join(', '));
+	assert.equal(decorator.status, 'present', decorator.reason);
+	assert.deepEqual(
+		decorator.units.map(relative).sort(),
+		['RuntimeGlobals.js', 'RuntimeModule.js', 'RuntimeTemplate.js', 'Template.js', 'dependencies/CommonJsPlugin.js'],
+	);
+});
+
+// Such a class is held to the text its own pinned source builds.
+test('reports a hash mismatch for a declared runtime module whose code was forged', () => {
+	const module = runtimeModules(build('forged-decorator', { chunks: 2 }).report).get('NodeModuleDecoratorRuntimeModule');
+	assert.equal(module.status, 'hash-mismatch', module.reason);
+	assert.match(module.reason, /is not what dependencies\/CommonJsPlugin\.js builds/);
+	assert.deepEqual(module.units, []);
+});
+
+// Such a class is bound to the source that declares it, not to its name.
+test('reports no data for a declared runtime module another class impersonates', () => {
+	const module = runtimeModules(build('foreign-decorator', { chunks: 2 }).report).get('NodeModuleDecoratorRuntimeModule');
+	assert.equal(module.status, 'no-data', module.reason);
+	assert.match(module.reason, /is not the one dependencies\/CommonJsPlugin\.js declares|would not run the generator of the class it carries/);
+	assert.deepEqual(module.units, []);
+});

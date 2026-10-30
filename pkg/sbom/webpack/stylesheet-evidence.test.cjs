@@ -30,6 +30,7 @@ let scratch;
 let fixture;
 let loaderOriginals;
 let passThrough;
+let aliasedRuntime;
 let areas = 0;
 
 before(() => {
@@ -43,6 +44,8 @@ before(() => {
 	loaderOriginals = [bootstrapOriginal(path.join(scratch, 'style-loader'), 'style-loader').binding, bootstrapOriginal(path.join(scratch, 'raw-loader'), 'raw-loader').binding];
 	passThrough = path.join(scratch, 'pass-through-loader.cjs');
 	fs.writeFileSync(passThrough, 'module.exports = (source) => source;\n');
+	aliasedRuntime = path.join(scratch, 'aliased-runtime.js');
+	fs.writeFileSync(aliasedRuntime, 'module.exports = function () { return function () {}; };\n');
 }, { timeout: 180000 });
 
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
@@ -68,6 +71,8 @@ function build(scenario, options = {}) {
 		styleLoader: STYLE_LOADER,
 		rawLoader: RAW_LOADER,
 		passThroughLoader: passThrough,
+		styleRuntime: STYLE_RUNTIME,
+		aliasedRuntime: aliasedRuntime,
 		originals: [...area.originals, ...loaderOriginals],
 		appRoots: [app, area.originalOf('app')],
 	};
@@ -300,4 +305,32 @@ test('describes a whole bundle whose stylesheet is built by raw-loader alone', (
 		assert.ok(row.includedComponents.includes(id), `${id} is not an included component of ${row.includedComponents.join(', ')}`);
 	}
 	assert.ok(!row.includedComponents.includes(STYLE_COMPONENT), `${STYLE_COMPONENT} must not be an included component of ${row.includedComponents.join(', ')}`);
+});
+
+// The loader writes the request for its shared runtime relative to the
+// directory of each stylesheet it pitches over, so stylesheets at different
+// depths are pitched different text.
+test('describes pitched modules whose stylesheets lie at different depths', () => {
+	const result = build('depths', { entry: 'depths.js' });
+	const shallow = styleRow(result.report, 'a.css');
+	const deep = styleRow(result.report, 'c.css');
+	for (const row of [shallow, deep]) {
+		assert.equal(row.status, 'present', `${row.resource}: ${row.reason}`);
+		assert.deepEqual(unitsOf(row), [{ path: STYLE_INDEX, sha256: STYLE_INDEX_SHA256, component: STYLE_COMPONENT }]);
+	}
+	// The one runtime both of them load, named from where each of them stands.
+	const requestOf = (row) => row.source.match(/^var api = require\("([^"]*)"\);/)[1];
+	assert.notEqual(requestOf(shallow), requestOf(deep));
+	for (const row of [shallow, deep]) {
+		assert.equal(path.resolve(path.dirname(row.resource), requestOf(row).slice(1)), STYLE_RUNTIME);
+	}
+});
+
+// The claim is that the code loads the runtime of the loader file it claims, so
+// a build that resolves that request to a file of its own is not described.
+test('reports no data when the runtime of the request is not the one the loader names', () => {
+	const row = styleRow(build('aliased-runtime').report);
+	assert.equal(row.status, 'no-data', row.reason);
+	assert.match(row.reason, /also requires .*aliased-runtime\.js$/);
+	assert.deepEqual(row.units, []);
 });

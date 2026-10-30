@@ -22,8 +22,9 @@ const SOURCES = {
 	'main.js': "import { shared } from './shared.js';\nconsole.log(shared());\n",
 	'shared.js': 'export function shared() { return "shared"; }\n',
 	// A worker that uses the same module, so its bundle carries the interop
-	// runtime modules a real worker carries.
-	'worker-entry.js': "import { shared } from './shared.js';\nself.onmessage = () => self.postMessage(shared());\n",
+	// runtime modules a real worker carries, and one comment of the kind the
+	// minifier writes to a file of its own.
+	'worker-entry.js': "/*! worker-lib v2.0.0 | (c) 2024 | MIT */\nimport { shared } from './shared.js';\nself.onmessage = () => self.postMessage(shared());\n",
 	// One that loads a chunk of its own, which needs the import-scripts loading
 	// runtime no adapter of this set describes.
 	'lazy-worker-entry.js': "self.onmessage = () => import('./shared.js').then(({ shared }) => self.postMessage(shared()));\n",
@@ -54,7 +55,7 @@ function workerPlugin(setup, webpack, options) {
 				// What a worker plugin asks for, so that the worker is one file; the
 				// other scenario lets the child split and load chunks of its own.
 				if (setup.scenario !== 'split-worker') new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 }).apply(child);
-				if (setup.scenario === 'foreign-child') {
+				if (setup.scenario === 'foreign-child' || setup.scenario === 'throwing-child') {
 					// A compilation of the child's own, which the parent never made:
 					// its assets reach the output through the child.
 					child.hooks.compilation.tap('fixture', (childCompilation) => {
@@ -83,12 +84,24 @@ function scenarioPlugin(setup, webpack) {
 		apply(compiler) {
 			compiler.hooks.compilation.tap('fixture', (compilation) => {
 				if (compilation.compiler.isChild()) return;
-				if (setup.scenario === 'foreign-child') {
+				if (setup.scenario === 'foreign-child' || setup.scenario === 'throwing-child') {
 					// The plugin puts it among the compilations this one made, which
 					// it is not.
 					compilation.hooks.afterProcessAssets.tap('fixture', () => {
 						for (const made of compilation.children) {
-							for (const grand of made.children) if (!compilation.children.includes(grand)) compilation.children.push(grand);
+							for (const grand of made.children) {
+								if (compilation.children.includes(grand)) continue;
+								// One that cannot even be looked at.
+								if (setup.scenario === 'throwing-child') {
+									Object.defineProperty(grand, 'chunkGraph', {
+										get() {
+											throw new Error('this compilation is gone');
+										},
+										configurable: true,
+									});
+								}
+								compilation.children.push(grand);
+							}
 						}
 					});
 				}
@@ -97,6 +110,25 @@ function scenarioPlugin(setup, webpack) {
 						compilation.updateAsset(WORKER, new webpack.sources.RawSource(`${assets[WORKER].source()}\n// touched\n`));
 					});
 				}
+			});
+		},
+	};
+}
+
+// What a template plugin does: a child compilation whose result it reads and
+// then deletes, so nothing of it is emitted here - and whose chunk happens to
+// be named like an asset of this compilation.
+function templatePlugin(setup, webpack) {
+	return {
+		apply(compiler) {
+			compiler.hooks.make.tapAsync('fixture', (compilation, callback) => {
+				const child = compilation.createChildCompiler('template', { filename: '__child-template.js' }, []);
+				new webpack.EntryPlugin(compiler.context, path.join(setup.appDir, 'worker-entry.js'), 'main').apply(child);
+				child.runAsChild((error) => {
+					if (error) return callback(error);
+					compilation.deleteAsset('__child-template.js');
+					callback();
+				});
 			});
 		},
 	};
@@ -117,7 +149,12 @@ function configuration(setup, webpack) {
 		resolve: { modules: [setup.modules] },
 		optimization: { minimize: setup.scenario === 'minified', concatenateModules: false, usedExports: true },
 		cache: false,
-		plugins: [new Collector({ proofPath: setup.proofPath, originals: setup.originals }), ...workers.map((worker) => workerPlugin(setup, webpack, worker)), scenarioPlugin(setup, webpack)],
+		plugins: [
+			new Collector({ proofPath: setup.proofPath, originals: setup.originals }),
+			...workers.map((worker) => workerPlugin(setup, webpack, worker)),
+			...(setup.scenario === 'template-child' ? [templatePlugin(setup, webpack)] : []),
+			scenarioPlugin(setup, webpack),
+		],
 	};
 }
 

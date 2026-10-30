@@ -44,6 +44,7 @@ function activate() {
 	// The load recorder has to be wrapping the module loader before the first
 	// webpack file is compiled; everything else here is loaded after it.
 	require('./stylesheet-preload.cjs');
+	require('./include-preload.cjs');
 	const Module = require('node:module');
 	const Activation = activationPlugin();
 	// Only the one compiled file this activation owns: every other request, of
@@ -78,10 +79,19 @@ function attach(exported, settings, Activation) {
 	if (exported === null || typeof exported !== 'object') {
 		throw new Error(`${NAME}: ${settings.configPath} exports no configuration object`);
 	}
-	// The CLI unwraps an exported `default`, which would leave the attachment on
-	// an object no compiler ever sees.
+	// What a transpiled module looks like from here. The CLI unwraps such an
+	// export, so the attachment belongs on what it unwraps to and not on the
+	// namespace around it, which no compiler ever sees.
 	if (Object.hasOwn(exported, 'default')) {
-		throw new Error(`${NAME}: ${settings.configPath} exports a transpiled default this activation does not support`);
+		if (exported.__esModule !== true) {
+			throw new Error(`${NAME}: ${settings.configPath} exports a default this activation cannot tell from a configuration field`);
+		}
+		// Its own descriptors, so the namespace keeps the shape its transpiler
+		// gave it (__esModule is non-enumerable) for whoever else reads it.
+		return Object.defineProperties({}, {
+			...Object.getOwnPropertyDescriptors(exported),
+			default: { value: attach(exported.default, settings, Activation), writable: true, enumerable: true, configurable: true },
+		});
 	}
 	const plugins = exported.plugins === undefined ? [] : exported.plugins;
 	if (!Array.isArray(plugins)) throw new Error(`${NAME}: ${settings.configPath} exports a non-array plugins field`);

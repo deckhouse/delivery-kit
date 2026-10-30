@@ -17,6 +17,7 @@ const { runtimeEvidence } = require('./runtime-evidence.cjs');
 const { installCopyEvidence } = require('./copy-evidence.cjs');
 const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
+const { installIncludeEvidence, isIncludeLoader } = require('./include-evidence.cjs');
 const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
 const { installHtmlEvidence } = require('./html-evidence.cjs');
@@ -58,6 +59,7 @@ class DkSbomWebpackCollector {
 		options.copyEvidence = installCopyEvidence(compiler, resource => verifyResource(options, resource));
 		if (options.esbuild) options.esbuildEvidence = installEsbuildEvidence(compiler, options.esbuild, resource => verifyResource(options, resource));
 		options.stylesheetEvidence = installStylesheetEvidence(compiler, resource => verifyResource(options, resource));
+		options.includeEvidence = installIncludeEvidence(compiler, resource => verifyResource(options, resource));
 		options.minifierEvidence = installTerserEvidence(compiler, resource => verifyResource(options, resource));
 		options.licenseEvidence = options.minifierEvidence.license;
 		options.contentHashEvidence = installContentHashEvidence(compiler, resource => verifyResource(options, resource));
@@ -246,42 +248,107 @@ async function collectChunkAssets(options, compilation) {
 	const byAsset = new Map();
 	await collectChunksInto(options, compilation, compilation, byAsset);
 	for (const child of Array.isArray(compilation.children) ? compilation.children : []) {
-		await collectChunksInto(options, child, compilation, byAsset);
+		try {
+			// A compilation whose files this one does not emit - the one a template
+			// is compiled in, whose result its plugin keeps to itself - accounts for
+			// no asset here.
+			if (!emitsHere(child, compilation)) continue;
+			await collectChunksInto(options, child, compilation, byAsset);
+		} catch (error) {
+			// Anything may stand on that list; what it cost to look is a reason for
+			// the assets it claims, not a failed build.
+			refuseClaims(child, compilation, byAsset, error);
+		}
 	}
 	return byAsset;
 }
 
+function emitsHere(child, compilation) {
+	for (const chunk of child.chunks) {
+		for (const file of chunk.files) {
+			if (compilation.getAsset(file)) return true;
+		}
+	}
+	return false;
+}
+
+function refuseClaims(child, compilation, byAsset, error) {
+	const reason = `${madeBy(child)} could not be described: ${reasonOf(error)}`;
+	for (const chunk of chunksOf(child)) {
+		for (const file of chunk && chunk.files ? chunk.files : []) {
+			if (!compilation.getAsset(file)) continue;
+			const target = byAsset.get(file) || { units: new Map(), failures: new Map(), compilation };
+			addFailure(target, failure('no-data', reason));
+			byAsset.set(file, target);
+		}
+	}
+}
+
+// Which compilation a reason is about, said the one way everywhere.
+function madeBy(child) {
+	return child && child.name ? `the compilation of ${child.name}` : 'a compilation this one made';
+}
+
+function reasonOf(error) {
+	return (error && error.message) || String(error);
+}
+
+function chunksOf(child) {
+	try {
+		return child && child.chunks ? [...child.chunks] : [];
+	} catch {
+		return [];
+	}
+}
+
 async function collectChunksInto(options, source, compilation, byAsset) {
 	for (const chunk of source.chunks) {
-		const collected = { units: new Map(), failures: new Map() };
+		const collected = { units: new Map(), failures: new Map(), compilation: source };
 		// One chunk emitting several files would need per-file attribution of its
 		// modules, which this version does not do.
 		if (chunk.files.size !== 1) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
-		for (const module of source.chunkGraph.getChunkModulesIterable(chunk)) {
-			await collectModule(options, module, collected, source, chunk);
-		}
-		// Every chunk must account for generated wrapper/bootstrap code; an
-		// undescribed renderChunk path remains no-data rather than ordinary source.
 		const evidence = { minifier: options.minifierEvidence, contentHash: options.contentHashEvidence };
-		const bootstrap =
-			source === compilation
-				? await assetEvidence(compilation, chunk, resource => verifyResource(options, resource), evidence)
-				: await childEvidence(compilation, chunk, source, resource => verifyResource(options, resource), evidence);
-		if (bootstrap.failure) addFailure(collected, bootstrap.failure);
-		for (const unit of bootstrap.units) collected.units.set(unit.path, unit);
+		try {
+			for (const module of source.chunkGraph.getChunkModulesIterable(chunk)) {
+				await collectModule(options, module, collected, source, chunk);
+			}
+			// Every chunk must account for generated wrapper/bootstrap code; an
+			// undescribed renderChunk path remains no-data rather than ordinary
+			// source.
+			const bootstrap =
+				source === compilation
+					? await assetEvidence(compilation, chunk, resource => verifyResource(options, resource), evidence)
+					: await childEvidence(compilation, chunk, source, resource => verifyResource(options, resource), evidence);
+			if (bootstrap.failure) addFailure(collected, bootstrap.failure);
+			for (const unit of bootstrap.units) collected.units.set(unit.path, unit);
+			if (bootstrap.requiredBytes) collected.requiredBytes = bootstrap.requiredBytes;
+		} catch (error) {
+			// A compilation this one did not make can be in any state at all; what
+			// it cost to look is a reason, not a failed build.
+			if (source === compilation) throw error;
+			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} could not be described: ${reasonOf(error)}`));
+		}
+		// Which compilation a reason is about: a build has several, and the names
+		// of their chunks and assets say nothing about which one they belong to.
+		if (source !== compilation) {
+			const made = madeBy(source);
+			const named = new Map();
+			for (const item of collected.failures.values()) named.set(`${made}: ${item.reason}`, failure(item.status, `${made}: ${item.reason}`));
+			collected.failures = named;
+		}
 		for (const file of chunk.files) {
-			const target = byAsset.get(file) || { units: new Map(), failures: new Map() };
+			const target = byAsset.get(file) || { units: new Map(), failures: new Map(), compilation: source };
 			for (const [key, unit] of collected.units) target.units.set(key, unit);
 			for (const [reason, failure] of collected.failures) target.failures.set(reason, failure);
 			// The bytes the described render produced: whatever is on disk at the end
 			// has to be exactly these, no matter what ran after the emit.
-			if (bootstrap.requiredBytes) {
-				if (target.requiredBytes && !target.requiredBytes.equals(bootstrap.requiredBytes)) {
+			if (collected.requiredBytes) {
+				if (target.requiredBytes && !target.requiredBytes.equals(collected.requiredBytes)) {
 					addFailure(target, failure('invalid', `asset ${file} is described by two different renders`));
 				} else {
-					target.requiredBytes = bootstrap.requiredBytes;
+					target.requiredBytes = collected.requiredBytes;
 				}
 			}
 			byAsset.set(file, target);
@@ -310,6 +377,7 @@ async function collectModule(options, module, collected, compilation, chunk) {
 		let describe;
 		if (options.esbuildEvidence && module.loaders.length === 1 && module.loaders[0].loader === options.esbuild.loader) describe = options.esbuildEvidence;
 		else if (module.loaders.some(item => typeof item.loader === 'string' && /(?:^|[/\\])(?:style-loader|raw-loader)[/\\]/.test(item.loader))) describe = options.stylesheetEvidence;
+		else if (module.loaders.length === 1 && isIncludeLoader(module.loaders[0].loader)) describe = options.includeEvidence;
 		if (describe) {
 			const transformed = await describe(module);
 			if (transformed.failure) addFailure(collected, transformed.failure);
@@ -430,22 +498,26 @@ function describeAsset(options, assetPath, asset, chunkUnits, compilation) {
 // the sources of the asset its comments came from, which is the asset named by
 // the one filename the minifier writes - this one, without its suffix.
 async function describeExtractedComments(options, assetPath, compilation, chunkUnits) {
-	const hashed = await options.contentHashEvidence(compilation, assetPath);
-	if (hashed.failure) return incomplete(assetPath, hashed.failure);
-	const name = hashed.name || assetPath;
-	const observed = await options.licenseEvidence(compilation, name);
-	if (observed.failure) return incomplete(assetPath, observed.failure);
-	if (!observed.bytes) return incomplete(assetPath, failure('no-data', `no described minification wrote ${assetPath}`));
 	if (!assetPath.endsWith(COMMENTS_SUFFIX)) return incomplete(assetPath, failure('no-data', `${assetPath} is not the comments file of an asset of this compilation`));
 	const ownerPath = assetPath.slice(0, -COMMENTS_SUFFIX.length);
-	const hashedOwner = await options.contentHashEvidence(compilation, ownerPath);
+	const collected = chunkUnits.get(ownerPath);
+	// The minification that wrote these comments ran in the compilation the
+	// asset they came from was built in, which is where they were recorded; a
+	// file named after no asset of this build was written by nobody here.
+	const source = (collected && collected.compilation) || compilation;
+	const hashed = await options.contentHashEvidence(source, assetPath);
+	if (hashed.failure) return incomplete(assetPath, hashed.failure);
+	const name = hashed.name || assetPath;
+	const observed = await options.licenseEvidence(source, name);
+	if (observed.failure) return incomplete(assetPath, observed.failure);
+	if (!observed.bytes) return incomplete(assetPath, failure('no-data', `no described minification wrote ${assetPath}`));
+	if (!collected) return incomplete(assetPath, failure('no-data', `${ownerPath} belongs to no chunk of this compilation`));
+	const hashedOwner = await options.contentHashEvidence(source, ownerPath);
 	if (hashedOwner.failure) return incomplete(assetPath, hashedOwner.failure);
 	const owner = hashedOwner.name || ownerPath;
 	if (observed.owner !== owner || `${owner}${COMMENTS_SUFFIX}` !== name) {
 		return incomplete(assetPath, failure('no-data', `${assetPath} holds the comments of ${observed.owner}, which is not the asset it is named after`));
 	}
-	const collected = chunkUnits.get(ownerPath);
-	if (!collected) return incomplete(assetPath, failure('no-data', `${ownerPath} belongs to no chunk of this compilation`));
 	if (collected.failures.size > 0) return incomplete(assetPath, worst([...collected.failures.values()]));
 	if (collected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
 	let produced = observed.bytes;

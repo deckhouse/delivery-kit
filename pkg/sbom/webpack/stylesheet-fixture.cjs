@@ -24,12 +24,19 @@ const SOURCES = {
 	// The whole-bundle subjects of the collector cases, required the way the
 	// application under test requires its own stylesheet.
 	'required.js': "require('./a.css');\nconsole.log('required');\n",
+	// Two stylesheets whose directories lie at different depths, which the
+	// loader writes different requests for.
+	'deep/nested/c.css': '.deep { color: green; }\n',
+	'depths.js': "import './a.css';\nimport './deep/nested/c.css';\nconsole.log('depths');\n",
 };
 
 function addSources(area) {
 	for (const [name, content] of Object.entries(SOURCES)) {
-		fs.writeFileSync(path.join(area.modules, 'app', name), content);
-		fs.writeFileSync(path.join(area.originalOf('app'), name), content);
+		for (const root of [path.join(area.modules, 'app'), area.originalOf('app')]) {
+			const file = path.join(root, name);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, content);
+		}
 	}
 }
 
@@ -157,7 +164,13 @@ function configuration(setup, options, plugins) {
 		entry: setup.entry,
 		output: { path: setup.output, filename: 'main.js' },
 		target: 'web',
-		resolve: { modules: [setup.modules] },
+		resolve: {
+			modules: [setup.modules],
+			// What a build that swaps the runtime of the loader for one of its own
+			// leaves behind: the pitched text is unchanged, the module behind its
+			// request is not the file the loader names.
+			alias: setup.scenario === 'aliased-runtime' ? { [setup.styleRuntime]: setup.aliasedRuntime } : {},
+		},
 		// Every described module stays a module of its own, with the source its
 		// loader produced.
 		optimization: { minimize: false, concatenateModules: false },

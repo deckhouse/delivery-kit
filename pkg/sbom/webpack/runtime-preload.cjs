@@ -24,7 +24,11 @@ const OBSERVED = [
 	'GetChunkFilenameRuntimeModule.js',
 	'PublicPathRuntimeModule.js',
 	'AutoPublicPathRuntimeModule.js',
+	'CompatGetDefaultExportRuntimeModule.js',
 ];
+// Files that export their runtime modules as members of a namespace rather than
+// as the whole of their exports.
+const OBSERVED_MEMBERS = new Map([['AMDRuntimeModules.js', ['AMDDefineRuntimeModule', 'AMDOptionsRuntimeModule']]]);
 const RENDERED = ['renderMain', 'renderBootstrap', 'renderChunk'];
 const RENDERER = 'JavascriptModulesPlugin.js';
 // The hooks of its own class through which a runtime module lets other plugins
@@ -84,6 +88,20 @@ if (!globalThis[REGISTRY]) {
 			getGeneration: (runtimeModule) => generations.get(runtimeModule),
 			getRender: (chunk) => renders.get(chunk),
 			snapshot: (target) => members(target),
+			// Several files, or several members of one file, holding the same
+			// class make its owner ambiguous.
+			findByExportedMember: (value) => {
+				let found;
+				for (const entry of entries.values()) {
+					if (!('exports' in entry) || !entry.members) continue;
+					for (const [key, descriptor] of entry.members) {
+						if (descriptor.kind !== 'data' || descriptor.value !== value) continue;
+						if (found) return undefined;
+						found = { entry, key };
+					}
+				}
+				return found;
+			},
 			// Several files exporting the same object make its owner ambiguous.
 			findByExport: (value) => {
 				let found;
@@ -114,7 +132,9 @@ function record(entries, generations, renders, loaded, content, filename) {
 	const exported = loaded.exports;
 	// Before the snapshot, so that the wrapper is the generator the snapshot
 	// holds and the one a module must still carry to be described.
-	if (OBSERVED.includes(path.basename(filename))) observe(entries, generations, exported, filename);
+	const base = path.basename(filename);
+	if (OBSERVED.includes(base)) observe(entries, generations, exported, filename, null);
+	for (const member of OBSERVED_MEMBERS.get(base) || []) observe(entries, generations, exported, filename, member);
 	if (path.basename(filename) === RENDERER) observeRenders(entries, renders, exported, filename);
 	const prototype = describe(exported, 'prototype');
 	entries.set(
@@ -126,8 +146,22 @@ function record(entries, generations, renders, loaded, content, filename) {
 			exports: exported,
 			members: members(exported),
 			prototypeMembers: prototype && 'value' in prototype ? members(prototype.value) : null,
+			// The same, per declared member, for a file that exports a namespace
+			// of classes instead of one class.
+			memberPrototypes: memberPrototypes(exported, OBSERVED_MEMBERS.get(base) || []),
 		}),
 	);
+}
+
+function memberPrototypes(exported, names) {
+	if (names.length === 0) return null;
+	const byName = new Map();
+	for (const name of names) {
+		const owner = (describe(exported, name) || {}).value;
+		const prototype = describe(owner, 'prototype');
+		byName.set(name, prototype && 'value' in prototype ? members(prototype.value) : null);
+	}
+	return byName;
 }
 
 // What the generator of one runtime module instance really returned, and what
@@ -135,8 +169,12 @@ function record(entries, generations, renders, loaded, content, filename) {
 // duration of the call and restored afterwards is invisible from the outside.
 // Every call is kept: a module whose code depends on the chunk hashes generates
 // again while they are computed, and only one of those runs is the one used.
-function observe(entries, generations, exported, file) {
-	const prototype = describe(exported, 'prototype');
+function observe(entries, generations, exported, file, member) {
+	// A namespace of classes is observed one declared member at a time, and the
+	// member is recorded with the generation so the siblings stay apart.
+	const owner = member === null ? exported : (describe(exported, member) || {}).value;
+	if (member !== null && typeof owner !== 'function') return;
+	const prototype = describe(owner, 'prototype');
 	if (!prototype || !('value' in prototype)) return;
 	const descriptor = describe(prototype.value, 'generate');
 	if (!descriptor || typeof descriptor.value !== 'function' || !descriptor.writable || !descriptor.configurable) return;
@@ -169,7 +207,7 @@ function observe(entries, generations, exported, file) {
 			paths: restore ? Object.freeze({ ...built, calls: Object.freeze(built.calls) }) : null,
 			states: Object.freeze([before, after]),
 		});
-		generations.set(this, Object.freeze({ file, method: wrapper, runs: Object.freeze(previous ? [...previous.runs, run] : [run]) }));
+		generations.set(this, Object.freeze({ file, member, method: wrapper, runs: Object.freeze(previous ? [...previous.runs, run] : [run]) }));
 		return code;
 	};
 	Object.defineProperty(prototype.value, 'generate', { ...descriptor, value: wrapper });

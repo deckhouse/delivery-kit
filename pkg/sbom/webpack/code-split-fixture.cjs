@@ -21,7 +21,24 @@ const MARKER = 'DK-CODE-SPLIT-REPORT ';
 const SOURCES = {
 	'index.js': "import('./lazy.js').then(({ lazy }) => console.log(lazy()));\n",
 	'lazy.js': 'export function lazy() { return "lazy"; }\n',
+	// What a library written in the amd style asks for, which webpack answers
+	// with two runtime modules of its own.
+	// A commonjs module imported from an esm one, which is what makes webpack
+	// carry its compatibility helper and its module decorator into the runtime.
+	'legacy.js': "module.paths;\nmodule.exports = function legacy() { return 'legacy'; };\n",
+	'interop.js': "import legacy from './legacy.js';\nimport('./lazy.js');\nconsole.log(legacy());\n",
+	'amd.js':
+		"import('./lazy.js');\nconsole.log(typeof define === 'function' && define.amd, typeof require === 'function' && require.amd);\n" +
+		// Taken rather than called, which is what makes webpack carry its own
+		// definition of it into the runtime.
+		'var indirect = define;\nconsole.log(typeof indirect);\n',
 };
+
+function entryFile(scenario) {
+	if (scenario.startsWith('amd') || scenario === 'forged-amd-options') return 'amd.js';
+	if (scenario === 'interop' || scenario === 'forged-decorator' || scenario === 'foreign-decorator') return 'interop.js';
+	return null;
+}
 
 function writeSources(dir) {
 	fs.mkdirSync(dir, { recursive: true });
@@ -76,6 +93,44 @@ function scenarioPlugin(setup, webpack) {
 					// compilation; a plugin can take its wrapper away again.
 					hooks.renderChunk.taps.length = 0;
 					hooks.renderChunk._resetCompilation();
+				}
+				if (scenario === 'foreign-decorator') {
+					// A class of a plugin's own, under the name of one webpack
+					// declares, writing the very text webpack's own would write.
+					compilation.hooks.runtimeModule.tap('fixture', (module) => {
+						if (Object.getPrototypeOf(module).constructor.name !== 'NodeModuleDecoratorRuntimeModule') return;
+						const text = module.generate();
+						const NodeModuleDecoratorRuntimeModule = class extends Object.getPrototypeOf(Object.getPrototypeOf(module)).constructor {
+							generate() {
+								return text;
+							}
+						};
+						Object.setPrototypeOf(module, NodeModuleDecoratorRuntimeModule.prototype);
+					});
+				}
+				if (scenario === 'forged-decorator') {
+					// The generator of a class nothing exports, replaced on the one
+					// instance that was built with it.
+					compilation.hooks.runtimeModule.tap('fixture', (module) => {
+						if (Object.getPrototypeOf(module).constructor.name !== 'NodeModuleDecoratorRuntimeModule') return;
+						const prototype = Object.getPrototypeOf(module);
+						const original = prototype.generate;
+						prototype.generate = function () {
+							return `${original.call(this)}\n/* forged */`;
+						};
+					});
+				}
+				if (scenario === 'forged-amd-options') {
+					// Options that are not plain data: what json writes of them is not
+					// what stands here.
+					compilation.hooks.runtimeModule.tap('fixture', (module) => {
+						if (Object.getPrototypeOf(module).constructor.name !== 'AMDOptionsRuntimeModule') return;
+						module.options = {
+							get jQuery() {
+								return true;
+							},
+						};
+					});
 				}
 				if (scenario === 'forged-template' || scenario === 'forged-global' || scenario === 'no-filename') {
 					compilation.hooks.runtimeModule.tap('fixture', (module) => {
@@ -168,8 +223,12 @@ function configuration(setup, webpack) {
 	if (setup.proofPath) plugins.unshift(new (require('./collector.cjs'))({ proofPath: setup.proofPath, originals: setup.originals }));
 	return {
 		mode: 'production',
+		// What AMDPlugin writes into the runtime of a chunk that asks for it.
+		...(setup.scenario === 'amd-options' ? { amd: { jQuery: true, name: 'argo' } } : {}),
 		context: setup.context,
-		entry: setup.entry,
+		// The entry the test installed, except where a scenario needs one of the
+		// other sources beside it.
+		entry: entryFile(setup.scenario) ? path.join(path.dirname(setup.entry), entryFile(setup.scenario)) : setup.entry,
 		output: {
 			path: setup.output,
 			filename: setup.scenario === 'nested-output' ? 'js/[name].[contenthash].js' : '[name].[contenthash].js',

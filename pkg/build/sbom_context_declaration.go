@@ -55,14 +55,29 @@ type sbomBuildContextStage struct {
 type sbomBuildContextGitSource struct {
 	// To is the `to` path of the git mapping, which names it within the config.
 	To string `json:"to"`
+	// Kind tells a dependency of the project from the project itself. Empty and
+	// "dependency" are the same thing; "project" names the stage's own sources,
+	// which no lockfile pins and which carry none of the fields below.
+	Kind string `json:"kind,omitempty"`
 	// Locator is the lockfile `resolved` value of the dependency, verbatim.
-	Locator string `json:"locator"`
-	// InstalledPath is where the package is installed in the produced stage, under a
-	// node_modules directory of the project.
+	Locator string `json:"locator,omitempty"`
+	// InstalledPath is where the package is installed in the produced stage: under a
+	// node_modules directory of the project for a dependency, the project root
+	// itself for the project.
 	InstalledPath  string `json:"installedPath"`
-	PackageName    string `json:"packageName"`
-	PackageVersion string `json:"packageVersion"`
+	PackageName    string `json:"packageName,omitempty"`
+	PackageVersion string `json:"packageVersion,omitempty"`
 }
+
+// project reports whether the binding names the stage's own sources.
+func (binding sbomBuildContextGitSource) project() bool {
+	return binding.Kind == sbomBuildContextGitProject
+}
+
+const (
+	sbomBuildContextGitDependency = "dependency"
+	sbomBuildContextGitProject    = "project"
+)
 
 // sbomBuildContextPrebuilt names one file of a dependency that was built elsewhere,
 // and the proof of the rebuild that observed what went into it.
@@ -256,10 +271,20 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 	mappings := make(map[string]bool, len(declared.GitSources))
 	installed := make(map[string]bool, len(declared.GitSources))
 	for i, binding := range declared.GitSources {
-		for _, field := range []struct{ name, value string }{
-			{"to", binding.To}, {"locator", binding.Locator}, {"installedPath", binding.InstalledPath},
-			{"packageName", binding.PackageName}, {"packageVersion", binding.PackageVersion},
-		} {
+		switch binding.Kind {
+		case "", sbomBuildContextGitDependency, sbomBuildContextGitProject:
+		default:
+			return fmt.Errorf("gitSource %d: kind %q is not a kind of Git source", i, binding.Kind)
+		}
+		required := []struct{ name, value string }{{"to", binding.To}, {"installedPath", binding.InstalledPath}}
+		if !binding.project() {
+			required = append(required,
+				struct{ name, value string }{"locator", binding.Locator},
+				struct{ name, value string }{"packageName", binding.PackageName},
+				struct{ name, value string }{"packageVersion", binding.PackageVersion},
+			)
+		}
+		for _, field := range required {
 			if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
 				return fmt.Errorf("gitSource %d: %w", i, err)
 			}
@@ -269,13 +294,32 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 				return fmt.Errorf("gitSource %d: %s must be a clean absolute path", i, field.name)
 			}
 		}
-		if !sbomBuildContextGitLocatorRegexp.MatchString(binding.Locator) {
-			return fmt.Errorf("gitSource %d: locator %q does not pin a repository to a full commit", i, binding.Locator)
-		}
-		// The installed path is the physical package directory of that very package,
-		// so a binding cannot name the install of one package as another one.
-		if !strings.HasSuffix(binding.InstalledPath, "/node_modules/"+binding.PackageName) {
-			return fmt.Errorf("gitSource %d: installedPath %q is not the node_modules directory of %s", i, binding.InstalledPath, binding.PackageName)
+		if binding.project() {
+			// The project is named by the commit its own mapping is pinned to, so
+			// a lock entry here would be a second, unverifiable name for it.
+			for _, field := range []struct{ name, value string }{
+				{"locator", binding.Locator}, {"packageName", binding.PackageName}, {"packageVersion", binding.PackageVersion},
+			} {
+				if field.value != "" {
+					return fmt.Errorf("gitSource %d: a project names itself by its commit, not by %s", i, field.name)
+				}
+			}
+			// A dependency is delivered by its mapping and installed elsewhere by the
+			// package manager, but the project is its own sources: the place the
+			// mapping adds them is the place they are.
+			if binding.InstalledPath != binding.To {
+				return fmt.Errorf("gitSource %d: a project is installed where its mapping adds it, not at %s", i, binding.InstalledPath)
+			}
+		} else {
+			if !sbomBuildContextGitLocatorRegexp.MatchString(binding.Locator) {
+				return fmt.Errorf("gitSource %d: locator %q does not pin a repository to a full commit", i, binding.Locator)
+			}
+			// The installed path is the physical package directory of that very
+			// package, so a binding cannot name the install of one package as
+			// another one.
+			if !strings.HasSuffix(binding.InstalledPath, "/node_modules/"+binding.PackageName) {
+				return fmt.Errorf("gitSource %d: installedPath %q is not the node_modules directory of %s", i, binding.InstalledPath, binding.PackageName)
+			}
 		}
 		if mappings[binding.To] {
 			return fmt.Errorf("gitSource %d: to %q is declared more than once", i, binding.To)

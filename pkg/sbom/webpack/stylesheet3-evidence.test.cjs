@@ -77,10 +77,33 @@ test('describes a chain whose stylesheet was produced by an esbuild tail', { ski
 	assert.equal(rowOf(result.report, 'style').status, 'present');
 });
 
-test('refuses a module that embeds a source map built on a map of its own', { skip: TAIL_SKIP }, () => {
+// A tail handed css-loader a map along with the text it minified, and the map
+// css-loader embedded was composed on top of it. It is still data about this
+// module: what it carries is the file the tail read, which the seam has just
+// claimed as a source.
+test('describes a module whose embedded map was composed on a map of its tail', { skip: TAIL_SKIP }, () => {
 	const css = rowOf(build('tail-mapped', { tail: 'esbuild', sourceMap: true }).report, 'css');
+	assert.equal(css.status, 'present', css.reason);
+	assert.ok(unitOf(css, path.join('src', 'styles.css')), 'the file the map describes must be a source of the module');
+	assert.ok(unitOf(css, path.join('css-loader-5.2.6', 'dist', 'index.js')));
+});
+
+// The file a composed map carries must be one the sources of this module name:
+// a tail that claimed something else leaves the map describing a text nothing
+// of this module was verified as.
+// What the map carries must be the file as this process verified it, not what
+// the tail vouched for: the two are compared rather than one taken on trust.
+test('refuses a composed map whose file is not the one the sources were verified as', { skip: TAIL_SKIP }, () => {
+	const css = rowOf(build('tail-mapped-changed', { tail: 'esbuild', sourceMap: true, tamper: 'tail-digest' }).report, 'css');
+	assert.equal(css.status, 'hash-mismatch', css.reason);
+	assert.match(css.reason, /is not the file the sources of .* were verified as/);
+	assert.deepEqual(css.units, []);
+});
+
+test('refuses a composed map of a file no source of the module names', { skip: TAIL_SKIP }, () => {
+	const css = rowOf(build('tail-mapped-unclaimed', { tail: 'esbuild', sourceMap: true, tamper: 'tail-units' }).report, 'css');
 	assert.equal(css.status, 'no-data', css.reason);
-	assert.match(css.reason, /embeds a source map built on one of its own/);
+	assert.match(css.reason, /embeds a source map of a file no source of this module names/);
 	assert.deepEqual(css.units, []);
 });
 
@@ -174,7 +197,7 @@ test('reads only a source map that says no more than this module does', () => {
 		['a vendor extension', { ...plain, x_google_ignoreList: [] }, /carries x_google_ignoreList/],
 		['a file of its own', { ...plain, file: 'styles.css' }, /names a file of its own/],
 		['a source root', { ...plain, sourceRoot: '/src' }, /is rooted at \/src/],
-		['a text that is not the input', { ...plain, sourcesContent: ['.a{color:blue}\n'] }, /carries a text that is not what css-loader was handed/],
+		['a text that is not the input', { ...plain, sourcesContent: ['.a{color:blue}\n'] }, /carries a text that is not what this module was built from/],
 		['a missing text', { ...plain, sourcesContent: [null] }, /carries no text for webpack:\/\/\.\/styles\.css/],
 		['more sources than texts', { ...plain, sources: ['webpack://./a.css', 'webpack://./b.css'] }, /carries 1 contents for 2 sources/],
 		['a name that is not in the text', { ...plain, names: ['nowhere'] }, /names "nowhere", which is not an identifier/],
@@ -199,6 +222,28 @@ test('reads only a source map that says no more than this module does', () => {
 	const twice = internals.describedMap(`{"version":3,"version":3,"sources":[],"sourcesContent":[],"mappings":"","names":[],"sourceRoot":""}`, call, module);
 	assert.equal(twice.failure.status, 'no-data');
 	assert.match(twice.failure.reason, /is not the plain json it parses as/);
+	// A map composed on a tail's own describes the file that tail read, not the
+	// text it produced: what it carries is held against the one, and what it
+	// maps against the other.
+	const minified = '.a{color:red}';
+	const composed = { input: minified, origin: call.input };
+	assert.deepEqual(internals.describedMap(JSON.stringify(plain), composed, module), { units: [] });
+	// A position on the second line of the file, which the embedded text does
+	// not have: what bounds an original position is the file it is a position in.
+	assert.deepEqual(internals.describedMap(JSON.stringify({ ...plain, mappings: 'AACA' }), composed, module), { units: [] });
+	for (const [id, map, texts, match] of [
+		['a text that is the tail output', { ...plain, sourcesContent: [minified] }, composed, /carries a text that is not what this module was built from/],
+		['original positions beyond the file', { ...plain, mappings: 'AAEA' }, composed, /maps to line 3 of a text that has 2/],
+		['generated positions beyond the embedded text', { ...plain, mappings: 'AAAA;AAAA' }, composed, /maps 2 lines of a text that has 1/],
+		// An identifier of the text that was embedded, but not of the file the map
+		// is about.
+		['a name that is only of the embedded text', { ...plain, sourcesContent: ['.b{background:blue}\n'], names: ['color'], mappings: 'AAAAA' }, { input: call.input, origin: '.b{background:blue}\n' }, /names "color", which is not an identifier/],
+	]) {
+		const described = internals.describedMap(JSON.stringify(map), texts, module);
+		assert.equal(described.failure && described.failure.status, 'no-data', id);
+		assert.match(described.failure.reason, match, id);
+	}
+
 	// An identifier of the text is read, and so are mappings of every width, the
 	// postcss spelling of a source with no file, and a name index it carries.
 	assert.deepEqual(internals.describedMap(JSON.stringify({ ...plain, names: ['color'], mappings: 'AAAA,AAAAA;' }), call, module), { units: [] });

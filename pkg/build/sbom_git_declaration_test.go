@@ -74,3 +74,52 @@ var _ = ginkgo.Describe("producer git source declarations", func() {
 		gomega.Expect(json.Marshal(bare.Stages["install"])).NotTo(gomega.ContainSubstring("gitSources"))
 	})
 })
+
+var _ = ginkgo.Describe("producer git source declarations of the project itself", func() {
+	project := `{"to":"/app","kind":"project","installedPath":"/app"}`
+	declaration := func(sources string) []byte {
+		return []byte(`{"version":1,"stages":{"install":{"subject":0,"webpackSources":true,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}],"gitSources":` + sources + `}}}`)
+	}
+
+	// The project is not a dependency of itself: the mapping that adds it and the
+	// place it is added at are the whole of the binding.
+	ginkgo.It("binds the project root to the mapping that adds it", func() {
+		parsed, err := parseSBOMBuildContextDeclaration(declaration("[" + project + "]"))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(parsed.Stages["install"].GitSources).To(gomega.Equal([]sbomBuildContextGitSource{{
+			To:            "/app",
+			Kind:          "project",
+			InstalledPath: "/app",
+		}}))
+	})
+
+	ginkgo.DescribeTable("refuses a project binding that names itself by a lock entry", func(member, value string) {
+		_, err := parseSBOMBuildContextDeclaration(declaration("[" + strings.Replace(project, `"installedPath"`, `"`+member+`":`+value+`,"installedPath"`, 1) + "]"))
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("a project names itself by its commit, not by " + member)))
+	},
+		ginkgo.Entry("locator", "locator", `"git+https://github.com/Redocly/redoc.git#124309592670979d1a647718e5ad94b9b9e56e48"`),
+		ginkgo.Entry("packageName", "packageName", `"redoc"`),
+		ginkgo.Entry("packageVersion", "packageVersion", `"2.4.0"`),
+	)
+
+	// The project is its own sources: the mapping that adds them is where they are,
+	// unlike a dependency, which its mapping only delivers and the package manager
+	// installs elsewhere.
+	ginkgo.It("refuses a project installed anywhere but where its mapping adds it", func() {
+		_, err := parseSBOMBuildContextDeclaration(declaration(`[{"to":"/app","kind":"project","installedPath":"/app/src"}]`))
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("a project is installed where its mapping adds it, not at /app/src")))
+	})
+
+	ginkgo.It("refuses a kind that is no kind of Git source", func() {
+		_, err := parseSBOMBuildContextDeclaration(declaration(`[{"to":"/app","kind":"primary","installedPath":"/app"}]`))
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(`kind "primary" is not a kind of Git source`)))
+	})
+
+	// A dependency keeps every one of its own requirements, named kind or not.
+	ginkgo.It("still requires a dependency to pin a distribution", func() {
+		for _, kind := range []string{"", `"kind":"dependency",`} {
+			_, err := parseSBOMBuildContextDeclaration(declaration(`[{"to":"/src/x",` + kind + `"installedPath":"/app/node_modules/x"}]`))
+			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("locator is required")))
+		}
+	})
+})

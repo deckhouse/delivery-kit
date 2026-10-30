@@ -7,6 +7,7 @@
 // child process whose NODE_OPTIONS carries the activation preload, as the image
 // recipe appends it.
 
+const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -56,7 +57,13 @@ function createArea(fixture, name, options = {}) {
 	fs.mkdirSync(area.tmp, { recursive: true });
 	fs.mkdirSync(path.dirname(area.entry), { recursive: true });
 	area.git = options.git ? installGitPackage(area) : undefined;
-	fs.writeFileSync(area.entry, area.git ? `${ENTRY}import {ui} from ${JSON.stringify(GIT_PACKAGE)};\nconsole.log(ui);\n` : ENTRY);
+	area.esbuild = options.esbuild ? declaredEsbuild(area, options.esbuild) : undefined;
+	let entry = area.git ? `${ENTRY}import {ui} from ${JSON.stringify(GIT_PACKAGE)};\nconsole.log(ui);\n` : ENTRY;
+	if (area.esbuild) {
+		fs.writeFileSync(area.esbuild.source, 'export const typed: number = 7;\n');
+		entry = `${entry}import {typed} from "./typed.ts";\nconsole.log(typed);\n`;
+	}
+	fs.writeFileSync(area.entry, entry);
 	if (options.manager === 'npm') writeNpm(fixture, area);
 	else writeYarn(fixture, area);
 	fs.mkdirSync(path.dirname(area.contextPath), { recursive: true });
@@ -65,6 +72,24 @@ function createArea(fixture, name, options = {}) {
 	fs.writeFileSync(area.configPath, config(area, options.shape));
 	fs.writeFileSync(area.unmatchedConfigPath, config(area, undefined));
 	return area;
+}
+
+// The instrumented esbuild of one supported pair, as a stage would hold it: the
+// patched client and executable of a real checkout, the published loader of the
+// pair, and the runtime source that esbuild's own output is built from.
+function declaredEsbuild(area, pair) {
+	const source = process.env[pair === '0.17.19' ? 'DK_ESBUILD_0_17_SOURCE' : 'DK_ESBUILD_SOURCE'];
+	assert.ok(source, 'an instrumented esbuild checkout must be named for a declared tool');
+	const loader = require.resolve(pair === '0.17.19' ? 'esbuild-loader-3.0.1' : 'esbuild-loader');
+
+	return {
+		versions: { esbuild: pair, esbuildLoader: pair === '0.17.19' ? '3.0.1' : '4.3.0' },
+		entry: path.join(source, 'npm', 'esbuild', 'lib', 'main.js'),
+		binary: path.join(source, 'esbuild'),
+		loader,
+		runtimeSource: path.join(source, 'internal', 'runtime', 'runtime.go'),
+		source: path.join(path.dirname(area.entry), 'typed.ts'),
+	};
 }
 
 // The verified expected hashes DK writes beside the read-only build context
@@ -81,6 +106,15 @@ function writeManifest(area, withGit) {
 		manifest.components.push(GIT_COMPONENT);
 		manifest.files.push({ path: area.git.source, sha256: `sha256:${crypto.createHash('sha256').update(GIT_BODY).digest('hex')}`, component: GIT_COMPONENT.id });
 		manifest.lifecycle = [{ component: GIT_COMPONENT.id, hooks: ['prepare'] }];
+	}
+	// The files of the instrumented esbuild this build made itself: the context
+	// is where their digests come from, never the environment that names them.
+	if (area.esbuild) {
+		const digest = (file) => `sha256:${crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')}`;
+		manifest.files.push({ path: area.esbuild.source, sha256: digest(area.esbuild.source), component: PRIMARY.id });
+		for (const key of area.esbuildUnlisted === true ? [] : ['entry', 'binary']) {
+			manifest.files.push({ path: area.esbuild[key], sha256: digest(area.esbuild[key]), component: PRIMARY.id });
+		}
 	}
 	fs.writeFileSync(area.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
@@ -161,6 +195,7 @@ const config = {
 	target: 'node',
 	output: {path: ${JSON.stringify(area.output)}, filename: 'main.js', iife: false},
 	optimization: {minimize: false, concatenateModules: true, usedExports: true},
+	module: {rules: ${JSON.stringify(area.esbuild ? [{ test: '\\.ts$', loader: area.esbuild.loader, options: { loader: 'ts', target: 'es2015' } }] : [])}.map(rule => ({...rule, test: new RegExp(rule.test)}))},
 	plugins,
 };
 let call = null;
@@ -221,6 +256,17 @@ function run(area, options = {}) {
 		env.DK_SBOM_WEBPACK_PROOF = area.proofPath;
 		env.DK_SBOM_YARN_CACHE = area.cacheDir;
 		env.SBOM_BUILD_CONTEXT = area.contextPath;
+		if (area.esbuild) {
+			env.DK_SBOM_ESBUILD_VERSION = area.esbuild.versions.esbuild;
+			env.DK_SBOM_ESBUILD_LOADER_VERSION = area.esbuild.versions.esbuildLoader;
+			env.DK_SBOM_ESBUILD_ENTRY = area.esbuild.entry;
+			env.DK_SBOM_ESBUILD_BINARY = area.esbuild.binary;
+			env.DK_SBOM_ESBUILD_LOADER = area.esbuild.loader;
+			env.DK_SBOM_ESBUILD_RUNTIME_SOURCE = area.esbuild.runtimeSource;
+			// The adapter refuses a process that could run an executable other
+			// than the one it verified.
+			env.ESBUILD_BINARY_PATH = area.esbuild.binary;
+		}
 	}
 	const result = spawnSync(process.execPath, [CLI, '--config', area.configPath, '--mode', 'production', ...(options.args || [])], {
 		cwd: area.root,

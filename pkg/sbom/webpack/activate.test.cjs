@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { before, after, test } = require('node:test');
 const { createFixture } = require('./fixture.cjs');
-const { createArea, run, HEAP_LIMIT_MB, GIT_PACKAGE } = require('./activate-fixture.cjs');
+const { createArea, writeManifest, run, HEAP_LIMIT_MB, GIT_PACKAGE } = require('./activate-fixture.cjs');
 
 let root, fixture;
 before(() => {
@@ -192,4 +192,68 @@ test('refuses a project whose package manager cannot be told', () => {
 		assert.match(result.stderr, pattern);
 		assert.ok(!emitted(area), `${name} emitted an asset`);
 	}
+});
+
+// The instrumented esbuild a stage transforms its modules with has to be
+// declared to the activation, or every module it built stays unaccounted for.
+const ESBUILD_SKIP = process.env.DK_ESBUILD_0_17_SOURCE ? false : 'DK_ESBUILD_0_17_SOURCE is not set to a checkout of the instrumented esbuild';
+
+// The asset of this workspace is never described whole - the webpack that runs
+// it stands outside the project and is nobody's original here - so what the
+// declaration changes is read where it shows: in what the asset is still
+// missing an account of.
+function reasonsFor(result, file) {
+	const asset = result.proof.assets.find((row) => row.path === 'main.js');
+
+	return (asset.reason || '').split('; ').filter((reason) => reason.includes(file));
+}
+
+test('describes a module an esbuild the environment declares transformed', { skip: ESBUILD_SKIP }, () => {
+	const area = createArea(fixture, 'esbuild-declared', { esbuild: '0.17.19' });
+	const result = run(area);
+	assert.equal(result.status, 0, result.stderr);
+	assert.deepEqual(reasonsFor(result, 'typed.ts'), [], 'the transformed module must leave nothing unaccounted for');
+	// The module really was transformed by the declared loader, and the resolver
+	// was asked for the file behind it.
+	const answers = new Map(result.probe.originalsCalls.map((call) => [call.resource, call]));
+	assert.deepEqual(answers.get(path.join('src', 'typed.ts')), { resource: path.join('src', 'typed.ts'), component: null });
+});
+
+// Without it the build is the same build, and the module is simply not
+// described: a tool nobody declared is not one this collector may assume.
+test('leaves a module of an undeclared esbuild unaccounted for', { skip: ESBUILD_SKIP }, () => {
+	const area = createArea(fixture, 'esbuild-undeclared', { esbuild: '0.17.19' });
+	const result = run(area, { env: { DK_SBOM_ESBUILD_VERSION: '', DK_SBOM_ESBUILD_LOADER_VERSION: '', DK_SBOM_ESBUILD_ENTRY: '', DK_SBOM_ESBUILD_BINARY: '', DK_SBOM_ESBUILD_LOADER: '', DK_SBOM_ESBUILD_RUNTIME_SOURCE: '' } });
+	assert.equal(result.status, 0, result.stderr);
+	const reasons = reasonsFor(result, 'typed.ts');
+	assert.equal(reasons.length, 1, reasons.join('; '));
+	assert.match(reasons[0], /loader-transformed module/);
+});
+
+test('refuses a half-declared instrumented esbuild', { skip: ESBUILD_SKIP }, () => {
+	const area = createArea(fixture, 'esbuild-partial', { esbuild: '0.17.19' });
+	const result = run(area, { env: { DK_SBOM_ESBUILD_BINARY: '' } });
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /declared by DK_SBOM_ESBUILD_ENTRY.*together, or by none of them/s);
+	assert.equal(emitted(area), false);
+});
+
+// The digests of the two files this build made itself are the context's to
+// answer for: what the environment names, it does not vouch for.
+test('refuses an instrumented esbuild the build context does not carry', { skip: ESBUILD_SKIP }, () => {
+	const area = createArea(fixture, 'esbuild-unlisted', { esbuild: '0.17.19' });
+	area.esbuildUnlisted = true;
+	writeManifest(area, false);
+	const result = run(area);
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /DK_SBOM_ESBUILD_ENTRY names .*which the verified build context does not carry/);
+	assert.equal(emitted(area), false);
+});
+
+test('refuses a version pair this collector does not describe', { skip: ESBUILD_SKIP }, () => {
+	const area = createArea(fixture, 'esbuild-pair', { esbuild: '0.17.19' });
+	const result = run(area, { env: { DK_SBOM_ESBUILD_LOADER_VERSION: '4.3.0' } });
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /is not a described pair/);
+	assert.equal(emitted(area), false);
 });

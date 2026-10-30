@@ -346,3 +346,103 @@ var _ = ginkgo.Describe("Verifying a Git-pinned Node original", func() {
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the object database")))
 	})
 })
+
+var _ = ginkgo.Describe("Verifying the stage's own sources as a Git original", func() {
+	const manifest = `{"name":"redoc","version":"2.4.0","scripts":{"prepare":"husky install","build":"webpack"}}`
+
+	projectRequest := func(bare, commit string) GitOriginalRequest {
+		return GitOriginalRequest{
+			GitDir:    bare,
+			RemoteURL: "git@github.com:Redocly/redoc.git",
+			Commit:    commit,
+			// A project names itself: no locator, no identity of its own.
+			InstalledRoot: "/app",
+			Project:       true,
+		}
+	}
+
+	ginkgo.It("takes its identity from the commit and spells its locator from the mapping", func(ctx ginkgo.SpecContext) {
+		bare, commit := gitFixtureRepository(manifest, map[string]string{
+			"src/index.ts": "export const app = 1;\n",
+		})
+		observed := fixtureIndex(map[string]string{
+			"/app/package.json": manifest,
+			"/app/src/index.ts": "export const app = 1;\n",
+		})
+
+		original, err := VerifyGitOriginal(ctx, projectRequest(bare, commit), observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(original.Component).To(gomega.Equal(shared.BuildComponent{
+			ID: original.Component.ID, Name: "redoc", Version: "2.4.0",
+			Source: shared.BuildSource{
+				Kind: "node",
+				// The ssh remote of the mapping, spelled as the one locator this
+				// adapter reads back, with the owner's own case kept.
+				Locator:  "git+https://github.com/Redocly/redoc.git#" + commit,
+				Checksum: "git-commit:sha1:" + commit,
+			},
+		}))
+		gomega.Expect(originalPaths(original)).To(gomega.Equal([]string{"/app/package.json", "/app/src/index.ts"}))
+		gomega.Expect(original.Lifecycle).To(gomega.Equal([]string{"prepare"}))
+	})
+
+	// What a project vendors under its own root is the installer's, even where the
+	// commit happens to carry a file of that very name and those very bytes.
+	ginkgo.It("lists nothing a node_modules directory of the project holds", func(ctx ginkgo.SpecContext) {
+		bare, commit := gitFixtureRepository(manifest, map[string]string{
+			"src/index.ts":                   "export const app = 1;\n",
+			"node_modules/left/index.js":     "committed by mistake\n",
+			"src/node_modules/deep/index.js": "committed deeper\n",
+		})
+		observed := fixtureIndex(map[string]string{
+			"/app/package.json":                   manifest,
+			"/app/src/index.ts":                   "export const app = 1;\n",
+			"/app/node_modules/left/index.js":     "committed by mistake\n",
+			"/app/src/node_modules/deep/index.js": "committed deeper\n",
+		})
+
+		original, err := VerifyGitOriginal(ctx, projectRequest(bare, commit), observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(originalPaths(original)).To(gomega.Equal([]string{"/app/package.json", "/app/src/index.ts"}))
+	})
+
+	ginkgo.It("refuses a project that names itself by a lock entry", func(ctx ginkgo.SpecContext) {
+		bare, commit := gitFixtureRepository(manifest, map[string]string{"src/index.ts": "export const app = 1;\n"})
+		observed := fixtureIndex(map[string]string{"/app/package.json": manifest})
+
+		for _, named := range []func(GitOriginalRequest) GitOriginalRequest{
+			func(r GitOriginalRequest) GitOriginalRequest {
+				r.Locator = "git+https://github.com/Redocly/redoc.git#" + commit
+				return r
+			},
+			func(r GitOriginalRequest) GitOriginalRequest { r.PackageName = "redoc"; return r },
+			func(r GitOriginalRequest) GitOriginalRequest { r.PackageVersion = "2.4.0"; return r },
+		} {
+			_, err := VerifyGitOriginal(ctx, named(projectRequest(bare, commit)), observed)
+			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("a project original is named by its own commit, not by a lock entry")))
+		}
+	})
+
+	ginkgo.It("refuses a commit whose package.json names no package", func(ctx ginkgo.SpecContext) {
+		bare, commit := gitFixtureRepository(`{"private":true}`, map[string]string{"src/index.ts": "export const app = 1;\n"})
+		observed := fixtureIndex(map[string]string{"/app/package.json": `{"private":true}`})
+
+		_, err := VerifyGitOriginal(ctx, projectRequest(bare, commit), observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("names no package")))
+	})
+
+	ginkgo.It("refuses a mapping remote that names no repository, and a commit that is not one", func(ctx ginkgo.SpecContext) {
+		bare, commit := gitFixtureRepository(manifest, map[string]string{"src/index.ts": "export const app = 1;\n"})
+		observed := fixtureIndex(map[string]string{"/app/package.json": manifest})
+
+		broken := projectRequest(bare, commit)
+		broken.RemoteURL = "file:///srv/redoc"
+		_, err := VerifyGitOriginal(ctx, broken, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported transport")))
+
+		short := projectRequest(bare, commit)
+		short.Commit = commit[:12]
+		_, err = VerifyGitOriginal(ctx, short, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not a full commit")))
+	})
+})

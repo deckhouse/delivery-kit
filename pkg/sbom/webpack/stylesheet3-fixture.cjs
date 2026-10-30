@@ -157,6 +157,12 @@ const tails = esbuildEvidence
 			const described = await esbuildEvidence.transformed(module);
 			if (described.failure) return described;
 			if (described.code !== text) return { units: [], failure: { status: 'hash-mismatch', reason: 'the esbuild transform did not produce the text css-loader read' } };
+			// A tail that claims sources other than the file it read: the map
+			// css-loader composed on top of this tail's then describes a file
+			// nothing of this module names.
+			if (area.tamper === 'tail-units') return { units: described.units.filter((unit) => !/\.css$/.test(unit.path)) };
+			// A tail that names the file it read but vouches for other bytes.
+			if (area.tamper === 'tail-digest') return { units: described.units.map((unit) => (/\.css$/.test(unit.path) ? { ...unit, sha256: 'sha256:' + '0'.repeat(64) } : unit)) };
 			return { units: described.units };
 		},
 	}]

@@ -169,3 +169,41 @@ test('refuses a node component that pins no commit and a lifecycle record of nob
 	}
 	assert.ok(new ContextOriginals(f.contextPath));
 });
+
+// The stage's own sources, bound to the commit they were checked out from. A
+// project is not a dependency of itself, so no lockfile names it and no package
+// manager resolves it: the manifest is the whole of the binding, and the files
+// of it are read the same way a Git-locked dependency's are.
+const PROJECT_COMMIT='124309592670979d1a647718e5ad94b9b9e56e48';
+const PROJECT_LOCATOR=`git+https://github.com/Redocly/redoc.git#${PROJECT_COMMIT}`;
+
+function projectFixture(t,overrides={}) {
+	const f=fixture(t);
+	const component={id:'node:redoc',name:'redoc',version:'2.4.0',
+		source:{kind:'node',locator:PROJECT_LOCATOR,checksum:`git-commit:sha1:${PROJECT_COMMIT}`,...overrides.source}};
+	f.manifest.components=[component];
+	for (const file of f.manifest.files) file.component=component.id;
+	if (overrides.drop) f.manifest.files=f.manifest.files.filter(file=>!file.path.endsWith(overrides.drop));
+	f.save();
+	return f;
+}
+
+test('attributes the project own sources to the commit they were checked out from',async t=>{
+	const f=projectFixture(t);const row=await compile(f);
+	assert.equal(row.status,'present',row.reason);
+	assert.ok(row.inputs.some(input=>input.path===path.join(f.area.root,'primary.js')));
+	assert.deepEqual(row.components.find(c=>c.id==='node:redoc').source,
+		{kind:'node',locator:PROJECT_LOCATOR,checksum:`git-commit:sha1:${PROJECT_COMMIT}`});
+});
+
+test('does not attribute a project source the commit manifest does not list',async t=>{
+	const row=await compile(projectFixture(t,{drop:'secondary.js'}));
+	assert.equal(row.status,'no-data');
+	assert.match(row.reason,/no verified primary-source mapping/);
+	assert.deepEqual(row.components,[]);
+});
+
+test('refuses a project component whose checksum is not the commit of its locator',t=>{
+	const f=projectFixture(t,{source:{checksum:`git-commit:sha1:${'b'.repeat(40)}`}});
+	assert.throws(()=>new ContextOriginals(f.contextPath),/pins no Git commit/);
+});

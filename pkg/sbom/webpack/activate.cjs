@@ -38,6 +38,26 @@ const LOCKFILES = new Map([
 	['package-lock.json', './npm-originals.cjs'],
 	['npm-shrinkwrap.json', null],
 ]);
+// The instrumented esbuild this build transforms its modules with, declared as
+// the four files it is made of and the version pair they are. Declaring it is
+// all or nothing: a build that names none of these is described without it, and
+// a build that names some of it is a declaration nobody can act on.
+//
+// No digest is taken from here. What the published loader and the runtime
+// source of a version must hash to is pinned by the adapter; what the locally
+// built entry and executable hash to is read from the verified context of this
+// very build, which is the only thing in reach that nobody being described
+// wrote.
+const ESBUILD_VERSION = 'DK_SBOM_ESBUILD_VERSION';
+const ESBUILD_LOADER_VERSION = 'DK_SBOM_ESBUILD_LOADER_VERSION';
+const ESBUILD_FILES = Object.freeze({
+	entry: 'DK_SBOM_ESBUILD_ENTRY',
+	binary: 'DK_SBOM_ESBUILD_BINARY',
+	loader: 'DK_SBOM_ESBUILD_LOADER',
+	runtimeSource: 'DK_SBOM_ESBUILD_RUNTIME_SOURCE',
+});
+// The files whose digests the verified context has to answer for.
+const ESBUILD_BUILT = Object.freeze(['entry', 'binary']);
 
 if (process.env[CONFIG]) activate();
 
@@ -49,6 +69,7 @@ function activate() {
 		proofPath: requireAbsolute(path, PROOF),
 		cacheDir: requireRealDirectory(fs, path, CACHE),
 		contextPath: requireAbsolute(path, CONTEXT),
+		esbuild: esbuildDeclaration(fs, path),
 	};
 	// The load recorder has to be wrapping the module loader before the first
 	// webpack file is compiled; everything else here is loaded after it.
@@ -210,6 +231,7 @@ function activationPlugin() {
 				proofPath: this.settings.proofPath,
 				originals: [],
 				copied: [],
+				esbuild: esbuildTool(this.settings.esbuild, primary),
 				// A failure of the package manager is a failure of the managed
 				// package it names, never a reason to look for those bytes among
 				// the project's own sources.
@@ -226,6 +248,42 @@ function activationPlugin() {
 			}
 		}
 	};
+}
+
+// What the environment declares about the instrumented esbuild, as paths and
+// versions alone.
+function esbuildDeclaration(fs, path) {
+	const named = Object.entries(ESBUILD_FILES).filter(([, variable]) => process.env[variable]);
+	const versions = [ESBUILD_VERSION, ESBUILD_LOADER_VERSION].filter((variable) => process.env[variable]);
+	if (named.length === 0 && versions.length === 0) return null;
+	if (named.length !== Object.keys(ESBUILD_FILES).length || versions.length !== 2) {
+		throw new Error(`${NAME}: an instrumented esbuild is declared by ${[...Object.values(ESBUILD_FILES), ESBUILD_VERSION, ESBUILD_LOADER_VERSION].join(', ')} together, or by none of them`);
+	}
+	const declared = { versions: { esbuild: process.env[ESBUILD_VERSION], esbuildLoader: process.env[ESBUILD_LOADER_VERSION] } };
+	for (const [key, variable] of named) declared[key] = requireRealFile(fs, path, variable);
+
+	return declared;
+}
+
+// The tool the adapter is installed with: the declared paths, and for the two
+// files this build made itself the digests the verified context carries for
+// them. A file the context does not answer for is one this process would
+// otherwise have to take on the word of the build it is describing.
+function esbuildTool(declared, primary) {
+	if (!declared) return undefined;
+	const tool = { versions: declared.versions };
+	for (const key of Object.keys(ESBUILD_FILES)) tool[key] = declared[key];
+	for (const key of ESBUILD_BUILT) {
+		let binding;
+		try {
+			binding = primary.resolve(tool[key]);
+		} catch (error) {
+			throw new Error(`${NAME}: ${ESBUILD_FILES[key]} names ${tool[key]}, which the verified build context does not carry: ${error.message}`);
+		}
+		tool[`${key}SHA256`] = binding.sha256;
+	}
+
+	return tool;
 }
 
 function requireAbsolute(path, variable) {

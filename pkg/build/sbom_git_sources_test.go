@@ -16,61 +16,69 @@ import (
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/git_repo"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
+	"github.com/werf/werf/v3/pkg/werf"
 )
 
-// fixtureGitRepo answers what a fetched mapping repository answers about itself; every
-// other operation is out of reach of the code under test and stays unimplemented.
-type fixtureGitRepo struct {
-	git_repo.GitRepo
-	local bool
-	url   string
-	clone string
-}
-
-func (repo fixtureGitRepo) IsLocal() bool { return repo.local }
-
-func (repo fixtureGitRepo) RemoteOriginUrl(context.Context) (string, error) { return repo.url, nil }
-
-func (repo fixtureGitRepo) GetClonePath() string { return repo.clone }
-
-// unfetchedGitRepo is a mapping repository DK has no object database for.
-type unfetchedGitRepo struct {
+// localGitRepo is a mapping repository that is somebody's working checkout rather than
+// a mirror DK fetched: it answers nothing about where it came from.
+type localGitRepo struct {
 	git_repo.GitRepo
 }
 
-func (unfetchedGitRepo) IsLocal() bool { return false }
+func (localGitRepo) IsLocal() bool { return true }
 
-func (unfetchedGitRepo) RemoteOriginUrl(context.Context) (string, error) { return "", nil }
+// fixtureRemoteRepo opens the repository DK would open for a `git:` mapping of that url
+// and fetches the given work tree into the mirror DK would fetch it into. What comes
+// back is the very type a build holds, so the url it is held against is the one the
+// config names - not whatever the mirror's own config happens to say.
+func fixtureRemoteRepo(url, work string) *git_repo.Remote {
+	ginkgo.GinkgoHelper()
+	// The mirror of a remote repository lives in werf's own cache, so the cache of
+	// this spec is a directory of its own and the machine's is left alone.
+	gomega.Expect(werf.Init("", ginkgo.GinkgoT().TempDir())).To(gomega.Succeed())
+	ginkgo.DeferCleanup(func() { gomega.Expect(werf.Init("", "")).To(gomega.Succeed()) })
+	repo, err := git_repo.OpenRemoteRepo("fixture", url, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	clone := repo.GetClonePath()
+	gomega.Expect(os.MkdirAll(filepath.Dir(clone), 0o755)).To(gomega.Succeed())
+	if work != "" {
+		gitFixtureCommand(filepath.Dir(clone), "clone", "-q", "--bare", work, clone)
+	}
+
+	return repo
+}
+
+// gitFixtureCommand runs one git command of a fixture repository, with the environment
+// of the machine kept out of it.
+func gitFixtureCommand(dir string, args ...string) string {
+	ginkgo.GinkgoHelper()
+	command := exec.Command("git", args...)
+	command.Dir = dir
+	command.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_AUTHOR_DATE=2020-01-01T00:00:00Z",
+		"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=fixture@example.invalid", "GIT_COMMITTER_DATE=2020-01-01T00:00:00Z",
+	)
+	out, err := command.CombinedOutput()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), string(out))
+
+	return strings.TrimSpace(string(out))
+}
 
 // gitMappingFixture builds a repository holding one package at one commit and answers
-// the bare clone DK would fetch, plus that commit.
+// its work tree, plus that commit.
 func gitMappingFixture(manifest, body string) (string, string) {
 	ginkgo.GinkgoHelper()
 	root := ginkgo.GinkgoT().TempDir()
 	work := filepath.Join(root, "work")
 	gomega.Expect(os.MkdirAll(work, 0o755)).To(gomega.Succeed())
-	run := func(dir string, args ...string) string {
-		command := exec.Command("git", args...)
-		command.Dir = dir
-		command.Env = append(os.Environ(),
-			"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
-			"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_AUTHOR_DATE=2020-01-01T00:00:00Z",
-			"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=fixture@example.invalid", "GIT_COMMITTER_DATE=2020-01-01T00:00:00Z",
-		)
-		out, err := command.CombinedOutput()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), string(out))
-
-		return strings.TrimSpace(string(out))
-	}
-	run(work, "init", "-q", "-b", "main", ".")
+	gitFixtureCommand(work, "init", "-q", "-b", "main", ".")
 	gomega.Expect(os.WriteFile(filepath.Join(work, "package.json"), []byte(manifest), 0o644)).To(gomega.Succeed())
 	gomega.Expect(os.WriteFile(filepath.Join(work, "index.js"), []byte(body), 0o644)).To(gomega.Succeed())
-	run(work, "add", "-A")
-	run(work, "commit", "-q", "-m", "fixture")
-	bare := filepath.Join(root, "bare.git")
-	run(root, "clone", "-q", "--bare", work, bare)
+	gitFixtureCommand(work, "add", "-A")
+	gitFixtureCommand(work, "commit", "-q", "-m", "fixture")
 
-	return bare, run(work, "rev-parse", "HEAD")
+	return work, gitFixtureCommand(work, "rev-parse", "HEAD")
 }
 
 func fixtureGitImage(mappings ...*stage.GitMapping) *image.Image {
@@ -107,11 +115,11 @@ var _ = ginkgo.Describe("producer git sources", func() {
 			PackageVersion: "1.0.0",
 		}
 	}
-	mapping := func(commit, clone string) *stage.GitMapping {
+	mapping := func(commit, work string) *stage.GitMapping {
 		gitMapping := stage.NewGitMapping()
 		gitMapping.To = "/src/originals/argo-ui"
 		gitMapping.Commit = commit
-		gitMapping.SetGitRepo(fixtureGitRepo{url: "https://github.com/argoproj/argo-ui.git", clone: clone})
+		gitMapping.SetGitRepo(fixtureRemoteRepo("https://github.com/argoproj/argo-ui.git", work))
 
 		return gitMapping
 	}
@@ -148,23 +156,99 @@ var _ = ginkgo.Describe("producer git sources", func() {
 		_, _, err = producerGitSources(ctx, fixtureGitImage(unpinned), []sbomBuildContextGitSource{binding(commit)}, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not pinned to a commit")))
 
-		project := mapping(commit, clone)
-		project.SetGitRepo(fixtureGitRepo{local: true})
-		_, _, err = producerGitSources(ctx, fixtureGitImage(project), []sbomBuildContextGitSource{binding(commit)}, observed)
-		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("adds the project repository")))
+		checkout := mapping(commit, clone)
+		checkout.SetGitRepo(localGitRepo{})
+		_, _, err = producerGitSources(ctx, fixtureGitImage(checkout), []sbomBuildContextGitSource{binding(commit)}, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("adds a local checkout, which is not a verifiable source")))
 
+		// A mirror DK never fetched into: the mapping names a repository whose
+		// objects are not there to be read.
 		unfetched := mapping(commit, clone)
-		unfetched.SetGitRepo(unfetchedGitRepo{})
+		unfetched.SetGitRepo(fixtureRemoteRepo("https://github.com/argoproj/argo-ui.git", ""))
 		_, _, err = producerGitSources(ctx, fixtureGitImage(unfetched), []sbomBuildContextGitSource{binding(commit)}, observed)
-		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no fetched object database")))
+		gomega.Expect(err).To(gomega.HaveOccurred())
 	})
 
 	ginkgo.It("refuses a mapping that fetches another repository than the locator pins", func(ctx ginkgo.SpecContext) {
 		clone, commit := gitMappingFixture(manifest, body)
 		forked := mapping(commit, clone)
-		forked.SetGitRepo(fixtureGitRepo{url: "https://github.com/fork-owner/argo-ui.git", clone: clone})
+		forked.SetGitRepo(fixtureRemoteRepo("https://github.com/fork-owner/argo-ui.git", clone))
 
 		_, _, err := producerGitSources(ctx, fixtureGitImage(forked), []sbomBuildContextGitSource{binding(commit)}, observed)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("git source /src/originals/argo-ui: invalid: the mapping fetches")))
+	})
+})
+
+var _ = ginkgo.Describe("producer git sources of the project itself", func() {
+	const manifest = `{"name":"redoc","version":"2.4.0"}`
+	const body = "export const app = 1;\n"
+	const url = "https://github.com/Redocly/redoc.git"
+
+	binding := sbomBuildContextGitSource{To: "/app", Kind: "project", InstalledPath: "/app"}
+	mapping := func(commit, work string) *stage.GitMapping {
+		gitMapping := stage.NewGitMapping()
+		gitMapping.To = "/app"
+		gitMapping.Add = "/"
+		gitMapping.Commit = commit
+		gitMapping.SetGitRepo(fixtureRemoteRepo(url, work))
+
+		return gitMapping
+	}
+	observed := fixtureInstalledIndex(map[string]string{
+		"/app/package.json": manifest,
+		"/app/index.js":     body,
+	})
+
+	// A production rebuild stage adds the project with an ordinary remote `git:`
+	// mapping pinned by commit. That mapping, and the url the config names it by,
+	// are the whole of what the project is held to be.
+	ginkgo.It("verifies the project against the remote mapping that adds it", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+
+		originals, identities, err := producerGitSources(ctx, fixtureGitImage(mapping(commit, work)), []sbomBuildContextGitSource{binding}, observed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(originals).To(gomega.HaveLen(1))
+		gomega.Expect(originals[0].Component.Name).To(gomega.Equal("redoc"))
+		gomega.Expect(originals[0].Component.Version).To(gomega.Equal("2.4.0"))
+		// Spelled from the url of the config, not from anything the mirror says
+		// about where it was fetched from.
+		gomega.Expect(originals[0].Component.Source.Locator).To(gomega.Equal("git+https://github.com/Redocly/redoc.git#" + commit))
+		gomega.Expect(originals[0].Component.Source.Checksum).To(gomega.Equal("git-commit:sha1:" + commit))
+		var listed []string
+		for _, file := range originals[0].Files {
+			listed = append(listed, file.Path)
+		}
+		gomega.Expect(listed).To(gomega.ConsistOf("/app/index.js", "/app/package.json"))
+		gomega.Expect(identities).To(gomega.ContainElement(url))
+		gomega.Expect(identities).To(gomega.ContainElement(commit))
+	})
+
+	// What a local checkout holds is whatever the machine running the build put
+	// there: it pins no commit of its own and nothing states where it came from.
+	ginkgo.It("refuses a project added from a local checkout", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+		checkout := mapping(commit, work)
+		checkout.SetGitRepo(localGitRepo{})
+
+		_, _, err := producerGitSources(ctx, fixtureGitImage(checkout), []sbomBuildContextGitSource{binding}, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("git mapping /app adds a local checkout, which is not a verifiable source: it pins no commit and its origin is unverified")))
+	})
+
+	ginkgo.It("refuses a project mapping that is not pinned to a commit", func(ctx ginkgo.SpecContext) {
+		work, _ := gitMappingFixture(manifest, body)
+
+		_, _, err := producerGitSources(ctx, fixtureGitImage(mapping("", work)), []sbomBuildContextGitSource{binding}, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not pinned to a commit")))
+	})
+
+	// The files are read from the root of the commit tree, so a mapping that adds
+	// a part of the repository puts them somewhere else than this says they are.
+	ginkgo.It("refuses a project mapping that adds a part of the repository", func(ctx ginkgo.SpecContext) {
+		work, commit := gitMappingFixture(manifest, body)
+		partial := mapping(commit, work)
+		partial.Add = "/packages/redoc"
+
+		_, _, err := producerGitSources(ctx, fixtureGitImage(partial), []sbomBuildContextGitSource{binding}, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("adds /packages/redoc of the project, not the whole repository")))
 	})
 })

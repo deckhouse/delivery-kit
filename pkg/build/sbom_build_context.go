@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/docker_registry"
+	"github.com/werf/werf/v3/pkg/git_repo"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
@@ -202,12 +204,19 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	return &sbomProducerContext{directory: directory, path: path, checksum: util.Sha256Hash(append(parts, identities...)...)}, nil
 }
 
-// producerGitSources verifies, for every declared Git-backed Node dependency, that the
-// git mapping the config adds is that very repository at that very commit, and answers
-// the installed files of the observed stage that carry the commit's own bytes.
+// producerGitSources verifies, for every declared Git-backed Node source - a dependency
+// the lockfile pins, or the stage's own project - that the git mapping the config adds
+// is that very repository at that very commit, and answers the installed files of the
+// observed stage that carry the commit's own bytes.
 //
-// The mapping is the one DK fetched itself: its remote and its pinned commit are the
-// recipe's, never a label of the produced image or a path in it.
+// Only a remote mapping is a source anything can be proven about: DK fetched it itself,
+// from the url the config names, pinned to the commit the config names. A local
+// checkout is whatever the working machine holds - it pins no commit and its origin is
+// nobody's statement - so it is refused rather than described.
+//
+// The repository a locator is held against is the url of the config, not the
+// `remote.origin.url` of the mirror DK fetched into: that file is written by whatever
+// fetched it, and the recipe is the only thing here the consumer of the SBOM read.
 func producerGitSources(ctx context.Context, img *imagePkg.Image, declared []sbomBuildContextGitSource, observed *shippedscope.FileIndex) ([]nativegate.GitOriginal, []string, error) {
 	var originals []nativegate.GitOriginal
 	var identities []string
@@ -220,34 +229,36 @@ func producerGitSources(ctx context.Context, img *imagePkg.Image, declared []sbo
 		if repository == nil {
 			return nil, nil, fmt.Errorf("no-data: git mapping %s has no fetched repository", binding.To)
 		}
-		if repository.IsLocal() {
-			return nil, nil, fmt.Errorf("invalid: git mapping %s adds the project repository, not a pinned dependency", binding.To)
+		fetched, remote := repository.(*git_repo.Remote)
+		if !remote {
+			return nil, nil, fmt.Errorf("invalid: git mapping %s adds a local checkout, which is not a verifiable source: it pins no commit and its origin is unverified", binding.To)
 		}
 		if mapping.Commit == "" {
 			return nil, nil, fmt.Errorf("invalid: git mapping %s is not pinned to a commit", binding.To)
 		}
-		fetched, pinned := repository.(interface{ GetClonePath() string })
-		if !pinned {
-			return nil, nil, fmt.Errorf("no-data: git mapping %s exposes no fetched object database", binding.To)
-		}
-		remote, err := repository.RemoteOriginUrl(ctx)
-		if err != nil {
-			return nil, nil, err
+		if binding.project() {
+			// The whole repository, placed where the project is: this reads the
+			// commit tree from its root, so a mapping adding a part of it elsewhere
+			// would name files that are not where it says they are.
+			if added := path.Clean("/" + mapping.Add); added != "/" {
+				return nil, nil, fmt.Errorf("invalid: git mapping %s adds %s of the project, not the whole repository", binding.To, added)
+			}
 		}
 		original, err := nativegate.VerifyGitOriginal(ctx, nativegate.GitOriginalRequest{
 			GitDir:         fetched.GetClonePath(),
-			RemoteURL:      remote,
+			RemoteURL:      fetched.Url,
 			Commit:         mapping.Commit,
 			Locator:        binding.Locator,
 			PackageName:    binding.PackageName,
 			PackageVersion: binding.PackageVersion,
 			InstalledRoot:  binding.InstalledPath,
+			Project:        binding.project(),
 		}, observed)
 		if err != nil {
 			return nil, nil, fmt.Errorf("git source %s: %w", binding.To, err)
 		}
 		originals = append(originals, *original)
-		identities = append(identities, binding.To, remote, mapping.Commit, original.Component.ID)
+		identities = append(identities, binding.To, fetched.Url, mapping.Commit, original.Component.ID)
 	}
 
 	return originals, identities, nil

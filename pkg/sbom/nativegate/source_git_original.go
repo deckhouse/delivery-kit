@@ -30,6 +30,9 @@ import (
 // short commit or a locator without a fragment pins no bytes and is not accepted.
 var gitLocatorRegexp = regexp.MustCompile(`^git\+(https|ssh)://[^\s#]+#([0-9a-f]{40})$`)
 
+// gitCommitRegexp is a commit as this adapter takes one: full, lowercase hex.
+var gitCommitRegexp = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 // gitTreeEntryRegexp splits the textual head of a tree entry, `<mode> <name>`. Old git
 // versions wrote a leading zero and the group-writable file mode, so the octal spelling
 // is read as a number and normalized rather than matched literally.
@@ -71,8 +74,14 @@ type GitOriginalRequest struct {
 	PackageName    string
 	PackageVersion string
 	// InstalledRoot is the absolute path the package is installed at in the observed
-	// stage, that is `<…>/node_modules/<name>`.
+	// stage, that is `<…>/node_modules/<name>` for a dependency and the project root
+	// itself for the project.
 	InstalledRoot string
+	// Project marks the stage's own sources rather than a dependency of them. A
+	// project is not a dependency of itself, so no lockfile names it: its identity is
+	// the package.json of the verified commit and its locator is spelled from the
+	// mapping remote. Nothing under a node_modules directory of it is its own.
+	Project bool
 }
 
 // GitOriginal is one verified Git-backed Node original: the component the commit
@@ -112,8 +121,9 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 	if err := namespacePath(request.InstalledRoot); err != nil {
 		return nil, fmt.Errorf("installed %w", err)
 	}
-	if request.PackageName == "" || request.PackageVersion == "" {
-		return nil, fmt.Errorf("invalid: the declared package identity of %s is incomplete", request.Locator)
+	request, err := resolvedGitRequest(request)
+	if err != nil {
+		return nil, err
 	}
 
 	match := gitLocatorRegexp.FindStringSubmatch(request.Locator)
@@ -140,7 +150,7 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 	if err != nil {
 		return nil, err
 	}
-	lifecycle, err := checkGitPackageIdentity(manifest, request)
+	lifecycle, err := checkGitPackageIdentity(manifest, &request)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +166,15 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 		Lifecycle: lifecycle,
 	}
 	for _, relative := range slices.Sorted(maps.Keys(blobs)) {
+		// A project vendors its dependencies under its own root, and what stands
+		// there is the installer's doing rather than the commit's - even where the
+		// commit happens to carry a file of the same name. A repository that tracks
+		// its node_modules is no exception: those files are listed by nothing here
+		// and stay no-data, to be answered for by the lockfile that installed them
+		// or not at all.
+		if request.Project && gitVendored(relative) {
+			continue
+		}
 		installed := path.Join(request.InstalledRoot, relative)
 		file, shipped := observed.Files[installed]
 		if !shipped || file.Digest != blobs[relative] {
@@ -165,6 +184,41 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 	}
 
 	return original, nil
+}
+
+// gitVendored reports whether a package-relative path lies under a node_modules
+// directory, at the root of the tree or anywhere below it.
+func gitVendored(relative string) bool {
+	return relative == "node_modules" || strings.HasPrefix(relative, "node_modules/") || strings.Contains(relative, "/node_modules/")
+}
+
+// resolvedGitRequest fills in what a project declares by not declaring it.
+//
+// A dependency is named by the lockfile that pins it, and every one of those facts is
+// the caller's to state. A project is named by nothing outside itself: its locator is
+// spelled here from the remote the mapping fetches, in the one spelling this adapter
+// reads back, and its identity is left to the package.json of the commit.
+func resolvedGitRequest(request GitOriginalRequest) (GitOriginalRequest, error) {
+	if !request.Project {
+		if request.PackageName == "" || request.PackageVersion == "" {
+			return request, fmt.Errorf("invalid: the declared package identity of %s is incomplete", request.Locator)
+		}
+
+		return request, nil
+	}
+	if request.Locator != "" || request.PackageName != "" || request.PackageVersion != "" {
+		return request, fmt.Errorf("invalid: a project original is named by its own commit, not by a lock entry")
+	}
+	repository, err := gitRepositoryIdentity(request.RemoteURL)
+	if err != nil {
+		return request, fmt.Errorf("invalid: mapping remote %q: %w", request.RemoteURL, err)
+	}
+	if !gitCommitRegexp.MatchString(request.Commit) {
+		return request, fmt.Errorf("invalid: %q is not a full commit", request.Commit)
+	}
+	request.Locator = "git+https://" + repository + ".git#" + request.Commit
+
+	return request, nil
 }
 
 // gitComponentID spells the identity of a Git-backed distribution the way the Node
@@ -179,7 +233,7 @@ func gitComponentID(request GitOriginalRequest, commit string) string {
 // checkGitPackageIdentity holds the commit to the identity the lock entry claims for it:
 // the package.json of the commit is the manifest of that very distribution, so a commit
 // carrying another package, or another version of it, is not the pinned one.
-func checkGitPackageIdentity(content []byte, request GitOriginalRequest) ([]string, error) {
+func checkGitPackageIdentity(content []byte, request *GitOriginalRequest) ([]string, error) {
 	if content == nil {
 		return nil, fmt.Errorf("invalid: commit %s carries no package.json", request.Commit)
 	}
@@ -190,6 +244,14 @@ func checkGitPackageIdentity(content []byte, request GitOriginalRequest) ([]stri
 	}
 	if err := json.Unmarshal(content, &manifest); err != nil {
 		return nil, fmt.Errorf("invalid: package.json of commit %s is malformed: %w", request.Commit, err)
+	}
+	// A project has no lock entry to be held against, so the identity of the commit
+	// is its identity - but it must have one.
+	if request.Project {
+		if manifest.Name == "" || manifest.Version == "" {
+			return nil, fmt.Errorf("invalid: package.json of commit %s names no package", request.Commit)
+		}
+		request.PackageName, request.PackageVersion = manifest.Name, manifest.Version
 	}
 	if manifest.Name != request.PackageName || manifest.Version != request.PackageVersion {
 		return nil, fmt.Errorf("invalid: commit %s holds %s@%s, not %s@%s", request.Commit, manifest.Name, manifest.Version, request.PackageName, request.PackageVersion)

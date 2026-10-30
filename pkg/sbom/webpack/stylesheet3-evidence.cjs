@@ -187,16 +187,6 @@ async function describeCss(context, module, call) {
 	if (parts.failure) return parts;
 	const required = await requiredCssModules(context, module, parts);
 	if (required.failure) return required;
-	// A tail may hand css-loader a map of its own. With no map embedded it is
-	// provably unread - the parser is told to make none - but an embedded map
-	// built on top of it describes text through a mapping this adapter did not
-	// verify, and what it says is then no longer only about this module.
-	if (parts.sourceMap !== null && call.map !== undefined && call.map !== null) {
-		return noData(`${identify(module)} embeds a source map built on one of its own`);
-	}
-	const map = parts.sourceMap === null ? { units: [] } : describedMap(parts.sourceMap, call, module);
-	if (map.failure) return map;
-
 	if (written.content !== cssTemplate(parts)) {
 		return failed('invalid', `css-loader did not write its own template for ${identify(module)}`);
 	}
@@ -210,9 +200,49 @@ async function describeCss(context, module, call) {
 	const sources = await context.tailOf(module, call.input, { after: at, resource: call.context.resourcePath, tails: context.tails });
 	if (sources.failure) return sources;
 
+	// The map is read last because what it may say depends on what the seam
+	// settled: when a tail handed css-loader a map of its own, the map embedded
+	// here describes the file that tail read, and that file is a source the seam
+	// has just claimed.
+	if (parts.sourceMap !== null) {
+		const mapped = await mappedText(context, module, call, sources);
+		if (mapped.failure) return mapped;
+		const map = describedMap(parts.sourceMap, { input: call.input, origin: mapped.text }, module);
+		if (map.failure) return map;
+	}
+
 	const loader = await loaderUnit(context, info.file, info.sha256);
 	if (loader.failure) return loader;
 	return { units: [...sources.units, loader.unit] };
+}
+
+// The text the sources of an embedded map describe.
+//
+// With nothing behind css-loader, the text it was handed is the whole of what
+// the map can be about. A tail that handed a map along with that text built it
+// out of a file of its own, and the map css-loader composed on top of that one
+// describes that file - so it is read against the file itself, which the seam
+// has just claimed as a source of this module.
+async function mappedText(context, module, call, sources) {
+	if (call.map === undefined || call.map === null) return { text: call.input };
+	const resource = call.context.resourcePath;
+	const claimed = sources.units.find((unit) => unit.path === resource);
+	if (!claimed) return noData(`${identify(module)} embeds a source map of a file no source of this module names`);
+	const resolution = await verified(context, resource);
+	if (resolution.failure) return resolution;
+	if (resolution.unit.sha256 !== claimed.sha256) {
+		return failed('hash-mismatch', `${resource} is not the file the sources of ${identify(module)} were verified as`);
+	}
+	return textOf(resolution.unit, resource);
+}
+
+// The text of a verified file, as a map may carry it: bytes that are not utf8
+// are not a text this version compares.
+function textOf(unit, file) {
+	if (!Buffer.isBuffer(unit.bytes)) return noData(`${file} was verified without its bytes`);
+	const text = unit.bytes.toString('utf8');
+	if (!Buffer.from(text, 'utf8').equals(unit.bytes)) return noData(`${file} is not valid utf8`);
+	return { text };
 }
 
 // The embedded source map, read as data about this very module.
@@ -223,7 +253,11 @@ async function describeCss(context, module, call) {
 // and prove nothing, so they are not read as inputs - what makes the map
 // harmless is that every `sourcesContent` entry is the input this module was
 // built from, byte for byte.
-function describedMap(mapText, call, module) {
+function describedMap(mapText, texts, module) {
+	// A map read with no tail behind the loader describes the text css-loader
+	// was handed, which is then both what it maps and what it maps from.
+	const input = texts.input;
+	const origin = texts.origin === undefined ? texts.input : texts.origin;
 	const parsed = strictJson(mapText);
 	if (parsed.failure) return parsed;
 	const map = parsed.value;
@@ -250,25 +284,25 @@ function describedMap(mapText, call, module) {
 		return noData(`the source map of ${identify(module)} carries ${Array.isArray(map.sourcesContent) ? map.sourcesContent.length : 'no'} contents for ${map.sources.length} sources`);
 	}
 	// The one claim that makes the map data rather than a statement about files
-	// nobody verified: every text it carries is the text this module was built
-	// from.
+	// nobody verified: every text it carries is a text this module was built
+	// from, byte for byte.
 	for (const [index, content] of map.sourcesContent.entries()) {
 		if (typeof content !== 'string') return noData(`the source map of ${identify(module)} carries no text for ${map.sources[index]}`);
-		if (content !== call.input) return noData(`the source map of ${identify(module)} carries a text that is not what css-loader was handed`);
+		if (content !== origin) return noData(`the source map of ${identify(module)} carries a text that is not what this module was built from`);
 	}
 	const names = map.names === undefined ? [] : map.names;
 	if (!Array.isArray(names)) return noData(`the source map of ${identify(module)} names identifiers in a way this version does not read`);
-	const tokens = identifiersIn(call.input);
+	const tokens = identifiersIn(origin);
 	for (const name of names) {
 		if (typeof name !== 'string' || !tokens.has(name)) {
 			return noData(`the source map of ${identify(module)} names ${JSON.stringify(name)}, which is not an identifier of the text it maps`);
 		}
 	}
-	const decoded = decodeMappings(map.mappings, { sources: map.sources.length, names: names.length, input: call.input });
+	const decoded = decodeMappings(map.mappings, { sources: map.sources.length, names: names.length, origin });
 	if (decoded.failure) return noData(`the source map of ${identify(module)} ${decoded.failure.reason}`);
-	// The text a map of this module may describe is the text of this module: it
-	// is handed to the runtime together with the very stylesheet it maps.
-	const mapped = call.input.split('\n');
+	// What the map maps is the text css-loader embedded beside it: the runtime is
+	// handed the two together.
+	const mapped = input.split('\n');
 	if (decoded.lines > mapped.length) {
 		return noData(`the source map of ${identify(module)} maps ${decoded.lines} lines of a text that has ${mapped.length}`);
 	}
@@ -313,7 +347,7 @@ function identifiersIn(text) {
 function decodeMappings(mappings, bounds) {
 	if (typeof mappings !== 'string') return mappingProblem('does not carry readable mappings');
 	const DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-	const lines = bounds.input.split('\n');
+	const lines = bounds.origin.split('\n');
 	const state = { source: 0, line: 0, column: 0, name: 0 };
 	let generatedLine = 0;
 	let lastColumn = 0;

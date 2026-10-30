@@ -19,6 +19,7 @@ const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
 const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
+const { installHtmlEvidence } = require('./html-evidence.cjs');
 const { assetEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const path = require('path');
 
@@ -56,6 +57,7 @@ class DkSbomWebpackCollector {
 		options.stylesheetEvidence = installStylesheetEvidence(compiler, resource => verifyResource(options, resource));
 		options.minifierEvidence = installTerserEvidence(compiler, resource => verifyResource(options, resource));
 		options.contentHashEvidence = installContentHashEvidence(compiler, resource => verifyResource(options, resource));
+		options.htmlEvidence = installHtmlEvidence(compiler, resource => verifyResource(options, resource));
 		compiler.hooks.afterEmit.tapAsync(PLUGIN, (compilation, callback) => {
 			buildProof(options, compilation)
 				.then(async proof => {
@@ -394,10 +396,30 @@ function describeAsset(options, assetPath, asset, chunkCollected, compilation) {
 		return incomplete(assetPath, failure('invalid', `asset is both copied and emitted by a chunk`));
 	}
 	if (copied) return describeCopiedAsset(options, assetPath, compilation);
-	if (!chunkCollected) return incomplete(assetPath, failure('no-data', `asset belongs to no chunk of this compilation`));
+	if (!chunkCollected) return describeEmittedAsset(options, assetPath, compilation);
 	if (chunkCollected.failures.size > 0) return incomplete(assetPath, worst([...chunkCollected.failures.values()]));
 	if (chunkCollected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
 	return present(assetPath, [...chunkCollected.units.values()], chunkCollected.requiredBytes);
+}
+
+// An asset no chunk emitted and no copy produced: the html a described plugin
+// wrote, followed through the one stage that may still rewrite it - the html
+// carries the content-hashed names of the chunks it loads, so the same
+// substitution that renames them rewrites this file too.
+async function describeEmittedAsset(options, assetPath, compilation) {
+	const html = await options.htmlEvidence(compilation, assetPath);
+	if (html.failure) return incomplete(assetPath, html.failure);
+	if (!html.units) return incomplete(assetPath, failure('no-data', `asset belongs to no chunk of this compilation`));
+	// Content-hash evidence lists every asset that existed before the stage,
+	// unchanged ones included, so the html is always paired when it ran.
+	const hashed = await options.contentHashEvidence(compilation, assetPath);
+	if (hashed.failure) return incomplete(assetPath, hashed.failure);
+	let produced = html.requiredBytes;
+	if (hashed.input) {
+		if (!hashed.input.equals(produced)) return incomplete(assetPath, failure('no-data', `${assetPath} was changed before its content hash was replaced`));
+		produced = hashed.output;
+	}
+	return present(assetPath, html.units, produced);
 }
 
 async function describeCopiedAsset(options, assetPath, compilation) {

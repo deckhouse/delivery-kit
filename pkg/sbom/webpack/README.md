@@ -79,6 +79,14 @@ SCSS through sass-loader 14.2.1 and sass 1.49.9 (default legacy API, no loader o
 
 The optional private `esbuild` collector option supports the instrumented esbuild 0.25.0 client/binary and esbuild-loader 4.3.0. It records the actual per-module transform without replacing the project's shared options. See [the pinned producer patch and tool-input contract](esbuild/README.md). A runtime contribution is accepted only when that transform selected the runtime source unit and the caller supplies its verified original distribution; absence of producer evidence is not an empty runtime contribution. Automatic deployment of these tool inputs is separate from the standalone collector option.
 
+## Observed html
+
+The `index.html` of html-webpack-plugin 5.6.0 is described from what the plugin really did, for a plugin configured with nothing but its `template`. The template file is read through the plugin's own lodash loader, compiled in a child compilation, evaluated, executed, filled with tags made from this compilation's own asset names and minified in a production build; each of those steps is observed where it happens and bound to the next by the value it handed on, down to the bytes of the emitted asset. Nothing is recompiled or minified a second time.
+
+The html's sources are the verified template and the code that writes html text: the plugin's loader, tag writer and generating file, the lodash implementation whose compiled template the module carries, and the html-minifier-terser files when minification runs. The plugin's remaining pinned files, and the entity decoder the default options never enable, are verified instruments that contribute nothing. Since the html names content-hashed chunks, the collector follows it through the same real-content-hash substitution as a chunk asset before comparing it with the file on disk.
+
+A tap or an interceptor on any of the plugin's six public hooks, a plugin object carrying members of its own, any option beyond the template, another loader on the template, foreign taps that could render or rewrite the template bundle in the child compilation, a cached child compilation and a second plugin instance all fail closed. The code generation of that child bundle is not re-verified: parser-level plugins such as DefinePlugin still reach the template module there.
+
 ## Stage delivery
 
 A checked stage may extend the existing private `werf.io/sbom-build-context-v1` declaration:

@@ -86,9 +86,9 @@ var _ = Describe("rawStapelImage", func() {
 					Git:     &GitManager{},
 					Secrets: []Secret{},
 					Sign: []*Sign{
-						{Path: "/out/a.roothash", After: "install"},
-						{Path: "/out/b.roothash", Before: "setup"},
-						{Path: "/out/c.roothash"},
+						{Path: "/out/a.roothash", Format: SignFormatDetachedPKCS7, After: "install"},
+						{Path: "/out/b.roothash", Format: SignFormatDetachedPKCS7, Before: "setup"},
+						{Path: "/out/c.roothash", Format: SignFormatDetachedPKCS7},
 					},
 
 					platform: []string{},
@@ -113,8 +113,34 @@ var _ = Describe("rawStapelImage", func() {
 					Git:     &GitManager{},
 					Secrets: []Secret{},
 					Sign: []*Sign{
-						{Path: "/out/a.roothash", After: "install"},
-						{Path: "/out/a.roothash.p7s"},
+						{Path: "/out/a.roothash", Format: SignFormatDetachedPKCS7, After: "install"},
+						{Path: "/out/a.roothash.p7s", Format: SignFormatDetachedPKCS7},
+					},
+
+					platform: []string{},
+					final:    true,
+				},
+			},
+		),
+		Entry(
+			"should handle an embedded authenticode signature next to a detached one",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine:latest",
+				"sign": []map[string]interface{}{
+					{"path": "/out/boot.efi", "format": "authenticode", "after": "install"},
+					{"path": "/out/rootfs.roothash", "after": "install"},
+				},
+			},
+			&StapelImage{
+				StapelImageBase: &StapelImageBase{
+					Name:    "image1",
+					From:    "alpine:latest",
+					Git:     &GitManager{},
+					Secrets: []Secret{},
+					Sign: []*Sign{
+						{Path: "/out/boot.efi", Format: SignFormatAuthenticode, After: "install"},
+						{Path: "/out/rootfs.roothash", Format: SignFormatDetachedPKCS7, After: "install"},
 					},
 
 					platform: []string{},
@@ -140,9 +166,9 @@ var _ = Describe("rawStapelImage", func() {
 					Git:     &GitManager{},
 					Secrets: []Secret{},
 					Sign: []*Sign{
-						{Path: "/out/lib/modules/**/*.ko", After: "install"},
-						{Path: "/out/*.ko.p7s", After: "install"},
-						{Path: "/out/lib/modules/**/*.ko.p7s", After: "install"},
+						{Path: "/out/lib/modules/**/*.ko", Format: SignFormatDetachedPKCS7, After: "install"},
+						{Path: "/out/*.ko.p7s", Format: SignFormatDetachedPKCS7, After: "install"},
+						{Path: "/out/lib/modules/**/*.ko.p7s", Format: SignFormatDetachedPKCS7, After: "install"},
 					},
 
 					platform: []string{},
@@ -477,6 +503,28 @@ var _ = Describe("rawStapelImage", func() {
 				"sign": []map[string]interface{}{
 					{"path": "/out/x.roothash.p7s", "after": "install"},
 					{"path": "/out/x.roothash", "after": "install"},
+				},
+			},
+		),
+		Entry(
+			"with an authenticode entry on the detached signature another entry writes at the same stage",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign": []map[string]interface{}{
+					{"path": "/out/x", "after": "install"},
+					{"path": "/out/x.p7s", "format": "authenticode", "after": "install"},
+				},
+			},
+		),
+		Entry(
+			"with an authenticode entry on the detached signature another entry writes at the same stage, listed first",
+			map[string]interface{}{
+				"image": "image1",
+				"from":  "alpine",
+				"sign": []map[string]interface{}{
+					{"path": "/out/x.p7s", "format": "authenticode", "after": "install"},
+					{"path": "/out/x", "after": "install"},
 				},
 			},
 		),

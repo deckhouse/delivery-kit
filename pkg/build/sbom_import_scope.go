@@ -138,7 +138,7 @@ func carriesWholeImage(scopes []nativegate.ImportScope) (bool, error) {
 }
 
 // rootedImportPath reads a path of a directive the way the copy does, so that the root is
-// recognised however the recipe spelled it.
+// recognized however the recipe spelled it.
 func rootedImportPath(raw string) string {
 	if raw == "" {
 		return ""

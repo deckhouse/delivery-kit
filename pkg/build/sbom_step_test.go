@@ -504,7 +504,7 @@ var _ = Describe("SbomStep", func() {
 	// The label no longer exempts anything: an image this project builds on carries
 	// an SBOM, and a toolchain it only takes files out of is declared a bootstrap
 	// source, whose files the importing image answers for one by one.
-	Describe("GetImageBOM() of an image labelled a builder", func() {
+	Describe("GetImageBOM() of an image labeled a builder", func() {
 		It("requires an attached SBOM of it like of any other image", func(ctx SpecContext) {
 			step := &sbomStep{}
 

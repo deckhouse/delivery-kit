@@ -19,7 +19,9 @@ import (
 // one, and MarkNotShipped drops it before deciding anew.
 const PropertyShipped = "werf:shipped"
 
-const propertyShippedFalse = "false"
+// PropertyShippedFalse is the value of that property stating that the image does not ship
+// this component at all.
+const PropertyShippedFalse = "false"
 
 // MarkNotShipped decides, for every component of the BOM whose files an ecosystem can
 // describe, whether this image ships it, and writes PropertyShipped on the ones it does
@@ -55,7 +57,7 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 		if isBinaryBacked(key.ecosystem) {
 			decision := binaryDecision(comp, filesets.Index.Incomplete, byDigest)
 			if !decision.Shipped {
-				setProperty(comp, PropertyShipped, propertyShippedFalse)
+				setProperty(comp, PropertyShipped, PropertyShippedFalse)
 				count++
 				logboek.Context(ctx).Debug().LogF("not shipped %s %s@%s (%s)\n", key.ecosystem, key.name, key.version, decision.Reason)
 			}
@@ -86,7 +88,7 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 			continue
 		}
 
-		setProperty(judged[i], PropertyShipped, propertyShippedFalse)
+		setProperty(judged[i], PropertyShipped, PropertyShippedFalse)
 		count++
 
 		logboek.Context(ctx).Debug().LogF("not shipped %s %s@%s (%s): checked %d files, 0 matches\n",

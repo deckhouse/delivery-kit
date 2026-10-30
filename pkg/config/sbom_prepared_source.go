@@ -87,6 +87,21 @@ func validatePreparedSourceImage(config *WerfConfig, image ImageInterface) error
 	if len(base.Packages) > 0 {
 		return newConfigError(fmt.Sprintf("image %q is declared a prepared source, so it installs no packages: a prepared source is itself what a package consists of", name))
 	}
+	if len(base.Mount) > 0 {
+		return newConfigError(fmt.Sprintf("image %q is declared a prepared source, so it mounts nothing: what a mount brings in is not among the files any import of this image placed here", name))
+	}
+	if len(base.Secrets) > 0 {
+		return newConfigError(fmt.Sprintf("image %q is declared a prepared source, so it takes no secrets: a prepared source is published and consumed as the package it is", name))
+	}
+	if len(base.Dependencies) > 0 {
+		return newConfigError(fmt.Sprintf("image %q is declared a prepared source, so it declares no dependencies: nothing here reads what another image was built as", name))
+	}
+	// A prepared source is consumed by pinning the package it is, not by shipping it:
+	// a final image is one this project delivers, and this one is a source for others.
+	// Images are final unless they say otherwise, so such a recipe has to say so.
+	if image.IsFinal() {
+		return newConfigError(fmt.Sprintf("image %q is declared a prepared source, so it states final: false: it is consumed as the package it is, by the builds that pin it", name))
+	}
 	if base.Shell != nil && len(base.Shell.BeforeInstall)+len(base.Shell.Install)+len(base.Shell.BeforeSetup)+len(base.Shell.Setup)+len(base.Shell.Packages) > 0 {
 		return newConfigError(fmt.Sprintf("image %q is declared a prepared source, so it runs no commands: a prepared source collects files other images answer for and makes nothing of its own", name))
 	}

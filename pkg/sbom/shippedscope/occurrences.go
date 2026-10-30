@@ -180,8 +180,10 @@ func canonicalName(ecosystem Ecosystem, name string) string {
 // Unknown survives merges even when another origin contributes a complete list.
 const PropertyFiles = "werf:files"
 
+// PropertyFilesNone is the value of that property stating, in so many words, that the
+// component was checked and describes no files of the image.
 const (
-	propertyFilesNone    = "none"
+	PropertyFilesNone    = "none"
 	propertyFilesUnknown = "unknown"
 )
 
@@ -201,7 +203,7 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 		return nil
 	}
 	if comp.Evidence == nil || comp.Evidence.Occurrences == nil {
-		if propertyValue(comp, PropertyFiles) == propertyFilesNone {
+		if propertyValue(comp, PropertyFiles) == PropertyFilesNone {
 			return []Occurrence{}
 		}
 
@@ -219,7 +221,7 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 		}
 	}
 
-	if len(recorded) > 0 && len(occurrences) == 0 && propertyValue(comp, PropertyFiles) != propertyFilesNone {
+	if len(recorded) > 0 && len(occurrences) == 0 && propertyValue(comp, PropertyFiles) != PropertyFilesNone {
 		return nil
 	}
 
@@ -264,7 +266,7 @@ func setOccurrences(comp *cdx.Component, sets []Fileset) bool {
 	comp.Evidence.Occurrences = &occurrences
 
 	if len(occurrences) == 0 {
-		setProperty(comp, PropertyFiles, propertyFilesNone)
+		setProperty(comp, PropertyFiles, PropertyFilesNone)
 	} else {
 		removeProperty(comp, PropertyFiles)
 	}

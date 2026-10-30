@@ -73,7 +73,7 @@ var _ = Describe("MarkNotShipped", func() {
 
 	It("marks a component a donor looked for and did not find", func(ctx SpecContext) {
 		bom := bomOf(componentOf("pkg:pypi/gone@2.0.0"))
-		setProperty(&(*bom.Components)[0], PropertyFiles, propertyFilesNone)
+		setProperty(&(*bom.Components)[0], PropertyFiles, PropertyFilesNone)
 
 		marked := MarkNotShipped(ctx, bom, filesetsOf(emptyIndex()))
 

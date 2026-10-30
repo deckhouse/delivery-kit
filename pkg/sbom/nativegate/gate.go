@@ -403,10 +403,18 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 func (c *Catalog) writeBOM(present map[string]Record, runtimeEdges map[string][]string, target *cdx.BOM) error {
 	components := map[string]cdx.Component{}
 	deps := []cdx.Dependency{}
+	// Where each component stands is recorded as it is written. An image importing a
+	// part of this one reads this document and keeps of it what occurs at a path the
+	// copy carries; a component stating no whereabouts could not be placed, and this is
+	// the only moment at which what was proven knows them.
+	owned := map[string][]cdx.EvidenceOccurrence{}
 	for name, r := range present {
 		ref := r.SHA256 + ":" + name
 		hashes := []cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: strings.TrimPrefix(r.SHA256, "sha256:")}}
-		components[ref] = cdx.Component{Type: cdx.ComponentTypeFile, BOMRef: ref, Name: name, Hashes: &hashes}
+		components[ref] = cdx.Component{
+			Type: cdx.ComponentTypeFile, BOMRef: ref, Name: name, Hashes: &hashes,
+			Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{Location: name, AdditionalContext: r.SHA256}}},
+		}
 		refs := slices.Clone(r.Components)
 		for _, dependency := range runtimeEdges[name] {
 			refs = appendUnique(refs, present[dependency].SHA256+":"+dependency)
@@ -415,7 +423,21 @@ func (c *Catalog) writeBOM(present map[string]Record, runtimeEdges map[string][]
 		deps = append(deps, cdx.Dependency{Ref: ref, Dependencies: &refs})
 		for _, ref := range r.Components {
 			components[ref] = c.Components[ref]
+			owned[ref] = append(owned[ref], cdx.EvidenceOccurrence{Location: name, AdditionalContext: r.SHA256})
 		}
+	}
+	for ref, occurrences := range owned {
+		component := components[ref]
+		slices.SortFunc(occurrences, func(a, b cdx.EvidenceOccurrence) int { return strings.Compare(a.Location, b.Location) })
+		// Whatever else the component's evidence carries is the donor's and stays;
+		// only where it stands in this image is this build's to state.
+		evidence := cdx.Evidence{}
+		if component.Evidence != nil {
+			evidence = *component.Evidence
+		}
+		evidence.Occurrences = &occurrences
+		component.Evidence = &evidence
+		components[ref] = component
 	}
 	list := []cdx.Component{}
 	for _, comp := range components {

@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
@@ -73,7 +74,13 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		restored, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(*restored.Components).To(gomega.ContainElement(catalog.Components[libraryRef]))
+		// The component is written with the whereabouts of the files it was read
+		// from, which is what lets an image importing a part of this one place it.
+		placed := catalog.Components[libraryRef]
+		placed.Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
+			{Location: "/plugins/plugin.so", AdditionalContext: digest(library)},
+		}}
+		gomega.Expect(*restored.Components).To(gomega.ContainElement(placed))
 		edges := map[string][]string{}
 		for _, dependency := range *restored.Dependencies {
 			edges[dependency.Ref] = *dependency.Dependencies
@@ -233,5 +240,53 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		gomega.Expect(json.Unmarshal([]byte(`{"schema":"dk.catalog/v1"}`), &c)).To(gomega.Succeed())
 		target := emptyCatalog()
 		gomega.Expect(target.add(c)).To(gomega.HaveOccurred())
+	})
+})
+
+var _ = ginkgo.Describe("What a verified document says about where things stand", func() {
+	// An image importing a part of this one keeps of its document what occurs at a path
+	// the copy carries. Everything the verification writes therefore has to say where
+	// it stands: a file component at the file it is, and a package at every file of the
+	// image it was read to own.
+	ginkgo.It("places every component it writes at the files it was proven from", func() {
+		body := []byte("package-script")
+		ref := "pkg:generic/example@1"
+		catalog := emptyCatalog()
+		identity := &[]cdx.EvidenceIdentity{{Field: cdx.EvidenceIdentityFieldTypePURL, Confidence: lo.ToPtr(float32(1))}}
+		catalog.Components[ref] = cdx.Component{
+			Type: cdx.ComponentTypeLibrary, BOMRef: ref, Name: "example", Version: "1", PackageURL: ref,
+			Evidence: &cdx.Evidence{Identity: identity},
+		}
+		catalog.Records = []Record{
+			{Path: "/bin/a", SHA256: digest(body), Components: []string{ref}, Owners: []string{ref}, Origin: "pm"},
+			{Path: "/bin/b", SHA256: digest(body), Components: []string{ref}, Owners: []string{ref}, Origin: "pm"},
+		}
+		inherited := cdx.NewBOM()
+		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
+
+		target := cdx.NewBOM()
+		img := fixtureImage(map[string]string{"/bin/a": string(body), "/bin/b": string(body)})
+		gomega.Expect(Apply(context.Background(), fixturePolicy("image"), "image", img, []*cdx.BOM{inherited}, target)).To(gomega.Succeed())
+
+		placed := map[string][]cdx.EvidenceOccurrence{}
+		for _, component := range *target.Components {
+			gomega.Expect(component.Evidence).NotTo(gomega.BeNil(), component.BOMRef+" states nowhere it stands")
+			placed[component.BOMRef] = *component.Evidence.Occurrences
+		}
+		gomega.Expect(placed[digest(body)+":/bin/a"]).To(gomega.Equal([]cdx.EvidenceOccurrence{
+			{Location: "/bin/a", AdditionalContext: digest(body)},
+		}), "a file component stands at the file it is")
+		gomega.Expect(placed[ref]).To(gomega.Equal([]cdx.EvidenceOccurrence{
+			{Location: "/bin/a", AdditionalContext: digest(body)},
+			{Location: "/bin/b", AdditionalContext: digest(body)},
+		}), "a package stands at every file of it this image holds")
+
+		// Where it stands is this build's to state; whatever else the component's
+		// evidence carries is the donor's and is left as it arrived.
+		for _, component := range *target.Components {
+			if component.BOMRef == ref {
+				gomega.Expect(component.Evidence.Identity).To(gomega.Equal(identity))
+			}
+		}
 	})
 })

@@ -79,7 +79,7 @@ var _ = Describe("Editable Python evidence", func() {
 			if previousOccurrences {
 				(*known.Components)[0].Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/gone/pkg.py", AdditionalContext: digestOf("gone")}}}
 			} else {
-				setProperty(&(*known.Components)[0], PropertyFiles, propertyFilesNone)
+				setProperty(&(*known.Components)[0], PropertyFiles, PropertyFilesNone)
 			}
 			RecordOccurrences(bom, filesets.Filesets)
 			Expect(incompleteFileEvidence(&(*bom.Components)[0])).To(BeTrue(), "a regular copy cannot make an editable copy's manifest complete")

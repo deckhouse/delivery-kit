@@ -51,7 +51,7 @@ var _ = Describe("prepareWerfConfig prepared source images", func() {
 
 	preparedSource := func(overrides map[string]interface{}) map[string]interface{} {
 		image := map[string]interface{}{
-			"image": "go-source", "from": "scratch",
+			"image": "go-source", "from": "scratch", "final": false,
 			"import": []map[string]interface{}{
 				{"image": "builder", "add": "/usr/local/go/src", "to": "/src", "before": "install"},
 			},
@@ -100,6 +100,18 @@ var _ = Describe("prepareWerfConfig prepared source images", func() {
 		Entry("a git mapping",
 			map[string]interface{}{"git": []map[string]interface{}{{"add": "/", "to": "/app"}}},
 			`image "go-source" is declared a prepared source, so it adds nothing from a repository`),
+		Entry("a mount",
+			map[string]interface{}{"mount": []map[string]interface{}{{"from": "tmp_dir", "to": "/var/cache"}}},
+			`image "go-source" is declared a prepared source, so it mounts nothing`),
+		Entry("a secret",
+			map[string]interface{}{"secrets": []map[string]interface{}{{"id": "token", "value": "x"}}},
+			`image "go-source" is declared a prepared source, so it takes no secrets`),
+		Entry("a dependency on another image",
+			map[string]interface{}{"dependencies": []map[string]interface{}{{"from": "builder", "before": "install", "imports": []map[string]interface{}{{"type": "ImageName", "targetEnv": "BUILDER"}}}}},
+			`image "go-source" is declared a prepared source, so it declares no dependencies`),
+		Entry("being delivered as a final image",
+			map[string]interface{}{"final": nil},
+			`image "go-source" is declared a prepared source, so it states final: false`),
 		Entry("a packages directive",
 			map[string]interface{}{"packages": []map[string]interface{}{{"type": "os-pm", "spec": []string{"bash"}}}},
 			`image "go-source" is declared a prepared source, so it installs no packages`),

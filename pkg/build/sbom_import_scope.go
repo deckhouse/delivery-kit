@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
@@ -12,6 +13,7 @@ import (
 	"github.com/werf/werf/v3/pkg/build/stage"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
 // importScopeBackend is the copy backend the stage applied its imports with, as that
@@ -52,8 +54,14 @@ func importScopeBackend(stg stage.Interface) (nativegate.ImportBackend, error) {
 // the whole of it - the toolchain it was built with, the sources it compiled, the
 // packages of an environment none of which this image received - and a component whose
 // every occurrence stands outside the copied scope is a statement about the donor, not
-// about this image. A component the donor states no whereabouts of at all is such a
-// statement too: nothing ties it to anything this image holds.
+// about this image.
+//
+// A component the donor states no whereabouts of at all cannot be placed either way. It is
+// kept where the import takes the whole of the source image, since then there is no part
+// of the donor it could belong to instead; it is dropped where the donor says in so many
+// words that it describes no files of the image; and otherwise the import yields no data,
+// because silently dropping it would quietly narrow what the importing image is said to be
+// made of, and silently keeping it would claim files nothing ties to this image.
 //
 // What survives is unchanged, occurrences included: where a kept component sits in this
 // image is settled by the verification, which reads both snapshots, and overwriting the
@@ -78,9 +86,13 @@ func scopeImportBOM(ctx context.Context, bom *cdx.BOM, scopes []nativegate.Impor
 
 		return false, nil
 	}
+	whole, err := carriesWholeImage(scopes)
+	if err != nil {
+		return nil, err
+	}
 
 	scoped := *bom
-	components, err := scopedComponents(ctx, bom.Components, carried)
+	components, err := scopedComponents(ctx, bom.Components, carried, whole)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +100,7 @@ func scopeImportBOM(ctx context.Context, bom *cdx.BOM, scopes []nativegate.Impor
 	if bom.Metadata != nil && bom.Metadata.Component != nil {
 		metadata := *bom.Metadata
 		component := *bom.Metadata.Component
-		nested, err := scopedComponents(ctx, component.Components, carried)
+		nested, err := scopedComponents(ctx, component.Components, carried, whole)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +113,73 @@ func scopeImportBOM(ctx context.Context, bom *cdx.BOM, scopes []nativegate.Impor
 	return &scoped, nil
 }
 
-func scopedComponents(ctx context.Context, components *[]cdx.Component, carried func(path string) (bool, error)) (*[]cdx.Component, error) {
+// carriesWholeImage answers whether the import copies the source image entire. Only a
+// directive naming its root, filtering nothing out of it and read by a backend that takes
+// a matched directory whole does; what the other backend keeps excluding inside it is not
+// settled by the directive alone.
+func carriesWholeImage(scopes []nativegate.ImportScope) (bool, error) {
+	for _, scope := range scopes {
+		if rootedImportPath(scope.FromPath) != "/" || len(scope.IncludePaths)+len(scope.ExcludePaths) > 0 {
+			continue
+		}
+		if scope.Backend != nativegate.ImportBackendCopyRecurse {
+			continue
+		}
+		carries, err := nativegate.ImportCarries(scope, "/")
+		if err != nil {
+			return false, err
+		}
+		if carries {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// rootedImportPath reads a path of a directive the way the copy does, so that the root is
+// recognised however the recipe spelled it.
+func rootedImportPath(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if !path.IsAbs(raw) {
+		raw = "/" + raw
+	}
+
+	return path.Clean(raw)
+}
+
+// groupsOnly answers whether this component is nothing but a holder of the ones below it:
+// a heading the donor's document hangs others off, with no identity of its own. A holder
+// that names a package - anything with a purl, or a name and a version - is a claim about
+// the image like any other and is answered for as one.
+func groupsOnly(comp cdx.Component, held bool) bool {
+	return held && comp.PackageURL == "" && comp.CPE == "" && comp.Version == ""
+}
+
+// describesNoFiles answers whether the donor states, explicitly, that this component
+// describes nothing the image ships - a tool that built it, an environment it was built
+// in, a package the scan named that was then judged absent. Only a statement counts: that
+// a component happens to carry no occurrence is the very thing being decided, and reading
+// it as the answer would decide everything by itself.
+func describesNoFiles(comp cdx.Component) bool {
+	if comp.Scope == cdx.ScopeExcluded {
+		return true
+	}
+	for _, property := range lo.FromPtr(comp.Properties) {
+		switch {
+		case property.Name == shippedscope.PropertyFiles && property.Value == shippedscope.PropertyFilesNone:
+			return true
+		case property.Name == shippedscope.PropertyShipped && property.Value == shippedscope.PropertyShippedFalse:
+			return true
+		}
+	}
+
+	return false
+}
+
+func scopedComponents(ctx context.Context, components *[]cdx.Component, carried func(path string) (bool, error), whole bool) (*[]cdx.Component, error) {
 	if components == nil {
 		return nil, nil
 	}
@@ -109,23 +187,40 @@ func scopedComponents(ctx context.Context, components *[]cdx.Component, carried 
 	for _, comp := range *components {
 		// A component holding the ones below it keeps whatever of them is carried,
 		// and stays itself as long as anything it holds does.
-		nested, err := scopedComponents(ctx, comp.Components, carried)
+		held := comp.Components != nil
+		nested, err := scopedComponents(ctx, comp.Components, carried, whole)
 		if err != nil {
 			return nil, err
 		}
 		comp.Components = nested
+		stated := statesWhereabouts(comp)
 		occurs, err := occursInScope(comp, carried)
 		if err != nil {
 			return nil, err
 		}
-		if !occurs && nested == nil {
-			// A scanner states where it found a component only when it read it out
-			// of a file; one it named from a manifest of the donor - a lockfile, an
-			// installed-package database - carries no whereabouts at all, and this
-			// import is not a reason to believe this image received it.
+		switch {
+		case occurs || nested != nil:
+		case describesNoFiles(comp):
+			// Said of a component, this holds wherever the copy reached: an import
+			// of the whole image is still no reason to claim what the source says
+			// it does not ship.
+			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s %s, the source states it describes no files of the image\n", comp.Name, comp.Version)
+
+			continue
+		case stated:
+			// Every place the donor put it stands outside what was copied.
 			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s %s, no occurrence the import carries\n", comp.Name, comp.Version)
 
 			continue
+		case whole:
+		case groupsOnly(comp, held):
+			// It held only components this import leaves behind, and says nothing
+			// of itself: what is left of it is an empty heading.
+			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s, a holder of components the import carries none of\n", comp.Name)
+
+			continue
+		default:
+			return nil, fmt.Errorf("no-data: the source states no whereabouts of %s, so a partial import of it places nothing: either the source records where its components stand, or it marks this one as describing no files of the image", componentSubject(comp))
 		}
 		kept = append(kept, comp)
 	}
@@ -134,6 +229,30 @@ func scopedComponents(ctx context.Context, components *[]cdx.Component, carried 
 	}
 
 	return &kept, nil
+}
+
+func componentSubject(comp cdx.Component) string {
+	subject := comp.Name
+	if comp.Version != "" {
+		subject += " " + comp.Version
+	}
+	if comp.BOMRef != "" {
+		subject += " (" + comp.BOMRef + ")"
+	}
+
+	return subject
+}
+
+// statesWhereabouts answers whether the donor says where this component stands, wherever
+// that is.
+func statesWhereabouts(comp cdx.Component) bool {
+	for _, occurrence := range lo.FromPtr(lo.FromPtr(comp.Evidence).Occurrences) {
+		if occurrence.Location != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func occursInScope(comp cdx.Component, carried func(path string) (bool, error)) (bool, error) {

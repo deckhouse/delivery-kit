@@ -62,7 +62,10 @@ var _ = Describe("SBOM source import inputs", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		sourceBOM := cyclonedxutil.NewBOM()
-		sourceBOM.Components = &[]cdx.Component{{Type: cdx.ComponentTypeLibrary, Name: "tool", Version: "1.0", BOMRef: "tool"}}
+		sourceBOM.Components = &[]cdx.Component{{
+			Type: cdx.ComponentTypeLibrary, Name: "tool", Version: "1.0", BOMRef: "tool",
+			Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/app/bin/tool"}}},
+		}}
 		sourceJSON, err := cyclonedxutil.ToJSON(sourceBOM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(sbomImage.PushSBOM(ctx, sourceJSON, sourceRepo, sourceDigest.String(), "", "checksum", "", nil)).To(Succeed())

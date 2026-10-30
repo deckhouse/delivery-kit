@@ -24,8 +24,9 @@ import (
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/logging"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
-	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/test/mock"
 )
@@ -43,6 +44,14 @@ func occurring(name, version string, paths ...string) cdx.Component {
 		occurrences = append(occurrences, cdx.EvidenceOccurrence{Location: path})
 	}
 	comp.Evidence = &cdx.Evidence{Occurrences: &occurrences}
+
+	return comp
+}
+
+// describingNoFiles is how a source says of one of its components that it describes no
+// files of the image - a tool it was built with, an environment it was built in.
+func describingNoFiles(comp cdx.Component) cdx.Component {
+	comp.Properties = &[]cdx.Property{{Name: shippedscope.PropertyFiles, Value: shippedscope.PropertyFilesNone}}
 
 	return comp
 }
@@ -175,7 +184,7 @@ var _ = Describe("SBOM contributions of an import source", func() {
 		boms := contributed(logging.WithLogger(specCtx), []cdx.Component{
 			occurring("tool", "1.0", "/app/bin/tool"),
 			occurring("python-app", "2.0", "/src/app.py"),
-			occurring("builder-toolchain", "3.0"),
+			describingNoFiles(occurring("builder-toolchain", "3.0")),
 		}, []*config.Import{scoped("/app/bin", "/usr/local/bin", nil, nil)})
 
 		Expect(boms).To(HaveLen(1))
@@ -270,6 +279,168 @@ var _ = Describe("Scoping one import source document", func() {
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(*scoped.Metadata.Properties).To(Equal(*bom.Metadata.Properties))
+	})
+
+	// A component the source says nothing of the whereabouts of cannot be placed by a
+	// partial import: dropping it would quietly narrow what the importing image is said
+	// to be made of, and keeping it would claim files nothing ties to this image.
+	It("reads no data out of a component the source places nowhere", func(specCtx SpecContext) {
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{occurring("libfoo", "1.2.3")}
+
+		_, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of libfoo 1.2.3 (libfoo), so a partial import of it places nothing")))
+	})
+
+	// An import of the whole image leaves no part of the source it could have belonged
+	// to instead.
+	DescribeTable("keeps a component placed nowhere when the import takes the source entire",
+		func(specCtx SpecContext, directive nativegate.ImportScope, kept bool) {
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{occurring("libfoo", "1.2.3")}
+
+			scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{directive})
+			if !kept {
+				Expect(err).To(MatchError(ContainSubstring("no-data")))
+
+				return
+			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(componentNames(scoped)).To(ConsistOf("libfoo"))
+		},
+		Entry("the whole rootfs", nativegate.ImportScope{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/", ToPath: "/"}, true),
+		Entry("the whole rootfs under another prefix", nativegate.ImportScope{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/", ToPath: "/srv"}, true),
+		Entry("the rootfs with something filtered out of it", nativegate.ImportScope{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/", ToPath: "/", ExcludePaths: []string{"var"}}, false),
+		Entry("the rootfs with only a part of it included", nativegate.ImportScope{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/", ToPath: "/", IncludePaths: []string{"usr"}}, false),
+		Entry("a subtree of the source", nativegate.ImportScope{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/usr", ToPath: "/usr"}, false),
+		// The other backend keeps applying filters inside what it copies, so the
+		// directive alone does not settle that it took everything.
+		Entry("the rootfs copied by rsync", nativegate.ImportScope{Backend: nativegate.ImportBackendRsync, FromPath: "/", ToPath: "/"}, false),
+	)
+
+	// What the source says it does not ship, it does not ship however much of it was
+	// copied.
+	It("drops a component the source says ships nothing even when the import takes the source entire", func(specCtx SpecContext) {
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{describingNoFiles(occurring("builder-toolchain", "3.0"))}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom,
+			[]nativegate.ImportScope{{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/", ToPath: "/"}})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(scoped.Components).To(BeNil())
+	})
+
+	It("reads the root of the source however the directive spells it", func(specCtx SpecContext) {
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{occurring("libfoo", "1.2.3")}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom,
+			[]nativegate.ImportScope{{Backend: nativegate.ImportBackendCopyRecurse, FromPath: "/.", ToPath: "/srv"}})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(componentNames(scoped)).To(ConsistOf("libfoo"))
+	})
+
+	// A heading the donor hangs other components off says nothing of itself; once the
+	// import carries none of what it held, there is nothing left of it to place.
+	It("drops a holder of components the import carries none of", func(specCtx SpecContext) {
+		holder := cdx.Component{Type: cdx.ComponentTypeApplication, Name: "node_modules", BOMRef: "node_modules"}
+		holder.Components = &[]cdx.Component{occurring("left-behind", "1.0", "/srv/left.js")}
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{holder}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(scoped.Components).To(BeNil())
+	})
+
+	// A holder that names a package of its own is a claim about the image like any
+	// other, and losing its children is no answer for it.
+	DescribeTable("reads no data out of a holder that names a package of its own",
+		func(specCtx SpecContext, identify func(*cdx.Component)) {
+			holder := cdx.Component{Type: cdx.ComponentTypeLibrary, Name: "bundle", BOMRef: "bundle"}
+			identify(&holder)
+			holder.Components = &[]cdx.Component{occurring("left-behind", "1.0", "/srv/left.js")}
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{holder}
+
+			_, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+			Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of bundle")))
+		},
+		Entry("by its purl", func(comp *cdx.Component) { comp.PackageURL = "pkg:npm/bundle@1.0" }),
+		Entry("by its version", func(comp *cdx.Component) { comp.Version = "1.0" }),
+		Entry("by its CPE", func(comp *cdx.Component) { comp.CPE = "cpe:2.3:a:vendor:bundle:1.0:*:*:*:*:*:*:*" }),
+	)
+
+	DescribeTable("drops a component the source says describes no files of the image",
+		func(specCtx SpecContext, comp cdx.Component) {
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{comp}
+
+			scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(scoped.Components).To(BeNil())
+		},
+		Entry("marked as describing no files", describingNoFiles(occurring("builder-toolchain", "3.0"))),
+		Entry("marked as not shipped by the image", func() cdx.Component {
+			comp := occurring("builder-toolchain", "3.0")
+			comp.Properties = &[]cdx.Property{{Name: shippedscope.PropertyShipped, Value: shippedscope.PropertyShippedFalse}}
+
+			return comp
+		}()),
+		Entry("scoped out of the document", func() cdx.Component {
+			comp := occurring("builder-toolchain", "3.0")
+			comp.Scope = cdx.ScopeExcluded
+
+			return comp
+		}()),
+	)
+
+	// "unknown" says the opposite of "none": the source could not tell what this
+	// component ships, which is not a statement that it ships nothing.
+	It("reads no data out of a component whose file evidence the source calls unknown", func(specCtx SpecContext) {
+		comp := occurring("libfoo", "1.2.3")
+		comp.Properties = &[]cdx.Property{{Name: shippedscope.PropertyFiles, Value: "unknown"}}
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{comp}
+
+		_, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of libfoo 1.2.3")))
+	})
+
+	// What this project verifies is written with the whereabouts of everything in it -
+	// a file component at the file it is, a package at every file of it the image holds
+	// (asserted of the gate itself in pkg/sbom/nativegate) - so a document of ours is
+	// placed by a partial import rather than refused by the rule above.
+	It("keeps the components of a document shaped as this project verifies them", func(specCtx SpecContext) {
+		fileRef := "sha256:" + strings.Repeat("a", 64) + ":/app/bin/tool"
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{
+			{
+				Type: cdx.ComponentTypeFile, BOMRef: fileRef, Name: "/app/bin/tool",
+				Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
+					{Location: "/app/bin/tool", AdditionalContext: "sha256:" + strings.Repeat("a", 64)},
+				}},
+			},
+			{
+				Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:generic/example@1", Name: "example", Version: "1",
+				Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
+					{Location: "/app/bin/tool", AdditionalContext: "sha256:" + strings.Repeat("a", 64)},
+					{Location: "/srv/elsewhere", AdditionalContext: "sha256:" + strings.Repeat("b", 64)},
+				}},
+			},
+		}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(componentNames(scoped)).To(ConsistOf("/app/bin/tool", "example"))
 	})
 
 	It("reads no document for no directive at all", func(specCtx SpecContext) {

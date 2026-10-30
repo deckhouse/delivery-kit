@@ -18,10 +18,13 @@ const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 
 const MARKER = 'DK-ESBUILD-REPORT ';
 const MODULE = 'github.com/evanw/esbuild';
-const MODULE_VERSION = 'v0.25.0';
-// The module sum of that version, as the Go toolchain reports it for a verified
-// download; a locally computed sum of an unverifiable cache entry is not it.
-const MODULE_SUM = 'h1:jRR9D1pfdb669VzdN4w0jwsDfrKE098nKMaDMKvMPyU=';
+// The module sum of each pinned version, as the Go toolchain reports it for a
+// verified download; a locally computed sum of an unverifiable cache entry is
+// not it.
+const MODULE_SUMS = {
+	'v0.25.0': 'h1:jRR9D1pfdb669VzdN4w0jwsDfrKE098nKMaDMKvMPyU=',
+	'v0.17.19': 'h1:JdzNCvfFEoUCXKHhdP326Vn2mhCu8PybXeBDHaSRyWo=',
+};
 // Type annotations only: nothing here needs a helper from the esbuild runtime.
 const PLAIN = "export type Flag = 'on' | 'off';\nexport function label(value: Flag): string {\n\treturn value === 'on' ? 'ON' : 'OFF';\n}\n";
 // A lowered class field and a lowered async method: the transform has to select
@@ -51,7 +54,10 @@ function addSources(area) {
 // of that module, never a digest this fixture made up. The module is only used
 // once its runtime source is byte-identical to the pinned commit of the
 // checkout the instrumented tool was built from.
-function resolveRuntimeModule(root, source, commit) {
+function resolveRuntimeModule(root, source, commit, version = 'v0.25.0') {
+	const MODULE_VERSION = version;
+	const MODULE_SUM = MODULE_SUMS[version];
+	if (!MODULE_SUM) throw new Error(`no pinned module sum for ${MODULE}@${version}`);
 	const head = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 30000 }).trim();
 	if (head !== commit) throw new Error(`${source} is at ${head}, not the pinned ${commit}`);
 	const resolved = JSON.parse(execFileSync('go', ['mod', 'download', '-json', `${MODULE}@${MODULE_VERSION}`], { cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 1 << 26 }));
@@ -68,11 +74,11 @@ function resolveRuntimeModule(root, source, commit) {
 	const file = path.join(source, 'internal', 'runtime', 'runtime.go');
 	if (!fs.readFileSync(file).equals(originalBytes)) throw new Error(`${file} is not the runtime source of ${MODULE}@${MODULE_VERSION}`);
 	const module = { path: resolved.Path, version: resolved.Version, sum: resolved.Sum, dir: resolved.Dir, origin, checked: { pinnedCommitBytes: true, toolCheckoutBytes: true, originHash: origin !== null } };
-	fs.writeFileSync(path.join(root, 'esbuild-go-module.json'), `${JSON.stringify(module, null, 2)}\n`);
+	fs.writeFileSync(path.join(root, `esbuild-go-module-${MODULE_VERSION}.json`), `${JSON.stringify(module, null, 2)}\n`);
 	// Everything above prepares a source whose bytes are established; the
 	// component those bytes are bound to is the real package the Go helper packs
 	// and reads back through the ordinary original reader.
-	const out = path.join(root, 'runtime-packet');
+	const out = path.join(root, `runtime-packet-${MODULE_VERSION}`);
 	fs.mkdirSync(out, { recursive: true });
 	const packet = JSON.parse(
 		execFileSync('go', ['run', './pkg/sbom/webpack/testdata/runtime_packet.go', '--', path.join(originalRoot, 'runtime.go'), out], {

@@ -20,8 +20,28 @@ const path = require('node:path');
 const NAME = 'DkSbomEsbuildEvidence';
 const REGISTRY = Symbol.for('dk.sbom.webpack.cjs');
 const SUPPORTED_WEBPACK = '5.94.0';
-const PRODUCER = 'dk-sbom/1 esbuild 0.25.0';
 const EVIDENCE_VERSION = 1;
+// The tool pairs this adapter describes: one instrumented esbuild and the
+// esbuild-loader built against it. The producer string is the one the patch of
+// that esbuild reports, and the loader is recognized by the digest of its
+// published artifact rather than by where it is installed, so an alias, a
+// nested copy or a renamed directory changes nothing.
+const SUPPORTED_PAIRS = Object.freeze([
+	Object.freeze({
+		esbuild: '0.25.0',
+		esbuildLoader: '4.3.0',
+		producer: 'dk-sbom/1 esbuild 0.25.0',
+		loaderSHA256: 'sha256:64b2b3f0adaadc963e115caa4f0aeb137bf721eca2d0b7386fbe71cbe88f473e',
+		runtimeSourceSHA256: 'sha256:90066c2fe560b24e55a4adfb05896b1cc5ccc219630d92a24bd614d3a4781610',
+	}),
+	Object.freeze({
+		esbuild: '0.17.19',
+		esbuildLoader: '3.0.1',
+		producer: 'dk-sbom/1 esbuild 0.17.19',
+		loaderSHA256: 'sha256:95888f5eda79612e84c2c5723b2fee45d1acbde7fd979e8f42ede582c913b723',
+		runtimeSourceSHA256: 'sha256:e2e31178a464f615a6b86e7c72469b19913b30b1140223daf08bc720b2f18df9',
+	}),
+]);
 const TOOL_FILES = ['entry', 'binary', 'loader', 'runtimeSource'];
 const CANONICAL_SHA256 = /^sha256:[0-9a-f]{64}$/;
 // lib/npm/node-platform.ts of the pinned client: an ESBUILD_BINARY_PATH of this
@@ -60,7 +80,7 @@ function installEsbuildEvidence(compiler, tool, verifyResource) {
 // does not match what is on disk or what ran is a failure of this build.
 function specOf(tool) {
 	if (tool === null || typeof tool !== 'object') throw new TypeError(`${NAME}: tool must be an object`);
-	const spec = {};
+	const spec = { pair: pairOf(tool.versions) };
 	for (const key of TOOL_FILES) {
 		const file = tool[key];
 		const expected = tool[`${key}SHA256`];
@@ -71,6 +91,19 @@ function specOf(tool) {
 		if (typeof file !== 'string' || !path.isAbsolute(file) || path.normalize(file) !== file) {
 			throw new TypeError(`${NAME}: tool.${key} must be an absolute normalized path`);
 		}
+		// The loader and the runtime source are pinned by the pair, not declared:
+		// their digests are those of the published artifact and of the runtime
+		// source of that very esbuild. A declaration may repeat such a digest and
+		// may not contradict it.
+		const pinned = key === 'loader' ? spec.pair.loaderSHA256 : key === 'runtimeSource' ? spec.pair.runtimeSourceSHA256 : undefined;
+		if (pinned !== undefined) {
+			if (expected !== undefined && expected !== pinned) {
+				throw new TypeError(`${NAME}: tool.${key}SHA256 is not the ${key === 'loader' ? `published esbuild-loader ${spec.pair.esbuildLoader}` : `runtime source of esbuild ${spec.pair.esbuild}`}`);
+			}
+			spec[key] = file;
+			spec[`${key}SHA256`] = pinned;
+			continue;
+		}
 		if (typeof expected !== 'string' || !CANONICAL_SHA256.test(expected)) {
 			throw new TypeError(`${NAME}: tool.${key}SHA256 must be a canonical sha256`);
 		}
@@ -78,6 +111,21 @@ function specOf(tool) {
 		spec[`${key}SHA256`] = expected;
 	}
 	return Object.freeze(spec);
+}
+
+// Which instrumented esbuild and which loader this build declares. A pair this
+// adapter does not describe is a declaration it cannot act on, not a build it
+// may describe with the rules of another version.
+function pairOf(versions) {
+	if (versions === null || typeof versions !== 'object') {
+		throw new TypeError(`${NAME}: tool.versions must name the esbuild and esbuild-loader of this build`);
+	}
+	const pair = SUPPORTED_PAIRS.find((candidate) => candidate.esbuild === versions.esbuild && candidate.esbuildLoader === versions.esbuildLoader);
+	if (!pair) {
+		const known = SUPPORTED_PAIRS.map((candidate) => `esbuild ${candidate.esbuild} with esbuild-loader ${candidate.esbuildLoader}`).join(', ');
+		throw new TypeError(`${NAME}: esbuild ${String(versions.esbuild)} with esbuild-loader ${String(versions.esbuildLoader)} is not a described pair, only ${known}`);
+	}
+	return pair;
 }
 
 function prepare(spec) {
@@ -100,6 +148,9 @@ function prepare(spec) {
 		// original through verifyResource rather than to a hash of their own.
 		if (key === 'runtimeSource') continue;
 		if (digest(fs.readFileSync(file)) !== spec[`${key}SHA256`]) {
+			if (key === 'loader') {
+				return failed('hash-mismatch', `${file} is not the published esbuild-loader ${spec.pair.esbuildLoader} this build declares`);
+			}
 			return failed('hash-mismatch', `${file} is not the ${key} this collector is configured for`);
 		}
 	}
@@ -218,7 +269,7 @@ async function describe(state, spec, record, module, verifyResource) {
 	if (!loader || !loader.usable) return noData(`${spec.loader} was not recorded as a loaded commonjs module`);
 	if (loader.sha256 !== spec.loaderSHA256) return failed('hash-mismatch', `${spec.loader} ran source other than the bytes this collector verified`);
 
-	const evidence = evidenceOf(result, source, module);
+	const evidence = evidenceOf(result, source, module, spec.pair);
 	if (evidence.failure) return evidence;
 	const { sbom, code } = evidence;
 
@@ -266,14 +317,14 @@ async function describe(state, spec, record, module, verifyResource) {
 
 // Metadata an unpatched esbuild never produces, checked against the very text
 // and code this call carried: the producer string alone claims nothing.
-function evidenceOf(result, source, module) {
+function evidenceOf(result, source, module, pair) {
 	if (result === null || typeof result !== 'object') return noData(`the transform of ${identify(module)} returned no result`);
 	const sbom = result.sbom;
 	if (sbom === undefined) return noData(`the transform of ${identify(module)} produced no evidence`);
 	if (sbom === null || typeof sbom !== 'object') return failed('invalid', `the transform evidence of ${identify(module)} is not an object`);
 	if (typeof sbom.producer !== 'string') return failed('invalid', `the transform evidence of ${identify(module)} names no producer`);
-	if (sbom.version !== EVIDENCE_VERSION || sbom.producer !== PRODUCER) {
-		return failed('unsupported', `${identify(module)} was transformed by ${sbom.producer} evidence version ${String(sbom.version)}, not ${PRODUCER} version ${EVIDENCE_VERSION}`);
+	if (sbom.version !== EVIDENCE_VERSION || sbom.producer !== pair.producer) {
+		return failed('unsupported', `${identify(module)} was transformed by ${sbom.producer} evidence version ${String(sbom.version)}, not ${pair.producer} version ${EVIDENCE_VERSION}`);
 	}
 	if (typeof sbom.runtimeSelected !== 'boolean' || !CANONICAL_SHA256.test(String(sbom.inputSHA256)) || !CANONICAL_SHA256.test(String(sbom.outputSHA256))) {
 		return failed('invalid', `the transform evidence of ${identify(module)} is not of the described shape`);
@@ -323,7 +374,7 @@ async function runtimeUnit(spec, verifyResource) {
 		return noData('the verified esbuild runtime source is not a described unit');
 	}
 	if (unit.sha256 !== spec.runtimeSourceSHA256) {
-		return failed('hash-mismatch', `${spec.runtimeSource} is not the runtime source this collector is configured for`);
+		return failed('hash-mismatch', `${spec.runtimeSource} is not the runtime source of esbuild ${spec.pair.esbuild}`);
 	}
 	return { unit: { path: unit.path, sha256: unit.sha256, component: unit.component } };
 }

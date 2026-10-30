@@ -30,8 +30,18 @@ func loaderFixture() map[string][]byte {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		files[name] = body
 	}
-	gomega.Expect(digest(files["ld-linux-x86-64.so.2"])).To(gomega.Equal(supportedRuntimeLoaderSHA256))
 	return files
+}
+
+// fixtureLoaderDirs are the directories the fixture's own loader was built to search.
+// They are read out of it rather than assumed, so a fixture captured on one distribution
+// does not have to be re-captured to describe another.
+func fixtureLoaderDirs(files map[string][]byte) []string {
+	ginkgo.GinkgoHelper()
+	model, err := readLoaderModel(files["ld-linux-x86-64.so.2"], "/lib64/ld-linux-x86-64.so.2")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return model.dirs
 }
 
 func runtimeFixture(files map[string][]byte, app string, layout map[string]string) (*filesystem, map[string]Record) {
@@ -164,34 +174,61 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(present).To(gomega.HaveKey("/opt/x/libpick.so.1"))
 		gomega.Expect(present).To(gomega.HaveKey("/lib64/libpick.so.1"))
 	})
-	ginkgo.It("matches pinned loader default paths and rejects a different loader", func() {
+	ginkgo.It("searches the directories its own loader was built with, in order", func() {
 		files := loaderFixture()
-		fs, present := runtimeFixture(files, "app", map[string]string{"/lib/libpick.so.1": "v1/libpick.so.1"})
+		dirs := fixtureLoaderDirs(files)
+		if len(dirs) < 2 {
+			ginkgo.Skip("the pinned loader searches one directory; order needs two")
+		}
+		// A directory this loader does not search does not answer a name.
+		fs, present := runtimeFixture(files, "app", map[string]string{"/opt/unsearched/libpick.so.1": "v1/libpick.so.1"})
 		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("missing runtime dependency libpick.so.1")))
-		fs, present = runtimeFixture(files, "app", map[string]string{"/lib/libpick.so.1": "v1/libpick.so.1", "/usr/lib64/libpick.so.1": "v2/libpick.so.1"})
+
+		// Of the directories it does search, the earlier one answers first.
+		first, second := dirs[0]+"/libpick.so.1", dirs[1]+"/libpick.so.1"
+		fs, present = runtimeFixture(files, "app", map[string]string{second: "v2/libpick.so.1"})
 		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
-		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement("/usr/lib64/libpick.so.1"))
-		gomega.Expect(runtimeTargets(fs, present, "/app")).NotTo(gomega.ContainElement("/lib64/libpick.so.1"))
-		fs, present = runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1", "/usr/lib64/libpick.so.1": "v2/libpick.so.1"})
+		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement(second))
+
+		fs, present = runtimeFixture(files, "app", map[string]string{first: "v1/libpick.so.1", second: "v2/libpick.so.1"})
 		gomega.Expect(runtimeError(fs, present)).To(gomega.Succeed())
-		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement("/lib64/libpick.so.1"))
-		gomega.Expect(runtimeTargets(fs, present, "/app")).NotTo(gomega.ContainElement("/usr/lib64/libpick.so.1"))
+		gomega.Expect(runtimeTargets(fs, present, "/app")).To(gomega.ContainElement(first))
+		gomega.Expect(runtimeTargets(fs, present, "/app")).NotTo(gomega.ContainElement(second))
+	})
+
+	ginkgo.It("refuses a loader whose bytes are not the ones its record describes", func() {
+		files := loaderFixture()
+		dirs := fixtureLoaderDirs(files)
+		fs, present := runtimeFixture(files, "app", map[string]string{dirs[0] + "/libpick.so.1": "v1/libpick.so.1"})
 		fs.bodies["/lib64/ld-linux-x86-64.so.2"] = append(bytes.Clone(files["ld-linux-x86-64.so.2"]), 0)
-		r := present["/lib64/ld-linux-x86-64.so.2"]
-		r.SHA256 = digest(fs.bodies[r.Path])
-		present[r.Path] = r
-		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("unsupported or unknown runtime loader")))
+
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring(
+			"hash-mismatch: the runtime loader /lib64/ld-linux-x86-64.so.2 is not the file its record describes")))
+	})
+
+	ginkgo.It("refuses a loader this build accounts for in no way at all", func() {
+		files := loaderFixture()
+		dirs := fixtureLoaderDirs(files)
+		fs, present := runtimeFixture(files, "app", map[string]string{dirs[0] + "/libpick.so.1": "v1/libpick.so.1"})
+		delete(present, "/lib64/ld-linux-x86-64.so.2")
+
+		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring(
+			"unknown runtime loader /lib64/ld-linux-x86-64.so.2")))
 	})
 	ginkgo.It("rejects unmodelled loader features and mismatched SONAME", func() {
 		files := loaderFixture()
-		for _, feature := range []string{"/etc/ld.so.cache", "/etc/ld.so.preload", "/lib64/glibc-hwcaps/x86-64-v3/libpick.so.1"} {
-			fs, present := runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1"})
+		dirs := fixtureLoaderDirs(files)
+		held := dirs[0] + "/libpick.so.1"
+		model, err := readLoaderModel(files["ld-linux-x86-64.so.2"], "/lib64/ld-linux-x86-64.so.2")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, feature := range []string{model.cache, "/etc/ld.so.preload", dirs[0] + "/glibc-hwcaps/x86-64-v3/libpick.so.1"} {
+			fs, present := runtimeFixture(files, "app", map[string]string{held: "v1/libpick.so.1"})
 			fs.index.Files[feature] = shippedscope.File{}
-			gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader feature")))
+			gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader feature")), feature)
 		}
-		fs, present := runtimeFixture(files, "app-rpath", map[string]string{"/lib64/libpick.so.1": "v1/libpick.so.1"})
+		fs, present := runtimeFixture(files, "app-rpath", map[string]string{held: "v1/libpick.so.1"})
 		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("DT_RPATH inheritance unsupported")))
-		fs, present = runtimeFixture(files, "app", map[string]string{"/lib64/libpick.so.1": "other/libpick.so.1"})
+		fs, present = runtimeFixture(files, "app", map[string]string{held: "other/libpick.so.1"})
 		gomega.Expect(runtimeError(fs, present)).To(gomega.MatchError(gomega.ContainSubstring("runtime SONAME mismatch")))
 	})
 	ginkgo.It("rejects runtime environment overrides through Apply", func() {

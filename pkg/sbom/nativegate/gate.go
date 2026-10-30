@@ -516,6 +516,10 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 	edges := map[string][]string{}
 	sonames := map[string][]string{}
 	roots := []string{}
+	loader, err := imageRuntimeLoader(fs, present)
+	if err != nil {
+		return nil, err
+	}
 	for name := range present {
 		body := fs.bodies[name]
 		// Mach-O and PE executables name their dylibs and DLLs for a foreign
@@ -540,15 +544,30 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 			continue
 		}
 		if f.Section(".dynamic") != nil {
-			if err := checkRuntimeLoader(fs, present, "/lib64/ld-linux-x86-64.so.2"); err != nil {
+			if err := requireRuntimeLoader(loader, name); err != nil {
 				f.Close()
 				return nil, err
 			}
 			for candidate := range fs.index.Files {
-				if candidate == "/etc/ld.so.cache" || candidate == "/etc/ld.so.preload" || strings.Contains(candidate, "/glibc-hwcaps/") {
+				if strings.Contains(candidate, "/glibc-hwcaps/") {
 					f.Close()
 					return nil, fmt.Errorf("unsupported dynamic loader feature %s", candidate)
 				}
+			}
+			// The preload file is opened by path, and a path leads where the
+			// image's links say: one reached through a link, or standing in an
+			// /etc that is itself a link, is the same file. The cache is refused
+			// where the loader's own bytes name it, which is not always here.
+			held, err := holdsFile(fs, "/etc/ld.so.preload")
+			if err != nil {
+				f.Close()
+
+				return nil, err
+			}
+			if held {
+				f.Close()
+
+				return nil, fmt.Errorf("unsupported dynamic loader feature /etc/ld.so.preload")
 			}
 		}
 		needed, err := f.ImportedLibraries()
@@ -572,15 +591,15 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 					f.Close()
 					return nil, err
 				}
+				// Which file this name lands on, and whether that file is
+				// the loader it claims to be, was settled for the whole
+				// image before any of this: an image whose executables name
+				// two different files never reaches here.
 				interpreter := strings.TrimRight(string(raw), "\x00")
-				if err := checkRuntimeLoader(fs, present, interpreter); err != nil {
-					f.Close()
-					return nil, err
-				}
 				needed = append(needed, interpreter)
 			}
 		}
-		dirs, err := runtimeDirs(f, name)
+		dirs, err := runtimeDirs(f, name, loader)
 		if err != nil {
 			f.Close()
 			return nil, err
@@ -605,8 +624,20 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 // guarantee that it loads nothing is confirmed rather than assumed: a foreign
 // loader or shared dependency would have to be resolved somewhere, and this
 // rootfs is not that somewhere.
+//
+// A file that would load something is refused rather than passed over, and the
+// refusal names what it would have loaded. The loader this image knows how to
+// read a closure through is an x86-64 one, so nothing is resolved for a machine
+// it cannot run; until that model answers for another machine, a cross-built
+// file that needs anything at all is beyond what DK can state.
 func crossBuiltELF(f *elf.File) (bool, error) {
-	if f.Class != elf.ELFCLASS32 || f.Machine != elf.EM_ARM {
+	machine := ""
+	switch {
+	case f.Class == elf.ELFCLASS32 && f.Machine == elf.EM_ARM:
+		machine = "linux/arm"
+	case f.Class == elf.ELFCLASS64 && f.Machine == elf.EM_AARCH64:
+		machine = "linux/arm64"
+	default:
 		return false, nil
 	}
 	needed, err := f.ImportedLibraries()
@@ -615,11 +646,11 @@ func crossBuiltELF(f *elf.File) (bool, error) {
 	}
 	for _, prog := range f.Progs {
 		if prog.Type == elf.PT_INTERP {
-			return false, fmt.Errorf("unsupported: cross-built executable needs a runtime loader")
+			return false, fmt.Errorf("unsupported: %s executable needs a runtime loader, and this image resolves none for that machine", machine)
 		}
 	}
 	if len(needed) > 0 {
-		return false, fmt.Errorf("unsupported: cross-built executable needs %s", strings.Join(needed, ", "))
+		return false, fmt.Errorf("unsupported: %s executable needs %s, and this image resolves none for that machine", machine, strings.Join(needed, ", "))
 	}
 	return true, nil
 }
@@ -652,23 +683,9 @@ func rejectConflictingRuntimeSONAMEs(edges, sonames map[string][]string, roots [
 	return nil
 }
 
-// This loader's --help reports these default paths; other x86-64 loaders can differ.
-const supportedRuntimeLoaderSHA256 = "sha256:606bf05526f326f0f4cd42450ff6ee0a7c9ff9391d7f37f38473874e0897e53c"
-
-func checkRuntimeLoader(fs *filesystem, present map[string]Record, name string) error {
-	resolved, err := resolvePath(fs, name)
-	if err != nil {
-		return err
-	}
-	record, known := present[resolved]
-	if !known || record.SHA256 != supportedRuntimeLoaderSHA256 || digest(fs.bodies[resolved]) != supportedRuntimeLoaderSHA256 {
-		return fmt.Errorf("unsupported or unknown runtime loader %s", name)
-	}
-	return nil
-}
-
-func runtimeDirs(f *elf.File, name string) ([]string, error) {
-	dirs := []string{"/lib64", "/usr/lib64"}
+// runtimeDirs is where this file's needed objects are looked for: what it asks for
+// itself, then the directories the image's loader was built to search.
+func runtimeDirs(f *elf.File, name string, loader *loaderModel) ([]string, error) {
 	rpath, err := f.DynString(elf.DT_RPATH)
 	if err != nil {
 		return nil, err
@@ -691,7 +708,13 @@ func runtimeDirs(f *elf.File, name string) ([]string, error) {
 			search = append(search, dir)
 		}
 	}
-	return append(search, dirs...), nil
+	// A file with no dynamic section names nothing and is searched for nothing; such
+	// an image need not hold a loader at all.
+	if loader == nil {
+		return search, nil
+	}
+
+	return append(search, loader.dirs...), nil
 }
 
 func resolveRuntime(fs *filesystem, present map[string]Record, soname string, dirs []string) (string, error) {

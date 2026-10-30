@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("Linux loader agreement", func() {
 		f, err := elf.Open(app)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer f.Close()
-		dirs, err := runtimeDirs(f, app)
+		dirs, err := runtimeDirs(f, app, &loaderModel{dirs: []string{"/lib64", "/usr/lib64"}})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(dirs[:2]).To(gomega.Equal([]string{first, second}))
 		fs := &filesystem{index: &shippedscope.FileIndex{Files: map[string]shippedscope.File{}, Symlinks: map[string]string{}}, bodies: map[string][]byte{}}

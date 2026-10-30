@@ -36,6 +36,7 @@ import (
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/test/mock"
 )
@@ -463,6 +464,51 @@ var _ = Describe("Common SBOM pipeline", func() {
 		err = step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{}, nil, nil, true, "", nil, "")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("verify the composition of image app"))
+	})
+
+	// A descendant installs the package that owns a file of its base and the file is
+	// written anew. The base's document states the digest the file used to have, which is
+	// content this image carries nowhere.
+	It("drops the base's whereabouts of a file the image replaced, and publishes the package as one it does not ship", func(specCtx SpecContext) {
+		ctx := logging.WithLogger(specCtx)
+		base := cyclonedxutil.NewBOM()
+		base.Components = &[]cdx.Component{
+			{
+				Type: cdx.ComponentTypeLibrary, Name: "ca-certificates", Version: "20210119", BOMRef: "base-ca",
+				PackageURL: "pkg:deb/debian/ca-certificates@20210119?arch=all",
+				Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{
+					Location: "/etc/ssl/certs/ca-certificates.crt", AdditionalContext: digestOfString("the bundle of the base\n"),
+				}}},
+			},
+			{
+				Type: cdx.ComponentTypeLibrary, Name: "libfoo", Version: "1.0", BOMRef: "base-libfoo",
+				PackageURL: "pkg:deb/debian/libfoo@1.0?arch=amd64",
+				Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{
+					Location: "/etc/app/app.conf", AdditionalContext: digestOfString("key = value\n"),
+				}}},
+			},
+		}
+		desc := pipelineImage(ctx, map[string][]byte{
+			"/etc/ssl/certs/ca-certificates.crt": []byte("the bundle the descendant installed\n"),
+			"/etc/app/app.conf":                  []byte("key = value\n"),
+		})
+
+		Expect(step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{BaseBOM: base}, nil, nil, true, "", nil, "")).To(Succeed())
+
+		bom, err := step.GetImageBOM(ctx, "app", desc.Info)
+		Expect(err).NotTo(HaveOccurred())
+		ca, found := lo.Find(lo.FromPtr(bom.Components), func(comp cdx.Component) bool { return comp.Name == "ca-certificates" })
+		Expect(found).To(BeTrue())
+		Expect(recordedPaths(ca)).To(BeEmpty(), "the image holds other bytes there, and the base's digest names content it carries nowhere")
+		verdict, judged := judgement(ca)
+		Expect(judged).To(BeTrue())
+		Expect(verdict).To(Equal(shippedscope.PropertyShippedFalse))
+
+		libfoo, found := lo.Find(lo.FromPtr(bom.Components), func(comp cdx.Component) bool { return comp.Name == "libfoo" })
+		Expect(found).To(BeTrue())
+		Expect(recordedPaths(libfoo)).To(ConsistOf("/etc/app/app.conf"))
+		_, judged = judgement(libfoo)
+		Expect(judged).To(BeFalse(), "the file it stands at holds what the base recorded")
 	})
 
 	It("refuses an image whose build left no stage provenance", func(specCtx SpecContext) {

@@ -211,6 +211,18 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return err
 		}
 
+		// After the placement, so that the paths a package database just gave an
+		// inherited component are held to the image like any other.
+		if filesets != nil {
+			dropped, marked := shippedscope.DropReplacedOccurrences(ctx, mergeOpts.BaseBOM, filesets.Index)
+			if dropped > 0 {
+				logboek.Context(ctx).Info().LogF("image %s: %d files the base recorded are not what the image holds at those paths\n", werfImgName, dropped)
+			}
+			if marked > 0 {
+				logboek.Context(ctx).Default().LogF("image %s: %d packages of the base stand at none of the paths it recorded for them\n", werfImgName, marked)
+			}
+		}
+
 		resultBOM := targetBOM
 		if !mergeOpts.IsEmpty() {
 			var err error

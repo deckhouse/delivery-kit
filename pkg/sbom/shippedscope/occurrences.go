@@ -213,11 +213,8 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 	recorded := *comp.Evidence.Occurrences
 	occurrences := make([]Occurrence, 0, len(recorded))
 	for _, occurrence := range recorded {
-		switch {
-		case occurrence.AdditionalContext == symlinkContext:
-			occurrences = append(occurrences, Occurrence{Path: occurrence.Location, Symlink: true})
-		case strings.HasPrefix(occurrence.AdditionalContext, digestPrefix):
-			occurrences = append(occurrences, Occurrence{Path: occurrence.Location, Digest: occurrence.AdditionalContext})
+		if evidence, ok := occurrenceEvidence(occurrence); ok {
+			occurrences = append(occurrences, evidence)
 		}
 	}
 
@@ -226,6 +223,21 @@ func recordedOccurrences(comp *cdx.Component) []Occurrence {
 	}
 
 	return occurrences
+}
+
+// occurrenceEvidence reads one occurrence the way werf wrote it: the digest of a regular
+// file, or the marker of a symlink, which has a path but no content of its own. ok is
+// false for an occurrence carrying neither - a scanner's note of where it saw a package,
+// an occurrence of a merged document - which names a path and says nothing of content.
+func occurrenceEvidence(occurrence cdx.EvidenceOccurrence) (Occurrence, bool) {
+	switch {
+	case occurrence.AdditionalContext == symlinkContext:
+		return Occurrence{Path: occurrence.Location, Symlink: true}, true
+	case strings.HasPrefix(occurrence.AdditionalContext, digestPrefix):
+		return Occurrence{Path: occurrence.Location, Digest: occurrence.AdditionalContext}, true
+	}
+
+	return Occurrence{Path: occurrence.Location}, false
 }
 
 // setOccurrences records every file of every fileset of one component. npm installs a

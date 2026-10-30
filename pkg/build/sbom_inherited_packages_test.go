@@ -145,6 +145,29 @@ var _ = Describe("Placing the packages an image inherited", func() {
 		Expect(paths["libfoo"]).To(ConsistOf("/app/lib/libfoo.so"))
 	})
 
+	// Most bases merged /lib into /usr/lib, and the placement records the file under both
+	// spellings. The pass that holds a base's whereabouts to the image must reach the file
+	// through either of them, or it would strike out every package of such a base.
+	It("leaves the dual spelling of a merged directory it just placed", func(specCtx SpecContext) {
+		ctx := logging.WithLogger(specCtx)
+		base := cyclonedxutil.NewBOM()
+		base.Components = &[]cdx.Component{debComponent("base-libfoo", "libfoo", "1.0")}
+
+		img, err := mergedUsrDonorImage()
+		Expect(err).NotTo(HaveOccurred())
+		Expect((&sbomStep{}).placeInheritedPackages(ctx, "app", img, base)).To(Succeed())
+		filesets, err := shippedscope.CollectFilesets(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		dropped, marked := shippedscope.DropReplacedOccurrences(ctx, base, filesets.Index)
+
+		Expect([]int{dropped, marked}).To(Equal([]int{0, 0}))
+		Expect(recordedPaths((*base.Components)[0])).To(ConsistOf(
+			"/lib/x86_64-linux-gnu/libfoo.so", "/usr/lib/x86_64-linux-gnu/libfoo.so"))
+		_, judged := judgement((*base.Components)[0])
+		Expect(judged).To(BeFalse())
+	})
+
 	It("reads no database for an image whose base states nothing", func(specCtx SpecContext) {
 		img, err := inheritedPackageImage()
 		Expect(err).NotTo(HaveOccurred())

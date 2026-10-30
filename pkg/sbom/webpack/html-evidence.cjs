@@ -49,6 +49,11 @@ const ENTRY_FILE = 'index.js';
 const LOADER_FILE = 'lib/loader.js';
 const CHILD_COMPILER = 'HtmlWebpackCompiler';
 const PLUGIN_TAP = 'HtmlWebpackPlugin';
+// This collector's banner observer taps processAssets just before the banner
+// stage. A child compiler copies the taps of the compiler that made it, so it is
+// a tap of this compilation too; it only reads the assets it is given, and is
+// not code the template bundle was open to.
+const OBSERVERS = ['DkSbomBannerEvidence'];
 // What a plugin instance of the recorded class carries, and nothing else: an
 // own property shadowing a method this adapter does not wrap - the tag
 // generators, the template parameters, the whole generation - would write html
@@ -465,7 +470,7 @@ function childTaps(api, compilation, additions) {
 	if (!assets || !Array.isArray(assets.taps)) return null;
 	for (const tap of assets.taps) {
 		const tapped = String(tap && tap.name);
-		if (tapped === NAME || tapped === PLUGIN_TAP) continue;
+		if (tapped === NAME || tapped === PLUGIN_TAP || OBSERVERS.includes(tapped)) continue;
 		const tappedStage = tap && typeof tap.stage === 'number' ? tap.stage : 0;
 		if (tappedStage <= additions) foreign.push(`${tapped} tapped processAssets at ${tappedStage}`);
 	}

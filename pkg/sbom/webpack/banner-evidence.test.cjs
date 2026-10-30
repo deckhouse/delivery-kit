@@ -80,6 +80,30 @@ test('describes the assets a banner was put in front of', () => {
 	for (const line of BANNER.split('\n')) assert.ok(text.includes(line.trimEnd()), line);
 });
 
+// A build whose worker is compiled in a compilation of its own: the banner is
+// put in front of that asset too, because a child compiler copies the taps of
+// the compiler that made it. Described there, the asset of the parent keeps its
+// composition; undescribed, the bytes of the worker are ones nobody can account
+// for and the whole bundle falls to no-data.
+test('describes the asset a child compilation banners', () => {
+	const result = build('child');
+	for (const row of result.rows) {
+		assert.equal(row.status, 'present', `${row.path}: ${row.reason}`);
+		assert.equal(row.sha256, result.report.emitted[row.path]);
+	}
+	const worker = result.rows.find((row) => row.path === 'worker.js');
+	assert.ok(worker, result.rows.map((row) => row.path).join(', '));
+	assert.ok(
+		worker.inputs.some((input) => input.path === BANNER_PLUGIN),
+		'the file that wrote the comment in front of the worker must be an input of it',
+	);
+	// The comment really was put in front of the worker: the minifier of the
+	// child, which runs in a later stage, then moved it into the file it writes
+	// about the licences it extracts and left the pointer to it behind.
+	assert.ok(fs.readFileSync(path.join(result.setup.output, 'worker.js'), 'utf8').startsWith('/*! For license information please see worker.js.LICENSE.txt */'));
+	assert.ok(fs.readFileSync(path.join(result.setup.output, 'worker.js.LICENSE.txt'), 'utf8').startsWith('/*!\n * ReDoc - OpenAPI'));
+});
+
 // The same for a banner of one line, which the plugin wraps differently.
 test('describes an asset carrying a banner of a single line', () => {
 	const result = build('single-line');

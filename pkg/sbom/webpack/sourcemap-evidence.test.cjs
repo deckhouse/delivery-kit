@@ -73,6 +73,22 @@ test('describes the source map comment at the end of an asset', () => {
 
 // The map itself is a document webpack builds out of every module of the chunk;
 // nothing here recomputes it, and it is refused in those words.
+// A worker compiled in a compilation of its own: the devtool plugin writes a
+// map for its asset too, because a child compiler copies the taps of the
+// compiler that made it. Undescribed, the line naming that map is a change to
+// the worker's bytes that nothing can account for.
+test('describes the source map comment of an asset of a child compilation', () => {
+	const rows = build('child').rows;
+	const worker = rows.get('child:worker.js');
+	assert.ok(worker, [...rows.keys()].join(', '));
+	assert.equal(worker.status, 'present', worker.reason);
+	assert.equal(worker.trailer, '\n//# sourceMappingURL=worker.js.map');
+	// The map of the child is an asset of the child, and is refused there for
+	// the same reason the parent's own map is.
+	assert.equal(rows.get('child:worker.js.map').status, 'no-data');
+	assert.equal(rows.get('main.js').status, 'present', rows.get('main.js').reason);
+});
+
 test('refuses the source map itself with a reason of its own', () => {
 	const row = build('plain').rows.get('main.js.map');
 	assert.equal(row.status, 'no-data');

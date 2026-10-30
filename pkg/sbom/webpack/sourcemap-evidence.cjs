@@ -36,10 +36,10 @@ const CSS_ASSET = /\.css($|\?)/i;
 function installSourcemapEvidence(compiler, verifyResource) {
 	if (typeof verifyResource !== 'function') throw new TypeError(`${NAME}: verifyResource must be a function`);
 	const states = new WeakMap();
+	// Every compilation of this build, the children included: a child compiler
+	// copies the taps of the one that made it, so the devtool plugin writes the
+	// line naming a map in a child exactly as it does here.
 	compiler.hooks.compilation.tap(NAME, (compilation) => {
-		// A child compiler copies the taps of the one that made it; the assets of
-		// its compilations are described through their own render.
-		if (compilation.compiler !== compiler) return;
 		const api = compiler.webpack;
 		const stage = api && api.Compilation && api.Compilation.PROCESS_ASSETS_STAGE_DEV_TOOLING;
 		if (typeof stage !== 'number') return;

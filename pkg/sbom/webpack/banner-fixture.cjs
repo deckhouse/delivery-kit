@@ -25,6 +25,7 @@ const BANNER = `ReDoc - OpenAPI/Swagger-generated API Reference Documentation
 const SOURCES = {
 	'banner.js': "import('./lazy.js').then(({ lazy }) => console.log(lazy()));\n",
 	'lazy.js': 'export function lazy() { return "lazy"; }\n',
+	'worker-entry.js': 'self.onmessage = () => self.postMessage("worked");\n',
 };
 
 function addSources(area) {
@@ -81,6 +82,26 @@ function banners(setup, webpack) {
 	}
 }
 
+// What a worker plugin does: a compilation of its own, whose asset is emitted
+// into this one. A child compiler copies the taps of the compiler that made it,
+// so the banner of this build is put in front of that asset too.
+function childPlugin(setup, webpack) {
+	return {
+		apply(compiler) {
+			if (setup.scenario !== 'child') return;
+			compiler.hooks.make.tapAsync('fixture', (compilation, callback) => {
+				const child = compilation.createChildCompiler('worker', { filename: 'worker.js' }, [
+					new webpack.webworker.WebWorkerTemplatePlugin(),
+					new webpack.LoaderTargetPlugin('webworker'),
+				]);
+				new webpack.EntryPlugin(compiler.context, path.join(setup.modules, 'app', 'worker-entry.js'), 'main').apply(child);
+				new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 }).apply(child);
+				child.runAsChild((error) => callback(error));
+			});
+		},
+	};
+}
+
 // Another plugin working in the very stage the banners are added in.
 function scenarioPlugin(setup, webpack) {
 	const stage = setup.scenario === 'before-banner' ? webpack.Compilation.PROCESS_ASSETS_STAGE_PRE_PROCESS : webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONS;
@@ -108,7 +129,7 @@ function configuration(setup, webpack) {
 		resolve: { modules: [setup.modules] },
 		optimization: { minimize: setup.scenario !== 'unminified', realContentHash: true, concatenateModules: false },
 		cache: false,
-		plugins: [new Collector({ proofPath: setup.proofPath, originals: setup.originals }), ...banners(setup, webpack), scenarioPlugin(setup, webpack)],
+		plugins: [new Collector({ proofPath: setup.proofPath, originals: setup.originals }), ...banners(setup, webpack), scenarioPlugin(setup, webpack), childPlugin(setup, webpack)],
 	};
 }
 

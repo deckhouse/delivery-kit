@@ -33,12 +33,11 @@ const UNDESCRIBED = ['raw', 'footer', 'test', 'include', 'exclude', 'stage'];
 function installBannerEvidence(compiler, verifyResource) {
 	if (typeof verifyResource !== 'function') throw new TypeError(`${NAME}: verifyResource must be a function`);
 	const states = new WeakMap();
+	// Every compilation of this build, the children included: a child compiler
+	// copies the taps of the one that made it, so the plugin works in a child
+	// exactly as it does here, and an asset bannered there would otherwise be an
+	// asset nobody can account for. Each compilation keeps its own state.
 	compiler.hooks.compilation.tap(NAME, (compilation) => {
-		// A child compiler copies the taps of the one that made it; the assets
-		// of its compilations are described through their own render, and a tap
-		// of this adapter there is a tap another adapter would have to account
-		// for.
-		if (compilation.compiler !== compiler) return;
 		const api = compiler.webpack;
 		const stage = api && api.Compilation && api.Compilation.PROCESS_ASSETS_STAGE_ADDITIONS;
 		if (typeof stage !== 'number') return;

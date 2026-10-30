@@ -104,10 +104,13 @@ function evidencePlugin(setup, reports) {
 			const evidenceFor = installSourcemapEvidence(compiler, verifier(setup));
 			compiler.hooks.afterEmit.tapPromise('fixture', async (compilation) => {
 				const rows = [];
-				for (const asset of compilation.getAssets()) {
-					const result = await evidenceFor(compilation, asset.name);
+				// The compilations of this build, the children included: a worker is
+				// compiled in one of its own, and the devtool plugin writes there too.
+				const walked = [compilation, ...compilation.children];
+				for (const asset of walked.flatMap((held) => held.getAssets().map((asset) => ({ ...asset, held })))) {
+					const result = await evidenceFor(asset.held, asset.name);
 					rows.push({
-						name: asset.name,
+						name: asset.held === compilation ? asset.name : `child:${asset.name}`,
 						status: result.failure ? result.failure.status : result.status === 'none' ? 'none' : 'present',
 						reason: result.failure ? result.failure.reason : undefined,
 						input: result.input ? digest(result.input) : undefined,
@@ -118,6 +121,26 @@ function evidencePlugin(setup, reports) {
 				}
 				rows.sort((a, b) => (a.name < b.name ? -1 : 1));
 				reports.push(rows);
+			});
+		},
+	};
+}
+
+// What a worker plugin does: a compilation of its own, whose asset the devtool
+// plugin of this build writes a map for, because a child compiler copies the
+// taps of the compiler that made it.
+function childPlugin(setup, webpack) {
+	return {
+		apply(compiler) {
+			if (setup.scenario !== 'child') return;
+			compiler.hooks.make.tapAsync('fixture', (compilation, callback) => {
+				const child = compilation.createChildCompiler('worker', { filename: 'worker.js' }, [
+					new webpack.webworker.WebWorkerTemplatePlugin(),
+					new webpack.LoaderTargetPlugin('webworker'),
+				]);
+				new webpack.EntryPlugin(compiler.context, path.join(setup.modules, 'app', 'map.js'), 'main').apply(child);
+				new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 }).apply(child);
+				child.runAsChild((error) => callback(error));
 			});
 		},
 	};
@@ -134,7 +157,7 @@ function configuration(setup, webpack, reports) {
 		resolve: { modules: [setup.modules] },
 		optimization: { minimize: setup.scenario !== 'unminified', concatenateModules: false },
 		cache: false,
-		plugins: [evidencePlugin(setup, reports), scenarioPlugin(setup, webpack), ...derivedPlugin(setup, webpack)],
+		plugins: [evidencePlugin(setup, reports), scenarioPlugin(setup, webpack), ...derivedPlugin(setup, webpack), childPlugin(setup, webpack)],
 	};
 }
 

@@ -12,7 +12,7 @@ var _ = ginkgo.Describe("producer git source declarations", func() {
 	const commit = "a1c32a45e83fdda4baafc7ca3105c3ead383f8ba"
 	binding := `{"to":"/src/originals/argo-ui","locator":"git+https://github.com/argoproj/argo-ui.git#` + commit + `","installedPath":"/app/node_modules/argo-ui","packageName":"argo-ui","packageVersion":"1.0.0"}`
 	declaration := func(sources string) []byte {
-		return []byte(`{"version":1,"stages":{"install":{"subject":0,"webpackSources":true,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}],"gitSources":` + sources + `}}}`)
+		return []byte(`{"version":1,"stages":{"install":{"subject":0,` + webpackStageSettings + `,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}],"gitSources":` + sources + `}}}`)
 	}
 
 	ginkgo.It("binds a lock locator to the mapping that fetches it", func() {
@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("producer git source declarations", func() {
 	)
 
 	ginkgo.It("refuses a binding the stage carries no originals manifest for", func() {
-		plain := strings.Replace(string(declaration("["+binding+"]")), `"webpackSources":true,`, "", 1)
+		plain := strings.Replace(string(declaration("["+binding+"]")), webpackStageSettings+",", "", 1)
 		_, err := parseSBOMBuildContextDeclaration([]byte(plain))
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("gitSources require webpackSources")))
 	})
@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("producer git source declarations", func() {
 var _ = ginkgo.Describe("producer git source declarations of the project itself", func() {
 	project := `{"to":"/app","kind":"project","installedPath":"/app"}`
 	declaration := func(sources string) []byte {
-		return []byte(`{"version":1,"stages":{"install":{"subject":0,"webpackSources":true,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}],"gitSources":` + sources + `}}}`)
+		return []byte(`{"version":1,"stages":{"install":{"subject":0,` + webpackStageSettings + `,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}],"gitSources":` + sources + `}}}`)
 	}
 
 	// The project is not a dependency of itself: the mapping that adds it and the

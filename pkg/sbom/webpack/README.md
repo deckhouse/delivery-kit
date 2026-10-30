@@ -156,11 +156,42 @@ export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /tools/sbom/activa
 /tools/yarn/node_modules/.bin/yarn build
 ```
 
-The example paths describe the generated job's layout, not a discovered global installation. The job must make the pinned tool package available and request `webpackSources` in its compiler context. The producing stage and the consuming stage must agree on the proof path and output root. Existing `NODE_OPTIONS` flags remain in place.
+The example paths describe the generated job's layout, not a discovered global installation. The job must make the pinned tool package available and request `webpackSources` in its compiler context; a stage that declares the paths below has that preload and that environment supplied by DK instead, and writes none of these lines itself. The producing stage and the consuming stage must agree on the proof path and output root. Existing `NODE_OPTIONS` flags remain in place.
 
 Without `DK_SBOM_WEBPACK_CONFIG`, activation loads nothing. In active mode the Yarn parent and tool children inherit the process-local load recorder, but only loading the exact configured module attaches the collector. An unmatched configuration produces no proof; the downstream required Go-embed obligation refuses it. Multi-compiler configurations, watch mode and unsupported export shapes fail closed. Each compilation gets an independent Yarn originals resolver and owned temporary directory; normal completion and failures clean that directory.
 
 Activation installs the stylesheet recorder before the configuration loads its modules. Activation tests use real webpack-cli 4.9.2 and Node 22.20, preserving the original object/function config, CLI arguments and heap flags. They prove hook delivery and resolver execution, not complete composition of Argo assets.
+
+## Collector delivery
+
+The collector is this project's own JavaScript, so the werf binary that builds a stage carries it: a recipe asking for a checked Webpack build vendors no copy of it and pins no version of its own. What is carried is the runtime alone - the CommonJS files `activate.cjs` can reach and the production dependency closure (`tar`, `ssri`, `@yarnpkg/lockfile`) it loads them with - packed by `task webpack:embed` into an archive no repository holds and linked in under the `embedwebpack` build tag. That closure is read out of `package-lock.json`, not out of an install: each package the root `dependencies` reach over the locked `node_modules` layout is fetched from `https://registry.npmjs.org` and held against the locked SHA-512 before a byte of it is packed, so the machine that builds a release needs the lockfile and the registry rather than a working npm. A lockfile of another version, a distribution named anywhere but that registry or reached through a redirect off it, an integrity spelled in anything but SHA-512, and a package locked as a development or optional install or declaring optional or peer dependencies are all refused. Specs, fixtures and the esbuild producer patches are not delivered, and Webpack itself still comes from the project being built. A werf built without that archive refuses a stage that asks for the collector rather than compiling a build whose proof nobody would write.
+
+A stage states what the collector is run with beside its `webpackSources` opt-in, as absolute paths inside the stage:
+
+```json
+{
+  "install": {
+    "subject": 0,
+    "packages": [{"sourceImage":"app-source","packageName":"app-source","packageVersion":"1.0.0","packageType":"source","sourcePlatform":"linux/amd64"}],
+    "webpackSources": true,
+    "webpackConfig": "/ui/src/app/webpack.config.js",
+    "webpackProof": "/private-build-metadata/ui.json",
+    "yarnCache": "/usr/local/share/.cache/yarn/v6",
+    "esbuild": {
+      "version": "0.25.0", "loaderVersion": "4.3.0",
+      "entry": "/tools/esbuild/lib/main.js", "binary": "/tools/esbuild/bin/esbuild",
+      "loader": "/ui/node_modules/esbuild-loader/dist/index.cjs",
+      "runtimeSource": "/tools/esbuild/internal/runtime/runtime.go"
+    }
+  }
+}
+```
+
+The three paths are required with the opt-in and refused without it; `esbuild` is optional and, like the environment it becomes, all or nothing. DK unpacks the collector it carries into scratch of this build, mounts it read-only at `/.werf/sbom-webpack` beside the build context, and supplies `NODE_OPTIONS`, `DK_SBOM_WEBPACK_CONFIG`, `DK_SBOM_WEBPACK_PROOF`, `DK_SBOM_YARN_CACHE` and, where an esbuild is declared, the `DK_SBOM_ESBUILD_*` variables with `ESBUILD_BINARY_PATH` as the stage's build-time environment. The `NODE_OPTIONS` the preceding image config states is kept and the preload appended to it. A recipe that exports `NODE_OPTIONS` inside the stage's own shell commands replaces that value instead - DK cannot see it - and must append to `$NODE_OPTIONS` itself; otherwise the configuration is compiled unobserved, no proof is written, and the consuming obligation refuses the assets for want of evidence.
+
+`webpackProof` is where the proof stands in the image the stage produces, which is where `goEmbed` and `prebuiltAssets` of the consuming stage read it from at their declared `proofPath`; the two must name the same file. A proof written under `/.werf` is refused: werf's mounts are scratch of this build and are in no image at all.
+
+The digest of the delivered collector and what it is run with are part of the stage checksum, so a werf carrying another collector, or a stage naming another configuration, proof, cache or esbuild, builds and verifies its own stage rather than reusing one instrumented differently.
 
 ## Tests
 

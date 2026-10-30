@@ -44,8 +44,10 @@ vars:
 
   # Deno is embedded for release binaries only: a dev build would pay a ~45 MiB download and ~42 MiB
   # of linked blob for a runtime it can just as well fetch on demand.
-  distGoTags: "{{.buildGoTags}} embedwerfdeno"
-  distCgoTags: "{{.buildCgoTags}} embedwerfdeno"
+  # The SBOM webpack collector is embedded for the same kind of build: a dev build has no reason
+  # to pay for an archive it would have to fetch the locked distributions to produce.
+  distGoTags: "{{.buildGoTags}} embedwerfdeno embedwebpack"
+  distCgoTags: "{{.buildCgoTags}} embedwerfdeno embedwebpack"
 
 tasks:
   test:native-poc:
@@ -95,6 +97,7 @@ tasks:
     cmds:
       - task: stapel:embed
       - task: deno:embed
+      - task: webpack:embed
       - task: lint:golangci-lint
       - task: verify:builder:go-version
 
@@ -120,6 +123,21 @@ tasks:
       - pkg/stapel/embed/linux/arm64/werf-stapel-toolchain.tar.sha256
     cmds:
       - env -u GOOS -u GOARCH -u WERF_STAPEL_IMAGE_NAME WERF_STAPEL_IMAGE_VERSION="$(sed -n 's/.*VERSION *= *"\(.*\)"/\1/p' pkg/stapel/stapel.go | head -1)" go run ./cmd/embed-stapel
+
+  webpack:embed:
+    desc: "Generate the embedded SBOM webpack collector archive."
+    run: once
+    sources:
+      - pkg/sbom/webpack/*.cjs
+      - pkg/sbom/webpack/package-lock.json
+      - cmd/embed-webpack-collector/main.go
+    generates:
+      - pkg/sbom/webpackcollector/embed/collector.tar.gz
+      - pkg/sbom/webpackcollector/embed/collector.tar.sha256
+    cmds:
+      # The production distributions come from the registry the lockfile pins them in,
+      # verified against the locked integrity. No npm, and no node_modules to install.
+      - env -u GOOS -u GOARCH go run ./cmd/embed-webpack-collector
 
   deno:embed:
     desc: 'Download and embed the Deno binary for one platform. Important vars: "platform".'
@@ -157,6 +175,7 @@ tasks:
     <<: *build_cgo_dev
     deps:
       - stapel:embed
+      - webpack:embed
       - task: deno:embed
         vars:
           platform: "{{.targetOS}}/{{.targetArch}}"
@@ -181,6 +200,7 @@ tasks:
     <<: *build_go_dev
     deps:
       - stapel:embed
+      - webpack:embed
       - task: deno:embed
         vars:
           platform: "{{.targetOS}}/{{.targetArch}}"
@@ -423,12 +443,13 @@ tasks:
           parallel: "{{.parallel}}"
 
   test:unit:embedded:
-    desc: "Test embedded Stapel and Deno assets."
+    desc: "Test embedded Stapel, Deno and SBOM webpack collector assets."
     deps:
       - stapel:embed
       - deno:embed
+      - webpack:embed
     cmds:
-      - go test -ldflags="{{.goLDFlags}}" -tags="{{.distGoTags}}" ./pkg/stapel ./pkg/deno
+      - go test -ldflags="{{.goLDFlags}}" -tags="{{.distGoTags}}" ./pkg/stapel ./pkg/deno ./pkg/sbom/webpackcollector
     env:
       CGO_ENABLED: "0"
 

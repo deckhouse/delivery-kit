@@ -77,6 +77,18 @@ type sbomBuildContextStage struct {
 	Packages       []sbomBuildContextPackage `json:"packages"`
 	GoEmbed        []sbomBuildContextGoEmbed `json:"goEmbed,omitempty"`
 	WebpackSources bool                      `json:"webpackSources,omitempty"`
+	// WebpackConfig is the one configuration file of the project the collector
+	// attaches to; nothing else this stage compiles is described.
+	WebpackConfig string `json:"webpackConfig,omitempty"`
+	// WebpackProof is where that compilation writes its proof. It stands in the
+	// built image, because the stage that consumes the assets reads it from there;
+	// the scratch werf mounts into the build is gone by then.
+	WebpackProof string `json:"webpackProof,omitempty"`
+	// YarnCache is the cache directory the package manager actually installed from,
+	// where the collector finds the distributions of what it describes.
+	YarnCache string `json:"yarnCache,omitempty"`
+	// Esbuild names the instrumented esbuild this stage transforms its modules with.
+	Esbuild *sbomBuildContextEsbuild `json:"esbuild,omitempty"`
 	// PrebuiltAssets bind a file installed in this stage to the instrumented rebuild
 	// that produced it. The binding is the producer's claim about its own recipe; that
 	// the named image really emitted those bytes, and that the installed file really is
@@ -88,6 +100,23 @@ type sbomBuildContextStage struct {
 	// that repository at that commit, and that the commit holds the named package, is
 	// the consumer's.
 	GitSources []sbomBuildContextGitSource `json:"gitSources,omitempty"`
+}
+
+// sbomBuildContextEsbuild names the instrumented esbuild a stage transforms its modules
+// with: the version pair and the four files it is made of. Naming it is all or nothing -
+// a stage naming some of it has declared something nobody can act on - and no digest is
+// taken from here: what the locally built entry and executable hash to is read from the
+// verified context of this very build.
+type sbomBuildContextEsbuild struct {
+	Version       string `json:"version"`
+	LoaderVersion string `json:"loaderVersion"`
+	// Entry and Binary are the locally built client and executable of that version.
+	Entry  string `json:"entry"`
+	Binary string `json:"binary"`
+	// Loader and RuntimeSource are the published loader and runtime source whose
+	// bytes the adapter pins.
+	Loader        string `json:"loader"`
+	RuntimeSource string `json:"runtimeSource"`
 }
 
 type sbomBuildContextGitSource struct {
@@ -223,6 +252,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		if value, present := fields["prebuiltAssets"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: prebuiltAssets must be an array", stageName)
 		}
+		if value, present := fields["esbuild"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: esbuild must be an object", stageName)
+		}
 	}
 
 	for _, stageName := range slices.Sorted(maps.Keys(declaration.Stages)) {
@@ -312,6 +344,10 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 	// else, so a binding without that manifest could prove nothing.
 	if len(declared.GitSources) > 0 && !declared.WebpackSources {
 		return fmt.Errorf("gitSources require webpackSources")
+	}
+
+	if err := validateSBOMBuildContextWebpack(declared); err != nil {
+		return err
 	}
 
 	// The delivered composition is only written out beside the originals manifest,
@@ -417,6 +453,72 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 	}
 	if *declared.Subject < 0 || *declared.Subject >= len(declared.Packages) {
 		return fmt.Errorf("subject %d is out of range of %d packages", *declared.Subject, len(declared.Packages))
+	}
+
+	return nil
+}
+
+// validateSBOMBuildContextWebpack checks what a checked Webpack stage is run with. The
+// three paths are required together with the opt-in: the collector attaches to one named
+// configuration, writes one proof and resolves installed packages out of one cache, and a
+// stage naming none of them would produce nothing while declaring that it does.
+func validateSBOMBuildContextWebpack(declared sbomBuildContextStage) error {
+	paths := []struct{ name, value string }{
+		{"webpackConfig", declared.WebpackConfig}, {"webpackProof", declared.WebpackProof}, {"yarnCache", declared.YarnCache},
+	}
+	if !declared.WebpackSources {
+		for _, field := range paths {
+			if field.value != "" {
+				return fmt.Errorf("%s requires webpackSources", field.name)
+			}
+		}
+		if declared.Esbuild != nil {
+			return fmt.Errorf("esbuild requires webpackSources")
+		}
+
+		return nil
+	}
+
+	for _, field := range paths {
+		if err := validateSBOMBuildContextStagePath(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	// The proof is read out of the built image by the stage that consumes these
+	// assets. werf's own mounts are scratch of this build: a proof written there is
+	// in no image and would leave that obligation with nothing to read.
+	if declared.WebpackProof == werfPrivateMountRoot || strings.HasPrefix(declared.WebpackProof, werfPrivateMountRoot+"/") {
+		return fmt.Errorf("webpackProof %q is written to werf's own mount, not into the image the proof is read from", declared.WebpackProof)
+	}
+
+	if declared.Esbuild == nil {
+		return nil
+	}
+	for _, field := range []struct{ name, value string }{
+		{"esbuild.version", declared.Esbuild.Version}, {"esbuild.loaderVersion", declared.Esbuild.LoaderVersion},
+	} {
+		if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	for _, field := range []struct{ name, value string }{
+		{"esbuild.entry", declared.Esbuild.Entry}, {"esbuild.binary", declared.Esbuild.Binary},
+		{"esbuild.loader", declared.Esbuild.Loader}, {"esbuild.runtimeSource", declared.Esbuild.RuntimeSource},
+	} {
+		if err := validateSBOMBuildContextStagePath(field.name, field.value); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateSBOMBuildContextStagePath(name, value string) error {
+	if err := validateSBOMBuildContextField(name, value); err != nil {
+		return err
+	}
+	if !path.IsAbs(value) || path.Clean(value) != value {
+		return fmt.Errorf("%s must be a clean absolute path", name)
 	}
 
 	return nil

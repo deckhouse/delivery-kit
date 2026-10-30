@@ -3,11 +3,14 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/buildcontext"
@@ -24,15 +27,53 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
+	"github.com/werf/werf/v3/pkg/sbom/webpackcollector"
 )
 
-const producerContextMount = "/.werf/sbom-build-context"
+// werfPrivateMountRoot is where werf mounts the scratch a checked stage is built
+// against. Nothing under it is in the image the stage produces.
+const werfPrivateMountRoot = "/.werf"
+
+const producerContextMount = werfPrivateMountRoot + "/sbom-build-context"
+
+// webpackCollectorMount is where the collector this werf carries is mounted for a
+// stage that compiles a checked Webpack build.
+const webpackCollectorMount = werfPrivateMountRoot + "/sbom-webpack"
 
 type sbomProducerContext struct {
 	directory string
 	path      string
 	checksum  string
+	// webpack is the collector tree the stage's Webpack build is instrumented with,
+	// present exactly for a stage that declared one.
+	webpack *sbomWebpackCollector
 }
+
+// sbomWebpackCollector is the extracted collector of one stage: the scratch it was
+// unpacked into and the environment the build is run with.
+type sbomWebpackCollector struct {
+	directory string
+	env       map[string]string
+}
+
+// remove releases every scratch directory this producer context owns.
+func (input *sbomProducerContext) remove() error {
+	directories := []string{input.directory}
+	if input.webpack != nil {
+		directories = append(directories, input.webpack.directory)
+	}
+	var errs []error
+	for _, directory := range directories {
+		errs = append(errs, os.RemoveAll(directory))
+	}
+
+	return errors.Join(errs...)
+}
+
+// extractWebpackCollector is the collector delivery of a checked Webpack stage. It is a
+// variable so that the specs of the stage wiring can hand the phase a tree of their own:
+// the collector this werf really carries is only there in a build tagged to embed it.
+var extractWebpackCollector = webpackcollector.Extract
 
 func producerDeclarationPresent(img *imagePkg.Image) bool {
 	if img.IsDockerfileImage || img.StapelImageConfig == nil || img.StapelImageConfig.ImageBaseConfig().ImageSpec == nil {
@@ -201,7 +242,86 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if len(prebuiltIdentities) > 0 {
 		parts = append(append(parts, "prebuilt-assets"), prebuiltIdentities...)
 	}
-	return &sbomProducerContext{directory: directory, path: path, checksum: util.Sha256Hash(append(parts, identities...)...)}, nil
+	input := &sbomProducerContext{directory: directory, path: path}
+	if requested.WebpackSources {
+		collector, digest, err := phase.webpackCollector(requested, previousInfo.Env)
+		if err != nil {
+			_ = input.remove()
+			return nil, err
+		}
+		input.webpack = collector
+		// The collector is a producer of this evidence like the compiler is: a werf
+		// carrying another one instruments the build differently, so the stage it
+		// builds is another stage.
+		parts = append(parts, "webpack-collector", digest)
+		for _, key := range slices.Sorted(maps.Keys(collector.env)) {
+			parts = append(parts, key, collector.env[key])
+		}
+	}
+	input.checksum = util.Sha256Hash(append(parts, identities...)...)
+
+	return input, nil
+}
+
+// webpackCollector unpacks the collector this werf carries into scratch of its own and
+// states what the stage's Webpack build is run with.
+//
+// Only the NODE_OPTIONS the preceding image already states is visible here, and the
+// collector is appended to it. A recipe exporting NODE_OPTIONS inside the stage's own
+// shell commands replaces this value instead, and has to append to it itself; this is
+// no silent omission - the proof is then never written and the consuming obligation
+// refuses the assets for want of evidence.
+func (phase *BuildPhase) webpackCollector(requested sbomBuildContextStage, imageEnv []string) (*sbomWebpackCollector, string, error) {
+	directory, err := os.MkdirTemp(phase.Conveyor.tmpDir, "webpack-collector-")
+	if err != nil {
+		return nil, "", err
+	}
+	digest, err := extractWebpackCollector(directory)
+	if err != nil {
+		_ = os.RemoveAll(directory)
+		return nil, "", fmt.Errorf("webpack collector: %w", err)
+	}
+	if err := os.Chmod(directory, 0o755); err != nil {
+		_ = os.RemoveAll(directory)
+		return nil, "", err
+	}
+
+	options := "--require " + webpackCollectorMount + "/activate.cjs"
+	if existing := imageEnvironmentValue(imageEnv, "NODE_OPTIONS"); existing != "" {
+		options = existing + " " + options
+	}
+	env := map[string]string{
+		"NODE_OPTIONS":           options,
+		"DK_SBOM_WEBPACK_CONFIG": requested.WebpackConfig,
+		"DK_SBOM_WEBPACK_PROOF":  requested.WebpackProof,
+		"DK_SBOM_YARN_CACHE":     requested.YarnCache,
+	}
+	if esbuild := requested.Esbuild; esbuild != nil {
+		env["DK_SBOM_ESBUILD_VERSION"] = esbuild.Version
+		env["DK_SBOM_ESBUILD_LOADER_VERSION"] = esbuild.LoaderVersion
+		env["DK_SBOM_ESBUILD_ENTRY"] = esbuild.Entry
+		env["DK_SBOM_ESBUILD_BINARY"] = esbuild.Binary
+		env["DK_SBOM_ESBUILD_LOADER"] = esbuild.Loader
+		env["DK_SBOM_ESBUILD_RUNTIME_SOURCE"] = esbuild.RuntimeSource
+		// The esbuild client runs the executable this very declaration names, not
+		// whichever one its own install directory holds.
+		env["ESBUILD_BINARY_PATH"] = esbuild.Binary
+	}
+
+	return &sbomWebpackCollector{directory: directory, env: env}, digest, nil
+}
+
+// imageEnvironmentValue is what an image config states for one variable. A config
+// repeating one keeps the last, which is the value its containers are given.
+func imageEnvironmentValue(env []string, name string) string {
+	value := ""
+	for _, entry := range env {
+		if rest, found := strings.CutPrefix(entry, name+"="); found {
+			value = rest
+		}
+	}
+
+	return value
 }
 
 // producerGitSources verifies, for every declared Git-backed Node source - a dependency

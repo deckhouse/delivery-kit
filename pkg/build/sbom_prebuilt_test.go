@@ -17,7 +17,7 @@ import (
 var _ = ginkgo.Describe("producer prebuilt asset declarations", func() {
 	binding := `{"sourceImage":"redoc","proofPath":"/proof/assets.json","assetPath":"bundles/redoc.standalone.js","installedPath":"/app/node_modules/redoc/bundles/redoc.standalone.js"}`
 	declaration := func(assets string, webpack bool) []byte {
-		sources := `"webpackSources":true,`
+		sources := webpackStageSettings + ","
 		if !webpack {
 			sources = ""
 		}
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("holding a prebuilt source to the recipe of this configu
 
 		return &config.StapelImage{StapelImageBase: base}
 	}
-	producer := `{"version":1,"stages":{"install":{"subject":0,"webpackSources":true,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`
+	producer := `{"version":1,"stages":{"install":{"subject":0,` + webpackStageSettings + `,"packages":[{"sourceImage":"source","packageName":"app-source","packageVersion":"1","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`
 
 	ginkgo.It("accepts an image declared to run the webpack collector", func() {
 		gomega.Expect(checkPrebuiltSourceDeclaration(declaring(map[string]string{sbomBuildContextLabel: producer}), "redoc")).To(gomega.Succeed())
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("holding a prebuilt source to the recipe of this configu
 		ginkgo.Entry("no producer declaration", declaring(map[string]string{"other": "1"}), "declares no producer context"),
 		ginkgo.Entry("an unreadable declaration", declaring(map[string]string{sbomBuildContextLabel: "{"}), "parse SBOM build context declaration"),
 		// A stage that never asks for the collector cannot have run it.
-		ginkgo.Entry("no stage running the collector", declaring(map[string]string{sbomBuildContextLabel: strings.Replace(producer, `"webpackSources":true,`, "", 1)}),
+		ginkgo.Entry("no stage running the collector", declaring(map[string]string{sbomBuildContextLabel: strings.Replace(producer, webpackStageSettings+",", "", 1)}),
 			"declares no stage that runs the webpack collector"),
 	)
 })

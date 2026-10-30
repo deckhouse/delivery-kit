@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1434,7 +1435,7 @@ func (phase *BuildPhase) OnImageStage(ctx context.Context, img *image.Image, stg
 func (phase *BuildPhase) onImageStage(ctx context.Context, img *image.Image, stg stage.Interface) error {
 	defer func() {
 		if phase.producerInput != nil {
-			_ = os.RemoveAll(phase.producerInput.directory)
+			_ = phase.producerInput.remove()
 			phase.producerInput = nil
 		}
 	}()
@@ -1757,9 +1758,9 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		// A recalculated stage replaces its producer context: the scratch of the plan
 		// it drops is released here, so no failure below can strand it.
 		if phase.producerInput != nil {
-			directory := phase.producerInput.directory
+			dropped := phase.producerInput
 			phase.producerInput = nil
-			if err := os.RemoveAll(directory); err != nil {
+			if err := dropped.remove(); err != nil {
 				return false, nil, fmt.Errorf("remove producer context of %s: %w", stg.Name(), err)
 			}
 		}
@@ -1959,13 +1960,17 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 	}
 
 	if phase.producerInput != nil {
-		volume := fmt.Sprintf("%s:%s:ro", phase.producerInput.directory, producerContextMount)
+		volumes := []string{fmt.Sprintf("%s:%s:ro", phase.producerInput.directory, producerContextMount)}
 		env := map[string]string{"SBOM_BUILD_CONTEXT": phase.producerInput.path}
+		if collector := phase.producerInput.webpack; collector != nil {
+			volumes = append(volumes, fmt.Sprintf("%s:%s:ro", collector.directory, webpackCollectorMount))
+			maps.Copy(env, collector.env)
+		}
 		if phase.Conveyor.UseLegacyStapelBuilder(phase.Conveyor.ContainerBackend) {
-			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddVolume(volume)
+			stageImage.Builder.LegacyStapelStageBuilder().Container().RunOptions().AddVolume(volumes...)
 			stageImage.Builder.LegacyStapelStageBuilder().Container().AddBuildTimeEnv(env)
 		} else {
-			stageImage.Builder.StapelStageBuilder().AddBuildVolumes(volume)
+			stageImage.Builder.StapelStageBuilder().AddBuildVolumes(volumes...)
 			stageImage.Builder.StapelStageBuilder().AddBuildTimeEnvs(env)
 		}
 	}

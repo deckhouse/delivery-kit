@@ -301,6 +301,16 @@ var _ = ginkgo.Describe("Original source transport", func() {
 		gomega.Expect(transportRecords(second)).To(gomega.Equal(transportRecords(first)))
 	})
 
+	ginkgo.It("refuses a file of the base its descendant replaced on the same path", func(ctx ginkgo.SpecContext) {
+		first, _, _ := installedBuild(ctx)
+		base := serializedBOM(first)
+
+		from, _ := transportStage(ctx, "from", map[string]string{"/src/tool": "tool body", "/src/hidden": "hidden body"})
+		install, image := transportStage(ctx, "install", map[string]string{"/src/tool": "own body", "/src/hidden": "hidden body"})
+		_, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, base)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("hash-mismatch: /src/tool no longer holds the content its original source bound there")))
+	})
+
 	ginkgo.DescribeTable("refuses an inherited catalog neither the snapshot nor the original backs", func(ctx ginkgo.SpecContext, damage func(catalog *originalsCatalog, id string), expected string) {
 		first, image, _ := installedBuild(ctx)
 		base := serializedBOM(first)

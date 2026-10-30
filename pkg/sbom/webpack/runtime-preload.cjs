@@ -12,7 +12,7 @@ const Module = require('node:module');
 const path = require('node:path');
 
 const REGISTRY = Symbol.for('dk.sbom.webpack.cjs');
-const OBSERVED = ['DefinePropertyGettersRuntimeModule.js', 'HasOwnPropertyRuntimeModule.js', 'MakeNamespaceObjectRuntimeModule.js'];
+const OBSERVED = ['DefinePropertyGettersRuntimeModule.js', 'HasOwnPropertyRuntimeModule.js', 'MakeNamespaceObjectRuntimeModule.js', 'NonceRuntimeModule.js'];
 const RENDERED = ['renderMain', 'renderBootstrap'];
 const RENDERER = 'JavascriptModulesPlugin.js';
 // The hooks that shape the source a runtime chunk is rendered from; a tap on

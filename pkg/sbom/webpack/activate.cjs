@@ -43,7 +43,7 @@ function activate() {
 	};
 	// The load recorder has to be wrapping the module loader before the first
 	// webpack file is compiled; everything else here is loaded after it.
-	require('./runtime-preload.cjs');
+	require('./stylesheet-preload.cjs');
 	const Module = require('node:module');
 	const Activation = activationPlugin();
 	// Only the one compiled file this activation owns: every other request, of

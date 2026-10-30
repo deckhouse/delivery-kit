@@ -19,6 +19,7 @@ const CLASS_FILES = [
 	'runtime/DefinePropertyGettersRuntimeModule.js',
 	'runtime/HasOwnPropertyRuntimeModule.js',
 	'runtime/MakeNamespaceObjectRuntimeModule.js',
+	'runtime/NonceRuntimeModule.js',
 ];
 const HELPER_FILES = ['Template.js', 'RuntimeTemplate.js', 'RuntimeGlobals.js'];
 // The raw bytes of every file this adapter describes, in the pinned webpack
@@ -35,6 +36,7 @@ const FINGERPRINTS = new Map([
 	['runtime/MakeNamespaceObjectRuntimeModule.js', 'sha256:3b04cbcb66679c0889f27536bcb3008720285953552a5f1dd0bd02a71fb3a0d4'],
 	['javascript/JavascriptModulesPlugin.js', 'sha256:a62f97847080a4f4ebf2e5075bd14f55f29ab5e862e7fac608e6cd081dfb3198'],
 	['APIPlugin.js', 'sha256:b6b1aa7b66f08aeaa2ea8e141ee7567120200855a9fbc88bc3351988a9fe686e'],
+	['runtime/NonceRuntimeModule.js', 'sha256:a5f4cdf3351b259a972eefe4bb7d48c94f13933dd415c0a7108d645bfe026fcf'],
 ]);
 
 async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource) {

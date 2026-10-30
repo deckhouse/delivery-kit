@@ -15,6 +15,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { runtimeEvidence } = require('./runtime-evidence.cjs');
 const { installCopyEvidence } = require('./copy-evidence.cjs');
+const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
+const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
 const { bootstrapEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const path = require('path');
 
@@ -48,6 +50,8 @@ class DkSbomWebpackCollector {
 		// declaration can never stand in for a copy operation that is not configured.
 		const options = { ...this.options, copied: bindCopied(this.options.copied, compiler) };
 		options.copyEvidence = installCopyEvidence(compiler, resource => verifyResource(options, resource));
+		if (options.esbuild) options.esbuildEvidence = installEsbuildEvidence(compiler, options.esbuild, resource => verifyResource(options, resource));
+		options.stylesheetEvidence = installStylesheetEvidence(compiler, resource => verifyResource(options, resource));
 		compiler.hooks.afterEmit.tapAsync(PLUGIN, (compilation, callback) => {
 			buildProof(options, compilation)
 				.then(async proof => {
@@ -61,7 +65,7 @@ class DkSbomWebpackCollector {
 
 function normalizeOptions(options) {
 	if (!isPlainObject(options)) throw new Error(`${PLUGIN}: options object is required`);
-	checkKeys(options, ['proofPath', 'originals', 'copied', 'resolveOriginal'], 'options');
+	checkKeys(options, ['proofPath', 'originals', 'copied', 'resolveOriginal', 'esbuild'], 'options');
 	if (options.resolveOriginal !== undefined && typeof options.resolveOriginal !== 'function') throw new Error(`${PLUGIN}: resolveOriginal must be a function`);
 	const proofPath = requireAbsolutePath(options.proofPath, 'options.proofPath');
 	return {
@@ -69,6 +73,7 @@ function normalizeOptions(options) {
 		originals: normalizeOriginals(options.originals, typeof options.resolveOriginal === 'function'),
 		copied: normalizeCopied(options.copied),
 		resolveOriginal: options.resolveOriginal,
+		esbuild: options.esbuild,
 	};
 }
 
@@ -277,7 +282,16 @@ async function collectModule(options, module, collected, compilation, chunk) {
 	// A loader rewrites the module before webpack consumes it, so the file on disk
 	// is no longer the unit that was bundled.
 	if (Array.isArray(module.loaders) && module.loaders.length > 0) {
-		addFailure(collected, failure('no-data', `loader-transformed module: ${module.identifier()}`));
+		let describe;
+		if (options.esbuildEvidence && module.loaders.length === 1 && module.loaders[0].loader === options.esbuild.loader) describe = options.esbuildEvidence;
+		else if (module.loaders.some(item => typeof item.loader === 'string' && /(?:^|[/\\])(?:style-loader|raw-loader)[/\\]/.test(item.loader))) describe = options.stylesheetEvidence;
+		if (describe) {
+			const transformed = await describe(module);
+			if (transformed.failure) addFailure(collected, transformed.failure);
+			for (const unit of transformed.units) collected.units.set(unit.path, unit);
+		} else {
+			addFailure(collected, failure('no-data', `loader-transformed module: ${module.identifier()}`));
+		}
 		return;
 	}
 	const resource = typeof module.resource === 'string' ? module.resource : '';

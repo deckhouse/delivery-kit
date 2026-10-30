@@ -61,11 +61,17 @@ A Yarn error must propagate, not become a primary-project fallback. The stage's 
 
 ## Observed runtime and bootstrap units
 
-`node --require /path/to/runtime-preload.cjs …` records the CommonJS source and actual generator calls before Webpack loads. Without that observation, chunks requiring runtime/bootstrap evidence remain `no-data`. The adapter is limited to fingerprinted Webpack 5.94.0 implementations: three standard runtime classes and the main chunk renderer with its checked helper sources. Matching a version string alone does not make a fork supported.
+`node --require /path/to/runtime-preload.cjs …` records the CommonJS source and actual generator calls before Webpack loads. Without that observation, chunks requiring runtime/bootstrap evidence remain `no-data`. The adapter is limited to fingerprinted Webpack 5.94.0 implementations: four standard runtime classes (namespace/property helpers and the nonce unit) and the main chunk renderer with its checked helper sources. Matching a version string alone does not make a fork supported.
 
 The observer records real calls and their helper state, not a second execution of a generator. A prefilled generated-code cache, a replaced implementation, or changed helper state must not become evidence of stock Webpack generation. The collector binds the observed render to the bytes actually left on the output filesystem. These checks do not claim to secure the entire Node process against a hostile configuration controlling the producer itself.
 
 Uncovered chunk renderers, additional text-producing plugin hooks and transformations between render and emission fail closed. Code splitting, library output plugins and minification therefore require further supported adapters; the initial runtime support is not complete Argo or Monaco coverage. Known generator/template units enter `inputs` as source contributions, while merely executing or formatting other units does not add the whole toolchain as composition.
+
+## Observed stylesheet and esbuild loaders
+
+`stylesheet-preload.cjs` composes the runtime recorder and observes actual calls to style-loader 1.3.0 and raw-loader 0.5.1. Exact-config activation loads this recorder automatically. The supported CSS path is the default, non-HMR `style-loader → raw-loader` chain or raw-loader alone. The pitched style module contributes its verified template source, not CSS it never read; the child contributes the actual verified CSS and raw-loader's wrapper source. The style injection runtime remains an ordinary verified module in the Webpack graph. Loader results must match the module source Webpack kept. Custom options, missing observations and additional loader chains remain incomplete; Sass/SCSS is not covered by this CSS adapter.
+
+The optional private `esbuild` collector option supports the instrumented esbuild 0.25.0 client/binary and esbuild-loader 4.3.0. It records the actual per-module transform without replacing the project's shared options. See [the pinned producer patch and tool-input contract](esbuild/README.md). A runtime contribution is accepted only when that transform selected the runtime source unit and the caller supplies its verified original distribution; absence of producer evidence is not an empty runtime contribution. Automatic deployment of these tool inputs is separate from the standalone collector option.
 
 ## Stage delivery
 
@@ -112,10 +118,10 @@ The example paths describe the generated job's layout, not a discovered global i
 
 Without `DK_SBOM_WEBPACK_CONFIG`, activation loads nothing. In active mode the Yarn parent and tool children inherit the process-local load recorder, but only loading the exact configured module attaches the collector. An unmatched configuration produces no proof; the downstream required Go-embed obligation refuses it. Multi-compiler configurations, watch mode and unsupported export shapes fail closed. Each compilation gets an independent Yarn originals resolver and owned temporary directory; normal completion and failures clean that directory.
 
-Activation tests use real webpack-cli 4.9.2 and Node 22.20, preserving the original object/function config, CLI arguments and heap flags. They prove hook delivery and resolver execution, not complete composition of Argo assets.
+Activation installs the stylesheet recorder before the configuration loads its modules. Activation tests use real webpack-cli 4.9.2 and Node 22.20, preserving the original object/function config, CLI arguments and heap flags. They prove hook delivery and resolver execution, not complete composition of Argo assets.
 
 ## Tests
 
-Run `npm ci --ignore-scripts --no-audit --no-fund` and `npm test` in this directory. The fixtures use real Webpack and CopyPlugin runs, locally packed npm distributions with verified SHA-512 integrity, and independent original trees. They do not represent upstream Argo packages.
+Run `npm ci --ignore-scripts --no-audit --no-fund` and `npm test` in this directory. The fixtures use real Webpack and CopyPlugin runs, locally packed npm distributions with verified SHA-512 integrity, and independent original trees. They do not represent upstream Argo packages. Esbuild-specific cases require an explicit `DK_ESBUILD_SOURCE` pointing at the patched and built source tree; without it they are reported as skipped, not validated. Those cases also exercise the test-only prepared PM source image helper under `testdata/`.
 
 For a retained single-build fixture, set `DK_WEBPACK_EVIDENCE` to an empty absolute directory and run `node fixture.cjs`. It retains the outputs, raw proof, input archives and hash manifest; the source root describes the actual retained output location. No generated binaries or dependency directories belong in Git.

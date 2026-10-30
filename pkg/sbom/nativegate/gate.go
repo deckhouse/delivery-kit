@@ -83,7 +83,7 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		err = nil
 		// A script is classified from its whole body, so a shebang is read in full the way
 		// an ELF is; the digest check below then ties those bytes to the index.
-		full := metadata || ip.Role != "final" || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!"))
+		full := metadata || ip.Role != "final" || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0
 		if full {
 			rest, readErr := io.ReadAll(tr)
 			err = readErr
@@ -366,7 +366,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 		if record == nil {
 			if binary(fs.executable[name]) {
-				if !interpretedScript(fs.bodies[name], name) {
+				if !interpretedScript(fs.bodies[name], name) && !plainText(fs.bodies[name], name) {
 					return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
 				}
 				// Reading the script as ordinary text must not drop the answer the binary

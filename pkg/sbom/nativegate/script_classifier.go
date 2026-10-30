@@ -34,6 +34,24 @@ func interpretedScript(body []byte, name string) bool {
 	return len(bytes.TrimSpace(rest)) > 0
 }
 
+// plainText reports a whole body that is text: an execute bit does not make text
+// a compiled artifact, so such a file is read as the same text without the bit.
+func plainText(body []byte, name string) bool {
+	if binaryLike(body, false, name) || nativeCandidate(body) || !utf8.Valid(body) {
+		return false
+	}
+	for _, point := range string(body) {
+		if point == '\t' || point == '\n' || point == '\r' || point == '\f' {
+			continue
+		}
+		if point < 0x20 || point == 0x7f {
+			return false
+		}
+	}
+
+	return true
+}
+
 func textScriptBody(body []byte) bool {
 	if !utf8.Valid(body) {
 		return false

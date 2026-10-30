@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("strict native inventory", func() {
 		gomega.Expect(c.attach(bom)).To(gomega.Succeed())
 		err := Apply(context.Background(), &Policy{Images: map[string]ImagePolicy{"final": {Role: "final"}}}, "final", fixtureImage(map[string]string{path: body}), []*cdx.BOM{bom}, cdx.NewBOM())
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
-	}, ginkgo.Entry("same name changed content", "/bin/a", "other", "content changed"), ginkgo.Entry("unknown executable", "/bin/new", "other", "unknown binary"))
+	}, ginkgo.Entry("same name changed content", "/bin/a", "other", "content changed"), ginkgo.Entry("unknown executable", "/bin/new", "\x01other", "unknown binary"))
 	ginkgo.It("rejects identical bytes with different version owners instead of unioning them", func() {
 		c := fixtureCatalog()
 		second := c.Records[0]

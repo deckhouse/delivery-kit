@@ -95,10 +95,29 @@ var _ = ginkgo.Describe("Interpreted script classification", func() {
 		_, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
 	},
-		ginkgo.Entry("a misspelled interpreter", "#!/bin/bsah\necho hello\n", "/app/run.sh", "unsupported: unknown binary or unsupported format /app/run.sh"),
 		ginkgo.Entry("a shebang over binary content", "#!/bin/sh\n\x00\x01\x02\n", "/app/run.sh", "unsupported: unknown binary or unsupported format /app/run.sh"),
 		ginkgo.Entry("an opaque executable", "\x01\x02\x03\x04 payload\n", "/app/tool", "unsupported: unknown binary or unsupported format /app/tool"),
+		ginkgo.Entry("executable text with a NUL", "module.exports = 1;\x00\n", "/ui/node_modules/x/index.js", "unsupported: unknown binary or unsupported format /ui/node_modules/x/index.js"),
+		ginkgo.Entry("executable text with an escape byte", "module.exports = '\x1b[0m';\n", "/ui/node_modules/x/index.js", "unsupported: unknown binary or unsupported format /ui/node_modules/x/index.js"),
+		ginkgo.Entry("executable text that is not UTF-8", "module.exports = '\xc0\xaf';\n", "/ui/node_modules/x/index.js", "unsupported: unknown binary or unsupported format /ui/node_modules/x/index.js"),
+		ginkgo.Entry("executable text cut inside a character", "module.exports = '\xe2\x82", "/ui/node_modules/x/index.js", "unsupported: unknown binary or unsupported format /ui/node_modules/x/index.js"),
+		ginkgo.Entry("printable bytes behind a native magic", "MZprintable text\n", "/app/tool", "/app/tool: unsupported: not a selected native executable or shared object"),
 		ginkgo.Entry("an archive", "!<arch>\npayload\n", "/app/tool.a", "/app/tool.a: unsupported: binary format has no embedded composition reader"),
+	)
+
+	ginkgo.DescribeTable("reads executable text without a shebang as the same text without the bit", func(ctx ginkgo.SpecContext, body string) {
+		from, _ := executableStage(ctx, "from", map[string]string{})
+		install, image := executableStage(ctx, "install", map[string]string{"/ui/node_modules/uri-js/dist/esnext/schemes/http.js": body})
+
+		bom, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(transportRecords(bom)).To(gomega.BeEmpty(), "text claims no component")
+	},
+		ginkgo.Entry("a JavaScript module from an npm tarball", "import { pctEncChar } from \"../uri\";\nconst handler = { scheme: \"http\" };\nexport default handler;\n"),
+		ginkgo.Entry("text behind a byte order mark", "\ufeffexport default 1;\n"),
+		ginkgo.Entry("text with tabs, carriage returns and form feeds", "a\tb\r\n\fc\n"),
+		ginkgo.Entry("non-ASCII text", "export const quote = '≈';\n"),
+		ginkgo.Entry("a script whose interpreter is misspelled", "#!/bin/bsah\necho hello\n"),
 	)
 
 	ginkgo.DescribeTable("accepts an empty file whatever its mode or name", func(ctx ginkgo.SpecContext, name string) {

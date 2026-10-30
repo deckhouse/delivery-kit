@@ -205,11 +205,19 @@ func Apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 
 type ApplySourceSnapshotsOptions struct {
 	BaseBOM *cdx.BOM
+	// PreparedSource states that the image under verification is a declared prepared
+	// source: it ships nothing of its own making, and what it collects out of a
+	// bootstrap source is answered for by the package this image itself becomes.
+	PreparedSource bool
+	// RegistryDigest is the manifest digest the image has in the registry. The image
+	// read here was saved out of the daemon and re-assembled, so its own digest is this
+	// process's making; only the registry's is what anything downstream can pin.
+	RegistryDigest string
 }
 
 // ApplySourceSnapshots verifies the final image using observed, scoped original sources.
 func ApplySourceSnapshots(ctx context.Context, p *Policy, name string, img v1.Image, snapshots []SourceSnapshot, target *cdx.BOM, opts ApplySourceSnapshotsOptions) error {
-	evidence, err := collectSourceEvidence(ctx, snapshots, opts.BaseBOM)
+	evidence, err := collectSourceEvidence(ctx, snapshots, opts.BaseBOM, opts.PreparedSource, opts.RegistryDigest)
 	if err != nil {
 		return err
 	}
@@ -245,6 +253,14 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 		if err := local.addOriginalSources(ctx, evidence); err != nil {
 			return err
+		}
+		if evidence.preparedSource {
+			if err := checkPreparedSourceContent(fs); err != nil {
+				return err
+			}
+			if err := local.addPreparedSourcePackage(ctx, img, evidence.registryDigest, fs, evidence.bootstrap); err != nil {
+				return err
+			}
 		}
 	} else if err := local.addPM(ctx, fs.bodies); err != nil {
 		return err

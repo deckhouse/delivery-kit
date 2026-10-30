@@ -77,6 +77,8 @@ type ConvergeWithMergeOptions struct {
 	// Sources are the import directives of the image, in build order, each pinned to the
 	// source image the build copied from.
 	Sources []sbomSourceImportInput
+	// PreparedSource states that the recipe declares this image a prepared source.
+	PreparedSource bool
 }
 
 // ConvergeWithMerge produces, caches and pushes the SBOM of one built image. osPmPackages
@@ -120,6 +122,11 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		"policy", policyChecksum,
 		"sources", sbomSourceImportsChecksum(options.Sources),
 	)
+	if options.PreparedSource {
+		// Stated only where it holds, so that the identity of every other image stays
+		// what it was.
+		checksum = util.Sha256Hash(checksum, "prepared-source")
+	}
 
 	store := artifact.NewOCIStore(repo, werfImgName)
 
@@ -147,7 +154,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		}
 		defer cleanup()
 
-		verifiedBOM, err := step.verifyImageComposition(ctx, werfImgName, stageDesc, img, provenance, policy, mergeOpts.BaseBOM, options.Sources, targetPlatform)
+		verifiedBOM, err := step.verifyImageComposition(ctx, werfImgName, stageDesc, img, provenance, policy, mergeOpts.BaseBOM, options, targetPlatform)
 		if err != nil {
 			return err
 		}
@@ -312,7 +319,8 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 // it was built through and the original sources they carry, under the default policy. It
 // is the authority on the packages of the image; the scan that runs beside it contributes
 // the language ecosystems the composition says nothing about.
-func (step *sbomStep) verifyImageComposition(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, img v1.Image, provenance sbomStageProvenance, policy *nativegate.Policy, baseBOM *cdx.BOM, sources []sbomSourceImportInput, targetPlatform string) (*cdx.BOM, error) {
+func (step *sbomStep) verifyImageComposition(ctx context.Context, werfImgName string, stageDesc *image.StageDesc, img v1.Image, provenance sbomStageProvenance, policy *nativegate.Policy, baseBOM *cdx.BOM, options ConvergeWithMergeOptions, targetPlatform string) (*cdx.BOM, error) {
+	sources := options.Sources
 	snapshots, err := collectSBOMSourceSnapshots(ctx, img, provenance)
 	if err != nil {
 		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
@@ -328,7 +336,7 @@ func (step *sbomStep) verifyImageComposition(ctx context.Context, werfImgName st
 
 	verified := cyclonedxutil.NewBOM()
 	restoreImageMetadata(verified, stageDesc)
-	if err := nativegate.ApplySourceSnapshots(ctx, policy, werfImgName, img, sourceSnapshots, verified, nativegate.ApplySourceSnapshotsOptions{BaseBOM: baseBOM}); err != nil {
+	if err := nativegate.ApplySourceSnapshots(ctx, policy, werfImgName, img, sourceSnapshots, verified, nativegate.ApplySourceSnapshotsOptions{BaseBOM: baseBOM, PreparedSource: options.PreparedSource, RegistryDigest: stageDesc.Info.GetDigest()}); err != nil {
 		return nil, fmt.Errorf("verify the composition of image %s: %w", werfImgName, err)
 	}
 	logboek.Context(ctx).Default().LogF("image %s: composition verified against its original sources\n", werfImgName)

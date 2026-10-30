@@ -72,6 +72,14 @@ type sourceEvidence struct {
 	// with other bytes. It lives for this verification only: a lost binding is nothing to
 	// publish, and equal bytes elsewhere do not re-establish the one that was lost.
 	unverified map[string]bool
+	// preparedSource states that this image is a declared prepared source: it collects
+	// files and makes nothing, so what it took out of a bootstrap source is answered
+	// for by the package the image itself becomes rather than file by file, and it
+	// hands no obligation of its own down the chain.
+	preparedSource bool
+	// registryDigest is the manifest digest of the image under verification in the
+	// registry, which is what the package of a prepared source is pinned by.
+	registryDigest string
 	// bootstrap holds the paths this image received from a bootstrap source, directly or
 	// through a base image or an import of an image that received them. Nothing describes
 	// those files but this image, so each of them has to carry its own build record or
@@ -257,11 +265,11 @@ func changedReceipt(previous, current *sources.Receipt) (bool, error) {
 	return !bytes.Equal(encoded, known), nil
 }
 
-func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base *cdx.BOM) (*sourceEvidence, error) {
+func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base *cdx.BOM, preparedSource bool, registryDigest string) (*sourceEvidence, error) {
 	if len(snapshots) == 0 || snapshots[0].Stage != "from" {
 		return nil, fmt.Errorf("no-data: original sources require the actual base snapshot")
 	}
-	e := &sourceEvidence{resolved: make(map[string]*resolvedSource)}
+	e := &sourceEvidence{resolved: make(map[string]*resolvedSource), preparedSource: preparedSource, registryDigest: registryDigest}
 	for i, snapshot := range snapshots {
 		if snapshot.Index == nil || snapshot.Index.Incomplete {
 			return nil, fmt.Errorf("no-data: incomplete source snapshot for %s", snapshot.Stage)
@@ -336,7 +344,7 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 				if err != nil {
 					return nil, err
 				}
-				maps.Copy(bootstrap, landed)
+				e.markBootstrap(landed, bootstrap)
 				matches, err = bootstrapImportMatches(ctx, e, imported)
 				if err != nil {
 					return nil, err

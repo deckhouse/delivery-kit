@@ -129,6 +129,8 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		ginkgo.Entry("with a future version", `{"version":2,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, "unsupported version 2"),
 		ginkgo.Entry("with a fractional version", `{"version":1.0,"stages":{}}`, "invalid"),
 		ginkgo.Entry("without stages", `{"version":1}`, "at least one stage is required"),
+		ginkgo.Entry("with an image declared both a prepared source and a bootstrap image", `{"version":1,"bootstrap":true,"preparedSource":true}`, "an image is either a bootstrap image or a prepared source, not both"),
+		ginkgo.Entry("with a prepared source declaring a stage", `{"version":1,"preparedSource":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, "a prepared source image declares no stages"),
 		ginkgo.Entry("with null stages", `{"version":1,"stages":null}`, "at least one stage is required"),
 		ginkgo.Entry("with empty stages", `{"version":1,"stages":{}}`, "at least one stage is required"),
 		ginkgo.Entry("with a null bootstrap", `{"version":1,"bootstrap":null}`, "invalid"),

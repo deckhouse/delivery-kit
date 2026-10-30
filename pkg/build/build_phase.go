@@ -762,7 +762,12 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 
 	scanOpts := phase.scanOptionsForImage(img)
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports}); err != nil {
+	preparedSource, err := phase.preparedSourceImage(img)
+	if err != nil {
+		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+	}
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource}); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
@@ -2844,23 +2849,42 @@ func (phase *BuildPhase) resolveImportImage(ctx context.Context, img *image.Imag
 
 // bootstrapImage answers whether this recipe declares the image itself a bootstrap image.
 func (phase *BuildPhase) bootstrapImage(img *image.Image) (bool, error) {
-	if img.StapelImageConfig == nil {
-		return false, nil
-	}
-	spec := img.StapelImageConfig.ImageBaseConfig().ImageSpec
-	if spec == nil {
-		return false, nil
-	}
-	raw, present := spec.Labels[sbomBuildContextLabel]
-	if !present {
-		return false, nil
-	}
-	declaration, err := parseSBOMBuildContextDeclaration([]byte(raw))
-	if err != nil {
+	declaration, err := phase.imageDeclaration(img)
+	if err != nil || declaration == nil {
 		return false, err
 	}
 
 	return declaration.Bootstrap, nil
+}
+
+// imageDeclaration reads what the recipe of this image states about how its composition
+// is to be described, or nothing where it states nothing at all.
+func (phase *BuildPhase) imageDeclaration(img *image.Image) (*sbomBuildContextDeclaration, error) {
+	if img.StapelImageConfig == nil {
+		return nil, nil
+	}
+	spec := img.StapelImageConfig.ImageBaseConfig().ImageSpec
+	if spec == nil {
+		return nil, nil
+	}
+	raw, present := spec.Labels[sbomBuildContextLabel]
+	if !present {
+		return nil, nil
+	}
+
+	return parseSBOMBuildContextDeclaration([]byte(raw))
+}
+
+// preparedSourceImage answers whether this recipe declares the image itself a prepared
+// source: an image that collects files other images answer for and makes nothing of its
+// own, so that a build downstream can consume it as the package it declares itself to be.
+func (phase *BuildPhase) preparedSourceImage(img *image.Image) (bool, error) {
+	declaration, err := phase.imageDeclaration(img)
+	if err != nil || declaration == nil {
+		return false, err
+	}
+
+	return declaration.PreparedSource, nil
 }
 
 // bootstrapImportSource answers whether the image an import copies from is one this

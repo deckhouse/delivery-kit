@@ -328,6 +328,22 @@ func bootstrapLandedFiles(ctx context.Context, imported SourceImport, marked map
 	return files, nil
 }
 
+// markBootstrap takes on the obligation of the files an import of a bootstrap source
+// landed, unless this image is a prepared source: such an image collects files and makes
+// nothing, is answered for as the package it becomes, and so answers for them as a whole
+// rather than one by one.
+//
+// The exemption reaches no further than that. An obligation this image inherited - from a
+// base image, or from an import of an image that itself received such files - is another
+// image's statement that those paths are unaccounted for, and a prepared source cannot
+// discharge it by collecting them: those files still need a binding of their own here.
+func (e *sourceEvidence) markBootstrap(landed, marks map[string]bool) {
+	if e.preparedSource {
+		return
+	}
+	maps.Copy(marks, landed)
+}
+
 // carryBootstrap keeps the obligation of a bootstrap source on the path the import landed
 // it at, for as long as the build still holds a file there. The obligation is not what the
 // bytes are but where they came from, so rewriting the file in place does not end it - a

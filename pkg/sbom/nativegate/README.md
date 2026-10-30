@@ -34,6 +34,14 @@ Such a path stays marked for the rest of the chain, through later stages, throug
 
 The mark follows the path, not the bytes: content a shell copied or moved to another path is not tracked, which is the same trusted-producer boundary the native records rest on. Marking every equal-byte file instead would refuse unrelated files that merely happen to be identical.
 
+## Prepared source images
+
+A prepared source image is the one image allowed to take files out of a bootstrap source without answering for them one by one. The permission rests entirely on what such an image is, and the recipe is held to it: it is declared `preparedSource` privately, is built from scratch, runs no command, maps nothing from a repository, installs no package, and only imports from images of this project. Every byte it ships was therefore put there by an import, and the image as a whole is what a pinned package consists of.
+
+Nothing of it may be compiled. A compiled artifact is the one thing a prepared source cannot be, because what it is made of lives in the record of the build that produced it; one found anywhere in the image fails the build, with no record standing in for it. The check reads bytes, never names: it selects by the same magic the record reader selects containers by, plus the archive, bitcode and WebAssembly containers the gate recognizes elsewhere.
+
+Its document names one component, the package the image declares itself to be - identity from its own `pkg.*` labels, digest from the registry the image is pinned in, never from the daemon-saved copy the verification reads - and attributes to it every file whose only account is that it stands in this image, stating where each of them does so; a file it imported with an original binding keeps that binding. It publishes no `dk:bootstrap/v1` marks of its own: what it took straight out of a bootstrap source is answered for by that package, and a build downstream pins the package rather than the image whose composition nobody states. The exemption reaches that far and no further - an obligation it inherited, from a base image or from an import of an image that itself received such files, stands, and those paths need a binding here like anywhere else. Any other image importing from a bootstrap source keeps the obligation described above.
+
 ## Compiler context delivery
 
 Generated package jobs can bind checked shell stages to explicit prepared-source dependencies through the private `werf.io/sbom-build-context-v1` image-spec label. It identifies the stage, the subject's package-list index, and each declared source-image handle with expected package name/version/type/original platform. It does not supply a guessed digest or infer ownership from an image alias.

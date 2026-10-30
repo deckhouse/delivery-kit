@@ -801,6 +801,12 @@ func prepareWerfConfig(ctx context.Context, giterminismManager giterminism_manag
 		return nil, err
 	}
 
+	// What a prepared source may be is the narrower statement, and an image declared
+	// both is best told what it got wrong about itself first.
+	if err := werfConfig.validatePreparedSourceImages(); err != nil {
+		return nil, err
+	}
+
 	if err := werfConfig.validateBootstrapImages(); err != nil {
 		return nil, err
 	}

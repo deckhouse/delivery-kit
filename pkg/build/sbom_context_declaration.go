@@ -34,6 +34,12 @@ type sbomBuildContextDeclaration struct {
 	// describe. Its own composition is neither converged nor published, and the files
 	// an image imports from it carry no claim unless something else accounts for them.
 	Bootstrap bool                                      `json:"bootstrap,omitempty"`
+	// PreparedSource marks an image that is nothing but a prepared source: it stands on
+	// no base, runs nothing, and only collects files other images already answer for,
+	// so that builds downstream can consume it as the pinned package it declares itself
+	// to be. It is the one image allowed to take files out of a bootstrap image without
+	// answering for them one by one.
+	PreparedSource bool `json:"preparedSource,omitempty"`
 	// BootstrapOriginals state, per bootstrap source image this recipe imports from,
 	// which prepared source the files of a subtree of it were opened from and at which
 	// path of that source they stand. A bootstrap image describes no composition of its
@@ -182,7 +188,16 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 	if declaration.Bootstrap && len(declaration.BootstrapOriginals) > 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a bootstrap image states the originals of nothing")
 	}
-	if !declaration.Bootstrap && len(declaration.Stages) == 0 && len(declaration.BootstrapOriginals) == 0 {
+	// The two say opposite things about the same image: one describes nothing of itself,
+	// the other is itself what a description names.
+	if declaration.Bootstrap && declaration.PreparedSource {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: an image is either a bootstrap image or a prepared source, not both")
+	}
+	// A prepared source runs nothing, so there is no stage for a compiler context.
+	if declaration.PreparedSource && len(declaration.Stages) > 0 {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a prepared source image declares no stages")
+	}
+	if !declaration.Bootstrap && !declaration.PreparedSource && len(declaration.Stages) == 0 && len(declaration.BootstrapOriginals) == 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: at least one stage is required")
 	}
 	if err := validateSBOMBuildContextBootstrapOriginals(declaration.BootstrapOriginals); err != nil {

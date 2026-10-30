@@ -101,6 +101,25 @@ var _ = ginkgo.Describe("Interpreted script classification", func() {
 		ginkgo.Entry("an archive", "!<arch>\npayload\n", "/app/tool.a", "/app/tool.a: unsupported: binary format has no embedded composition reader"),
 	)
 
+	ginkgo.DescribeTable("accepts an empty file whatever its mode or name", func(ctx ginkgo.SpecContext, name string) {
+		from, _ := executableStage(ctx, "from", map[string]string{})
+		install, image := executableStage(ctx, "install", map[string]string{name: ""})
+
+		_, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	},
+		ginkgo.Entry("the file a container runtime leaves behind", "/.dockerenv"),
+		ginkgo.Entry("an empty shared object", "/usr/lib/libempty.so"),
+	)
+
+	ginkgo.It("still refuses a one-byte executable", func(ctx ginkgo.SpecContext) {
+		from, _ := executableStage(ctx, "from", map[string]string{})
+		install, image := executableStage(ctx, "install", map[string]string{"/.dockerenv": "\x01"})
+
+		_, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, nil)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported: unknown binary or unsupported format /.dockerenv")))
+	})
+
 	ginkgo.It("keeps the package owner of an installed script the build did not touch", func(ctx ginkgo.SpecContext) {
 		repo := transportRegistryHost(ctx) + "/test/original"
 		source := pushTransportOriginal(ctx, repo, "tool", map[string]string{"/usr/bin/tool.sh": installedScript})

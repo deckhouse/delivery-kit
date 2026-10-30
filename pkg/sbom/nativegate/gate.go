@@ -297,10 +297,15 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	}
 	present := map[string]Record{}
 	for name, entry := range fs.index.Files {
+		// An empty file holds no code whatever its mode or name says; container
+		// runtimes leave executable ones behind, such as /.dockerenv.
+		binary := func(executable bool) bool {
+			return entry.Size > 0 && binaryLike(fs.bodies[name], executable, name)
+		}
 		if ip.Role == "produce" && !slices.Contains(ip.Outputs, name) {
 			continue
 		}
-		if evidence != nil && binaryLike(fs.bodies[name], fs.executable[name], name) && len(evidence.matches[name]) > 0 {
+		if evidence != nil && binary(fs.executable[name]) && len(evidence.matches[name]) > 0 {
 			if _, err := uniqueOriginalBinding(evidence.matches[name]); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
 			}
@@ -343,7 +348,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		if record != nil && record.Composition != nil && !native {
 			return fmt.Errorf("%s: invalid: recorded native composition does not match file", name)
 		}
-		if !native && binaryLike(fs.bodies[name], false, name) {
+		if !native && binary(false) {
 			return fmt.Errorf("%s: unsupported: binary format has no embedded composition reader", name)
 		}
 		// A file that came out of a bootstrap source is described by nothing but this
@@ -360,7 +365,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			return fmt.Errorf("no-data: %s comes from a bootstrap source with neither a build record nor an original binding", name)
 		}
 		if record == nil {
-			if binaryLike(fs.bodies[name], fs.executable[name], name) {
+			if binary(fs.executable[name]) {
 				if !interpretedScript(fs.bodies[name], name) {
 					return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
 				}

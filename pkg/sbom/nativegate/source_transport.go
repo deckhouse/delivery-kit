@@ -45,6 +45,11 @@ type SourceImport struct {
 	// Originals are the prepared sources the importing recipe declares the files of a
 	// bootstrap source image to come from. They are read for a bootstrap source only.
 	Originals []ImportOriginal
+	// Packages are prepared sources the bootstrap source image's own recipe declares its
+	// stages compile. A mapping may name one of those beside the ones the image's pm
+	// receipt pins: a toolchain that builds itself installs no package receipt for the
+	// source it was made from.
+	Packages []sources.Source
 }
 
 type originalFileRecord struct {
@@ -67,9 +72,10 @@ type sourceEvidence struct {
 	// with other bytes. It lives for this verification only: a lost binding is nothing to
 	// publish, and equal bytes elsewhere do not re-establish the one that was lost.
 	unverified map[string]bool
-	// bootstrap holds the paths an import of a bootstrap source landed and the build
-	// still holds unchanged. Nothing describes those bytes but this image, so each of
-	// them has to carry its own record or its own original binding.
+	// bootstrap holds the paths this image received from a bootstrap source, directly or
+	// through a base image or an import of an image that received them. Nothing describes
+	// those files but this image, so each of them has to carry its own build record or
+	// stand on the original its path is bound to.
 	bootstrap map[string]bool
 }
 
@@ -281,7 +287,11 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 					inherited[name] = bindings
 				}
 			}
-			e.index, e.matches = snapshot.Index, inherited
+			marks, err := readBootstrapMarks(base)
+			if err != nil {
+				return nil, err
+			}
+			e.index, e.matches, e.bootstrap = snapshot.Index, inherited, heldBootstrapMarks(marks, snapshot.Index)
 			continue
 		}
 		next := make(originalMatches)
@@ -322,7 +332,7 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 			}
 			var matches originalMatches
 			if imported.Bootstrap {
-				landed, err := bootstrapLandedFiles(ctx, imported, e.index, snapshot.Index)
+				landed, err := bootstrapLandedFiles(ctx, imported, allImportedFiles(imported.Index), e.index, snapshot.Index)
 				if err != nil {
 					return nil, err
 				}
@@ -336,6 +346,20 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 				matches, err = e.inherit(ctx, imported.Index, imported.BOM)
 				if err != nil {
 					return nil, err
+				}
+				// An image that received files of a bootstrap source answers for
+				// them; an image importing those very files out of it takes the
+				// same obligation over, wherever the copy puts them.
+				marks, err := readBootstrapMarks(imported.BOM)
+				if err != nil {
+					return nil, err
+				}
+				if len(marks) > 0 {
+					landed, err := bootstrapLandedFiles(ctx, imported, marks, e.index, snapshot.Index)
+					if err != nil {
+						return nil, err
+					}
+					maps.Copy(bootstrap, landed)
 				}
 				catalog, err := readOriginalsCatalog(imported.BOM)
 				if err != nil {
@@ -461,12 +485,31 @@ func (e *sourceEvidence) attach(bom *cdx.BOM) error {
 	properties := []cdx.Property{}
 	if bom.Metadata.Properties != nil {
 		for _, property := range *bom.Metadata.Properties {
-			if property.Name != originalsProperty {
+			if property.Name != originalsProperty && property.Name != bootstrapProperty {
 				properties = append(properties, property)
 			}
 		}
 	}
 	properties = append(properties, cdx.Property{Name: originalsProperty, Value: string(data)})
+	if len(e.bootstrap) > 0 {
+		marks, err := bootstrapMarksProperty(e.bootstrap)
+		if err != nil {
+			return err
+		}
+		properties = append(properties, marks)
+	}
 	bom.Metadata.Properties = &properties
 	return nil
+}
+
+// allImportedFiles marks every file of a bootstrap source image: the image describes no
+// composition of its own, so whatever an import takes out of it is this image's to answer
+// for.
+func allImportedFiles(index *shippedscope.FileIndex) map[string]bool {
+	files := make(map[string]bool, len(index.Files))
+	for name := range index.Files {
+		files[name] = true
+	}
+
+	return files
 }

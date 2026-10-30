@@ -66,15 +66,23 @@ func bootstrapMappings() []ImportOriginal {
 	}
 }
 
-// bootstrapBuild runs a verification of an image whose install stage imported the given
-// files out of a bootstrap source, under the given declared mappings.
-func bootstrapBuild(ctx context.Context, sourceFiles map[string]string, originals []ImportOriginal, bom *cdx.BOM) (*cdx.BOM, v1.Image, sources.Source, error) {
+// bootstrapOriginalPacket pushes the prepared source the toolchain was made from.
+func bootstrapOriginalPacket(ctx context.Context) sources.Source {
 	ginkgo.GinkgoHelper()
-	repo := transportRegistryHost(ctx) + "/test/original"
-	source := pushTransportOriginal(ctx, repo, "go", map[string]string{
+
+	return pushTransportOriginal(ctx, transportRegistryHost(ctx)+"/test/original", "go", map[string]string{
 		"/src/runtime/defs.h":  bootstrapHeader,
 		"/src/runtime/other.h": "#define OTHER 1\n",
 	})
+}
+
+// bootstrapBuild runs a verification of an image whose install stage imported the given
+// files out of a bootstrap source, under the given declared mappings. Each `later` file
+// set is one more stage the build runs after that import, so a spec can state what a shell
+// did to the imported files before the image was final.
+func bootstrapBuild(ctx context.Context, sourceFiles map[string]string, originals []ImportOriginal, bom *cdx.BOM, later ...map[string]string) (*cdx.BOM, v1.Image, sources.Source, error) {
+	ginkgo.GinkgoHelper()
+	source := bootstrapOriginalPacket(ctx)
 
 	from, _ := transportStage(ctx, "from", map[string]string{})
 	install, image := transportStage(ctx, "install", bootstrapImported(sourceFiles))
@@ -86,11 +94,47 @@ func bootstrapBuild(ctx context.Context, sourceFiles map[string]string, original
 		Originals: originals,
 		Scope:     ImportScope{FromPath: "/usr/local/go", ToPath: "/opt/go"},
 	}}
+	snapshots := []SourceSnapshot{from, install}
+	for _, files := range later {
+		var snapshot SourceSnapshot
+		snapshot, image = transportStage(ctx, "setup", files)
+		snapshots = append(snapshots, snapshot)
+	}
 
 	target := cdx.NewBOM()
-	err := ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image, []SourceSnapshot{from, install}, target, ApplySourceSnapshotsOptions{})
+	err := ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image, snapshots, target, ApplySourceSnapshotsOptions{})
 
 	return target, image, source, err
+}
+
+// bootstrapDeclaredBuild runs the same verification for a bootstrap source that opened no
+// package of its own: the toolchain it ships was compiled from a prepared source its own
+// recipe named, and only that declaration accounts for the files.
+func bootstrapDeclaredBuild(ctx context.Context, sourceFiles map[string]string, originals []ImportOriginal, packages []sources.Source) (*cdx.BOM, error) {
+	ginkgo.GinkgoHelper()
+	from, _ := transportStage(ctx, "from", map[string]string{})
+	install, image := transportStage(ctx, "install", bootstrapImported(sourceFiles))
+	install.Imports = []SourceImport{{
+		Index:     bootstrapIndex(ctx, sourceFiles),
+		Bootstrap: true,
+		Originals: originals,
+		Packages:  packages,
+		Scope:     ImportScope{FromPath: "/usr/local/go", ToPath: "/opt/go"},
+	}}
+
+	target := cdx.NewBOM()
+
+	return target, ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image, []SourceSnapshot{from, install}, target, ApplySourceSnapshotsOptions{})
+}
+
+// bootstrapPublishedMarks reads back the paths a verified image publishes as received from
+// a bootstrap source.
+func bootstrapPublishedMarks(bom *cdx.BOM) []string {
+	ginkgo.GinkgoHelper()
+	marks, err := readBootstrapMarks(bom)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return slices.Sorted(maps.Keys(marks))
 }
 
 var _ = ginkgo.Describe("Files imported from a bootstrap source", func() {
@@ -179,31 +223,186 @@ var _ = ginkgo.Describe("Files imported from a bootstrap source", func() {
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("is not a clean rooted path")))
 	})
 
-	// The obligation is on the bytes the import landed, not on the path they landed
-	// at: a stage that moves such a file moves what has to be accounted for with it.
-	ginkgo.It("keeps the obligation on the bytes a later stage moved elsewhere", func(ctx ginkgo.SpecContext) {
+	ginkgo.It("publishes the paths it received, so the chain below it answers for them too", func(ctx ginkgo.SpecContext) {
+		bom, _, _, err := bootstrapBuild(ctx, bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC)), bootstrapMappings(), nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(bootstrapPublishedMarks(bom)).To(gomega.Equal([]string{
+			"/opt/go/pkg/include/defs.h", "/opt/go/pkg/tool/compile", "/opt/go/src/runtime/defs.h",
+		}))
+	})
+
+	// The obligation is on the path, not on the bytes standing at it: rewriting the file
+	// does not end it, and the rewritten file no longer is what the prepared source serves.
+	ginkgo.It("refuses a mapped file a later stage rewrote in place", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		patched := bootstrapImported(files)
+		patched["/opt/go/src/runtime/defs.h"] = "#define RUNTIME 2\n"
+
+		_, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil, patched)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"hash-mismatch: /opt/go/src/runtime/defs.h comes from a bootstrap source and no longer holds the bytes of the original it was bound to")))
+	})
+
+	ginkgo.It("refuses an unmapped file a later stage rewrote in place", func(ctx ginkgo.SpecContext) {
 		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
 		files["/usr/local/go/lib/extra.h"] = "#define EXTRA 1\n"
-		repo := transportRegistryHost(ctx) + "/test/original"
-		source := pushTransportOriginal(ctx, repo, "go", map[string]string{"/src/runtime/defs.h": bootstrapHeader})
+		appended := bootstrapImported(files)
+		appended["/opt/go/lib/extra.h"] = "#define EXTRA 1\n\n"
+
+		_, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil, appended)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"no-data: /opt/go/lib/extra.h comes from a bootstrap source with neither a build record nor an original binding")))
+	})
+
+	ginkgo.It("lets go of a path the build deleted", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		files["/usr/local/go/lib/extra.h"] = "#define EXTRA 1\n"
+		removed := bootstrapImported(files)
+		delete(removed, "/opt/go/lib/extra.h")
+
+		bom, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil, removed)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(bootstrapPublishedMarks(bom)).NotTo(gomega.ContainElement("/opt/go/lib/extra.h"))
+	})
+
+	// DK does not promise to track content a shell moved: the boundary there is the
+	// trusted producer. Marking every equal-byte file instead would refuse unrelated
+	// files that merely happen to be identical.
+	ginkgo.It("does not follow the bytes a later stage copied to another path", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		copied := bootstrapImported(files)
+		copied["/srv/defs.h"] = bootstrapHeader
+
+		bom, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil, copied)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(bootstrapPublishedMarks(bom)).NotTo(gomega.ContainElement("/srv/defs.h"))
+	})
+})
+
+var _ = ginkgo.Describe("Files of a bootstrap source its own recipe compiled", func() {
+	// A toolchain that builds itself installs no package receipt for the source it was
+	// made from: what accounts for those files is the prepared source its own recipe
+	// declares its stages compile, resolved against that pinned Packet.
+	ginkgo.It("accounts for a mapped file by the prepared source the bootstrap recipe declares", func(ctx ginkgo.SpecContext) {
+		declared := bootstrapOriginalPacket(ctx)
+
+		bom, err := bootstrapDeclaredBuild(ctx, bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC)), bootstrapMappings(), []sources.Source{declared})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(slices.Sorted(maps.Keys(transportRecords(bom)))).To(gomega.Equal([]string{
+			"/opt/go/pkg/include/defs.h", "/opt/go/pkg/tool/compile", "/opt/go/src/runtime/defs.h",
+		}))
+	})
+
+	ginkgo.It("refuses a file no mapping places in that prepared source", func(ctx ginkgo.SpecContext) {
+		declared := bootstrapOriginalPacket(ctx)
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		files["/usr/local/go/lib/extra.h"] = bootstrapHeader
+
+		_, err := bootstrapDeclaredBuild(ctx, files, bootstrapMappings(), []sources.Source{declared})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"no-data: /opt/go/lib/extra.h comes from a bootstrap source with neither a build record nor an original binding")))
+	})
+
+	ginkgo.It("refuses a mapping no declared source and no receipt accounts for", func(ctx ginkgo.SpecContext) {
+		declared := bootstrapOriginalPacket(ctx)
+		mappings := bootstrapMappings()
+		mappings[0].PackageVersion = "2.0"
+
+		_, err := bootstrapDeclaredBuild(ctx, bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC)), mappings, []sources.Source{declared})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"no-data: the bootstrap import source opens no prepared source go 2.0")))
+	})
+
+	ginkgo.It("refuses a bootstrap source that stands on nothing at all", func(ctx ginkgo.SpecContext) {
+		_, err := bootstrapDeclaredBuild(ctx, bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC)), bootstrapMappings(), nil)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"no-data: the bootstrap import source carries neither an original source receipt nor a declared prepared source")))
+	})
+
+	// The two accounts of one name have to be the same prepared source; picking either
+	// of two would be picking the convenient one.
+	ginkgo.It("refuses a name the receipt and the recipe disagree about", func(ctx ginkgo.SpecContext) {
+		installed := bootstrapOriginalPacket(ctx)
+		other := pushTransportOriginal(ctx, transportRegistryHost(ctx)+"/test/other", "go", map[string]string{
+			"/src/runtime/defs.h": bootstrapHeader,
+		})
 
 		from, _ := transportStage(ctx, "from", map[string]string{})
-		install, _ := transportStage(ctx, "install", bootstrapImported(files))
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		install, image := transportStage(ctx, "install", bootstrapImported(files))
 		install.Imports = []SourceImport{{
 			Index:     bootstrapIndex(ctx, files),
-			Receipt:   transportReceipt(source),
+			Receipt:   transportReceipt(installed),
 			Bootstrap: true,
 			Originals: bootstrapMappings(),
+			Packages:  []sources.Source{other},
 			Scope:     ImportScope{FromPath: "/usr/local/go", ToPath: "/opt/go"},
 		}}
-		moved := bootstrapImported(files)
-		delete(moved, "/opt/go/lib/extra.h")
-		moved["/srv/extra.h"] = "#define EXTRA 1\n"
-		setup, image := transportStage(ctx, "setup", moved)
 
-		target := cdx.NewBOM()
-		err := ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image, []SourceSnapshot{from, install, setup}, target, ApplySourceSnapshotsOptions{})
+		err := ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
+			[]SourceSnapshot{from, install}, cdx.NewBOM(), ApplySourceSnapshotsOptions{})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
-			"no-data: /srv/extra.h comes from a bootstrap source with neither a build record nor an original binding")))
+			"invalid: the bootstrap import source stands on two different prepared sources named go 1.0")))
+	})
+})
+
+var _ = ginkgo.Describe("Files a chain received from a bootstrap source", func() {
+	// What the toolchain's files are does not become unknowable one image later: an
+	// image built FROM one that received them answers for them exactly as it does.
+	ginkgo.It("refuses a marked file a descendant image rewrote", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		base, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		from, _ := transportStage(ctx, "from", bootstrapImported(files))
+		patched := bootstrapImported(files)
+		patched["/opt/go/src/runtime/defs.h"] = "#define RUNTIME 2\n"
+		setup, image := transportStage(ctx, "setup", patched)
+
+		err = ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
+			[]SourceSnapshot{from, setup}, cdx.NewBOM(), ApplySourceSnapshotsOptions{BaseBOM: base})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"hash-mismatch: /opt/go/src/runtime/defs.h comes from a bootstrap source and no longer holds the bytes of the original it was bound to")))
+	})
+
+	ginkgo.It("keeps the obligation on a path a third image imported out of the second", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		second, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		from, _ := transportStage(ctx, "from", map[string]string{})
+		landed := map[string]string{}
+		for name, body := range bootstrapImported(files) {
+			landed["/srv"+name] = body
+		}
+		install, _ := transportStage(ctx, "dependenciesBeforeInstall", landed)
+		install.Imports = []SourceImport{{
+			Index: bootstrapIndex(ctx, bootstrapImported(files)),
+			BOM:   second,
+			Scope: ImportScope{FromPath: "/opt/go", ToPath: "/srv/opt/go"},
+		}}
+		patched := maps.Clone(landed)
+		patched["/srv/opt/go/src/runtime/defs.h"] = "#define RUNTIME 2\n"
+		setup, image := transportStage(ctx, "setup", patched)
+
+		err = ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
+			[]SourceSnapshot{from, install, setup}, cdx.NewBOM(), ApplySourceSnapshotsOptions{})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"hash-mismatch: /srv/opt/go/src/runtime/defs.h comes from a bootstrap source and no longer holds the bytes of the original it was bound to")))
+	})
+
+	ginkgo.It("refuses a published mark of a version it does not understand", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		base, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		properties := append([]cdx.Property{}, *base.Metadata.Properties...)
+		properties = append(properties, cdx.Property{Name: "dk:bootstrap/v2", Value: "{}"})
+		base.Metadata.Properties = &properties
+
+		from, image := transportStage(ctx, "from", bootstrapImported(files))
+
+		err = ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
+			[]SourceSnapshot{from}, cdx.NewBOM(), ApplySourceSnapshotsOptions{BaseBOM: base})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported inherited bootstrap marks property dk:bootstrap/v2")))
 	})
 })

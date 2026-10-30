@@ -327,12 +327,17 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		if !native && binaryLike(fs.bodies[name], false, name) {
 			return fmt.Errorf("%s: unsupported: binary format has no embedded composition reader", name)
 		}
-		// A file an import took out of a bootstrap source is described by nothing but
-		// this image: that source claims no composition of its own, and where it sat in
+		// A file that came out of a bootstrap source is described by nothing but this
+		// image: that source claims no composition of its own, and where a file sat in
 		// it says nothing about what it is. It is either a compiled artifact carrying
 		// the record of its own build, or bytes a prepared source still serves at the
-		// path this recipe binds it to. Anything else is unaccounted for.
+		// path this chain bound it to. The ordinary acceptance of plain text without a
+		// component does not reach it.
 		if evidence != nil && evidence.bootstrap[name] && !boundOriginal && (record == nil || record.Composition == nil) {
+			if evidence.unverified[name] {
+				return fmt.Errorf("hash-mismatch: %s comes from a bootstrap source and no longer holds the bytes of the original it was bound to", name)
+			}
+
 			return fmt.Errorf("no-data: %s comes from a bootstrap source with neither a build record nor an original binding", name)
 		}
 		if record == nil {

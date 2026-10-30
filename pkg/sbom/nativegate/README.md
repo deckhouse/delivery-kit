@@ -18,12 +18,21 @@ Initial bindings require an original path actually present in the source snapsho
 
 Equal-byte distinct sources remain alternatives. A consumer requiring one original binding reports `no-data` if none can be established. Alternatives are never merged into an invented package owner. Distinct pinned sources of the same package name/version remain distinct through CycloneDX canonicalization.
 
-The current image carries two self-contained metadata properties:
+The current image carries three self-contained metadata properties:
 
 - `dk:catalog/v4`: verified file/native records, raw embedded composition and their component graph.
 - `dk:originals/v1`: canonical source candidates with raw Packet JSON and scoped file SHA-256/size/original-path alternatives.
+- `dk:bootstrap/v1`: the paths this image received from a bootstrap source.
 
 Inherited originals are rechecked against the actual source image and pinned original bytes. Current catalog properties replace inherited ones after the common merge. Scanner-only Go attribution is removed only when its complete binary evidence is superseded by the same verified bytes; independent file-based or unresolved evidence is not silently discarded.
+
+## Bootstrap sources
+
+A bootstrap image is a declared toolchain whose own composition this project does not describe. Nothing it publishes about itself is read, and an image never builds FROM one: it only imports files out of it. Every imported file is then described by the importing image alone. The recipe's private declaration maps subtrees of the source image to the prepared source they were opened from and to the path inside that Packet, because a physical path commonly differs from the original one. A mapping binds only bytes the pinned Packet still serves at the named path; equal bytes somewhere else in it bind nothing.
+
+Such a path stays marked for the rest of the chain, through later stages, through an image built FROM this one, and through an image importing that path out of it. The mark travels in `dk:bootstrap/v1` of the published document, never in an image label, and the published documents the chain reads enter the checksum of the consuming image's SBOM, while the verification itself always runs. A marked path is accepted only as a compiled artifact carrying the record of its own build, or as bytes the original it is bound to still serves; a changed bound file is `hash-mismatch`, an unbound one is `no-data`. The acceptance of plain text without a component does not apply to it. Deleting the path ends the obligation.
+
+The mark follows the path, not the bytes: content a shell copied or moved to another path is not tracked, which is the same trusted-producer boundary the native records rest on. Marking every equal-byte file instead would refuse unrelated files that merely happen to be identical.
 
 ## Compiler context delivery
 

@@ -1,12 +1,16 @@
 package nativegate
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"path"
 	"slices"
 	"strings"
+
+	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
@@ -15,6 +19,78 @@ import (
 // is projected under, so that the destinations the copy lands can be read back off the
 // projection the gate already applies to bindings.
 const bootstrapProjectionSource = "bootstrap"
+
+// bootstrapProperty carries the paths this image holds that came out of a bootstrap
+// source. The obligation they put on the image does not end with the build that imported
+// them: an image built FROM this one, or one importing these paths out of it, answers for
+// them exactly as this one does, and only the published document can tell it so. The
+// property is private to DK and travels with the SBOM, never as an image label.
+const bootstrapProperty = "dk:bootstrap/v1"
+
+// bootstrapMarks is the published form of those paths.
+type bootstrapMarks struct {
+	Schema string   `json:"schema"`
+	Paths  []string `json:"paths"`
+}
+
+func readBootstrapMarks(bom *cdx.BOM) (map[string]bool, error) {
+	if bom == nil || bom.Metadata == nil || bom.Metadata.Properties == nil {
+		return nil, nil
+	}
+	var marks map[string]bool
+	for _, property := range *bom.Metadata.Properties {
+		if property.Name != bootstrapProperty {
+			if strings.HasPrefix(property.Name, "dk:bootstrap/") {
+				return nil, fmt.Errorf("unsupported inherited bootstrap marks property %s", property.Name)
+			}
+
+			continue
+		}
+		if marks != nil {
+			return nil, fmt.Errorf("invalid: duplicate bootstrap marks")
+		}
+		var decoded bootstrapMarks
+		if err := decode([]byte(property.Value), &decoded); err != nil {
+			return nil, fmt.Errorf("invalid bootstrap marks: %w", err)
+		}
+		if decoded.Schema != bootstrapProperty {
+			return nil, fmt.Errorf("no-data: incomplete or unsupported bootstrap marks")
+		}
+		marks = make(map[string]bool, len(decoded.Paths))
+		for _, name := range decoded.Paths {
+			if name == "" || rootedImportPath(name) != name {
+				return nil, fmt.Errorf("invalid: bootstrap mark %q is not a clean rooted path", name)
+			}
+			marks[name] = true
+		}
+	}
+
+	return marks, nil
+}
+
+// heldBootstrapMarks keeps the marks of a document for the paths the snapshot it describes
+// actually holds as regular files. A path the image no longer has carries no obligation.
+func heldBootstrapMarks(marks map[string]bool, index *shippedscope.FileIndex) map[string]bool {
+	held := make(map[string]bool, len(marks))
+	for name := range marks {
+		if _, exists := index.Files[name]; exists {
+			held[name] = true
+		}
+	}
+
+	return held
+}
+
+func bootstrapMarksProperty(marks map[string]bool) (cdx.Property, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(bootstrapMarks{Schema: bootstrapProperty, Paths: slices.Sorted(maps.Keys(marks))}); err != nil {
+		return cdx.Property{}, err
+	}
+
+	return cdx.Property{Name: bootstrapProperty, Value: string(bytes.TrimSuffix(buffer.Bytes(), []byte("\n")))}, nil
+}
 
 // ImportOriginal binds a subtree of a bootstrap source image to the prepared source its
 // files were opened from. A bootstrap image describes no composition of its own, so the
@@ -116,35 +192,59 @@ type declaredPackage struct {
 	Version string
 }
 
-// declaredBootstrapPackages resolves every prepared source the mappings name against the
-// receipt of the import source image. The receipt is what pins the Packet - registry,
-// platform and metadata - and the mapping only picks one of the sources it already
-// accounts for, so no identity is invented here.
+// declaredBootstrapPackages resolves every prepared source the mappings name against what
+// the import source image itself stands on: the sources its pm receipt pins, and the ones
+// its own recipe declares its stages compile. The first are what pm opened there; the
+// second are what the build of that image was given, which is the only account of the
+// source a self-built toolchain was made from. Either way the identity comes from a pinned
+// Packet, not from the mapping, which only picks one of them; a name the two accounts
+// disagree about picks nothing.
 func declaredBootstrapPackages(ctx context.Context, e *sourceEvidence, imported SourceImport) (map[declaredPackage]string, error) {
-	if imported.Receipt == nil {
-		return nil, fmt.Errorf("no-data: the bootstrap import source carries no original source receipt the declared mappings could name")
+	if imported.Receipt == nil && len(imported.Packages) == 0 {
+		return nil, fmt.Errorf("no-data: the bootstrap import source carries neither an original source receipt nor a declared prepared source the mappings could name")
 	}
 
 	wanted := make(map[declaredPackage]string)
 	for _, mapping := range imported.Originals {
 		wanted[declaredPackage{Name: mapping.PackageName, Version: mapping.PackageVersion}] = ""
 	}
-	for _, source := range imported.Receipt.Sources {
+	if imported.Receipt != nil {
+		for _, source := range imported.Receipt.Sources {
+			metadata, err := readSourcePackage(source)
+			if err != nil {
+				return nil, err
+			}
+			identity := declaredPackage{Name: metadata.Name, Version: metadata.Version}
+			known, asked := wanted[identity]
+			if !asked {
+				continue
+			}
+			if known != "" {
+				return nil, fmt.Errorf("no-data: the bootstrap import source opens %s %s more than once", identity.Name, identity.Version)
+			}
+			resolved, err := e.resolve(ctx, source)
+			if err != nil {
+				return nil, err
+			}
+			wanted[identity] = resolved.ID
+		}
+	}
+	for _, source := range imported.Packages {
 		metadata, err := readSourcePackage(source)
 		if err != nil {
 			return nil, err
 		}
 		identity := declaredPackage{Name: metadata.Name, Version: metadata.Version}
-		if known, asked := wanted[identity]; !asked || known != "" {
-			if asked {
-				return nil, fmt.Errorf("no-data: the bootstrap import source opens %s %s more than once", identity.Name, identity.Version)
-			}
-
+		known, asked := wanted[identity]
+		if !asked {
 			continue
 		}
 		resolved, err := e.resolve(ctx, source)
 		if err != nil {
 			return nil, err
+		}
+		if known != "" && known != resolved.ID {
+			return nil, fmt.Errorf("invalid: the bootstrap import source stands on two different prepared sources named %s %s", identity.Name, identity.Version)
 		}
 		wanted[identity] = resolved.ID
 	}
@@ -201,14 +301,18 @@ func validateImportOriginals(originals []ImportOriginal) error {
 	return nil
 }
 
-// bootstrapLandedFiles answers which regular files of the importing stage this import
-// of a bootstrap source put there. Every one of them has to be accounted for by this
-// image, so they are projected the way a binding is - by the directives of the copy, and
-// only where the stage kept the bytes the copy landed - rather than guessed from where
-// they ended up.
-func bootstrapLandedFiles(ctx context.Context, imported SourceImport, before, after *shippedscope.FileIndex) (map[string]bool, error) {
-	asked := make(originalMatches, len(imported.Index.Files))
-	for name := range imported.Index.Files {
+// bootstrapLandedFiles answers where in the importing stage this import put the marked
+// files of its source. They are projected the way a binding is - by the directives of the
+// copy, and only where the stage kept the bytes the copy landed - rather than guessed from
+// where they ended up. For an import of a bootstrap image every file of the source is
+// marked; for an import of an ordinary image the marks are the ones its own document
+// publishes.
+func bootstrapLandedFiles(ctx context.Context, imported SourceImport, marked map[string]bool, before, after *shippedscope.FileIndex) (map[string]bool, error) {
+	asked := make(originalMatches, len(marked))
+	for name := range marked {
+		if _, exists := imported.Index.Files[name]; !exists {
+			continue
+		}
 		asked[name] = []originalBinding{{Source: bootstrapProjectionSource, Path: strings.TrimPrefix(name, "/")}}
 	}
 	landed, err := importOriginalMatches(ctx, imported.Index, asked, before, after, imported.Scope)
@@ -224,25 +328,16 @@ func bootstrapLandedFiles(ctx context.Context, imported SourceImport, before, af
 	return files, nil
 }
 
-// carryBootstrap keeps the obligation of a bootstrap source on the bytes it landed, for
-// as long as the build still holds them. A stage that moves or copies such a file carries
-// the obligation with it - the bytes are the ones the import brought, wherever they now
-// sit - and bytes a stage replaced are that stage's own doing, answered for as anything
-// else it makes is.
+// carryBootstrap keeps the obligation of a bootstrap source on the path the import landed
+// it at, for as long as the build still holds a file there. The obligation is not what the
+// bytes are but where they came from, so rewriting the file in place does not end it - a
+// changed file then has to answer with its own build record or with the original its path
+// is bound to, and with neither it is no-data. Deleting the path ends it: nothing of the
+// bootstrap source is shipped any more.
+//
+// Bytes a stage copies to some other path are not followed. DK does not promise to track
+// content a shell moved around, and marking every equal-byte file would refuse unrelated
+// files that merely happen to be identical.
 func (e *sourceEvidence) carryBootstrap(index *shippedscope.FileIndex) map[string]bool {
-	landed := make(map[shippedscope.File]bool, len(e.bootstrap))
-	for name := range e.bootstrap {
-		if file, held := e.index.Files[name]; held {
-			landed[file] = true
-		}
-	}
-
-	carried := make(map[string]bool, len(e.bootstrap))
-	for name, file := range index.Files {
-		if landed[file] {
-			carried[name] = true
-		}
-	}
-
-	return carried
+	return heldBootstrapMarks(e.bootstrap, index)
 }

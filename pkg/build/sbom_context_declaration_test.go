@@ -95,13 +95,22 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		gomega.Expect(string(swappedJSON)).NotTo(gomega.Equal(string(canonicalJSON)))
 	})
 
-	// A bootstrap image declares nothing but what it is: nothing of its composition
-	// is converged, so there is no stage for it to state anything about.
+	// A bootstrap image may declare nothing but what it is: its own composition is
+	// neither converged nor published.
 	ginkgo.It("reads the declaration of a bootstrap image", func() {
 		declaration, err := parseSBOMBuildContextDeclaration([]byte(`{"version":1,"bootstrap":true}`))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(declaration.Bootstrap).To(gomega.BeTrue())
 		gomega.Expect(declaration.Stages).To(gomega.BeEmpty())
+	})
+
+	// Its stages are still built like any other: the compilers running there are
+	// instrumented ones that have to be told which prepared source they compile.
+	ginkgo.It("reads the stages a bootstrap image declares", func() {
+		declaration, err := parseSBOMBuildContextDeclaration([]byte(`{"version":1,"bootstrap":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"go-source-prep","packageName":"go-source","packageVersion":"1.27.3","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(declaration.Bootstrap).To(gomega.BeTrue())
+		gomega.Expect(declaration.Stages[stage.Install].Packages).To(gomega.HaveLen(1))
 	})
 
 	ginkgo.DescribeTable("rejects a declaration",
@@ -122,7 +131,6 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		ginkgo.Entry("without stages", `{"version":1}`, "at least one stage is required"),
 		ginkgo.Entry("with null stages", `{"version":1,"stages":null}`, "at least one stage is required"),
 		ginkgo.Entry("with empty stages", `{"version":1,"stages":{}}`, "at least one stage is required"),
-		ginkgo.Entry("with a bootstrap image declaring a stage", `{"version":1,"bootstrap":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, "a bootstrap image declares no stages"),
 		ginkgo.Entry("with a null bootstrap", `{"version":1,"bootstrap":null}`, "invalid"),
 		ginkgo.Entry("with a stage that cannot carry a context", `{"version":1,"stages":{"beforeSetupX":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, `stage "beforeSetupX" is not allowed`),
 		ginkgo.Entry("with a case-folded stage key", `{"version":1,"stages":{"Install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, `stage "Install" is not allowed`),

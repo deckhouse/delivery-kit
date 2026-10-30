@@ -100,6 +100,10 @@ type sbomSourceImportInput struct {
 	// Originals are the prepared sources this recipe declares the files of that
 	// bootstrap source to come from.
 	Originals []nativegate.ImportOriginal
+	// Packages are the prepared sources the bootstrap source image's own recipe
+	// declares its stages compile, which a mapping may name beside the ones its pm
+	// receipt pins.
+	Packages []sources.Source
 }
 
 func sbomSourceImportsChecksum(inputs []sbomSourceImportInput) string {
@@ -114,6 +118,7 @@ func sbomSourceImportsChecksum(inputs []sbomSourceImportInput) string {
 			strconv.FormatBool(input.Bootstrap),
 		)
 		parts = append(parts, sbomBootstrapOriginalsChecksum(input.Originals)...)
+		parts = append(parts, sbomBootstrapPackagesChecksum(input.Packages)...)
 	}
 
 	return util.Sha256Hash(parts...)
@@ -236,6 +241,7 @@ func sbomSourceGateSnapshots(snapshots []sbomSourceSnapshot, inputs []sbomSource
 			Scope:     scope,
 			Bootstrap: input.Bootstrap,
 			Originals: input.Originals,
+			Packages:  input.Packages,
 		})
 	}
 

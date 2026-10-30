@@ -2651,6 +2651,10 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	if err != nil {
 		return nil, nil, err
 	}
+	packages, err := phase.bootstrapImportPackages(ctx, img, importImages, originals)
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, importImage := range importImages {
 		var reference string
 		if importImage.info != nil {
@@ -2669,6 +2673,7 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			Scope:     importImage.scope,
 			Bootstrap: importImage.bootstrap,
 			Originals: originals[importImage.imageName],
+			Packages:  packages[importImage.imageName],
 		})
 	}
 

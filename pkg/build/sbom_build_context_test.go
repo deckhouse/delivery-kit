@@ -39,6 +39,7 @@ import (
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/logging"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
 	"github.com/werf/werf/v3/pkg/werf"
@@ -711,6 +712,92 @@ var _ = Describe("Resolving producer build contexts", func() {
 				"the compiler is pointed at the context by the path the namespace sees")
 			Expect(input.path).To(HavePrefix(producerContextMount + "/"))
 		})
+		// A bootstrap image publishes nothing of its own composition, and the compilers
+		// its stages run are the instrumented ones that still need to be told which
+		// prepared source they compile.
+		It("materializes and mounts the context of a bootstrap image, which converges nothing", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			var declaration map[string]any
+			Expect(json.Unmarshal([]byte(producerDeclaration()), &declaration)).To(Succeed())
+			declaration["bootstrap"] = true
+			bootstrap, err := json.Marshal(declaration)
+			Expect(err).NotTo(HaveOccurred())
+
+			fixture := newProducerFixture(ctx, producerFixtureOptions{declaration: string(bootstrap)})
+			_, err = calculate(ctx, fixture)
+			Expect(err).NotTo(HaveOccurred())
+			input := fixture.phase.producerInput
+			Expect(input).NotTo(BeNil())
+			Expect(producerWrittenContext(input).Packages).To(HaveLen(1), "the stage is built against the prepared source its recipe names")
+
+			stageImage := stage.NewStageImage(fixture.phase.Conveyor.ContainerBackend, "base", container_backend.NewLegacyStageImage(nil, "stage", fixture.phase.Conveyor.ContainerBackend, producerPlatform))
+			fixture.stg.SetStageImage(stageImage)
+			Expect(fixture.phase.prepareStageInstructions(ctx, fixture.img, fixture.stg)).To(Succeed())
+			builder, ok := stageImage.Builder.StapelStageBuilder().(*stage_builder.StapelStageBuilder)
+			Expect(ok).To(BeTrue())
+			Expect(builder.BuildVolumes).To(ContainElement(input.directory + ":" + producerContextMount + ":ro"))
+			Expect(builder.BuildTimeEnvs).To(HaveKeyWithValue("SBOM_BUILD_CONTEXT", input.path))
+
+			Expect(fixture.phase.convergePlatformImageSbom(ctx, fixture.img.Name, fixture.img, nil, "", nil)).To(Succeed(),
+				"nothing of a bootstrap image is converged, stages or no stages")
+
+			// What that recipe compiles is also what a mapping of an image importing
+			// from this toolchain may name, read off the prepared source itself.
+			packages, err := fixture.phase.bootstrapSourcePackages(ctx, fixture.img)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(packages).To(HaveLen(1))
+			Expect(packages[0].Platform).To(Equal(producerPlatform))
+			Expect(string(packages[0].Packet)).To(ContainSubstring(producerSourceName))
+		})
+
+		// The image that imports from the toolchain is the one that has to hand those
+		// prepared sources to the verification.
+		It("hands the verification the prepared sources of every bootstrap source it maps", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			var declaration map[string]any
+			Expect(json.Unmarshal([]byte(producerDeclaration()), &declaration)).To(Succeed())
+			declaration["bootstrap"] = true
+			bootstrap, err := json.Marshal(declaration)
+			Expect(err).NotTo(HaveOccurred())
+
+			fixture := newProducerFixture(ctx, producerFixtureOptions{declaration: string(bootstrap)})
+			fixture.phase.Conveyor.imagesTree.AppendImageForTests(fixture.img)
+			importing := &buildImage.Image{Name: "strict", TargetPlatform: producerPlatform}
+			imports := []scopedImportImage{{resolvedImportImage: resolvedImportImage{imageName: fixture.img.Name, bootstrap: true}}}
+			mapped := map[string][]nativegate.ImportOriginal{fixture.img.Name: {
+				{Root: "/usr/local/go/src", OriginalPath: "src", PackageName: producerSourceName, PackageVersion: "1"},
+			}}
+
+			packages, err := fixture.phase.bootstrapImportPackages(ctx, importing, imports, mapped)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(packages[fixture.img.Name]).To(HaveLen(1))
+			Expect(string(packages[fixture.img.Name][0].Packet)).To(ContainSubstring(producerSourceName))
+
+			unmapped, err := fixture.phase.bootstrapImportPackages(ctx, importing, imports, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(unmapped).To(BeEmpty(), "a source nothing is mapped to is not read at all")
+		})
+
+		It("reads no prepared source a bootstrap recipe names something else than it is", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			var declaration map[string]any
+			Expect(json.Unmarshal([]byte(producerDeclaration(map[string]any{
+				"sourceImage":    producerSourceName,
+				"packageName":    producerSourceName,
+				"packageVersion": "2",
+				"packageType":    "source",
+				"sourcePlatform": producerPlatform,
+			})), &declaration)).To(Succeed())
+			declaration["bootstrap"] = true
+			bootstrap, err := json.Marshal(declaration)
+			Expect(err).NotTo(HaveOccurred())
+
+			fixture := newProducerFixture(ctx, producerFixtureOptions{declaration: string(bootstrap)})
+
+			_, err = fixture.phase.bootstrapSourcePackages(ctx, fixture.img)
+			Expect(err).To(MatchError(ContainSubstring("invalid: producer source " + producerSourceName + " has unexpected version")))
+		})
+
 		It("leaves no earlier materialization behind when the stage is calculated again", func(specCtx SpecContext) {
 			ctx := logging.WithLogger(specCtx)
 			fixture := newProducerFixture(ctx, producerFixtureOptions{})

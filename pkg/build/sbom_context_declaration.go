@@ -51,8 +51,9 @@ type sbomBuildContextDeclaration struct {
 type sbomBuildContextBootstrapOriginal struct {
 	// SourceImage is the logical werf image name of the bootstrap source.
 	SourceImage string `json:"sourceImage"`
-	// PackageName and PackageVersion name one of the prepared sources that image's own
-	// receipt pins; nothing else may be named here.
+	// PackageName and PackageVersion name one of the prepared sources the source
+	// image's own receipt pins, or one its own recipe declares its stages compile;
+	// nothing else may be named here.
 	PackageName    string `json:"packageName"`
 	PackageVersion string `json:"packageVersion"`
 	// Root is the absolute path of the source image the mapping covers, file or
@@ -175,11 +176,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 	if *declaration.Version != sbomBuildContextVersion {
 		return nil, fmt.Errorf("parse SBOM build context declaration: unsupported version %d", *declaration.Version)
 	}
-	// Nothing of a bootstrap image is converged, so a stage declaration there is a
-	// statement this build would never read.
-	if declaration.Bootstrap && len(declaration.Stages) > 0 {
-		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a bootstrap image declares no stages")
-	}
+	// A bootstrap image publishes nothing of itself, but its stages are built like any
+	// other: the compilers running there are instrumented ones, and they need the same
+	// producer context stating which prepared sources they compile.
 	if declaration.Bootstrap && len(declaration.BootstrapOriginals) > 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a bootstrap image states the originals of nothing")
 	}

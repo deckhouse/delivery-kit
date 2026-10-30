@@ -257,6 +257,21 @@ var _ = Describe("Scoping one import source document", func() {
 		Expect(*scoped.Dependencies).To(Equal([]cdx.Dependency{{Ref: "carried", Dependencies: &[]string{}}}))
 	})
 
+	// The mark that says a path came out of a bootstrap source travels in the private
+	// metadata of the document, and an import of such a path must keep carrying it.
+	It("keeps the private metadata the scoped document carries", func(specCtx SpecContext) {
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{occurring("carried", "1.0", "/app/bin/tool")}
+		subject := occurring("source-image", "1.0")
+		bom.Metadata = &cdx.Metadata{Component: &subject, Properties: &[]cdx.Property{
+			{Name: "dk:bootstrap/v1", Value: `{"schema":"dk:bootstrap/v1","paths":["/app/bin/tool"]}`},
+		}}
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(*scoped.Metadata.Properties).To(Equal(*bom.Metadata.Properties))
+	})
+
 	It("reads no document for no directive at all", func(specCtx SpecContext) {
 		_, err := scopeImportBOM(logging.WithLogger(specCtx), cyclonedxutil.NewBOM(), nil)
 		Expect(err).To(MatchError(ContainSubstring("no-data: an import source SBOM is read for no import directive")))

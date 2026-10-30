@@ -26,10 +26,22 @@ const (
 // to a gate reading the mode instead of the content.
 func executableStage(ctx context.Context, stage string, files map[string]string) (SourceSnapshot, v1.Image) {
 	ginkgo.GinkgoHelper()
+
+	return modeStage(ctx, stage, files, 0o755)
+}
+
+func plainStage(ctx context.Context, stage string, files map[string]string) (SourceSnapshot, v1.Image) {
+	ginkgo.GinkgoHelper()
+
+	return modeStage(ctx, stage, files, 0o644)
+}
+
+func modeStage(ctx context.Context, stage string, files map[string]string, mode int64) (SourceSnapshot, v1.Image) {
+	ginkgo.GinkgoHelper()
 	var buffer bytes.Buffer
 	writer := tar.NewWriter(&buffer)
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		gomega.Expect(writer.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Mode: 0o755, Size: int64(len(files[name]))})).To(gomega.Succeed())
+		gomega.Expect(writer.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Mode: mode, Size: int64(len(files[name]))})).To(gomega.Succeed())
 		_, err := writer.Write([]byte(files[name]))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -166,7 +178,34 @@ var _ = ginkgo.Describe("Interpreted script classification", func() {
 		install, image := executableStage(ctx, "install", map[string]string{"/usr/bin/tool.sh": changedScript})
 
 		_, err := applyTransport(ctx, []SourceSnapshot{from, packages, install}, image, nil)
-		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: content an original source bound at /usr/bin/tool.sh changed")))
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("hash-mismatch: /usr/bin/tool.sh no longer holds the content its original source bound there")))
+	})
+
+	ginkgo.It("refuses a non-executable file whose installed content the build changed", func(ctx ginkgo.SpecContext) {
+		repo := transportRegistryHost(ctx) + "/test/original"
+		source := pushTransportOriginal(ctx, repo, "tool", map[string]string{"/etc/tool.conf": "key = installed\n"})
+
+		from, _ := plainStage(ctx, "from", map[string]string{})
+		packages, _ := plainStage(ctx, "packages", map[string]string{"/etc/tool.conf": "key = installed\n"})
+		packages.Receipt = transportReceipt(source)
+		install, image := plainStage(ctx, "install", map[string]string{"/etc/tool.conf": "key = changed\n"})
+
+		_, err := applyTransport(ctx, []SourceSnapshot{from, packages, install}, image, nil)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("hash-mismatch: /etc/tool.conf no longer holds the content its original source bound there")))
+	})
+
+	ginkgo.It("keeps a non-executable installed file the build did not touch", func(ctx ginkgo.SpecContext) {
+		repo := transportRegistryHost(ctx) + "/test/original"
+		source := pushTransportOriginal(ctx, repo, "tool", map[string]string{"/etc/tool.conf": "key = installed\n"})
+
+		from, _ := plainStage(ctx, "from", map[string]string{})
+		packages, _ := plainStage(ctx, "packages", map[string]string{"/etc/tool.conf": "key = installed\n"})
+		packages.Receipt = transportReceipt(source)
+		install, image := plainStage(ctx, "install", map[string]string{"/etc/tool.conf": "key = installed\n"})
+
+		bom, err := applyTransport(ctx, []SourceSnapshot{from, packages, install}, image, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(transportRecords(bom)["/etc/tool.conf"].Origin).To(gomega.Equal("pm"))
 	})
 
 	ginkgo.It("asks nothing of a path the build changed and then removed", func(ctx ginkgo.SpecContext) {

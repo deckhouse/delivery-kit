@@ -365,15 +365,13 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			return fmt.Errorf("no-data: %s comes from a bootstrap source with neither a build record nor an original binding", name)
 		}
 		if record == nil {
-			if binary(fs.executable[name]) {
-				if !interpretedScript(fs.bodies[name], name) && !plainText(fs.bodies[name], name) {
-					return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
-				}
-				// Reading the script as ordinary text must not drop the answer the binary
-				// route gave about a path an original source bound before it changed.
-				if evidence != nil && evidence.unverified[name] {
-					return fmt.Errorf("no-data: content an original source bound at %s changed", name)
-				}
+			if binary(fs.executable[name]) && !interpretedScript(fs.bodies[name], name) && !plainText(fs.bodies[name], name) {
+				return fmt.Errorf("unsupported: unknown binary or unsupported format %s", name)
+			}
+			// An original source stated what this path held; content that no longer
+			// matches it is a known reference not met, never text without a component.
+			if evidence != nil && evidence.unverified[name] {
+				return fmt.Errorf("hash-mismatch: %s no longer holds the content its original source bound there", name)
 			}
 			continue
 		}

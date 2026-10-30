@@ -16,7 +16,10 @@ import (
 // The property describes one image, so it is the verdict of the image whose SBOM carries
 // it and of no other. A component inherited from a donor arrives carrying the donor's
 // verdict, which says where the component was in the donor's image rather than in this
-// one, and MarkNotShipped drops it before deciding anew.
+// one, and MarkNotShipped drops it before deciding anew - but only for a component it
+// decides about. A verdict it would replace with nothing is left standing: it is the one
+// statement anybody made about that component, and dropping it would be this image
+// claiming to have looked where it did not.
 const PropertyShipped = "werf:shipped"
 
 // PropertyShippedFalse is the value of that property stating that the image does not ship
@@ -48,12 +51,13 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 	byDigest := indexByDigest(filesets.Index)
 
 	walkComponents(bom, func(comp *cdx.Component) {
-		removeProperty(comp, PropertyShipped)
-
 		key, ok := keyOfComponent(comp)
 		if !ok {
+			// No fileset of this image can describe it, so this pass has no
+			// verdict to put in place of whatever the component already carries.
 			return
 		}
+		removeProperty(comp, PropertyShipped)
 		if isBinaryBacked(key.ecosystem) {
 			decision := binaryDecision(comp, filesets.Index.Incomplete, byDigest)
 			if !decision.Shipped {

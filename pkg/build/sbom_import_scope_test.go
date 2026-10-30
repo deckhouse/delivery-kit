@@ -1,16 +1,24 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http/httptest"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -443,6 +451,41 @@ var _ = Describe("Scoping one import source document", func() {
 		Expect(componentNames(scoped)).To(ConsistOf("/app/bin/tool", "example"))
 	})
 
+	// A package a supplier's SBOM names arrives stating nowhere it stands; strict
+	// convergence places it from the image's own dpkg database, and a partial import of
+	// that image then keeps what it carried and leaves the rest behind.
+	It("places the inherited packages of a source so that a partial import can scope them", func(specCtx SpecContext) {
+		ctx := logging.WithLogger(specCtx)
+		carried := cdx.Component{
+			Type: cdx.ComponentTypeLibrary, BOMRef: "carried", Name: "libfoo", Version: "1.0",
+			PackageURL: "pkg:deb/debian/libfoo@1.0?arch=amd64",
+		}
+		leftBehind := cdx.Component{
+			Type: cdx.ComponentTypeLibrary, BOMRef: "left-behind", Name: "libbar", Version: "2.0",
+			PackageURL: "pkg:deb/debian/libbar@2.0?arch=amd64",
+		}
+		supplied := cyclonedxutil.NewBOM()
+		supplied.Components = &[]cdx.Component{carried, leftBehind}
+
+		img, err := inheritedPackageImage()
+		Expect(err).NotTo(HaveOccurred())
+		database, err := shippedscope.DistroPackages(ctx, img)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Before: the source states no whereabouts of either, and a partial import of
+		// it can place neither.
+		_, err = scopeImportBOM(ctx, supplied, []nativegate.ImportScope{scope()})
+		Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of")))
+
+		placed, _ := shippedscope.PlaceInheritedPackages(ctx, supplied, database)
+		Expect(placed).To(Equal(2))
+
+		scoped, err := scopeImportBOM(ctx, supplied, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(componentNames(scoped)).To(ConsistOf("libfoo"), "the import carries the files of one of them and none of the other")
+	})
+
 	It("reads no document for no directive at all", func(specCtx SpecContext) {
 		_, err := scopeImportBOM(logging.WithLogger(specCtx), cyclonedxutil.NewBOM(), nil)
 		Expect(err).To(MatchError(ContainSubstring("no-data: an import source SBOM is read for no import directive")))
@@ -466,4 +509,36 @@ func recordingImportBackend(backend string, stages ...stage.Interface) []stage.I
 	}
 
 	return stages
+}
+
+// inheritedPackageImage is an image whose dpkg database records two packages: one whose
+// files sit under the path the import directives of these specs carry, one whose do not.
+func inheritedPackageImage() (v1.Image, error) {
+	var buffer bytes.Buffer
+	writer := tar.NewWriter(&buffer)
+	files := map[string]string{
+		"var/lib/dpkg/status": "Package: libfoo\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n\n" +
+			"Package: libbar\nStatus: install ok installed\nArchitecture: amd64\nVersion: 2.0\n",
+		"var/lib/dpkg/info/libfoo.list": "/app/lib/libfoo.so\n",
+		"var/lib/dpkg/info/libbar.list": "/srv/lib/libbar.so\n",
+		"app/lib/libfoo.so":             "foo",
+		"srv/lib/libbar.so":             "bar",
+	}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(files[name]))}); err != nil {
+			return nil, err
+		}
+		if _, err := writer.Write([]byte(files[name])); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	layer, err := tarball.LayerFromReader(&buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	return mutate.AppendLayers(empty.Image, layer)
 }

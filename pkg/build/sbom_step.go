@@ -203,6 +203,10 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return err
 		}
 
+		if err := step.placeInheritedPackages(ctx, werfImgName, img, mergeOpts.BaseBOM); err != nil {
+			return err
+		}
+
 		resultBOM := targetBOM
 		if !mergeOpts.IsEmpty() {
 			var err error
@@ -313,6 +317,33 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 
 		return nil
 	})
+}
+
+// placeInheritedPackages gives the package components this image inherited from its base
+// the whereabouts its own package database records for them.
+//
+// A supplier states the packages of its image and not, as a rule, the files of each, so
+// those components arrive stating nowhere they stand - and an image importing a part of
+// this one can then place none of them. The database the image carries is the one record
+// of where they are; reading it settles scope and nothing else.
+//
+// It is given the base document alone, before anything is merged into it. What an import
+// directive brought in came out of another image, and this image's database neither knows
+// those packages nor could name their paths - an imported rootfs carries its own.
+func (step *sbomStep) placeInheritedPackages(ctx context.Context, werfImgName string, img v1.Image, base *cdx.BOM) error {
+	if base == nil {
+		return nil
+	}
+	database, err := shippedscope.DistroPackages(ctx, img)
+	if err != nil {
+		return fmt.Errorf("read the package database of image %s: %w", werfImgName, err)
+	}
+	placed, absent := shippedscope.PlaceInheritedPackages(ctx, base, database)
+	if placed+absent > 0 {
+		logboek.Context(ctx).Debug().LogF("image %s: %d packages inherited from the base placed by the package database of the image, %d marked absent from it\n", werfImgName, placed, absent)
+	}
+
+	return nil
 }
 
 // verifyImageComposition establishes what the image is made of from the stage boundaries

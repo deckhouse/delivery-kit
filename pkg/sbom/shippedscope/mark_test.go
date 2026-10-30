@@ -234,15 +234,16 @@ var _ = Describe("MarkNotShipped", func() {
 		Expect(found).To(BeFalse(), "the donor's verdict describes the donor's image, not this one")
 	})
 
-	It("clears a verdict a donor recorded on a component this image does not judge", func(ctx SpecContext) {
+	// Of the ecosystems whose files this image can describe, a donor's verdict goes
+	// whether or not a new one replaces it: this image looked, and what it saw is the
+	// only thing its own SBOM may state.
+	It("clears a verdict a donor recorded on a component of an ecosystem it judges", func(ctx SpecContext) {
 		module := componentOf("pkg:golang/github.com/spf13/cobra@1.8.0")
 		module.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: "false"}}
 		osPM := componentOf("pkg:generic/zlib@1.3.1", fileOccurrence("/usr/lib/libz.so", "z"))
 		osPM.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: "false"}}
-		kept := componentOf("pkg:deb/debian/libc6@2.36")
-		kept.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: "false"}}
 
-		bom := bomOf(module, osPM, kept)
+		bom := bomOf(module, osPM)
 
 		filesets := filesetsOf(emptyIndex())
 		filesets.OSPMFileListMissing = true
@@ -252,6 +253,23 @@ var _ = Describe("MarkNotShipped", func() {
 			_, found := shippedProperty(bom, i)
 			Expect(found).To(BeFalse(), "component %d keeps a verdict this image never made", i)
 		}
+	})
+
+	// A deb package is of no ecosystem whose files this pass reads, so it has nothing to
+	// put in place of the verdict the component already carries. Dropping it would leave
+	// the component saying less than somebody knew, and would be this image claiming to
+	// have looked where it never did.
+	It("leaves a verdict standing on a component of an ecosystem it does not judge", func(ctx SpecContext) {
+		deb := componentOf("pkg:deb/debian/libc6@2.36")
+		deb.Properties = &[]cdx.Property{{Name: PropertyShipped, Value: "false"}}
+
+		bom := bomOf(deb)
+
+		Expect(MarkNotShipped(ctx, bom, filesetsOf(emptyIndex()))).To(BeZero())
+
+		value, found := shippedProperty(bom, 0)
+		Expect(found).To(BeTrue())
+		Expect(value).To(Equal("false"))
 	})
 
 	It("leaves the component's other properties alone", func(ctx SpecContext) {

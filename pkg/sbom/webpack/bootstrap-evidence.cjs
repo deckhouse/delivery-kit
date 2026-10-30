@@ -55,7 +55,7 @@ function observeAssets(compiler) {
 	});
 }
 
-async function bootstrapEvidence(compilation, chunk, verifyResource) {
+async function bootstrapEvidence(compilation, chunk, verifyResource, minifierEvidence) {
 	const registry = globalThis[REGISTRY];
 	if (!registry || typeof registry.getRender !== 'function' || typeof registry.snapshot !== 'function') {
 		return noData('the commonjs load registry is not installed in this process');
@@ -134,9 +134,18 @@ async function bootstrapEvidence(compilation, chunk, verifyResource) {
 	if (!source || typeof source.source !== 'function') return noData(`the render of ${file} produced no source`);
 	const rendered = source.source();
 	if (typeof rendered !== 'string') return noData(`the render of ${file} produced no text`);
-	// Anything between the render and the emit - a minifier, a banner - leaves
-	// bytes this adapter cannot attribute; it refuses rather than guesses.
-	if (!Buffer.from(rendered, 'utf8').equals(bytes.get(file))) {
+	const renderedBytes = Buffer.from(rendered, 'utf8');
+	// A described minification is the one thing allowed to stand between the
+	// render and the emit, and only for exactly the bytes that were rendered.
+	const minified = minifierEvidence ? await minifierEvidence(compilation, file) : { status: 'none' };
+	if (minified.failure) return { units: [], failure: minified.failure };
+	if (minified.input && !minified.input.equals(renderedBytes)) {
+		return noData(`${file} was changed between its render and its minification`);
+	}
+	// Anything else between the render and the emit - another minifier, a banner -
+	// leaves bytes this adapter cannot attribute; it refuses rather than guesses.
+	const final = minified.output || renderedBytes;
+	if (!final.equals(bytes.get(file))) {
 		return noData(`${file} was changed between its render and its emit`);
 	}
 
@@ -159,7 +168,7 @@ async function bootstrapEvidence(compilation, chunk, verifyResource) {
 	// The emit snapshot is not the end of the story: a plugin can still rewrite
 	// the file afterwards, so the caller has to compare these bytes with the ones
 	// that stayed on disk.
-	return { units, requiredBytes: Buffer.from(rendered, 'utf8') };
+	return { units, requiredBytes: final };
 }
 
 // A tap on a shaping hook contributes code this adapter cannot attribute to a

@@ -180,7 +180,7 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 	var purls []string
 	for i := range components {
 		comp := &components[i]
-		if !componentNeedsResolve(comp) {
+		if !componentNeedsResolve(comp) || preparedSource(comp) {
 			continue
 		}
 		if vcsURL, ok := knownVCSLink(comp); ok && vcsOutcomes[vcsURL].unconfirmed == nil {
@@ -220,6 +220,19 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 				continue
 			}
 			unconfirmed = fmt.Errorf("vcs link %q not confirmed: %w", vcsURL, vcsOutcome.unconfirmed)
+		}
+
+		// A prepared source package is the image this build made of it, named by its
+		// digest: no resolver knows it under that purl. A link to the upstream it was
+		// prepared from is kept only when confirmed, and its absence is no failure.
+		if preparedSource(comp) {
+			if unconfirmed != nil {
+				logboek.Context(ctx).Warn().LogF("WARNING: component %s (%s): %s; dropped\n", comp.Name, comp.PackageURL, unconfirmed)
+				*comp.ExternalReferences = lo.Reject(*comp.ExternalReferences, func(ref cdx.ExternalReference, _ int) bool {
+					return ref.Type == cdx.ERTypeVCS
+				})
+			}
+			continue
 		}
 
 		outcome := outcomes[comp.PackageURL]
@@ -425,6 +438,20 @@ func newComponentError(failed []*componentError) *ComponentError {
 		details: details.String(),
 	}
 }
+
+// preparedSource reports a component nativegate wrote for a prepared source package
+// of this build, which it marks with the original-source identity of that package.
+func preparedSource(comp *cdx.Component) bool {
+	if comp.Properties == nil {
+		return false
+	}
+	return lo.ContainsBy(*comp.Properties, func(property cdx.Property) bool {
+		return property.Name == cyclonedxutil.PropertyOriginalSource && strings.HasPrefix(property.Value, preparedSourcePrefix)
+	})
+}
+
+// preparedSourcePrefix is the identity nativegate gives a prepared source package.
+const preparedSourcePrefix = "urn:dk:prepared-source:"
 
 func componentNeedsResolve(comp *cdx.Component) bool {
 	return comp.PackageURL != "" && comp.Version != "(devel)"

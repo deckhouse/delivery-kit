@@ -296,6 +296,71 @@ var _ = Describe("Enricher", func() {
 			Expect(refs[1].URL).To(Equal("https://github.com/lodash/lodash"))
 		})
 
+		Describe("prepared source package of this build", func() {
+			prepared := func(refs ...cdx.ExternalReference) cdx.Component {
+				comp := cdx.Component{
+					Name:       "gogost-source",
+					Version:    "6.0",
+					PackageURL: "pkg:oci/gogost-source@sha256%3Ad7f38404?repository_url=registry.example.com%2Fstages",
+					Type:       cdx.ComponentTypeLibrary,
+					Properties: &[]cdx.Property{{Name: cyclonedxutil.PropertyOriginalSource, Value: "urn:dk:prepared-source:d7f38404"}},
+				}
+				if len(refs) > 0 {
+					comp.ExternalReferences = &refs
+				}
+				return comp
+			}
+			refusingResolve := func(resolved *[]string) func(context.Context, string) (*ResolveResult, error) {
+				return func(_ context.Context, purl string) (*ResolveResult, error) {
+					*resolved = append(*resolved, purl)
+					return nil, fmt.Errorf("resolve: %w", ErrEmptyURL)
+				}
+			}
+
+			It("never resolves its purl and leaves it without a link when it names no upstream", func() {
+				var resolved []string
+				enricher := NewEnricher(refusingResolve(&resolved), service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{prepared()}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect((*bom.Components)[0].ExternalReferences).To(BeNil())
+			})
+
+			It("keeps a confirmed upstream link", func() {
+				var resolved []string
+				enricher := NewEnricher(refusingResolve(&resolved), service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{prepared(cdx.ExternalReference{URL: "https://git.example.com/confirmed.git", Type: cdx.ERTypeVCS})}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "https://git.example.com/confirmed.git", Type: cdx.ERTypeVCS}}))
+			})
+
+			It("drops an upstream link the resolver cannot confirm instead of failing", func() {
+				var resolved []string
+				enricher := NewEnricher(refusingResolve(&resolved), func(context.Context, string) (*ResolveResult, error) {
+					return &ResolveResult{Kind: "unknown"}, nil
+				})
+				bom := &cdx.BOM{Components: &[]cdx.Component{prepared(cdx.ExternalReference{URL: "git://git.example.com/gogost.git", Type: cdx.ERTypeVCS})}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect(*(*bom.Components)[0].ExternalReferences).To(BeEmpty())
+			})
+
+			It("still resolves an oci package that is not a prepared source of this build", func() {
+				var resolved []string
+				enricher := NewEnricher(refusingResolve(&resolved), service.CheckVCS)
+				comp := prepared()
+				comp.Properties = nil
+				bom := &cdx.BOM{Components: &[]cdx.Component{comp}}
+
+				Expect(enricher.Enrich(ctx, bom)).To(MatchError(ContainSubstring("empty url in resolve response")))
+				Expect(resolved).To(HaveLen(1))
+			})
+		})
+
 		Describe("component with a vcs link of its own", func() {
 			withVCS := func(name, purl, vcsURL string) cdx.Component {
 				return cdx.Component{

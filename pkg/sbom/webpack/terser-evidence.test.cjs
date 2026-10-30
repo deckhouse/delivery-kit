@@ -200,16 +200,16 @@ test('reports a hash mismatch when the minified file on disk is not what was min
 
 // A real-content-hashed name is replaced after the minification, by bytes and
 // by name alike: this adapter describes neither, and says so.
-test('reports no data for a minified asset whose name carries its content hash', () => {
+// The minified asset is renamed for its real content hash after the
+// minification this adapter observed; the content-hash adapter describes that
+// step, so the chain reaches the file that was emitted under the new name.
+test('describes a minified asset whose name carries its content hash', () => {
 	const result = build('minified', { filename: '[contenthash].js' });
 	const name = result.report.emitted.find((candidate) => candidate.endsWith('.js'));
 	const row = rowOf(result.report, 0, name);
-	assert.equal(row.status, 'no-data', row.reason);
-	// RealContentHashPlugin replaces the hash inside the minified bytes after the
-	// minification this adapter observed, and nothing here attributes that.
-	assert.match(row.reason, /was changed between its render and its emit/);
+	assert.equal(row.status, 'present', row.reason);
 	assert.equal(row.sha256, sha256(path.join(result.area.output, name)));
-	assert.deepEqual(row.inputs, []);
+	assert.ok(row.inputs.length > 0);
 });
 
 // The default minifier moves preserved comments into a LICENSE file and leaves a

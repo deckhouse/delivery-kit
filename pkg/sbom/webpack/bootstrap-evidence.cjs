@@ -55,7 +55,7 @@ function observeAssets(compiler) {
 	});
 }
 
-async function bootstrapEvidence(compilation, chunk, verifyResource, minifierEvidence) {
+async function bootstrapEvidence(compilation, chunk, verifyResource, evidence = {}) {
 	const registry = globalThis[REGISTRY];
 	if (!registry || typeof registry.getRender !== 'function' || typeof registry.snapshot !== 'function') {
 		return noData('the commonjs load registry is not installed in this process');
@@ -135,17 +135,26 @@ async function bootstrapEvidence(compilation, chunk, verifyResource, minifierEvi
 	const rendered = source.source();
 	if (typeof rendered !== 'string') return noData(`the render of ${file} produced no text`);
 	const renderedBytes = Buffer.from(rendered, 'utf8');
-	// A described minification is the one thing allowed to stand between the
-	// render and the emit, and only for exactly the bytes that were rendered.
-	const minified = minifierEvidence ? await minifierEvidence(compilation, file) : { status: 'none' };
+	// The two stages that are allowed to stand between the render and the emit,
+	// in the order they run, each for exactly the bytes the one before left: a
+	// described minification, and the replacement of the content hashes, which
+	// also gave this asset the name it is emitted under.
+	const hashed = evidence.contentHash ? await evidence.contentHash(compilation, file) : { status: 'none' };
+	if (hashed.failure) return { units: [], failure: hashed.failure };
+	const minified = evidence.minifier ? await evidence.minifier(compilation, hashed.name || file) : { status: 'none' };
 	if (minified.failure) return { units: [], failure: minified.failure };
-	if (minified.input && !minified.input.equals(renderedBytes)) {
-		return noData(`${file} was changed between its render and its minification`);
+	let produced = renderedBytes;
+	if (minified.input) {
+		if (!minified.input.equals(produced)) return noData(`${file} was changed between its render and its minification`);
+		produced = minified.output;
+	}
+	if (hashed.input) {
+		if (!hashed.input.equals(produced)) return noData(`${file} was changed before its content hash was replaced`);
+		produced = hashed.output;
 	}
 	// Anything else between the render and the emit - another minifier, a banner -
 	// leaves bytes this adapter cannot attribute; it refuses rather than guesses.
-	const final = minified.output || renderedBytes;
-	if (!final.equals(bytes.get(file))) {
+	if (!produced.equals(bytes.get(file))) {
 		return noData(`${file} was changed between its render and its emit`);
 	}
 
@@ -168,7 +177,7 @@ async function bootstrapEvidence(compilation, chunk, verifyResource, minifierEvi
 	// The emit snapshot is not the end of the story: a plugin can still rewrite
 	// the file afterwards, so the caller has to compare these bytes with the ones
 	// that stayed on disk.
-	return { units, requiredBytes: final };
+	return { units, requiredBytes: produced };
 }
 
 // A tap on a shaping hook contributes code this adapter cannot attribute to a

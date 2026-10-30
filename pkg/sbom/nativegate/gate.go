@@ -287,9 +287,11 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			}
 		}
 		var record *Record
+		boundOriginal := false
 		if evidence != nil {
 			if known, exists := scoped[name]; exists && known.SHA256 == entry.Digest {
 				record = &known
+				boundOriginal = true
 			}
 		} else {
 			var err error
@@ -324,6 +326,14 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		}
 		if !native && binaryLike(fs.bodies[name], false, name) {
 			return fmt.Errorf("%s: unsupported: binary format has no embedded composition reader", name)
+		}
+		// A file an import took out of a bootstrap source is described by nothing but
+		// this image: that source claims no composition of its own, and where it sat in
+		// it says nothing about what it is. It is either a compiled artifact carrying
+		// the record of its own build, or bytes a prepared source still serves at the
+		// path this recipe binds it to. Anything else is unaccounted for.
+		if evidence != nil && evidence.bootstrap[name] && !boundOriginal && (record == nil || record.Composition == nil) {
+			return fmt.Errorf("no-data: %s comes from a bootstrap source with neither a build record nor an original binding", name)
 		}
 		if record == nil {
 			if binaryLike(fs.bodies[name], fs.executable[name], name) {

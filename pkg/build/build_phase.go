@@ -697,6 +697,17 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 }
 
 func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
+	// A bootstrap image is built to be imported from and never shipped, and nothing of
+	// its composition is claimed: there is no document to converge for it, and reading
+	// the base it stands on would be reading for a document nobody writes.
+	bootstrap, err := phase.bootstrapImage(img)
+	if err != nil {
+		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+	}
+	if bootstrap {
+		return nil
+	}
+
 	stageDesc := img.GetLastNonEmptyStageDesc()
 	if stageDesc == nil {
 		return fmt.Errorf("unable to converge sbom for image %q: stage descriptor is unavailable", name)
@@ -2605,6 +2616,15 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			continue
 		}
 		key := importImage.sbomKey()
+		// A bootstrap image describes a toolchain nothing of this project claims, so
+		// what it says about itself is not read at all: the files taken out of it are
+		// answered for one by one by the image that imports them.
+		if importImage.bootstrap {
+			if key != (importSBOMKey{}) {
+				boms[key] = nil
+			}
+			continue
+		}
 		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importImage.lookupName, importImage.info)
 		if err != nil {
 			if errors.Is(err, ErrSbomNotRequired) {
@@ -2627,6 +2647,10 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 	}
 
 	sources := make([]sbomSourceImportInput, 0, len(importImages))
+	originals, err := phase.bootstrapImportOriginals(img, importImages)
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, importImage := range importImages {
 		var reference string
 		if importImage.info != nil {
@@ -2643,6 +2667,8 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 			Reference: reference,
 			BOM:       bom,
 			Scope:     importImage.scope,
+			Bootstrap: importImage.bootstrap,
+			Originals: originals[importImage.imageName],
 		})
 	}
 
@@ -2659,6 +2685,9 @@ type resolvedImportImage struct {
 	imageName  string
 	lookupName string
 	info       *imagePkg.Info
+	// bootstrap marks a source image this recipe declares as built to be imported
+	// from and never shipped.
+	bootstrap bool
 }
 
 // scopedImportImage is one import directive of the image: the resolved source image, the
@@ -2806,11 +2835,68 @@ func (phase *BuildPhase) resolveImportImage(ctx context.Context, img *image.Imag
 		importLookupName = importElm.From
 	}
 
+	bootstrap, err := phase.bootstrapImportSource(img.TargetPlatform, importElm)
+	if err != nil {
+		return resolvedImportImage{}, err
+	}
+
 	return resolvedImportImage{
 		imageName:  importElm.From,
 		lookupName: importLookupName,
 		info:       importImageInfo,
+		bootstrap:  bootstrap,
 	}, nil
+}
+
+// bootstrapImage answers whether this recipe declares the image itself a bootstrap image.
+func (phase *BuildPhase) bootstrapImage(img *image.Image) (bool, error) {
+	if img.StapelImageConfig == nil {
+		return false, nil
+	}
+	spec := img.StapelImageConfig.ImageBaseConfig().ImageSpec
+	if spec == nil {
+		return false, nil
+	}
+	raw, present := spec.Labels[sbomBuildContextLabel]
+	if !present {
+		return false, nil
+	}
+	declaration, err := parseSBOMBuildContextDeclaration([]byte(raw))
+	if err != nil {
+		return false, err
+	}
+
+	return declaration.Bootstrap, nil
+}
+
+// bootstrapImportSource answers whether the image an import copies from is one this
+// recipe declares as a bootstrap image.
+//
+// Only an image of this project can be declared one: the declaration is a statement of
+// the recipe about an image the recipe builds, and an image from elsewhere is whatever
+// its own publisher says it is.
+func (phase *BuildPhase) bootstrapImportSource(targetPlatform string, importElm *config.Import) (bool, error) {
+	if importElm.ExternalImage {
+		return false, nil
+	}
+	source := phase.Conveyor.GetImage(targetPlatform, importElm.From)
+	if source == nil || source.StapelImageConfig == nil {
+		return false, nil
+	}
+	spec := source.StapelImageConfig.ImageBaseConfig().ImageSpec
+	if spec == nil {
+		return false, nil
+	}
+	raw, present := spec.Labels[sbomBuildContextLabel]
+	if !present {
+		return false, nil
+	}
+	declaration, err := parseSBOMBuildContextDeclaration([]byte(raw))
+	if err != nil {
+		return false, fmt.Errorf("import source %q: %w", importElm.From, err)
+	}
+
+	return declaration.Bootstrap, nil
 }
 
 func (phase *BuildPhase) Clone() Phase {

@@ -329,7 +329,9 @@ func (phase *BuildPhase) producerSourceImports(ctx context.Context, img *imagePk
 			if err != nil {
 				return nil, fmt.Errorf("invalid: producer source %s has an invalid resolved reference: %w", source, err)
 			}
-			imports = append(imports, sbomSourceImportInput{Stage: stg.Name(), Reference: ref.Name(), Scope: nativegate.ImportScope{Backend: phase.sbomImportBackend(), FromPath: directive.Add, ToPath: directive.To, IncludePaths: directive.IncludePaths, ExcludePaths: directive.ExcludePaths}})
+			// The backend here is a placeholder the gate snapshots replace with the
+			// one the importing stage recorded; nothing reads it before that.
+			imports = append(imports, sbomSourceImportInput{Stage: stg.Name(), Reference: ref.Name(), Bootstrap: resolved.bootstrap, Scope: nativegate.ImportScope{Backend: phase.sbomImportBackend(), FromPath: directive.Add, ToPath: directive.To, IncludePaths: directive.IncludePaths, ExcludePaths: directive.ExcludePaths}})
 		}
 	}
 	if len(imports) == 0 {

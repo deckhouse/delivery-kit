@@ -65,7 +65,7 @@ var _ = Describe("SBOM contributions of an import source", func() {
 	// An import source image holding one imported file, whose SBOM also describes the
 	// environment the donor built in: a component of a file the import leaves behind,
 	// and a tool component the donor states no whereabouts of at all.
-	contributed := func(ctx context.Context, components []cdx.Component, imports []*config.Import) []*cdx.BOM {
+	contributed := func(ctx context.Context, components []cdx.Component, imports []*config.Import, bootstrap ...string) []*cdx.BOM {
 		GinkgoHelper()
 		Expect(werf.Init(GinkgoT().TempDir(), "")).To(Succeed())
 		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
@@ -105,6 +105,21 @@ var _ = Describe("SBOM contributions of an import source", func() {
 			directive.From = sourceRepo + ":latest"
 		}
 		tree := buildImage.NewImagesTree(nil, buildImage.ImagesTreeOptions{})
+		// A source of this very recipe, declaring itself a bootstrap image, imported
+		// by name rather than as an image from somewhere else.
+		for _, name := range bootstrap {
+			for _, directive := range imports {
+				directive.From = name
+				directive.ExternalImage = false
+			}
+			infos[name] = infos[sourceRepo+":latest"]
+			source := &buildImage.Image{Name: name, TargetPlatform: targetPlatform}
+			source.StapelImageConfig = &config.StapelImage{StapelImageBase: &config.StapelImageBase{
+				Name:      name,
+				ImageSpec: &config.ImageSpec{Labels: map[string]string{sbomBuildContextLabel: `{"version":1,"bootstrap":true}`}},
+			}}
+			tree.AppendImageForTests(source)
+		}
 		img := &buildImage.Image{TargetPlatform: targetPlatform}
 		baseConfig := &config.StapelImageBase{Import: imports}
 		stageOpts := &stage.BaseStageOptions{ImageName: "app", TargetPlatform: targetPlatform}
@@ -127,6 +142,34 @@ var _ = Describe("SBOM contributions of an import source", func() {
 			ExternalImage: true,
 		}
 	}
+
+	// A bootstrap image is built to be imported from and never shipped: this project
+	// claims nothing about its composition, so nothing it says about itself is read.
+	It("reads nothing of a source the recipe declares a bootstrap image", func(specCtx SpecContext) {
+		boms := contributed(logging.WithLogger(specCtx), []cdx.Component{
+			occurring("tool", "1.0", "/app/bin/tool"),
+		}, []*config.Import{scoped("/app/bin", "/usr/local/bin", nil, nil)}, "builder")
+
+		Expect(boms).To(BeEmpty(), "the SBOM of a bootstrap source is neither read nor merged")
+	})
+
+	// Nothing of a bootstrap image's own composition is converged: an image with no
+	// stage descriptor at all is one every other path of this convergence refuses, and
+	// a bootstrap image is let go before any of it is read.
+	It("converges no document for a bootstrap image", func(specCtx SpecContext) {
+		img := &buildImage.Image{TargetPlatform: targetPlatform}
+		img.StapelImageConfig = &config.StapelImage{StapelImageBase: &config.StapelImageBase{
+			Name:      "builder",
+			ImageSpec: &config.ImageSpec{Labels: map[string]string{sbomBuildContextLabel: `{"version":1,"bootstrap":true}`}},
+		}}
+		phase := &BuildPhase{}
+
+		Expect(phase.convergePlatformImageSbom(logging.WithLogger(specCtx), "builder", img, nil, "", nil)).To(Succeed())
+
+		ordinary := &buildImage.Image{TargetPlatform: targetPlatform}
+		Expect(phase.convergePlatformImageSbom(logging.WithLogger(specCtx), "app", ordinary, nil, "", nil)).
+			To(MatchError(ContainSubstring("stage descriptor is unavailable")), "any other image is read, and this one has nothing to read")
+	})
 
 	It("contributes only the components of the files the import carries", func(specCtx SpecContext) {
 		boms := contributed(logging.WithLogger(specCtx), []cdx.Component{

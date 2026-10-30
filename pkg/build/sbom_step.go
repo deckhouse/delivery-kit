@@ -41,7 +41,6 @@ import (
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/tmp_manager"
 	"github.com/werf/werf/v3/pkg/werf"
-	"github.com/werf/werf/v3/pkg/werf/global_warnings"
 )
 
 //go:generate mockgen -source sbom_step.go -package mock -destination ../../test/mock/bom_patcher.go -mock_names BOMPatcherInterface=MockBOMPatcher
@@ -864,19 +863,6 @@ func (step *sbomStep) GetImageBOM(ctx context.Context, imageName string, imageIn
 
 	bom, err := step.pullImageSbom(ctx, imageName, imageInfo)
 	if err != nil {
-		if isTrustedBuilderImage(imageInfo.Labels) {
-			switch {
-			case isGolangBuilderImage(imageInfo.Name), isAlpineBuilderImage(imageInfo.Name):
-				global_warnings.GlobalWarningLn(ctx,
-					fmt.Sprintf("The builder image %q is DEPRECATED and it WILL CAUSE AN ERROR in the future. Plan your migration to an up-to-date builder image.", imageInfo.Name))
-				return nil, ErrSbomNotRequired
-			default:
-				if os.Getenv("WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES") == "true" {
-					return nil, ErrSbomNotRequired
-				}
-				return nil, fmt.Errorf("the image %q must have an SBOM artifact attached; the image is a builder image but SBOM is required; %w", imageInfo.Name, err)
-			}
-		}
 		return nil, sbomMissingError(imageInfo, err)
 	}
 

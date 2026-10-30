@@ -38,6 +38,13 @@ type SourceImport struct {
 	BOM     *cdx.BOM
 	Receipt *sources.Receipt
 	Scope   ImportScope
+	// Bootstrap marks a source image whose own composition this project does not
+	// describe. Nothing it says about itself is read, and every file it lands here is
+	// answered for by this image or by nothing.
+	Bootstrap bool
+	// Originals are the prepared sources the importing recipe declares the files of a
+	// bootstrap source image to come from. They are read for a bootstrap source only.
+	Originals []ImportOriginal
 }
 
 type originalFileRecord struct {
@@ -60,6 +67,10 @@ type sourceEvidence struct {
 	// with other bytes. It lives for this verification only: a lost binding is nothing to
 	// publish, and equal bytes elsewhere do not re-establish the one that was lost.
 	unverified map[string]bool
+	// bootstrap holds the paths an import of a bootstrap source landed and the build
+	// still holds unchanged. Nothing describes those bytes but this image, so each of
+	// them has to carry its own record or its own original binding.
+	bootstrap map[string]bool
 }
 
 func (e *sourceEvidence) resolve(ctx context.Context, source sources.Source) (*resolvedSource, error) {
@@ -304,22 +315,37 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 				next[name] = sortedOriginalBindings(append(next[name], bindings...))
 			}
 		}
+		bootstrap := e.carryBootstrap(snapshot.Index)
 		for _, imported := range snapshot.Imports {
 			if imported.Index == nil || imported.Index.Incomplete {
 				return nil, fmt.Errorf("no-data: missing imported source snapshot")
 			}
-			matches, err := e.inherit(ctx, imported.Index, imported.BOM)
-			if err != nil {
-				return nil, err
-			}
-			catalog, err := readOriginalsCatalog(imported.BOM)
-			if err != nil {
-				return nil, err
-			}
-			if catalog == nil {
-				matches, err = e.installed(ctx, SourceSnapshot{Stage: "import source", Index: imported.Index, Receipt: imported.Receipt})
+			var matches originalMatches
+			if imported.Bootstrap {
+				landed, err := bootstrapLandedFiles(ctx, imported, e.index, snapshot.Index)
 				if err != nil {
 					return nil, err
+				}
+				maps.Copy(bootstrap, landed)
+				matches, err = bootstrapImportMatches(ctx, e, imported)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				var err error
+				matches, err = e.inherit(ctx, imported.Index, imported.BOM)
+				if err != nil {
+					return nil, err
+				}
+				catalog, err := readOriginalsCatalog(imported.BOM)
+				if err != nil {
+					return nil, err
+				}
+				if catalog == nil {
+					matches, err = e.installed(ctx, SourceSnapshot{Stage: "import source", Index: imported.Index, Receipt: imported.Receipt})
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 			carried, err := importOriginalMatches(ctx, imported.Index, matches, e.index, snapshot.Index, imported.Scope)
@@ -332,7 +358,7 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 			}
 		}
 		unverified := e.carryUnverified(snapshot.Index, next)
-		e.index, e.matches, e.unverified = snapshot.Index, next, unverified
+		e.index, e.matches, e.unverified, e.bootstrap = snapshot.Index, next, unverified, bootstrap
 	}
 	return e, nil
 }

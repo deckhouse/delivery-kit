@@ -28,8 +28,39 @@ const sbomBuildContextVersion = 1
 // sbomBuildContextDeclaration is the producer intent only: it never carries
 // resolved references, digests or platforms of the build context itself.
 type sbomBuildContextDeclaration struct {
-	Version *int                                      `json:"version"`
-	Stages  map[stage.StageName]sbomBuildContextStage `json:"stages"`
+	Version *int `json:"version"`
+	// Bootstrap marks an image that is built to be imported from and never shipped:
+	// a toolchain, a compiler, an environment nothing of which this project claims to
+	// describe. Its own composition is neither converged nor published, and the files
+	// an image imports from it carry no claim unless something else accounts for them.
+	Bootstrap bool                                      `json:"bootstrap,omitempty"`
+	// BootstrapOriginals state, per bootstrap source image this recipe imports from,
+	// which prepared source the files of a subtree of it were opened from and at which
+	// path of that source they stand. A bootstrap image describes no composition of its
+	// own, so a file taken out of it is answered for by the record of its own build or
+	// by one of these bindings, and by nothing else.
+	BootstrapOriginals []sbomBuildContextBootstrapOriginal `json:"bootstrapOriginals,omitempty"`
+	Stages             map[stage.StageName]sbomBuildContextStage `json:"stages"`
+}
+
+// sbomBuildContextBootstrapOriginal binds one subtree of a bootstrap source image to the
+// prepared source that serves its files. The physical place of a file and its place in
+// the Packet commonly differ - a toolchain installs headers of its own runtime sources
+// somewhere else entirely - so the path inside the Packet is named rather than assumed,
+// and equal bytes elsewhere in it bind nothing.
+type sbomBuildContextBootstrapOriginal struct {
+	// SourceImage is the logical werf image name of the bootstrap source.
+	SourceImage string `json:"sourceImage"`
+	// PackageName and PackageVersion name one of the prepared sources that image's own
+	// receipt pins; nothing else may be named here.
+	PackageName    string `json:"packageName"`
+	PackageVersion string `json:"packageVersion"`
+	// Root is the absolute path of the source image the mapping covers, file or
+	// directory. The most specific root wins where several of them cover a file.
+	Root string `json:"root"`
+	// OriginalPath is where the contents of Root stand inside the Packet, "." naming
+	// its root.
+	OriginalPath string `json:"originalPath"`
 }
 
 type sbomBuildContextStage struct {
@@ -144,8 +175,19 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 	if *declaration.Version != sbomBuildContextVersion {
 		return nil, fmt.Errorf("parse SBOM build context declaration: unsupported version %d", *declaration.Version)
 	}
-	if len(declaration.Stages) == 0 {
+	// Nothing of a bootstrap image is converged, so a stage declaration there is a
+	// statement this build would never read.
+	if declaration.Bootstrap && len(declaration.Stages) > 0 {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a bootstrap image declares no stages")
+	}
+	if declaration.Bootstrap && len(declaration.BootstrapOriginals) > 0 {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a bootstrap image states the originals of nothing")
+	}
+	if !declaration.Bootstrap && len(declaration.Stages) == 0 && len(declaration.BootstrapOriginals) == 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: at least one stage is required")
+	}
+	if err := validateSBOMBuildContextBootstrapOriginals(declaration.BootstrapOriginals); err != nil {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: %w", err)
 	}
 
 	var raw struct {
@@ -179,6 +221,32 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 	}
 
 	return &declaration, nil
+}
+
+func validateSBOMBuildContextBootstrapOriginals(declared []sbomBuildContextBootstrapOriginal) error {
+	roots := make(map[string]bool, len(declared))
+	for i, mapping := range declared {
+		for _, field := range []struct{ name, value string }{
+			{"sourceImage", mapping.SourceImage}, {"packageName", mapping.PackageName},
+			{"packageVersion", mapping.PackageVersion}, {"root", mapping.Root}, {"originalPath", mapping.OriginalPath},
+		} {
+			if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
+				return fmt.Errorf("bootstrapOriginal %d: %w", i, err)
+			}
+		}
+		if !path.IsAbs(mapping.Root) || path.Clean(mapping.Root) != mapping.Root {
+			return fmt.Errorf("bootstrapOriginal %d: root must be a clean absolute path", i)
+		}
+		if !cleanRelativeOriginalPath(mapping.OriginalPath) {
+			return fmt.Errorf("bootstrapOriginal %d: originalPath %q is not a path inside the prepared source", i, mapping.OriginalPath)
+		}
+		if roots[mapping.SourceImage+"\x00"+mapping.Root] {
+			return fmt.Errorf("bootstrapOriginal %d: root %q of %s is declared more than once", i, mapping.Root, mapping.SourceImage)
+		}
+		roots[mapping.SourceImage+"\x00"+mapping.Root] = true
+	}
+
+	return nil
 }
 
 func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {

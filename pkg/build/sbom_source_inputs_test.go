@@ -67,18 +67,10 @@ var _ = Describe("SBOM source import inputs", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(sbomImage.PushSBOM(ctx, sourceJSON, sourceRepo, sourceDigest.String(), "", "checksum", "", nil)).To(Succeed())
 
-		builderRepo := registryHost + "/trusted"
 		infos := map[string]*imagePkg.Info{
 			sourceRepo + ":latest": {Name: sourceRepo + ":latest", Repository: sourceRepo, RepoDigest: sourceRepo + "@" + sourceDigest.String()},
 			sourceRepo + ":alias":  {Name: sourceRepo + ":alias", Repository: sourceRepo, RepoDigest: sourceRepo + "@" + sourceDigest.String()},
-			builderRepo + ":v1": {
-				Name: builderRepo + ":v1", Repository: builderRepo,
-				RepoDigest: builderRepo + "@sha256:" + strings.Repeat("b", 64),
-				Labels:     map[string]string{imagePkg.DeckhouseInternalBuilderLabel: "true"},
-			},
 		}
-		GinkgoT().Setenv("WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES", "true")
-
 		backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
 		backend.EXPECT().HasStapelBuildSupport().Return(true).AnyTimes()
 		backend.EXPECT().
@@ -91,7 +83,6 @@ var _ = Describe("SBOM source import inputs", func() {
 		baseConfig := &config.StapelImageBase{Import: []*config.Import{
 			importElm(sourceRepo+":latest", "/app/bin", "/usr/local/bin", []string{"tool"}, nil, string(stage.Install), ""),
 			importElm(sourceRepo+":alias", "/app/etc", "/etc", nil, []string{"secret"}, string(stage.Install), ""),
-			importElm(builderRepo+":v1", "/out", "/opt/out", nil, nil, "", string(stage.Install)),
 			importElm(registryHost+"/unknown:v1", "/out", "/srv", nil, nil, "", string(stage.Install)),
 		}}
 		stageOpts := &stage.BaseStageOptions{ImageName: "app", TargetPlatform: targetPlatform}
@@ -109,7 +100,7 @@ var _ = Describe("SBOM source import inputs", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(boms).To(HaveLen(1), "the two references of one source image share a single SBOM artifact")
 
-		Expect(inputs).To(HaveLen(4))
+		Expect(inputs).To(HaveLen(3))
 		Expect(inputs[0].Stage).To(Equal(stage.DependenciesBeforeInstall))
 		Expect(inputs[0].Reference).To(Equal(sourceRepo + "@" + sourceDigest.String()))
 		Expect(inputs[0].Scope).To(Equal(nativegate.ImportScope{FromPath: "/app/bin", ToPath: "/usr/local/bin", IncludePaths: []string{"tool"}}))
@@ -120,11 +111,7 @@ var _ = Describe("SBOM source import inputs", func() {
 		Expect(inputs[1].Scope).To(Equal(nativegate.ImportScope{FromPath: "/app/etc", ToPath: "/etc", ExcludePaths: []string{"secret"}}))
 		Expect(inputs[1].BOM).To(BeIdenticalTo(boms[0]), "the deduplicated SBOM still belongs to the second import")
 
-		Expect(inputs[2].Stage).To(Equal(stage.DependenciesAfterInstall))
-		Expect(inputs[2].Reference).To(Equal(builderRepo + "@sha256:" + strings.Repeat("b", 64)))
-		Expect(inputs[2].BOM).To(BeNil(), "a trusted builder image ships no SBOM")
-
-		Expect(inputs[3].Reference).To(BeEmpty(), "an unresolved source is not guessed from its tag")
+		Expect(inputs[2].Reference).To(BeEmpty(), "an unresolved source is not guessed from its tag")
 	})
 
 	Describe("gate snapshots", func() {

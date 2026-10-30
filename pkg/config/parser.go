@@ -801,6 +801,10 @@ func prepareWerfConfig(ctx context.Context, giterminismManager giterminism_manag
 		return nil, err
 	}
 
+	if err := werfConfig.validateBootstrapImages(); err != nil {
+		return nil, err
+	}
+
 	return werfConfig, nil
 }
 

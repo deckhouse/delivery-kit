@@ -95,6 +95,15 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		gomega.Expect(string(swappedJSON)).NotTo(gomega.Equal(string(canonicalJSON)))
 	})
 
+	// A bootstrap image declares nothing but what it is: nothing of its composition
+	// is converged, so there is no stage for it to state anything about.
+	ginkgo.It("reads the declaration of a bootstrap image", func() {
+		declaration, err := parseSBOMBuildContextDeclaration([]byte(`{"version":1,"bootstrap":true}`))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(declaration.Bootstrap).To(gomega.BeTrue())
+		gomega.Expect(declaration.Stages).To(gomega.BeEmpty())
+	})
+
 	ginkgo.DescribeTable("rejects a declaration",
 		func(data, message string) {
 			declaration, err := parseSBOMBuildContextDeclaration([]byte(data))
@@ -113,6 +122,8 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		ginkgo.Entry("without stages", `{"version":1}`, "at least one stage is required"),
 		ginkgo.Entry("with null stages", `{"version":1,"stages":null}`, "at least one stage is required"),
 		ginkgo.Entry("with empty stages", `{"version":1,"stages":{}}`, "at least one stage is required"),
+		ginkgo.Entry("with a bootstrap image declaring a stage", `{"version":1,"bootstrap":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, "a bootstrap image declares no stages"),
+		ginkgo.Entry("with a null bootstrap", `{"version":1,"bootstrap":null}`, "invalid"),
 		ginkgo.Entry("with a stage that cannot carry a context", `{"version":1,"stages":{"beforeSetupX":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, `stage "beforeSetupX" is not allowed`),
 		ginkgo.Entry("with a case-folded stage key", `{"version":1,"stages":{"Install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, `stage "Install" is not allowed`),
 		ginkgo.Entry("with a duplicate stage key", `{"version":1,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]},"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, "duplicate"),

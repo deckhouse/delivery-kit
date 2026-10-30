@@ -93,6 +93,13 @@ type sbomSourceImportInput struct {
 	Reference string
 	BOM       *cdx.BOM
 	Scope     nativegate.ImportScope
+	// Bootstrap marks a source whose own composition this project does not describe.
+	// Nothing it says about itself is read, and every file taken out of it has to be
+	// accounted for by this image or counted as unknown.
+	Bootstrap bool
+	// Originals are the prepared sources this recipe declares the files of that
+	// bootstrap source to come from.
+	Originals []nativegate.ImportOriginal
 }
 
 func sbomSourceImportsChecksum(inputs []sbomSourceImportInput) string {
@@ -104,7 +111,9 @@ func sbomSourceImportsChecksum(inputs []sbomSourceImportInput) string {
 			input.Scope.FromPath, input.Scope.ToPath,
 			strings.Join(input.Scope.IncludePaths, "///"),
 			strings.Join(input.Scope.ExcludePaths, "///"),
+			strconv.FormatBool(input.Bootstrap),
 		)
+		parts = append(parts, sbomBootstrapOriginalsChecksum(input.Originals)...)
 	}
 
 	return util.Sha256Hash(parts...)
@@ -221,10 +230,12 @@ func sbomSourceGateSnapshots(snapshots []sbomSourceSnapshot, inputs []sbomSource
 			return nil, fmt.Errorf("no-data: import backend of stage %s is unknown", input.Stage)
 		}
 		result[at].Imports = append(result[at].Imports, nativegate.SourceImport{
-			Index:   source.Index,
-			BOM:     input.BOM,
-			Receipt: source.Receipt,
-			Scope:   scope,
+			Index:     source.Index,
+			BOM:       input.BOM,
+			Receipt:   source.Receipt,
+			Scope:     scope,
+			Bootstrap: input.Bootstrap,
+			Originals: input.Originals,
 		})
 	}
 

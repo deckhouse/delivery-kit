@@ -35,7 +35,7 @@ If you need to remove all werf labels, use the werf export command. By default, 
 To disable this warning, explicitly set the "keepEssentialWerfLabels" directive.`
 )
 
-const SBOMBuildContextLabel = "werf.io/sbom-build-context-v1"
+const SBOMBuildContextLabel = config.SBOMBuildContextLabel
 
 type ImageSpecStage struct {
 	*BaseStage

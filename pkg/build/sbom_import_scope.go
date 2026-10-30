@@ -10,7 +10,9 @@ import (
 	"github.com/samber/lo"
 	"github.com/werf/logboek"
 
+	"github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/docker_registry"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
@@ -24,10 +26,23 @@ import (
 // necessarily the run that did the copying: a stage reused from the cache was built by
 // another one, possibly with the other builder, and the backend of the current run would
 // then answer for a copy it never performed.
-func importScopeBackend(stg stage.Interface) (nativegate.ImportBackend, error) {
+//
+// An image reused whole by its content anchor skips its stages altogether, so none of them
+// holds a stage image in this run; what copied the import is then read from the record the
+// published stage chain of that same image carries.
+func importScopeBackend(stg stage.Interface, published func() (map[stage.StageName]string, error)) (nativegate.ImportBackend, error) {
 	stageImage := stg.GetStageImage()
 	if stageImage == nil || stageImage.Image == nil || stageImage.Image.GetStageDesc() == nil || stageImage.Image.GetStageDesc().Info == nil {
-		return "", fmt.Errorf("no-data: stage %s carries no built stage the import copy backend could be read from", stg.Name())
+		backends, err := published()
+		if err != nil {
+			return "", fmt.Errorf("no-data: stage %s carries no built stage the import copy backend could be read from, and the published stage chain of the image could not be read: %w", stg.Name(), err)
+		}
+		recorded, stated := backends[stg.Name()]
+		if !stated {
+			return "", fmt.Errorf("no-data: stage %s carries no built stage the import copy backend could be read from, and the published stage chain of the image states no such stage", stg.Name())
+		}
+
+		return namedImportBackend(stg.Name(), recorded)
 	}
 	var record sbomStageRecord
 	if err := json.Unmarshal([]byte(stageImage.Image.GetStageDesc().Info.Labels[imagePkg.WerfSBOMStageLabel]), &record); err != nil {
@@ -36,14 +51,57 @@ func importScopeBackend(stg stage.Interface) (nativegate.ImportBackend, error) {
 	if record.Stage != stg.Name() {
 		return "", fmt.Errorf("no-data: the SBOM stage record of %s belongs to stage %s", stg.Name(), record.Stage)
 	}
-	switch record.ImportBackend {
+
+	return namedImportBackend(stg.Name(), record.ImportBackend)
+}
+
+// publishedImportBackends reads, at most once, the import copy backend every stage of the
+// published stage chain of the image records. It is what remains to read from when the
+// image is reused whole and its stages are never processed in this run.
+func publishedImportBackends(ctx context.Context, img *image.Image) func() (map[stage.StageName]string, error) {
+	var (
+		backends map[stage.StageName]string
+		err      error
+		read     bool
+	)
+
+	return func() (map[stage.StageName]string, error) {
+		if read {
+			return backends, err
+		}
+		read = true
+		backends, err = readPublishedImportBackends(ctx, img)
+
+		return backends, err
+	}
+}
+
+func readPublishedImportBackends(ctx context.Context, img *image.Image) (map[stage.StageName]string, error) {
+	stageDesc := img.GetLastNonEmptyStageDesc()
+	if stageDesc == nil {
+		return nil, fmt.Errorf("image %s has no published stage", img.GetName())
+	}
+	provenance, err := resolveSBOMStageProvenance(ctx, stageDesc, docker_registry.API().GetRepoImageConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	backends := make(map[stage.StageName]string, len(provenance.Snapshots))
+	for _, snapshot := range provenance.Snapshots {
+		backends[snapshot.Stage] = snapshot.ImportBackend
+	}
+
+	return backends, nil
+}
+
+func namedImportBackend(stageName stage.StageName, recorded string) (nativegate.ImportBackend, error) {
+	switch recorded {
 	case "copy-recurse":
 		return nativegate.ImportBackendCopyRecurse, nil
 	case "rsync":
 		return nativegate.ImportBackendRsync, nil
 	}
 
-	return "", fmt.Errorf("no-data: stage %s records no import copy backend", stg.Name())
+	return "", fmt.Errorf("no-data: stage %s records no import copy backend", stageName)
 }
 
 // scopeImportBOM answers what an import source contributes to the image that imports it:

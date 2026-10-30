@@ -2795,6 +2795,7 @@ func (phase *BuildPhase) resolveImportImages(ctx context.Context, img *image.Ima
 func (phase *BuildPhase) resolveScopedImportImages(ctx context.Context, img *image.Image) ([]scopedImportImage, error) {
 	var result []scopedImportImage
 	seenImages := make(map[importSBOMKey]struct{})
+	published := publishedImportBackends(ctx, img)
 
 	for _, stg := range img.GetStages() {
 		depStage, ok := stg.(interface{ GetImports() []*config.Import })
@@ -2814,7 +2815,7 @@ func (phase *BuildPhase) resolveScopedImportImages(ctx context.Context, img *ima
 				firstOfSbom:         true,
 			}
 			if importElm.Export != nil && importElm.ExportBase != nil {
-				backend, err := importScopeBackend(stg)
+				backend, err := importScopeBackend(stg, published)
 				if err != nil {
 					return nil, err
 				}

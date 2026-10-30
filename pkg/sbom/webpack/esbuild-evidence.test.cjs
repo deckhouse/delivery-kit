@@ -254,13 +254,14 @@ test('refuses to run when the executable is not the one the collector is configu
 	}
 });
 
-// Another loader of the chain decides what esbuild reads or what the module
-// becomes, and the adapter takes no part in the build.
-test('takes no part in a loader chain of more than the esbuild loader', { skip: SKIP }, () => {
+// A chain is observed - another adapter may compose with this transform - but
+// it is never described by this adapter alone: whatever ran around the
+// transform also authored the module, and this adapter says nothing about it.
+test('describes no module of a loader chain of more than the esbuild loader', { skip: SKIP }, () => {
 	const result = build('chain');
 	for (const row of result.report.rows) {
 		assert.equal(row.status, 'no-data');
-		assert.match(row.reason, /was not built by an observed esbuild transform/);
+		assert.match(row.reason, /was built by a chain this adapter does not describe alone/);
 		assert.deepEqual(row.units, []);
 	}
 });

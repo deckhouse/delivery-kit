@@ -44,7 +44,8 @@ function createArea(fixture, name, options = {}) {
 		...workspace,
 		tmp: path.join(path.dirname(workspace.root), `${name}-tmp`),
 		cacheDir: path.join(path.dirname(workspace.root), `${name}-cache`),
-		lockPath: path.join(workspace.root, 'yarn.lock'),
+		lockPath: path.join(workspace.root, options.manager === 'npm' ? 'package-lock.json' : 'yarn.lock'),
+		resolverModule: options.manager === 'npm' ? 'npm-originals.cjs' : 'yarn-originals.cjs',
 		entry: path.join(workspace.root, 'src', 'main.js'),
 		contextPath: path.join(workspace.root, 'context', 'build-context.json'),
 		manifestPath: path.join(workspace.root, 'context', 'webpack-originals.json'),
@@ -56,7 +57,8 @@ function createArea(fixture, name, options = {}) {
 	fs.mkdirSync(path.dirname(area.entry), { recursive: true });
 	area.git = options.git ? installGitPackage(area) : undefined;
 	fs.writeFileSync(area.entry, area.git ? `${ENTRY}import {ui} from ${JSON.stringify(GIT_PACKAGE)};\nconsole.log(ui);\n` : ENTRY);
-	writeYarn(fixture, area);
+	if (options.manager === 'npm') writeNpm(fixture, area);
+	else writeYarn(fixture, area);
 	fs.mkdirSync(path.dirname(area.contextPath), { recursive: true });
 	fs.writeFileSync(area.contextPath, `${JSON.stringify({ version: 1 }, null, 2)}\n`);
 	writeManifest(area, options.git === 'listed');
@@ -107,11 +109,26 @@ function writeYarn(fixture, area) {
 	fs.writeFileSync(area.lockPath, `# yarn lockfile v1\n\n${entries.join('\n')}`);
 }
 
+// The same installs as npm leaves them: a lockfile of its own, and the
+// archives in its content store, put there by npm itself.
+function writeNpm(fixture, area) {
+	const packages = { '': { name: 'app', version: '1.0.0' } };
+	area.cacheDir = path.join(area.cacheDir, '_cacache');
+	fs.mkdirSync(area.cacheDir, { recursive: true });
+	for (const [name, distribution] of Object.entries(fixture.distributions)) {
+		const version = distribution.component.version;
+		packages[`node_modules/${name}`] = { version, resolved: `https://registry.example.test/${name}/-/${name}-${version}.tgz`, integrity: distribution.integrity };
+		const added = spawnSync('npm', ['cache', 'add', distribution.tarball, '--cache', path.dirname(area.cacheDir), '--offline'], { encoding: 'utf8', timeout: DEADLINE_MS });
+		if (added.status !== 0) throw new Error(`npm cache add ${name}: ${added.stderr || added.stdout}`);
+	}
+	fs.writeFileSync(area.lockPath, `${JSON.stringify({ name: 'app', version: '1.0.0', lockfileVersion: 3, requires: true, packages }, null, 2)}\n`);
+}
+
 // A plain CommonJS configuration, as the actual project has one, carrying a
 // plugin that records what the compiler really received: whether the exported
 // object is still the one this file built, which plugins the CLI unshifted into
 // the array literal it carries, which plugins the compiler ended up with, and
-// every answer the Yarn resolver gave the activation.
+// every answer the originals resolver gave the activation.
 function config(area, shape) {
 	const body = `'use strict';
 const fs = require('node:fs');
@@ -121,17 +138,17 @@ const v8 = require('node:v8');
 // The very resolver module the activation loaded before this file was compiled,
 // observed from the outside: these records are its own answers, never a stand-in
 // for it.
-const YarnOriginals = require(${JSON.stringify(path.join(__dirname, 'yarn-originals.cjs'))});
-const yarnCalls = [];
-const resolve = YarnOriginals.prototype.resolve;
-YarnOriginals.prototype.resolve = async function (resource) {
+const Originals = require(${JSON.stringify(path.join(__dirname, area.resolverModule))});
+const originalsCalls = [];
+const resolve = Originals.prototype.resolve;
+Originals.prototype.resolve = async function (resource) {
 	const where = path.relative(${JSON.stringify(area.root)}, resource);
 	try {
 		const binding = await resolve.call(this, resource);
-		yarnCalls.push({resource: where, component: binding ? binding.component.name : null});
+		originalsCalls.push({resource: where, component: binding ? binding.component.name : null});
 		return binding;
 	} catch (error) {
-		yarnCalls.push({resource: where, status: error.status || 'thrown'});
+		originalsCalls.push({resource: where, status: error.status || 'thrown'});
 		throw error;
 	}
 };
@@ -170,7 +187,7 @@ function write(compiler) {
 		nodeOptions: process.env.NODE_OPTIONS || '',
 		argv: process.argv.slice(2),
 		call,
-		yarnCalls,
+		originalsCalls,
 	}, null, 2));
 }
 

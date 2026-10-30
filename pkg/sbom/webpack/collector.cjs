@@ -19,6 +19,8 @@ const { installEsbuildEvidence } = require('./esbuild-evidence.cjs');
 const { installStylesheetEvidence } = require('./stylesheet-evidence.cjs');
 const { installIncludeEvidence, isIncludeLoader } = require('./include-evidence.cjs');
 const { voidEvidence, isVoidModule } = require('./void-evidence.cjs');
+const { installWorkerEvidence, isWorkerLoader, isWorkerEntryLoader } = require('./worker-evidence.cjs');
+const { installStylesheet3Evidence, isStylesheet3Module } = require('./stylesheet3-evidence.cjs');
 const { installDefineEvidence, defineProblem } = require('./define-evidence.cjs');
 const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
@@ -71,6 +73,13 @@ class DkSbomWebpackCollector {
 		options.bannerEvidence = installBannerEvidence(compiler, resource => verifyResource(options, resource));
 		options.sourcemapEvidence = installSourcemapEvidence(compiler, resource => verifyResource(options, resource));
 		options.umdEvidence = (compilation, chunk) => umdEvidence(compilation, chunk, resource => verifyResource(options, resource));
+		options.stylesheet3Evidence = installStylesheet3Evidence(compiler, resource => verifyResource(options, resource), { tails: cssTails(options) });
+		options.workerEvidence = installWorkerEvidence(compiler, resource => verifyResource(options, resource), {
+			// The modules of the worker's own chunk, held to the same account as
+			// every other module of this build.
+			describeModule: (module, compilation, chunk) => moduleUnits(options, module, compilation, chunk),
+			tailTransform: options.esbuildEvidence ? module => options.esbuildEvidence.transformed(module) : undefined,
+		});
 		options.compiler = compiler;
 		options.definePlugins = installDefineEvidence(compiler);
 		options.htmlEvidence = installHtmlEvidence(compiler, resource => verifyResource(options, resource));
@@ -320,6 +329,53 @@ function chunksOf(child) {
 	}
 }
 
+// The tails a loader of this build may stand behind: what esbuild transformed,
+// for a chain that minifies its stylesheet before css-loader reads it. The tail
+// owes that what it returned is the text the asking loader was handed.
+function cssTails(options) {
+	if (!options.esbuildEvidence) return [];
+	return [
+		{
+			matches: request => request === options.esbuild.loader,
+			sourcesOf: async (module, text) => {
+				const described = await options.esbuildEvidence.transformed(module);
+				if (described.failure) return described;
+				if (described.code !== text) {
+					return { units: [], failure: failure('hash-mismatch', `the esbuild transform did not produce the text ${module.identifier()} was built from`) };
+				}
+				return { units: described.units };
+			},
+		},
+	];
+}
+
+// One module of a compilation this collector did not walk, described the way it
+// would have been walked: a caller asks for the units, and owes the refusal.
+async function moduleUnits(options, module, compilation, chunk) {
+	// What its own compilation spliced into it, which the chunk walk decides
+	// before it describes a module of one: a compiler this one makes may have
+	// been given definers the parent never saw.
+	const defined = await definedProblem(options, compilation);
+	if (defined) return { units: [], failure: defined };
+	const collected = { units: new Map(), failures: new Map(), compilation };
+	await collectModule(options, module, collected, compilation, chunk, evidenceOf(options));
+	const refusal = [...collected.failures.values()][0];
+	if (refusal) return { units: [], failure: refusal };
+	return { units: [...collected.units.values()] };
+}
+
+// The stages an asset of this build may have gone through, for whoever
+// describes one.
+function evidenceOf(options) {
+	return {
+		banner: options.bannerEvidence,
+		minifier: options.minifierEvidence,
+		sourcemap: options.sourcemapEvidence,
+		contentHash: options.contentHashEvidence,
+		umd: options.umdEvidence,
+	};
+}
+
 async function collectChunksInto(options, source, compilation, byAsset) {
 	// What the constants of this build are spliced into the modules as, decided
 	// for the compilation that built them: a compiler this one makes may have
@@ -332,17 +388,11 @@ async function collectChunksInto(options, source, compilation, byAsset) {
 		if (chunk.files.size !== 1) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
-		const evidence = {
-			banner: options.bannerEvidence,
-			minifier: options.minifierEvidence,
-			sourcemap: options.sourcemapEvidence,
-			contentHash: options.contentHashEvidence,
-			umd: options.umdEvidence,
-		};
+		const evidence = evidenceOf(options);
 		if (defined) addFailure(collected, defined);
 		try {
 			for (const module of source.chunkGraph.getChunkModulesIterable(chunk)) {
-				await collectModule(options, module, collected, source, chunk);
+				await collectModule(options, module, collected, source, chunk, evidence);
 			}
 			// Every chunk must account for generated wrapper/bootstrap code; an
 			// undescribed renderChunk path remains no-data rather than ordinary
@@ -386,7 +436,7 @@ async function collectChunksInto(options, source, compilation, byAsset) {
 	}
 }
 
-async function collectModule(options, module, collected, compilation, chunk) {
+async function collectModule(options, module, collected, compilation, chunk, evidence = {}) {
 	if (module.type === 'runtime') {
 		const result = await runtimeEvidence(compilation, chunk, module, resource => verifyResource(options, resource));
 		if (result.failure) addFailure(collected, result.failure);
@@ -396,7 +446,7 @@ async function collectModule(options, module, collected, compilation, chunk) {
 	// A ConcatenatedModule is a scope-hoisting wrapper: its inner modules are the
 	// units that really ended up in the chunk.
 	if (module.constructor && module.constructor.name === 'ConcatenatedModule' && Array.isArray(module.modules) && module.rootModule) {
-		for (const inner of module.modules) await collectModule(options, inner, collected, compilation, chunk);
+		for (const inner of module.modules) await collectModule(options, inner, collected, compilation, chunk, evidence);
 		return;
 	}
 	// An external is referenced, not bundled, so it contributes no input here.
@@ -412,7 +462,16 @@ async function collectModule(options, module, collected, compilation, chunk) {
 	// is no longer the unit that was bundled.
 	if (Array.isArray(module.loaders) && module.loaders.length > 0) {
 		let describe;
-		if (options.esbuildEvidence && module.loaders.length === 1 && module.loaders[0].loader === options.esbuild.loader) describe = options.esbuildEvidence;
+		const first = module.loaders[0].loader;
+		// Decided on the loader at the head of the chain, before anything else:
+		// workerize pitches over whatever stands behind it, and the chain behind
+		// the worker entry ends in a loader another adapter would claim.
+		if (isWorkerLoader(first) || isWorkerEntryLoader(first)) describe = built => options.workerEvidence(built, compilation, evidence);
+		// Which modules the style-loader 3 pair built, asked of the recorder that
+		// watched them rather than of the directory they were loaded from: the
+		// older chain is told apart by its own loaders, not by a path.
+		else if (isStylesheet3Module(module)) describe = options.stylesheet3Evidence;
+		else if (options.esbuildEvidence && module.loaders.length === 1 && module.loaders[0].loader === options.esbuild.loader) describe = options.esbuildEvidence;
 		else if (module.loaders.some(item => typeof item.loader === 'string' && /(?:^|[/\\])(?:style-loader|raw-loader)[/\\]/.test(item.loader))) describe = options.stylesheetEvidence;
 		else if (module.loaders.length === 1 && isIncludeLoader(module.loaders[0].loader)) describe = options.includeEvidence;
 		if (describe) {

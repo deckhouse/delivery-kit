@@ -65,7 +65,7 @@ function installEsbuildEvidence(compiler, tool, verifyResource) {
 			});
 		});
 	}
-	return async function evidenceFor(module) {
+	const evidenceFor = async function evidenceFor(module) {
 		if (state.failure) return { units: [], failure: state.failure };
 		try {
 			return await describe(state, spec, records.get(module), module, verifyResource);
@@ -73,6 +73,25 @@ function installEsbuildEvidence(compiler, tool, verifyResource) {
 			return noData(`${identify(module)} could not be described: ${error.message}`);
 		}
 	};
+	// For a module this transform only part-authored: the units of the transform
+	// and the code it returned, with no claim about what the rest of the chain
+	// did to it afterwards.
+	//
+	// What the caller owes, and this adapter deliberately does not check: that
+	// the transform stood where the caller thinks it did, and that the code
+	// returned here is the text the caller's own loader was handed. Both are
+	// facts about the chain, which only the adapter describing the chain holds -
+	// the stylesheet seam, for one, compares the returned code with what its
+	// loader read and refuses the module when they differ.
+	evidenceFor.transformed = async function transformed(module) {
+		if (state.failure) return { units: [], failure: state.failure };
+		try {
+			return await describe(state, spec, records.get(module), module, verifyResource, true);
+		} catch (error) {
+			return noData(`${identify(module)} could not be described: ${error.message}`);
+		}
+	};
+	return evidenceFor;
 }
 
 // What the caller declares is a contract, not an observation: anything that is
@@ -190,10 +209,17 @@ function compilerProblem(compiler) {
 // The loader runs with a clone of its item carrying this module's transform;
 // the rule object the user configured is shared by every module it matches and
 // is never touched.
+// The transform is instrumented wherever it stands in a chain: a module it
+// part-authored is described through `transformed`, by the adapter that
+// describes what ran around it. Where it stands changes nothing about what the
+// transform itself did.
 function instrument(state, spec, records, loaders, module, loaderContext) {
-	if (!Array.isArray(loaders) || loaders.length !== 1) return;
-	const item = loaders[0];
-	if (item === null || typeof item !== 'object' || item.loader !== spec.loader) return;
+	if (!Array.isArray(loaders)) return;
+	// The transform may stand anywhere in a chain, and exactly once: a chain
+	// that runs it twice is one this adapter cannot tell apart.
+	const at = loaders.findIndex((candidate) => candidate !== null && typeof candidate === 'object' && candidate.loader === spec.loader);
+	if (at < 0 || loaders.findIndex((candidate, index) => index > at && candidate !== null && typeof candidate === 'object' && candidate.loader === spec.loader) >= 0) return;
+	const item = loaders[at];
 	const options = item.options;
 	const plain = options === undefined || options === null || (typeof options === 'object' && !Array.isArray(options) && Object.getPrototypeOf(options) === Object.prototype);
 	if (!plain) return;
@@ -239,7 +265,7 @@ function instrument(state, spec, records, loaders, module, loaderContext) {
 		return result;
 	};
 	record.item = { ...item, options: { ...options, implementation: { transform: record.transform } } };
-	loaders[0] = record.item;
+	loaders[at] = record.item;
 	records.set(module, record);
 }
 
@@ -248,7 +274,7 @@ function boundTo(resource, resourcePath) {
 	return resource === resourcePath || resource.startsWith(`${resourcePath}?`) || resource.startsWith(`${resourcePath}#`);
 }
 
-async function describe(state, spec, record, module, verifyResource) {
+async function describe(state, spec, record, module, verifyResource, chained = false) {
 	// Nothing was observed for a module another loader chain built, for one the
 	// adapter refused to instrument, and for one webpack served from its cache
 	// without building it.
@@ -259,8 +285,18 @@ async function describe(state, spec, record, module, verifyResource) {
 
 	const loaders = module.loaders;
 	const options = record.item.options;
-	if (!Array.isArray(loaders) || loaders.length !== 1 || loaders[0] !== record.item) {
-		return noData(`${identify(module)} was not built by the loader item this adapter installed`);
+	// The item this adapter installed must be the one that ran, and it must have
+	// run once.
+	const ran = Array.isArray(loaders) ? loaders.filter((item) => item === record.item).length : 0;
+	if (ran !== 1) return noData(`${identify(module)} was not built by the loader item this adapter installed`);
+	// Alone, this adapter describes only a module this transform authored whole.
+	// A chain around it is described by the caller that takes on the rest of it,
+	// and that caller has no business asking about a module with no rest.
+	if (!chained && loaders.length !== 1) {
+		return noData(`${identify(module)} was built by a chain this adapter does not describe alone`);
+	}
+	if (chained && loaders.length === 1) {
+		return noData(`${identify(module)} was built by this transform alone, which this adapter describes without a caller`);
 	}
 	if (options.implementation === null || typeof options.implementation !== 'object' || options.implementation.transform !== record.transform) {
 		return noData(`the transform of ${identify(module)} was replaced after this adapter installed it`);
@@ -300,10 +336,12 @@ async function describe(state, spec, record, module, verifyResource) {
 		}
 	}
 
-	const kept = bufferOf(module.originalSource && module.originalSource());
-	if (!kept) return noData(`${identify(module)} does not expose the source webpack kept for it`);
-	if (!kept.equals(Buffer.from(code, 'utf8'))) {
-		return failed('hash-mismatch', `the source webpack kept for ${identify(module)} is not the code the transform returned`);
+	if (!chained) {
+		const kept = bufferOf(module.originalSource && module.originalSource());
+		if (!kept) return noData(`${identify(module)} does not expose the source webpack kept for it`);
+		if (!kept.equals(Buffer.from(code, 'utf8'))) {
+			return failed('hash-mismatch', `the source webpack kept for ${identify(module)} is not the code the transform returned`);
+		}
 	}
 
 	const units = [{ path: unit.path, sha256: unit.sha256, component: unit.component }];
@@ -312,7 +350,7 @@ async function describe(state, spec, record, module, verifyResource) {
 		if (runtime.failure) return runtime;
 		units.push(runtime.unit);
 	}
-	return { units };
+	return chained ? { units, code } : { units };
 }
 
 // Metadata an unpatched esbuild never produces, checked against the very text

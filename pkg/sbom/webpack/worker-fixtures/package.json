@@ -1,0 +1,9 @@
+{
+  "name": "dk-sbom-worker-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pins the one runtime dependency of the Git-pinned workerize-loader a worker-evidence test installs. The loader itself is packed from the verified clone DK_WORKERIZE_SOURCE names and is never a dependency of this package.",
+  "dependencies": {
+    "loader-utils": "2.0.4"
+  }
+}

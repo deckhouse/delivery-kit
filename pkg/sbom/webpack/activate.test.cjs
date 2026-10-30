@@ -25,7 +25,13 @@ test('installs every load recorder of this adapter set', () => {
 	const area = createArea(fixture, 'recorders');
 	const result = run(area, {});
 	assert.equal(result.status, 0, result.stderr);
-	assert.deepEqual(result.probe.recorders, ['dk.sbom.webpack.cjs', 'dk.sbom.webpack.include', 'dk.sbom.webpack.stylesheet']);
+	assert.deepEqual(result.probe.recorders, [
+		'dk.sbom.webpack.cjs',
+		'dk.sbom.webpack.include',
+		'dk.sbom.webpack.stylesheet',
+		'dk.sbom.webpack.stylesheet3',
+		'dk.sbom.webpack.worker',
+	]);
 });
 
 test('attaches the collector to the named configuration of a real CLI build', () => {
@@ -51,7 +57,7 @@ test('attaches the collector to the named configuration of a real CLI build', ()
 	// been resolved at all, so the resolver the activation really loaded has to
 	// have answered for the selected packages and to have delegated the primary
 	// source it does not own.
-	const answers = new Map(result.probe.yarnCalls.map((call) => [call.resource, call]));
+	const answers = new Map(result.probe.originalsCalls.map((call) => [call.resource, call]));
 	assert.deepEqual(answers.get('node_modules/pkg-a/index.js'), { resource: 'node_modules/pkg-a/index.js', component: 'pkg-a' });
 	assert.deepEqual(answers.get('node_modules/pkg-b/index.js'), { resource: 'node_modules/pkg-b/index.js', component: 'pkg-b' });
 	assert.deepEqual(answers.get('src/main.js'), { resource: 'src/main.js', component: null }, 'the primary source must be an answered Yarn miss, not an unasked one');
@@ -131,7 +137,7 @@ test('resolves a Git-locked dependency through the build context it was given', 
 	const result = run(area);
 	assert.equal(result.status, 0, result.stderr);
 	assert.ok(emitted(area));
-	const answers = new Map(result.probe.yarnCalls.map((call) => [call.resource, call]));
+	const answers = new Map(result.probe.originalsCalls.map((call) => [call.resource, call]));
 	// The Yarn resolver itself answered for the Git-locked package, which it can
 	// only do through the manifest beside the build context: its cache holds no
 	// archive for that entry at all.
@@ -143,7 +149,47 @@ test('does not attribute a Git-locked dependency the build context does not list
 	const area = createArea(fixture, 'git-unlisted', { git: 'unlisted' });
 	const result = run(area);
 	assert.equal(result.status, 0, result.stderr);
-	const answers = new Map(result.probe.yarnCalls.map((call) => [call.resource, call]));
+	const answers = new Map(result.probe.originalsCalls.map((call) => [call.resource, call]));
 	assert.deepEqual(answers.get(`node_modules/${GIT_PACKAGE}/index.js`), { resource: `node_modules/${GIT_PACKAGE}/index.js`, status: 'no-data' });
 	assert.equal(result.proof.assets[0].status, 'no-data');
+});
+
+// The same project installed by the other package manager: the activation
+// chooses its resolver by the lockfile the project was built from, and that
+// resolver answers for the installed packages.
+test('resolves the originals of an npm-installed project', () => {
+	const area = createArea(fixture, 'npm-project', { manager: 'npm' });
+	const result = run(area);
+	assert.equal(result.status, 0, result.stderr);
+	assert.ok(emitted(area));
+	const answers = new Map(result.probe.originalsCalls.map((call) => [call.resource, call]));
+	assert.deepEqual(answers.get('node_modules/pkg-a/index.js'), { resource: 'node_modules/pkg-a/index.js', component: 'pkg-a' });
+	assert.deepEqual(answers.get('node_modules/pkg-b/index.js'), { resource: 'node_modules/pkg-b/index.js', component: 'pkg-b' });
+	assert.deepEqual(answers.get('src/main.js'), { resource: 'src/main.js', component: null }, 'the primary source must be an answered miss, not an unasked one');
+	assert.deepEqual(result.scratch, [], 'the activation must remove the originals it extracted');
+});
+
+// Which package manager installed the project has to be unambiguous: with two
+// lockfiles beside each other, or none, there is no single account of where the
+// installed bytes came from.
+test('refuses a project whose package manager cannot be told', () => {
+	for (const [name, lockfiles, pattern] of [
+		['two-lockfiles', ['yarn.lock', 'package-lock.json'], /carries yarn\.lock and package-lock\.json/],
+		['no-lockfile', [], /carries no lockfile/],
+		// Shipped by the project rather than written by its install, with rules
+		// of its own that nothing here reads.
+		['shrinkwrap', ['npm-shrinkwrap.json'], /carries npm-shrinkwrap\.json, whose installs this collector does not resolve/],
+		['shrinkwrap-beside-lock', ['yarn.lock', 'npm-shrinkwrap.json'], /carries yarn\.lock and npm-shrinkwrap\.json/],
+	]) {
+		const area = createArea(fixture, name);
+		for (const lockfile of ['yarn.lock', 'package-lock.json', 'npm-shrinkwrap.json']) {
+			const file = path.join(area.root, lockfile);
+			if (lockfiles.includes(lockfile)) fs.writeFileSync(file, fs.existsSync(file) ? fs.readFileSync(file) : '{}\n');
+			else fs.rmSync(file, { force: true });
+		}
+		const result = run(area);
+		assert.notEqual(result.status, 0, `${name} built anyway`);
+		assert.match(result.stderr, pattern);
+		assert.ok(!emitted(area), `${name} emitted an asset`);
+	}
 });

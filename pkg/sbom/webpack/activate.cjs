@@ -28,7 +28,16 @@ const CONFIG = 'DK_SBOM_WEBPACK_CONFIG';
 const PROOF = 'DK_SBOM_WEBPACK_PROOF';
 const CACHE = 'DK_SBOM_YARN_CACHE';
 const CONTEXT = 'SBOM_BUILD_CONTEXT';
-const LOCKFILE = 'yarn.lock';
+// The package managers whose installs this collector can resolve back to
+// published archives, told apart by the lockfile the project was built from.
+// A shipped shrinkwrap is npm's own file with rules of its own, and nothing
+// here reads it: it is named so that a project carrying one is refused rather
+// than resolved by the lockfile beside it.
+const LOCKFILES = new Map([
+	['yarn.lock', './yarn-originals.cjs'],
+	['package-lock.json', './npm-originals.cjs'],
+	['npm-shrinkwrap.json', null],
+]);
 
 if (process.env[CONFIG]) activate();
 
@@ -44,7 +53,9 @@ function activate() {
 	// The load recorder has to be wrapping the module loader before the first
 	// webpack file is compiled; everything else here is loaded after it.
 	require('./stylesheet-preload.cjs');
+	require('./stylesheet3-preload.cjs');
 	require('./include-preload.cjs');
+	require('./worker-preload.cjs');
 	const Module = require('node:module');
 	const Activation = activationPlugin();
 	// Only the one compiled file this activation owns: every other request, of
@@ -108,20 +119,41 @@ function activationPlugin() {
 	const path = require('node:path');
 	const Collector = require('./collector.cjs');
 	const ContextOriginals = require('./context-originals.cjs');
-	const YarnOriginals = require('./yarn-originals.cjs');
+
+	// Which package manager installed this project, said by the lockfile it was
+	// built from. Two of them, or none, leave no single account of where the
+	// installed bytes came from.
+	function lockfileOf(workdir) {
+		const found = [...LOCKFILES.keys()].filter((name) => isFile(path.join(workdir, name)));
+		if (found.length !== 1) {
+			throw new Error(`${NAME}: ${workdir} carries ${found.length === 0 ? 'no lockfile' : `${found.join(' and ')}`}, and one is needed to resolve installed packages`);
+		}
+		const resolver = LOCKFILES.get(found[0]);
+		if (resolver === null) throw new Error(`${NAME}: ${workdir} carries ${found[0]}, whose installs this collector does not resolve`);
+		return { name: found[0], Originals: require(resolver) };
+	}
+
+	function isFile(file) {
+		try {
+			return fs.statSync(file).isFile();
+		} catch {
+			return false;
+		}
+	}
 
 	// One compilation, one scratch base: the extracted originals of that
 	// compilation and nothing else. The build context is handed to the resolver
 	// as well: a dependency the lockfile pins to a Git commit has no cached
 	// archive, and the manifest beside the context is its only evidence.
 	function open(compiler, cacheDir, contextPath) {
+		const { name, Originals } = lockfileOf(compiler.context);
 		const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dk-webpack-originals-'));
 		try {
 			return {
 				base,
-				yarn: new YarnOriginals({
+				originals: new Originals({
 					workdir: compiler.context,
-					lockPath: path.join(compiler.context, LOCKFILE),
+					lockPath: path.join(compiler.context, name),
 					cacheDir,
 					outputRoot: base,
 					contextPath,
@@ -133,9 +165,21 @@ function activationPlugin() {
 		}
 	}
 
+	// A resolver carries what it knows about an installed package - npm's, for
+	// one, carries `hasInstallScript`, which nothing reads yet. An answer that
+	// maps a tree to the distribution it came from is handed on as the three
+	// fields the collector's contract defines, and that field is dropped here
+	// rather than widening a contract for a field with no reader; an answer
+	// about a single verified file is already in the other shape that contract
+	// takes.
+	function installed(resolved) {
+		if (!resolved || typeof resolved.root !== 'string') return resolved;
+		return { root: resolved.root, originalRoot: resolved.originalRoot, component: resolved.component };
+	}
+
 	function close(scope) {
 		try {
-			scope.yarn.close();
+			scope.originals.close();
 		} finally {
 			fs.rmSync(scope.base, { recursive: true, force: true });
 		}
@@ -161,9 +205,10 @@ function activationPlugin() {
 				proofPath: this.settings.proofPath,
 				originals: [],
 				copied: [],
-				// A Yarn failure is a failure of the managed package it names, never
-				// a reason to look for those bytes among the project's own sources.
-				resolveOriginal: async (resource) => (await scope.yarn.resolve(resource)) ?? primary.resolve(resource),
+				// A failure of the package manager is a failure of the managed
+				// package it names, never a reason to look for those bytes among
+				// the project's own sources.
+				resolveOriginal: async (resource) => installed(await scope.originals.resolve(resource)) ?? primary.resolve(resource),
 			}).apply(compiler);
 			for (const outcome of ['done', 'failed']) {
 				compiler.hooks[outcome].tap(NAME, () => {

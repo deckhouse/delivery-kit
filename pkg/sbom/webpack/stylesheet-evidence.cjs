@@ -5,6 +5,10 @@
 // raw-loader was handed, and the module style-loader pitched to the template
 // its own source carries.
 //
+// Behind those two loaders the chain may end in a sass-loader, and then the
+// text raw-loader was handed is css no file carries: what that module
+// contributes is what sass-evidence.cjs observed the render consume.
+//
 // A described module contributes the inputs those two observations cover: the
 // verified stylesheet raw-loader was given, and the verified loader file whose
 // code the module is. The style-loader runtime that ends up in the bundle is an
@@ -16,6 +20,8 @@
 
 const crypto = require('node:crypto');
 const path = require('node:path');
+
+const { installSassEvidence, isKnownSassLoader } = require('./sass-evidence.cjs');
 
 const NAME = 'DkSbomStylesheetEvidence';
 const REGISTRY = Symbol.for('dk.sbom.webpack.cjs');
@@ -30,6 +36,10 @@ function installStylesheetEvidence(compiler, verifyResource) {
 	const recorder = globalThis[STYLESHEET];
 	const registry = globalThis[REGISTRY];
 	const problem = prepare(compiler, recorder, registry);
+	// Installed whatever this adapter can describe: the sass tail of a chain has
+	// to be instrumented before the first module is built, and the records it
+	// keeps are read through the raw module of that very chain.
+	const sassEvidence = problem ? undefined : installSassEvidence(compiler, verifyResource);
 	const compilations = new Set();
 	if (!problem) {
 		compiler.hooks.compilation.tap(NAME, (compilation) => compilations.add(compilation));
@@ -39,7 +49,7 @@ function installStylesheetEvidence(compiler, verifyResource) {
 	return async function evidenceFor(module) {
 		if (problem) return problem;
 		try {
-			return await describe({ recorder, registry, compilations, verifyResource }, module);
+			return await describe({ recorder, registry, compilations, verifyResource, sassEvidence }, module);
 		} catch (error) {
 			return noData(`${identify(module)} could not be described: ${error.message}`);
 		}
@@ -69,24 +79,32 @@ async function describe(context, module) {
 // What raw-loader turned the stylesheet into: the text it was handed has to be
 // the verified bytes of the file, and what it returned has to be the one string
 // its published body can produce from that text.
+//
+// Behind a sass tail that text is no file of its own but the css a render
+// produced, and the sources of the module are the ones that render consumed.
 async function describeRaw(context, module, call) {
 	const info = context.recorder.loaderOf('raw');
 	const ready = usable(info, call, 'raw-loader');
 	if (ready) return ready;
 	const published = publishedLoader(context.registry, info);
 	if (published) return published;
-	if (!Array.isArray(module.loaders) || module.loaders.length !== 1 || resolved(module.loaders[0].loader) !== info.file) {
+	const chain = Array.isArray(module.loaders) ? module.loaders : [];
+	const compiled = chain.length === 2 && isKnownSassLoader(chain[1].loader);
+	if ((chain.length !== 1 && !compiled) || resolved(chain[0].loader) !== info.file) {
 		return noData(`${identify(module)} was not built by raw-loader alone`);
 	}
 	if (loadedExports(info.file) !== info.wrapper) return noData(`${info.file} was replaced after this adapter recorded it`);
-	const bound = boundTo(call.context, module, 1, 0);
+	const bound = boundTo(call.context, module, chain.length, 0);
 	if (bound) return bound;
-	if (call.arity !== 1 || typeof call.input !== 'string' || typeof call.output !== 'string') {
+	// Behind a sass tail the loader is handed the css and the source map of the
+	// render; raw-loader keeps the text and drops the rest.
+	if (call.arity !== (compiled ? 2 : 1) || typeof call.input !== 'string' || typeof call.output !== 'string') {
 		return noData(`${identify(module)} was not built from text alone`);
 	}
 
-	const source = await sourceUnit(context, call.context.resourcePath, call.input);
+	const source = compiled ? await context.sassEvidence(module, call.input) : await sourceUnit(context, call.context.resourcePath, call.input);
 	if (source.failure) return source;
+	const sources = compiled ? source.units : [source.unit];
 	// The one string the published loader body returns for that text; its own
 	// output is the record, this is what it has to be.
 	if (call.output !== `module.exports = ${JSON.stringify(call.input)}`) {
@@ -100,7 +118,7 @@ async function describeRaw(context, module, call) {
 
 	const loader = await loaderUnit(context, info);
 	if (loader.failure) return loader;
-	return { units: [source.unit, loader.unit] };
+	return { units: [...sources, loader.unit] };
 }
 
 // What style-loader pitched: it never read the stylesheet, so its module is the
@@ -117,13 +135,17 @@ async function describeStyle(context, module, pitch) {
 	if (info.api.pitch !== info.wrapper || pitch.method !== info.wrapper) return noData(`the pitch of ${info.file} was replaced after this adapter recorded it`);
 
 	const raw = context.recorder.loaderOf('raw');
-	if (!Array.isArray(module.loaders) || module.loaders.length !== 2 || loadedExports(module.loaders[0].loader) !== info.api) {
+	const chain = Array.isArray(module.loaders) ? module.loaders : [];
+	// The tail never ran for this module: style-loader pitched over it, and what
+	// it did run for is the module of the very request that was pitched.
+	const compiled = chain.length === 3 && isKnownSassLoader(chain[2].loader);
+	if ((chain.length !== 2 && !compiled) || loadedExports(chain[0] && chain[0].loader) !== info.api) {
 		return noData(`${identify(module)} was not pitched by style-loader at the head of its chain`);
 	}
-	if (!raw || !raw.usable || resolved(module.loaders[1].loader) !== raw.file) {
+	if (!raw || !raw.usable || resolved(chain[1].loader) !== raw.file) {
 		return noData(`${identify(module)} was not pitched over raw-loader alone`);
 	}
-	const bound = boundTo(pitch.context, module, 2, 0);
+	const bound = boundTo(pitch.context, module, chain.length, 0);
 	if (bound) return bound;
 	if (typeof pitch.request !== 'string' || pitch.request === '' || typeof pitch.output !== 'string') {
 		return noData(`${identify(module)} was pitched without a request of its own`);

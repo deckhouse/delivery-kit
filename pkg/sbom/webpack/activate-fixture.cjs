@@ -17,6 +17,18 @@ const ACTIVATE = path.join(__dirname, 'activate.cjs');
 const HEAP_LIMIT_MB = 512;
 const DEADLINE_MS = 60000;
 const ENTRY = 'import {a} from "pkg-a";\nconsole.log(a());\n';
+// A dependency a Yarn 1 lockfile pins to a Git commit: no integrity, and a cache
+// that records the commit rather than bytes anybody checked.
+const GIT_COMMIT = 'a1c32a45e83fdda4baafc7ca3105c3ead383f8ba';
+const GIT_PACKAGE = 'git-dep';
+const GIT_LOCATOR = `git+https://github.com/example/${GIT_PACKAGE}.git#${GIT_COMMIT}`;
+const GIT_BODY = 'export const ui = 7;\n';
+const GIT_COMPONENT = {
+	id: 'node:git-dep',
+	name: GIT_PACKAGE,
+	version: '1.0.0',
+	source: { kind: 'node', locator: GIT_LOCATOR, checksum: `git-commit:sha1:${GIT_COMMIT}` },
+};
 const PRIMARY = {
 	id: 'pm:app-source@1.0.0',
 	name: 'app-source',
@@ -42,11 +54,12 @@ function createArea(fixture, name, options = {}) {
 	};
 	fs.mkdirSync(area.tmp, { recursive: true });
 	fs.mkdirSync(path.dirname(area.entry), { recursive: true });
-	fs.writeFileSync(area.entry, ENTRY);
+	area.git = options.git ? installGitPackage(area) : undefined;
+	fs.writeFileSync(area.entry, area.git ? `${ENTRY}import {ui} from ${JSON.stringify(GIT_PACKAGE)};\nconsole.log(ui);\n` : ENTRY);
 	writeYarn(fixture, area);
 	fs.mkdirSync(path.dirname(area.contextPath), { recursive: true });
 	fs.writeFileSync(area.contextPath, `${JSON.stringify({ version: 1 }, null, 2)}\n`);
-	writeManifest(area);
+	writeManifest(area, options.git === 'listed');
 	fs.writeFileSync(area.configPath, config(area, options.asFunction === true));
 	fs.writeFileSync(area.unmatchedConfigPath, config(area, false));
 	return area;
@@ -54,13 +67,29 @@ function createArea(fixture, name, options = {}) {
 
 // The verified expected hashes DK writes beside the read-only build context
 // after validating the scoped PM originals.
-function writeManifest(area) {
+function writeManifest(area, withGit) {
 	const manifest = {
 		version: 1,
 		components: [PRIMARY],
 		files: [{ path: area.entry, sha256: `sha256:${crypto.createHash('sha256').update(fs.readFileSync(area.entry)).digest('hex')}`, component: PRIMARY.id }],
 	};
+	// What DK verified from the Git commit itself: the installed files whose
+	// bytes are the commit's own, under the component that names that commit.
+	if (withGit) {
+		manifest.components.push(GIT_COMPONENT);
+		manifest.files.push({ path: area.git.source, sha256: `sha256:${crypto.createHash('sha256').update(GIT_BODY).digest('hex')}`, component: GIT_COMPONENT.id });
+		manifest.lifecycle = [{ component: GIT_COMPONENT.id, hooks: ['prepare'] }];
+	}
 	fs.writeFileSync(area.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+// The install of the Git-locked package, as Yarn leaves it in the workspace.
+function installGitPackage(area) {
+	const root = path.join(area.modules, GIT_PACKAGE);
+	fs.mkdirSync(root, { recursive: true });
+	fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: GIT_PACKAGE, version: GIT_COMPONENT.version, main: 'index.js', type: 'module' }));
+	fs.writeFileSync(path.join(root, 'index.js'), GIT_BODY);
+	return { root, source: path.join(root, 'index.js') };
 }
 
 function writeYarn(fixture, area) {
@@ -74,6 +103,7 @@ function writeYarn(fixture, area) {
 		fs.writeFileSync(path.join(cached, '.yarn-metadata.json'), JSON.stringify({ manifest: { name, version }, remote: { type: 'tarball', resolved, integrity: distribution.integrity } }));
 		fs.copyFileSync(distribution.tarball, path.join(cached, '.yarn-tarball.tgz'));
 	}
+	if (area.git) entries.push(`${JSON.stringify(`${GIT_PACKAGE}@${GIT_LOCATOR}`)}:\n  version ${JSON.stringify(GIT_COMPONENT.version)}\n  resolved ${JSON.stringify(GIT_LOCATOR)}\n`);
 	fs.writeFileSync(area.lockPath, `# yarn lockfile v1\n\n${entries.join('\n')}`);
 }
 
@@ -196,4 +226,4 @@ function read(file) {
 	}
 }
 
-module.exports = { createArea, writeManifest, run, HEAP_LIMIT_MB, PRIMARY };
+module.exports = { createArea, writeManifest, run, HEAP_LIMIT_MB, PRIMARY, GIT_COMPONENT, GIT_PACKAGE };

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/buildcontext"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -102,6 +104,40 @@ var _ = ginkgo.Describe("Materializing webpack source evidence", func() {
 		for _, file := range manifest.Files {
 			gomega.Expect(file.Component).To(gomega.Equal(component))
 		}
+	})
+
+	ginkgo.It("names a verified Git original beside the pm imports, with the hooks its manifest defines", func(ctx ginkgo.SpecContext) {
+		repo := originalRegistryHost(ctx) + "/test/original"
+		pinned := pushOriginalImage(ctx, repo, "image", originalImageFixture("linux/amd64", map[string]string{"/ui/actual.ts": "actual body"}))
+		declaration := fixtureDeclaration(repo, pinned, buildcontext.Import{Path: "/ui/actual.ts", Package: packageIndex(0), OriginalPath: "ui/actual.ts"})
+		observed := fixtureIndex(map[string]string{"/ui/actual.ts": "actual body"})
+		directory := materializationScratch()
+		git := GitOriginal{
+			Component: shared.BuildComponent{ID: "node:git", Name: "argo-ui", Version: "1.0.0", Source: shared.BuildSource{
+				Kind: "node", Locator: "git+https://github.com/argoproj/argo-ui.git#" + strings.Repeat("a", 40), Checksum: "git-commit:sha1:" + strings.Repeat("a", 40),
+			}},
+			Files:     []GitOriginalFile{{Path: "/app/node_modules/argo-ui/index.js", SHA256: digest([]byte("installed body"))}},
+			Lifecycle: []string{"prepare"},
+		}
+
+		_, err := MaterializeBuildContext(ctx, declaration, observed, directory, MaterializeBuildContextOptions{ContainerRoot: "/dk/context", WebpackSources: true, GitOriginals: []GitOriginal{git}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		component := webpackComponentID(repo, pinned, "linux/amd64")
+		gomega.Expect(materializedWebpackOriginals(directory)).To(gomega.Equal(fmt.Sprintf(
+			`{"version":1,"components":[{"id":"node:git","name":"argo-ui","version":"1.0.0","source":{"kind":"node","locator":%q,"checksum":%q}},{"id":%q,"name":"original","version":"1.0","source":{"kind":"pm","locator":%q,"checksum":%q}}],"files":[{"path":"/app/node_modules/argo-ui/index.js","sha256":%q,"component":"node:git"},{"path":"/ui/actual.ts","sha256":%q,"component":%q}],"lifecycle":[{"component":"node:git","hooks":["prepare"]}]}`,
+			git.Component.Source.Locator, git.Component.Source.Checksum, component, repo, pinned,
+			digest([]byte("installed body")), digest([]byte("actual body")), component)))
+	})
+
+	ginkgo.It("refuses a Git original the context would not carry a manifest for", func(ctx ginkgo.SpecContext) {
+		repo := originalRegistryHost(ctx) + "/test/original"
+		pinned := pushOriginalImage(ctx, repo, "image", originalImageFixture("linux/amd64", map[string]string{"/ui/actual.ts": "actual body"}))
+		directory := materializationScratch()
+
+		_, err := MaterializeBuildContext(ctx, fixtureDeclaration(repo, pinned), fixtureIndex(map[string]string{"/ui/actual.ts": "actual body"}), directory,
+			MaterializeBuildContextOptions{ContainerRoot: "/dk/context", GitOriginals: []GitOriginal{{Component: shared.BuildComponent{ID: "node:git"}}}})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("have no manifest to be named in")))
 	})
 
 	ginkgo.It("states the empty mapping of a context that imports nothing", func(ctx ginkgo.SpecContext) {

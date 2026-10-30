@@ -39,6 +39,24 @@ type sbomBuildContextStage struct {
 	Packages       []sbomBuildContextPackage `json:"packages"`
 	GoEmbed        []sbomBuildContextGoEmbed `json:"goEmbed,omitempty"`
 	WebpackSources bool                      `json:"webpackSources,omitempty"`
+	// GitSources bind a Node dependency a lockfile pins to a Git commit to the git
+	// mapping of this very config that DK fetches that commit through. The binding is
+	// the producer's claim about its own recipe; the verification that the mapping is
+	// that repository at that commit, and that the commit holds the named package, is
+	// the consumer's.
+	GitSources []sbomBuildContextGitSource `json:"gitSources,omitempty"`
+}
+
+type sbomBuildContextGitSource struct {
+	// To is the `to` path of the git mapping, which names it within the config.
+	To string `json:"to"`
+	// Locator is the lockfile `resolved` value of the dependency, verbatim.
+	Locator string `json:"locator"`
+	// InstalledPath is where the package is installed in the produced stage, under a
+	// node_modules directory of the project.
+	InstalledPath  string `json:"installedPath"`
+	PackageName    string `json:"packageName"`
+	PackageVersion string `json:"packageVersion"`
 }
 
 type sbomBuildContextGoEmbed struct {
@@ -62,6 +80,10 @@ type sbomBuildContextPackage struct {
 var sbomBuildContextStageNames = []stage.StageName{stage.BeforeInstall, stage.Install, stage.BeforeSetup, stage.Setup}
 
 var sbomBuildContextPlatformRegexp = regexp.MustCompile(`^linux/[a-z0-9]+(/[a-z0-9]+)?$`)
+
+// sbomBuildContextGitLocatorRegexp is a Git dependency pinned to a full commit. A branch,
+// a tag or a short commit names no bytes and is not a locator this declaration carries.
+var sbomBuildContextGitLocatorRegexp = regexp.MustCompile(`^git\+(https|ssh)://[^\s#]+#[0-9a-f]{40}$`)
 
 func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
@@ -103,6 +125,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		}
 		if value, present := fields["goEmbed"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: goEmbed must be an array", stageName)
+		}
+		if value, present := fields["gitSources"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: gitSources must be an array", stageName)
 		}
 	}
 
@@ -161,6 +186,45 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 				return fmt.Errorf("goEmbed %d: %s must be a clean absolute path", i, field.name)
 			}
 		}
+	}
+
+	// A Git original is named in the private webpack originals manifest and nowhere
+	// else, so a binding without that manifest could prove nothing.
+	if len(declared.GitSources) > 0 && !declared.WebpackSources {
+		return fmt.Errorf("gitSources require webpackSources")
+	}
+
+	mappings := make(map[string]bool, len(declared.GitSources))
+	installed := make(map[string]bool, len(declared.GitSources))
+	for i, binding := range declared.GitSources {
+		for _, field := range []struct{ name, value string }{
+			{"to", binding.To}, {"locator", binding.Locator}, {"installedPath", binding.InstalledPath},
+			{"packageName", binding.PackageName}, {"packageVersion", binding.PackageVersion},
+		} {
+			if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
+				return fmt.Errorf("gitSource %d: %w", i, err)
+			}
+		}
+		for _, field := range []struct{ name, value string }{{"to", binding.To}, {"installedPath", binding.InstalledPath}} {
+			if !path.IsAbs(field.value) || path.Clean(field.value) != field.value {
+				return fmt.Errorf("gitSource %d: %s must be a clean absolute path", i, field.name)
+			}
+		}
+		if !sbomBuildContextGitLocatorRegexp.MatchString(binding.Locator) {
+			return fmt.Errorf("gitSource %d: locator %q does not pin a repository to a full commit", i, binding.Locator)
+		}
+		// The installed path is the physical package directory of that very package,
+		// so a binding cannot name the install of one package as another one.
+		if !strings.HasSuffix(binding.InstalledPath, "/node_modules/"+binding.PackageName) {
+			return fmt.Errorf("gitSource %d: installedPath %q is not the node_modules directory of %s", i, binding.InstalledPath, binding.PackageName)
+		}
+		if mappings[binding.To] {
+			return fmt.Errorf("gitSource %d: to %q is declared more than once", i, binding.To)
+		}
+		if installed[binding.InstalledPath] {
+			return fmt.Errorf("gitSource %d: installedPath %q is declared more than once", i, binding.InstalledPath)
+		}
+		mappings[binding.To], installed[binding.InstalledPath] = true, true
 	}
 
 	if declared.Subject == nil {

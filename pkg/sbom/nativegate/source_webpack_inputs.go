@@ -21,6 +21,10 @@ type webpackOriginals struct {
 	Version    int                     `json:"version"`
 	Components []shared.BuildComponent `json:"components"`
 	Files      []webpackOriginalFile   `json:"files"`
+	// Lifecycle names, per component, the install hooks its own manifest defines. It
+	// is why a file the component holds may be absent: what a hook wrote is not the
+	// original's bytes, and the reader attributes no path it does not list.
+	Lifecycle []webpackOriginalLifecycle `json:"lifecycle,omitempty"`
 }
 
 // webpackOriginalFile carries the expected digest of an imported path, not a claim that
@@ -31,11 +35,16 @@ type webpackOriginalFile struct {
 	Component string `json:"component"`
 }
 
+type webpackOriginalLifecycle struct {
+	Component string   `json:"component"`
+	Hooks     []string `json:"hooks"`
+}
+
 // webpackOriginalsManifest states each import as the original entry it was just verified
 // against, under the pm identity that serves it. The digest is the original's own, never
 // the observed file's: the observed bytes are evidence only because the verification
 // this follows found them equal.
-func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string]*resolvedSource, indexes []string) ([]byte, error) {
+func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string]*resolvedSource, indexes []string, gitOriginals []GitOriginal) ([]byte, error) {
 	manifest := webpackOriginals{Version: 1, Components: []shared.BuildComponent{}, Files: []webpackOriginalFile{}}
 	held := map[string]webpackOriginalFile{}
 	for _, mapping := range imports {
@@ -58,6 +67,26 @@ func webpackOriginalsManifest(imports []buildcontext.Import, resolved map[string
 				ID: source.ID, Name: source.Package.Name, Version: source.Package.Version,
 				Source: shared.BuildSource{Kind: "pm", Locator: source.Source.Registry, Checksum: source.Package.Digest},
 			})
+		}
+	}
+
+	for _, original := range gitOriginals {
+		if slices.ContainsFunc(manifest.Components, func(component shared.BuildComponent) bool { return component.ID == original.Component.ID }) {
+			return nil, fmt.Errorf("%s: a second original claims the identity %s", original.Component.Name, original.Component.ID)
+		}
+		manifest.Components = append(manifest.Components, original.Component)
+		if len(original.Lifecycle) > 0 {
+			manifest.Lifecycle = append(manifest.Lifecycle, webpackOriginalLifecycle{Component: original.Component.ID, Hooks: original.Lifecycle})
+		}
+		for _, file := range original.Files {
+			if err := namespacePath(file.Path); err != nil {
+				return nil, fmt.Errorf("%s: installed %w", original.Component.Name, err)
+			}
+			entry := webpackOriginalFile{Path: file.Path, SHA256: file.SHA256, Component: original.Component.ID}
+			if claimed, taken := held[file.Path]; taken && claimed != entry {
+				return nil, fmt.Errorf("%s: claimed for a second original identity or digest", file.Path)
+			}
+			held[file.Path] = entry
 		}
 	}
 

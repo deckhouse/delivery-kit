@@ -428,10 +428,82 @@ test('reports no-data for a missing cached archive and for a Git-backed lock ent
 	const git = area('git-locator');
 	const gitInstalled = install(git, dist);
 	cache(git, dist);
-	lock(git, [lockEntry(dist, { resolved: 'git+https://github.com/example/pkg-a.git#0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6', integrity: null })]);
+	lock(git, [lockEntry(dist, { resolved: GIT_LOCATOR, integrity: null })]);
+	// A Git entry is resolved against the verified build context alone; without
+	// one there is nothing the Yarn cache could stand in with.
 	const unproven = await rejection(git.resolver().resolve(path.join(gitInstalled, 'index.js')));
 	assert.equal(unproven.status, 'no-data');
-	assert.match(unproven.message, /not an http registry archive/);
+	assert.match(unproven.message, /no verified build context/);
+});
+
+// A Git locator that pins a commit, and the manifest DK writes for it.
+const GIT_COMMIT = '0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6';
+const GIT_LOCATOR = `git+https://github.com/example/pkg-a.git#${GIT_COMMIT}`;
+
+function gitArea(id, dist, overrides = {}) {
+	const where = area(id);
+	const installed = install(where, dist);
+	cache(where, dist);
+	lock(where, [lockEntry(dist, { resolved: overrides.resolved || GIT_LOCATOR, integrity: null })]);
+	const contextDir = path.join(where.root, 'context');
+	fs.mkdirSync(contextDir, { recursive: true });
+	const component = {
+		id: 'node:pkg-a',
+		name: dist.name,
+		version: dist.version,
+		source: { kind: 'node', locator: GIT_LOCATOR, checksum: `git-commit:sha1:${GIT_COMMIT}` },
+		...overrides.component,
+	};
+	const source = path.join(installed, 'index.js');
+	const manifest = {
+		version: 1,
+		components: [component],
+		files: [{ path: source, sha256: `sha256:${crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex')}`, component: component.id }],
+		lifecycle: [{ component: component.id, hooks: ['prepare'] }],
+		...overrides.manifest,
+	};
+	fs.writeFileSync(path.join(contextDir, 'webpack-originals.json'), JSON.stringify(manifest));
+	return { where, source, manifest, resolver: where.resolver({ contextPath: path.join(contextDir, 'context.json') }) };
+}
+
+test('binds a Git-locked package to the file digest DK verified from its commit', async () => {
+	const dist = distribution('pkg-a', '1.2.3');
+	const git = gitArea('git-verified', dist);
+	const binding = await git.resolver.resolve(git.source);
+	assert.deepEqual(binding, { path: git.source, sha256: git.manifest.files[0].sha256, component: git.manifest.components[0] });
+	// No archive is extracted and no scratch tree is left for a Git original.
+	assert.equal(fs.readdirSync(git.where.outputRoot).length, 0);
+});
+
+test('reports no-data for a Git-locked file the verified manifest does not list', async () => {
+	const dist = distribution('pkg-a', '1.2.3');
+	const git = gitArea('git-unlisted', dist, { manifest: { files: [] } });
+	const error = await rejection(git.resolver.resolve(git.source));
+	assert.equal(error.status, 'no-data');
+	assert.match(error.message, /no verified primary-source mapping/);
+});
+
+test('refuses a verified original that does not pin the locked commit or identity', async () => {
+	const dist = distribution('pkg-a', '1.2.3');
+	for (const [id, component] of [
+		['other-commit', { source: { kind: 'node', locator: GIT_LOCATOR.replace(GIT_COMMIT, 'a'.repeat(40)), checksum: `git-commit:sha1:${'a'.repeat(40)}` } }],
+		['other-version', { version: '9.9.9' }],
+		['other-name', { name: 'pkg-b' }],
+	]) {
+		const git = gitArea(`git-${id}`, dist, { component });
+		const error = await rejection(git.resolver.resolve(git.source));
+		assert.equal(error.status, 'invalid', id);
+	}
+});
+
+test('reports no-data for a Git locator the manifest reader would not pin either', async () => {
+	const dist = distribution('pkg-a', '1.2.3');
+	for (const resolved of [`git+https://github.com/example/pkg-a.git#${GIT_COMMIT.slice(0, 8)}`, `git+https://github.com/example/pkg-a.git#${GIT_COMMIT.toUpperCase()}`, 'git+https://github.com/example/pkg-a.git']) {
+		const git = gitArea(`git-unpinned-${resolved.length}-${resolved.slice(-4)}`, dist, { resolved });
+		const error = await rejection(git.resolver.resolve(git.source));
+		assert.equal(error.status, 'no-data', resolved);
+		assert.match(error.message, /not an http registry archive/);
+	}
 });
 
 test('accepts any http registry locator and checks the bytes, not the file name', async () => {

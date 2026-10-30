@@ -101,8 +101,10 @@ function activationPlugin() {
 	const YarnOriginals = require('./yarn-originals.cjs');
 
 	// One compilation, one scratch base: the extracted originals of that
-	// compilation and nothing else.
-	function open(compiler, cacheDir) {
+	// compilation and nothing else. The build context is handed to the resolver
+	// as well: a dependency the lockfile pins to a Git commit has no cached
+	// archive, and the manifest beside the context is its only evidence.
+	function open(compiler, cacheDir, contextPath) {
 		const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dk-webpack-originals-'));
 		try {
 			return {
@@ -112,6 +114,7 @@ function activationPlugin() {
 					lockPath: path.join(compiler.context, LOCKFILE),
 					cacheDir,
 					outputRoot: base,
+					contextPath,
 				}),
 			};
 		} catch (error) {
@@ -138,11 +141,11 @@ function activationPlugin() {
 			// The verified primary sources of this very build context, read where
 			// the compiler runs rather than in the Yarn parent that spawned it.
 			const primary = new ContextOriginals(this.settings.contextPath);
-			const cacheDir = this.settings.cacheDir;
+			const { cacheDir, contextPath } = this.settings;
 			let scope = null;
 			compiler.hooks.thisCompilation.tap(NAME, () => {
 				if (scope) throw new Error(`${NAME}: a second compilation of this compiler is not supported`);
-				scope = open(compiler, cacheDir);
+				scope = open(compiler, cacheDir, contextPath);
 			});
 			new Collector({
 				proofPath: this.settings.proofPath,

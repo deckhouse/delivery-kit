@@ -42,6 +42,12 @@ type MaterializeBuildContextOptions struct {
 	// states the digests the imports were just proven against, so the Node collector
 	// rehashes the sources a bundle consumed instead of reading the exported layouts.
 	WebpackSources bool
+
+	// GitOriginals are the Git-pinned Node distributions the caller verified, each
+	// with the installed files it was found to serve. They are named in the same
+	// private manifest, which is the only place the Node resolver may learn that a
+	// Git-locked package has an original at all.
+	GitOriginals []GitOriginal
 }
 
 // MaterializeBuildContext fills a prepared build context declaration with the original
@@ -149,7 +155,7 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 	}
 
 	if opts.WebpackSources {
-		manifest, err := webpackOriginalsManifest(imports, resolved, indexes)
+		manifest, err := webpackOriginalsManifest(imports, resolved, indexes, opts.GitOriginals)
 		if err != nil {
 			return "", err
 		}
@@ -188,6 +194,9 @@ func writeContext(filename string, data []byte) error {
 func checkDeclaredStructure(declaration *buildcontext.Context, opts MaterializeBuildContextOptions) error {
 	if len(opts.Snapshots) > 0 && len(declaration.Imports) > 0 {
 		return fmt.Errorf("invalid: imports derived from the stage snapshots leave no room for %d declared ones", len(declaration.Imports))
+	}
+	if len(opts.GitOriginals) > 0 && !opts.WebpackSources {
+		return fmt.Errorf("invalid: %d verified Git originals have no manifest to be named in", len(opts.GitOriginals))
 	}
 
 	pending := *declaration

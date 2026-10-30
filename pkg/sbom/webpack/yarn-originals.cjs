@@ -13,6 +13,10 @@
 // hashed once and extracted from that same buffer, so the verified bytes are
 // the extracted bytes.
 //
+// A lock entry pinning a Git commit has no archive and no integrity, so it is
+// resolved against the build context manifest instead, which names what DK
+// verified from the commit itself; see gitOriginal().
+//
 // Lifetime: one instance covers one compilation. The lockfile and the cache
 // index are read once, on the first resolve; a later lockfile edit is not
 // observed. Construct a new resolver for every compilation and call close()
@@ -26,12 +30,18 @@ const lockfile = require('@yarnpkg/lockfile');
 const ssri = require('ssri');
 const tar = require('tar');
 
+const ContextOriginals = require('./context-originals.cjs');
+
 const NAME = 'DkSbomYarnOriginals';
 const NODE_MODULES = 'node_modules';
 const METADATA_FILE = '.yarn-metadata.json';
 const ARCHIVE_FILE = '.yarn-tarball.tgz';
 const ARCHIVE_PREFIX = 'package';
 const BERRY_MARKER = /^__metadata:/m;
+// A Git dependency pinned to a full commit. Yarn's cache records only that
+// commit, never bytes it checked, so such an entry has no archive evidence and
+// is resolved against the verified build context instead.
+const GIT_LOCATOR = /^git\+(?:https|ssh):\/\/[^\s#]+#([0-9a-f]{40})$/;
 const EXTRACTABLE_ENTRY_TYPES = ['File', 'OldFile', 'Directory'];
 const DIGEST_BYTES = new Map([
 	['sha1', 20],
@@ -44,11 +54,15 @@ const SUPPORTED_SPELLING = /^(sha1|sha256|sha384|sha512)(?![a-z0-9])/i;
 class DkSbomYarnOriginals {
 	constructor(options) {
 		if (!isPlainObject(options)) throw new Error(`${NAME}: options object is required`);
-		checkKeys(options, ['workdir', 'lockPath', 'cacheDir', 'outputRoot'], 'options');
+		checkKeys(options, ['workdir', 'lockPath', 'cacheDir', 'outputRoot', 'contextPath'], 'options');
 		this.workdir = requireDirectory(options.workdir, 'options.workdir');
 		this.lockPath = requireAbsolutePath(options.lockPath, 'options.lockPath');
 		this.cacheDir = requireDirectory(options.cacheDir, 'options.cacheDir');
 		this.outputRoot = prepareOutputRoot(options.outputRoot, [this.workdir, this.cacheDir]);
+		// The build context file DK wrote; the private originals manifest beside it is
+		// the only evidence a Git-locked dependency can be resolved against.
+		this.contextPath = options.contextPath === undefined ? null : requireAbsolutePath(options.contextPath, 'options.contextPath');
+		this.context = null;
 		this.locked = null;
 		this.cached = null;
 		this.originals = new Map();
@@ -63,6 +77,7 @@ class DkSbomYarnOriginals {
 		}
 		const identity = readInstalledIdentity(installed, resource);
 		const entry = this.lockEntry(identity);
+		if (entry.commit) return this.gitOriginal(resource, identity, entry);
 		const component = describeComponent(identity, entry);
 		const originalRoot = await this.original(component, identity, entry);
 		return { root: installed.root, originalRoot, component };
@@ -83,6 +98,9 @@ class DkSbomYarnOriginals {
 			throw fail('no-data', `lockfile pins ${identityKey(identity)} to more than one distribution: ${entry.ambiguous.join(', ')}`);
 		}
 		if (!isRegistryLocator(entry.resolved)) {
+			const git = GIT_LOCATOR.exec(typeof entry.resolved === 'string' ? entry.resolved : '');
+			if (git) return { ...entry, commit: git[1] };
+
 			throw fail('no-data', `lockfile entry for ${identityKey(identity)} is not an http registry archive: ${entry.resolved || 'without a locator'}`);
 		}
 		if (typeof entry.integrity !== 'string' || entry.integrity === '') {
@@ -125,6 +143,25 @@ class DkSbomYarnOriginals {
 			throw fail('no-data', `lockfile entry for ${identityKey(identity)} carries ${strongest.length} ${algorithm} checksums`);
 		}
 		return { ...entry, checksum: strongest[0].toString() };
+	}
+
+	// The file binding DK verified for a Git-locked package: the commit of the
+	// lock entry, read back from the build context manifest and held against that
+	// very entry. The Yarn cache takes no part — it records the commit a fetch
+	// claimed, not bytes it checked — and neither does any package manager: a
+	// package the manifest does not list stays no-data.
+	gitOriginal(resource, identity, entry) {
+		if (!this.contextPath) throw fail('no-data', `no verified build context for the Git-locked ${identityKey(identity)}`);
+		if (!this.context) this.context = new ContextOriginals(this.contextPath);
+		const binding = this.context.resolve(resource);
+		const component = binding.component;
+		if (component.source.kind !== 'node' || component.source.locator !== entry.resolved || component.source.checksum !== `git-commit:sha1:${entry.commit}`) {
+			throw fail('invalid', `the verified original of ${resource} does not pin ${entry.resolved}`);
+		}
+		if (component.name !== identity.name || component.version !== identity.version) {
+			throw fail('invalid', `the verified original of ${resource} holds ${component.name}@${component.version}, not ${identityKey(identity)}`);
+		}
+		return { path: binding.path, sha256: binding.sha256, component };
 	}
 
 	async original(component, identity, entry) {

@@ -87,6 +87,12 @@ The html's sources are the verified template and the code that writes html text:
 
 A tap or an interceptor on any of the plugin's six public hooks, a plugin object carrying members of its own, any option beyond the template, another loader on the template, foreign taps that could render or rewrite the template bundle in the child compilation, a cached child compilation and a second plugin instance all fail closed. The code generation of that child bundle is not re-verified: parser-level plugins such as DefinePlugin still reach the template module there.
 
+## Git-pinned dependencies
+
+A Yarn dependency locked to a Git commit (`git+https://host/owner/repo.git#<40 hex>`, no integrity) is described only through a Git checkout DK made itself: an ordinary `git:` mapping of that repository at that commit in the same image, named for the dependency by the stage's private build declaration (`gitSources`, which requires `webpackSources`). DK walks the commit, its trees and blobs by hash from the commit id and recomputes every object's Git hash; it requires the root `package.json` to carry the locked name and version, and lists an installed file only when its bytes are exactly the blob at the same path. Symlinks, submodules, files the tree does not hold and files install scripts produced stay incomplete; the lifecycle scripts the package declares are recorded. The collector then claims the file as a `node` component whose locator is the lock entry verbatim and whose checksum is `git-commit:sha1:<commit>`; without that private manifest, or with another commit, the file stays incomplete. Yarn's own cache is never trusted for these dependencies.
+
+The repository a Git-pinned dependency names is compared by identity, not by spelling: the locator and the `git:` mapping's remote are both reduced to `host/owner/repo`, so the same repository reached over `https`, `http`, `ssh`, the `git` protocol or the scp-like `git@host:owner/repo.git` form is recognized as the same repository, with user info, a default port and one trailing `.git` dropped and the host lower-cased. Another owner (a fork), another repository name, another host, a non-default port or a redirect is a different repository and is refused. The commit is compared exactly; a branch, a tag or an abbreviated commit is never accepted as a pin. Git object hashes are SHA-1, the same trust a lock pin to that commit already carries.
+
 ## Stage delivery
 
 A checked stage may extend the existing private `werf.io/sbom-build-context-v1` declaration:

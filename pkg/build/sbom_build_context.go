@@ -21,6 +21,7 @@ import (
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
 const producerContextMount = "/.werf/sbom-build-context"
@@ -132,6 +133,10 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
+	gitOriginals, gitIdentities, err := producerGitSources(ctx, img, requested.GitSources, observed[len(observed)-1].Index)
+	if err != nil {
+		return nil, err
+	}
 	contextSpec.GoEmbed = assetScope
 	selected := contextSpec.Packages[*requested.Subject]
 	packetIndex, err := json.Marshal(map[string]json.RawMessage{"subject": selected.Packet})
@@ -157,7 +162,7 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
-	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources})
+	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources, GitOriginals: gitOriginals})
 	if err != nil {
 		_ = os.RemoveAll(directory)
 		return nil, err
@@ -184,7 +189,83 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if len(requested.GoEmbed) > 0 {
 		parts = append(parts, "go-embed", sbomSourceImportsChecksum(assetImports))
 	}
+	if len(gitIdentities) > 0 {
+		parts = append(append(parts, "git-sources"), gitIdentities...)
+	}
 	return &sbomProducerContext{directory: directory, path: path, checksum: util.Sha256Hash(append(parts, identities...)...)}, nil
+}
+
+// producerGitSources verifies, for every declared Git-backed Node dependency, that the
+// git mapping the config adds is that very repository at that very commit, and answers
+// the installed files of the observed stage that carry the commit's own bytes.
+//
+// The mapping is the one DK fetched itself: its remote and its pinned commit are the
+// recipe's, never a label of the produced image or a path in it.
+func producerGitSources(ctx context.Context, img *imagePkg.Image, declared []sbomBuildContextGitSource, observed *shippedscope.FileIndex) ([]nativegate.GitOriginal, []string, error) {
+	var originals []nativegate.GitOriginal
+	var identities []string
+	for _, binding := range declared {
+		mapping, err := producerGitMapping(img, binding.To)
+		if err != nil {
+			return nil, nil, err
+		}
+		repository := mapping.GitRepo()
+		if repository == nil {
+			return nil, nil, fmt.Errorf("no-data: git mapping %s has no fetched repository", binding.To)
+		}
+		if repository.IsLocal() {
+			return nil, nil, fmt.Errorf("invalid: git mapping %s adds the project repository, not a pinned dependency", binding.To)
+		}
+		if mapping.Commit == "" {
+			return nil, nil, fmt.Errorf("invalid: git mapping %s is not pinned to a commit", binding.To)
+		}
+		fetched, pinned := repository.(interface{ GetClonePath() string })
+		if !pinned {
+			return nil, nil, fmt.Errorf("no-data: git mapping %s exposes no fetched object database", binding.To)
+		}
+		remote, err := repository.RemoteOriginUrl(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		original, err := nativegate.VerifyGitOriginal(ctx, nativegate.GitOriginalRequest{
+			GitDir:         fetched.GetClonePath(),
+			RemoteURL:      remote,
+			Commit:         mapping.Commit,
+			Locator:        binding.Locator,
+			PackageName:    binding.PackageName,
+			PackageVersion: binding.PackageVersion,
+			InstalledRoot:  binding.InstalledPath,
+		}, observed)
+		if err != nil {
+			return nil, nil, fmt.Errorf("git source %s: %w", binding.To, err)
+		}
+		originals = append(originals, *original)
+		identities = append(identities, binding.To, remote, mapping.Commit, original.Component.ID)
+	}
+
+	return originals, identities, nil
+}
+
+// producerGitMapping names the one mapping of the config that adds the given path. A
+// path more than one mapping adds names no single repository and is a refusal.
+func producerGitMapping(img *imagePkg.Image, to string) (*stage.GitMapping, error) {
+	var found *stage.GitMapping
+	for _, stg := range img.GetStages() {
+		for _, mapping := range stg.GetGitMappings() {
+			if mapping.To != to || mapping == found {
+				continue
+			}
+			if found != nil {
+				return nil, fmt.Errorf("invalid: more than one git mapping is added at %s", to)
+			}
+			found = mapping
+		}
+	}
+	if found == nil {
+		return nil, fmt.Errorf("no-data: the config adds no git mapping at %s", to)
+	}
+
+	return found, nil
 }
 
 func checkProducerPacket(data json.RawMessage, expected sbomBuildContextPackage) error {

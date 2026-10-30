@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { before, after, test } = require('node:test');
 const { createFixture } = require('./fixture.cjs');
-const { createArea, run, HEAP_LIMIT_MB } = require('./activate-fixture.cjs');
+const { createArea, run, HEAP_LIMIT_MB, GIT_PACKAGE } = require('./activate-fixture.cjs');
 
 let root, fixture;
 before(() => {
@@ -97,4 +97,26 @@ test('observes nothing at all when the activation is not configured', () => {
 	assert.equal(result.probe.observer, false, 'a build without the activation must load no load recorder');
 	assert.equal(result.proof, undefined);
 	assert.deepEqual(result.scratch, []);
+});
+
+test('resolves a Git-locked dependency through the build context it was given', () => {
+	const area = createArea(fixture, 'git-listed', { git: 'listed' });
+	const result = run(area);
+	assert.equal(result.status, 0, result.stderr);
+	assert.ok(emitted(area));
+	const answers = new Map(result.probe.yarnCalls.map((call) => [call.resource, call]));
+	// The Yarn resolver itself answered for the Git-locked package, which it can
+	// only do through the manifest beside the build context: its cache holds no
+	// archive for that entry at all.
+	assert.deepEqual(answers.get(`node_modules/${GIT_PACKAGE}/index.js`), { resource: `node_modules/${GIT_PACKAGE}/index.js`, component: GIT_PACKAGE });
+	assert.deepEqual(result.scratch, [], 'a Git original extracts nothing');
+});
+
+test('does not attribute a Git-locked dependency the build context does not list', () => {
+	const area = createArea(fixture, 'git-unlisted', { git: 'unlisted' });
+	const result = run(area);
+	assert.equal(result.status, 0, result.stderr);
+	const answers = new Map(result.probe.yarnCalls.map((call) => [call.resource, call]));
+	assert.deepEqual(answers.get(`node_modules/${GIT_PACKAGE}/index.js`), { resource: `node_modules/${GIT_PACKAGE}/index.js`, status: 'no-data' });
+	assert.equal(result.proof.assets[0].status, 'no-data');
 });

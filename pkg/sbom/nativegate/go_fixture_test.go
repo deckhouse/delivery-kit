@@ -21,7 +21,7 @@ var _ = ginkgo.Describe("Real pure-Go producer fixture", func() {
 			}
 		}
 		gomega.Expect(libraries).To(gomega.Equal(map[string]string{"sbom.test/app": "0.0.1", "golang": "1.27.3"}))
-		catalog, err := inherited([]*cdx.BOM{bom})
+		catalog, err := ReadCatalog([]*cdx.BOM{bom})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(catalog.Records).To(gomega.HaveLen(1))
 		gomega.Expect(catalog.Records[0].Profile).To(gomega.Equal("go"))

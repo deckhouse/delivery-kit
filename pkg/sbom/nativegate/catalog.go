@@ -76,14 +76,18 @@ func (c *Catalog) add(other Catalog) error {
 	return nil
 }
 
-func inherited(boms []*cdx.BOM) (Catalog, error) {
+// ReadCatalog reads the catalogs the given documents carry, applying every check a build
+// applies to a catalog it is handed: a component held under a ref other than its own is
+// refused, as is a record naming a component the catalog does not hold. A document whose
+// catalog does not load here is a document no consumer of it can resolve.
+func ReadCatalog(boms []*cdx.BOM) (Catalog, error) {
 	c := emptyCatalog()
 	for _, bom := range boms {
 		if bom == nil || bom.Metadata == nil || bom.Metadata.Properties == nil {
 			continue
 		}
 		for _, prop := range *bom.Metadata.Properties {
-			if prop.Name != catalogProperty {
+			if prop.Name != CatalogProperty {
 				if strings.HasPrefix(prop.Name, "dk:catalog/") {
 					return c, fmt.Errorf("unsupported inherited catalog property %s", prop.Name)
 				}
@@ -172,12 +176,12 @@ func (c *Catalog) attach(bom *cdx.BOM) error {
 	props := []cdx.Property{}
 	if bom.Metadata.Properties != nil {
 		for _, p := range *bom.Metadata.Properties {
-			if p.Name != catalogProperty {
+			if p.Name != CatalogProperty {
 				props = append(props, p)
 			}
 		}
 	}
-	props = append(props, cdx.Property{Name: catalogProperty, Value: string(data)})
+	props = append(props, cdx.Property{Name: CatalogProperty, Value: string(data)})
 	bom.Metadata.Properties = &props
 	return nil
 }

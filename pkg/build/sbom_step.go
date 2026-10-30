@@ -236,6 +236,13 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("merge verified composition: %w", err)
 		}
 
+		// Nothing has altered the merged components yet, which is the moment each of
+		// them can be found by what it is.
+		catalogRefs, err := trackCatalogRefs(resultBOM, verifiedBOM)
+		if err != nil {
+			return fmt.Errorf("resolve the verified catalog against the published document: %w", err)
+		}
+
 		if len(osPmPackages) > 0 {
 			// Only a component bound to an original source is a package the image was proven
 			// to be made of. A composition claim read out of a binary can carry the same name
@@ -295,13 +302,19 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("set GOST properties: %w", err)
 		}
 
+		// The patchers have had the document; what they made of the proven components
+		// is read before the last pass that renames them.
+		if err := catalogRefs.observe(resultBOM); err != nil {
+			return fmt.Errorf("resolve the verified catalog against the published document: %w", err)
+		}
+
 		cyclonedxutil.Canonicalize(ctx, resultBOM)
 
 		graftVerifiedProperties(resultBOM, verifiedBOM)
 
 		// The catalog arrives naming components by the refs the verification gave them,
 		// and the document it now stands on renamed those refs on its way here.
-		if err := rewriteCatalogRefs(resultBOM, verifiedBOM); err != nil {
+		if err := catalogRefs.rewrite(resultBOM); err != nil {
 			return fmt.Errorf("resolve the verified catalog against the published document: %w", err)
 		}
 

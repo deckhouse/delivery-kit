@@ -247,7 +247,7 @@ func pmSmokeOriginals(bom *cdx.BOM) originalsCatalog {
 func pmSmokeRecords(bom *cdx.BOM) map[string]Record {
 	ginkgo.GinkgoHelper()
 	var catalog Catalog
-	gomega.Expect(json.Unmarshal([]byte(pmSmokeProperty(bom, catalogProperty)), &catalog)).To(gomega.Succeed())
+	gomega.Expect(json.Unmarshal([]byte(pmSmokeProperty(bom, CatalogProperty)), &catalog)).To(gomega.Succeed())
 	records := make(map[string]Record, len(catalog.Records))
 	for _, record := range catalog.Records {
 		records[record.Path] = record

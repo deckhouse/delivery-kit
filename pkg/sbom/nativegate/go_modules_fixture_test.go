@@ -50,7 +50,7 @@ func goModulesCatalog(ctx ginkgo.SpecContext, f goModulesFixture) (map[string]st
 			libraries[component.Name] = component.Version
 		}
 	}
-	catalog, err := inherited([]*cdx.BOM{bom})
+	catalog, err := ReadCatalog([]*cdx.BOM{bom})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(catalog.Records).To(gomega.HaveLen(1))
 	gomega.Expect(catalog.Records[0].Profile).To(gomega.Equal("go"))

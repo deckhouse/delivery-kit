@@ -82,7 +82,7 @@ func crossCLIImageFiles() map[string]string {
 // cross-built artifact and returns the catalog it attached to the BOM.
 func crossCLICatalog(bom *cdx.BOM) Catalog {
 	ginkgo.GinkgoHelper()
-	catalog, err := inherited([]*cdx.BOM{bom})
+	catalog, err := ReadCatalog([]*cdx.BOM{bom})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(catalog.Records).To(gomega.HaveLen(len(crossCLITargets)))
 	byPath := map[string]Record{}

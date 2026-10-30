@@ -245,7 +245,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 	if err != nil {
 		return fmt.Errorf("read final filesystem: %w", err)
 	}
-	c, err := inherited(inputs)
+	c, err := ReadCatalog(inputs)
 	if err != nil {
 		return err
 	}

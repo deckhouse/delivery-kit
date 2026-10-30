@@ -144,7 +144,7 @@ var _ = Describe("Common SBOM pipeline", func() {
 	// record over a built file, naming catalog keys - and the question asked of it is the
 	// one that capture answers wrongly: does every ref resolve.
 	Describe("the catalog of the published document", func() {
-		publishedOf := func(ctx context.Context, base *cdx.BOM, files map[string][]byte) (*cdx.BOM, verifiedCatalog, map[string]bool) {
+		publishedOf := func(ctx context.Context, base *cdx.BOM, files map[string][]byte) (*cdx.BOM, nativegate.Catalog, map[string]bool) {
 			GinkgoHelper()
 			desc := pipelineImage(ctx, files)
 			Expect(step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{BaseBOM: base}, nil, nil, true, "", nil, "")).To(Succeed())
@@ -153,7 +153,7 @@ var _ = Describe("Common SBOM pipeline", func() {
 
 			property, found := catalogPropertyOf(bom)
 			Expect(found).To(BeTrue(), "the published document carries a catalog")
-			var catalog verifiedCatalog
+			var catalog nativegate.Catalog
 			Expect(json.Unmarshal([]byte(property.Value), &catalog)).To(Succeed())
 
 			declared := map[string]bool{}
@@ -182,6 +182,22 @@ var _ = Describe("Common SBOM pipeline", func() {
 			Expect(named).NotTo(BeZero(), "a catalog that names nothing proves nothing")
 		})
 
+		// The check a consumer makes, made here: a document whose catalog does not load
+		// through the reader DK itself uses to read an inherited catalog is a document
+		// nobody can resolve.
+		It("loads through the reader a consumer of it uses", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			bom, _, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+
+			catalog, err := nativegate.ReadCatalog([]*cdx.BOM{bom})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(catalog.Records).NotTo(BeEmpty())
+			for ref, component := range catalog.Components {
+				Expect(component.BOMRef).To(Equal(ref))
+			}
+		})
+
 		It("names them by the refs the document gives rather than the ones the verification used", func(specCtx SpecContext) {
 			ctx := logging.WithLogger(specCtx)
 			_, catalog, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
@@ -192,20 +208,16 @@ var _ = Describe("Common SBOM pipeline", func() {
 			}
 		})
 
-		// The merge renames refs to keep two documents apart; the canonicalisation
-		// renames them again when it finds two components to be one, keeping the ref of
-		// whichever stood first. A base holding the very component the record names, and
-		// holding it first, exercises both at once.
-		It("resolves after a base document is merged in and folded together", func(specCtx SpecContext) {
+		// The merge renames refs to keep two documents apart. A base that survives the
+		// drop of superseded attribution is merged in here, so the proven component is
+		// renamed with a document's worth of others around it.
+		It("resolves when a base document is merged in", func(specCtx SpecContext) {
 			ctx := logging.WithLogger(specCtx)
 			base := cyclonedxutil.NewBOM()
 			base.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeContainer, Name: "base", BOMRef: "base"}}
 			base.Components = &[]cdx.Component{
 				{Type: cdx.ComponentTypeLibrary, Name: "requests", Version: "2.0", BOMRef: "py", PackageURL: "pkg:pypi/requests@2.0"},
-				{
-					Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "donor-app",
-					PackageURL: "pkg:generic/app@1?source_kind=declared&source_locator=https:%2F%2Fexample.invalid%2Fapp",
-				},
+				{Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "donor-app", PackageURL: "pkg:generic/app@1"},
 			}
 
 			bom, catalog, declared := publishedOf(ctx, base, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
@@ -215,10 +227,8 @@ var _ = Describe("Common SBOM pipeline", func() {
 					Expect(declared).To(HaveKey(ref))
 				}
 			}
-			folded := lo.Filter(lo.FromPtr(bom.Components), func(comp cdx.Component, _ int) bool {
-				return comp.Name == "app" && comp.Version == "1"
-			})
-			Expect(folded).To(HaveLen(1), "the donor's claim and the proven component are one component")
+			Expect(lo.FromPtr(bom.Components)).To(ContainElement(HaveField("Name", "requests")),
+				"the base this was merged with did survive the drop of superseded attribution")
 		})
 
 		It("leaves everything but the refs as the verification wrote it", func(specCtx SpecContext) {
@@ -226,7 +236,7 @@ var _ = Describe("Common SBOM pipeline", func() {
 			_, catalog, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
 
 			Expect(catalog.Schema).To(Equal("dk.catalog/v4"), "the schema the verification wrote, which is not the property name")
-			record, found := lo.Find(catalog.Records, func(record verifiedCatalogRecord) bool { return record.Path == "/app/tool" })
+			record, found := lo.Find(catalog.Records, func(record nativegate.Record) bool { return record.Path == "/app/tool" })
 			Expect(found).To(BeTrue())
 			Expect(record.Origin).To(Equal("build"))
 			Expect(record.SHA256).To(HavePrefix("sha256:"))
@@ -456,12 +466,26 @@ func digestOfString(body string) string {
 
 // buildRecordELF is the smallest ELF carrying an embedded build record, the form the
 // verification reads a binary's composition from.
+func recordELF(components ...shared.BuildComponent) []byte {
+	GinkgoHelper()
+
+	return buildRecordELFWith(elf.ET_EXEC, components)
+}
+
 func buildRecordELF(kind elf.Type) []byte {
+	GinkgoHelper()
+
+	return buildRecordELFWith(kind, []shared.BuildComponent{
+		{ID: "app", Name: "app", Version: "1", Source: shared.BuildSource{Kind: "declared", Locator: "https://example.invalid/app"}},
+	})
+}
+
+func buildRecordELFWith(kind elf.Type, components []shared.BuildComponent) []byte {
 	GinkgoHelper()
 	record := &shared.BuildRecord{
 		Schema: "pm.buildinfo/v1", Artifact: "elf", Subject: "app", Complete: true,
 		Profile:    shared.BuildProfile{ID: "c-static", Revision: "1", Platform: "linux/amd64"},
-		Components: []shared.BuildComponent{{ID: "app", Name: "app", Version: "1", Source: shared.BuildSource{Kind: "declared", Locator: "https://example.invalid/app"}}},
+		Components: components,
 		Inputs:     []shared.BuildInput{},
 		Tools:      []shared.BuildTool{{Name: "fixture-tool", Version: "1.0", SHA256: "sha256:" + strings.Repeat("2", 64)}},
 	}
@@ -495,4 +519,29 @@ func buildRecordELF(kind elf.Type) []byte {
 	}
 
 	return body.Bytes()
+}
+
+// resolveGoVersionsPatcher is the one thing the Go patcher of a real build does to a
+// document: it resolves the version of a module the build left unresolved, and rewrites
+// that component's version and purl.
+type resolveGoVersionsPatcher struct {
+	version    string
+	modulePath string
+}
+
+func (p *resolveGoVersionsPatcher) Apply(_ context.Context, bom *cdx.BOM) (*cdx.BOM, error) {
+	cyclonedxutil.ResolveUnknownGoVersions(bom, p.version, p.modulePath, nil, nil)
+
+	return bom, nil
+}
+
+// goModuleRecordELF is an executable whose record names a Go module the build could not
+// give a version to, which is what a build from an untagged checkout produces.
+func goModuleRecordELF() []byte {
+	GinkgoHelper()
+
+	return recordELF(shared.BuildComponent{
+		ID: "app", Name: "example.invalid/app", Version: "(devel)",
+		Source: shared.BuildSource{Kind: "declared", Locator: "https://example.invalid/app"},
+	})
 }

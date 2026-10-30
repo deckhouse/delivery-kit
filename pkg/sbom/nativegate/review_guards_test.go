@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		gomega.Expect(Apply(context.Background(), policy, "producer", fixtureImage(bodies), nil, bom)).To(gomega.Succeed())
 		var catalog Catalog
 		for _, p := range *bom.Metadata.Properties {
-			if p.Name == catalogProperty {
+			if p.Name == CatalogProperty {
 				gomega.Expect(json.Unmarshal([]byte(p.Value), &catalog)).To(gomega.Succeed())
 			}
 		}

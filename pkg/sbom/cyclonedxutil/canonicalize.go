@@ -268,11 +268,6 @@ func canonicalizeComponent(ctx context.Context, comp *cdx.Component) {
 // version — and a component of one source is not a component of the other.
 const PropertyOriginalSource = "dk:original-source"
 
-// componentKey identifies a component by its purl and the sources it was built
-// from or, without a purl, by its coordinates. A file is the exception: two
-// files with the same name are the same only if their content is, so files are
-// identified by their name and hashes and a file without hashes is never
-// merged.
 // ComponentIdentity is what tells one component of a document from another through
 // every rewriting this package does. Two components that answer to it are the same
 // component, whatever bom-ref each happens to carry: a ref is a label a document hands
@@ -290,6 +285,11 @@ func ComponentIdentity(comp cdx.Component) string {
 	return key
 }
 
+// componentKey identifies a component by its purl and the sources it was built
+// from or, without a purl, by its coordinates. A file is the exception: two
+// files with the same name are the same only if their content is, so files are
+// identified by their name and hashes and a file without hashes is never
+// merged.
 func componentKey(comp cdx.Component, index int) string {
 	if comp.PackageURL != "" {
 		return "purl:" + normalizePURL(comp.PackageURL) + originalSourceKey(comp.Properties)

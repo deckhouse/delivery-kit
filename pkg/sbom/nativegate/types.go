@@ -14,7 +14,8 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-const catalogProperty = "dk:catalog/v4"
+// CatalogProperty is the metadata property a document carries its catalog in.
+const CatalogProperty = "dk:catalog/v4"
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 

@@ -14,17 +14,20 @@ const PRELOAD = path.join(__dirname, 'runtime-preload.cjs');
 const WEBPACK = path.dirname(require.resolve('webpack/package.json'));
 const UMD = path.join(WEBPACK, 'lib', 'library', 'UmdLibraryPlugin.js');
 const ABSTRACT = path.join(WEBPACK, 'lib', 'library', 'AbstractLibraryPlugin.js');
+// Installed beside the wrapper for every library that can export a member of
+// its own; it adds nothing to one that exports none.
+const EXPORT_PROPERTY = path.join(WEBPACK, 'lib', 'library', 'ExportPropertyLibraryPlugin.js');
 
 let scratch;
 let fixture;
-let webpackOriginal;
+let toolOriginals;
 let builds = 0;
 
 before(
 	() => {
 		scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dk-webpack-umd-')));
 		fixture = createFixture(path.join(scratch, 'fixture'), { bootstrap: true });
-		webpackOriginal = bootstrapOriginal(path.join(scratch, 'webpack'), 'webpack').binding;
+		toolOriginals = [bootstrapOriginal(path.join(scratch, 'terser-webpack-plugin'), 'terser-webpack-plugin').binding, bootstrapOriginal(path.join(scratch, 'terser'), 'terser').binding];
 	},
 	{ timeout: 300000 },
 );
@@ -42,7 +45,8 @@ function build(scenario) {
 		entry: area.installed('app/umd.js'),
 		modules: area.modules,
 		output: area.output,
-		originals: [...area.originals, webpackOriginal],
+		proofPath: area.proofPath,
+		originals: [...area.originals, ...toolOriginals],
 		webpackRoot: WEBPACK,
 	};
 	const output = execFileSync(process.execPath, ['--require', PRELOAD, child], {
@@ -55,6 +59,7 @@ function build(scenario) {
 	assert.ok(line, `no report in child output:\n${output}`);
 	const report = JSON.parse(line.slice(MARKER.length));
 	assert.equal(report.webpack, '5.94.0');
+	if (scenario === 'redoc' || scenario === 'mutated-global') return { setup, report };
 	assert.equal(report.rows.length, 1, 'one chunk is wrapped');
 	return { setup, report, row: report.rows[0], bundle: report.emitted['bundle.js'] };
 }
@@ -75,7 +80,7 @@ test('rebuilds the wrapper of a library of type umd', () => {
 	assert.match(result.row.prefix, /exports\["Redoc"\] = factory\(require\("null"\)\)/);
 	assert.match(result.row.prefix, /\}\)\(this, \(__WEBPACK_EXTERNAL_MODULE_\w+__\) =>/);
 	assert.deepEqual(result.row.externals, ['null']);
-	assert.deepEqual(result.row.units, [UMD, ABSTRACT]);
+	assert.deepEqual(result.row.units, [UMD, ABSTRACT, EXPORT_PROPERTY]);
 });
 
 // A bundle that references nothing of the environment is wrapped with empty
@@ -124,4 +129,51 @@ test('reports no data when another plugin shapes the rendered chunk', () => {
 	assert.equal(row.status, 'no-data', row.reason);
 	assert.match(row.reason, /fixture shaped the chunks of this compilation besides its library wrapper/);
 	assert.deepEqual(row.units, []);
+});
+
+// Everything redoc's configuration asks for at once, collected whole: a library
+// of type umd around a minified bundle, a banner in front of it, constants
+// spliced into its modules and the line naming the source map beside it.
+test('describes a redoc-shaped build whole', () => {
+	const result = build('redoc');
+	const rows = new Map(result.report.proof.assets.map((row) => [row.path, row]));
+	const bundle = rows.get('redoc.standalone.js');
+	assert.equal(bundle.status, 'present', bundle.reason);
+	// Every stage really happened to those bytes. The banner is a comment the
+	// minifier takes out into a file of its own, exactly as it does in redoc's
+	// published bundle, leaving the pointer to it in front.
+	const text = result.report.emitted['redoc.standalone.js'];
+	assert.ok(text.startsWith('/*! For license information please see redoc.standalone.js.LICENSE.txt */'), text.slice(0, 80));
+	assert.match(result.report.emitted['redoc.standalone.js.LICENSE.txt'], /ReDoc - OpenAPI/);
+	assert.equal(rows.get('redoc.standalone.js.LICENSE.txt').status, 'present', rows.get('redoc.standalone.js.LICENSE.txt').reason);
+	// The wrapper, minified: the library named three ways and the external kept
+	// as a reference.
+	assert.match(text, /exports\.Redoc=r\(require\("null"\)\)/);
+	assert.match(text, /"2\.4\.0"/);
+	assert.ok(text.endsWith('\n//# sourceMappingURL=redoc.standalone.js.map'), JSON.stringify(text.slice(-60)));
+	// The wrapper, the banner and the source map line are claimed with the
+	// webpack sources that wrote them.
+	const claimed = bundle.inputs.map((input) => path.basename(input.path));
+	for (const file of ['UmdLibraryPlugin.js', 'AbstractLibraryPlugin.js', 'BannerPlugin.js', 'SourceMapDevToolPlugin.js']) {
+		assert.ok(claimed.includes(file), `${file} is not claimed: ${claimed.join(', ')}`);
+	}
+	// The map itself is the one asset this collector refuses, in its own words.
+	const map = rows.get('redoc.standalone.js.map');
+	assert.equal(map.status, 'no-data', map.reason);
+	assert.match(map.reason, /is the source map of an asset of this build, which this collector does not describe/);
+	assert.deepEqual(
+		result.report.proof.assets.filter((row) => row.status !== 'present').map((row) => row.path),
+		['redoc.standalone.js.map'],
+	);
+});
+
+// The wrapper is accounted for by rebuilding it, not by trusting whoever
+// rendered it: a build whose own answers changed after the render no longer
+// accounts for the text that stands in the asset.
+test('reports no data when the rebuilt wrapper is not the one that was rendered', () => {
+	const result = build('mutated-global');
+	const bundle = result.report.proof.assets.find((row) => row.path === 'redoc.standalone.js');
+	assert.equal(bundle.status, 'no-data', bundle.reason);
+	assert.match(bundle.reason, /is not wrapped in the library its wrapper describes/);
+	assert.deepEqual(bundle.inputs, []);
 });

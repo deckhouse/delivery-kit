@@ -116,3 +116,11 @@ test('reports no data for a comment naming a map of its own', () => {
 	assert.match(row.reason, /main\.js is not the asset the source map comment was added to/);
 	assert.deepEqual(row.units, []);
 });
+
+// The class webpack loaded, not something derived from it.
+test('reports no data for source maps written by a derived plugin', () => {
+	const row = build('derived-plugin').rows.get('main.js');
+	assert.equal(row.status, 'no-data', row.reason);
+	assert.match(row.reason, /derived from SourceMapDevToolPlugin/);
+	assert.deepEqual(row.units, []);
+});

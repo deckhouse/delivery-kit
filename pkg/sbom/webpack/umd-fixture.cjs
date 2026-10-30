@@ -14,6 +14,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const Collector = require('./collector.cjs');
 const { umdEvidence } = require('./umd-evidence.cjs');
 
 const MARKER = 'DK-UMD-REPORT ';
@@ -23,6 +24,9 @@ const SOURCES = {
 	'umd.js': "import yaml from 'yaml';\nexport function render() { return yaml; }\n",
 	// The same bundle without anything of the environment in it.
 	'alone.js': 'export function render() { return "alone"; }\n',
+	// The shape redoc builds: a library wrapper, a banner, constants defined
+	// for the parser and a source map beside the bundle.
+	'redoc.js': "import yaml from 'yaml';\nexport function render() { return [__REDOC_VERSION__, yaml]; }\n",
 };
 
 function addSources(area) {
@@ -111,7 +115,47 @@ function evidencePlugin(setup, reports) {
 	};
 }
 
+// Everything redoc's own configuration asks for, over one entry.
+function redocConfiguration(setup, webpack) {
+	return {
+		mode: 'production',
+		context: setup.context,
+		entry: path.join(path.dirname(setup.entry), 'redoc.js'),
+		output: {
+			path: setup.output,
+			filename: 'redoc.standalone.js',
+			library: { name: 'Redoc', type: 'umd' },
+			globalObject: 'this',
+		},
+		devtool: 'source-map',
+		target: 'web',
+		externals: { yaml: 'null' },
+		resolve: { modules: [setup.modules] },
+		optimization: { minimize: true, concatenateModules: false },
+		cache: false,
+		plugins: [
+			new Collector({ proofPath: setup.proofPath, originals: setup.originals }),
+			{
+				apply(compiler) {
+					if (setup.scenario !== 'mutated-global') return;
+					// The wrapper is rebuilt from the build, so a build that says
+					// something else about itself afterwards no longer accounts for
+					// the text that was rendered.
+					compiler.hooks.compilation.tap('fixture', (compilation) => {
+						compilation.hooks.afterProcessAssets.tap('fixture', () => {
+							compilation.outputOptions.globalObject = 'self';
+						});
+					});
+				},
+			},
+			new webpack.BannerPlugin('ReDoc - OpenAPI/Swagger-generated API Reference Documentation\n  Version: "2.4.0"'),
+			new webpack.DefinePlugin({ __REDOC_VERSION__: '"2.4.0"', 'process.env': '{}' }),
+		],
+	};
+}
+
 function configuration(setup, webpack, reports) {
+	if (setup.scenario === 'redoc' || setup.scenario === 'mutated-global') return redocConfiguration(setup, webpack);
 	return {
 		mode: 'production',
 		context: setup.context,
@@ -151,7 +195,8 @@ async function main() {
 	await new Promise((resolve, reject) => compiler.close((error) => (error ? reject(error) : resolve())));
 	const emitted = {};
 	for (const name of fs.readdirSync(setup.output).sort()) emitted[name] = fs.readFileSync(path.join(setup.output, name), 'utf8');
-	process.stdout.write(`${MARKER}${JSON.stringify({ webpack: webpack.version, emitted, rows: reports })}\n`);
+	const proof = fs.existsSync(setup.proofPath) ? JSON.parse(fs.readFileSync(setup.proofPath, 'utf8')) : undefined;
+	process.stdout.write(`${MARKER}${JSON.stringify({ webpack: webpack.version, emitted, rows: reports, proof })}\n`);
 }
 
 module.exports = { MARKER, SOURCES, addSources, child: __filename };

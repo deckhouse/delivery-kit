@@ -14,7 +14,7 @@
 // graph with no source of its own, and this adapter claims nothing for them.
 //
 // The load recordings come from runtime-preload.cjs; without them there is no
-// data. This slice does not yet wire the result into the collector.
+// data.
 
 const path = require('node:path');
 
@@ -30,8 +30,13 @@ const BASE_FILE = 'RuntimeModule.js';
 const CLASS_FILES = new Map([
 	['library/UmdLibraryPlugin.js', 'sha256:6d0cd572002fb99a86bd98c0d8ffb317d49af6595f2fa5f8db225e84e3e5b2ed'],
 	['library/AbstractLibraryPlugin.js', 'sha256:90d15ed7d1d9b2e752bafacb6907deec657cbd6bafb18a444dba0c08c45c6c1e'],
+	// Installed beside the wrapper for every library that can export a member
+	// of its own. Its source adds nothing to a library that exports none, which
+	// is the only shape this adapter describes.
+	['library/ExportPropertyLibraryPlugin.js', 'sha256:baf249c2eca112e4bc535f2e41344f44b9709e9bdacf6bb4ccdef3dbf8fda912'],
 ]);
 const PLUGIN_TAP = 'UmdLibraryPlugin';
+const EXPORT_TAP = 'ExportPropertyLibraryPlugin';
 const DESCRIBED_TYPE = 'umd';
 const EXTERNAL_TYPES = new Set(['umd', 'umd2']);
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -61,9 +66,10 @@ async function umdEvidence(compilation, chunk, verifyResource) {
 		if (drift) return noData(`${relative} no longer exports what it exported when it was loaded: ${drift}`);
 		entries.push(entry);
 	}
-	// The class that builds the wrapper must be the one that file exports, and
-	// it must still derive from the one that decides who gets it.
+	// The classes that shape the chunk must be the ones those files export, and
+	// both must still derive from the one that decides who gets them.
 	if (Object.getPrototypeOf(entries[0].exports) !== entries[1].exports) return noData('UmdLibraryPlugin no longer derives from the loaded AbstractLibraryPlugin');
+	if (Object.getPrototypeOf(entries[2].exports) !== entries[1].exports) return noData('ExportPropertyLibraryPlugin no longer derives from the loaded AbstractLibraryPlugin');
 
 	const shaped = shapeOf(compilation, chunk, api);
 	if (shaped.failure) return shaped;
@@ -91,13 +97,25 @@ async function umdEvidence(compilation, chunk, verifyResource) {
 		if (resolved.unit.component.version !== api.version) return failed('invalid', `component ${resolved.unit.component.id} is not the webpack ${api.version} that is running`);
 		units.push({ path: resolved.unit.path, sha256: resolved.unit.sha256, component: resolved.unit.component });
 	}
-	return { units, prefix: prologue(shaped), suffix: ';\n})', externals: shaped.externals.map((external) => external.request) };
+	return {
+		units,
+		prefix: prologue(shaped),
+		suffix: ';\n})',
+		externals: shaped.externals.map((external) => external.request),
+		// The hooks these two shape the chunk through, and nothing else.
+		taps: new Map([['render', PLUGIN_TAP], ['renderStartup', EXPORT_TAP]]),
+	};
 }
 
 // Everything the wrapper is written out of, taken off this build: refused
 // wherever the text would be shaped by something this adapter does not read.
 function shapeOf(compilation, chunk, api) {
-	const library = (chunk.getEntryOptions() && chunk.getEntryOptions().library) || compilation.outputOptions.library;
+	// A chunk with no entry module of its own is rendered without a wrapper at
+	// all; the library of an entry is the one its own options name, which may be
+	// `false` to say it has none.
+	if (compilation.chunkGraph.getNumberOfEntryModules(chunk) === 0) return noData(`chunk ${chunk.name || chunk.id} carries no entry module to wrap as a library`);
+	const entry = chunk.getEntryOptions();
+	const library = entry && entry.library !== undefined ? entry.library : compilation.outputOptions.library;
 	if (!library || library.type !== DESCRIBED_TYPE) return noData(`chunk ${chunk.name || chunk.id} is not wrapped as a library of type ${DESCRIBED_TYPE}`);
 	if (typeof library.name !== 'string') return noData('the library of this build is not named with a name of its own');
 	if (TEMPLATED.test(library.name)) return noData('the library of this build is named with a template');

@@ -23,6 +23,8 @@ const { installDefineEvidence, defineProblem } = require('./define-evidence.cjs'
 const { installTerserEvidence } = require('./terser-evidence.cjs');
 const { installContentHashEvidence } = require('./content-hash-evidence.cjs');
 const { installBannerEvidence } = require('./banner-evidence.cjs');
+const { installSourcemapEvidence } = require('./sourcemap-evidence.cjs');
+const { umdEvidence } = require('./umd-evidence.cjs');
 const { installHtmlEvidence } = require('./html-evidence.cjs');
 const { assetEvidence, observeAssets } = require('./bootstrap-evidence.cjs');
 const { childEvidence } = require('./child-evidence.cjs');
@@ -67,6 +69,8 @@ class DkSbomWebpackCollector {
 		options.licenseEvidence = options.minifierEvidence.license;
 		options.contentHashEvidence = installContentHashEvidence(compiler, resource => verifyResource(options, resource));
 		options.bannerEvidence = installBannerEvidence(compiler, resource => verifyResource(options, resource));
+		options.sourcemapEvidence = installSourcemapEvidence(compiler, resource => verifyResource(options, resource));
+		options.umdEvidence = (compilation, chunk) => umdEvidence(compilation, chunk, resource => verifyResource(options, resource));
 		options.compiler = compiler;
 		options.definePlugins = installDefineEvidence(compiler);
 		options.htmlEvidence = installHtmlEvidence(compiler, resource => verifyResource(options, resource));
@@ -328,7 +332,13 @@ async function collectChunksInto(options, source, compilation, byAsset) {
 		if (chunk.files.size !== 1) {
 			addFailure(collected, failure('no-data', `chunk ${chunk.name || chunk.id} emits ${chunk.files.size} files`));
 		}
-		const evidence = { banner: options.bannerEvidence, minifier: options.minifierEvidence, contentHash: options.contentHashEvidence };
+		const evidence = {
+			banner: options.bannerEvidence,
+			minifier: options.minifierEvidence,
+			sourcemap: options.sourcemapEvidence,
+			contentHash: options.contentHashEvidence,
+			umd: options.umdEvidence,
+		};
 		if (defined) addFailure(collected, defined);
 		try {
 			for (const module of source.chunkGraph.getChunkModulesIterable(chunk)) {
@@ -514,6 +524,11 @@ function describeAsset(options, assetPath, asset, chunkUnits, compilation) {
 	if (!chunkCollected && asset.info && asset.info.extractedComments === true) {
 		return describeExtractedComments(options, assetPath, compilation, chunkUnits);
 	}
+	// A source map is an asset of no chunk, and the adapter that watched it
+	// written says in its own words why it is not described.
+	if (!chunkCollected && asset.info && asset.info.development === true) {
+		return describeSourceMap(options, assetPath, compilation);
+	}
 	if (!chunkCollected) return describeEmittedAsset(options, assetPath, compilation);
 	if (chunkCollected.failures.size > 0) return incomplete(assetPath, worst([...chunkCollected.failures.values()]));
 	if (chunkCollected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
@@ -573,6 +588,12 @@ async function describeEmittedAsset(options, assetPath, compilation) {
 		produced = hashed.output;
 	}
 	return present(assetPath, html.units, produced);
+}
+
+async function describeSourceMap(options, assetPath, compilation) {
+	const described = await options.sourcemapEvidence(compilation, assetPath);
+	if (described.failure) return incomplete(assetPath, described.failure);
+	return incomplete(assetPath, failure('no-data', `${assetPath} is not an asset this compilation wrote a source map for`));
 }
 
 async function describeCopiedAsset(options, assetPath, compilation) {

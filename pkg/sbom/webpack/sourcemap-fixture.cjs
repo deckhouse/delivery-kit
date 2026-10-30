@@ -91,6 +91,13 @@ function scenarioPlugin(setup, webpack) {
 	};
 }
 
+// A plugin of someone else's, derived from the one that writes source maps.
+function derivedPlugin(setup, webpack) {
+	if (setup.scenario !== 'derived-plugin') return [];
+	class Derived extends webpack.SourceMapDevToolPlugin {}
+	return [new Derived({ filename: '[file].map' })];
+}
+
 function evidencePlugin(setup, reports) {
 	return {
 		apply(compiler) {
@@ -123,11 +130,11 @@ function configuration(setup, webpack, reports) {
 		entry: setup.entry,
 		output: { path: setup.output, filename: setup.scenario === 'nested' ? 'scripts/main.js' : 'main.js' },
 		target: 'web',
-		devtool: setup.scenario === 'no-maps' ? false : 'source-map',
+		devtool: setup.scenario === 'no-maps' || setup.scenario === 'derived-plugin' ? false : 'source-map',
 		resolve: { modules: [setup.modules] },
 		optimization: { minimize: setup.scenario !== 'unminified', concatenateModules: false },
 		cache: false,
-		plugins: [evidencePlugin(setup, reports), scenarioPlugin(setup, webpack)],
+		plugins: [evidencePlugin(setup, reports), scenarioPlugin(setup, webpack), ...derivedPlugin(setup, webpack)],
 	};
 }
 

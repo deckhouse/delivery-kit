@@ -149,6 +149,18 @@ async function verifyPlugin(compiler, state, verifyResource) {
 	if (state.taps.length !== 1 || state.taps[0] !== PLUGIN_TAP) {
 		return { failure: failure('no-data', `${state.taps.join(', ') || 'nothing'} wrote into the assets of this compilation in the stage the source maps are written in`) };
 	}
+	// The one that ran came either from the devtool of the build or from a
+	// plugin it configures; a plugin derived from that class carries code this
+	// file does not hold.
+	const configured = Array.isArray(compiler.options.plugins) ? compiler.options.plugins.filter((plugin) => plugin instanceof entry.exports) : [];
+	for (const plugin of configured) {
+		if (Object.getPrototypeOf(plugin) !== entry.exports.prototype) return { failure: failure('no-data', 'the source maps of this compilation were written by a plugin derived from SourceMapDevToolPlugin') };
+	}
+	const devtool = compiler.options.devtool;
+	const fromDevtool = typeof devtool === 'string' && devtool.includes('source-map') ? 1 : 0;
+	if (configured.length + fromDevtool !== 1) {
+		return { failure: failure('no-data', `this compilation has ${configured.length + fromDevtool} sources of source maps, and this adapter describes one`) };
+	}
 	let resolved;
 	try {
 		resolved = await verifyResource(entry.file);

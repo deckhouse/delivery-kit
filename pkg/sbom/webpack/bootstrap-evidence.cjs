@@ -41,6 +41,9 @@ const SHAPING = [
 const MODULE_CONTENT = 'renderModuleContent';
 const API_PLUGIN = 'APIPlugin';
 const API_PLUGIN_FILE = 'APIPlugin.js';
+// The one shaping tap this adapter accounts for rather than refuses: the
+// wrapper a library of type umd is rendered in, described by its own adapter.
+const LIBRARY_TAP = 'UmdLibraryPlugin';
 
 const emitted = new WeakMap();
 
@@ -75,19 +78,22 @@ async function assetEvidence(compilation, chunk, verifyResource, evidence = {}) 
 	const file = [...chunk.files][0];
 	const bytes = emitted.get(compilation);
 	if (!bytes || !bytes.has(file)) return noData(`the bytes of ${file} were not observed before they were emitted`);
-	const described = chunk.hasRuntime() ? await bootstrapEvidence(compilation, chunk, verifyResource) : await chunkEvidence(compilation, chunk, verifyResource);
+	const described = chunk.hasRuntime() ? await bootstrapEvidence(compilation, chunk, verifyResource, evidence) : await chunkEvidence(compilation, chunk, verifyResource);
 	if (described.failure) return described;
 	const renderedBytes = described.rendered;
 	// The stages that are allowed to stand between the render and the emit, in
 	// the order they run, each for exactly the bytes the one before left: a
-	// described banner, a described minification, and the replacement of the
-	// content hashes, which also gave this asset the name it is emitted under.
+	// described banner, a described minification, the line naming the source map
+	// written beside the asset, and the replacement of the content hashes, which
+	// also gave this asset the name it is emitted under.
 	const hashed = evidence.contentHash ? await evidence.contentHash(compilation, file) : { status: 'none' };
 	if (hashed.failure) return { units: [], failure: hashed.failure };
 	const bannered = evidence.banner ? await evidence.banner(compilation, hashed.name || file) : { status: 'none' };
 	if (bannered.failure) return { units: [], failure: bannered.failure };
 	const minified = evidence.minifier ? await evidence.minifier(compilation, hashed.name || file) : { status: 'none' };
 	if (minified.failure) return { units: [], failure: minified.failure };
+	const mapped = evidence.sourcemap ? await evidence.sourcemap(compilation, hashed.name || file) : { status: 'none' };
+	if (mapped.failure) return { units: [], failure: mapped.failure };
 	let produced = renderedBytes;
 	if (bannered.input) {
 		if (!bannered.input.equals(produced)) return noData(`${file} was changed between its render and its banner`);
@@ -96,6 +102,10 @@ async function assetEvidence(compilation, chunk, verifyResource, evidence = {}) 
 	if (minified.input) {
 		if (!minified.input.equals(produced)) return noData(`${file} was changed between its render and its minification`);
 		produced = minified.output;
+	}
+	if (mapped.input) {
+		if (!mapped.input.equals(produced)) return noData(`${file} was changed between its render and the line naming its source map`);
+		produced = mapped.output;
 	}
 	if (hashed.input) {
 		if (!hashed.input.equals(produced)) return noData(`${file} was changed before its content hash was replaced`);
@@ -110,10 +120,10 @@ async function assetEvidence(compilation, chunk, verifyResource, evidence = {}) 
 	// The emit snapshot is not the end of the story: a plugin can still rewrite
 	// the file afterwards, so the caller has to compare these bytes with the ones
 	// that stayed on disk.
-	return { units: [...described.units, ...(bannered.units || [])], requiredBytes: produced };
+	return { units: [...described.units, ...(bannered.units || []), ...(mapped.units || [])], requiredBytes: produced };
 }
 
-async function bootstrapEvidence(compilation, chunk, verifyResource) {
+async function bootstrapEvidence(compilation, chunk, verifyResource, evidence = {}) {
 	const registry = globalThis[REGISTRY];
 	if (!registry || typeof registry.getRender !== 'function' || typeof registry.snapshot !== 'function') {
 		return noData('the commonjs load registry is not installed in this process');
@@ -152,9 +162,12 @@ async function bootstrapEvidence(compilation, chunk, verifyResource) {
 		return noData(`the bootstrap of chunk ${chunk.name || chunk.id} was not observed being rendered`);
 	}
 	const calls = [['renderMain', observed.renderMain], ['renderBootstrap', observed.renderBootstrap]];
+	// The wrapper of a library, if that is what tapped the render of this chunk.
+	const library = await libraryOf(evidence, compilation, chunk, calls);
+	if (library.failure) return library;
 	for (const [name, call] of calls) {
 		for (const state of call.states) {
-			const tapped = tapsProblem(state.taps);
+			const tapped = tapsProblem(state.taps, library.taps);
 			if (tapped) return noData(`${tapped} while ${name} ran`);
 		}
 	}
@@ -188,6 +201,16 @@ async function bootstrapEvidence(compilation, chunk, verifyResource) {
 	if (!source || typeof source.source !== 'function') return noData(`the render of chunk ${chunk.name || chunk.id} produced no source`);
 	const rendered = source.source();
 	if (typeof rendered !== 'string') return noData(`the render of chunk ${chunk.name || chunk.id} produced no text`);
+	// What the wrapper contributed has to be exactly the text its own adapter
+	// rebuilt, around the code of the chunk.
+	if (library.tap) {
+		const body = rendered.startsWith(library.prefix) ? rendered.slice(library.prefix.length) : null;
+		// The renderer puts a semicolon of its own after whatever the render
+		// hooks returned.
+		if (body === null || !(body.endsWith(library.suffix) || body.endsWith(`${library.suffix};`))) {
+			return noData(`chunk ${chunk.name || chunk.id} is not wrapped in the library its wrapper describes`);
+		}
+	}
 
 	const units = [];
 	let component;
@@ -205,17 +228,37 @@ async function bootstrapEvidence(compilation, chunk, verifyResource) {
 		units.push({ path: unit.path, sha256: unit.sha256, component: unit.component });
 	}
 	if (component.version !== api.version) return failed('invalid', `component ${component.id} is not the webpack ${api.version} that is running`);
-	return { units, rendered: Buffer.from(rendered, 'utf8') };
+	return { units: [...units, ...library.units], rendered: Buffer.from(rendered, 'utf8') };
+}
+
+// Whether the render of this chunk was shaped by a library wrapper, and the
+// text that wrapper contributed. A tap of anyone else is left to tapsProblem,
+// which names it.
+async function libraryOf(evidence, compilation, chunk, calls) {
+	const none = { tap: null, taps: null, units: [] };
+	for (const [, call] of calls) {
+		for (const state of call.states) {
+			const taps = state.taps && state.taps.get('render');
+			if (!taps || taps.length === 0) continue;
+			if (taps.length !== 1 || taps[0] !== LIBRARY_TAP) return none;
+			if (!evidence.umd) return noData(`${LIBRARY_TAP} shaped chunk ${chunk.name || chunk.id} and no adapter describes it`);
+			const described = await evidence.umd(compilation, chunk);
+			if (described.failure) return described;
+			return { tap: LIBRARY_TAP, taps: described.taps, units: described.units, prefix: described.prefix, suffix: described.suffix };
+		}
+	}
+	return none;
 }
 
 // A tap on a shaping hook contributes code this adapter cannot attribute to a
 // verified source; renderModuleContent carries the one stock tap and nothing else.
-function tapsProblem(taps) {
+function tapsProblem(taps, library) {
 	if (!taps) return 'the taps in place could not be observed';
 	for (const name of [...SHAPING, MODULE_CONTENT]) {
 		const names = taps.get(name);
 		if (!names) return `the ${name} taps could not be observed`;
-		const foreign = name === MODULE_CONTENT ? names.filter((tap) => tap !== API_PLUGIN) : names;
+		const allowed = name === MODULE_CONTENT ? API_PLUGIN : (library && library.get(name)) || null;
+		const foreign = allowed === null ? names : names.filter((tap) => tap !== allowed);
 		if (foreign.length > 0) return `${foreign.join(', ')} tapped ${name}`;
 	}
 	return null;

@@ -40,9 +40,12 @@ const OPTIONS_FINGERPRINT = 'sha256:f64d02ab13536119f4021f14335bb49f83df3f8399be
 // plugin may add to them afterwards.
 function installDefineEvidence(compiler) {
 	const counted = new WeakMap();
-	const watch = (watched) => {
-		watched.hooks.compilation.tap(NAME, (compilation) => {
-			counted.set(compilation, tapsNamed(watched, PLUGIN_TAP));
+	const watched = new WeakSet();
+	const watch = (candidate) => {
+		if (watched.has(candidate)) return;
+		watched.add(candidate);
+		candidate.hooks.compilation.tap(NAME, (compilation) => {
+			counted.set(compilation, tapsNamed(candidate, PLUGIN_TAP));
 			compilation.hooks.childCompiler.tap(NAME, (child) => watch(child));
 		});
 	};

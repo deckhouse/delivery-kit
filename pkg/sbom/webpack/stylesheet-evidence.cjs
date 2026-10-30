@@ -31,6 +31,37 @@ const RUNTIME = path.join('runtime', 'injectStylesIntoStyleTag.js');
 const CANONICAL_SHA256 = /^sha256:[0-9a-f]{64}$/;
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
+const seams = new WeakMap();
+
+// The tail seam of a build, for an adapter that describes a loader of its own
+// in a chain this one instrumented. Null until the stylesheet adapter has been
+// installed on that compiler, which is what records the tails.
+function tailEvidenceFor(compiler) {
+	return seams.get(compiler) || null;
+}
+
+// What stands behind the loader that was handed this text: nothing, so the text
+// has to be the verified bytes of the file the chain is built for, or one tail
+// that is known to have produced it. A caller that knows tails of its own hands
+// them in; each is `{ matches(request), sourcesOf(module, text) }`.
+async function sourcesBehind(context, module, text, { after, resource, tails = [] } = {}) {
+	if (typeof text !== 'string') return noData(`${identify(module)} was not built from text alone`);
+	const chain = Array.isArray(module.loaders) ? module.loaders : [];
+	if (!Number.isInteger(after) || after < 0 || after >= chain.length) return noData(`${identify(module)} was not built by the loader this adapter describes`);
+	const behind = chain.slice(after + 1);
+	if (behind.length === 0) {
+		const source = await sourceUnit(context, resource === undefined ? module.resource : resource, text);
+		return source.failure ? source : { units: [source.unit] };
+	}
+	if (behind.length > 1) return noData(`${identify(module)} was built behind ${behind.length} loaders this adapter does not describe`);
+	const request = behind[0].loader;
+	const known = [{ matches: isKnownSassLoader, sourcesOf: (built, given) => context.sassEvidence(built, given) }, ...tails];
+	const tail = known.find((candidate) => candidate.matches(request));
+	if (!tail) return noData(`${identify(module)} was built behind ${request}, which no adapter of this collector describes`);
+	const described = await tail.sourcesOf(module, text);
+	return described.failure ? described : { units: described.units };
+}
+
 function installStylesheetEvidence(compiler, verifyResource) {
 	if (typeof verifyResource !== 'function') throw new TypeError(`${NAME}: verifyResource must be a function`);
 	const recorder = globalThis[STYLESHEET];
@@ -41,6 +72,9 @@ function installStylesheetEvidence(compiler, verifyResource) {
 	// keeps are read through the raw module of that very chain.
 	const sassEvidence = problem ? undefined : installSassEvidence(compiler, verifyResource);
 	const compilations = new Set();
+	// The seam another adapter asks: whatever its own loader was handed, was it
+	// a file this process verified or the output of a tail this build observed?
+	if (!problem) seams.set(compiler, (module, text, options) => sourcesBehind({ registry, verifyResource, sassEvidence }, module, text, options));
 	if (!problem) {
 		compiler.hooks.compilation.tap(NAME, (compilation) => compilations.add(compilation));
 		// Every module of this build has been described by the time it is done.
@@ -102,9 +136,9 @@ async function describeRaw(context, module, call) {
 		return noData(`${identify(module)} was not built from text alone`);
 	}
 
-	const source = compiled ? await context.sassEvidence(module, call.input) : await sourceUnit(context, call.context.resourcePath, call.input);
+	const source = await sourcesBehind(context, module, call.input, { after: 0, resource: call.context.resourcePath });
 	if (source.failure) return source;
-	const sources = compiled ? source.units : [source.unit];
+	const sources = source.units;
 	// The one string the published loader body returns for that text; its own
 	// output is the record, this is what it has to be.
 	if (call.output !== `module.exports = ${JSON.stringify(call.input)}`) {
@@ -410,4 +444,4 @@ function noData(reason) {
 	return failed('no-data', reason);
 }
 
-module.exports = { installStylesheetEvidence };
+module.exports = { installStylesheetEvidence, tailEvidenceFor };

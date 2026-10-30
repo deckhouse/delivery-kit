@@ -1,0 +1,5 @@
+fonts-filesystem	1	2.0.5-7.el9.1	noarch
+gmp	1	6.2.0-13.el9	x86_64
+gpg-pubkey	0	5a6340b3-6229229e	(none)
+gpg-pubkey	0	fd431d51-4ae0493b	(none)
+shadow-utils	2	4.9-16.el9	x86_64

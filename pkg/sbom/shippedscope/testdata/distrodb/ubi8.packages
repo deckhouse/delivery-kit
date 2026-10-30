@@ -1,0 +1,4 @@
+gmp	1	6.1.2-11.el8	x86_64
+gpg-pubkey	0	d4082792-5b32db75	(none)
+gpg-pubkey	0	fd431d51-4ae0493b	(none)
+openssl-libs	1	1.1.1k-18.el8_6	x86_64

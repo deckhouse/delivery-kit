@@ -5,11 +5,14 @@ import (
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/werf/logboek"
 )
 
 // DistroPackage is one entry of the package database the image's own distribution keeps:
 // what it says is installed, and the files it recorded for it.
 type DistroPackage struct {
+	// Manager is the package manager that recorded it, named by its purl type.
+	Manager string
 	Name    string
 	Version string
 	Arch    string
@@ -23,7 +26,7 @@ type DistroPackage struct {
 
 // DistroDatabase is what the image's own distribution records about itself.
 type DistroDatabase struct {
-	// Packages is what the database says is installed, keyed by DistroPackageKey.
+	// Packages is what the databases say is installed, keyed by ManagerPackageKey.
 	Packages map[string]DistroPackage
 	// Index is the reading of the image that produced them, so that a consumer needing
 	// a path the database did not name does not read the image again.
@@ -33,14 +36,20 @@ type DistroDatabase struct {
 	// read here - says nothing about any package, and nothing may be concluded from its
 	// silence.
 	Present bool
+	// Managers are the package managers, by purl type, whose database was read whole. A
+	// package of another manager is not judged by what these say.
+	Managers map[string]bool
+	// Unread says, per package manager, why a database the image carries was not read.
+	Unread map[string]string
 }
 
-// DistroPackages reads the package database of the image's own distribution: what dpkg
+// DistroPackages reads the package databases of the image's own distribution: what dpkg
 // records under /var/lib/dpkg, in the usual single-status form and in the per-package
-// status.d form a distroless image carries.
+// status.d form a distroless image carries; what rpm records in its SQLite or Berkeley DB
+// database; and what apk records in its installed database.
 //
 // It is read in strict convergence alone, to place the package components an image
-// inherits from its base's SBOM - the deb purls of a base this project did not build.
+// inherits from its base's SBOM - the deb, rpm and apk purls of a base this project did not build.
 // Those components arrive stating no whereabouts, and an image importing a part of such
 // an image can place none of them; the database the base itself carries is the one record
 // of where they stand.
@@ -51,21 +60,24 @@ type DistroDatabase struct {
 // is made of - that remains the supplier's claim, and a compiled file still answers with
 // its own record - only where its files are.
 //
-// rpm and apk databases are not read. rpm keeps its own in sqlite or Berkeley DB, which
-// nothing in this project opens, and writing a reader for either is not something to do
-// on the way past; apk's is not read for the same reason. Components of those two keep
-// stating no whereabouts, and a partial import of an image carrying them yields no data,
-// which is what it did before this.
+// Each database is read whole or not at all: a package skipped would read as one the image
+// does not have. rpm's ndb form, and any database that cannot be read whole, is left unread
+// and says so in Unread; its components keep stating no whereabouts, and a partial import of
+// an image carrying them yields no data.
 func DistroPackages(ctx context.Context, img v1.Image) (*DistroDatabase, error) {
 	index, manifests, err := indexImageFiles(ctx, img, isDistroPackageDatabase)
 	if err != nil {
 		return nil, err
 	}
 
-	database := &DistroDatabase{Packages: make(map[string]DistroPackage), Index: index}
+	database := &DistroDatabase{
+		Packages: make(map[string]DistroPackage), Index: index,
+		Managers: make(map[string]bool), Unread: make(map[string]string),
+	}
 	for file := range manifests {
 		if dpkgStatusFile(file) {
 			database.Present = true
+			database.Managers[dpkgPurlType] = true
 
 			break
 		}
@@ -78,9 +90,14 @@ func DistroPackages(ctx context.Context, img v1.Image) (*DistroDatabase, error) 
 		}
 		files, symlinks := collect(index, resolved)
 		database.Packages[DistroPackageKey(entry.Name, entry.Version, entry.Arch)] = DistroPackage{
-			Name: entry.Name, Version: entry.Version, Arch: entry.Arch,
+			Manager: dpkgPurlType, Name: entry.Name, Version: entry.Version, Arch: entry.Arch,
 			Files: files, Symlinks: symlinks, DeclaresFiles: len(declared) > 0,
 		}
+	}
+	readRPMDatabase(database, index, manifests)
+	readAPKDatabase(database, index, manifests)
+	for manager, reason := range database.Unread {
+		logboek.Context(ctx).Debug().LogF("%s package database of the image is not read: %s\n", manager, reason)
 	}
 
 	return database, nil
@@ -101,6 +118,8 @@ const (
 
 func isDistroPackageDatabase(file string) bool {
 	switch {
+	case isRPMOrAPKDatabase(file):
+		return true
 	case file == dpkgStatusPath:
 		return true
 	case hasPathPrefix(file, dpkgStatusDir):

@@ -178,7 +178,12 @@ async function attribute(items, compilation, verifyResource) {
 async function describe(asset, candidates, verified, verifyResource) {
 	const buffer = bufferOf(asset.source);
 	if (!buffer) return noData(`the source of ${asset.name} does not expose the bytes it carries`);
-	const matched = candidates.filter((entry) => entry.data === buffer);
+	// An asset that no longer holds the bytes of the copy is only a copy if a
+	// described stage of this build rewrote it, which this observer cannot
+	// know. It names the copy as one still to be accounted for, and leaves the
+	// caller - which follows those stages - to accept or refuse it.
+	const rewritten = !candidates.some((entry) => entry.data === buffer);
+	const matched = rewritten ? candidates : candidates.filter((entry) => entry.data === buffer);
 	if (matched.length === 0) return noData(`${asset.name} does not carry the bytes of an observed copy`);
 	const problem = matched.find((entry) => entry.problem);
 	if (problem) return noData(`${asset.name} was copied while ${problem.problem}`);
@@ -188,7 +193,7 @@ async function describe(asset, candidates, verified, verifyResource) {
 	const [entry] = matched;
 	const failure = await verify(entry.observer, verified, verifyResource);
 	if (failure) return { failure };
-	return { from: entry.from };
+	return { from: entry.from, rewritten };
 }
 
 function bufferOf(source) {

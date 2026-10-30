@@ -100,7 +100,7 @@ function sha256(file) {
 // the executable the collector is configured for.
 function build(scenario, options = {}) {
 	const area = fixture.workspace(`${scenario}-${areas++}`, { isolateOriginals: true });
-	addSources(area);
+	addSources(area, scenario);
 	const app = path.join(area.modules, 'app');
 	const old = options.pair === OLD_PAIR;
 	const source = old ? oldRuntime : runtime;
@@ -289,6 +289,26 @@ function inputOf(row, file) {
 	return row.inputs.find((input) => input.path === file);
 }
 
+// Only the description files of the module's own package are accounted for.
+// A package.json of another package, or a file beside the module that is no
+// description file, is read by something this adapter cannot speak for.
+test('reports no data for a module built from a file of another package', { skip: SKIP }, () => {
+	const result = build('foreign-description', { collect: true, entry: path.join('nested', 'only-esm.ts') });
+	const row = result.report.proof.assets.find((candidate) => candidate.path === 'main.js');
+	assert.equal(row.status, 'no-data', row.reason);
+	assert.match(row.reason, /was also built from .*pkg-a[\\/]package\.json/);
+	assert.deepEqual(row.components, []);
+});
+
+// A file beside the module is no description file, whatever it stands next to.
+test('reports no data for a module built from a file beside it', { skip: SKIP }, () => {
+	const result = build('sibling-description', { collect: true, entry: path.join('nested', 'only-esm.ts') });
+	const row = result.report.proof.assets.find((candidate) => candidate.path === 'main.js');
+	assert.equal(row.status, 'no-data', row.reason);
+	assert.match(row.reason, /was also built from .*sibling\.txt/);
+	assert.deepEqual(row.components, []);
+});
+
 // The production call site: the collector installs the adapter from its own
 // option and the described bundle carries the transformed source, the esbuild
 // runtime source it selected and the webpack sources that rendered it.
@@ -306,6 +326,21 @@ test('describes a whole bundle whose module selected the esbuild runtime', { ski
 		locator: runtime.packet.registry,
 		checksum: runtime.packet.component.source.checksum,
 	});
+});
+
+// The package.json webpack read to decide how to read the module is a
+// dependency of that build and of no transform: not one of its bytes is handed
+// to the loader, which is given the file text alone.
+test('describes a module resolved through the description file of its own package', { skip: SKIP }, () => {
+	const result = build('collector-esm', { collect: true, entry: path.join('nested', 'only-esm.ts') });
+	const row = mainRow(result);
+	const subject = path.join(result.app, 'nested', 'only-esm.ts');
+	assert.deepEqual(inputOf(row, subject), { kind: 'source', path: subject, sha256: sha256(subject), components: [APP_COMPONENT], disposition: 'included' });
+	// The description file itself is claimed by nothing: it is not in the bundle.
+	assert.equal(
+		row.inputs.some((input) => input.path.endsWith('package.json')),
+		false,
+	);
 });
 
 test('describes a whole bundle whose module selected no runtime without an esbuild component', { skip: SKIP }, () => {

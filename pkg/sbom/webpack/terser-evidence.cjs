@@ -107,15 +107,38 @@ function installTerserEvidence(compiler, verifyResource) {
 }
 
 // What the plugin writes is every comment it took, sorted, separated by a blank
-// line and closed by a newline. Anything else was not written that way.
+// line and closed by a newline. They are read back by walking them rather than
+// by splitting on the separator: a block comment may hold a blank line of its
+// own, and the text between two separators would then be no comment at all.
 function fragments(bytes) {
 	const text = bytes.toString('utf8');
 	if (!text.endsWith('\n')) return 'does not end in a newline';
-	const parts = text.slice(0, -1).split('\n\n');
-	for (const [index, part] of parts.entries()) {
-		if (part === '') return 'holds an empty comment';
+	const body = text.slice(0, -1);
+	const parts = [];
+	let at = 0;
+	while (at < body.length) {
+		if (parts.length > 0) {
+			if (!body.startsWith('\n\n', at)) return 'holds text that is not a comment';
+			at += 2;
+		}
 		// The plugin rebuilds every comment as a block or a line comment.
-		if (!/^\/\*[\s\S]*\*\/$/.test(part) && !/^\/\/[^\n]*$/.test(part)) return 'holds text that is not a comment';
+		if (body.startsWith('/*', at)) {
+			const end = body.indexOf('*/', at + 2);
+			if (end < 0) return 'holds text that is not a comment';
+			parts.push(body.slice(at, end + 2));
+			at = end + 2;
+			continue;
+		}
+		if (body.startsWith('//', at)) {
+			const end = body.indexOf('\n', at);
+			parts.push(body.slice(at, end < 0 ? body.length : end));
+			at = end < 0 ? body.length : end;
+			continue;
+		}
+		return 'holds text that is not a comment';
+	}
+	if (parts.length === 0) return 'holds an empty comment';
+	for (const [index, part] of parts.entries()) {
 		if (index > 0 && !(parts[index - 1] < part)) return 'holds comments that are not sorted, or holds one of them twice';
 	}
 	return parts;

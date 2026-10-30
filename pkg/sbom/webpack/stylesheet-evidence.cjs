@@ -226,7 +226,7 @@ function requiredModules(context, module, pitch, info) {
 			content = required;
 			continue;
 		}
-		if (required.resource === runtimeFile && Array.isArray(required.loaders) && required.loaders.length === 0) {
+		if (required.resource === runtimeFile && disablesNormalLoaders(required)) {
 			if (api) return noData(`${identify(module)} requires the style-loader runtime more than once`);
 			api = required;
 			continue;
@@ -236,6 +236,19 @@ function requiredModules(context, module, pitch, info) {
 	if (!content) return noData(`${identify(module)} does not require the stylesheet of the request it was pitched for`);
 	if (!api) return noData(`${identify(module)} does not require the runtime of ${info.file}`);
 	return { content, api, runtimeFile };
+}
+
+// The runtime is required by the request style-loader wrote, which is checked
+// against the pitched text above: a single `!`, which turns off the normal
+// loaders of the project but leaves the ones configured to run before and
+// after them. A project that compiles every .js of its tree - as an
+// `enforce: 'pre'` rule does - therefore reaches the runtime too, and the
+// module carries those loaders. Its bytes are not claimed here; it stands in
+// the chunk as a module of its own, described by whoever can describe that
+// transform, and what this adapter needs of it is only that the request
+// resolved to the physical file of the recognized distribution.
+function disablesNormalLoaders(required) {
+	return typeof required.rawRequest === 'string' && required.rawRequest.startsWith('!') && !required.rawRequest.startsWith('!!') && !required.rawRequest.startsWith('-!');
 }
 
 // What loader-utils 2 writes for a request of absolute paths: every part of it

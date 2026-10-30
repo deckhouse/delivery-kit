@@ -213,7 +213,9 @@ test('reports no-data for an asset a transforming copy pattern produced', async 
 
 	const notice = asset(readProof(area), 'notice.txt');
 	assert.equal(notice.status, 'no-data');
-	assert.match(notice.reason, /notice\.txt does not carry the bytes of an observed copy/);
+	// The pattern that rewrote the file is named, which says more about why
+	// nothing is claimed than its bytes alone could.
+	assert.match(notice.reason, /notice\.txt was copied while the pattern transforms the copied content/);
 	assert.deepEqual(notice.includedComponents, []);
 	assert.equal(notice.sha256, sha256(path.join(area.output, 'notice.txt')));
 	assert.match(fs.readFileSync(path.join(area.output, 'notice.txt'), 'utf8'), /appended by the build/, 'the transformed bytes must be what the asset really carries');

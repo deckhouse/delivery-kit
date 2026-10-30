@@ -42,10 +42,23 @@ const COLLECTOR_SOURCES = {
 // The sources of this test, written into the installed application and into the
 // original root the workspace already declares for it: an explicit test
 // construction, not a production path that could rewrite an original.
-function addSources(area) {
+function addSources(area, scenario) {
 	for (const [name, content] of Object.entries({ ...SOURCES, ...COLLECTOR_SOURCES })) {
 		fs.writeFileSync(path.join(area.modules, 'app', name), content);
 		fs.writeFileSync(path.join(area.originalOf('app'), name), content);
+	}
+	if (!['collector-esm', 'foreign-description', 'sibling-description'].includes(scenario)) return;
+	// A module of a package whose own description file says how its files are
+	// read, standing under a directory that carries a second one: both are read
+	// to resolve it, and neither is a byte of it.
+	for (const root of [path.join(area.modules, 'app'), area.originalOf('app')]) {
+		const file = path.join(root, 'package.json');
+		const described = { ...JSON.parse(fs.readFileSync(file, 'utf8')), type: 'module' };
+		fs.writeFileSync(file, `${JSON.stringify(described, null, 2)}\n`);
+		fs.mkdirSync(path.join(root, 'nested'), { recursive: true });
+		fs.writeFileSync(path.join(root, 'nested', 'package.json'), '{\n\t"sideEffects": false\n}\n');
+		fs.writeFileSync(path.join(root, 'nested', 'only-esm.ts'), 'export const n: number = 1;\nconsole.log(n);\n');
+		fs.writeFileSync(path.join(root, 'nested', 'sibling.txt'), 'beside the module\n');
 	}
 }
 
@@ -173,6 +186,33 @@ function scenarioPlugin(setup) {
 					}
 				});
 			}
+			// What webpack records for a module whose package decides how its
+			// files are read: the description file of that package, added as a
+			// dependency of the build before the loader runs. Written here as a
+			// tap of its own, because what records it in a real build is the
+			// resolution of the request, which no fixture controls.
+			if (['collector-esm', 'foreign-description', 'sibling-description'].includes(setup.scenario)) {
+				compiler.hooks.compilation.tap('fixture', (compilation) => {
+					compiler.webpack.NormalModule.getCompilationHooks(compilation).beforeLoaders.tap('fixture', (loaders, module, context) => {
+						const described = module.resourceResolveData && module.resourceResolveData.descriptionFilePath;
+						if (!described) return;
+						// The loader context at this hook is not the one the loaders
+						// are called with; what records a dependency here is the
+						// module's own build info, which is what getDependencies reads.
+						module.buildInfo = module.buildInfo || {};
+						module.buildInfo.fileDependencies = module.buildInfo.fileDependencies || new Set();
+						module.buildInfo.fileDependencies.add(described);
+						// What resolving the request through the package itself reads,
+						// which is not the description file nearest the module.
+						module.buildInfo.fileDependencies.add(path.join(path.dirname(path.dirname(described)), 'package.json'));
+						// A description file of another package, or a file beside the
+						// module that is no description file at all: each is read by
+						// something this adapter knows nothing about.
+						if (setup.scenario === 'foreign-description') module.buildInfo.fileDependencies.add(path.join(setup.modules, 'pkg-a', 'package.json'));
+						if (setup.scenario === 'sibling-description') module.buildInfo.fileDependencies.add(path.join(path.dirname(module.resource), 'sibling.txt'));
+					});
+				});
+			}
 			if (setup.scenario === 'late-source') {
 				compiler.hooks.compilation.tap('fixture', (compilation) => {
 					compilation.hooks.processAssets.tap({ name: 'fixture', stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_REPORT }, () => {
@@ -260,7 +300,7 @@ async function main() {
 	// installs the adapter from its own option and writes the proof.
 	const collecting = typeof setup.proofPath === 'string';
 	const plugins = collecting
-		? [new (require('./collector.cjs'))({ proofPath: setup.proofPath, originals: setup.originals, esbuild: setup.tool })]
+		? [scenarioPlugin(setup), new (require('./collector.cjs'))({ proofPath: setup.proofPath, originals: setup.originals, esbuild: setup.tool })]
 		: [scenarioPlugin(setup), evidencePlugin(setup, reports)];
 	const compiler = webpack(configuration(setup, options, plugins));
 	await run(compiler);

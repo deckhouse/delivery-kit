@@ -124,6 +124,7 @@ test('reports no data for comments that are not the ones taken out of the asset'
 		['unsorted-comments', /not sorted, or holds one of them twice/],
 		['repeated-comments', /not sorted, or holds one of them twice/],
 		['not-a-comment', /holds text that is not a comment/],
+		['trailing-separator', /holds text that is not a comment/],
 	]) {
 		const { row } = rows(build(scenario).report);
 		assert.equal(row.status, 'no-data', `${scenario}: ${row.reason}`);

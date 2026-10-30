@@ -29,6 +29,7 @@ const CLASS_FILES = new Map([
 	['runtime/GlobalRuntimeModule.js', {}],
 	// It writes one more of the pinned runtime globals into its text.
 	['runtime/CompatGetDefaultExportRuntimeModule.js', {}],
+	['runtime/CreateFakeNamespaceObjectRuntimeModule.js', {}],
 	// Declared inside the plugin that installs it and exported by nothing, so
 	// there is no exported class to bind this instance to, and no load-time
 	// wrapper that observed it generating. What makes the claim sound is the
@@ -38,11 +39,38 @@ const CLASS_FILES = new Map([
 	[
 		'dependencies/CommonJsPlugin.js',
 		{
-			declares: 'NodeModuleDecoratorRuntimeModule',
-			rebuild: (api, runtimeTemplate) =>
-				api.Template.asString([
-					`${api.RuntimeGlobals.nodeModuleDecorator} = ${runtimeTemplate.basicFunction('module', ['module.paths = [];', 'if (!module.children) module.children = [];', 'return module;'])};`,
-				]),
+			declarations: new Map([
+				[
+					'NodeModuleDecoratorRuntimeModule',
+					{
+						rebuild: (api, runtimeTemplate) =>
+							api.Template.asString([
+								`${api.RuntimeGlobals.nodeModuleDecorator} = ${runtimeTemplate.basicFunction('module', ['module.paths = [];', 'if (!module.children) module.children = [];', 'return module;'])};`,
+							]),
+					},
+				],
+				[
+					'HarmonyModuleDecoratorRuntimeModule',
+					{
+						rebuild: (api, runtimeTemplate) =>
+							api.Template.asString([
+								`${api.RuntimeGlobals.harmonyModuleDecorator} = ${runtimeTemplate.basicFunction('module', [
+									'module = Object.create(module);',
+									'if (!module.children) module.children = [];',
+									"Object.defineProperty(module, 'exports', {",
+									api.Template.indent([
+										'enumerable: true,',
+										`set: ${runtimeTemplate.basicFunction('', [
+											"throw new Error('ES Modules may not assign module.exports or exports.*, Use ESM export syntax, instead: ' + module.id);",
+										])}`,
+									]),
+									'});',
+									'return module;',
+								])};`,
+							]),
+					},
+				],
+			]),
 		},
 	],
 	// Its text runs through a hook another plugin can rewrite, and carries the
@@ -133,6 +161,7 @@ const FINGERPRINTS = new Map([
 	['Compilation.js', 'sha256:de23e5130f99b6ee579790d32a333e144ce52bbb9db08b258f8f615b81914a1e'],
 	['dependencies/AMDRuntimeModules.js', 'sha256:50d240952310f884e3b46834b4b1e098cab22a0050dbd18457eb79fccfd70a09'],
 	['runtime/CompatGetDefaultExportRuntimeModule.js', 'sha256:dc3f62221eb87296467e3f2d2783b46c6d3910d6a0b0086038b7b108fe16e0b2'],
+	['runtime/CreateFakeNamespaceObjectRuntimeModule.js', 'sha256:80f9597afddd4b3d6798a8f7cb854a5446965bfa98b9c7aa740d88426f227625'],
 	['dependencies/CommonJsPlugin.js', 'sha256:d6d1c3fd918161c21f4eb794b00fe8e792f3b74f8c43f8796c50a2c83caae4bb'],
 	['RawModule.js', 'sha256:358fb3c0a3563420c6957d8a3c71c60e2cce75463dfa5014a32238392ac54556'],
 ]);
@@ -185,8 +214,9 @@ async function runtimeEvidence(compilation, chunk, runtimeModule, verifyResource
 
 	const helpers = [];
 	const declared = CLASS_FILES.get(relativeName(lib, chain[0].file));
-	// A file of several classes describes each of them on its own.
-	const described = declared.members ? declared.members.get(chain[0].member) : declared;
+	// A file of several classes describes each of them on its own, whether they
+	// are exported under a name or only declared inside it.
+	const described = declared.members ? declared.members.get(chain[0].member) : declared.declarations ? declared.declarations.get(chain[0].declared) : declared;
 	if (!described) return noData(`${identify(runtimeModule)} is built by a class ${chain[0].file} does not declare`);
 	for (const relative of [...HELPER_FILES, ...(described.helpers || [])]) {
 		const entry = registry.getByFile(path.join(lib, ...relative.split('/')));
@@ -400,7 +430,7 @@ function memberOf(entry, name, member) {
 // not describe finds nothing.
 function declaredBy(registry, lib, current) {
 	for (const [relative, described] of CLASS_FILES) {
-		if (described.declares !== current.name) continue;
+		if (!described.declarations || !described.declarations.has(current.name)) continue;
 		return registry.getByFile(path.join(lib, ...relative.split('/')));
 	}
 	return undefined;

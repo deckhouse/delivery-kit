@@ -369,6 +369,28 @@ test('describes the runtime modules a commonjs interop build asks for', () => {
 	);
 });
 
+// An esm module that asks for its own module object, and a lazy import of a
+// commonjs one: the decorator that gives the first a module object is declared
+// inside the plugin that installs it, and the helper that makes a namespace of
+// the second stands in a file of its own.
+test('describes the runtime modules an esm interop build asks for', () => {
+	const modules = runtimeModules(build('esm-interop', { chunks: 2 }).report);
+	const fake = modules.get('CreateFakeNamespaceObjectRuntimeModule');
+	assert.ok(fake, [...modules.keys()].join(', '));
+	assert.equal(fake.status, 'present', fake.reason);
+	assert.deepEqual(
+		fake.units.map(relative).sort(),
+		['RuntimeGlobals.js', 'RuntimeModule.js', 'RuntimeTemplate.js', 'Template.js', 'runtime/CreateFakeNamespaceObjectRuntimeModule.js', 'runtime/HelperRuntimeModule.js'],
+	);
+	const decorator = modules.get('HarmonyModuleDecoratorRuntimeModule');
+	assert.ok(decorator, [...modules.keys()].join(', '));
+	assert.equal(decorator.status, 'present', decorator.reason);
+	assert.deepEqual(
+		decorator.units.map(relative).sort(),
+		['RuntimeGlobals.js', 'RuntimeModule.js', 'RuntimeTemplate.js', 'Template.js', 'dependencies/CommonJsPlugin.js'],
+	);
+});
+
 // Such a class is held to the text its own pinned source builds.
 test('reports a hash mismatch for a declared runtime module whose code was forged', () => {
 	const module = runtimeModules(build('forged-decorator', { chunks: 2 }).report).get('NodeModuleDecoratorRuntimeModule');

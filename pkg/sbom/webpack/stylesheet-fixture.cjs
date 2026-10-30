@@ -84,7 +84,15 @@ function rules(setup, options) {
 	const use = [options === undefined ? { loader: setup.styleLoader } : { loader: setup.styleLoader, options }];
 	if (setup.scenario === 'chain') use.push({ loader: setup.passThroughLoader });
 	use.push({ loader: setup.rawLoader });
-	return [{ test: /\.css$/, use }];
+	const rules = [{ test: /\.css$/, use }];
+	// A rule of the kind a project puts in front of its whole tree: it runs
+	// before the normal loaders, which the request style-loader writes for its
+	// runtime does not turn off, so the runtime module carries it too.
+	if (setup.scenario === 'pre-loader') rules.push({ test: /\.js$/, enforce: 'pre', use: [{ loader: setup.passThroughLoader }] });
+	// What Argo puts in front of its whole tree, and what the style-loader
+	// runtime is therefore compiled by as well.
+	if (setup.esbuild) rules.push({ test: /\.js$/, enforce: 'pre', use: [{ loader: setup.esbuild.loader, options: { loader: 'js', target: 'es2015' } }] });
+	return rules;
 }
 
 function scenarioPlugin(setup) {
@@ -198,7 +206,7 @@ async function main() {
 	// dispatches to the adapter and writes the proof.
 	const collecting = typeof setup.proofPath === 'string';
 	const plugins = collecting
-		? [new (require('./collector.cjs'))({ proofPath: setup.proofPath, originals: setup.originals })]
+		? [new (require('./collector.cjs'))({ proofPath: setup.proofPath, originals: setup.originals, esbuild: setup.esbuild })]
 		: [scenarioPlugin(setup), evidencePlugin(setup, reports)];
 	const configured = configuration(setup, options, plugins);
 	const compiler = webpack(configured);

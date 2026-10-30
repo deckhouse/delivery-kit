@@ -15,10 +15,18 @@ const path = require('node:path');
 
 const MARKER = 'DK-LICENSE-REPORT ';
 const SUFFIX = '.LICENSE.txt';
-const COMMENTS = ['/*! pkg-a v1.2.3 | (c) 2024 | MIT */', '/** @license pkg-b 4.5.6 Apache-2.0 */'];
+// The third is the shape a real dependency ships: a block comment holding a
+// blank line of its own, which the plugin writes out between separators that
+// look exactly like the one inside it.
+const COMMENTS = [
+	'/*! pkg-a v1.2.3 | (c) 2024 | MIT */',
+	'/** @license pkg-b 4.5.6 Apache-2.0 */',
+	'/*! ***\npkg-c 7.8.9\nLicensed under the Apache License, Version 2.0\n\nTHIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES.\n\nSee the License for the specific language governing permissions.\n*** */',
+];
 const SOURCES = {
 	'licensed.js': `${COMMENTS[0]}\nimport { a } from 'pkg-a';\n${COMMENTS[1]}\nexport const licensed = () => a();\n`,
-	'with-license.js': "import { licensed } from './licensed.js';\nconsole.log(licensed());\n",
+	'spaced.js': `${COMMENTS[2]}\nexport const spaced = () => 'spaced';\n`,
+	'with-license.js': "import { licensed } from './licensed.js';\nimport { spaced } from './spaced.js';\nconsole.log(licensed(), spaced());\n",
 };
 
 function addSources(area) {
@@ -38,6 +46,9 @@ function forged(scenario) {
 	if (scenario === 'repeated-comments') return `${COMMENTS[0]}\n\n${COMMENTS[0]}\n`;
 	// Text the asset was minified from, but no comment.
 	if (scenario === 'not-a-comment') return 'console\n';
+	// A separator the file ends on: what follows it is no comment, because
+	// nothing follows it.
+	if (scenario === 'trailing-separator') return `${COMMENTS[0]}\n\n\n`;
 	return null;
 }
 

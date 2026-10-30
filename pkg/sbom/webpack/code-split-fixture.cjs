@@ -27,6 +27,12 @@ const SOURCES = {
 	// carry its compatibility helper and its module decorator into the runtime.
 	'legacy.js': "module.paths;\nmodule.exports = function legacy() { return 'legacy'; };\n",
 	'interop.js': "import legacy from './legacy.js';\nimport('./lazy.js');\nconsole.log(legacy());\n",
+	// A module in the esm style that asks for its own module object, and a lazy
+	// import of a commonjs module: the first makes webpack carry the decorator
+	// that gives an esm module one, the second the helper that turns what the
+	// import answers with into a namespace.
+	'decorated.js': 'export const own = module;\n',
+	'esm-interop.js': "import { own } from './decorated.js';\nimport('./legacy.js').then((m) => console.log(m.default, own));\n",
 	'amd.js':
 		"import('./lazy.js');\nconsole.log(typeof define === 'function' && define.amd, typeof require === 'function' && require.amd);\n" +
 		// Taken rather than called, which is what makes webpack carry its own
@@ -37,6 +43,7 @@ const SOURCES = {
 function entryFile(scenario) {
 	if (scenario.startsWith('amd') || scenario === 'forged-amd-options') return 'amd.js';
 	if (scenario === 'interop' || scenario === 'forged-decorator' || scenario === 'foreign-decorator') return 'interop.js';
+	if (scenario === 'esm-interop' || scenario === 'forged-harmony') return 'esm-interop.js';
 	return null;
 }
 

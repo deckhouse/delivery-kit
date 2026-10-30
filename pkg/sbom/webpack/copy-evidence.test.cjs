@@ -156,12 +156,17 @@ test('reports no data for a copy whose content the pattern transforms', () => {
 
 // The replacement carries exactly the bytes of the copy, so nothing that
 // compares content could tell it apart from the copied asset.
-test('reports no data for a copied asset another plugin replaced with the same bytes', () => {
+// This observer says which file was copied to a target and whether the asset
+// still holds what the copy put there. An asset rewritten afterwards - by
+// another plugin, or by a stage of the build this observer knows nothing of -
+// is named as one still to be accounted for, and it is the caller following
+// those stages that accepts or refuses it.
+test('names a copied asset another plugin replaced with the same bytes as rewritten', () => {
 	const result = build('late-replacement');
 	const row = rowOf(rowsOf(result.report), 'late.txt');
-	assert.equal(row.status, 'no-data');
-	assert.match(row.reason, /does not carry the bytes of an observed copy/);
-	assert.equal(row.from, undefined);
+	assert.equal(row.status, 'present', row.reason);
+	assert.equal(row.rewritten, true);
+	assert.ok(row.from.endsWith(path.join('assets', 'a', 'one.txt')));
 	assert.ok(fs.readFileSync(path.join(result.output, 'late.txt')).equals(fs.readFileSync(path.join(result.context, 'assets', 'a', 'one.txt'))));
 });
 

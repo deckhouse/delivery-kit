@@ -197,6 +197,7 @@ function describe(result, name, copied, probe) {
 		copied,
 		probe,
 		from: result.from,
+		rewritten: result.rewritten,
 		status: result.failure ? result.failure.status : 'present',
 		reason: result.failure ? result.failure.reason : undefined,
 	};

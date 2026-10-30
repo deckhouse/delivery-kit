@@ -31,7 +31,7 @@ let areas = 0;
 before(
 	() => {
 		scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dk-webpack-prebuilt-')));
-		fixture = createFixture(path.join(scratch, 'fixture'), { bootstrap: true });
+		fixture = createFixture(path.join(scratch, 'fixture'), { bootstrap: true, minifier: true });
 	},
 	{ timeout: 900000 },
 );
@@ -195,6 +195,39 @@ test('refuses a copied prebundle no composition is delivered for', async () => {
 	assert.equal(vendor.status, 'no-data');
 	assert.match(vendor.reason, /copied \.js carries an unsupplied nested composition/);
 	assert.deepEqual(vendor.components, []);
+});
+
+// A copied file is an asset of this build like any other: the minifier of this
+// compilation rewrites it, and the bytes to be found on disk are the ones it
+// left. What the file is made of is unchanged by that rewrite.
+test('describes a copied prebundle this build minified', async () => {
+	const { area, proof } = await fixture.buildPrimary('prebuilt-minified', { prebuilt: (where) => delivered(where), configuration: { optimization: { minimize: true } } });
+	const vendor = proof.assets.find((asset) => asset.path === 'vendor.js');
+	assert.equal(vendor.status, 'present', vendor.reason);
+	assert.deepEqual(vendor.includedComponents, [COMPONENT.id]);
+	// The bytes on disk are the minified ones, and no longer what was copied.
+	assert.equal(vendor.sha256, sha256(path.join(area.output, 'vendor.js')));
+	assert.notEqual(vendor.sha256, sha256(area.installed('pkg-c/vendor.js')));
+	// The comments that minification took out of the copied file are claimed by
+	// what the file is made of, which is the delivered composition.
+	const comments = proof.assets.find((asset) => asset.path === 'vendor.js.LICENSE.txt');
+	assert.ok(comments, proof.assets.map((asset) => asset.path).join(', '));
+	assert.equal(comments.status, 'present', comments.reason);
+	assert.deepEqual(comments.includedComponents, [COMPONENT.id]);
+	assert.equal(comments.sha256, sha256(path.join(area.output, 'vendor.js.LICENSE.txt')));
+});
+
+// Without a delivery the minified copy is still refused for what it is - an
+// opaque bundle - and the comments taken out of it are refused with it.
+test('refuses a minified copied prebundle no composition is delivered for', async () => {
+	const { proof } = await fixture.buildPrimary('prebuilt-minified-absent', { configuration: { optimization: { minimize: true } } });
+	const vendor = proof.assets.find((asset) => asset.path === 'vendor.js');
+	assert.equal(vendor.status, 'no-data');
+	assert.match(vendor.reason, /copied \.js carries an unsupplied nested composition/);
+	const comments = proof.assets.find((asset) => asset.path === 'vendor.js.LICENSE.txt');
+	assert.equal(comments.status, 'no-data');
+	assert.match(comments.reason, /belongs to no chunk of this compilation and was not copied/);
+	assert.deepEqual(comments.components, []);
 });
 
 // The delivery says what the bytes are made of; it never says what the bytes

@@ -35,7 +35,9 @@ const PACKAGES = {
 		version: '7.8.9',
 		files: {
 			'index.js': 'export function c() { return "c"; }\n',
-			'vendor.js': 'module.exports = { vendored: true };\n',
+			// A prebundle as a dependency ships one: a licence comment a minifier
+			// takes out of it, and more text than a minifier would leave alone.
+			'vendor.js': "/*! pkg-c vendor bundle | (c) 2024 | MIT */\nfunction vendored() {\n\tconst value = true;\n\treturn value;\n}\nmodule.exports = { vendored: vendored() };\n",
 			LICENSE: 'Apache License 2.0 placeholder.\n',
 		},
 	},
@@ -57,9 +59,13 @@ function createFixture(root, options = {}) {
 	// The build tools this process is running are instruments, not packages of
 	// this workspace: they are bound where they are installed and never land in
 	// any node_modules of a fixture workspace.
-	const tools = options.bootstrap
-		? { bootstrap: bootstrapOriginal(path.join(resolved, 'webpack')), copy: bootstrapOriginal(path.join(resolved, 'copy-webpack-plugin'), 'copy-webpack-plugin') }
-		: {};
+	const tools = options.bootstrap ? { bootstrap: bootstrapOriginal(path.join(resolved, 'webpack')), copy: bootstrapOriginal(path.join(resolved, 'copy-webpack-plugin'), 'copy-webpack-plugin') } : {};
+	// Only for a workspace whose builds minify: a test that binds the minifier
+	// itself would bind it twice.
+	if (options.minifier) {
+		tools.minifier = bootstrapOriginal(path.join(resolved, 'terser-webpack-plugin'), 'terser-webpack-plugin');
+		tools.terser = bootstrapOriginal(path.join(resolved, 'terser'), 'terser');
+	}
 	return {
 		root: resolved,
 		distributions,
@@ -170,7 +176,7 @@ function workspace(scratch, distributions, name, options, tools = {}) {
 	}
 	// Never materialized into this workspace: a tool binding has to be the
 	// distribution the compilation itself is running.
-	for (const tool of [tools.bootstrap, tools.copy]) {
+	for (const tool of [tools.bootstrap, tools.copy, tools.minifier, tools.terser]) {
 		if (tool) originals.push(tool.binding);
 	}
 	return {
@@ -231,7 +237,7 @@ async function buildPrimary(scratch, distributions, name, overrides, tools) {
 	];
 	if (overrides && overrides.plugins) plugins.push(...overrides.plugins);
 	if (overrides && overrides.beforeRun) overrides.beforeRun(area);
-	await run(configuration(area, { plugins }));
+	await run(configuration(area, { plugins, ...(overrides && overrides.configuration ? overrides.configuration : {}) }));
 	return { area, proof: readProof(area) };
 }
 

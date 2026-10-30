@@ -324,15 +324,22 @@ async function describe(state, spec, record, module, verifyResource, chained = f
 	// stripped: those bytes would be described as transformed, and they were not.
 	if (text.text !== source) return failed('hash-mismatch', `esbuild did not read the verified bytes of ${record.resource}`);
 
+	// The description files webpack read to resolve this module - the
+	// package.json of its package, and of any directory between that package and
+	// the file itself, whose fields decide how the file is read - are
+	// dependencies of the build and of no transform: none of their bytes reach
+	// the loader, which is handed the file text alone, held against the verified
+	// original just above.
+	const built = (file) => file !== record.resource && !describesResource(file, record.resource);
 	for (const file of record.dependencies) {
-		if (file !== record.resource) return noData(`${identify(module)} was also built from ${file}`);
+		if (built(file)) return noData(`${identify(module)} was also built from ${file}`);
 	}
 	// Only if webpack still holds it: the snapshot that replaces the list is an
 	// optimization, and its absence is not a dependency this adapter missed.
 	const snapshot = module.buildInfo && module.buildInfo.snapshot;
 	if (snapshot && typeof snapshot.getFileIterable === 'function') {
 		for (const file of snapshot.getFileIterable()) {
-			if (file !== record.resource) return noData(`${identify(module)} was also built from ${file}`);
+			if (built(file)) return noData(`${identify(module)} was also built from ${file}`);
 		}
 	}
 
@@ -430,6 +437,17 @@ function bufferOf(source) {
 
 function digest(bytes) {
 	return `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+// Whether this is a description file of the package the resource belongs to:
+// the package.json of a directory the resource stands under. One anywhere else
+// is a file of some other package, and is a dependency of this build that this
+// adapter cannot account for.
+function describesResource(file, resource) {
+	if (path.basename(file) !== 'package.json') return false;
+	const directory = path.dirname(file);
+
+	return resource.startsWith(directory.endsWith(path.sep) ? directory : directory + path.sep);
 }
 
 function identify(module) {

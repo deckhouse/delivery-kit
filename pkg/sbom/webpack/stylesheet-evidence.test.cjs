@@ -9,6 +9,7 @@ const path = require('node:path');
 const { before, after, test } = require('node:test');
 
 const { createFixture, bootstrapOriginal } = require('./fixture.cjs');
+const { resolveRuntimeModule } = require('./esbuild-fixture.cjs');
 const { MARKER, SOURCES, addSources, child } = require('./stylesheet-fixture.cjs');
 
 const PRELOAD = path.join(__dirname, 'stylesheet-preload.cjs');
@@ -25,12 +26,19 @@ const STYLE_COMPONENT = 'node:style-loader@1.3.0';
 const RAW_COMPONENT = 'node:raw-loader@0.5.1';
 const WEBPACK_COMPONENT = 'node:webpack@5.94.0';
 const EVIDENCE = process.env.DK_STYLESHEET_EVIDENCE;
+// The one case that needs the instrumented tool: Argo compiles every .js of its
+// tree with esbuild-loader, the style-loader runtime included.
+const TOOL_SOURCE = process.env.DK_ESBUILD_SOURCE;
+const TOOL_SKIP = TOOL_SOURCE === undefined || TOOL_SOURCE === '' ? 'DK_ESBUILD_SOURCE is not set to a checkout of the instrumented esbuild' : false;
+const TOOL_COMMIT = 'e9174d671b1882758cd32ac5e146200f5bee3e45';
+const ESBUILD_LOADER = require.resolve('esbuild-loader');
 
 let scratch;
 let fixture;
 let loaderOriginals;
 let passThrough;
 let aliasedRuntime;
+let toolRuntime;
 let areas = 0;
 
 before(() => {
@@ -46,6 +54,7 @@ before(() => {
 	fs.writeFileSync(passThrough, 'module.exports = (source) => source;\n');
 	aliasedRuntime = path.join(scratch, 'aliased-runtime.js');
 	fs.writeFileSync(aliasedRuntime, 'module.exports = function () { return function () {}; };\n');
+	if (!TOOL_SKIP) toolRuntime = resolveRuntimeModule(scratch, TOOL_SOURCE, TOOL_COMMIT);
 }, { timeout: 180000 });
 
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
@@ -73,14 +82,26 @@ function build(scenario, options = {}) {
 		passThroughLoader: passThrough,
 		styleRuntime: STYLE_RUNTIME,
 		aliasedRuntime: aliasedRuntime,
-		originals: [...area.originals, ...loaderOriginals],
+		originals: [...area.originals, ...loaderOriginals, ...(options.esbuild ? [toolRuntime.binding] : [])],
 		appRoots: [app, area.originalOf('app')],
+		esbuild: options.esbuild
+			? {
+					versions: { esbuild: '0.25.0', esbuildLoader: '4.3.0' },
+					entry: path.join(TOOL_SOURCE, 'npm', 'esbuild', 'lib', 'main.js'),
+					binary: path.join(TOOL_SOURCE, 'esbuild'),
+					loader: ESBUILD_LOADER,
+					entrySHA256: sha256(path.join(TOOL_SOURCE, 'npm', 'esbuild', 'lib', 'main.js')),
+					binarySHA256: sha256(path.join(TOOL_SOURCE, 'esbuild')),
+					runtimeSource: toolRuntime.file,
+					runtimeSourceSHA256: toolRuntime.sha256,
+				}
+			: undefined,
 	};
 	const output = execFileSync(process.execPath, [...(options.withoutPreload ? [] : ['--require', PRELOAD]), child], {
 		cwd: area.root,
 		encoding: 'utf8',
 		timeout: 60000,
-		env: { ...process.env, DK_STYLESHEET_SETUP: JSON.stringify(setup) },
+		env: { ...process.env, DK_STYLESHEET_SETUP: JSON.stringify(setup), ...(options.esbuild ? { ESBUILD_BINARY_PATH: path.join(TOOL_SOURCE, 'esbuild') } : {}) },
 	});
 	const line = output.split('\n').find((candidate) => candidate.startsWith(MARKER));
 	assert.ok(line, `no report in child output:\n${output}`);
@@ -294,6 +315,24 @@ test('describes a whole bundle built through the style-loader chain', () => {
 	assert.ok(!row.includedComponents.some((id) => /sass|scss/i.test(id)), `no sass component may be claimed: ${row.includedComponents.join(', ')}`);
 });
 
+// Argo's shape: every .js of the tree is compiled by esbuild-loader before the
+// normal loaders run, so the style-loader runtime the chain requires is itself
+// a transformed module. It is described by the adapter that can speak for that
+// transform, and the stylesheet still carries the whole chain.
+test('describes a whole bundle whose style-loader runtime is compiled by a pre-loader', { skip: TOOL_SKIP }, () => {
+	const result = build('collector-pre-esbuild', { collect: true, entry: 'required.js', esbuild: true });
+	const row = mainRow(result);
+	assert.equal(row.status, 'present', row.reason);
+	for (const [file, component] of [
+		[path.join(result.app, 'a.css'), APP_COMPONENT],
+		[RAW_LOADER, RAW_COMPONENT],
+		[STYLE_INDEX, STYLE_COMPONENT],
+		[STYLE_RUNTIME, STYLE_COMPONENT],
+	]) {
+		assert.deepEqual(inputOf(row, file), { kind: 'source', path: file, sha256: sha256(file), components: [component], disposition: 'included' }, `missing input ${file}`);
+	}
+});
+
 test('describes a whole bundle whose stylesheet is built by raw-loader alone', () => {
 	const result = build('raw-only', { collect: true, entry: 'required.js' });
 	const row = mainRow(result);
@@ -328,6 +367,19 @@ test('describes pitched modules whose stylesheets lie at different depths', () =
 
 // The claim is that the code loads the runtime of the loader file it claims, so
 // a build that resolves that request to a file of its own is not described.
+// The request style-loader writes for its runtime disables the normal loaders
+// of the project and nothing else, so a rule that runs before them reaches the
+// runtime module as well. What it does to that module is that module's own
+// account to give; the pitched wrapper is still the one this adapter knows.
+test('describes a stylesheet of a project whose rules run before its own loaders', () => {
+	const row = styleRow(build('pre-loader').report);
+	assert.equal(row.status, 'present', row.reason);
+	assert.deepEqual(
+		row.units.map((unit) => path.basename(unit.path)),
+		['index.js'],
+	);
+});
+
 test('reports no data when the runtime of the request is not the one the loader names', () => {
 	const row = styleRow(build('aliased-runtime').report);
 	assert.equal(row.status, 'no-data', row.reason);

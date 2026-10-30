@@ -25,6 +25,7 @@ const OBSERVED = [
 	'PublicPathRuntimeModule.js',
 	'AutoPublicPathRuntimeModule.js',
 	'CompatGetDefaultExportRuntimeModule.js',
+	'CreateFakeNamespaceObjectRuntimeModule.js',
 ];
 // Files that export their runtime modules as members of a namespace rather than
 // as the whole of their exports.

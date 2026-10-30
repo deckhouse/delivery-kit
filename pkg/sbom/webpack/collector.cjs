@@ -621,21 +621,27 @@ async function describeExtractedComments(options, assetPath, compilation, chunkU
 	const observed = await options.licenseEvidence(source, name);
 	if (observed.failure) return incomplete(assetPath, observed.failure);
 	if (!observed.bytes) return incomplete(assetPath, failure('no-data', `no described minification wrote ${assetPath}`));
-	if (!collected) return incomplete(assetPath, failure('no-data', `${ownerPath} belongs to no chunk of this compilation`));
+	// A minified asset no chunk built is a file this build copied, and the
+	// comments taken out of it belong to whatever that file is made of.
+	const copied = collected ? null : await copiedUnits(options, ownerPath, compilation);
+	if (!collected && copied.failure) {
+		return incomplete(assetPath, failure('no-data', `${ownerPath} belongs to no chunk of this compilation and was not copied: ${copied.failure.reason}`));
+	}
 	const hashedOwner = await options.contentHashEvidence(source, ownerPath);
 	if (hashedOwner.failure) return incomplete(assetPath, hashedOwner.failure);
 	const owner = hashedOwner.name || ownerPath;
 	if (observed.owner !== owner || `${owner}${COMMENTS_SUFFIX}` !== name) {
 		return incomplete(assetPath, failure('no-data', `${assetPath} holds the comments of ${observed.owner}, which is not the asset it is named after`));
 	}
-	if (collected.failures.size > 0) return incomplete(assetPath, worst([...collected.failures.values()]));
-	if (collected.units.size === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
+	if (collected && collected.failures.size > 0) return incomplete(assetPath, worst([...collected.failures.values()]));
+	const units = collected ? [...collected.units.values()] : copied.units;
+	if (units.length === 0) return incomplete(assetPath, failure('no-data', `no verified source unit`));
 	let produced = observed.bytes;
 	if (hashed.input) {
 		if (!hashed.input.equals(produced)) return incomplete(assetPath, failure('no-data', `${assetPath} was changed before its content hash was replaced`));
 		produced = hashed.output;
 	}
-	return present(assetPath, [...collected.units.values()], produced);
+	return present(assetPath, units, produced);
 }
 
 // An asset no chunk emitted and no copy produced: the html a described plugin
@@ -665,27 +671,82 @@ async function describeSourceMap(options, assetPath, compilation) {
 }
 
 async function describeCopiedAsset(options, assetPath, compilation) {
+	const copied = await copiedUnits(options, assetPath, compilation);
+	if (copied.failure) return incomplete(assetPath, copied.failure);
+	return present(assetPath, copied.units, copied.bytes);
+}
+
+// What a copied asset is made of, and the bytes it is to be found on disk with.
+async function copiedUnits(options, assetPath, compilation) {
 	const observed = options.copyEvidence(compilation, assetPath);
-	if (observed.failure) return incomplete(assetPath, observed.failure);
+	if (observed.failure) return { failure: observed.failure };
 	const binding = options.copied.get(assetPath);
-	if (binding?.failure) return incomplete(assetPath, binding.failure);
-	if (binding && binding.from !== observed.from) return incomplete(assetPath, failure('invalid', `declared copy origin disagrees with the observed source of ${assetPath}`));
+	if (binding?.failure) return { failure: binding.failure };
+	if (binding && binding.from !== observed.from) return { failure: failure('invalid', `declared copy origin disagrees with the observed source of ${assetPath}`) };
 	const from = observed.from;
 	const resolved = await verifyResource(options, from);
-	if (resolved.failure) return incomplete(assetPath, resolved.failure);
+	if (resolved.failure) return { failure: resolved.failure };
+	// A copied file is an asset of this compilation like any other: the stages
+	// that run over the emitted assets run over it too, in the same order, each
+	// for the bytes the one before left. None of them makes it a file of other
+	// sources - a minifier rewrites what is there and contributes nothing - so
+	// what is claimed is unchanged and only the bytes to be found on disk move.
+	const produced = await stagedBytes(options, assetPath, compilation, resolved.unit.bytes, 'it was copied');
+	if (produced.failure) return { failure: produced.failure };
+	// Nothing of this build accounts for an asset that holds other bytes than
+	// the copy put there, so nothing here says what it is.
+	if (observed.rewritten && !produced.staged) {
+		return { failure: failure('no-data', `${assetPath} does not carry the bytes of an observed copy`) };
+	}
 	// A file this build installs but did not build carries the composition the
 	// rebuild that emitted these very bytes proved for them. It is looked up by
-	// the digest of bytes already bound to their own verified original, and the
-	// claim is that composition: what the prebundle is made of, not the identity
-	// of the archive it was shipped in.
+	// the digest of bytes already bound to their own verified original - what was
+	// copied, before any stage of this build rewrote it - and the claim is that
+	// composition: what the prebundle is made of, not the identity of the archive
+	// it was shipped in.
 	const delivered = options.prebuilt ? options.prebuilt.resolve(resolved.unit.sha256) : null;
-	if (delivered && delivered.length > 0) return present(assetPath, delivered, resolved.unit.bytes);
+	if (delivered && delivered.length > 0) return { units: [...delivered, ...produced.units], bytes: produced.bytes };
 	const extension = path.extname(assetPath).toLowerCase();
 	const fromExtension = path.extname(from).toLowerCase();
 	if (OPAQUE_COPIED_EXTENSIONS.includes(extension) || OPAQUE_COPIED_EXTENSIONS.includes(fromExtension)) {
-		return incomplete(assetPath, failure('no-data', `copied ${fromExtension || extension} carries an unsupplied nested composition`));
+		return { failure: failure('no-data', `copied ${fromExtension || extension} carries an unsupplied nested composition`) };
 	}
-	return present(assetPath, [resolved.unit], resolved.unit.bytes);
+	return { units: [resolved.unit, ...produced.units], bytes: produced.bytes };
+}
+
+// The bytes an asset is left with after the stages this build runs over its
+// emitted assets, starting from the ones whoever produced it accounted for.
+// Each stage must have been handed exactly what the one before left, and the
+// name the asset is known by before its content hashes are replaced is the name
+// every other stage recorded it under.
+//
+// The source-map stage is absent on purpose: it emits a file beside the asset
+// and leaves the asset's own bytes alone, so it is described where that file
+// is, not as a stage between these.
+async function stagedBytes(options, assetPath, compilation, produced, origin) {
+	const hashed = await options.contentHashEvidence(compilation, assetPath);
+	if (hashed.failure) return { failure: hashed.failure };
+	const named = hashed.name || assetPath;
+	const bannered = await options.bannerEvidence(compilation, named);
+	if (bannered.failure) return { failure: bannered.failure };
+	const minified = await options.minifierEvidence(compilation, named);
+	if (minified.failure) return { failure: minified.failure };
+	let staged = false;
+	for (const [stage, what] of [
+		[bannered, 'its banner'],
+		[minified, 'its minification'],
+	]) {
+		if (!stage.input) continue;
+		if (!stage.input.equals(produced)) return { failure: failure('no-data', `${assetPath} was changed between ${origin} and ${what}`) };
+		produced = stage.output;
+		staged = true;
+	}
+	if (hashed.input) {
+		if (!hashed.input.equals(produced)) return { failure: failure('no-data', `${assetPath} was changed before its content hash was replaced`) };
+		produced = hashed.output;
+		staged = true;
+	}
+	return { bytes: produced, units: bannered.units || [], staged };
 }
 
 // The statuses this collector may report, worst first: an unsafe or conflicting

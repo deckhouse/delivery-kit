@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
@@ -96,4 +97,33 @@ func sortedOriginalBindings(bindings []originalBinding) []originalBinding {
 	})
 
 	return slices.Compact(sorted)
+}
+
+// A stage that installs rather than builds puts files in place whose origin is not a
+// question of bytes. A dependency stage holds whatever it imports plus its own base; a
+// packages stage holds what a package manager unpacked, and each of those files is
+// identified by the package it came out of - the module zip's own hash, checked where the
+// package is installed - not by resembling something else in the image.
+//
+// Files of such a stage are a trap for the byte carry in particular. A Go module cache is
+// full of small fixtures and golden files, and a vendored tree of declared sources is full
+// of the same ones; `huffman-null-max.dyn.expect` is the same handful of bytes wherever it
+// came from. Binding one to the other says the packages stage took a file out of a declared
+// source, which it did not do, and binding it to six of them at once says nothing at all
+// while sinking the context that needed it.
+func installsRatherThanBuilds(stageName string) bool {
+	return stageName == "packages" || strings.HasPrefix(stageName, "dependencies")
+}
+
+// retainedOriginalMatches keeps the bindings of the paths a stage left exactly as they
+// were, and gives none to anything else.
+func retainedOriginalMatches(before *shippedscope.FileIndex, matches originalMatches, after *shippedscope.FileIndex) originalMatches {
+	kept := make(originalMatches, len(matches))
+	for held, bindings := range matches {
+		if file, exists := after.Files[held]; exists && file == before.Files[held] {
+			kept[held] = slices.Clone(bindings)
+		}
+	}
+
+	return kept
 }

@@ -314,12 +314,8 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 				return nil, err
 			}
 		}
-		if strings.HasPrefix(snapshot.Stage, "dependencies") {
-			for name, bindings := range e.matches {
-				if file, exists := snapshot.Index.Files[name]; exists && file == e.index.Files[name] {
-					next[name] = slices.Clone(bindings)
-				}
-			}
+		if installsRatherThanBuilds(snapshot.Stage) {
+			next = retainedOriginalMatches(e.index, e.matches, snapshot.Index)
 		} else {
 			var err error
 			next, err = carryOriginalMatches(e.index, e.matches, snapshot.Index)

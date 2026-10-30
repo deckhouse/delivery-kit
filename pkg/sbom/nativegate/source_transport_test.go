@@ -668,6 +668,39 @@ var _ = ginkgo.Describe("Original source transport", func() {
 		gomega.Expect(transportRecords(bom)).NotTo(gomega.HaveKey("/dest/file"))
 	})
 
+	// The evidence chain answers the same way the producer context does: what a
+	// packages stage unpacks is identified by the package it came out of, so a file it
+	// installs takes no binding from resembling one the image already holds.
+	ginkgo.It("gives a file a packages stage installed no binding from equal bytes", func(ctx ginkgo.SpecContext) {
+		// The source identity is the one a build of it published, so the inherited
+		// catalog is built from a real one rather than from a name made up here.
+		artifact, _, source := installedBuild(ctx)
+		id := onlyTransportSource(transportOriginals(artifact))
+		base := baseWithOriginals(originalsCatalog{
+			Schema:  originalsProperty,
+			Sources: map[string]sources.Source{id: source},
+			Files: map[string]originalFileRecord{"/dest/one": {
+				SHA256:   digest([]byte("tool body")),
+				Size:     int64(len("tool body")),
+				Bindings: []originalBinding{{Source: id, Path: "usr/file"}},
+			}},
+		})
+
+		from, _ := transportStage(ctx, "from", map[string]string{"/dest/one": "tool body"})
+		packages, image := transportStage(ctx, "packages", map[string]string{
+			"/dest/one": "tool body",
+			"/go/pkg/mod/example.com/thing@v1/fixture": "tool body",
+		})
+
+		bom, err := applyTransport(ctx, []SourceSnapshot{from, packages}, image, base)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		catalog := transportOriginals(bom)
+		gomega.Expect(catalog.Files).To(gomega.HaveKey("/dest/one"), "the path that held the evidence keeps it")
+		gomega.Expect(catalog.Files).NotTo(gomega.HaveKey("/go/pkg/mod/example.com/thing@v1/fixture"),
+			"what the packages stage unpacked is not evidence of a declared source")
+	})
+
 	ginkgo.It("merges a repeated import binding into the one the path already holds", func(ctx ginkgo.SpecContext) {
 		artifact, artifactImage, first := installedBuild(ctx)
 		firstID := onlyTransportSource(transportOriginals(artifact))

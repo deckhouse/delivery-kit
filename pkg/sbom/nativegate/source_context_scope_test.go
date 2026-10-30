@@ -533,3 +533,173 @@ var _ = ginkgo.Describe("producer context over files that share their bytes with
 		gomega.Expect(packages).NotTo(gomega.BeEmpty())
 	})
 })
+
+var _ = ginkgo.Describe("producer context over files a packages stage installed", func() {
+	// The shape the real builder arrived in: the packages stage unpacks a Go module
+	// cache, and one of the fixtures in it - a golden file of a compression library -
+	// is byte for byte several files of the declared prepared sources. Its bytes said
+	// it came from six of them at once, and the install stage that needed the context
+	// got no data instead.
+	//
+	// Nothing the packages stage puts in place came out of a declared source: a module
+	// is identified by the hash of its own zip, checked where it is installed.
+	ginkgo.It("binds nothing a packages stage installed, whatever it is byte for byte", func(ctx ginkgo.SpecContext) {
+		const golden = "\x00\x00\x00\x00golden\n"
+		source, resolved := declaredContextSource("registry.example.com/sources/compress", "compress-source", map[string]string{
+			"/src/flate/testdata/huffman-null-max.dyn.expect": golden,
+			"/src/flate/testdata/huffman-null-max.golden":     golden,
+			"/src/flate/testdata/huffman-null-max.in":         golden,
+			"/src/go.mod": "module example",
+		})
+		packages, indexes := contextPackages(resolved)
+		base := map[string]string{"/bin/sh": "shell"}
+		imported := map[string]string{
+			"/vendor/flate/testdata/huffman-null-max.dyn.expect": golden,
+			"/vendor/flate/testdata/huffman-null-max.golden":     golden,
+			"/vendor/flate/testdata/huffman-null-max.in":         golden,
+			"/vendor/go.mod": "module example",
+		}
+		dependencies := map[string]string{"/bin/sh": "shell"}
+		for path, body := range imported {
+			dependencies[path] = body
+		}
+		// The packages stage unpacks the module cache beside it.
+		installedByPackages := maps.Clone(dependencies)
+		installedByPackages["/go/pkg/mod/github.com/klauspost/compress@v1.18.6/flate/testdata/huffman-null-max.dyn.expect"] = golden
+		installedByPackages["/go/pkg/mod/github.com/klauspost/compress@v1.18.6/flate/inflate.go"] = "package flate"
+
+		snapshots := []SourceSnapshot{
+			{Stage: "from", Index: fixtureIndex(base)},
+			{
+				Stage: "dependenciesBeforeInstall",
+				Index: fixtureIndex(dependencies),
+				Imports: []SourceImport{{
+					Index: fixtureIndex(map[string]string{
+						"/src/flate/testdata/huffman-null-max.dyn.expect": golden,
+						"/src/flate/testdata/huffman-null-max.golden":     golden,
+						"/src/flate/testdata/huffman-null-max.in":         golden,
+						"/src/go.mod": "module example",
+					}),
+					Receipt: &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+					Scope:   ImportScope{FromPath: "/src", ToPath: "/vendor"},
+				}},
+			},
+			{Stage: "packages", Index: fixtureIndex(installedByPackages)},
+			{Stage: "install", Index: fixtureIndex(installedByPackages)},
+		}
+
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		bound := make([]string, 0, len(imports))
+		for _, imported := range imports {
+			bound = append(bound, imported.Path)
+		}
+		gomega.Expect(bound).NotTo(gomega.ContainElement(
+			"/go/pkg/mod/github.com/klauspost/compress@v1.18.6/flate/testdata/huffman-null-max.dyn.expect"),
+			"a module the packages stage unpacked is identified by its own zip, not by its bytes")
+		gomega.Expect(bound).To(gomega.ContainElement("/vendor/go.mod"),
+			"what the import landed is still bound where it landed")
+	})
+
+	// The other half: a path the import landed keeps its binding across the packages
+	// stage, which leaves it alone.
+	ginkgo.It("keeps the bindings of paths a packages stage left untouched", func(ctx ginkgo.SpecContext) {
+		source, resolved := declaredContextSource("registry.example.com/sources/tool", "tool-source", map[string]string{"/src/one.c": "one body"})
+		packages, indexes := contextPackages(resolved)
+		dependencies := map[string]string{"/bin/sh": "shell", "/work/one.c": "one body"}
+		installed := maps.Clone(dependencies)
+		installed["/go/pkg/mod/example.com/thing@v1/one.c"] = "one body"
+
+		snapshots := []SourceSnapshot{
+			{Stage: "from", Index: fixtureIndex(map[string]string{"/bin/sh": "shell"})},
+			{
+				Stage: "dependenciesBeforeInstall",
+				Index: fixtureIndex(dependencies),
+				Imports: []SourceImport{{
+					Index:   fixtureIndex(map[string]string{"/src/one.c": "one body"}),
+					Receipt: &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+					Scope:   ImportScope{FromPath: "/src", ToPath: "/work"},
+				}},
+			},
+			{Stage: "packages", Index: fixtureIndex(installed)},
+			{Stage: "install", Index: fixtureIndex(installed)},
+		}
+
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
+			{Path: "/work/one.c", Package: contextPackageIndex(0), OriginalPath: "src/one.c"},
+		}))
+	})
+
+	// Keeping a binding across such a stage is a statement that the file is still the
+	// one that was bound. A packages stage that writes over an imported path - a package
+	// shipping its own copy of it - has made it a different file, and what the import
+	// proved is no longer about what stands there.
+	ginkgo.It("drops the binding of a path a packages stage wrote over", func(ctx ginkgo.SpecContext) {
+		source, resolved := declaredContextSource("registry.example.com/sources/tool", "tool-source", map[string]string{"/src/one.c": "one body"})
+		packages, indexes := contextPackages(resolved)
+		dependencies := map[string]string{"/bin/sh": "shell", "/work/one.c": "one body"}
+		overwritten := maps.Clone(dependencies)
+		overwritten["/work/one.c"] = "replaced by a package"
+
+		snapshots := []SourceSnapshot{
+			{Stage: "from", Index: fixtureIndex(map[string]string{"/bin/sh": "shell"})},
+			{
+				Stage: "dependenciesBeforeInstall",
+				Index: fixtureIndex(dependencies),
+				Imports: []SourceImport{{
+					Index:   fixtureIndex(map[string]string{"/src/one.c": "one body"}),
+					Receipt: &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+					Scope:   ImportScope{FromPath: "/src", ToPath: "/work"},
+				}},
+			},
+			{Stage: "packages", Index: fixtureIndex(overwritten)},
+			{Stage: "install", Index: fixtureIndex(overwritten)},
+		}
+
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(imports).To(gomega.BeEmpty(),
+			"the file the import proved is not the file standing there now")
+	})
+
+	// A stage that builds still follows content it wrote: the rule is about what
+	// installing means, not about every stage after an import.
+	ginkgo.It("still follows content a build stage wrote after the packages stage", func(ctx ginkgo.SpecContext) {
+		source, resolved := declaredContextSource("registry.example.com/sources/tool", "tool-source", map[string]string{"/src/one.c": "one body"})
+		packages, indexes := contextPackages(resolved)
+		dependencies := map[string]string{"/bin/sh": "shell", "/work/one.c": "one body"}
+		installed := maps.Clone(dependencies)
+		installed["/go/pkg/mod/example.com/thing@v1/readme"] = "readme"
+		built := maps.Clone(installed)
+		built["/usr/src/one.c"] = "one body"
+
+		snapshots := []SourceSnapshot{
+			{Stage: "from", Index: fixtureIndex(map[string]string{"/bin/sh": "shell"})},
+			{
+				Stage: "dependenciesBeforeInstall",
+				Index: fixtureIndex(dependencies),
+				Imports: []SourceImport{{
+					Index:   fixtureIndex(map[string]string{"/src/one.c": "one body"}),
+					Receipt: &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+					Scope:   ImportScope{FromPath: "/src", ToPath: "/work"},
+				}},
+			},
+			{Stage: "packages", Index: fixtureIndex(installed)},
+			{Stage: "install", Index: fixtureIndex(built)},
+		}
+
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		paths := make([]string, 0, len(imports))
+		for _, imported := range imports {
+			paths = append(paths, imported.Path)
+		}
+		gomega.Expect(paths).To(gomega.ConsistOf("/work/one.c", "/usr/src/one.c"))
+	})
+})

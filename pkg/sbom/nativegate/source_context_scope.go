@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/buildcontext"
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/original"
@@ -53,22 +52,15 @@ func producerContextImports(ctx context.Context, snapshots []SourceSnapshot, pac
 	return contextImports(index, matches, indexes)
 }
 
-// A dependency stage holds whatever it imports plus its own base; only a path it keeps
-// byte for byte keeps the binding an earlier stage established, and nothing it happens to
-// hold takes a binding over from equal bytes elsewhere.
+// Only a path such a stage keeps byte for byte keeps the binding an earlier stage
+// established, and nothing it happens to hold takes a binding over from equal bytes
+// elsewhere.
 func carriedContextMatches(index *shippedscope.FileIndex, matches originalMatches, snapshot SourceSnapshot) (originalMatches, error) {
-	if !strings.HasPrefix(snapshot.Stage, "dependencies") {
-		return carryOriginalMatches(index, matches, snapshot.Index)
+	if installsRatherThanBuilds(snapshot.Stage) {
+		return retainedOriginalMatches(index, matches, snapshot.Index), nil
 	}
 
-	kept := make(originalMatches)
-	for held, bindings := range matches {
-		if file, exists := snapshot.Index.Files[held]; exists && file == index.Files[held] {
-			kept[held] = slices.Clone(bindings)
-		}
-	}
-
-	return kept, nil
+	return carryOriginalMatches(index, matches, snapshot.Index)
 }
 
 func importedContextMatches(ctx context.Context, imported SourceImport, packages map[string]*resolvedSource, before, after *shippedscope.FileIndex) (originalMatches, error) {

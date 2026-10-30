@@ -111,6 +111,9 @@ func (s *SignFilesStage) digest() string {
 	args := []string{string(s.Name()), "Format", signing.SignatureFormat}
 	for _, sign := range s.signs {
 		args = append(args, "Path", sign.Path)
+		if sign.Embedded() {
+			args = append(args, "Format", signing.AuthenticodeFormat)
+		}
 	}
 	args = append(args, "Cert", s.options.Cert)
 	return util.Sha256Hash(args...)
@@ -143,58 +146,85 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 		}
 	}()
 
-	files, err := s.expandSigns(ctx, reader)
+	detached, embedded, err := s.expandSigns(ctx, reader)
 	if err != nil {
 		return err
 	}
 
-	var signatures [][]byte
-	if err := logboek.Context(ctx).Default().LogProcess("Signing %d file(s)", len(files)).DoError(func() error {
-		for _, filePath := range files {
-			logboek.Context(ctx).Default().LogF("sign %s\n", filePath)
-		}
-		var signErr error
-		signatures, signErr = signing.SignDetachedPKCS7Batch(ctx, &imageFiles{reader: reader, paths: files}, s.options.Signer())
-		return signErr
-	}); err != nil {
-		var contentErr *signing.ContentError
-		if errors.As(err, &contentErr) {
-			return fmt.Errorf("sign %s of image %q: %w", files[contentErr.Index], s.imageName, contentErr.Err)
-		}
-		return fmt.Errorf("sign %d file(s) of image %q: %w", len(files), s.imageName, err)
-	}
-
 	legacy := c.UseLegacyStapelBuilder(cb)
 	var installCommands []string
-	for i, filePath := range files {
-		signature := signatures[i]
-		outputPath := config.SignatureOutputPath(filePath)
-		outputName := path.Base(outputPath)
+	outputIndex := 0
+	// place puts one output of the stage into the image. A detached signature lands
+	// next to its file as <file>.p7s; a signed PE replaces the file it was made from.
+	place := func(output signOutput) error {
+		outputName := path.Base(output.path)
 		if legacy {
-			// Two signed files can share a base name: keep every signature in its own
-			// directory, or the later one overwrites the earlier and both destinations
-			// receive the same signature.
-			entryDir := strconv.Itoa(i)
+			// Two outputs can share a base name: keep every one in its own directory,
+			// or the later overwrites the earlier and both destinations receive the
+			// same content.
+			entryDir := strconv.Itoa(outputIndex)
+			outputIndex++
 			if err := os.MkdirAll(filepath.Join(signaturesDir, entryDir), os.ModePerm); err != nil {
-				return fmt.Errorf("create signature dir for %s: %w", filePath, err)
+				return fmt.Errorf("create signature dir for %s: %w", output.path, err)
 			}
 			hostPath := filepath.Join(signaturesDir, entryDir, outputName)
-			if err := os.WriteFile(hostPath, signature, 0o644); err != nil {
-				return fmt.Errorf("write signature %s: %w", hostPath, err)
+			if err := os.WriteFile(hostPath, output.content, 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", hostPath, err)
 			}
 			containerPath := path.Join(s.containerWerfDir, "sign", string(s.Name()), entryDir, outputName)
 			installCommands = append(installCommands,
-				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellescape.Quote(path.Dir(outputPath))),
-				fmt.Sprintf("%s -m 0644 %s %s", stapel.InstallBinPath(), shellescape.Quote(containerPath), shellescape.Quote(outputPath)),
+				fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), shellescape.Quote(path.Dir(output.path))),
+				fmt.Sprintf("%s -m %04o %s %s", stapel.InstallBinPath(), output.mode, shellescape.Quote(containerPath), shellescape.Quote(output.path)),
 			)
-			continue
+			return nil
 		}
-
-		archive, err := singleFileTar(outputName, signature)
+		archive, err := singleFileTar(outputName, output.content, output.mode)
 		if err != nil {
-			return fmt.Errorf("pack signature of %s: %w", filePath, err)
+			return fmt.Errorf("pack %s: %w", output.path, err)
 		}
-		stageImage.Builder.StapelStageBuilder().AddDataArchive(io.NopCloser(archive), container_backend.FileArchive, outputPath, container_backend.AddDataArchiveOptions{})
+		stageImage.Builder.StapelStageBuilder().AddDataArchive(io.NopCloser(archive), container_backend.FileArchive, output.path, container_backend.AddDataArchiveOptions{})
+		return nil
+	}
+
+	if len(detached) > 0 {
+		var signatures [][]byte
+		if err := logboek.Context(ctx).Default().LogProcess("Signing %d file(s)", len(detached)).DoError(func() error {
+			for _, filePath := range detached {
+				logboek.Context(ctx).Default().LogF("sign %s\n", filePath)
+			}
+			var signErr error
+			signatures, signErr = signing.SignDetachedPKCS7Batch(ctx, &imageFiles{reader: reader, paths: detached}, s.options.Signer())
+			return signErr
+		}); err != nil {
+			var contentErr *signing.ContentError
+			if errors.As(err, &contentErr) {
+				return fmt.Errorf("sign %s of image %q: %w", detached[contentErr.Index], s.imageName, contentErr.Err)
+			}
+			return fmt.Errorf("sign %d file(s) of image %q: %w", len(detached), s.imageName, err)
+		}
+		for i, filePath := range detached {
+			if err := place(signOutput{path: config.SignatureOutputPath(filePath), content: signatures[i], mode: 0o644}); err != nil {
+				return err
+			}
+		}
+	}
+	// One PE at a time: a UKI is tens of megabytes, and a signed copy is kept only until
+	// it is placed.
+	for _, filePath := range embedded {
+		var signedPE []byte
+		if err := logboek.Context(ctx).Default().LogProcess("Signing %s (authenticode)", filePath).DoError(func() error {
+			pe, err := reader.ReadFile(ctx, filePath)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", filePath, err)
+			}
+			signedPE, err = signing.SignAuthenticode(ctx, pe, s.options.Signer())
+			return err
+		}); err != nil {
+			return fmt.Errorf("sign %s of image %q: %w", filePath, s.imageName, err)
+		}
+		if err := place(signOutput{path: filePath, content: signedPE, mode: 0o755}); err != nil {
+			return err
+		}
 	}
 
 	if legacy {
@@ -212,43 +242,53 @@ func (s *SignFilesStage) PrepareImage(ctx context.Context, c Conveyor, cb contai
 	return nil
 }
 
-// expandSigns resolves the entries to the files to sign, in entry order, and applies to
-// the expanded set the conflict checks the config parser applies to literal paths.
-func (s *SignFilesStage) expandSigns(ctx context.Context, reader container_backend.ImageReader) ([]string, error) {
-	var files []string
+// signOutput is a file the stage adds to the image.
+type signOutput struct {
+	path    string
+	content []byte
+	mode    int64
+}
+
+// expandSigns resolves the entries to the files to sign, in entry order, split by what
+// the entry produces, and applies to the expanded set the conflict checks the config
+// parser applies to literal paths.
+func (s *SignFilesStage) expandSigns(ctx context.Context, reader container_backend.ImageReader) (detached, embedded []string, err error) {
 	signByFile := map[string]*config.Sign{}
 	for _, sign := range s.signs {
 		matches := []string{sign.Path}
 		if sign.IsPattern() {
-			var err error
 			matches, err = reader.Glob(ctx, sign.Pattern())
 			if err != nil {
-				return nil, fmt.Errorf("expand `path: %s` of sign in image %q: %w", sign.Path, s.imageName, err)
+				return nil, nil, fmt.Errorf("expand `path: %s` of sign in image %q: %w", sign.Path, s.imageName, err)
 			}
 			if len(matches) == 0 {
-				return nil, fmt.Errorf("`path: %s` of sign in image %q matches no file", sign.Path, s.imageName)
+				return nil, nil, fmt.Errorf("`path: %s` of sign in image %q matches no file", sign.Path, s.imageName)
 			}
 		}
 		for _, filePath := range matches {
 			if other, exist := signByFile[filePath]; exist {
-				return nil, fmt.Errorf("file %s of image %q is signed by both `path: %s` and `path: %s` of sign", filePath, s.imageName, other.Path, sign.Path)
+				return nil, nil, fmt.Errorf("file %s of image %q is signed by both `path: %s` and `path: %s` of sign", filePath, s.imageName, other.Path, sign.Path)
 			}
 			signByFile[filePath] = sign
-			files = append(files, filePath)
+			if sign.Embedded() {
+				embedded = append(embedded, filePath)
+			} else {
+				detached = append(detached, filePath)
+			}
 		}
 	}
-	for _, filePath := range files {
+	for _, filePath := range detached {
 		if other, exist := signByFile[config.SignatureOutputPath(filePath)]; exist {
-			return nil, fmt.Errorf("file %s of image %q matched by `path: %s` of sign is the signature of %s signed at the same stage", config.SignatureOutputPath(filePath), s.imageName, other.Path, filePath)
+			return nil, nil, fmt.Errorf("file %s of image %q matched by `path: %s` of sign is the signature of %s signed at the same stage", config.SignatureOutputPath(filePath), s.imageName, other.Path, filePath)
 		}
 	}
-	return files, nil
+	return detached, embedded, nil
 }
 
-func singleFileTar(name string, content []byte) (*bytes.Buffer, error) {
+func singleFileTar(name string, content []byte, mode int64) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
 		return nil, err
 	}
 	if _, err := tw.Write(content); err != nil {

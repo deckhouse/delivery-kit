@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/deckhouse/delivery-kit-sdk/pkg/signver"
+	"github.com/foxboron/go-uefi/authenticode"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
@@ -156,6 +158,12 @@ var _ = Describe("SignFilesStage", func() {
 		Expect(digestOf(signerA, "/out/x")).To(Equal(base))
 		Expect(digestOf(signerA, "/out/y")).NotTo(Equal(base), "a different signed path must change the digest")
 		Expect(digestOf(signerB, "/out/x")).NotTo(Equal(base), "a different signing certificate must change the digest")
+
+		authenticode := &config.StapelImageBase{Sign: []*config.Sign{{Path: "/out/x", Format: config.SignFormatAuthenticode, After: "install"}}}
+		authenticodeStage := GenerateSignFilesAfterInstallStage(authenticode, enabledOptions(signerA), &BaseStageOptions{})
+		authenticodeDigest, err := authenticodeStage.GetDependencies(context.Background(), nil, nil, nil, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(authenticodeDigest).NotTo(Equal(base), "the same path signed in another format is another stage")
 	})
 
 	It("binds the digest to the signature format, so a format change invalidates the cache", func() {
@@ -244,6 +252,97 @@ var _ = Describe("SignFilesStage", func() {
 		Expect(verifies(arm64Signature, contentByTargetPlatform["linux/arm64"])).To(Succeed())
 		Expect(verifies(amd64Signature, contentByTargetPlatform["linux/amd64"])).To(Succeed(),
 			"preparing another platform must not overwrite the signature the first platform still has to install")
+	})
+
+	Describe("authenticode", func() {
+		const targetPlatform = "linux/amd64"
+
+		var (
+			unsignedPE []byte
+			signer     *signing.Signer
+		)
+		BeforeEach(func() {
+			var err error
+			unsignedPE, err = os.ReadFile("../signing/testdata/minimal.efi")
+			Expect(err).NotTo(HaveOccurred())
+			signer = newSigner("a")
+		})
+
+		prepare := func(ctx context.Context, files map[string][]byte, signs ...*config.Sign) (string, error) {
+			backend := &signFilesContainerBackendStub{
+				ContainerBackendStub:  NewContainerBackendStub(),
+				filesByTargetPlatform: map[string]map[string][]byte{targetPlatform: files},
+			}
+			conveyor := NewConveyorStub(NewGiterminismManagerStub(NewLocalGitRepoStub("9d8059842b6fde712c58315ca0ab4713d90761c0"), NewGiterminismInspectorStub()), nil, nil)
+			imageConfig := &config.StapelImageBase{Name: "engine", Sign: signs}
+			imageTmpDir := filepath.Join(GinkgoT().TempDir(), "image", imageConfig.Name)
+			stage := GenerateSignFilesAfterInstallStage(imageConfig, enabledOptions(signer), &BaseStageOptions{
+				TargetPlatform:   targetPlatform,
+				ImageName:        imageConfig.Name,
+				ImageTmpDir:      imageTmpDir,
+				ContainerWerfDir: "/.werf",
+			})
+			Expect(stage).NotTo(BeNil())
+
+			prevBuiltImage := container_backend.NewLegacyStageImage(nil, "previous", backend, targetPlatform)
+			prevBuiltImage.SetStageDesc(&image.StageDesc{Info: &image.Info{}})
+			stageImage := NewStageImage(backend, prevBuiltImage.Name(), container_backend.NewLegacyStageImage(prevBuiltImage, "result", backend, targetPlatform))
+
+			if err := stage.PrepareImage(ctx, conveyor, backend, &StageImage{Image: prevBuiltImage}, stageImage, nil); err != nil {
+				return "", err
+			}
+			return filepath.Join(imageTmpDir, "sign", slug.Slug(targetPlatform), string(stage.Name())), nil
+		}
+
+		It("replaces the PE binary in place with its signed copy, keeping it executable", func(ctx SpecContext) {
+			files := map[string][]byte{"/out/boot.efi": unsignedPE}
+
+			signaturesDir, err := prepare(ctx, files, &config.Sign{Path: "/out/boot.efi", Format: config.SignFormatAuthenticode, After: "install"})
+			Expect(err).NotTo(HaveOccurred())
+
+			script, err := os.ReadFile(filepath.Join(signaturesDir, "install.sh"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(script)).To(MatchRegexp(`install -m 0755 \S+/0/boot\.efi /out/boot\.efi\n`), "the signed PE lands on the path of the unsigned one")
+			Expect(string(script)).NotTo(ContainSubstring(".p7s"))
+
+			signedPE, err := os.ReadFile(filepath.Join(signaturesDir, "0", "boot.efi"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(signedPE)).To(BeNumerically(">", len(unsignedPE)))
+			bin, err := authenticode.Parse(bytes.NewReader(signedPE))
+			Expect(err).NotTo(HaveOccurred())
+			leafBlock, _ := pem.Decode([]byte(signer.Cert()))
+			Expect(leafBlock).NotTo(BeNil())
+			leaf, err := x509.ParseCertificate(leafBlock.Bytes)
+			Expect(err).NotTo(HaveOccurred())
+			ok, err := bin.Verify(leaf)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ok).To(BeTrue())
+		})
+
+		It("signs an embedded and a detached entry of the same stage each in its own format", func(ctx SpecContext) {
+			files := map[string][]byte{
+				"/out/boot.efi":        unsignedPE,
+				"/out/rootfs.roothash": []byte("roothash"),
+			}
+
+			signaturesDir, err := prepare(ctx, files,
+				&config.Sign{Path: "/out/boot.efi", Format: config.SignFormatAuthenticode, After: "install"},
+				&config.Sign{Path: "/out/rootfs.roothash", Format: config.SignFormatDetachedPKCS7, After: "install"},
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			script, err := os.ReadFile(filepath.Join(signaturesDir, "install.sh"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(script)).To(ContainSubstring(" /out/boot.efi\n"))
+			Expect(string(script)).To(ContainSubstring(" /out/rootfs.roothash.p7s\n"))
+			Expect(string(script)).NotTo(ContainSubstring("/out/boot.efi.p7s"))
+		})
+
+		It("refuses a file that is not a PE binary", func(ctx SpecContext) {
+			_, err := prepare(ctx, map[string][]byte{"/out/boot.efi": []byte("not a PE")}, &config.Sign{Path: "/out/boot.efi", Format: config.SignFormatAuthenticode, After: "install"})
+			Expect(err).To(MatchError(HavePrefix(`sign /out/boot.efi of image "engine": `)))
+			Expect(err).To(MatchError(ContainSubstring("parse PE")))
+		})
 	})
 
 	Describe("glob patterns", func() {

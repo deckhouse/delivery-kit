@@ -364,6 +364,35 @@ from: alpine
 sign:
 - path: /out/x
 `),
+		Entry("sign embedding an Authenticode signature into a PE binary", `
+image: app
+from: alpine
+sign:
+- path: /out/boot.efi
+  format: authenticode
+  after: install
+`),
+		Entry("sign with the default format spelled out, and an authenticode entry on the other's signature path at a later position", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+  format: detached-pkcs7
+  after: install
+- path: /out/x.p7s
+  format: authenticode
+  after: setup
+`),
+		Entry("sign embedding into a file whose own .p7s another entry signs at the same position", `
+image: app
+from: alpine
+sign:
+- path: /out/x
+  format: authenticode
+  after: install
+- path: /out/x.p7s
+  after: install
+`),
 	)
 
 	DescribeTable("rejects a document the parser rejects",
@@ -688,6 +717,13 @@ from: alpine
 sign:
 - path: /out/x
   after: beforeInstall
+`),
+		Entry("sign with an unknown format", `
+image: app
+from: alpine
+sign:
+- path: /out/boot.efi
+  format: pkcs7
 `),
 		Entry("sign with relative path", `
 image: app

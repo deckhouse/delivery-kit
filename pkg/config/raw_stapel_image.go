@@ -214,12 +214,17 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 			continue
 		}
 		// All entries read the previous image, so an output cannot also be a signed
-		// input in the same stage.
-		if other, exist := signByPath[signDirective.OutputPath()]; exist && !other.IsPattern() && other.Before == signDirective.Before && other.After == signDirective.After {
-			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: its signature `%s` is signed at the same stage!", signDirective.Path, signDirective.OutputPath()), rawSign, c.doc)
-		}
+		// input in the same stage. An embedded entry's output is its own path, which
+		// is also its input, so for it only the first check applies; a detached
+		// entry's output is <path>.p7s.
 		if other, exist := signByOutputPath[signDirective.Path]; exist && other.Before == signDirective.Before && other.After == signDirective.After {
 			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: it is the signature of `path: %s` signed at the same stage!", signDirective.Path, other.Path), rawSign, c.doc)
+		}
+		if signDirective.Embedded() {
+			continue
+		}
+		if other, exist := signByPath[signDirective.OutputPath()]; exist && !other.IsPattern() && other.Before == signDirective.Before && other.After == signDirective.After {
+			return nil, newDetailedConfigError(fmt.Sprintf("conflicting `path: %s` for sign: its signature `%s` is signed at the same stage!", signDirective.Path, signDirective.OutputPath()), rawSign, c.doc)
 		}
 		signByOutputPath[signDirective.OutputPath()] = signDirective
 	}

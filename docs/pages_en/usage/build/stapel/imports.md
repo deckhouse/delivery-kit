@@ -97,7 +97,7 @@ A trailing slash in `to` (anything other than `to: /`) is a configuration error 
 
 ## Signing files inside the image
 
-The `sign` directive signs a file the image produces and lays the signature down next to it, without giving the build stage access to the signing key.
+The `sign` directive signs a file the image produces without giving the build stage access to the signing key. By default the signature is laid down next to the file as `<path>.p7s`; with `format: authenticode` the file itself — a PE binary — is replaced by its signed copy (see below).
 
 With neither `before` nor `after`, the file is signed at the end of the image, once its filesystem is complete — that is what a signed artifact of the image usually means, and it is what another image importing the result gets. Naming a stage puts the signature earlier: it fits the same place in the stage chain as `import`, the file must exist after the stage named by `before` or `after`, and the signature is in place for the stages that follow. Setting both is a configuration error.
 
@@ -113,7 +113,7 @@ sign:
   after: install
 ```
 
-A `path` containing `*` is a glob pattern, expanded against the image filesystem when the signing stage runs: every regular file it matches gets its own `<file>.p7s`, and with a Vault Transit key all files of a signing stage are signed with one Transit request, however many files match. `*` matches within one path segment and `**` across segments; every other character, `?`, `[` and `{` included, stands for itself, so a literal path such as `/out/file[1].bin` needs no escaping (a file with `*` in its name cannot be signed). The pattern must start with a literal directory below `/` (`/out/**/*.ko`, not `/**/*.ko`). Below that directory symlinks are neither matched nor followed, so a file is signed under its real path only; a hard link is a regular file under another name and is signed under each. A pattern that matches nothing fails the build — a declared signature is a requirement of the image, not a hint. This is how a set of files known only after the build is signed, such as the kernel modules `make modules_install` produces:
+A `path` containing `*` is a glob pattern, expanded against the image filesystem when the signing stage runs: every regular file it matches is signed in the entry's format — in the default format each gets its own `<file>.p7s`, and with a Vault Transit key all detached signatures of a signing stage are made with one Transit request, however many files match. `*` matches within one path segment and `**` across segments; every other character, `?`, `[` and `{` included, stands for itself, so a literal path such as `/out/file[1].bin` needs no escaping (a file with `*` in its name cannot be signed). The pattern must start with a literal directory below `/` (`/out/**/*.ko`, not `/**/*.ko`). Below that directory symlinks are neither matched nor followed, so a file is signed under its real path only; a hard link is a regular file under another name and is signed under each. A pattern that matches nothing fails the build — a declared signature is a requirement of the image, not a hint. This is how a set of files known only after the build is signed, such as the kernel modules `make modules_install` produces:
 
 ```yaml
 sign:
@@ -142,6 +142,22 @@ The `--sign-build-file-vault-*` options exist so that the files signer and the `
 
 The address and the transit mount fall back one by one: either left unset takes what `--sign-key` would use (`VAULT_ADDR`, `TRANSIT_SECRET_ENGINE_PATH`). The authentication does not work that way — it is taken as a whole. With a JWT given, the files signer logs in with that JWT, the role of `--sign-build-file-vault-auth-role` (empty when unset) and the mount of `--sign-build-file-vault-auth-path` (`jwt` when unset); none of the three falls back to the environment. Without a JWT the whole authentication comes from the environment, and a role or a mount passed on their own are rejected. The authentication is validated as soon as werf resolves a declared `sign` — including a command that only has the certificate and never logs in to Vault at all.
 
+### Embedded Authenticode signatures
+
+A UEFI binary — a unified kernel image `ukify` builds, a bootloader — is not verified against a file next to it: Secure Boot firmware reads the signature out of the PE certificate table and checks its chain against the enrolled `db`. `format: authenticode` produces that signature and replaces the file in place:
+
+```yaml
+shell:
+  install:
+  - ukify build --linux=/deps/kernel/vmlinuz --initrd=/deps/initramfs.img --output=/out/boot.efi
+sign:
+- path: /out/boot.efi
+  format: authenticode
+  after: install
+```
+
+werf reads the PE binary out of the image built so far, computes its Authenticode digest — the file without its checksum field and certificate table — wraps it in `SpcIndirectDataContent`, signs the authenticated attributes with the same key and certificate the detached format uses (RSASSA-PKCS1-v1_5, SHA-256; the key has to be RSA), checks the signature against the certificate and adds the signed file as a new layer at the same path, as a root-owned file with mode `0755` — the mode and owner of the unsigned file are not carried over. The signing backend sees one SHA-256 digest per file, so a Vault Transit key signs a UKI with one request, one request per file. The file must be a PE binary that carries no signature yet; anything else fails the build — a signed binary is not signed again. No `<path>.p7s` is written for such an entry, so another entry at the same position may sign the file's own `<path>.p7s`; the file still cannot be the `<path>.p7s` another entry writes at that position. A pattern works as for the detached format. The signature carries the signing certificate and a signing time, and no timestamp countersignature; the firmware needs the signing certificate or its issuer in `db` (or in the shim's MOK list, with the Code Signing extended key usage).
+
 There is no way to build such an image unsigned: a declared `sign` is a requirement of the image, not a build-time choice.
 
 The certificate and the private key are needed at different moments. The certificate is the public identity of the signature and takes part in the stage digest, so every command that works out the image's stages asks for it — including `--require-built-images`, which only resolves an already built image. The private key produces the signature and is needed only where a signature is actually produced: resolving, rendering or deploying an image built earlier needs no key and no access to the KMS.
@@ -150,4 +166,4 @@ A build of an image that declares `sign` fails before any stage runs when the ce
 
 With `hashivault://` the private key never leaves the KMS. The certificate is not fetched from the KMS: when it is issued by a PKI (Vault PKI, for example), the pipeline retrieves the PEM itself and passes it as a path or base64. The stage container always runs with `network: none`, whatever the image's `network` setting, and none of the image's commands run in it, so the directive works unchanged when `build.sbom.enable` is `true` and [network is disabled in shell stages]({{ "/usage/build/sbom.html" | true_relative_url }}).
 
-The stage is cached like any other. Its digest covers the signed paths, signing position, signing certificate and signature format. Changing any of these invalidates the sign stage and the stages after it; with unchanged build inputs, the cached layer is reused. The private key reference and Vault authentication settings do not change the cache identity. When rotating the key, supply a matching certificate. Only the signing certificate is embedded in the `.p7s`; intermediates do not take part in the signature or the digest.
+The stage is cached like any other. Its digest covers the signed paths, signing position, signing certificate and the format of every entry. Changing any of these invalidates the sign stage and the stages after it; with unchanged build inputs, the cached layer is reused. The private key reference and Vault authentication settings do not change the cache identity. When rotating the key, supply a matching certificate. Only the signing certificate is embedded in the `.p7s`; intermediates do not take part in the signature or the digest.

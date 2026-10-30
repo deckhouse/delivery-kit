@@ -8,18 +8,38 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// Sign declares files of the image whose detached PKCS#7 signatures werf writes next
-// to them as <file>.p7s, right after the stage named by Before or After, or at the end
-// of the image when neither is set. Path is either one absolute file path or, when it
-// contains `*`, an absolute glob pattern expanded against the image filesystem when the
-// signing stage runs. `*` (and `**`) is the only metacharacter; every other character,
-// `?`, `[` and `{` included, stands for itself.
+// SignFormat selects what a sign entry produces.
+type SignFormat string
+
+const (
+	// SignFormatDetachedPKCS7 writes a detached PKCS#7 signature next to the file as
+	// <file>.p7s and leaves the file as it is.
+	SignFormatDetachedPKCS7 SignFormat = "detached-pkcs7"
+	// SignFormatAuthenticode embeds an Authenticode signature into a PE binary — a UKI,
+	// a bootloader — replacing the file in place; it is what UEFI Secure Boot checks.
+	SignFormatAuthenticode SignFormat = "authenticode"
+)
+
+// Sign declares files of the image werf signs right after the stage named by Before or
+// After, or at the end of the image when neither is set. Format says what the signature
+// is: by default a detached PKCS#7 written next to the file as <file>.p7s; for
+// authenticode the PE binary itself is replaced by its signed copy. Path is either one
+// absolute file path or, when it contains `*`, an absolute glob pattern expanded
+// against the image filesystem when the signing stage runs. `*` (and `**`) is the only
+// metacharacter; every other character, `?`, `[` and `{` included, stands for itself.
 type Sign struct {
 	Path   string
+	Format SignFormat
 	Before string
 	After  string
 
 	raw *rawSign
+}
+
+// Embedded reports whether the entry replaces the signed file instead of writing a
+// signature next to it.
+func (c *Sign) Embedded() bool {
+	return c.Format == SignFormatAuthenticode
 }
 
 func (c *Sign) GetRaw() interface{} {
@@ -64,6 +84,8 @@ func (c *Sign) validate() error {
 		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: expected an absolute clean file path or glob pattern!", c.Path), c.raw, c.raw.rawStapelImage.doc)
 	case c.IsPattern() && patternBase(c.Pattern()) == "/":
 		return newDetailedConfigError(fmt.Sprintf("invalid `path: %s` for sign: a glob pattern must start with a literal directory below /!", c.Path), c.raw, c.raw.rawStapelImage.doc)
+	case c.Format != SignFormatDetachedPKCS7 && c.Format != SignFormatAuthenticode:
+		return newDetailedConfigError(fmt.Sprintf("invalid `format: %s` for sign: expected %s or %s!", c.Format, SignFormatDetachedPKCS7, SignFormatAuthenticode), c.raw, c.raw.rawStapelImage.doc)
 	case c.Before != "" && c.After != "":
 		return newDetailedConfigError("specify only one stage using `before: install|setup` or `after: install|setup` for sign!", c.raw, c.raw.rawStapelImage.doc)
 	case c.Before != "" && checkInvalidRelation(c.Before):

@@ -49,10 +49,6 @@ type BOMPatcherInterface interface {
 	Apply(ctx context.Context, bom *cdx.BOM) (*cdx.BOM, error)
 }
 
-// ErrSbomNotRequired indicates that SBOM is intentionally absent for the image
-// (e.g. it is a trusted builder image). Callers should handle this silently.
-var ErrSbomNotRequired = errors.New("sbom not required")
-
 type sbomStep struct {
 	containerBackend container_backend.ContainerBackend
 	stagesStorage    storage.StagesStorage

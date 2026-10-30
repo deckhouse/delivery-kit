@@ -70,7 +70,6 @@ var _ = Describe("SbomStep", func() {
 			imgInfo := &werfImage.Info{Name: "app:latest"}
 			_, err := step.GetImageBOM(ctx, "app", imgInfo)
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
 		})
 	})
 
@@ -519,7 +518,6 @@ var _ = Describe("SbomStep", func() {
 
 			_, err := step.GetImageBOM(logging.WithLogger(ctx), "builder-image", imageInfo)
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
 			Expect(err.Error()).To(ContainSubstring("must have an SBOM artifact attached"))
 			Expect(err.Error()).NotTo(ContainSubstring("builder image"))
 		})
@@ -535,7 +533,6 @@ var _ = Describe("SbomStep", func() {
 
 			_, err := step.GetImageBOM(ctx, "app", imageInfo)
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, ErrSbomNotRequired)).To(BeFalse())
 			Expect(err.Error()).NotTo(ContainSubstring(werfImage.DeckhouseInternalBuilderLabel))
 			Expect(err.Error()).To(ContainSubstring("rebuild it with SBOM generation enabled"))
 		})

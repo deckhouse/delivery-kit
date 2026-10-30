@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -2580,9 +2579,6 @@ func (phase *BuildPhase) collectBaseImageSbom(ctx context.Context, img *image.Im
 
 	baseImageSbom, err := phase.sbomStep.GetImageBOM(ctx, img.GetBaseImageName(), baseImageInfo)
 	if err != nil {
-		if errors.Is(err, ErrSbomNotRequired) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("unable to get base image sbom with ref %s: %w", img.GetBaseImageReference(), err)
 	}
 
@@ -2627,13 +2623,6 @@ func (phase *BuildPhase) collectImportImageSboms(ctx context.Context, img *image
 		}
 		importImageSbom, err := phase.sbomStep.GetImageBOM(ctx, importImage.lookupName, importImage.info)
 		if err != nil {
-			if errors.Is(err, ErrSbomNotRequired) {
-				// A trusted builder image ships no SBOM; the import still has a source.
-				if key != (importSBOMKey{}) {
-					boms[key] = nil
-				}
-				continue
-			}
 			return nil, nil, fmt.Errorf("unable to get import image sbom for %q: %w", importImage.imageName, err)
 		}
 		if key != (importSBOMKey{}) {

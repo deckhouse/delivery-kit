@@ -14,12 +14,9 @@ import (
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
-// The fixtures build from scratch on purpose: an image derived from a trusted
-// builder base inherits the io.deckhouse.internal.builder label, and together
-// with WERF_E2E_ALLOW_LOCAL_BUILDER_IMAGES a failed base SBOM lookup silently
-// degrades into ErrSbomNotRequired instead of failing the build. A scratch
-// base leaves no such escape, so these specs actually falsify the base/import
-// SBOM lookup.
+// The fixtures build from scratch on purpose: a base image of the project is one
+// more image whose SBOM has to be there, and a scratch base keeps these specs on
+// the base/import SBOM lookup itself rather than on whatever a shared base ships.
 var _ = Describe("SBOM final repo with dependent images", Label("e2e", "sbom", "final-repo", "dependent"), func() {
 	It("image built from another image of the project: build with --final-repo succeeds", func(ctx SpecContext) {
 		setupSbomBuildEnv()

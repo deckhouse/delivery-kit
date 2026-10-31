@@ -517,15 +517,23 @@ var _ = Describe("Scoping one import source document", func() {
 		Expect(componentNames(scoped)).To(ConsistOf("k8s.io/kube-openapi"))
 	})
 
-	It("keeps a module the scan placed in a manifest the import carries", func(specCtx SpecContext) {
-		bom := cyclonedxutil.NewBOM()
-		bom.Components = &[]cdx.Component{cataloged("gotest.tools/v3", "v3.5.2", "/app/go.mod")}
+	// Every ecosystem that ships no files of its own is placed this way, not Go alone:
+	// what the image holds of a crate is the binary that embeds it, just as for a module.
+	DescribeTable("keeps a component the scan placed in a manifest the import carries",
+		func(specCtx SpecContext, purl, manifest string) {
+			comp := cataloged("libfoo", "1.2.3", manifest)
+			comp.PackageURL = purl
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{comp}
 
-		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+			scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
 
-		Expect(err).NotTo(HaveOccurred())
-		Expect(componentNames(scoped)).To(ConsistOf("gotest.tools/v3"))
-	})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(componentNames(scoped)).To(ConsistOf("libfoo"))
+		},
+		Entry("a Go module the scan read out of a go.mod", "pkg:golang/example.com/libfoo@1.2.3", "/app/go.mod"),
+		Entry("a Rust crate the scan read out of a Cargo.lock", "pkg:cargo/libfoo@1.2.3", "/app/Cargo.lock"),
+	)
 
 	// The scan reached the manifest through a symlinked directory and recorded both
 	// spellings of where it stands; the import names the one it was reached by.
@@ -586,14 +594,14 @@ var _ = Describe("Scoping one import source document", func() {
 	// The verdict werf wrote on a component answers for it; a path the scan noted is no
 	// appeal against it, however much of that path the import carries.
 	DescribeTable("lets no scanner location answer over what werf stated of a component",
-		func(specCtx SpecContext, state func(*cdx.Component), kept bool) {
+		func(specCtx SpecContext, state func(*cdx.Component), settled bool) {
 			comp := cataloged("gotest.tools/v3", "v3.5.2", "/app/go.mod")
 			state(&comp)
 			bom := cyclonedxutil.NewBOM()
 			bom.Components = &[]cdx.Component{comp}
 
 			scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
-			if !kept {
+			if !settled {
 				Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of gotest.tools/v3 v3.5.2")))
 
 				return

@@ -202,10 +202,19 @@ func attributedToVerifiedBinaries(comp *cdx.Component, verified map[string]strin
 func HasBinaryBackedComponents(_ context.Context, bom *cdx.BOM) bool {
 	found := false
 	walkComponents(bom, func(comp *cdx.Component) {
-		key, ok := keyOfComponent(comp)
-		found = found || (ok && isBinaryBacked(key.ecosystem))
+		found = found || BinaryBackedComponent(comp)
 	})
 	return found
+}
+
+// BinaryBackedComponent answers whether this component belongs to an ecosystem that ships
+// no files of its own: what the image holds of it is a binary that embeds it, and the
+// binary answers for its own composition. A component of any other ecosystem is placed by
+// the files of it the image holds.
+func BinaryBackedComponent(comp *cdx.Component) bool {
+	key, ok := keyOfComponent(comp)
+
+	return ok && isBinaryBacked(key.ecosystem)
 }
 
 func addBinaryProperty(comp *cdx.Component, value string) {

@@ -266,14 +266,17 @@ func scopedComponents(ctx context.Context, components *[]cdx.Component, carried 
 			return nil, err
 		}
 		switch {
-		case occurs || nested != nil:
+		// A holder keeps whatever of what it held the import carries, whatever is
+		// said of the holder itself.
+		case nested != nil:
 		case describesNoFiles(comp):
 			// Said of a component, this holds wherever the copy reached: an import
 			// of the whole image is still no reason to claim what the source says
-			// it does not ship.
+			// it does not ship, and neither is a path the copy carries.
 			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s %s, the source states it describes no files of the image\n", comp.Name, comp.Version)
 
 			continue
+		case occurs:
 		case len(locations) > 0:
 			// Every place the donor put it stands outside what was copied.
 			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s %s, no occurrence the import carries\n", comp.Name, comp.Version)
@@ -314,12 +317,26 @@ func componentSubject(comp cdx.Component) string {
 //
 // The occurrences of the document answer alone wherever it carries them: they are the
 // files the image holds, and a scanner's note of where it read a manifest is not evidence
-// of the same kind (shippedscope.RecordOccurrences). A component werf recorded no files of
-// is left with what the scan itself put on record - a manifest listing a dependency says,
-// at least, that the listing is there - and those paths are the donor's own, since a
-// cataloger's inputs are scanned under the full path they have in the image
-// (managedinput.MaterializeCatalogerInputs). A file the scan reached through a symlink is
-// recorded under both spellings, and an import naming either carries it.
+// of the same kind (shippedscope.RecordOccurrences).
+//
+// What the scan recorded is read for one component and no other: one of an ecosystem that
+// ships no files of its own, cataloged out of a dependency manifest, that werf said
+// nothing about. Whether such a component is in the image at all is settled by the
+// binaries, which answer with the composition they embed and are verified against it, so
+// nothing the import carries goes unaccounted for when the listing is left behind; and a
+// manifest listing a dependency does say, at least, that the listing is there. Those paths
+// are the donor's own, since a cataloger's inputs are scanned under the full path they
+// have in the image (managedinput.MaterializeCatalogerInputs), and a file the scan reached
+// through a symlink is recorded under both spellings, either of which an import may name.
+//
+// For everything else the scan's record is not read at all. A package of a distribution is
+// placed from the donor's own database, which names the files of the package rather than
+// the database the scan read it out of, and one that database cannot place stays placed
+// nowhere on purpose (shippedscope.RecomputeDonorPackages). And where werf stated
+// something of a component's files itself, that statement is the answer and a scanner's
+// location is no appeal against it: that they are unknown leaves the component placed
+// nowhere, and the spellings that say it describes none are answered for before anything
+// is placed at all.
 func whereabouts(comp cdx.Component) []string {
 	var locations []string
 	for _, occurrence := range lo.FromPtr(lo.FromPtr(comp.Evidence).Occurrences) {
@@ -327,7 +344,7 @@ func whereabouts(comp cdx.Component) []string {
 			locations = append(locations, occurrence.Location)
 		}
 	}
-	if len(locations) > 0 {
+	if len(locations) > 0 || !readsScannerLocations(comp) {
 		return locations
 	}
 	for _, property := range lo.FromPtr(comp.Properties) {
@@ -340,6 +357,16 @@ func whereabouts(comp cdx.Component) []string {
 	}
 
 	return locations
+}
+
+func readsScannerLocations(comp cdx.Component) bool {
+	if !shippedscope.BinaryBackedComponent(&comp) {
+		return false
+	}
+
+	return !lo.ContainsBy(lo.FromPtr(comp.Properties), func(property cdx.Property) bool {
+		return property.Name == shippedscope.PropertyFiles
+	})
 }
 
 func occursInScope(locations []string, carried func(path string) (bool, error)) (bool, error) {

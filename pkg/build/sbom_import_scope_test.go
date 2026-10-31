@@ -61,6 +61,7 @@ func occurring(name, version string, paths ...string) cdx.Component {
 // no file evidence of the image's own.
 func cataloged(name, version string, paths ...string) cdx.Component {
 	comp := occurring(name, version)
+	comp.PackageURL = "pkg:golang/" + name + "@" + version
 	properties := []cdx.Property{{Name: shippedscope.PropertyBinaries, Value: "unknown"}}
 	for i, path := range paths {
 		properties = append(properties, cdx.Property{Name: fmt.Sprintf("syft:location:%d:path", i), Value: path})
@@ -545,6 +546,7 @@ var _ = Describe("Scoping one import source document", func() {
 	DescribeTable("places a component werf recorded the files of by those files alone",
 		func(specCtx SpecContext, occurrence, location string, kept bool) {
 			comp := occurring("libfoo", "1.2.3", occurrence)
+			comp.PackageURL = "pkg:golang/example.com/libfoo@1.2.3"
 			comp.Properties = &[]cdx.Property{{Name: "syft:location:0:path", Value: location}}
 			bom := cyclonedxutil.NewBOM()
 			bom.Components = &[]cdx.Component{comp}
@@ -562,6 +564,80 @@ var _ = Describe("Scoping one import source document", func() {
 		Entry("the files are carried and the scan read it elsewhere", "/app/lib/libfoo.so", "/src/go.mod", true),
 		Entry("the files are left behind and the scan read it inside the import", "/srv/libfoo.so", "/app/go.mod", false),
 	)
+
+	// A package of a distribution is placed from the database of the image it came out
+	// of, and one that database holds no file list for is left standing nowhere on
+	// purpose. What the scan noted of where it read the package out of is no substitute:
+	// it names a database, not the files of the package.
+	It("reads no data out of a distribution package the donor could not place", func(specCtx SpecContext) {
+		comp := cdx.Component{
+			Type: cdx.ComponentTypeLibrary, BOMRef: "libfoo", Name: "libfoo", Version: "1.0",
+			PackageURL: "pkg:deb/debian/libfoo@1.0?arch=amd64",
+			Properties: &[]cdx.Property{{Name: "syft:location:0:path", Value: "/var/lib/dpkg/status"}},
+		}
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{comp}
+
+		_, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of libfoo 1.0")))
+	})
+
+	// The verdict werf wrote on a component answers for it; a path the scan noted is no
+	// appeal against it, however much of that path the import carries.
+	DescribeTable("lets no scanner location answer over what werf stated of a component",
+		func(specCtx SpecContext, state func(*cdx.Component), kept bool) {
+			comp := cataloged("gotest.tools/v3", "v3.5.2", "/app/go.mod")
+			state(&comp)
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{comp}
+
+			scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+			if !kept {
+				Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of gotest.tools/v3 v3.5.2")))
+
+				return
+			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(scoped.Components).To(BeNil())
+		},
+		Entry("it describes no files of the image", func(comp *cdx.Component) {
+			*comp.Properties = append(*comp.Properties, cdx.Property{Name: shippedscope.PropertyFiles, Value: shippedscope.PropertyFilesNone})
+		}, true),
+		Entry("the image does not ship it", func(comp *cdx.Component) {
+			*comp.Properties = append(*comp.Properties, cdx.Property{Name: shippedscope.PropertyShipped, Value: shippedscope.PropertyShippedFalse})
+		}, true),
+		Entry("it is scoped out of the document", func(comp *cdx.Component) { comp.Scope = cdx.ScopeExcluded }, true),
+		Entry("its files are unknown", func(comp *cdx.Component) {
+			*comp.Properties = append(*comp.Properties, cdx.Property{Name: shippedscope.PropertyFiles, Value: "unknown"})
+		}, false),
+	)
+
+	// Where werf recorded the files of a component, the verdict it wrote beside them is
+	// the answer for it too, however much of those files the import carries.
+	It("drops a component the source says it does not ship even where the import carries its files", func(specCtx SpecContext) {
+		comp := occurring("builder-toolchain", "3.0", "/app/bin/tool")
+		comp.Properties = &[]cdx.Property{{Name: shippedscope.PropertyShipped, Value: shippedscope.PropertyShippedFalse}}
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{comp}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(scoped.Components).To(BeNil())
+	})
+
+	// A property of another name that happens to end like a location property is not one.
+	It("reads no data out of a component whose properties name no scanner location", func(specCtx SpecContext) {
+		comp := cataloged("gotest.tools/v3", "v3.5.2")
+		*comp.Properties = append(*comp.Properties, cdx.Property{Name: "dk:source:0:path", Value: "/app/go.mod"})
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{comp}
+
+		_, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).To(MatchError(ContainSubstring("no-data: the source states no whereabouts of gotest.tools/v3 v3.5.2")))
+	})
 
 	It("reads no document for no directive at all", func(specCtx SpecContext) {
 		_, err := scopeImportBOM(logging.WithLogger(specCtx), cyclonedxutil.NewBOM(), nil)

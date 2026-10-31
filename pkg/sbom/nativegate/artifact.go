@@ -2,6 +2,7 @@ package nativegate
 
 import (
 	"bytes"
+	"debug/elf"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -32,6 +33,7 @@ var acceptedTargets = []struct{ artifact, profile, platform string }{
 	{"macho", "go-macho", "darwin/amd64"},
 	{"macho", "go-macho", "darwin/arm64"},
 	{"pe", "go-pe", "windows/amd64"},
+	{"object", "c-object", "linux/amd64"},
 }
 
 // inspect reads the build record of the native container in body. It reports
@@ -40,6 +42,9 @@ var acceptedTargets = []struct{ artifact, profile, platform string }{
 func (i *inspector) inspect(body []byte) (Record, bool, error) {
 	record := Record{SHA256: digest(body), Origin: "build"}
 	bin, err := shared.ReadBuildInfo(bytes.NewReader(body))
+	if bin == nil && err == nil {
+		bin, err = relocatableBuildInfo(body)
+	}
 	if bin == nil {
 		if err != nil {
 			return record, false, fmt.Errorf("invalid: %w", err)
@@ -97,6 +102,25 @@ func (i *inspector) inspect(body []byte) (Record, bool, error) {
 	}
 	record.Composition = raw
 	return record, true, nil
+}
+
+// relocatableBuildInfo reads the record of a shipped relocatable object. The
+// reader's file entry point selects executables and shared objects only, so an
+// object is handed to the record entry point instead; every status, and the
+// agreement of the record with the container around it, stays the reader's.
+// Bytes that are no ELF object at all are left unread, as a file no reader
+// selects.
+func relocatableBuildInfo(body []byte) (*shared.BinaryBuildInfo, error) {
+	reader := bytes.NewReader(body)
+	f, err := elf.NewFile(reader)
+	if err != nil || f.Type != elf.ET_REL {
+		return nil, nil
+	}
+	record, status, err := shared.ReadELFBuildRecord(reader)
+	if err != nil {
+		return &shared.BinaryBuildInfo{Status: status}, err
+	}
+	return &shared.BinaryBuildInfo{Status: status, SBOM: record}, nil
 }
 
 func embeddedComponent(component shared.BuildComponent) (cdx.Component, error) {

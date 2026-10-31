@@ -92,7 +92,7 @@ func Load(ctx context.Context) (*Policy, string, error) {
 
 // NewDefaultPolicy applies the supported consumer checks to every file in the image.
 func NewDefaultPolicy(_ context.Context, imageName string) *Policy {
-	return &Policy{producerTools: true, Schema: "dk.policy/v2", Profiles: []string{"c-static", "c-dynamic", "go", "go-cgo-dynamic", "go-macho", "go-pe"}, Images: map[string]ImagePolicy{imageName: {Role: "final"}}}
+	return &Policy{producerTools: true, Schema: "dk.policy/v2", Profiles: []string{"c-object", "c-static", "c-dynamic", "go", "go-cgo-dynamic", "go-macho", "go-pe"}, Images: map[string]ImagePolicy{imageName: {Role: "final"}}}
 }
 
 func (p *Policy) checkTool(t Tool) error {

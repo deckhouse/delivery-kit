@@ -24,7 +24,7 @@ var _ = ginkgo.Describe("Default composition checks", func() {
 		bom := cdx.NewBOM()
 		gomega.Expect(ApplySourceSnapshots(ctx, NewDefaultPolicy(context.Background(), "app"), "app", img, snapshots, bom, ApplySourceSnapshotsOptions{})).To(gomega.Succeed())
 		gomega.Expect(bom.Components).NotTo(gomega.BeNil())
-		gomega.Expect(NewDefaultPolicy(context.Background(), "app").Profiles).To(gomega.Equal([]string{"c-static", "c-dynamic", "go", "go-cgo-dynamic", "go-macho", "go-pe"}))
+		gomega.Expect(NewDefaultPolicy(context.Background(), "app").Profiles).To(gomega.Equal([]string{"c-object", "c-static", "c-dynamic", "go", "go-cgo-dynamic", "go-macho", "go-pe"}))
 	})
 
 	ginkgo.DescribeTable("still rejects incomplete tool identities", func(tool Tool) {

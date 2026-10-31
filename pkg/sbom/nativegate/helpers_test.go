@@ -39,12 +39,15 @@ func pureGoFixture() ([]byte, []byte, *Policy) {
 }
 
 func fixtureBuildRecord(kind elf.Type) *shared.BuildRecord {
-	profile := "c-static"
-	if kind == elf.ET_DYN {
+	profile, artifact := "c-static", "elf"
+	switch kind {
+	case elf.ET_DYN:
 		profile = "c-dynamic"
+	case elf.ET_REL:
+		profile, artifact = "c-object", "object"
 	}
 	return &shared.BuildRecord{
-		Schema: "pm.buildinfo/v1", Artifact: "elf", Profile: shared.BuildProfile{ID: profile, Revision: "1", Platform: "linux/amd64"}, Subject: "app", Complete: true,
+		Schema: "pm.buildinfo/v1", Artifact: artifact, Profile: shared.BuildProfile{ID: profile, Revision: "1", Platform: "linux/amd64"}, Subject: "app", Complete: true,
 		Components: []shared.BuildComponent{{ID: "app", Name: kind.String(), Version: "1", Source: shared.BuildSource{Kind: "declared", Locator: "https://example.invalid/" + kind.String()}}},
 		Inputs:     []shared.BuildInput{}, Tools: []shared.BuildTool{{Name: "fixture-tool", Version: "1.0", SHA256: "sha256:" + strings.Repeat("2", 64)}},
 	}
@@ -54,7 +57,7 @@ func minimalRuntimeELF(kind elf.Type) []byte {
 	return runtimeELFWithRecord(kind, fixtureBuildRecord(kind))
 }
 
-func runtimeELFWithRecord(kind elf.Type, record *shared.BuildRecord) []byte {
+func runtimeELFWithRecord(kind elf.Type, record any) []byte {
 	payload, err := json.Marshal(map[string]any{"type": "pm", "sbom": record})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var note bytes.Buffer
@@ -91,7 +94,7 @@ func runtimeTargets(fs *filesystem, present map[string]Record, name string) []st
 }
 
 func fixtureFileMode(name string) int64 {
-	if strings.HasPrefix(name, "/var/lib/pm/") {
+	if strings.HasPrefix(name, "/var/lib/pm/") || strings.HasSuffix(name, ".syso") {
 		return 0o644
 	}
 	return 0o755

@@ -83,7 +83,10 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		err = nil
 		// A script is classified from its whole body, so a shebang is read in full the way
 		// an ELF is; the digest check below then ties those bytes to the index.
-		full := metadata || ip.Role != "final" || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0
+		// A name the suffix guard recognizes is judged on its whole body too: the text
+		// a toolchain installs under a library name is only text if no byte of it says
+		// otherwise, and a prefix cannot say that.
+		full := metadata || ip.Role != "final" || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
 		if full {
 			rest, readErr := io.ReadAll(tr)
 			err = readErr
@@ -162,7 +165,18 @@ func binaryLike(body []byte, executable bool, name string) bool {
 			return true
 		}
 	}
-	return executable || bytes.HasPrefix(body, []byte("\x7fELF")) || bytes.HasPrefix(body, []byte("MZ")) || bytes.HasPrefix(body, []byte("\x00asm")) || bytes.HasPrefix(body, []byte("!<arch>")) || bytes.HasPrefix(body, []byte("!<thin>")) || strings.HasSuffix(name, ".o") || strings.HasSuffix(name, ".so") || strings.HasSuffix(name, ".a")
+	if executable || bytes.HasPrefix(body, []byte("\x7fELF")) || bytes.HasPrefix(body, []byte("MZ")) || bytes.HasPrefix(body, []byte("\x00asm")) || bytes.HasPrefix(body, []byte("!<arch>")) || bytes.HasPrefix(body, []byte("!<thin>")) {
+		return true
+	}
+
+	// The name is a guess about content, and content the classifier reads as text
+	// settles it: a GNU ld script is what a toolchain installs as libc.so or
+	// libgcc_s_asneeded.so, and no composition is read out of text.
+	return binaryName(name) && !linkerScript(body)
+}
+
+func binaryName(name string) bool {
+	return strings.HasSuffix(name, ".o") || strings.HasSuffix(name, ".so") || strings.HasSuffix(name, ".a")
 }
 
 func matching(c Catalog, name, hash string) (*Record, error) {

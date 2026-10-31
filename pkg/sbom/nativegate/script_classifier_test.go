@@ -4,10 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"debug/elf"
 	"maps"
 	"slices"
 	"strings"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -221,5 +223,104 @@ var _ = ginkgo.Describe("Interpreted script classification", func() {
 		bom, err := applyTransport(ctx, []SourceSnapshot{from, packages, changed, removed}, image, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(transportRecords(bom)).To(gomega.BeEmpty())
+	})
+})
+
+// The bodies are the ones a toolchain ships: /usr/lib/x86_64-linux-gnu/libc.so and the
+// libgcc_s.so of gcc:13, and the AS_NEEDED stub gcc installs as libgcc_s_asneeded.so.
+const (
+	libcLinkerScript = "/* GNU ld script\n   Use the shared library, but some functions are only in\n" +
+		"   the static library, so try that secondarily.  */\nOUTPUT_FORMAT(elf64-x86-64)\n" +
+		"GROUP ( /lib/x86_64-linux-gnu/libc.so.6 /usr/lib/x86_64-linux-gnu/libc_nonshared.a  AS_NEEDED ( /lib64/ld-linux-x86-64.so.2 ) )\n"
+	libgccLinkerScript = "/* GNU ld script\n   Use the shared library, but some functions are only in\n" +
+		"   the static library.  */\nGROUP ( libgcc_s.so.1 -lgcc )\n"
+	asNeededLinkerScript = "GROUP ( AS_NEEDED ( -lgcc_s ) )\n"
+)
+
+var _ = ginkgo.Describe("GNU ld script classification", func() {
+	ginkgo.DescribeTable("reads a linker script as the text it is", func(body string) {
+		gomega.Expect(linkerScript([]byte(body))).To(gomega.BeTrue())
+		gomega.Expect(binaryLike([]byte(body), false, "/usr/lib/libc.so")).To(gomega.BeFalse())
+	},
+		ginkgo.Entry("the libc script of a glibc toolchain", libcLinkerScript),
+		ginkgo.Entry("the libgcc_s script of gcc", libgccLinkerScript),
+		ginkgo.Entry("the AS_NEEDED stub", asNeededLinkerScript),
+		ginkgo.Entry("a bare INPUT directive", "INPUT(libfoo.so.1)\n"),
+		ginkgo.Entry("a directive behind two comments", "/* one */\n/* two */\nSEARCH_DIR ( /usr/lib )\n"),
+	)
+
+	ginkgo.DescribeTable("leaves everything else alone", func(body string) {
+		gomega.Expect(linkerScript([]byte(body))).To(gomega.BeFalse())
+	},
+		ginkgo.Entry("a directive with a byte no text holds", "GROUP ( libgcc_s.so.1 )\x00\n"),
+		ginkgo.Entry("an unterminated comment", "/* GNU ld script\nGROUP ( libgcc_s.so.1 )\n"),
+		ginkgo.Entry("an identifier merely opening with a directive", "GROUPING = 1\n"),
+		ginkgo.Entry("ordinary prose", "the group of files\n"),
+		ginkgo.Entry("a shell script", "#!/bin/sh\necho hello\n"),
+		ginkgo.Entry("an empty file", ""),
+	)
+
+	ginkgo.It("ships a linker script a prepared source collects under a library name", func(ctx ginkgo.SpecContext) {
+		files := preparedTree()
+		files["/usr/local/go/src/runtime/libgcc_s_asneeded.so"] = asNeededLinkerScript
+		image := preparedSourceImage(preparedImported(files), preparedSourceLabels("go-source"))
+
+		bom, err := verifyPreparedSource(ctx, files, image, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(transportRecords(bom)).To(gomega.HaveKey("/src/runtime/libgcc_s_asneeded.so"))
+	})
+
+	ginkgo.DescribeTable("reads a linker script of a final image as unattributed text", func(ctx ginkgo.SpecContext, body string) {
+		from, _ := plainStage(ctx, "from", map[string]string{})
+		install, image := plainStage(ctx, "install", map[string]string{"/usr/lib/x86_64-linux-gnu/libc.so": body})
+
+		bom, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(transportRecords(bom)).To(gomega.BeEmpty(), "text claims no component")
+	},
+		ginkgo.Entry("the libc script", libcLinkerScript),
+		ginkgo.Entry("the libgcc_s script", libgccLinkerScript),
+		ginkgo.Entry("the AS_NEEDED stub", asNeededLinkerScript),
+	)
+
+	ginkgo.It("keeps the package owner of an installed linker script the build did not touch", func(ctx ginkgo.SpecContext) {
+		repo := transportRegistryHost(ctx) + "/test/original"
+		source := pushTransportOriginal(ctx, repo, "libc", map[string]string{"/usr/lib/libc.so": libcLinkerScript})
+
+		from, _ := plainStage(ctx, "from", map[string]string{})
+		packages, _ := plainStage(ctx, "packages", map[string]string{"/usr/lib/libc.so": libcLinkerScript})
+		packages.Receipt = transportReceipt(source)
+		install, image := plainStage(ctx, "install", map[string]string{"/usr/lib/libc.so": libcLinkerScript})
+
+		bom, err := applyTransport(ctx, []SourceSnapshot{from, packages, install}, image, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(transportRecords(bom)["/usr/lib/libc.so"].Origin).To(gomega.Equal("pm"))
+	})
+
+	ginkgo.DescribeTable("still refuses a library name over content no text reader can take",
+		func(ctx ginkgo.SpecContext, body, expected string) {
+			from, _ := plainStage(ctx, "from", map[string]string{})
+			install, image := plainStage(ctx, "install", map[string]string{"/usr/lib/libfoo.so": body})
+
+			_, err := applyTransport(ctx, []SourceSnapshot{from, install}, image, nil)
+			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+		},
+		ginkgo.Entry("a directive over bytes with a NUL", "GROUP ( libgcc_s.so.1 )\x00payload\n",
+			"/usr/lib/libfoo.so: unsupported: binary format has no embedded composition reader"),
+		ginkgo.Entry("opaque bytes carrying no magic", "\x01\x02\x03\x04 payload\n",
+			"/usr/lib/libfoo.so: unsupported: binary format has no embedded composition reader"),
+	)
+
+	ginkgo.It("reads a shared object under the same name through the native path", func(ctx ginkgo.SpecContext) {
+		library := minimalRuntimeELF(elf.ET_DYN)
+		from, _ := plainStage(ctx, "from", map[string]string{})
+		install, image := plainStage(ctx, "install", map[string]string{"/usr/lib/libfoo.so": string(library)})
+
+		bom := cdx.NewBOM()
+		gomega.Expect(ApplySourceSnapshots(ctx, bootstrapPolicy(), "app", image,
+			[]SourceSnapshot{from, install}, bom, ApplySourceSnapshotsOptions{})).To(gomega.Succeed())
+		record := transportRecords(bom)["/usr/lib/libfoo.so"]
+		gomega.Expect(record.Origin).To(gomega.Equal("build"))
+		gomega.Expect(record.Composition).NotTo(gomega.BeNil())
 	})
 })

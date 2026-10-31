@@ -269,7 +269,7 @@ var _ = Describe("Common SBOM pipeline", func() {
 			ctx := logging.WithLogger(specCtx)
 			_, catalog, _ := publishedOf(ctx, nil, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
 
-			Expect(catalog.Schema).To(Equal("dk.catalog/v4"), "the schema the verification wrote, which is not the property name")
+			Expect(catalog.Schema).To(Equal("dk.catalog/v5"), "the schema the verification wrote, which is not the property name")
 			record, found := lo.Find(catalog.Records, func(record nativegate.Record) bool { return record.Path == "/app/tool" })
 			Expect(found).To(BeTrue())
 			Expect(record.Origin).To(Equal("build"))
@@ -343,7 +343,7 @@ var _ = Describe("Common SBOM pipeline", func() {
 		})
 		Expect(rootEdges).To(HaveLen(1), "the image declares one set of root dependencies")
 
-		for _, property := range []string{"dk:catalog/v4", "dk:originals/v1"} {
+		for _, property := range []string{"dk:catalog/v5", "dk:originals/v1"} {
 			Expect(lo.CountBy(lo.FromPtr(bom.Metadata.Properties), func(prop cdx.Property) bool {
 				return prop.Name == property
 			})).To(Equal(1), property+" is carried once by the published document")

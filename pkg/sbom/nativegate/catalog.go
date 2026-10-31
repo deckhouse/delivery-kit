@@ -22,11 +22,11 @@ type pmFiles struct {
 }
 
 func emptyCatalog() Catalog {
-	return Catalog{Schema: "dk.catalog/v4", Components: map[string]cdx.Component{}}
+	return Catalog{Schema: "dk.catalog/v5", Components: map[string]cdx.Component{}}
 }
 
 func (c *Catalog) add(other Catalog) error {
-	if other.Schema != "dk.catalog/v4" {
+	if other.Schema != "dk.catalog/v5" {
 		return fmt.Errorf("unsupported inherited catalog %q", other.Schema)
 	}
 	for ref, comp := range other.Components {
@@ -39,7 +39,9 @@ func (c *Catalog) add(other Catalog) error {
 		c.Components[ref] = comp
 	}
 	for _, r := range other.Records {
-		if !digestPattern.MatchString(r.SHA256) || len(r.Components) == 0 || !strings.HasPrefix(r.Path, "/") {
+		// An archive states its composition through its members, and one holding
+		// no member states that it is made of nothing.
+		if !digestPattern.MatchString(r.SHA256) || (len(r.Components) == 0 && r.Archive == nil) || !strings.HasPrefix(r.Path, "/") {
 			return fmt.Errorf("invalid catalog record %s", r.Path)
 		}
 		for _, ref := range r.Components {
@@ -55,15 +57,14 @@ func (c *Catalog) add(other Catalog) error {
 				return fmt.Errorf("%s: invalid: package owner absent from components", r.Path)
 			}
 		}
-		if r.Origin == "build" && len(r.Composition) == 0 {
+		if r.Origin == "build" && len(r.Composition) == 0 && r.Archive == nil {
 			return fmt.Errorf("%s: no-data: missing inherited embedded composition", r.Path)
 		}
+		if err := checkArchive(r); err != nil {
+			return err
+		}
 		if r.Composition != nil {
-			raw, err := json.Marshal(map[string]json.RawMessage{"sbom": r.Composition})
-			if err != nil {
-				return fmt.Errorf("encode inherited composition %s: %w", r.Path, err)
-			}
-			composition, status, err := shared.ParseBuildRecord(raw)
+			composition, status, err := parseComposition(r.Composition)
 			if err != nil {
 				return fmt.Errorf("%s: %s: %w", r.Path, status, err)
 			}
@@ -73,6 +74,56 @@ func (c *Catalog) add(other Catalog) error {
 		}
 		c.Records = append(c.Records, r)
 	}
+	return nil
+}
+
+func parseComposition(embedded json.RawMessage) (*shared.BuildRecord, string, error) {
+	raw, err := json.Marshal(map[string]json.RawMessage{"sbom": embedded})
+	if err != nil {
+		return nil, "invalid", fmt.Errorf("encode composition: %w", err)
+	}
+
+	return shared.ParseBuildRecord(raw)
+}
+
+// checkArchive applies to an inherited archive record what reading the file
+// itself establishes: every member named, its bytes identified, and its own
+// record standing behind the components the archive is credited with. A record
+// stating both an archive and a composition of its own claims something no ar
+// carries, and is refused rather than read either way.
+func checkArchive(r Record) error {
+	if r.Archive == nil {
+		return nil
+	}
+	if r.Composition != nil {
+		return fmt.Errorf("%s: invalid: an archive carries no build record of its own", r.Path)
+	}
+	indexes := map[int]bool{}
+	for _, member := range r.Archive.Members {
+		if member.Name == "" || member.Index < 0 || indexes[member.Index] {
+			return fmt.Errorf("%s: invalid: archive member %q takes no distinct ordinal", r.Path, member.Name)
+		}
+		indexes[member.Index] = true
+		if !digestPattern.MatchString(member.SHA256) || len(member.Components) == 0 {
+			return fmt.Errorf("%s: invalid: archive member %q states no identified content", r.Path, member.Name)
+		}
+		if len(member.Composition) == 0 {
+			return fmt.Errorf("%s: no-data: missing inherited composition of archive member %q", r.Path, member.Name)
+		}
+		composition, status, err := parseComposition(member.Composition)
+		if err != nil {
+			return fmt.Errorf("%s: %s: archive member %q: %w", r.Path, status, member.Name, err)
+		}
+		if member.Profile != composition.Profile.ID {
+			return fmt.Errorf("%s: invalid: inherited profile of archive member %q disagrees with its composition", r.Path, member.Name)
+		}
+		for _, ref := range member.Components {
+			if !slices.Contains(r.Components, ref) {
+				return fmt.Errorf("%s: invalid: archive member %q holds component %s the archive is not credited with", r.Path, member.Name, ref)
+			}
+		}
+	}
+
 	return nil
 }
 

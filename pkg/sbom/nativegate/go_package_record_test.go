@@ -3,6 +3,7 @@ package nativegate
 import (
 	"context"
 	"debug/elf"
+	"encoding/json"
 	"runtime/debug"
 	"strings"
 
@@ -31,10 +32,12 @@ func goPackageRecord() *shared.BuildRecord {
 }
 
 // A go-package record is evidence about a compiled package, which a link
-// consumes and an image never ships: the archives it lives in are not a
-// container this gate reads, and no DK target names the profile. The bumped
-// reader reads revision 3 of it, so what keeps it out of an inventory is the
-// container it is found in rather than the revision going unrecognized.
+// consumes and an image never ships. No DK target names the profile, and the
+// archive it lives in is read as the members it holds: a Go package archive
+// holds Go object files and the record beside them, none of which is a
+// relocatable object answering for itself. The bumped reader reads revision 3
+// of it, so what keeps it out of an inventory is the container it is found in
+// rather than the revision going unrecognized.
 var _ = ginkgo.Describe("Go package record", func() {
 	goPackagePolicy := func() *Policy {
 		policy := fixturePolicy("image")
@@ -46,11 +49,17 @@ var _ = ginkgo.Describe("Go package record", func() {
 		err := Apply(context.Background(), goPackagePolicy(), "image", fixtureImage(map[string]string{goPackagePath: string(build())}), nil, cdx.NewBOM())
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
 	},
-		// The archive the record really belongs to: DK selects no member of it
-		// and reads no record out of it, whatever it carries.
+		// The archive the record really belongs to: pm writes it into a member
+		// of its own, beside Go object files that are no ELF at all, and every
+		// member of a shipped archive has to answer for itself.
 		ginkgo.Entry("the archive it belongs to", func() []byte {
-			return []byte("!<arch>\n")
-		}, "unsupported: binary format has no embedded composition reader"),
+			record, err := json.Marshal(map[string]any{"type": "pm", "sbom": goPackageRecord()})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			return fixtureArchive(
+				archiveEntry{name: "__.PKGDEF/", body: []byte("go object linux amd64\n")},
+				archiveEntry{name: "__.SBOM/", body: record},
+			)
+		}, "no-data: archive member __.PKGDEF (index 0) is no relocatable object carrying a record of its build"),
 		ginkgo.Entry("an executable carrying it", func() []byte {
 			return runtimeELFWithRecord(elf.ET_EXEC, goPackageRecord())
 		}, `invalid: artifact "go-package" does not match ELF type ET_EXEC`),

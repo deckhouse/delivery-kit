@@ -49,7 +49,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	}
 
 	It("refuses a catalog naming a component the verification never declared", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[{"path":"/app","sha256":"sha256:00","origin":"build",` +
+		catalog := `{"schema":"dk.catalog/v5","records":[{"path":"/app","sha256":"sha256:00","origin":"build",` +
 			`"components":["urn:dk:component:sha256:ffff"]}],"components":{}}`
 		published, verified := documentWith(catalog, cdx.Component{
 			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",
@@ -61,7 +61,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	})
 
 	It("refuses to publish when a component the verification proved is gone from the document", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[],"components":{}}`
+		catalog := `{"schema":"dk.catalog/v5","records":[],"components":{}}`
 		published, verified := documentWith(catalog, cdx.Component{
 			Type: cdx.ComponentTypeLibrary, Name: "other", Version: "9", BOMRef: "derived", PackageURL: "pkg:generic/other@9",
 		})
@@ -81,7 +81,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 			one = "sha256:" + "1111111111111111111111111111111111111111111111111111111111111111"
 			two = "sha256:" + "2222222222222222222222222222222222222222222222222222222222222222"
 		)
-		catalog := `{"schema":"dk.catalog/v4","records":[` +
+		catalog := `{"schema":"dk.catalog/v5","records":[` +
 			`{"path":"/app","sha256":"` + one + `","origin":"pm",` +
 			`"components":["urn:dk:component:sha256:aaaa"],"owners":["urn:dk:component:sha256:aaaa"]},` +
 			`{"path":"/app2","sha256":"` + two + `","origin":"pm",` +
@@ -116,7 +116,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	// it keeps the first and remaps the other onto it. The catalog has to name the
 	// survivor, which is the component the fold established they both are.
 	It("follows a fold to the component that survived it", func(ctx SpecContext) {
-		catalog := `{"schema":"dk.catalog/v4","records":[` +
+		catalog := `{"schema":"dk.catalog/v5","records":[` +
 			`{"path":"/app","sha256":"sha256:` + strings.Repeat("3", 64) + `","origin":"pm",` +
 			`"components":["urn:dk:component:sha256:aaaa"],"owners":["urn:dk:component:sha256:aaaa"]}],` +
 			`"components":{"urn:dk:component:sha256:aaaa":` +
@@ -146,7 +146,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	// Between what the patchers left and what is published there is one more pass, and
 	// a component it did not keep is a record that resolves to nothing.
 	It("refuses to publish when a proven component is gone from the last document", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[` +
+		catalog := `{"schema":"dk.catalog/v5","records":[` +
 			`{"path":"/app","sha256":"sha256:` + strings.Repeat("4", 64) + `","origin":"pm",` +
 			`"components":["urn:dk:component:sha256:aaaa"],"owners":["urn:dk:component:sha256:aaaa"]}],` +
 			`"components":{"urn:dk:component:sha256:aaaa":` +
@@ -166,7 +166,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	// The catalog is read back the way a consumer reads it, which catches what the refs
 	// alone do not: a record this build cannot stand behind is not published either.
 	It("refuses to publish a catalog that does not load", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[` +
+		catalog := `{"schema":"dk.catalog/v5","records":[` +
 			`{"path":"/app","sha256":"sha256:` + strings.Repeat("5", 64) + `","origin":"pm",` +
 			`"components":["urn:dk:component:sha256:aaaa"]}],` +
 			`"components":{"urn:dk:component:sha256:aaaa":` +
@@ -182,7 +182,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	// Two components the catalog tells apart that the document declares as one would
 	// leave one record naming a component describing the other.
 	It("refuses two proven components the document declares as one", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[` +
+		catalog := `{"schema":"dk.catalog/v5","records":[` +
 			`{"path":"/app","sha256":"sha256:` + strings.Repeat("6", 64) + `","origin":"pm",` +
 			`"components":["urn:dk:component:sha256:aaaa"],"owners":["urn:dk:component:sha256:aaaa"]}],` +
 			`"components":{` +
@@ -201,7 +201,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	})
 
 	It("refuses a catalog carrying a field this does not understand", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[],"components":{},"invented":1}`
+		catalog := `{"schema":"dk.catalog/v5","records":[],"components":{},"invented":1}`
 		published, verified := documentWith(catalog, cdx.Component{
 			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",
 		})
@@ -223,7 +223,7 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 	// record that resolves to nothing, whether it was dropped before the renaming or
 	// after it.
 	It("refuses to publish when a proven component is dropped after the patchers", func() {
-		catalog := `{"schema":"dk.catalog/v4","records":[],"components":{}}`
+		catalog := `{"schema":"dk.catalog/v5","records":[],"components":{}}`
 		published, verified := documentWith(catalog, cdx.Component{
 			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",
 		})

@@ -1,6 +1,7 @@
 package nativegate
 
 import (
+	"bytes"
 	"context"
 	"debug/elf"
 	"maps"
@@ -24,7 +25,7 @@ const bootstrapHeader = "#define RUNTIME 1\n"
 func bootstrapPolicy() *Policy {
 	return &Policy{
 		Schema:   "dk.policy/v2",
-		Profiles: []string{"c-static", "c-dynamic", "go"},
+		Profiles: []string{"c-object", "c-static", "c-dynamic", "go"},
 		Tools:    []Tool{{Name: "fixture-tool", Version: "1.0", SHA256: "sha256:" + strings.Repeat("2", 64)}},
 		Images:   map[string]ImagePolicy{"app": {Role: "final"}},
 	}
@@ -193,7 +194,36 @@ var _ = ginkgo.Describe("Files imported from a bootstrap source", func() {
 
 		_, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
-			"/opt/go/pkg/tool/libfoo.a: unsupported: binary format has no embedded composition reader")))
+			"/opt/go/pkg/tool/libfoo.a: invalid: the archive ends inside the header of member 0")))
+	})
+
+	// A static library imported out of a bootstrap source is answered for the
+	// way any other compiled artifact is: by the record of the build that made
+	// it. An archive holds no such record, so its members hold them, and the
+	// mark the import leaves on the path is met only when every one of them
+	// does.
+	ginkgo.It("accounts for an imported static archive by the records of its members", func(ctx ginkgo.SpecContext) {
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		files["/usr/local/go/pkg/tool/libfoo.a"] = string(fixtureArchive(memberEntry("start", "first-object")))
+
+		bom, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		record := transportRecords(bom)["/opt/go/pkg/tool/libfoo.a"]
+		gomega.Expect(record.Archive.Members).To(gomega.HaveLen(1))
+		gomega.Expect(record.Archive.Members[0].Name).To(gomega.Equal("start"))
+		gomega.Expect(record.Components).To(gomega.HaveLen(1))
+	})
+
+	ginkgo.It("refuses an imported static archive a member of which carries no record", func(ctx ginkgo.SpecContext) {
+		unrecorded := bytes.Replace(recordedMember("first-object"), []byte(".note.package"), []byte(".note.unknown"), 1)
+		files := bootstrapSourceFiles(minimalRuntimeELF(elf.ET_EXEC))
+		files["/usr/local/go/pkg/tool/libfoo.a"] = string(fixtureArchive(archiveEntry{name: "start/", body: unrecorded}))
+
+		_, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"/opt/go/pkg/tool/libfoo.a: no-data: missing sbom metadata (archive member start, index 0)")))
 	})
 
 	// What a bootstrap image says about its own files - that it declares them its own

@@ -38,9 +38,13 @@ var acceptedTargets = []struct{ artifact, profile, platform string }{
 
 // inspect reads the build record of the native container in body. It reports
 // whether the file is a native container at all: a file the reader confirms is
-// not one carries no record and is left to the caller's ordinary handling.
+// not one carries no record and is left to the caller's ordinary handling. An
+// ar carries no record of its own and is read as the members it holds.
 func (i *inspector) inspect(body []byte) (Record, bool, error) {
 	record := Record{SHA256: digest(body), Origin: "build"}
+	if bytes.HasPrefix(body, []byte(archiveMagic)) || bytes.HasPrefix(body, []byte(thinArchiveMagic)) {
+		return record, true, i.readArchive(&record, body)
+	}
 	bin, err := shared.ReadBuildInfo(bytes.NewReader(body))
 	if bin == nil && err == nil {
 		bin, err = relocatableBuildInfo(body)

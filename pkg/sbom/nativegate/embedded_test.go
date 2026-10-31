@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("embedded composition", func() {
 		gomega.Expect(catalog.attach(bom)).To(gomega.Succeed())
 		err := Apply(context.Background(), fixturePolicy("image"), "image", fixtureImage(map[string]string{"/bin/a": body}), []*cdx.BOM{bom}, cdx.NewBOM())
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
-	}, ginkgo.Entry("PE", "MZpayload", "/bin/a: unsupported"), ginkgo.Entry("Mach-O", "\xfe\xed\xfa\xcfpayload", "/bin/a: invalid"), ginkgo.Entry("archive", "!<arch>\npayload", "/bin/a: unsupported"))
+	}, ginkgo.Entry("PE", "MZpayload", "/bin/a: unsupported"), ginkgo.Entry("Mach-O", "\xfe\xed\xfa\xcfpayload", "/bin/a: invalid"), ginkgo.Entry("archive", "!<arch>\npayload", "/bin/a: invalid"))
 	ginkgo.It("reads a standalone artifact and preserves confirmed empty inputs across serialization and rename", func() {
 		body := minimalRuntimeELF(elf.ET_EXEC)
 		policy := fixturePolicy("build")

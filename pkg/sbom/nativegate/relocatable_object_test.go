@@ -80,11 +80,6 @@ var _ = ginkgo.Describe("shipped relocatable object", func() {
 		ginkgo.Entry("partial object record on an executable", func() []byte {
 			return runtimeELFWithRecord(elf.ET_EXEC, partialRecord(elf.ET_REL))
 		}, `invalid: artifact "object" does not match ELF type ET_EXEC`),
-		// An ar member keeps its own record, but an archive is not that member:
-		// which members a link selects is not read here.
-		ginkgo.Entry("recorded object inside an archive", func() []byte {
-			return append([]byte("!<arch>\n"), minimalRuntimeELF(elf.ET_REL)...)
-		}, "unsupported"),
 	)
 
 	ginkgo.It("refuses an inherited record whose bytes are another object's", func() {

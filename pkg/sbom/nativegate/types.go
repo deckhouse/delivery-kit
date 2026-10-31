@@ -15,7 +15,7 @@ import (
 )
 
 // CatalogProperty is the metadata property a document carries its catalog in.
-const CatalogProperty = "dk:catalog/v4"
+const CatalogProperty = "dk:catalog/v5"
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
@@ -36,17 +36,39 @@ type Policy struct {
 	Profiles      []string               `json:"profiles"`
 	Images        map[string]ImagePolicy `json:"images"`
 }
-type Record struct {
-	Owners      []string        `json:"owners,omitempty"`
+
+// ArchiveMember is what one ordinary member of a shipped ar was read to be: the
+// bytes it holds and the record those bytes carry, under the name and ordinal
+// the archive gives them.
+type ArchiveMember struct {
 	Composition json.RawMessage `json:"composition,omitempty"`
-	PMOverlap   string          `json:"pmOverlap,omitempty"`
-	Namespace   string          `json:"namespace,omitempty"`
-	Path        string          `json:"path"`
+	Name        string          `json:"name"`
 	SHA256      string          `json:"sha256"`
+	Profile     string          `json:"profile"`
 	Components  []string        `json:"components"`
-	Origin      string          `json:"origin"`
-	Profile     string          `json:"profile,omitempty"`
-	Tools       []Tool          `json:"tools,omitempty"`
+	Index       int             `json:"index"`
+}
+
+// ArchiveEvidence is how a file that is an ar states its composition. An archive
+// carries no record of its own, so what it is made of is what its members are:
+// a record holding this states the members it was read to hold, down to a member
+// list that is empty because the archive holds nothing.
+type ArchiveEvidence struct {
+	Members []ArchiveMember `json:"members"`
+}
+
+type Record struct {
+	Archive     *ArchiveEvidence `json:"archive,omitempty"`
+	Owners      []string         `json:"owners,omitempty"`
+	Composition json.RawMessage  `json:"composition,omitempty"`
+	PMOverlap   string           `json:"pmOverlap,omitempty"`
+	Namespace   string           `json:"namespace,omitempty"`
+	Path        string           `json:"path"`
+	SHA256      string           `json:"sha256"`
+	Components  []string         `json:"components"`
+	Origin      string           `json:"origin"`
+	Profile     string           `json:"profile,omitempty"`
+	Tools       []Tool           `json:"tools,omitempty"`
 }
 type Catalog struct {
 	pmSnapshot string

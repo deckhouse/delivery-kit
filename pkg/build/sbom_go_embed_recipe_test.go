@@ -54,7 +54,7 @@ const (
 	// a main module built outside a tagged module; the prepared source the record is the
 	// subject of keeps its own declared version.
 	goEmbedRecipeMainVersion     = "(devel)"
-	goEmbedRecipeCatalogProperty = "dk:catalog/v4"
+	goEmbedRecipeCatalogProperty = "dk:catalog/v5"
 )
 
 const (

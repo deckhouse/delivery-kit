@@ -135,9 +135,13 @@ func nativeMagic(prefix []byte) bool {
 // nativeCandidate reports whether a whole body must be captured for the record
 // reader to judge it. A bare COFF object has no magic, only the machine id the
 // reader classifies on, so that id is enough to read the file in full; the
-// reader, not this guess, decides whether the file is native at all.
+// reader, not this guess, decides whether the file is native at all. An archive
+// is judged by the members it holds, which stand in the rest of the file.
 func nativeCandidate(prefix []byte) bool {
 	if nativeMagic(prefix) {
+		return true
+	}
+	if bytes.HasPrefix(prefix, []byte(archiveMagic)) || bytes.HasPrefix(prefix, []byte(thinArchiveMagic)) {
 		return true
 	}
 	if len(prefix) < 2 {
@@ -345,7 +349,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			}
 			record = &embedded
 		}
-		if record != nil && record.Composition != nil && !native {
+		if record != nil && (record.Composition != nil || record.Archive != nil) && !native {
 			return fmt.Errorf("%s: invalid: recorded native composition does not match file", name)
 		}
 		if !native && binary(false) {
@@ -357,7 +361,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		// the record of its own build, or bytes a prepared source still serves at the
 		// path this chain bound it to. The ordinary acceptance of plain text without a
 		// component does not reach it.
-		if evidence != nil && evidence.bootstrap[name] && !boundOriginal && (record == nil || record.Composition == nil) {
+		if evidence != nil && evidence.bootstrap[name] && !boundOriginal && (record == nil || (record.Composition == nil && record.Archive == nil)) {
 			if evidence.unverified[name] {
 				return fmt.Errorf("hash-mismatch: %s comes from a bootstrap source and no longer holds the bytes of the original it was bound to", name)
 			}

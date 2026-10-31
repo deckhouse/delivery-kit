@@ -473,6 +473,20 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 				archiveEntry{name: "/2", body: recordedMember("first-object")},
 			)
 		}, "invalid: entry 1 names no entry of the archive's name table"),
+		// bfd spells the offset of a long name as decimal digits alone, so a signed
+		// one names no entry of the table even where it reads as a number.
+		ginkgo.Entry("a long name offset carrying a plus", func() []byte {
+			return fixtureArchive(
+				archiveEntry{name: "//", body: []byte("abc.o/\n\n")},
+				archiveEntry{name: "/+0", body: recordedMember("first-object")},
+			)
+		}, "invalid: entry 1 names no entry of the archive's name table"),
+		ginkgo.Entry("a long name offset carrying a minus", func() []byte {
+			return fixtureArchive(
+				archiveEntry{name: "//", body: []byte("abc.o/\n\n")},
+				archiveEntry{name: "/-0", body: recordedMember("first-object")},
+			)
+		}, "invalid: entry 1 names no entry of the archive's name table"),
 	)
 
 	ginkgo.DescribeTable("refuses an archive a member of which answers for nothing", func(build func() []byte, expected string) {

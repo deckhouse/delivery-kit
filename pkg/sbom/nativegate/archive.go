@@ -228,11 +228,13 @@ func archiveMemberName(entry rawEntry, names []byte, starts map[int]bool) (strin
 		}
 		data = data[length:]
 	case strings.HasPrefix(name, "/"):
-		offset, err := strconv.Atoi(name[1:])
-		if err != nil || !starts[offset] {
+		// bfd spells the offset as decimal digits and nothing else, so a sign in
+		// front of one names a member ar reads nowhere.
+		offset, err := strconv.ParseUint(name[1:], 10, 64)
+		if err != nil || !starts[int(offset)] {
 			return "", nil, fmt.Errorf("invalid: entry %d names no entry of the archive's name table", entry.entry)
 		}
-		name = string(names[offset : offset+bytes.Index(names[offset:], []byte(archiveNameEnding))])
+		name = string(names[offset : int(offset)+bytes.Index(names[offset:], []byte(archiveNameEnding))])
 	default:
 		name = strings.TrimSuffix(name, "/")
 	}

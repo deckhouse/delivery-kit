@@ -79,8 +79,8 @@ The instrumented esbuild a stage transforms its modules with is commonly not an 
       "installedPackets": [
         {
           "packageName": "esbuild",
-          "packageVersion": "0.25.0",
-          "packageType": "file",
+          "packageVersion": "0.25.0-flant.1",
+          "packageType": "runtime",
           "sourcePlatform": "linux/amd64",
           "files": [
             "/usr/lib/esbuild/bin/esbuild",
@@ -102,7 +102,9 @@ The instrumented esbuild a stage transforms its modules with is commonly not an 
 }
 ```
 
-The install receipt of the package stage selects the one entry that opens that identity, the pinned Packet digest and the installed bytes establish what belongs to it, and the resulting bindings reach `webpack-originals.json` as ordinary primary-manifest rows. The collector therefore finds both the esbuild entry and the executable there without reading a packet, a layout or a registry. A declared file the build replaced, a missing receipt and two candidate packets each refuse the whole context. See `pkg/sbom/nativegate/README.md`, "Packets installed by pm".
+`installedPackets` names the packet as the distribution spells it, while `esbuild` names the tool as the bundler knows it. They differ on purpose: `esbuild.version` is the upstream release the loader and the runtime evidence are matched against (`0.25.0`), and `packageVersion` is the identity of the strict packet that delivers it (`0.25.0-flant.1`), whose patched client and checked executable are not the upstream artifacts. `packageType` is the pm packet type - `runtime` for a tool packet - and must be spelled exactly as the packet metadata records it; nothing is inferred from the name.
+
+The install receipt of the package stage selects the one entry that opens that identity, the pinned Packet digest and the installed bytes establish what belongs to it, and the resulting bindings reach `webpack-originals.json` as ordinary primary-manifest rows. The collector therefore finds both the esbuild entry and the executable there without reading a packet, a layout or a registry. A declared file the build replaced, one standing as another file of the packet, a missing receipt and two candidate packets each refuse the whole context. See `pkg/sbom/nativegate/README.md`, "Packets installed by pm".
 
 ## Observed runtime and bootstrap units
 

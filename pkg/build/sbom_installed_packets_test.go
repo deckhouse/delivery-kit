@@ -102,6 +102,14 @@ var _ = ginkgo.Describe("selecting the packets a stage installed", func() {
 		gomega.Expect(installed).To(gomega.BeEmpty())
 	})
 
+	ginkgo.It("refuses built stages that opened packages at two boundaries", func() {
+		receipt := &sources.Receipt{Version: sources.Version, Sources: []sources.Source{entry}}
+		_, _, err := producerInstalledPackets([]sbomSourceSnapshot{
+			{Stage: stage.From}, {Stage: stage.Packages, Receipt: receipt}, {Stage: stage.Packages, Receipt: receipt}, {Stage: stage.Install},
+		}, []sbomBuildContextInstalledPacket{installedPacketDeclared()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 2 package install boundaries among the built stages, need exactly one")))
+	})
+
 	ginkgo.It("refuses built stages that hold no package install boundary", func() {
 		_, _, err := producerInstalledPackets([]sbomSourceSnapshot{{Stage: stage.From}, {Stage: stage.Install}},
 			[]sbomBuildContextInstalledPacket{installedPacketDeclared()})

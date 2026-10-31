@@ -18,6 +18,7 @@ import (
 
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/buildcontext"
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/original"
+	"fox.flant.com/deckhouse/container-base/pm.git/sbom/sources"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -157,6 +158,9 @@ type producerFixtureOptions struct {
 	withoutDeclaration bool
 	// cached is the stage the stages storage answers every lookup with.
 	cached *imagePkg.StageDesc
+	// installedPacket adds the packages stage a pm install produced: the files it
+	// unpacked and the source receipt pm wrote where it opened the packet.
+	installedPacket bool
 }
 
 // recordingStorageManager answers stage lookups with one prepared result and keeps the
@@ -206,6 +210,8 @@ type producerFixture struct {
 	storage      *recordingStorageManager
 	sourceRepo   string
 	sourceDigest string
+	packetRepo   string
+	packetDigest string
 	stopRegistry func()
 }
 
@@ -247,15 +253,33 @@ func newProducerFixture(ctx context.Context, opts producerFixtureOptions) *produ
 	pushProducerImage(ctx, stagesRepo+":"+fromID.String(), fromImg)
 	depsDigest := pushProducerImage(ctx, stagesRepo+":"+depsID.String(), depsImg)
 	previousRef := stagesRepo + "@" + depsDigest
-	previousDesc := &imagePkg.StageDesc{StageID: depsID, Info: &imagePkg.Info{
-		Name: stagesRepo + ":" + depsID.String(), Repository: stagesRepo, RepoDigest: previousRef,
+	previousID, previousImg := depsID, depsImg
+
+	// The packages stage of a build that installed a tool packet: pm unpacked its
+	// files and wrote the receipt naming where it opened the packet from.
+	packetRepo, packetDigest := "", ""
+	if opts.installedPacket {
+		packetRepo = host + "/fixture/packages/esbuild"
+		packetDigest = pushProducerImage(ctx, packetRepo+":packet", producerImage(nil, producerPacketFiles()))
+		installed := maps.Clone(producerPacketFiles())
+		installed[sources.DefaultPath] = producerPacketReceipt(packetRepo, packetDigest)
+		packagesID := imagePkg.NewStageID(strings.Repeat("e", 56), 3)
+		packagesImg := producerImage(map[string]string{
+			imagePkg.WerfSBOMStageLabel: producerStageRecord(stage.Packages, packagesID.Digest, depsID.String(), ""),
+			imagePkg.WerfParentStageID:  depsID.String(),
+		}, base, map[string]string{"/src/main.c": targetMain, producerHelperPath: producerUnusedBody}, installed)
+		packagesDigest := pushProducerImage(ctx, stagesRepo+":"+packagesID.String(), packagesImg)
+		previousRef, previousID, previousImg = stagesRepo+"@"+packagesDigest, packagesID, packagesImg
+	}
+	previousDesc := &imagePkg.StageDesc{StageID: previousID, Info: &imagePkg.Info{
+		Name: stagesRepo + ":" + previousID.String(), Repository: stagesRepo, RepoDigest: previousRef,
 	}}
 
 	backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
 	backend.EXPECT().HasStapelBuildSupport().Return(true).AnyTimes()
 	backend.EXPECT().Pull(gomock.Any(), previousRef, container_backend.PullOpts{TargetPlatform: producerPlatform}).Return(nil).AnyTimes()
 	backend.EXPECT().SaveImageToStream(gomock.Any(), previousRef).
-		DoAndReturn(func(_ any, _ string) (io.ReadCloser, error) { return producerImageStream(depsImg) }).AnyTimes()
+		DoAndReturn(func(_ any, _ string) (io.ReadCloser, error) { return producerImageStream(previousImg) }).AnyTimes()
 	backend.EXPECT().Pull(gomock.Any(), sourceRef, container_backend.PullOpts{TargetPlatform: producerPlatform}).Return(nil).AnyTimes()
 	backend.EXPECT().SaveImageToStream(gomock.Any(), sourceRef).
 		DoAndReturn(func(_ any, _ string) (io.ReadCloser, error) { return producerImageStream(sourceImg) }).AnyTimes()
@@ -315,14 +339,22 @@ func newProducerFixture(ctx context.Context, opts producerFixtureOptions) *produ
 	depsStage := stage.GenerateDependenciesBeforeInstallStage(baseConfig, stageOpts)
 	depsStage.SetStageImage(&stage.StageImage{Image: &exportLegacyImageStub{stageDesc: previousDesc}})
 	producerStage := &producerStageStub{BaseStage: stage.NewBaseStage(stage.Install, stageOpts)}
+	stages := []stage.Interface{depsStage}
 	phase.StagesIterator.PrevBuiltStage = depsStage
+	if opts.installedPacket {
+		packagesStage := &producerStageStub{BaseStage: stage.NewBaseStage(stage.Packages, stageOpts)}
+		packagesStage.SetStageImage(&stage.StageImage{Image: &exportLegacyImageStub{stageDesc: previousDesc}})
+		stages = append(stages, packagesStage)
+		phase.StagesIterator.PrevBuiltStage = packagesStage
+	}
 
 	img := &buildImage.Image{Name: "app", TargetPlatform: producerPlatform, StapelImageConfig: &config.StapelImage{StapelImageBase: baseConfig}}
-	img.SetStages([]stage.Interface{depsStage, producerStage})
+	img.SetStages(append(stages, producerStage))
 
 	return &producerFixture{
 		phase: phase, img: img, stg: producerStage, storage: storageManager,
-		sourceRepo: sourceRepo, sourceDigest: sourceDigest, stopRegistry: server.Close,
+		sourceRepo: sourceRepo, sourceDigest: sourceDigest,
+		packetRepo: packetRepo, packetDigest: packetDigest, stopRegistry: server.Close,
 	}
 }
 

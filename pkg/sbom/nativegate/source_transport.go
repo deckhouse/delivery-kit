@@ -309,7 +309,7 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 			continue
 		}
 		var next originalMatches
-		if snapshot.Stage != "packages" && !declaredImport(snapshot) {
+		if snapshot.Stage != packageInstallStage && !declaredImport(snapshot) {
 			if err := checkInstallBoundary(snapshots[i-1], snapshot); err != nil {
 				return nil, err
 			}
@@ -323,7 +323,7 @@ func collectSourceEvidence(ctx context.Context, snapshots []SourceSnapshot, base
 				return nil, err
 			}
 		}
-		if snapshot.Stage == "packages" {
+		if snapshot.Stage == packageInstallStage {
 			installed, err := e.installed(ctx, snapshot)
 			if err != nil {
 				return nil, err

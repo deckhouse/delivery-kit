@@ -10,6 +10,10 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
+// packageInstallStage is the one boundary of a Deckhouse build where a package manager
+// opens and installs packets, and so the only snapshot whose receipt opens them.
+const packageInstallStage = "packages"
+
 // originalBinding identifies matching original bytes, not the origin of a shell copy.
 type originalBinding struct {
 	Source string `json:"source"`
@@ -112,7 +116,7 @@ func sortedOriginalBindings(bindings []originalBinding) []originalBinding {
 // source, which it did not do, and binding it to six of them at once says nothing at all
 // while sinking the context that needed it.
 func installsRatherThanBuilds(stageName string) bool {
-	return stageName == "packages" || strings.HasPrefix(stageName, "dependencies")
+	return stageName == packageInstallStage || strings.HasPrefix(stageName, "dependencies")
 }
 
 // retainedOriginalMatches keeps the bindings of the paths a stage left exactly as they

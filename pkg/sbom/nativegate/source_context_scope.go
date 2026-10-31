@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/buildcontext"
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/original"
@@ -194,10 +195,6 @@ type InstalledPacket struct {
 	Files []string
 }
 
-// packageInstallStage is the one boundary of a Deckhouse build where a package manager
-// opens and installs packets, and so the only snapshot whose receipt selects them.
-const packageInstallStage = "packages"
-
 // installedContextMatches binds what the install boundary holds of each declared packet.
 // The receipt selects the one candidate entry, its pinned Packet digest names an original
 // the context already declares, and only installed bytes that original still serves at the
@@ -272,8 +269,11 @@ func checkInstalledPacketFiles(imports []buildcontext.Import, installed []Instal
 			return fmt.Errorf("invalid: no context package for the installed packet %s %s", declared.Name, declared.Version)
 		}
 		for _, name := range declared.Files {
+			// The packet serves a declared file at the path it stands at. Another
+			// file of the same packet that happens to hold those bytes is not it.
+			served := strings.TrimPrefix(name, "/")
 			if !slices.ContainsFunc(imports, func(mapping buildcontext.Import) bool {
-				return mapping.Path == name && mapping.Package != nil && *mapping.Package == position
+				return mapping.Path == name && mapping.OriginalPath == served && mapping.Package != nil && *mapping.Package == position
 			}) {
 				return fmt.Errorf("no-data: %s does not stand in the build as bytes the %s packet %s %s still serves", name, declared.Type, declared.Name, declared.Version)
 			}

@@ -763,6 +763,44 @@ func installedSnapshots(receipt *sources.Receipt, installed, used map[string]str
 	}
 }
 
+// installedPacketEntry is a receipt entry as pm spells one, with the packet metadata a
+// selector reads and no original behind it.
+func installedPacketEntry(repo, name, version, kind, platform string, arch []string) sources.Source {
+	ginkgo.GinkgoHelper()
+	declared, err := json.Marshal(arch)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	packet := fmt.Sprintf(`{"name":%q,"version":%q,"type":%q,"arch":%s,"digest":"sha256:%s","license":"MIT"}`,
+		name, version, kind, declared, strings.Repeat("c", 64))
+
+	return sources.Source{Registry: repo, Platform: platform, Packet: json.RawMessage(packet)}
+}
+
+var _ = ginkgo.Describe("selecting a packet in an install receipt", func() {
+	receipt := func(entries ...sources.Source) *sources.Receipt {
+		return &sources.Receipt{Version: sources.Version, Sources: entries}
+	}
+
+	ginkgo.It("takes the entry that is the declared identity", func() {
+		wanted := installedPacketEntry("registry.example.com/packages/esbuild", "esbuild", "0.25.0", "file", "linux/amd64", []string{"linux/amd64"})
+		found, err := SelectInstalledPacket(receipt(
+			installedPacketEntry("registry.example.com/packages/other", "other", "1.0", "file", "linux/amd64", []string{"linux/amd64"}),
+			wanted,
+		), installedEsbuild())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(found).To(gomega.Equal(wanted))
+	})
+
+	ginkgo.DescribeTable("opens nothing for an entry that is another packet", func(entry sources.Source) {
+		_, err := SelectInstalledPacket(receipt(entry), installedEsbuild())
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 0 receipt entries open the file packet esbuild 0.25.0 for linux/amd64")))
+	},
+		ginkgo.Entry("another package type", installedPacketEntry("registry.example.com/packages/esbuild", "esbuild", "0.25.0", "source", "linux/amd64", []string{"linux/amd64"})),
+		ginkgo.Entry("another installed platform", installedPacketEntry("registry.example.com/packages/esbuild", "esbuild", "0.25.0", "file", "linux/arm64", []string{"linux/amd64", "linux/arm64"})),
+		ginkgo.Entry("a packet built for another platform", installedPacketEntry("registry.example.com/packages/esbuild", "esbuild", "0.25.0", "file", "linux/amd64", []string{"linux/arm64"})),
+		ginkgo.Entry("another version", installedPacketEntry("registry.example.com/packages/esbuild", "esbuild", "0.25.1", "file", "linux/amd64", []string{"linux/amd64"})),
+	)
+})
+
 var _ = ginkgo.Describe("producer context packets installed by pm", func() {
 	ginkgo.It("binds the files of a declared packet the package stage opened", func(ctx ginkgo.SpecContext) {
 		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
@@ -790,7 +828,7 @@ var _ = ginkgo.Describe("producer context packets installed by pm", func() {
 	})
 
 	ginkgo.It("refuses an install boundary whose receipt opens no such packet", func(ctx ginkgo.SpecContext) {
-		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		_, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
 		other, _ := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.17.19", esbuildPacketFiles())
 		packages, indexes := contextPackages(resolved)
 		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{other}}, esbuildPacketFiles(), nil)
@@ -801,7 +839,6 @@ var _ = ginkgo.Describe("producer context packets installed by pm", func() {
 		snapshots[1].Receipt = nil
 		_, err = producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the install boundary carries no package source receipt for esbuild 0.25.0")))
-		gomega.Expect(source.Registry).To(gomega.Equal("registry.example.com/packages/esbuild"))
 	})
 
 	ginkgo.It("refuses two receipt entries that open one declared identity", func(ctx ginkgo.SpecContext) {
@@ -842,5 +879,53 @@ var _ = ginkgo.Describe("producer context packets installed by pm", func() {
 
 		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("pm install metadata outside a package stage")))
+	})
+
+	ginkgo.It("refuses a declared file the build filled with the bytes of another file of the packet", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+			esbuildPacketFiles(), map[string]string{"/usr/lib/esbuild/bin/esbuild": "prepared client"})
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: /usr/lib/esbuild/bin/esbuild does not stand in the build as bytes the file packet esbuild 0.25.0 still serves")))
+	})
+
+	ginkgo.It("refuses a file one packet declares while another packet is what serves it", func(ctx ginkgo.SpecContext) {
+		tool, toolResolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		other, otherResolved := installedPacketSource("registry.example.com/packages/other", "other", "1.0", map[string]string{"/usr/lib/other/tool": "other body"})
+		packages, indexes := contextPackages(toolResolved, otherResolved)
+		installed := maps.Clone(esbuildPacketFiles())
+		installed["/usr/lib/other/tool"] = "other body"
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{tool, other}}, installed, nil)
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{
+			installedEsbuild(),
+			{Name: "other", Version: "1.0", Type: "file", Platform: "linux/amd64", Files: []string{"/usr/lib/esbuild/bin/esbuild"}},
+		})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: /usr/lib/esbuild/bin/esbuild does not stand in the build as bytes the file packet other 1.0 still serves")))
+	})
+
+	ginkgo.It("refuses a build whose stages opened packets at two boundaries", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		receipt := &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}}
+		snapshots := installedSnapshots(receipt, esbuildPacketFiles(), nil)
+		snapshots = append(snapshots[:2], SourceSnapshot{Stage: "packages", Index: snapshots[1].Index, Receipt: receipt}, snapshots[2])
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 2 observed package install boundaries carry the 1 declared installed packets")))
+	})
+
+	ginkgo.It("refuses a build whose stages opened no packet at all", func(ctx ginkgo.SpecContext) {
+		_, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := []SourceSnapshot{
+			{Stage: "from", Index: fixtureIndex(map[string]string{"/bin/sh": "shell"})},
+			{Stage: "install", Index: fixtureIndex(map[string]string{"/bin/sh": "shell", "/app/dist/bundle.js": "bundled output"})},
+		}
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 0 observed package install boundaries carry the 1 declared installed packets")))
 	})
 })

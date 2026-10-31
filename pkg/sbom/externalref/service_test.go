@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -37,12 +38,125 @@ var _ = Describe("Service", func() {
 	})
 
 	Describe("default constants", func() {
-		It("has default HTTP client timeout of 5 seconds", func() {
-			Expect(defaultServiceTimeout).To(Equal(5 * time.Second))
+		It("gives one request room for a cold resolution", func() {
+			Expect(defaultServiceTimeout).To(Equal(30 * time.Second))
 		})
 
-		It("has MaxElapsedTime of 10 seconds", func() {
-			Expect(defaultMaxElapsedTime).To(Equal(10 * time.Second))
+		It("budgets more than one full-length attempt per subject", func() {
+			Expect(defaultMaxElapsedTime).To(BeNumerically(">=", 2*defaultServiceTimeout))
+		})
+	})
+
+	Describe("cold resolution", func() {
+		// The resolver answers a purl it has never seen only after querying deps.dev
+		// and libraries.io; until then a request either outlives the client timeout or
+		// is served a provisional answer naming no source.
+		coldResolver := func(coldAnswers int, cold func(http.ResponseWriter)) (http.Handler, *atomic.Int64) {
+			calls := new(atomic.Int64)
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) <= int64(coldAnswers) {
+					cold(w)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"purl":"pkg:golang/golang.org/x/sys@v0.0.0","url":"https://github.com/golang/sys","kind":"vcs","confirmed":true,"status":"confirmed"}`)
+			}), calls
+		}
+
+		stall := func(_ http.ResponseWriter) { time.Sleep(time.Second) }
+
+		unknown := func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"purl":"pkg:golang/golang.org/x/sys@v0.0.0","url":"https://github.com/golang/sys","kind":"unknown","confirmed":false,"status":"unconfirmed"}`)
+		}
+
+		coldService := func(handler http.Handler) (*Service, func()) {
+			coldTS := httptest.NewServer(handler)
+			return NewService(ServiceConfig{
+				ServerURL:      coldTS.URL,
+				Timeout:        200 * time.Millisecond,
+				MaxElapsedTime: 6 * time.Second,
+			}), coldTS.Close
+		}
+
+		classOf := func(err error) FailureClass {
+			var classified *ClassifiedError
+			Expect(errors.As(err, &classified)).To(BeTrue(), "error must carry a FailureClass: %v", err)
+			return classified.Class
+		}
+
+		It("resolves a purl whose first request outlives the per-request timeout", func() {
+			handler, calls := coldResolver(1, stall)
+			coldService, closeTS := coldService(handler)
+			defer closeTS()
+
+			result, err := coldService.Resolve(ctx, "pkg:golang/golang.org/x/sys@v0.0.0")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Kind).To(Equal("vcs"))
+			Expect(calls.Load()).To(BeNumerically(">", 1))
+		})
+
+		It("waits out an answer that names no source yet", func() {
+			handler, calls := coldResolver(1, unknown)
+			coldService, closeTS := coldService(handler)
+			defer closeTS()
+
+			result, err := coldService.Resolve(ctx, "pkg:golang/golang.org/x/sys@v0.0.0")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Kind).To(Equal("vcs"))
+			Expect(calls.Load()).To(BeNumerically(">", 1))
+		})
+
+		It("reports a transport failure when no request is ever answered", func() {
+			handler, _ := coldResolver(math.MaxInt64, stall)
+			coldService, closeTS := coldService(handler)
+			defer closeTS()
+
+			_, err := coldService.Resolve(ctx, "pkg:golang/golang.org/x/sys@v0.0.0")
+			Expect(err).To(MatchError(ErrTransport))
+			Expect(err).NotTo(MatchError(ErrUnresolved))
+			Expect(err.Error()).NotTo(ContainSubstring("kind"))
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
+
+		It("blames the transport, not the package, when a timeout is followed by a sourceless answer", func() {
+			// What the resolver does to a cold purl: the request that triggers the lookup
+			// outlives the client timeout, and every attempt after it is served the
+			// provisional answer stored while the lookup is still running.
+			first := new(atomic.Bool)
+			mixedService, closeTS := coldService(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if first.CompareAndSwap(false, true) {
+					stall(w)
+					return
+				}
+				unknown(w)
+			}))
+			defer closeTS()
+
+			_, err := mixedService.Resolve(ctx, "pkg:golang/golang.org/x/sys@v0.0.0")
+			Expect(err).To(MatchError(ErrTransport))
+			Expect(err).NotTo(MatchError(ErrUnresolved))
+			Expect(classOf(err)).To(Equal(FailureClassInfra))
+		})
+
+		It("gives up on an answer that keeps naming no source, without blaming the transport", func() {
+			handler, calls := coldResolver(math.MaxInt64, unknown)
+			coldService, closeTS := coldService(handler)
+			defer closeTS()
+
+			_, err := coldService.Resolve(ctx, "pkg:golang/golang.org/x/sys@v0.0.0")
+			Expect(err).To(MatchError(ErrUnresolved))
+			Expect(err).NotTo(MatchError(ErrTransport))
+			Expect(err.Error()).To(ContainSubstring(`kind "unknown", status "unconfirmed"`))
+			Expect(classOf(err)).To(Equal(FailureClassContent))
+			Expect(calls.Load()).To(BeNumerically(">", 1))
+		})
+
+		It("takes an unconfirmed vcs verdict as the answer it is", func() {
+			result, err := service.CheckVCS(ctx, "https://git.example.com/not-a-repo")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Kind).To(Equal("unknown"))
+			Expect(calls.Load()).To(Equal(int64(1)))
 		})
 	})
 

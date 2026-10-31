@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	packageurl "github.com/package-url/packageurl-go"
@@ -318,7 +319,7 @@ func (e *Enricher) checkVCSLinks(ctx context.Context, vcsURLs []string) map[stri
 	}
 
 	var g errgroup.Group
-	g.SetLimit(10)
+	g.SetLimit(resolveConcurrency)
 	for _, vcsURL := range vcsURLs {
 		g.Go(func() error {
 			outcome := outcomes[vcsURL]
@@ -368,14 +369,34 @@ func knownVCSLink(comp *cdx.Component) (string, bool) {
 	return ref.URL, ok
 }
 
+const resolveConcurrency = 10
+
+// maxResolvePassDuration caps the deadline the purl pass gets. A pass where every
+// subject burns its whole retry budget would otherwise run for hours on a large
+// component list, and such a build fails at the end anyway.
+const maxResolvePassDuration = 15 * time.Minute
+
+// resolvePassDuration sizes the pass after the work it can have: the subjects run
+// resolveConcurrency at a time, each bounded by the per-subject retry budget.
+func resolvePassDuration(purls int) time.Duration {
+	batches := (purls + resolveConcurrency - 1) / resolveConcurrency
+	if batches < 1 {
+		batches = 1
+	}
+	return min(time.Duration(batches)*(defaultMaxElapsedTime+defaultServiceTimeout), maxResolvePassDuration)
+}
+
 func (e *Enricher) resolvePurls(ctx context.Context, purls []string) map[string]*purlOutcome {
 	outcomes := make(map[string]*purlOutcome, len(purls))
 	for _, purl := range purls {
 		outcomes[purl] = &purlOutcome{}
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, resolvePassDuration(len(purls)))
+	defer cancel()
+
 	var g errgroup.Group
-	g.SetLimit(10)
+	g.SetLimit(resolveConcurrency)
 	for _, purl := range purls {
 		g.Go(func() error {
 			outcome := outcomes[purl]

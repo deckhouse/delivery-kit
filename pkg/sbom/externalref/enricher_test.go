@@ -994,6 +994,19 @@ var _ = Describe("Enricher", func() {
 		})
 	})
 
+	Describe("resolvePassDuration", func() {
+		It("grows with the batches the concurrency limit makes of the purls", func() {
+			single := resolvePassDuration(resolveConcurrency)
+			Expect(resolvePassDuration(0)).To(Equal(single))
+			Expect(resolvePassDuration(1)).To(Equal(single))
+			Expect(resolvePassDuration(resolveConcurrency + 1)).To(Equal(2 * single))
+		})
+
+		It("caps the pass so a hopeless one cannot run for hours", func() {
+			Expect(resolvePassDuration(100000)).To(Equal(maxResolvePassDuration))
+		})
+	})
+
 	Describe("ExternalRefPatcher", func() {
 		It("calls Enrich via Apply", func() {
 			bom := &cdx.BOM{

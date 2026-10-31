@@ -3,6 +3,7 @@ package externalref
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,22 +17,42 @@ import (
 	"github.com/werf/werf/v3/pkg/werf"
 )
 
+// A purl the resolver has never seen is answered from its own cold path: it queries
+// deps.dev and libraries.io before it can say anything, which takes far longer than
+// the answer it later serves from its database, and until that finishes it reports a
+// kind of "unknown". The per-request timeout leaves room for the cold path, and the
+// budget for a couple of attempts of that length plus the waits between them.
 const (
-	defaultServiceTimeout = 5 * time.Second
-	defaultMaxElapsedTime = 10 * time.Second
+	defaultServiceTimeout = 30 * time.Second
+	defaultMaxElapsedTime = 90 * time.Second
+	maxQueryTries         = 8
+	retryInitialInterval  = 2 * time.Second
+	retryMaxInterval      = 30 * time.Second
 )
 
+// ErrUnresolved is the resolver answering without naming a source: the purl is one it
+// is still working on, or one it has no source for at all. Both come back as a kind
+// the SBOM cannot carry, and only time tells them apart.
+var ErrUnresolved = errors.New("resolver reports no source")
+
+// ErrTransport is a failure to obtain any answer at all — a refused connection, a
+// request that outlived the client timeout. It never says anything about the package.
+var ErrTransport = errors.New("resolver request failed")
+
 type ServiceConfig struct {
-	ServerURL  string
-	Timeout    time.Duration
-	HTTPClient *http.Client
-	Breaker    *ResolverBreaker
+	ServerURL string
+	// Timeout bounds one request; MaxElapsedTime bounds the retries for one subject.
+	Timeout        time.Duration
+	MaxElapsedTime time.Duration
+	HTTPClient     *http.Client
+	Breaker        *ResolverBreaker
 }
 
 type Service struct {
-	serverURL  string
-	httpClient *http.Client
-	breaker    *ResolverBreaker
+	serverURL      string
+	httpClient     *http.Client
+	maxElapsedTime time.Duration
+	breaker        *ResolverBreaker
 }
 
 func NewService(cfg ServiceConfig) *Service {
@@ -50,37 +71,63 @@ func NewService(cfg ServiceConfig) *Service {
 		}
 	}
 
+	maxElapsedTime := cfg.MaxElapsedTime
+	if maxElapsedTime <= 0 {
+		maxElapsedTime = defaultMaxElapsedTime
+	}
+
 	return &Service{
-		serverURL:  serverURL,
-		httpClient: httpClient,
-		breaker:    cfg.Breaker,
+		serverURL:      serverURL,
+		httpClient:     httpClient,
+		maxElapsedTime: maxElapsedTime,
+		breaker:        cfg.Breaker,
 	}
 }
 
+// Resolve waits out a cold resolution: an answer that names no source is retried
+// within the budget, since the resolver reports one while its own lookup is still
+// running and the build cannot use it either way.
 func (s *Service) Resolve(ctx context.Context, purl string) (*ResolveResult, error) {
 	u := fmt.Sprintf("%s/api/v1/resolve?purl=%s", s.serverURL, url.QueryEscape(purl))
-	return s.query(ctx, u, "resolve", purl)
+	return s.query(ctx, u, "resolve", purl, true)
 }
 
 // CheckVCS asks the resolver to verify a repository URL the SBOM already carries,
 // for instance the one a package manager recorded for its package. The resolver
 // keys the answer by the URL alone, so the verdict does not depend on the purl
-// that led to the link.
+// that led to the link. An unconfirmed verdict is the caller's fallback signal rather
+// than a failure, so it is not waited out the way a cold resolve is.
 func (s *Service) CheckVCS(ctx context.Context, vcsURL string) (*ResolveResult, error) {
 	u := fmt.Sprintf("%s/api/v1/vcs?url=%s", s.serverURL, url.QueryEscape(vcsURL))
-	return s.query(ctx, u, "check vcs", vcsURL)
+	return s.query(ctx, u, "check vcs", vcsURL, false)
 }
 
-func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveResult, error) {
+func (s *Service) query(ctx context.Context, u, op, subject string, requireSource bool) (*ResolveResult, error) {
 	if err := s.breakerAllow(); err != nil {
 		return nil, err
 	}
 
+	backOff := backoff.NewExponentialBackOff()
+	backOff.InitialInterval = retryInitialInterval
+	backOff.MaxInterval = retryMaxInterval
+
+	var transportErr error
 	res, err := backoff.Retry(ctx, func() (*ResolveResult, error) {
-		return s.doQuery(ctx, u, op)
+		res, err := s.doQuery(ctx, u, op)
+		if err != nil {
+			if errors.Is(err, ErrTransport) {
+				transportErr = err
+			}
+			return nil, err
+		}
+		if requireSource && validateRefKind(res.Kind) != nil {
+			return nil, s.classify(FailureClassContent, fmt.Errorf("%s: %w: kind %q, status %q", op, ErrUnresolved, res.Kind, res.Status))
+		}
+		return res, nil
 	},
-		backoff.WithBackOff(backoff.NewExponentialBackOff()),
-		backoff.WithMaxElapsedTime(defaultMaxElapsedTime),
+		backoff.WithBackOff(backOff),
+		backoff.WithMaxTries(maxQueryTries),
+		backoff.WithMaxElapsedTime(s.maxElapsedTime),
 		backoff.WithNotify(func(err error, duration time.Duration) {
 			logboek.Context(ctx).Warn().LogF(
 				"WARNING: %s %q failed, retrying in %v: %s\n",
@@ -93,6 +140,14 @@ func (s *Service) query(ctx context.Context, u, op, subject string) (*ResolveRes
 	// doQuery applies to a cancellation it observes itself.
 	if err != nil && ctx.Err() != nil {
 		return nil, &ClassifiedError{Class: FailureClassInfra, Err: fmt.Errorf("%s: %w", op, ctx.Err())}
+	}
+
+	// A resolution that never got through to the resolver failed on transport, whatever
+	// the sourceless answer a later attempt was served: reporting the latter would blame
+	// the package for an unreachable resolver and hide an infrastructure failure from the
+	// breaker's caller.
+	if errors.Is(err, ErrUnresolved) && transportErr != nil {
+		return nil, transportErr
 	}
 
 	return res, err
@@ -110,13 +165,13 @@ func (s *Service) doQuery(ctx context.Context, u, op string) (*ResolveResult, er
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, s.infraError(ctx, op, fmt.Errorf("%s: %w", op, err))
+		return nil, s.infraError(ctx, op, fmt.Errorf("%s: %w: %w", op, ErrTransport, err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, s.infraError(ctx, op, fmt.Errorf("%s: read body: %w", op, err))
+		return nil, s.infraError(ctx, op, fmt.Errorf("%s: %w: read body: %w", op, ErrTransport, err))
 	}
 
 	if resp.StatusCode != http.StatusOK {

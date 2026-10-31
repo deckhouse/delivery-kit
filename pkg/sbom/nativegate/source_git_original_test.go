@@ -490,6 +490,7 @@ var _ = ginkgo.Describe("Verifying a Git original fetched from a listed mirror",
 
 		for remote, recorded := range map[string]string{
 			"https://gitlab-ci-token:secret@fox.flant.com/deckhouse/3p/argoproj/argo-ui.git": "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git",
+			"https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git?token=secret":           "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git",
 			"ssh://git@fox.flant.com/deckhouse/3p/argoproj/argo-ui.git":                      "ssh://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git",
 			"git@fox.flant.com:deckhouse/3p/argoproj/argo-ui.git":                            "fox.flant.com:deckhouse/3p/argoproj/argo-ui.git",
 			"https://FOX.flant.com/deckhouse/3p/argoproj/argo-ui.git":                        "https://FOX.flant.com/deckhouse/3p/argoproj/argo-ui.git",
@@ -562,16 +563,29 @@ var _ = ginkgo.Describe("Verifying a Git original fetched from a listed mirror",
 			{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"},
 			{Host: "FOX.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "gitlab.example"},
 		}, "gitMirror 1: fox.flant.com/deckhouse/3p is listed more than once"),
+		ginkgo.Entry("the same mirror once with and once without its default port", []GitMirror{
+			{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"},
+			{Host: "fox.flant.com:443", PathPrefix: "deckhouse/3p", UpstreamHost: "gitlab.example"},
+		}, "gitMirror 1: fox.flant.com/deckhouse/3p is listed more than once"),
+		ginkgo.Entry("a prefix below a listed prefix", []GitMirror{
+			{Host: "fox.flant.com", PathPrefix: "deckhouse", UpstreamHost: "github.com"},
+			{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "gitlab.example"},
+		}, "gitMirror 1: fox.flant.com/deckhouse/3p and fox.flant.com/deckhouse are listed over the same repositories"),
+		ginkgo.Entry("a prefix above a listed prefix", []GitMirror{
+			{Host: "fox.flant.com", PathPrefix: "deckhouse/3p", UpstreamHost: "github.com"},
+			{Host: "fox.flant.com", PathPrefix: "deckhouse", UpstreamHost: "gitlab.example"},
+		}, "gitMirror 1: fox.flant.com/deckhouse and fox.flant.com/deckhouse/3p are listed over the same repositories"),
 	)
 
-	// The project is named by nothing but its own mapping, so a mirrored mapping must
-	// spell the repository the mirror serves, not the mirror.
-	ginkgo.It("spells the locator of a mirrored project from the repository the mirror serves", func(ctx ginkgo.SpecContext) {
+	// The project is named by nothing but its own mapping, so no lock entry holds a
+	// mirror to the repository it serves: under the prefix of a mirror, a fork would
+	// pass for the repository the prefix claims to carry.
+	ginkgo.It("refuses a project original fetched from a listed mirror", func(ctx ginkgo.SpecContext) {
 		const manifest = `{"name":"redoc","version":"2.4.0"}`
 		bare, commit := gitFixtureRepository(manifest, map[string]string{"src/index.ts": "export const app = 1;\n"})
 		observed := fixtureIndex(map[string]string{"/app/package.json": manifest})
 
-		original, err := VerifyGitOriginal(ctx, GitOriginalRequest{
+		_, err := VerifyGitOriginal(ctx, GitOriginalRequest{
 			GitDir:        bare,
 			RemoteURL:     "https://fox.flant.com/deckhouse/3p/Redocly/redoc.git",
 			Commit:        commit,
@@ -579,8 +593,20 @@ var _ = ginkgo.Describe("Verifying a Git original fetched from a listed mirror",
 			InstalledRoot: "/app",
 			Project:       true,
 		}, observed)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no lock entry pins a project original to the repository it serves")))
+	})
+
+	// A host is a host however it is spelled, and a port a transport is reached at by
+	// default is no part of the repository: a configuration spelling either out means
+	// the same mirror as the remote the fetch used.
+	ginkgo.It("reads a listed host as the fetched remote spells it", func(ctx ginkgo.SpecContext) {
+		bare, commit, observed := fixture()
+		request := mirrored(bare, commit, "https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git")
+		request.Mirrors = []GitMirror{{Host: "FOX.Flant.COM:443", PathPrefix: "deckhouse/3p", UpstreamHost: "GitHub.com"}}
+
+		original, err := VerifyGitOriginal(ctx, request, observed)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(original.Component.Source.Locator).To(gomega.Equal("git+https://github.com/Redocly/redoc.git#" + commit))
-		gomega.Expect(original.Mirror).To(gomega.Equal("https://fox.flant.com/deckhouse/3p/Redocly/redoc.git"))
+		gomega.Expect(original.Component.Source.Locator).To(gomega.Equal("git+https://github.com/argoproj/argo-ui.git#" + commit))
+		gomega.Expect(original.Mirror).To(gomega.Equal("https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git"))
 	})
 })

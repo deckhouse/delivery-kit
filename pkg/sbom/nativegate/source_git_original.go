@@ -73,7 +73,8 @@ var gitMirrorPrefixRegexp = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]
 // one: a host nothing lists stays a different repository, as before. What a listed
 // mirror buys is where the objects may be fetched from and nothing else - the commit and
 // every object below it are verified by hash exactly as they are for a repository
-// fetched from the host the lockfile names.
+// fetched from the host the lockfile names. It stands in only for a dependency such a
+// lockfile pins, which is what holds the mirror to the repository it claims to serve.
 type GitMirror struct {
 	Host         string
 	PathPrefix   string
@@ -85,7 +86,7 @@ type GitMirror struct {
 // repositories those are. A malformed entry is refused rather than ignored, because an
 // entry nothing can match silently narrows what is accepted.
 func CheckGitMirrors(mirrors []GitMirror) error {
-	listed := map[string]bool{}
+	var listed []string
 	for i, mirror := range mirrors {
 		for _, field := range []struct{ name, value string }{{"host", mirror.Host}, {"upstreamHost", mirror.UpstreamHost}} {
 			if !gitMirrorHostRegexp.MatchString(field.value) {
@@ -97,11 +98,19 @@ func CheckGitMirrors(mirrors []GitMirror) error {
 		}) {
 			return fmt.Errorf("gitMirror %d: pathPrefix %q is not a path of the mirror host", i, mirror.PathPrefix)
 		}
-		prefix := strings.ToLower(mirror.Host) + "/" + mirror.PathPrefix
-		if listed[prefix] {
-			return fmt.Errorf("gitMirror %d: %s is listed more than once", i, prefix)
+		prefix := gitMirrorHost(mirror.Host) + "/" + mirror.PathPrefix
+		for _, other := range listed {
+			if prefix == other {
+				return fmt.Errorf("gitMirror %d: %s is listed more than once", i, prefix)
+			}
+			// One prefix below another would leave the repositories they both
+			// cover to whichever entry happens to be tried first, so the
+			// upstream they are mapped to would follow the order of the list.
+			if strings.HasPrefix(prefix, other+"/") || strings.HasPrefix(other, prefix+"/") {
+				return fmt.Errorf("gitMirror %d: %s and %s are listed over the same repositories", i, prefix, other)
+			}
 		}
-		listed[prefix] = true
+		listed = append(listed, prefix)
 	}
 
 	return nil
@@ -115,33 +124,42 @@ func gitUpstreamRepository(mirrors []GitMirror, fetched string) (string, bool, e
 		return "", false, fmt.Errorf("invalid: %w", err)
 	}
 	for _, mirror := range mirrors {
-		repository, served := strings.CutPrefix(fetched, strings.ToLower(mirror.Host)+"/"+mirror.PathPrefix+"/")
+		repository, served := strings.CutPrefix(fetched, gitMirrorHost(mirror.Host)+"/"+mirror.PathPrefix+"/")
 		if !served || repository == "" {
 			continue
 		}
 
-		return strings.ToLower(mirror.UpstreamHost) + "/" + repository, true, nil
+		return gitMirrorHost(mirror.UpstreamHost) + "/" + repository, true, nil
 	}
 
 	return fetched, false, nil
 }
 
 // gitRemoteWithoutCredentials answers the remote as it may be recorded: whatever the
-// fetch authenticated itself with is the build's, never part of the evidence.
+// fetch authenticated itself with is the build's, never part of the evidence. A query
+// and a fragment are dropped with the userinfo, because a token is as often passed
+// there as in the authority.
 func gitRemoteWithoutCredentials(remote string) string {
 	if !strings.Contains(remote, "://") {
 		host, repository, scp := strings.Cut(remote, ":")
-		if _, user, found := strings.Cut(host, "@"); scp && found {
-			return user + ":" + repository
+		if !scp {
+			return remote
+		}
+		repository, _, _ = strings.Cut(repository, "?")
+		repository, _, _ = strings.Cut(repository, "#")
+		if _, user, found := strings.Cut(host, "@"); found {
+			host = user
 		}
 
-		return remote
+		return host + ":" + repository
 	}
 	parsed, err := url.Parse(remote)
 	if err != nil {
 		return ""
 	}
 	parsed.User = nil
+	parsed.RawQuery, parsed.ForceQuery = "", false
+	parsed.Fragment, parsed.RawFragment = "", ""
 
 	return parsed.String()
 }
@@ -225,6 +243,13 @@ func VerifyGitOriginal(ctx context.Context, request GitOriginalRequest, observed
 	if err != nil {
 		return nil, err
 	}
+	// A mirror is held to the lock entry that pins the dependency: the locator names
+	// the repository it must serve below its prefix. A project is pinned by no
+	// lockfile, so nothing would hold the mapping to anything - a fork standing under
+	// the prefix would be taken for the repository the prefix claims to carry.
+	if request.Project && mirrored {
+		return nil, fmt.Errorf("invalid: the mapping fetches %s, a listed mirror, and no lock entry pins a project original to the repository it serves", mappedRepository)
+	}
 	request, err = resolvedGitRequest(request, upstreamRepository)
 	if err != nil {
 		return nil, err
@@ -303,9 +328,8 @@ func gitVendored(relative string) bool {
 //
 // A dependency is named by the lockfile that pins it, and every one of those facts is
 // the caller's to state. A project is named by nothing outside itself: its locator is
-// spelled here from the repository the mapping fetches - the upstream one, where that
-// mapping is a listed mirror of it - in the one spelling this adapter reads back, and
-// its identity is left to the package.json of the commit.
+// spelled here from the repository the mapping fetches, in the one spelling this
+// adapter reads back, and its identity is left to the package.json of the commit.
 func resolvedGitRequest(request GitOriginalRequest, repository string) (GitOriginalRequest, error) {
 	if !request.Project {
 		if request.PackageName == "" || request.PackageVersion == "" {
@@ -573,8 +597,29 @@ func gitRepositoryIdentity(remote string) (string, error) {
 	return gitRepositoryKey(host, parsed.Path)
 }
 
+// gitDefaultPorts are the ports the transports this adapter reads are served at by
+// default, which a remote therefore need not name to mean the same repository.
+var gitDefaultPorts = map[string]string{"https": "443", "http": "80", "ssh": "22", "git": "9418"}
+
 func gitDefaultPort(scheme, port string) bool {
-	return map[string]string{"https": "443", "http": "80", "ssh": "22", "git": "9418"}[scheme] == port
+	return gitDefaultPorts[scheme] == port
+}
+
+// gitMirrorHost spells a configured host the way a fetched remote is reduced to one, so
+// that a configuration and a remote naming the same host meet: the host is
+// case-insensitive, and a default port is no part of the repository it serves.
+func gitMirrorHost(host string) string {
+	name, port, found := strings.Cut(host, ":")
+	if !found {
+		return strings.ToLower(host)
+	}
+	for _, standard := range gitDefaultPorts {
+		if port == standard {
+			return strings.ToLower(name)
+		}
+	}
+
+	return strings.ToLower(host)
 }
 
 func gitRepositoryKey(host, repository string) (string, error) {

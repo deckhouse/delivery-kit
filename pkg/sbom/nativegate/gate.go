@@ -349,7 +349,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 			}
 			record = &embedded
 		}
-		if record != nil && record.Composition != nil && !native {
+		if record != nil && (record.Composition != nil || record.Archive != nil) && !native {
 			return fmt.Errorf("%s: invalid: recorded native composition does not match file", name)
 		}
 		if !native && binary(false) {

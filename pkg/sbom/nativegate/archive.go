@@ -200,7 +200,10 @@ func archiveEntries(body []byte) ([]rawEntry, error) {
 			}
 			position++
 		}
-		entries = append(entries, rawEntry{name: strings.TrimSpace(string(body[header : header+16])), data: data, offset: header, entry: entry})
+		// ar left-justifies the name field and pads it with spaces, so only the
+		// spaces behind a name are the field's: a leading one is part of the name
+		// bfd reads there.
+		entries = append(entries, rawEntry{name: strings.TrimRight(string(body[header:header+16]), " "), data: data, offset: header, entry: entry})
 	}
 
 	return entries, nil
@@ -217,6 +220,12 @@ func archiveMemberName(entry rawEntry, names []byte, starts map[int]bool) (strin
 			return "", nil, fmt.Errorf("invalid: entry %d states a name length its bytes do not hold", entry.entry)
 		}
 		name = strings.TrimRight(string(data[:length]), "\x00")
+		// A symbol index is published under a name of the header field alone. A
+		// long name spelling one names no member, and reading it as the index
+		// would take the table of an archive out of bytes a member holds.
+		if name == "/" || name == "/SYM64/" {
+			return "", nil, fmt.Errorf("invalid: entry %d spells a long name that names no member", entry.entry)
+		}
 		data = data[length:]
 	case strings.HasPrefix(name, "/"):
 		offset, err := strconv.Atoi(name[1:])
@@ -238,9 +247,16 @@ func archiveMemberName(entry rawEntry, names []byte, starts map[int]bool) (strin
 // holds begins. The table is the names and nothing else, so a header may point
 // only at a name's first byte: anything else in there is content no reader of
 // this archive accounts for.
+//
+// bfd declares the table an even number of bytes and writes one newline behind
+// the last name when the names themselves come to an odd number, so that byte
+// is the table's own padding rather than content riding in it.
 func archiveNameStarts(table []byte) (map[int]bool, error) {
 	starts := map[int]bool{}
 	for at := 0; at < len(table); {
+		if at == len(table)-1 && table[at] == '\n' && len(table)%2 == 0 {
+			break
+		}
 		end := bytes.Index(table[at:], []byte(archiveNameEnding))
 		if end <= 0 || bytes.ContainsAny(table[at:at+end], archiveNameEnding) {
 			return nil, fmt.Errorf("invalid: the archive's name table holds something other than the names of its members")

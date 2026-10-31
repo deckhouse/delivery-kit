@@ -2,11 +2,15 @@ package nativegate
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"debug/elf"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
@@ -162,6 +166,31 @@ func applyArchive(body []byte) (*cdx.BOM, error) {
 	return bom, Apply(context.Background(), objectPolicy(), "image", fixtureImage(map[string]string{archivePath: string(body)}), nil, bom)
 }
 
+// The archives under testdata/archives are what the gcc:13 image ships, taken
+// as they are: libssp_nonshared.a and libuuid.a from binutils ar 2.40 and
+// libevent_openssl.a from a Debian build of the same. Each declares a name
+// table whose names come to an odd number of bytes, which is the case bfd pads
+// with a newline of its own. Beside each, the members `ar t` reports.
+func realArchive(name string) []byte {
+	ginkgo.GinkgoHelper()
+	body, err := os.ReadFile(filepath.Join("testdata", "archives", name+".gz"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	reader, err := gzip.NewReader(bytes.NewReader(body))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	body, err = io.ReadAll(reader)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return body
+}
+
+func realArchiveNames(name string) []string {
+	ginkgo.GinkgoHelper()
+	listed, err := os.ReadFile(filepath.Join("testdata", "archives", name+".members"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return strings.Fields(string(listed))
+}
+
 var _ = ginkgo.Describe("shipped static archive", func() {
 	ginkgo.It("accepts an archive whose every member carries its own record and is made of what they are", func() {
 		body := fixtureArchive(gnuSymbolTable(), memberEntry("start", "first-object"), memberEntry("printf", "second-object"))
@@ -253,6 +282,65 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 			)
 		}),
 	)
+
+	// A library a strict image ships is the archive bfd wrote, and this reader
+	// has to name the members `ar t` names in it.
+	ginkgo.DescribeTable("reads an archive binutils wrote as the members ar reports", func(name string) {
+		members, err := archiveMembers(realArchive(name))
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		names := []string{}
+		for _, member := range members {
+			names = append(names, member.name)
+		}
+		gomega.Expect(names).To(gomega.Equal(realArchiveNames(name)))
+	},
+		ginkgo.Entry("libssp_nonshared.a", "libssp_nonshared.a"),
+		ginkgo.Entry("libuuid.a", "libuuid.a"),
+		ginkgo.Entry("libevent_openssl.a", "libevent_openssl.a"),
+	)
+
+	// bfd declares the name table an even number of bytes and pads it with a
+	// newline of its own when the names come to an odd number. That byte is the
+	// table's; anything else behind the last name is content it does not hold.
+	ginkgo.DescribeTable("reads the newline bfd pads an odd name table with", func(table string, expected string) {
+		_, err := applyArchive(fixtureArchive(
+			archiveEntry{name: "//", body: []byte(table)},
+			archiveEntry{name: "/0", body: recordedMember("first-object")},
+		))
+
+		if expected == "" {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			return
+		}
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+	},
+		ginkgo.Entry("behind names of an odd length", "a-very-long-member-name.o/\n\n", ""),
+		ginkgo.Entry("behind names of an even length", "a-long-member-name.o/\n\n", "invalid: the archive's name table holds something other than the names of its members"),
+		ginkgo.Entry("twice behind names of an odd length", "a-very-long-member-name.o/\n\n\n", "invalid: the archive's name table holds something other than the names of its members"),
+		ginkgo.Entry("as a byte of its own", "a-very-long-member-name.o/\nx", "invalid: the archive's name table holds something other than the names of its members"),
+	)
+
+	// ar left-justifies the name in its field and pads it with spaces behind, so
+	// the name of this member is the one with the space in front of it.
+	ginkgo.It("reads a name the header field does not left-justify as it stands", func() {
+		bom, err := applyArchive(fixtureArchive(archiveEntry{name: " start/", body: recordedMember("first-object")}))
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(archiveRecord(bom).Archive.Members[0].Name).To(gomega.Equal(" start"))
+	})
+
+	// A symbol index is published under a name of the header field alone. Taking
+	// one out of a long name would read the table of an archive out of bytes a
+	// member holds, and leave that member unaccounted for.
+	ginkgo.It("refuses a long name spelling the name of a symbol index", func() {
+		_, err := applyArchive(fixtureArchive(archiveEntry{
+			name: "#1/8", body: append([]byte("/SYM64/\x00"), recordedMember("first-object")...),
+		}))
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: entry 0 spells a long name that names no member")))
+	})
 
 	// An archive a linker is given publishes its members through an armap, and
 	// what that armap says has to be what the archive holds.
@@ -507,6 +595,26 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 		err = Apply(context.Background(), objectPolicy(), "image", fixtureImage(map[string]string{archivePath: string(other)}), []*cdx.BOM{first}, cdx.NewBOM())
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("hash-mismatch: known file content changed " + archivePath)))
+	})
+
+	// What an archive record states was read out of the bytes of an archive. A
+	// file bound to that record by digest alone and holding something else is
+	// not that archive, and taking the record for it would credit a text file
+	// with the composition of members it does not hold.
+	ginkgo.It("refuses an inherited archive record bound to a file that is no archive", func() {
+		bom, err := applyArchive(fixtureArchive(gnuSymbolTable()))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		catalog := archiveCatalog(bom)
+		notes := "just text\n"
+		catalog.Records[0].Path = "/usr/share/doc/notes.txt"
+		catalog.Records[0].SHA256 = digest([]byte(notes))
+		inherited := cdx.NewBOM()
+		gomega.Expect(catalog.attach(inherited)).To(gomega.Succeed())
+
+		err = Apply(context.Background(), objectPolicy(), "image",
+			fixtureImage(map[string]string{catalog.Records[0].Path: notes}), []*cdx.BOM{inherited}, cdx.NewBOM())
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: recorded native composition does not match file")))
 	})
 
 	// An archive is made of its members and nothing else. A component standing

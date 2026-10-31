@@ -1,0 +1,14 @@
+la-clear.o
+la-compare.o
+la-copy.o
+la-gen_uuid.o
+la-isnull.o
+la-pack.o
+la-parse.o
+la-unpack.o
+la-unparse.o
+la-uuid_time.o
+la-predefined.o
+libuuid_la-randutils.o
+libuuid_la-md5.o
+libuuid_la-sha1.o

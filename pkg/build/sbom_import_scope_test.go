@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http/httptest"
 	"slices"
@@ -51,6 +52,20 @@ func occurring(name, version string, paths ...string) cdx.Component {
 		occurrences = append(occurrences, cdx.EvidenceOccurrence{Location: path})
 	}
 	comp.Evidence = &cdx.Evidence{Occurrences: &occurrences}
+
+	return comp
+}
+
+// cataloged builds a component of a donor's SBOM that no fileset of the donor named, as
+// the scan of a dependency manifest leaves it: the paths the scanner recorded it at, and
+// no file evidence of the image's own.
+func cataloged(name, version string, paths ...string) cdx.Component {
+	comp := occurring(name, version)
+	properties := []cdx.Property{{Name: shippedscope.PropertyBinaries, Value: "unknown"}}
+	for i, path := range paths {
+		properties = append(properties, cdx.Property{Name: fmt.Sprintf("syft:location:%d:path", i), Value: path})
+	}
+	comp.Properties = &properties
 
 	return comp
 }
@@ -484,6 +499,69 @@ var _ = Describe("Scoping one import source document", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(componentNames(scoped)).To(ConsistOf("libfoo"), "the import carries the files of one of them and none of the other")
 	})
+
+	// A dependency manifest the image ships lists what the build resolved, and a module
+	// of that list the build compiled into nothing stands in the manifest and nowhere
+	// else. An import of a binary built next to it carries no part of that listing.
+	It("drops a module the scan placed in a manifest the import leaves behind", func(specCtx SpecContext) {
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{
+			cataloged("gotest.tools/v3", "v3.5.2", "/src/go.mod"),
+			occurring("k8s.io/kube-openapi", "v0.0.0-20250910181357-589584f1c912", "/app/bin/tool"),
+		}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(componentNames(scoped)).To(ConsistOf("k8s.io/kube-openapi"))
+	})
+
+	It("keeps a module the scan placed in a manifest the import carries", func(specCtx SpecContext) {
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{cataloged("gotest.tools/v3", "v3.5.2", "/app/go.mod")}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(componentNames(scoped)).To(ConsistOf("gotest.tools/v3"))
+	})
+
+	// The scan reached the manifest through a symlinked directory and recorded both
+	// spellings of where it stands; the import names the one it was reached by.
+	It("keeps a module the import carries under the path the scan reached it by", func(specCtx SpecContext) {
+		comp := cataloged("gotest.tools/v3", "v3.5.2", "/src/go.mod")
+		*comp.Properties = append(*comp.Properties, cdx.Property{Name: "syft:location:0:accessPath", Value: "/app/go.mod"})
+		bom := cyclonedxutil.NewBOM()
+		bom.Components = &[]cdx.Component{comp}
+
+		scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(componentNames(scoped)).To(ConsistOf("gotest.tools/v3"))
+	})
+
+	// Where werf recorded the files of a component, those are what the image holds, and
+	// a scanner's note of where it read a manifest is no answer against them.
+	DescribeTable("places a component werf recorded the files of by those files alone",
+		func(specCtx SpecContext, occurrence, location string, kept bool) {
+			comp := occurring("libfoo", "1.2.3", occurrence)
+			comp.Properties = &[]cdx.Property{{Name: "syft:location:0:path", Value: location}}
+			bom := cyclonedxutil.NewBOM()
+			bom.Components = &[]cdx.Component{comp}
+
+			scoped, err := scopeImportBOM(logging.WithLogger(specCtx), bom, []nativegate.ImportScope{scope()})
+
+			Expect(err).NotTo(HaveOccurred())
+			if !kept {
+				Expect(scoped.Components).To(BeNil())
+
+				return
+			}
+			Expect(componentNames(scoped)).To(ConsistOf("libfoo"))
+		},
+		Entry("the files are carried and the scan read it elsewhere", "/app/lib/libfoo.so", "/src/go.mod", true),
+		Entry("the files are left behind and the scan read it inside the import", "/srv/libfoo.so", "/app/go.mod", false),
+	)
 
 	It("reads no document for no directive at all", func(specCtx SpecContext) {
 		_, err := scopeImportBOM(logging.WithLogger(specCtx), cyclonedxutil.NewBOM(), nil)

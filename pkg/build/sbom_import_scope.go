@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/samber/lo"
@@ -16,6 +17,14 @@ import (
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
+)
+
+// The scanner writes where it saw a component as one property per location: the path the
+// file has, and the path it was reached by where a symlink led to it.
+const (
+	scannerLocationPrefix           = "syft:location:"
+	scannerLocationPathSuffix       = ":path"
+	scannerLocationAccessPathSuffix = ":accessPath"
 )
 
 // importScopeBackend is the copy backend the stage applied its imports with, as that
@@ -251,8 +260,8 @@ func scopedComponents(ctx context.Context, components *[]cdx.Component, carried 
 			return nil, err
 		}
 		comp.Components = nested
-		stated := statesWhereabouts(comp)
-		occurs, err := occursInScope(comp, carried)
+		locations := whereabouts(comp)
+		occurs, err := occursInScope(locations, carried)
 		if err != nil {
 			return nil, err
 		}
@@ -265,7 +274,7 @@ func scopedComponents(ctx context.Context, components *[]cdx.Component, carried 
 			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s %s, the source states it describes no files of the image\n", comp.Name, comp.Version)
 
 			continue
-		case stated:
+		case len(locations) > 0:
 			// Every place the donor put it stands outside what was copied.
 			logboek.Context(ctx).Debug().LogF("SBOM import scope: drop %s %s, no occurrence the import carries\n", comp.Name, comp.Version)
 
@@ -301,27 +310,41 @@ func componentSubject(comp cdx.Component) string {
 	return subject
 }
 
-// statesWhereabouts answers whether the donor says where this component stands, wherever
-// that is.
-func statesWhereabouts(comp cdx.Component) bool {
+// whereabouts is everywhere the donor says this component stands.
+//
+// The occurrences of the document answer alone wherever it carries them: they are the
+// files the image holds, and a scanner's note of where it read a manifest is not evidence
+// of the same kind (shippedscope.RecordOccurrences). A component werf recorded no files of
+// is left with what the scan itself put on record - a manifest listing a dependency says,
+// at least, that the listing is there - and those paths are the donor's own, since a
+// cataloger's inputs are scanned under the full path they have in the image
+// (managedinput.MaterializeCatalogerInputs). A file the scan reached through a symlink is
+// recorded under both spellings, and an import naming either carries it.
+func whereabouts(comp cdx.Component) []string {
+	var locations []string
 	for _, occurrence := range lo.FromPtr(lo.FromPtr(comp.Evidence).Occurrences) {
 		if occurrence.Location != "" {
-			return true
+			locations = append(locations, occurrence.Location)
 		}
 	}
-
-	return false
-}
-
-func occursInScope(comp cdx.Component, carried func(path string) (bool, error)) (bool, error) {
-	if comp.Evidence == nil || comp.Evidence.Occurrences == nil {
-		return false, nil
+	if len(locations) > 0 {
+		return locations
 	}
-	for _, occurrence := range *comp.Evidence.Occurrences {
-		if occurrence.Location == "" {
+	for _, property := range lo.FromPtr(comp.Properties) {
+		if !strings.HasPrefix(property.Name, scannerLocationPrefix) || property.Value == "" {
 			continue
 		}
-		carries, err := carried(occurrence.Location)
+		if strings.HasSuffix(property.Name, scannerLocationPathSuffix) || strings.HasSuffix(property.Name, scannerLocationAccessPathSuffix) {
+			locations = append(locations, property.Value)
+		}
+	}
+
+	return locations
+}
+
+func occursInScope(locations []string, carried func(path string) (bool, error)) (bool, error) {
+	for _, location := range locations {
+		carries, err := carried(location)
 		if err != nil {
 			return false, err
 		}

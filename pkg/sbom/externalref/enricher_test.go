@@ -418,6 +418,18 @@ var _ = Describe("Enricher", func() {
 				Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "https://git.example.com/confirmed.git", Type: cdx.ERTypeVCS}}))
 			})
 
+			It("drops the unconfirmed link of an original source package instead of failing it", func() {
+				var resolved []string
+				enricher := NewEnricher(refusing(&resolved), func(context.Context, string) (*ResolveResult, error) {
+					return &ResolveResult{Kind: "unknown"}, nil
+				})
+				bom := &cdx.BOM{Components: &[]cdx.Component{originalSource(cdx.ExternalReference{URL: "git://git.example.com/gogost.git", Type: cdx.ERTypeVCS})}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect(*(*bom.Components)[0].ExternalReferences).To(BeEmpty())
+			})
+
 			It("still resolves a third-party generic package and still fails it without a url", func() {
 				var resolved []string
 				enricher := NewEnricher(refusing(&resolved), service.CheckVCS)

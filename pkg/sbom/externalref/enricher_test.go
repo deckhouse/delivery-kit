@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -363,7 +364,10 @@ var _ = Describe("Enricher", func() {
 
 		Describe("component named by an identity of this build", func() {
 			refusing := func(resolved *[]string) func(context.Context, string) (*ResolveResult, error) {
+				var mu sync.Mutex
 				return func(_ context.Context, purl string) (*ResolveResult, error) {
+					mu.Lock()
+					defer mu.Unlock()
 					*resolved = append(*resolved, purl)
 					return nil, fmt.Errorf("resolve: %w", ErrEmptyURL)
 				}

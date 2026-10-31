@@ -113,7 +113,11 @@ func (i *inspector) inspect(body []byte) (Record, bool, error) {
 func relocatableBuildInfo(body []byte) (*shared.BinaryBuildInfo, error) {
 	reader := bytes.NewReader(body)
 	f, err := elf.NewFile(reader)
-	if err != nil || f.Type != elf.ET_REL {
+	if err != nil {
+		return nil, nil
+	}
+	defer f.Close()
+	if f.Type != elf.ET_REL {
 		return nil, nil
 	}
 	record, status, err := shared.ReadELFBuildRecord(reader)

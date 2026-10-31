@@ -22,10 +22,10 @@ func objectPolicy() *Policy {
 	return policy
 }
 
-// partialObjectRecord drops a required field, leaving a record that states
+// partialRecord drops a required field, leaving a record that states
 // nothing complete rather than one that contradicts itself.
-func partialObjectRecord() map[string]any {
-	raw, err := json.Marshal(fixtureBuildRecord(elf.ET_REL))
+func partialRecord(kind elf.Type) map[string]any {
+	raw, err := json.Marshal(fixtureBuildRecord(kind))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var record map[string]any
 	gomega.Expect(json.Unmarshal(raw, &record)).To(gomega.Succeed())
@@ -64,13 +64,21 @@ var _ = ginkgo.Describe("shipped relocatable object", func() {
 			return bytes.Replace(minimalRuntimeELF(elf.ET_REL), []byte(".note.package"), []byte(".note.unknown"), 1)
 		}, "no-data"),
 		ginkgo.Entry("partial record", func() []byte {
-			return runtimeELFWithRecord(elf.ET_REL, partialObjectRecord())
+			return runtimeELFWithRecord(elf.ET_REL, partialRecord(elf.ET_REL))
 		}, "no-data"),
 		ginkgo.Entry("record of an executable, not of this object", func() []byte {
 			return runtimeELFWithRecord(elf.ET_REL, fixtureBuildRecord(elf.ET_EXEC))
 		}, `invalid: artifact "elf" does not match ELF type ET_REL`),
 		ginkgo.Entry("object record on an executable", func() []byte {
 			return runtimeELFWithRecord(elf.ET_EXEC, fixtureBuildRecord(elf.ET_REL))
+		}, `invalid: artifact "object" does not match ELF type ET_EXEC`),
+		// What the record still states is read against the container even where
+		// another field is missing, so the omission hides no contradiction.
+		ginkgo.Entry("partial record of an executable", func() []byte {
+			return runtimeELFWithRecord(elf.ET_REL, partialRecord(elf.ET_EXEC))
+		}, `invalid: artifact "elf" does not match ELF type ET_REL`),
+		ginkgo.Entry("partial object record on an executable", func() []byte {
+			return runtimeELFWithRecord(elf.ET_EXEC, partialRecord(elf.ET_REL))
 		}, `invalid: artifact "object" does not match ELF type ET_EXEC`),
 		// An ar member keeps its own record, but an archive is not that member:
 		// which members a link selects is not read here.

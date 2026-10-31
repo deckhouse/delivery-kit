@@ -16,8 +16,9 @@ const GIT_LOCATOR = /^git\+(?:https|ssh):\/\/[^\s#]+#([0-9a-f]{40})$/;
 // Kept in lockstep with gitLifecycleHooks of the writer.
 const LIFECYCLE_HOOKS = ['preinstall','install','postinstall','prepare','prepublish','prepack','postpack'];
 // A recorded fetch origin: a remote with no user info in it, because credentials of the
-// build are never evidence about a component.
-const MIRROR_ORIGIN = /^(?:(?:https|http|ssh|git):\/\/[^\s/@]+(?:\/[^\s@]*)?|[^\s/@:]+:[^\s@]+)$/;
+// build are never evidence about a component. A query and a fragment are no part of one
+// either - the writer drops them with the userinfo, a token being as often passed there.
+const MIRROR_ORIGIN = /^(?:(?:https|http|ssh|git):\/\/[^\s/@?#]+(?:\/[^\s@?#]*)?|[^\s/@:?#]+:[^\s@?#]+)$/;
 
 class ContextOriginals {
 	constructor(contextPath) {

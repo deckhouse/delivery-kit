@@ -182,6 +182,8 @@ test('reads the recorded mirror and refuses one that is no origin or nobody\'s',
 		['an origin of an unknown component',()=>f.manifest.mirrors=[{component:'node:absent',fetchedFrom:'https://fox.flant.com/deckhouse/3p/argoproj/argo-ui.git'}]],
 		['an unknown member',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'https://fox.flant.com/x.git',token:'secret'}]],
 		['an origin that is no remote',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'/srv/mirrors/argo-ui.git'}]],
+		['a query in the origin',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'https://fox.flant.com/x.git?token=secret'}]],
+		['a fragment in the origin',()=>f.manifest.mirrors=[{component:'node:argo-ui',fetchedFrom:'fox.flant.com:deckhouse/3p/x.git#secret'}]],
 		['mirrors that are not an array',()=>f.manifest.mirrors={component:'node:argo-ui',fetchedFrom:'https://fox.flant.com/x.git'}],
 		['an unknown manifest field',()=>{delete f.manifest.mirrors;f.manifest.origins=[];}],
 	]) {

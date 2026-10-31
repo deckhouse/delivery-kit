@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("Interpreted script classification", func() {
 		ginkgo.Entry("executable text that is not UTF-8", "module.exports = '\xc0\xaf';\n", "/ui/node_modules/x/index.js", "unsupported: unknown binary or unsupported format /ui/node_modules/x/index.js"),
 		ginkgo.Entry("executable text cut inside a character", "module.exports = '\xe2\x82", "/ui/node_modules/x/index.js", "unsupported: unknown binary or unsupported format /ui/node_modules/x/index.js"),
 		ginkgo.Entry("printable bytes behind a native magic", "MZprintable text\n", "/app/tool", "/app/tool: unsupported: not a selected native executable or shared object"),
-		ginkgo.Entry("an archive whose bytes hold no member", "!<arch>\npayload\n", "/app/tool.a", "/app/tool.a: invalid: the archive ends inside the header of member 0"),
+		ginkgo.Entry("an archive whose bytes hold no member", "!<arch>\npayload\n", "/app/tool.a", "/app/tool.a: invalid: the archive ends inside the header of entry 0"),
 	)
 
 	ginkgo.DescribeTable("reads executable text without a shebang as the same text without the bit", func(ctx ginkgo.SpecContext, body string) {

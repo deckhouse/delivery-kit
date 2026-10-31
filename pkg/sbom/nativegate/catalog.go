@@ -98,12 +98,14 @@ func checkArchive(r Record) error {
 	if r.Composition != nil {
 		return fmt.Errorf("%s: invalid: an archive carries no build record of its own", r.Path)
 	}
-	indexes := map[int]bool{}
-	for _, member := range r.Archive.Members {
-		if member.Name == "" || member.Index < 0 || indexes[member.Index] {
-			return fmt.Errorf("%s: invalid: archive member %q takes no distinct ordinal", r.Path, member.Name)
+	held := map[string]bool{}
+	for position, member := range r.Archive.Members {
+		// The ordinals are the members' places in the archive, so they run from
+		// zero without a gap: one that does not is a member list stating what no
+		// reading of an archive produced.
+		if member.Name == "" || member.Index != position {
+			return fmt.Errorf("%s: invalid: archive member %q does not take the ordinal of its place among the members", r.Path, member.Name)
 		}
-		indexes[member.Index] = true
 		if !digestPattern.MatchString(member.SHA256) || len(member.Components) == 0 {
 			return fmt.Errorf("%s: invalid: archive member %q states no identified content", r.Path, member.Name)
 		}
@@ -121,6 +123,14 @@ func checkArchive(r Record) error {
 			if !slices.Contains(r.Components, ref) {
 				return fmt.Errorf("%s: invalid: archive member %q holds component %s the archive is not credited with", r.Path, member.Name, ref)
 			}
+			held[ref] = true
+		}
+	}
+	// An archive is made of its members and nothing else; what a package owning
+	// the file brings is the owner's claim, not content of the archive.
+	for _, ref := range r.Components {
+		if !held[ref] && !slices.Contains(r.Owners, ref) {
+			return fmt.Errorf("%s: invalid: the archive is credited with component %s no member of it holds", r.Path, ref)
 		}
 	}
 

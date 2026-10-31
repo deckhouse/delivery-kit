@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -60,9 +61,84 @@ func memberEntry(name, component string) archiveEntry {
 }
 
 // gnuSymbolTable is the index a linker reads names out of; its bytes are no
-// member's and carry no record.
+// member's and carry no record. This one publishes nothing.
 func gnuSymbolTable() archiveEntry {
 	return archiveEntry{name: "/", body: []byte{0, 0, 0, 0}}
+}
+
+// bsdSymbolTable is the same table in the ranlib form of a BSD archive: an
+// empty symbol array and an empty string table behind it.
+func bsdSymbolTable(name string) archiveEntry {
+	return archiveEntry{name: fmt.Sprintf("#1/%d", len(name)), body: append([]byte(name), make([]byte, 8)...)}
+}
+
+// archiveHeaderOffsets is where each entry's header stands in the archive those
+// entries make, which is what the symbol index of a real archive points at.
+func archiveHeaderOffsets(entries []archiveEntry) []int {
+	offsets := []int{}
+	at := len(archiveMagic)
+	for _, entry := range entries {
+		offsets = append(offsets, at)
+		at += archiveHeaderLen + len(entry.body) + len(entry.body)%2
+	}
+
+	return offsets
+}
+
+// ranlibArchive writes the BSD form of the same thing: a ranlib table of one
+// symbol standing at the member's header, in the byte order of the host that
+// wrote it, with offset replacing that of the member when it is given.
+func ranlibArchive(order binary.ByteOrder, offset int) []byte {
+	ginkgo.GinkgoHelper()
+	names := append([]byte("symbol0"), 0)
+	armap := make([]byte, 16+len(names))
+	order.PutUint32(armap, 8)
+	order.PutUint32(armap[12:], uint32(len(names)))
+	copy(armap[16:], names)
+	member := memberEntry("start", "first-object")
+	entries := []archiveEntry{{name: "__.SYMDEF", body: armap}, member}
+	if offset == 0 {
+		offset = archiveHeaderOffsets(entries)[1]
+	}
+	order.PutUint32(armap[8:], uint32(offset))
+
+	return fixtureArchive(entries...)
+}
+
+// armapArchive writes an archive of one member whose armap publishes count
+// symbols at that member's header, holds the given names and carries tail
+// behind them. It is how a spec states an index that does not add up.
+func armapArchive(count int, names, tail []byte) []byte {
+	armap := make([]byte, 4+4*count+len(names)+len(tail))
+	binary.BigEndian.PutUint32(armap, uint32(count))
+	copy(armap[4+4*count:], names)
+	copy(armap[4+4*count+len(names):], tail)
+	member := memberEntry("start", "first-object")
+	offset := archiveHeaderOffsets([]archiveEntry{{name: "/", body: armap}, member})[1]
+	for n := 0; n < count; n++ {
+		binary.BigEndian.PutUint32(armap[4+4*n:], uint32(offset))
+	}
+
+	return fixtureArchive(archiveEntry{name: "/", body: armap}, member)
+}
+
+// indexedArchive is the archive a linker is given: an armap publishing one
+// symbol per member, at the offset of that member's own header.
+func indexedArchive(members ...archiveEntry) []byte {
+	ginkgo.GinkgoHelper()
+	var names bytes.Buffer
+	for position := range members {
+		_, err := fmt.Fprintf(&names, "symbol%d\x00", position)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	armap := make([]byte, 4+4*len(members))
+	binary.BigEndian.PutUint32(armap, uint32(len(members)))
+	entries := append([]archiveEntry{{name: "/", body: append(armap, names.Bytes()...)}}, members...)
+	for position, offset := range archiveHeaderOffsets(entries)[1:] {
+		binary.BigEndian.PutUint32(entries[0].body[4+4*position:], uint32(offset))
+	}
+
+	return fixtureArchive(entries...)
 }
 
 func archiveCatalog(bom *cdx.BOM) Catalog {
@@ -172,10 +248,143 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 		ginkgo.Entry("out of the BSD member's own bytes", func() []byte {
 			name := append([]byte("a-very-long-member-name.o"), 0, 0, 0)
 			return fixtureArchive(
-				archiveEntry{name: "#1/16", body: append([]byte("__.SYMDEF SORTED"), 0, 0, 0, 0)},
+				bsdSymbolTable("__.SYMDEF SORTED"),
 				archiveEntry{name: fmt.Sprintf("#1/%d", len(name)), body: append(name, recordedMember("first-object")...)},
 			)
 		}),
+	)
+
+	// An archive a linker is given publishes its members through an armap, and
+	// what that armap says has to be what the archive holds.
+	ginkgo.It("accepts an archive whose index publishes its members", func() {
+		bom, err := applyArchive(indexedArchive(memberEntry("start", "first-object"), memberEntry("printf", "second-object")))
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		record := archiveRecord(bom)
+		gomega.Expect(record.Archive.Members).To(gomega.HaveLen(2))
+		gomega.Expect(record.Components).To(gomega.HaveLen(2))
+	})
+
+	// A BSD ranlib table is written in the byte order of the host that wrote it,
+	// and nothing in the archive says which that was: the reading under which
+	// the symbols stand at member headers is the one that is real.
+	ginkgo.DescribeTable("reads a BSD index in the byte order it was written in", func(order binary.ByteOrder) {
+		bom, err := applyArchive(ranlibArchive(order, 0))
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(archiveRecord(bom).Archive.Members).To(gomega.HaveLen(1))
+	},
+		ginkgo.Entry("little endian", binary.ByteOrder(binary.LittleEndian)),
+		ginkgo.Entry("big endian", binary.ByteOrder(binary.BigEndian)),
+	)
+
+	// Neither reading of this table stands at a member: the one it was written
+	// in publishes a symbol inside the table itself, and under the other the
+	// table does not even read as one.
+	ginkgo.It("refuses a BSD index whose symbols stand at no member in either order", func() {
+		_, err := applyArchive(ranlibArchive(binary.LittleEndian, len(archiveMagic)+archiveHeaderLen))
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: the archive index")))
+	})
+
+	// ar writes an armap of no bytes for an archive that publishes nothing.
+	ginkgo.It("accepts an archive whose index holds nothing", func() {
+		bom, err := applyArchive(fixtureArchive(archiveEntry{name: "/"}, memberEntry("start", "first-object")))
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(archiveRecord(bom).Archive.Members).To(gomega.HaveLen(1))
+	})
+
+	// bfd reads the symbol index as the first entry of an archive and the name
+	// table before the members that spell their names through it. A header
+	// carrying one of those names anywhere else is an ordinary member to it,
+	// linked under --whole-archive and under any symbol the index publishes for
+	// it, so skipping such a header as bookkeeping would hide a member.
+	ginkgo.DescribeTable("refuses an index table standing where no linker reads one", func(build func() []byte, expected string) {
+		_, err := applyArchive(build())
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+	},
+		ginkgo.Entry("a GNU armap behind a member", func() []byte {
+			return fixtureArchive(memberEntry("start", "first-object"), archiveEntry{name: "/", body: []byte{0, 0, 0, 0}})
+		}, "invalid: index table out of place, entry 1"),
+		ginkgo.Entry("a 64-bit armap behind a member", func() []byte {
+			return fixtureArchive(memberEntry("start", "first-object"), archiveEntry{name: "/SYM64/", body: make([]byte, 8)})
+		}, "invalid: index table out of place, entry 1"),
+		ginkgo.Entry("a ranlib table behind a member", func() []byte {
+			return fixtureArchive(memberEntry("start", "first-object"), bsdSymbolTable("__.SYMDEF"))
+		}, "invalid: index table out of place, entry 1"),
+		ginkgo.Entry("a ranlib table under its GNU spelling behind a member", func() []byte {
+			return fixtureArchive(memberEntry("start", "first-object"), archiveEntry{name: "__.SYMDEF/", body: make([]byte, 8)})
+		}, "invalid: index table out of place, entry 1"),
+		ginkgo.Entry("a second armap behind the first", func() []byte {
+			return fixtureArchive(gnuSymbolTable(), archiveEntry{name: "/", body: []byte{0, 0, 0, 0}}, memberEntry("start", "first-object"))
+		}, "invalid: index table out of place, entry 1"),
+		ginkgo.Entry("a name table behind a member", func() []byte {
+			return fixtureArchive(
+				memberEntry("start", "first-object"),
+				archiveEntry{name: "//", body: []byte("a-very-long-member-name.o/\n")},
+				archiveEntry{name: "/0", body: recordedMember("second-object")},
+			)
+		}, "invalid: index table out of place, entry 1"),
+		ginkgo.Entry("a second name table", func() []byte {
+			return fixtureArchive(
+				archiveEntry{name: "//", body: []byte("a-very-long-member-name.o/\n")},
+				archiveEntry{name: "//", body: []byte("another-long-member-name.o/\n")},
+				archiveEntry{name: "/0", body: recordedMember("first-object")},
+			)
+		}, "invalid: index table out of place, entry 1"),
+	)
+
+	// The armap is read the way `ld -u` reads it: a symbol stands at an offset,
+	// and whatever member's header is there gets linked. An offset pointing into
+	// the armap itself, at a header and an object written inside it, would link
+	// bytes no reading of the members ever saw.
+	ginkgo.DescribeTable("refuses an index publishing what the archive does not hold", func(build func() []byte, expected string) {
+		_, err := applyArchive(build())
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+	},
+		ginkgo.Entry("a symbol standing inside the index itself", func() []byte {
+			hidden := fixtureArchive(archiveEntry{name: "hidden.o/", body: recordedMember("hidden-object")})[len(archiveMagic):]
+			armap := make([]byte, 8+len("hidden\x00"))
+			binary.BigEndian.PutUint32(armap, 1)
+			copy(armap[8:], "hidden\x00")
+			// The hidden header stands behind the symbol it is published under,
+			// inside the bytes of the armap member.
+			binary.BigEndian.PutUint32(armap[4:], uint32(len(archiveMagic)+archiveHeaderLen+len(armap)))
+			return fixtureArchive(archiveEntry{name: "/", body: append(armap, hidden...)}, memberEntry("start", "first-object"))
+		}, "where no member of the archive stands"),
+		ginkgo.Entry("a symbol of an archive holding no member", func() []byte {
+			armap := make([]byte, 8+len("hidden\x00"))
+			binary.BigEndian.PutUint32(armap, 1)
+			binary.BigEndian.PutUint32(armap[4:], uint32(len(archiveMagic)))
+			copy(armap[8:], "hidden\x00")
+			return fixtureArchive(archiveEntry{name: "/", body: armap})
+		}, "where no member of the archive stands"),
+		ginkgo.Entry("a symbol standing between two members", func() []byte {
+			body := indexedArchive(memberEntry("start", "first-object"), memberEntry("printf", "second-object"))
+			binary.BigEndian.PutUint32(body[len(archiveMagic)+archiveHeaderLen+4:], uint32(len(archiveMagic)+archiveHeaderLen))
+			return body
+		}, "where no member of the archive stands"),
+		ginkgo.Entry("an index publishing more symbols than it names", func() []byte {
+			return armapArchive(2, append([]byte("symbol0"), 0), nil)
+		}, "invalid: the archive index publishes 2 symbols and holds 1 names"),
+		ginkgo.Entry("an index carrying bytes behind its names", func() []byte {
+			return armapArchive(1, append([]byte("symbol0"), 0), []byte("x"))
+		}, "invalid: the archive index carries bytes behind the symbol names it publishes"),
+		ginkgo.Entry("a name table holding something other than names", func() []byte {
+			return fixtureArchive(
+				archiveEntry{name: "//", body: []byte("a-very-long-member-name.o\n")},
+				archiveEntry{name: "/0", body: recordedMember("first-object")},
+			)
+		}, "invalid: the archive's name table holds something other than the names of its members"),
+		ginkgo.Entry("a long name standing inside another name", func() []byte {
+			return fixtureArchive(
+				archiveEntry{name: "//", body: []byte("a-very-long-member-name.o/\n")},
+				archiveEntry{name: "/2", body: recordedMember("first-object")},
+			)
+		}, "invalid: entry 1 names no entry of the archive's name table"),
 	)
 
 	ginkgo.DescribeTable("refuses an archive a member of which answers for nothing", func(build func() []byte, expected string) {
@@ -218,25 +427,63 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 		}, "unsupported: a thin archive holds no member bytes"),
 		ginkgo.Entry("an archive cut inside a member header", func() []byte {
 			return fixtureArchive(memberEntry("start", "first-object"))[:len(archiveMagic)+20]
-		}, "invalid: the archive ends inside the header of member 0"),
+		}, "invalid: the archive ends inside the header of entry 0"),
 		ginkgo.Entry("an archive cut inside a member", func() []byte {
 			body := fixtureArchive(memberEntry("start", "first-object"))
 			return body[:len(body)-8]
-		}, "invalid: member 0 extends past the end of the archive"),
+		}, "invalid: entry 0 extends past the end of the archive"),
 		ginkgo.Entry("a header stating no readable size", func() []byte {
 			body := fixtureArchive(memberEntry("start", "first-object"))
 			copy(body[len(archiveMagic)+48:], "xxxxxxxxxx")
 			return body
-		}, "invalid: the header of member 0 states no readable size"),
+		}, "invalid: the header of entry 0 states no readable size"),
 		ginkgo.Entry("a member header that is not terminated", func() []byte {
 			body := fixtureArchive(memberEntry("start", "first-object"))
 			body[len(archiveMagic)+58] = ' '
 			return body
-		}, "invalid: the header of member 0 is not terminated"),
+		}, "invalid: the header of entry 0 is not terminated"),
 		ginkgo.Entry("a long name no name table holds", func() []byte {
 			return fixtureArchive(archiveEntry{name: "/17", body: recordedMember("first-object")})
-		}, "invalid: an archive member names no entry of the archive's name table"),
+		}, "invalid: entry 0 names no entry of the archive's name table"),
 	)
+
+	// The byte that aligns an odd-sized member on an even boundary belongs to no
+	// member: ar writes a newline there and go tool pack a NUL. Anything else is
+	// content this reader does not account for.
+	ginkgo.DescribeTable("reads the byte that aligns an odd-sized member as the padding it is", func(pad byte, expected string) {
+		member := memberEntry("start", "first-object")
+		gomega.Expect(len(member.body)%2).To(gomega.Equal(1), "the member this spec aligns is odd-sized")
+		body := fixtureArchive(member)
+		body[len(archiveMagic)+archiveHeaderLen+len(member.body)] = pad
+
+		_, err := applyArchive(body)
+
+		if expected == "" {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			return
+		}
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+	},
+		ginkgo.Entry("the newline ar writes", byte('\n'), ""),
+		ginkgo.Entry("the NUL go tool pack writes", byte(0), ""),
+		ginkgo.Entry("a byte of its own", byte('x'), "invalid: entry 0 is not followed by the padding an odd-sized member takes"),
+	)
+
+	// The record form an archive takes is the catalog's, and the version it is
+	// published under says which form a reader is being handed.
+	ginkgo.It("refuses the catalog version that knew no archive", func() {
+		bom, err := applyArchive(fixtureArchive(memberEntry("start", "first-object")))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		old := cdx.NewBOM()
+		catalog := archiveCatalog(bom)
+		catalog.Schema = "dk.catalog/v4"
+		gomega.Expect(catalog.attach(old)).To(gomega.Succeed())
+
+		_, err = ReadCatalog([]*cdx.BOM{old})
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(`unsupported inherited catalog "dk.catalog/v4"`)))
+	})
 
 	ginkgo.It("refuses a member whose profile the policy does not allow", func() {
 		policy := objectPolicy()
@@ -260,6 +507,28 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 		err = Apply(context.Background(), objectPolicy(), "image", fixtureImage(map[string]string{archivePath: string(other)}), []*cdx.BOM{first}, cdx.NewBOM())
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("hash-mismatch: known file content changed " + archivePath)))
+	})
+
+	// An archive is made of its members and nothing else. A component standing
+	// in the record that no member of the archive brought is attribution the
+	// reading of the file never produced.
+	ginkgo.It("refuses an inherited archive credited with a component no member of it holds", func() {
+		bom, err := applyArchive(fixtureArchive(memberEntry("start", "first-object")))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		catalog := archiveCatalog(bom)
+		elsewhere := cdx.Component{
+			Type: cdx.ComponentTypeLibrary, BOMRef: "urn:dk:component:elsewhere",
+			Name: "elsewhere", Version: "1", PackageURL: "pkg:generic/elsewhere@1",
+		}
+		catalog.Components[elsewhere.BOMRef] = elsewhere
+		catalog.Records[0].Components = append(catalog.Records[0].Components, elsewhere.BOMRef)
+		damaged := cdx.NewBOM()
+		gomega.Expect(catalog.attach(damaged)).To(gomega.Succeed())
+
+		_, err = ReadCatalog([]*cdx.BOM{damaged})
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"invalid: the archive is credited with component urn:dk:component:elsewhere no member of it holds")))
 	})
 
 	// The catalog carries what was read, and a build inheriting it is held to
@@ -292,7 +561,11 @@ var _ = ginkgo.Describe("shipped static archive", func() {
 		}, `invalid: archive member "start" holds component urn:dk:component:elsewhere the archive is not credited with`),
 		ginkgo.Entry("two members of one ordinal", func(r *Record) {
 			r.Archive.Members = append(r.Archive.Members, r.Archive.Members[0])
-		}, `invalid: archive member "start" takes no distinct ordinal`),
+		}, `invalid: archive member "start" does not take the ordinal of its place among the members`),
+		ginkgo.Entry("a member standing at an ordinal the archive skipped", func(r *Record) {
+			r.Archive.Members[0].Index = 1
+		}, `invalid: archive member "start" does not take the ordinal of its place among the members`),
+
 		ginkgo.Entry("an archive carrying a record of its own", func(r *Record) {
 			r.Composition = r.Archive.Members[0].Composition
 		}, "invalid: an archive carries no build record of its own"),

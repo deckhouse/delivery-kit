@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("Files imported from a bootstrap source", func() {
 
 		_, _, _, err := bootstrapBuild(ctx, files, bootstrapMappings(), nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
-			"/opt/go/pkg/tool/libfoo.a: invalid: the archive ends inside the header of member 0")))
+			"/opt/go/pkg/tool/libfoo.a: invalid: the archive ends inside the header of entry 0")))
 	})
 
 	// A static library imported out of a bootstrap source is answered for the

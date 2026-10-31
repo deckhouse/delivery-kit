@@ -50,6 +50,12 @@ type MaterializeBuildContextOptions struct {
 	// Git-locked package has an original at all.
 	GitOriginals []GitOriginal
 
+	// InstalledPackets are the pm packets the caller declares the stages installed.
+	// Each is bound at the observed install boundary, against the one receipt entry
+	// that is its identity and against the files the original it pins still serves,
+	// and each is one of the declared packages of the context.
+	InstalledPackets []InstalledPacket
+
 	// PrebuiltAssets are the compositions the caller read out of the proofs of
 	// instrumented rebuilds, each for one file installed in this stage. They are
 	// written beside the originals manifest, and only for a file that manifest proves
@@ -101,7 +107,7 @@ func MaterializeBuildContext(ctx context.Context, declaration *buildcontext.Cont
 		if err := checkObservedTarget(opts.Snapshots, observed); err != nil {
 			return "", err
 		}
-		imports, err = producerContextImports(ctx, opts.Snapshots, resolved, canonicalPackages(indexes))
+		imports, err = producerContextImports(ctx, opts.Snapshots, resolved, canonicalPackages(indexes), opts.InstalledPackets)
 		if err != nil {
 			return "", err
 		}
@@ -223,6 +229,11 @@ func checkDeclaredStructure(declaration *buildcontext.Context, opts MaterializeB
 	}
 	if len(opts.GitOriginals) > 0 && !opts.WebpackSources {
 		return fmt.Errorf("invalid: %d verified Git originals have no manifest to be named in", len(opts.GitOriginals))
+	}
+	// An installed packet is bound to what the stages were observed to hold of it,
+	// which a declaration of imports states nothing about.
+	if len(opts.InstalledPackets) > 0 && len(opts.Snapshots) == 0 {
+		return fmt.Errorf("invalid: %d installed packets have no stage snapshots to be bound at", len(opts.InstalledPackets))
 	}
 
 	pending := *declaration

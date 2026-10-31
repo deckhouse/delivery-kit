@@ -121,6 +121,11 @@ type sbomBuildContextStage struct {
 	// the named image really emitted those bytes, and that the installed file really is
 	// them, is the consumer's to verify.
 	PrebuiltAssets []sbomBuildContextPrebuilt `json:"prebuiltAssets,omitempty"`
+	// InstalledPackets are the pm packets this stage installs that the producer
+	// context is built on. The declaration states the identity only: which receipt
+	// entry of the observed install opens it, and whether the named files are that
+	// packet's bytes, is the consumer's to establish.
+	InstalledPackets []sbomBuildContextInstalledPacket `json:"installedPackets,omitempty"`
 	// GitSources bind a Node dependency a lockfile pins to a Git commit to the git
 	// mapping of this very config that DK fetches that commit through. The binding is
 	// the producer's claim about its own recipe; the verification that the mapping is
@@ -193,6 +198,21 @@ type sbomBuildContextGoEmbed struct {
 	SourceRoot  string `json:"sourceRoot"`
 	TargetRoot  string `json:"targetRoot"`
 	ProofPath   string `json:"proofPath"`
+}
+
+// sbomBuildContextInstalledPacket names one pm packet a stage installs, by the identity
+// pm itself records for it, and the installed files of it this stage is to be held
+// against. No registry is named here: where the packet came from is what the install
+// receipt of the stage says, not what a recipe claims.
+type sbomBuildContextInstalledPacket struct {
+	PackageName    string `json:"packageName"`
+	PackageVersion string `json:"packageVersion"`
+	PackageType    string `json:"packageType"`
+	// SourcePlatform is always explicit, never inferred from host or target.
+	SourcePlatform string `json:"sourcePlatform"`
+	// Files are the absolute paths in this stage the packet is to answer for. A build
+	// whose files are no longer the installed ones is refused rather than described.
+	Files []string `json:"files"`
 }
 
 type sbomBuildContextPackage struct {
@@ -281,6 +301,9 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 		}
 		if value, present := fields["prebuiltAssets"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: prebuiltAssets must be an array", stageName)
+		}
+		if value, present := fields["installedPackets"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: installedPackets must be an array", stageName)
 		}
 		if value, present := fields["esbuild"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, fmt.Errorf("parse SBOM build context declaration: invalid: stage %q: esbuild must be an object", stageName)
@@ -478,6 +501,10 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 		mappings[binding.To], installed[binding.InstalledPath] = true, true
 	}
 
+	if err := validateSBOMBuildContextInstalledPackets(declared.InstalledPackets); err != nil {
+		return err
+	}
+
 	if declared.Subject == nil {
 		return fmt.Errorf("subject is required")
 	}
@@ -492,6 +519,46 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 // three paths are required together with the opt-in: the collector attaches to one named
 // configuration, writes one proof and resolves installed packages out of one cache, and a
 // stage naming none of them would produce nothing while declaring that it does.
+// validateSBOMBuildContextInstalledPackets checks what a stage says about the packets it
+// installs. One identity is declared once - a second spelling of it would name the same
+// install twice - and one file is answered for by one packet.
+func validateSBOMBuildContextInstalledPackets(declared []sbomBuildContextInstalledPacket) error {
+	identities := make(map[string]bool, len(declared))
+	held := make(map[string]bool)
+	for i, packet := range declared {
+		for _, field := range []struct{ name, value string }{
+			{"packageName", packet.PackageName}, {"packageVersion", packet.PackageVersion},
+			{"packageType", packet.PackageType}, {"sourcePlatform", packet.SourcePlatform},
+		} {
+			if err := validateSBOMBuildContextField(field.name, field.value); err != nil {
+				return fmt.Errorf("installedPacket %d: %w", i, err)
+			}
+		}
+		if !sbomBuildContextPlatformRegexp.MatchString(packet.SourcePlatform) {
+			return fmt.Errorf("installedPacket %d: sourcePlatform %q is not a canonical linux platform", i, packet.SourcePlatform)
+		}
+		if len(packet.Files) == 0 {
+			return fmt.Errorf("installedPacket %d: at least one installed file is required", i)
+		}
+		for _, name := range packet.Files {
+			if err := validateSBOMBuildContextStagePath("files", name); err != nil {
+				return fmt.Errorf("installedPacket %d: %w", i, err)
+			}
+			if held[name] {
+				return fmt.Errorf("installedPacket %d: file %q is declared more than once", i, name)
+			}
+			held[name] = true
+		}
+		identity := packet.PackageName + "\x00" + packet.PackageVersion + "\x00" + packet.SourcePlatform
+		if identities[identity] {
+			return fmt.Errorf("installedPacket %d: %s %s is declared more than once", i, packet.PackageName, packet.PackageVersion)
+		}
+		identities[identity] = true
+	}
+
+	return nil
+}
+
 func validateSBOMBuildContextWebpack(declared sbomBuildContextStage) error {
 	paths := []struct{ name, value string }{
 		{"webpackConfig", declared.WebpackConfig}, {"webpackProof", declared.WebpackProof}, {"yarnCache", declared.YarnCache},

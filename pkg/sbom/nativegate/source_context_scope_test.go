@@ -2,6 +2,7 @@ package nativegate
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"strings"
 
@@ -65,7 +66,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
 			{Path: "/work/one.c", Package: contextPackageIndex(0), OriginalPath: "src/one.c"},
@@ -89,7 +90,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			{Stage: "install", Index: fixtureIndex(map[string]string{"/bin/sh": "shell", "/usr/src/one.c": "one body"})},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
 			{Path: "/usr/src/one.c", Package: contextPackageIndex(0), OriginalPath: "src/one.c"},
@@ -112,7 +113,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
 			{Path: "/work/one.c", Package: contextPackageIndex(0), OriginalPath: "src/one.c"},
@@ -143,7 +144,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		_, err := producerContextImports(ctx, snapshots, packages, indexes)
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 2 original bindings")))
 	})
 
@@ -164,7 +165,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
 			{Path: "/work/one.c", Package: contextPackageIndex(0), OriginalPath: "src/one.c"},
@@ -189,7 +190,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		_, err := producerContextImports(ctx, snapshots, packages, indexes)
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: original source pm-source:")))
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("conflicting Packet metadata")))
 	})
@@ -209,7 +210,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		_, err := producerContextImports(ctx, snapshots, packages, indexes)
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the imported source image carries no original source receipt")))
 	})
 
@@ -230,7 +231,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		_, err := producerContextImports(ctx, snapshots, packages, indexes)
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid pinned package digest")))
 	})
 
@@ -240,10 +241,10 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 		incomplete := fixtureIndex(map[string]string{"/bin/sh": "shell"})
 		incomplete.Incomplete = true
 
-		_, err := producerContextImports(ctx, []SourceSnapshot{{Stage: "from", Index: incomplete}}, packages, indexes)
+		_, err := producerContextImports(ctx, []SourceSnapshot{{Stage: "from", Index: incomplete}}, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: incomplete source snapshot for from")))
 
-		_, err = producerContextImports(ctx, nil, packages, indexes)
+		_, err = producerContextImports(ctx, nil, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the producer context needs the actual stage snapshots")))
 	})
 
@@ -260,7 +261,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			}},
 		}}
 
-		_, err := producerContextImports(ctx, snapshots, packages, indexes)
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the base snapshot from precedes no stage")))
 	})
 
@@ -272,7 +273,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			{Stage: "install", Index: fixtureIndex(map[string]string{"/bin/sh": "shell", "/work/one.c": "one body"})},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).NotTo(gomega.BeNil())
 		gomega.Expect(imports).To(gomega.BeEmpty())
@@ -294,7 +295,7 @@ var _ = ginkgo.Describe("producer context import scope", func() {
 			},
 		}
 
-		_, err := producerContextImports(ctx, snapshots, packages, map[string]int{})
+		_, err := producerContextImports(ctx, snapshots, packages, map[string]int{}, nil)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: no context package for original source")))
 	})
 })
@@ -340,7 +341,7 @@ var _ = ginkgo.Describe("producer context over files that share their bytes with
 			{Stage: "install", Index: fixtureIndex(installed)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		paths := make([]string, 0, len(imports))
@@ -397,7 +398,7 @@ var _ = ginkgo.Describe("producer context over files that share their bytes with
 			{Stage: "install", Index: fixtureIndex(installed)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		bound := make([]string, 0, len(imports))
@@ -427,7 +428,7 @@ var _ = ginkgo.Describe("producer context over files that share their bytes with
 			{Stage: "install", Index: fixtureIndex(map[string]string{"/bin/sh": "shell", "/.dockerenv": "", "/usr/src/one.c": "one body"})},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
@@ -455,7 +456,7 @@ var _ = ginkgo.Describe("producer context over files that share their bytes with
 			{Stage: "install", Index: fixtureIndex(map[string]string{"/bin/sh": "shell", "/usr/include/version.h": "#define V 2\n"})},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
@@ -507,7 +508,7 @@ var _ = ginkgo.Describe("producer context over files that share their bytes with
 			{Stage: "install", Index: fixtureIndex(installed)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		bound := make([]string, 0, len(imports))
@@ -588,7 +589,7 @@ var _ = ginkgo.Describe("producer context over files a packages stage installed"
 			{Stage: "install", Index: fixtureIndex(installedByPackages)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		bound := make([]string, 0, len(imports))
@@ -626,7 +627,7 @@ var _ = ginkgo.Describe("producer context over files a packages stage installed"
 			{Stage: "install", Index: fixtureIndex(installed)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
@@ -660,7 +661,7 @@ var _ = ginkgo.Describe("producer context over files a packages stage installed"
 			{Stage: "install", Index: fixtureIndex(overwritten)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(imports).To(gomega.BeEmpty(),
@@ -693,7 +694,7 @@ var _ = ginkgo.Describe("producer context over files a packages stage installed"
 			{Stage: "install", Index: fixtureIndex(built)},
 		}
 
-		imports, err := producerContextImports(ctx, snapshots, packages, indexes)
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, nil)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		paths := make([]string, 0, len(imports))
@@ -701,5 +702,145 @@ var _ = ginkgo.Describe("producer context over files a packages stage installed"
 			paths = append(paths, imported.Path)
 		}
 		gomega.Expect(paths).To(gomega.ConsistOf("/work/one.c", "/usr/src/one.c"))
+	})
+})
+
+// installedPacketSource is one pm packet as an install receipt pins it: the entry pm
+// recorded when it opened the packet, and the original the context resolves it to.
+func installedPacketSource(repo, name, version string, files map[string]string) (sources.Source, *resolvedSource) {
+	ginkgo.GinkgoHelper()
+	image := fixtureImage(files)
+	pinned, err := image.Digest()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	payload, err := original.NewOriginalPackage(image)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(payload.Complete()).To(gomega.BeTrue())
+
+	packet := fmt.Sprintf(`{"name":%q,"version":%q,"type":"file","arch":["linux/amd64"],"digest":%q,"license":"MIT"}`, name, version, pinned.String())
+	source := sources.Source{Registry: repo, Platform: "linux/amd64", Packet: json.RawMessage(packet)}
+	metadata, err := readSourcePackage(source)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	platform, err := v1.ParsePlatform(source.Platform)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pin, err := original.PinnedDigest(metadata.Name, metadata.Version, metadata.Arch, metadata.Digest, *platform)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return source, &resolvedSource{ID: originalSourceID(repo, pin, *platform), Source: source, Package: metadata, Original: payload}
+}
+
+// esbuildPacketFiles is the tool layout a UI build consumes: the executable, the client
+// the bundler loads, and the runtime source the evidence is pinned to.
+func esbuildPacketFiles() map[string]string {
+	return map[string]string{
+		"/usr/lib/esbuild/bin/esbuild":                     "instrumented executable",
+		"/usr/lib/esbuild/lib/main.js":                     "prepared client",
+		"/usr/lib/esbuild/src/internal/runtime/runtime.go": "runtime source",
+	}
+}
+
+func installedEsbuild() InstalledPacket {
+	return InstalledPacket{
+		Name: "esbuild", Version: "0.25.0", Type: "file", Platform: "linux/amd64",
+		Files: []string{"/usr/lib/esbuild/bin/esbuild", "/usr/lib/esbuild/lib/main.js"},
+	}
+}
+
+// installedSnapshots are the boundaries of a build that installed a packet: a base, the
+// package stage pm opened it at, and the stage that goes on to use it.
+func installedSnapshots(receipt *sources.Receipt, installed, used map[string]string) []SourceSnapshot {
+	ginkgo.GinkgoHelper()
+	base := map[string]string{"/bin/sh": "shell"}
+	opened := maps.Clone(base)
+	maps.Copy(opened, installed)
+	opened[sources.DefaultPath] = "receipt body"
+	after := maps.Clone(opened)
+	maps.Copy(after, used)
+
+	return []SourceSnapshot{
+		{Stage: "from", Index: fixtureIndex(base)},
+		{Stage: "packages", Index: fixtureIndex(opened), Receipt: receipt},
+		{Stage: "install", Index: fixtureIndex(after)},
+	}
+}
+
+var _ = ginkgo.Describe("producer context packets installed by pm", func() {
+	ginkgo.It("binds the files of a declared packet the package stage opened", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+			esbuildPacketFiles(), map[string]string{"/app/dist/bundle.js": "bundled output"})
+
+		imports, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(imports).To(gomega.Equal([]buildcontext.Import{
+			{Path: "/usr/lib/esbuild/bin/esbuild", Package: contextPackageIndex(0), OriginalPath: "usr/lib/esbuild/bin/esbuild"},
+			{Path: "/usr/lib/esbuild/lib/main.js", Package: contextPackageIndex(0), OriginalPath: "usr/lib/esbuild/lib/main.js"},
+			{Path: "/usr/lib/esbuild/src/internal/runtime/runtime.go", Package: contextPackageIndex(0), OriginalPath: "usr/lib/esbuild/src/internal/runtime/runtime.go"},
+		}))
+	})
+
+	ginkgo.It("refuses a declared file the build replaced with other bytes", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+			esbuildPacketFiles(), map[string]string{"/usr/lib/esbuild/bin/esbuild": "another executable"})
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: /usr/lib/esbuild/bin/esbuild does not stand in the build as bytes the file packet esbuild 0.25.0 still serves")))
+	})
+
+	ginkgo.It("refuses an install boundary whose receipt opens no such packet", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		other, _ := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.17.19", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{other}}, esbuildPacketFiles(), nil)
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 0 receipt entries open the file packet esbuild 0.25.0 for linux/amd64")))
+
+		snapshots[1].Receipt = nil
+		_, err = producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: the install boundary carries no package source receipt for esbuild 0.25.0")))
+		gomega.Expect(source.Registry).To(gomega.Equal("registry.example.com/packages/esbuild"))
+	})
+
+	ginkgo.It("refuses two receipt entries that open one declared identity", func(ctx ginkgo.SpecContext) {
+		first, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		second, _ := installedPacketSource("registry.example.com/packages/mirror", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{first, second}}, esbuildPacketFiles(), nil)
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: 2 receipt entries open the file packet esbuild 0.25.0 for linux/amd64, need exactly one")))
+	})
+
+	ginkgo.It("refuses a build that changed pm install metadata outside the package stage", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}},
+			esbuildPacketFiles(), map[string]string{sources.DefaultPath: "a receipt the install stage wrote"})
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("no-data: install changes pm install metadata outside a package stage")))
+	})
+
+	ginkgo.It("refuses a declared packet the context holds no package for", func(ctx ginkgo.SpecContext) {
+		source, _ := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		_, elsewhere := installedPacketSource("registry.example.com/packages/other", "other", "1.0", map[string]string{"/usr/lib/other": "other body"})
+		packages, indexes := contextPackages(elsewhere)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}}, esbuildPacketFiles(), nil)
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: the context declares no package for the installed packet esbuild 0.25.0")))
+	})
+
+	ginkgo.It("refuses declared packets with no observed package install boundary", func(ctx ginkgo.SpecContext) {
+		source, resolved := installedPacketSource("registry.example.com/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		packages, indexes := contextPackages(resolved)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}}, esbuildPacketFiles(), nil)
+		snapshots[1].Stage = "beforeInstall"
+
+		_, err := producerContextImports(ctx, snapshots, packages, indexes, []InstalledPacket{installedEsbuild()})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("pm install metadata outside a package stage")))
 	})
 })

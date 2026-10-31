@@ -172,6 +172,14 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 		imports = append(imports, resolved...)
 		identities = append(identities, sourceRef, string(packet), candidate.Platform)
 	}
+	opened, installedPackets, err := producerInstalledPackets(observed, requested.InstalledPackets)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range opened {
+		contextSpec.Packages = append(contextSpec.Packages, buildcontext.Package{Registry: source.Registry, Platform: source.Platform, Packet: source.Packet})
+		identities = append(identities, "pm-installed", source.Registry, string(source.Packet), source.Platform)
+	}
 	assetScope, assetProofs, assetImports, err := phase.producerGoEmbed(ctx, img, stg.Name(), requested.GoEmbed, observed)
 	if err != nil {
 		return nil, err
@@ -209,7 +217,7 @@ func (phase *BuildPhase) producerContext(ctx context.Context, img *imagePkg.Imag
 	if err != nil {
 		return nil, err
 	}
-	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources, GitOriginals: gitOriginals, PrebuiltAssets: prebuiltAssets})
+	path, err := nativegate.MaterializeBuildContext(ctx, contextSpec, observed[len(observed)-1].Index, directory, nativegate.MaterializeBuildContextOptions{ContainerRoot: producerContextMount, Snapshots: snapshots, WebpackSources: requested.WebpackSources, GitOriginals: gitOriginals, InstalledPackets: installedPackets, PrebuiltAssets: prebuiltAssets})
 	if err != nil {
 		_ = os.RemoveAll(directory)
 		return nil, err
@@ -407,6 +415,45 @@ func producerGitMapping(img *imagePkg.Image, to string) (*stage.GitMapping, erro
 	}
 
 	return found, nil
+}
+
+// producerInstalledPackets names, for every packet identity the stage declares it
+// installed, the one entry of the install receipt the built stages actually carry that
+// opens it. Where that packet came from is the receipt's answer, never the recipe's: the
+// declaration carries no registry, and a receipt opening the identity none or twice is a
+// refusal rather than a choice.
+func producerInstalledPackets(observed []sbomSourceSnapshot, declared []sbomBuildContextInstalledPacket) ([]sources.Source, []nativegate.InstalledPacket, error) {
+	if len(declared) == 0 {
+		return nil, nil, nil
+	}
+	var receipt *sources.Receipt
+	boundaries := 0
+	for _, snapshot := range observed {
+		if snapshot.Stage != stage.Packages {
+			continue
+		}
+		receipt, boundaries = snapshot.Receipt, boundaries+1
+	}
+	if boundaries != 1 {
+		return nil, nil, fmt.Errorf("no-data: %d package install boundaries among the built stages, need exactly one", boundaries)
+	}
+
+	opened := make([]sources.Source, 0, len(declared))
+	installed := make([]nativegate.InstalledPacket, 0, len(declared))
+	for _, packet := range declared {
+		wanted := nativegate.InstalledPacket{
+			Name: packet.PackageName, Version: packet.PackageVersion,
+			Type: packet.PackageType, Platform: packet.SourcePlatform, Files: packet.Files,
+		}
+		source, err := nativegate.SelectInstalledPacket(receipt, wanted)
+		if err != nil {
+			return nil, nil, err
+		}
+		opened = append(opened, source)
+		installed = append(installed, wanted)
+	}
+
+	return opened, installed, nil
 }
 
 func checkProducerPacket(data json.RawMessage, expected sbomBuildContextPackage) error {

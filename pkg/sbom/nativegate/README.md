@@ -65,6 +65,14 @@ Context identity contributes to the stage checksum. Declared images cannot bypas
 
 The subject remains the verified prepared-source package (for example, a source distribution shared by several runtime outputs), not the output image name. This path does not synthesize `ownRoots`, freeze newly generated inputs during a checked stage, or turn unobserved paths into package originals. Preparation/freeze must precede consumption. Original distribution platforms remain distinct from the binary target; cross-target commands require the Go SDK's per-invocation target handling.
 
+## Packets installed by pm
+
+A stage may also be built on a tool its own package manager installed, rather than on an image this config imports from. The declaration names the packet identity alone - package name, version, type, explicit original platform - and the installed files the stage is to be held to. It names no registry: where the packet came from is read from the install receipt the built stages actually carry, which is pm's own record of what it opened.
+
+The receipt of the observed package stage selects the candidate: exactly one entry must open that identity at that platform, and none or several is a refusal rather than a choice between them. That entry's pinned Packet digest resolves the original the way a declared prepared source is resolved, and membership is then the installed bytes themselves - a file is bound only where the pinned original still serves those bytes at the path it serves them under. The bindings travel from the install boundary through the later stages by the same carry as any other original, so a file a stage replaced keeps nothing. Every declared file must arrive as an import of that very packet; otherwise the context is refused rather than built on what is left of the tool. While such packets are declared, pm install metadata changing at any boundary but the package stage or a declared import is refused as well.
+
+Nothing here is read from a label, an index allowlist, a command line or the environment, and no part of the receipt is believed on its own: the identity is the producer's claim about its own recipe, and which bytes answer for it is settled by the Packet digest and by the files in the image. A packet delivering a compiled artifact still gives that artifact no composition: the binary answers with its own embedded build record like any other.
+
 ## Native records
 
 The shared reader validates embedded records directly from ELF, thin Mach-O and PE bytes. No native composition sidecar or guessed installed-package inventory is accepted as a replacement. Record schema, required tool identities, supported profile/platform/revision, native container shape and available Go buildinfo contradictions are checked by the reader; rootfs interpreter/library closure is checked by DK.

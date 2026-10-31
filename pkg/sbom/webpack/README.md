@@ -59,6 +59,51 @@ resolveOriginal: async resource =>
 
 A Yarn error must propagate, not become a primary-project fallback. The stage's explicit PM subject and source distribution remain unchanged. This hash form only covers verified raw source inputs: loader-generated code still needs a supported transformation adapter.
 
+## Tool packets installed by pm
+
+The instrumented esbuild a stage transforms its modules with is commonly not an image of the consuming config but a packet `os-pm` installed. Such a stage declares the packet identity and the installed files beside `webpackSources`:
+
+```json
+{
+  "version": 1,
+  "stages": {
+    "install": {
+      "subject": 0,
+      "packages": [
+        {"sourceImage":"app-source","packageName":"app-source","packageVersion":"1.0.0","packageType":"source","sourcePlatform":"linux/amd64"}
+      ],
+      "webpackSources": true,
+      "webpackConfig": "/app/webpack.config.js",
+      "webpackProof": "/private-build-metadata/ui.json",
+      "yarnCache": "/usr/local/share/.cache/yarn/v6",
+      "installedPackets": [
+        {
+          "packageName": "esbuild",
+          "packageVersion": "0.25.0",
+          "packageType": "file",
+          "sourcePlatform": "linux/amd64",
+          "files": [
+            "/usr/lib/esbuild/bin/esbuild",
+            "/usr/lib/esbuild/lib/main.js",
+            "/usr/lib/esbuild/src/internal/runtime/runtime.go"
+          ]
+        }
+      ],
+      "esbuild": {
+        "version": "0.25.0",
+        "loaderVersion": "4.3.0",
+        "entry": "/usr/lib/esbuild/lib/main.js",
+        "binary": "/usr/lib/esbuild/bin/esbuild",
+        "loader": "/app/node_modules/esbuild-loader/dist/index.cjs",
+        "runtimeSource": "/usr/lib/esbuild/src/internal/runtime/runtime.go"
+      }
+    }
+  }
+}
+```
+
+The install receipt of the package stage selects the one entry that opens that identity, the pinned Packet digest and the installed bytes establish what belongs to it, and the resulting bindings reach `webpack-originals.json` as ordinary primary-manifest rows. The collector therefore finds both the esbuild entry and the executable there without reading a packet, a layout or a registry. A declared file the build replaced, a missing receipt and two candidate packets each refuse the whole context. See `pkg/sbom/nativegate/README.md`, "Packets installed by pm".
+
 ## Observed runtime and bootstrap units
 
 `node --require /path/to/runtime-preload.cjs …` records the CommonJS source and actual generator calls before Webpack loads. Without that observation, chunks requiring runtime/bootstrap evidence remain `no-data`. The adapter is limited to fingerprinted Webpack 5.94.0 implementations: four standard runtime classes (namespace/property helpers and the nonce unit) and the main chunk renderer with its checked helper sources. Matching a version string alone does not make a fork supported.

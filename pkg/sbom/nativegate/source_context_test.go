@@ -388,3 +388,110 @@ func fixtureDeclaration(repo, pinned string, imports ...buildcontext.Import) *bu
 		Imports:  append([]buildcontext.Import{}, imports...),
 	}
 }
+
+// installedPacketInRegistry publishes a tool packet and spells the receipt entry pm
+// writes when it installs it: the registry it was opened from, the explicit platform,
+// and the packet metadata pinning the manifest digest.
+func installedPacketInRegistry(ctx context.Context, repo, name, version string, files map[string]string) (sources.Source, string) {
+	ginkgo.GinkgoHelper()
+	pinned := pushOriginalImage(ctx, repo, "packet", originalImageFixture("linux/amd64", files))
+	packet := fmt.Sprintf(`{"name":%q,"version":%q,"type":"file","arch":["linux/amd64"],"digest":%q,"license":"MIT"}`, name, version, pinned)
+
+	return sources.Source{Registry: repo, Platform: "linux/amd64", Packet: json.RawMessage(packet)}, pinned
+}
+
+func installedPacketDeclaration(repo, pinned string, packets ...sources.Source) *buildcontext.Context {
+	declaration := &buildcontext.Context{
+		Version: 1, Platform: "linux/amd64",
+		Subject: shared.BuildComponent{
+			ID: "build-source", Name: "esbuild", Version: "0.25.0",
+			Source: shared.BuildSource{Kind: "pm", Locator: repo, Checksum: pinned},
+		},
+		Imports: []buildcontext.Import{},
+	}
+	for _, packet := range packets {
+		declaration.Packages = append(declaration.Packages, buildcontext.Package{Registry: packet.Registry, Platform: packet.Platform, Packet: packet.Packet})
+	}
+
+	return declaration
+}
+
+var _ = ginkgo.Describe("Materializing a context on a packet pm installed", func() {
+	ginkgo.It("hands the webpack collector the entry and the binary of the installed tool", func(ctx ginkgo.SpecContext) {
+		host := originalRegistryHost(ctx)
+		packet, pinned := installedPacketInRegistry(ctx, host+"/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		declaration := installedPacketDeclaration(host+"/packages/esbuild", pinned, packet)
+		snapshots := installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{packet}},
+			esbuildPacketFiles(), map[string]string{"/app/dist/bundle.js": "bundled output"})
+		directory := materializationScratch()
+
+		_, err := MaterializeBuildContext(ctx, declaration, snapshots[len(snapshots)-1].Index, directory, MaterializeBuildContextOptions{
+			ContainerRoot: "/dk/context", Snapshots: snapshots, WebpackSources: true,
+			InstalledPackets: []InstalledPacket{installedEsbuild()},
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Expect(materializedContext(directory).Imports).To(gomega.Equal([]buildcontext.Import{
+			{Path: "/usr/lib/esbuild/bin/esbuild", Package: packageIndex(0), OriginalPath: "usr/lib/esbuild/bin/esbuild"},
+			{Path: "/usr/lib/esbuild/lib/main.js", Package: packageIndex(0), OriginalPath: "usr/lib/esbuild/lib/main.js"},
+			{Path: "/usr/lib/esbuild/src/internal/runtime/runtime.go", Package: packageIndex(0), OriginalPath: "usr/lib/esbuild/src/internal/runtime/runtime.go"},
+		}))
+
+		component := webpackComponentID(host+"/packages/esbuild", pinned, "linux/amd64")
+		gomega.Expect(materializedWebpackOriginals(directory)).To(gomega.Equal(fmt.Sprintf(
+			`{"version":1,"components":[{"id":%q,"name":"esbuild","version":"0.25.0","source":{"kind":"pm","locator":%q,"checksum":%q}}],"files":[{"path":"/usr/lib/esbuild/bin/esbuild","sha256":%q,"component":%q},{"path":"/usr/lib/esbuild/lib/main.js","sha256":%q,"component":%q},{"path":"/usr/lib/esbuild/src/internal/runtime/runtime.go","sha256":%q,"component":%q}]}`,
+			component, host+"/packages/esbuild", pinned,
+			digest([]byte("instrumented executable")), component,
+			digest([]byte("prepared client")), component,
+			digest([]byte("runtime source")), component)))
+	})
+
+	ginkgo.It("refuses declared packets without the snapshots they are bound at", func(ctx ginkgo.SpecContext) {
+		host := originalRegistryHost(ctx)
+		packet, pinned := installedPacketInRegistry(ctx, host+"/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+		declaration := installedPacketDeclaration(host+"/packages/esbuild", pinned, packet)
+
+		_, err := MaterializeBuildContext(ctx, declaration, fixtureIndex(esbuildPacketFiles()), materializationScratch(), MaterializeBuildContextOptions{
+			ContainerRoot: "/dk/context", WebpackSources: true, InstalledPackets: []InstalledPacket{installedEsbuild()},
+		})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("invalid: 1 installed packets have no stage snapshots to be bound at")))
+	})
+
+	ginkgo.DescribeTable("refuses to build a context on a tool it cannot hold the build to",
+		func(ctx ginkgo.SpecContext, build func(ctx context.Context, host string) (*buildcontext.Context, []SourceSnapshot), expected string) {
+			host := originalRegistryHost(ctx)
+			declaration, snapshots := build(ctx, host)
+			directory := materializationScratch()
+
+			_, err := MaterializeBuildContext(ctx, declaration, snapshots[len(snapshots)-1].Index, directory, MaterializeBuildContextOptions{
+				ContainerRoot: "/dk/context", Snapshots: snapshots, WebpackSources: true,
+				InstalledPackets: []InstalledPacket{installedEsbuild()},
+			})
+			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))
+
+			left, readErr := os.ReadDir(directory)
+			gomega.Expect(readErr).NotTo(gomega.HaveOccurred())
+			gomega.Expect(left).To(gomega.BeEmpty())
+		},
+		ginkgo.Entry("the build replaced the installed executable", func(ctx context.Context, host string) (*buildcontext.Context, []SourceSnapshot) {
+			packet, pinned := installedPacketInRegistry(ctx, host+"/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+
+			return installedPacketDeclaration(host+"/packages/esbuild", pinned, packet),
+				installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{packet}},
+					esbuildPacketFiles(), map[string]string{"/usr/lib/esbuild/bin/esbuild": "an executable of its own"})
+		}, "/usr/lib/esbuild/bin/esbuild does not stand in the build as bytes the file packet esbuild 0.25.0 still serves"),
+		ginkgo.Entry("the package stage carries no install receipt", func(ctx context.Context, host string) (*buildcontext.Context, []SourceSnapshot) {
+			packet, pinned := installedPacketInRegistry(ctx, host+"/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+
+			return installedPacketDeclaration(host+"/packages/esbuild", pinned, packet),
+				installedSnapshots(nil, esbuildPacketFiles(), nil)
+		}, "no-data: the install boundary carries no package source receipt for esbuild 0.25.0"),
+		ginkgo.Entry("two packets of the receipt open the declared identity", func(ctx context.Context, host string) (*buildcontext.Context, []SourceSnapshot) {
+			packet, pinned := installedPacketInRegistry(ctx, host+"/packages/esbuild", "esbuild", "0.25.0", esbuildPacketFiles())
+			mirrored, _ := installedPacketInRegistry(ctx, host+"/packages/mirror", "esbuild", "0.25.0", esbuildPacketFiles())
+
+			return installedPacketDeclaration(host+"/packages/esbuild", pinned, packet, mirrored),
+				installedSnapshots(&sources.Receipt{Version: sources.Version, Sources: []sources.Source{packet, mirrored}}, esbuildPacketFiles(), nil)
+		}, "no-data: 2 receipt entries open the file packet esbuild 0.25.0 for linux/amd64, need exactly one"),
+	)
+})

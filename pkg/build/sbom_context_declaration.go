@@ -515,10 +515,6 @@ func validateSBOMBuildContextStage(declared sbomBuildContextStage) error {
 	return nil
 }
 
-// validateSBOMBuildContextWebpack checks what a checked Webpack stage is run with. The
-// three paths are required together with the opt-in: the collector attaches to one named
-// configuration, writes one proof and resolves installed packages out of one cache, and a
-// stage naming none of them would produce nothing while declaring that it does.
 // validateSBOMBuildContextInstalledPackets checks what a stage says about the packets it
 // installs. One identity is declared once - a second spelling of it would name the same
 // install twice - and one file is answered for by one packet.
@@ -559,6 +555,10 @@ func validateSBOMBuildContextInstalledPackets(declared []sbomBuildContextInstall
 	return nil
 }
 
+// validateSBOMBuildContextWebpack checks what a checked Webpack stage is run with. The
+// three paths are required together with the opt-in: the collector attaches to one named
+// configuration, writes one proof and resolves installed packages out of one cache, and a
+// stage naming none of them would produce nothing while declaring that it does.
 func validateSBOMBuildContextWebpack(declared sbomBuildContextStage) error {
 	paths := []struct{ name, value string }{
 		{"webpackConfig", declared.WebpackConfig}, {"webpackProof", declared.WebpackProof}, {"yarnCache", declared.YarnCache},

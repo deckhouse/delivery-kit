@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("Building a producer context on a packet pm installed", 
 		gomega.Expect(input.checksum).NotTo(gomega.BeEmpty())
 	})
 
-	ginkgo.It("refuses the stage when the build no longer holds the installed executable", func(specCtx ginkgo.SpecContext) {
+	ginkgo.It("refuses the stage when it declares a file the packet never served", func(specCtx ginkgo.SpecContext) {
 		ctx := logging.WithLogger(specCtx)
 		stubWebpackCollector("collector-digest")
 		fixture := newProducerFixture(ctx, producerFixtureOptions{
@@ -118,6 +118,20 @@ var _ = ginkgo.Describe("Building a producer context on a packet pm installed", 
 		_, err := fixture.phase.producerContext(ctx, fixture.img, fixture.stg)
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"no-data: /usr/lib/esbuild/bin/esbuild-wrapper does not stand in the build as bytes the runtime packet esbuild 0.25.0-flant.1 still serves")))
+	})
+
+	ginkgo.It("refuses the stage when the build no longer holds the installed executable", func(specCtx ginkgo.SpecContext) {
+		ctx := logging.WithLogger(specCtx)
+		stubWebpackCollector("collector-digest")
+		fixture := newProducerFixture(ctx, producerFixtureOptions{
+			installedPacket:     true,
+			declaration:         producerInstalledPacketDeclaration(),
+			replacedPacketFiles: map[string]string{producerPacketBinary: "another executable"},
+		})
+
+		_, err := fixture.phase.producerContext(ctx, fixture.img, fixture.stg)
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"no-data: " + producerPacketBinary + " does not stand in the build as bytes the runtime packet esbuild 0.25.0-flant.1 still serves")))
 	})
 
 	ginkgo.It("refuses a packet identity the install receipt never opened", func(specCtx ginkgo.SpecContext) {

@@ -161,6 +161,9 @@ type producerFixtureOptions struct {
 	// installedPacket adds the packages stage a pm install produced: the files it
 	// unpacked and the source receipt pm wrote where it opened the packet.
 	installedPacket bool
+	// replacedPacketFiles are bytes written over what pm unpacked, after the packet
+	// was opened.
+	replacedPacketFiles map[string]string
 }
 
 // recordingStorageManager answers stage lookups with one prepared result and keeps the
@@ -264,10 +267,14 @@ func newProducerFixture(ctx context.Context, opts producerFixtureOptions) *produ
 		installed := maps.Clone(producerPacketFiles())
 		installed[sources.DefaultPath] = producerPacketReceipt(packetRepo, packetDigest)
 		packagesID := imagePkg.NewStageID(strings.Repeat("e", 56), 3)
+		layers := []map[string]string{base, {"/src/main.c": targetMain, producerHelperPath: producerUnusedBody}, installed}
+		if len(opts.replacedPacketFiles) > 0 {
+			layers = append(layers, opts.replacedPacketFiles)
+		}
 		packagesImg := producerImage(map[string]string{
 			imagePkg.WerfSBOMStageLabel: producerStageRecord(stage.Packages, packagesID.Digest, depsID.String(), ""),
 			imagePkg.WerfParentStageID:  depsID.String(),
-		}, base, map[string]string{"/src/main.c": targetMain, producerHelperPath: producerUnusedBody}, installed)
+		}, layers...)
 		packagesDigest := pushProducerImage(ctx, stagesRepo+":"+packagesID.String(), packagesImg)
 		previousRef, previousID, previousImg = stagesRepo+"@"+packagesDigest, packagesID, packagesImg
 	}

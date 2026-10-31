@@ -27,6 +27,12 @@ var _ = ginkgo.Describe("Default composition checks", func() {
 		gomega.Expect(NewDefaultPolicy(context.Background(), "app").Profiles).To(gomega.Equal([]string{"c-object", "c-static", "c-dynamic", "go", "go-cgo-dynamic", "go-macho", "go-pe"}))
 	})
 
+	ginkgo.It("gives the image under verification the final role", func() {
+		// Only a final image has its files captured and read in full; a file under a
+		// library name is read as the text it holds through that re-inspection alone.
+		gomega.Expect(NewDefaultPolicy(context.Background(), "app").Images["app"].Role).To(gomega.Equal("final"))
+	})
+
 	ginkgo.DescribeTable("still rejects incomplete tool identities", func(tool Tool) {
 		gomega.Expect(NewDefaultPolicy(context.Background(), "app").checkTool(tool)).To(gomega.MatchError(gomega.ContainSubstring("incomplete tool identity")))
 	},

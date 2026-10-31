@@ -14,7 +14,9 @@ const envInterpreter = "/usr/bin/env"
 
 var knownInterpreters = []string{"ash", "bash", "dash", "node", "python", "python3", "sh"}
 
-var linkerScriptDirectives = []string{"AS_NEEDED", "ENTRY", "EXTERN", "GROUP", "INCLUDE", "INPUT", "OUTPUT", "OUTPUT_ARCH", "OUTPUT_FORMAT", "SEARCH_DIR", "STARTUP", "TARGET"}
+// AS_NEEDED stands only inside GROUP or INPUT and INCLUDE takes a bare file name,
+// so neither opens a script in the parenthesized form read below.
+var linkerScriptDirectives = []string{"ENTRY", "EXTERN", "GROUP", "INPUT", "OUTPUT", "OUTPUT_ARCH", "OUTPUT_FORMAT", "SEARCH_DIR", "STARTUP", "TARGET"}
 
 // Inspect the whole text, so a shebang cannot hide an appended binary payload.
 func interpretedScript(body []byte, name string) bool {

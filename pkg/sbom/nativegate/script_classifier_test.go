@@ -255,6 +255,8 @@ var _ = ginkgo.Describe("GNU ld script classification", func() {
 		ginkgo.Entry("a directive with a byte no text holds", "GROUP ( libgcc_s.so.1 )\x00\n"),
 		ginkgo.Entry("an unterminated comment", "/* GNU ld script\nGROUP ( libgcc_s.so.1 )\n"),
 		ginkgo.Entry("an identifier merely opening with a directive", "GROUPING = 1\n"),
+		ginkgo.Entry("AS_NEEDED standing outside the GROUP or INPUT it belongs in", "AS_NEEDED ( -lgcc_s )\n"),
+		ginkgo.Entry("an INCLUDE, which names its file without parentheses", "INCLUDE (libfoo.ld)\n"),
 		ginkgo.Entry("ordinary prose", "the group of files\n"),
 		ginkgo.Entry("a shell script", "#!/bin/sh\necho hello\n"),
 		ginkgo.Entry("an empty file", ""),

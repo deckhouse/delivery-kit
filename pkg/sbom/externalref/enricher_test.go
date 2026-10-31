@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -629,6 +630,28 @@ var _ = Describe("Enricher", func() {
 				err := enricher.Enrich(ctx, bom)
 				Expect(errors.Is(err, ErrResolverUnavailable)).To(BeTrue())
 			})
+		})
+
+		It("keeps no reference to a component this document does not declare", func() {
+			inherited := []cdx.ExternalReference{{URL: "https://fox.flant.com/deckhouse/stronghold.git", Comment: cyclonedxutil.ExternalReferenceCommentResolved, Type: cdx.ERTypeVCS}}
+
+			// What a merge carried here is the list of the base and import documents,
+			// whose components this one does not keep.
+			empty := &cdx.BOM{ExternalReferences: lo.ToPtr(slices.Clone(inherited))}
+			Expect(enricher.Enrich(ctx, empty)).NotTo(HaveOccurred())
+			Expect(empty.ExternalReferences).To(BeNil())
+
+			sourceOnly := &cdx.BOM{
+				Components: &[]cdx.Component{{
+					Name:       "operator-helm-chart-values-controller-source",
+					Version:    "0.0.0-tree-2f186046",
+					PackageURL: "pkg:generic/operator-helm-chart-values-controller-source@0.0.0-tree-2f186046?source_kind=pm&source_locator=registry.example.com%2Fmodule",
+					Type:       cdx.ComponentTypeLibrary,
+				}},
+				ExternalReferences: lo.ToPtr(slices.Clone(inherited)),
+			}
+			Expect(enricher.Enrich(ctx, sourceOnly)).NotTo(HaveOccurred())
+			Expect(sourceOnly.ExternalReferences).To(BeNil())
 		})
 
 		It("does not duplicate references when an enriched BOM is enriched again", func() {

@@ -155,7 +155,12 @@ func (e *ComponentError) ComponentDetails() string {
 }
 
 func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
-	if bom == nil || bom.Components == nil {
+	if bom == nil {
+		return nil
+	}
+	if bom.Components == nil {
+		bom.ExternalReferences = nil
+
 		return nil
 	}
 
@@ -289,11 +294,18 @@ func (e *Enricher) Enrich(ctx context.Context, bom *cdx.BOM) error {
 		}
 	}
 
-	if len(seen) > 0 {
-		bomRefs := lo.Values(seen)
-		bom.ExternalReferences = &bomRefs
-		logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
+	if len(seen) == 0 {
+		// A merge brings the BOM-wide list of every document it merged, and the
+		// components those lists were derived from do not all survive it. What this
+		// document keeps no component of, it keeps no reference to either.
+		bom.ExternalReferences = nil
+
+		return nil
 	}
+
+	bomRefs := lo.Values(seen)
+	bom.ExternalReferences = &bomRefs
+	logboek.Context(ctx).Debug().LogF("Enriched SBOM with %d external references\n", len(bomRefs))
 
 	return nil
 }

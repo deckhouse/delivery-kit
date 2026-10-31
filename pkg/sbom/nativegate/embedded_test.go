@@ -163,3 +163,42 @@ var _ = ginkgo.Describe("embedded composition", func() {
 		ginkgo.Entry("unknown profile revision", func(r *shared.BuildRecord) { r.Profile.Revision = json.Number("99") }, "unsupported"),
 	)
 })
+
+var _ = ginkgo.Describe("embedded component identity", func() {
+	ginkgo.DescribeTable("names a component the way a catalog of its source knows it", func(source shared.BuildSource, name, version, expected string) {
+		component, err := embeddedComponent(shared.BuildComponent{ID: "c1", Name: name, Version: version, Source: source})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(component.PackageURL).To(gomega.Equal(expected))
+	},
+		ginkgo.Entry("a Go module is the standard purl of its ecosystem",
+			shared.BuildSource{Kind: "go", Locator: "github.com/spf13/cobra@v1.10.2", Checksum: "h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU="},
+			"github.com/spf13/cobra", "v1.10.2", "pkg:golang/github.com/spf13/cobra@v1.10.2"),
+		ginkgo.Entry("a Go module path keeps its case and its major version suffix",
+			shared.BuildSource{Kind: "go", Locator: "github.com/MakeNowJust/heredoc/v2@v2.0.1", Checksum: "h1:rlCHh70XXXv7toz95RY/dQZQhTeRvYMnOVE4+FvwQvA="},
+			"github.com/MakeNowJust/heredoc/v2", "v2.0.1", "pkg:golang/github.com/MakeNowJust/heredoc/v2@v2.0.1"),
+		ginkgo.Entry("a module path of one segment has no namespace",
+			shared.BuildSource{Kind: "go", Locator: "rsc.io@v1.0.0"},
+			"rsc.io", "v1.0.0", "pkg:golang/rsc.io@v1.0.0"),
+		ginkgo.Entry("a package of the factory registry keeps the identity of this build",
+			shared.BuildSource{Kind: "pm", Locator: "registry.example/container-factory", Checksum: "sha256:" + strings.Repeat("a", 64)},
+			"golang-source", "1.27.3-flant.1",
+			"pkg:generic/golang-source@1.27.3-flant.1?source_kind=pm&source_locator=registry.example%2Fcontainer-factory&source_checksum=sha256:"+strings.Repeat("a", 64)),
+		ginkgo.Entry("the user's own declared code keeps the identity of this build",
+			shared.BuildSource{Kind: "declared", Locator: "https://example.invalid/app"},
+			"sbom.test/app", "0.0.1",
+			"pkg:generic/sbom.test%2Fapp@0.0.1?source_kind=declared&source_locator=https:%2F%2Fexample.invalid%2Fapp"),
+	)
+
+	ginkgo.It("keeps the verified source of a Go module the purl no longer spells out", func() {
+		source := shared.BuildSource{Kind: "go", Locator: "golang.org/x/sys@v0.44.0", Checksum: "h1:ildZl3J4uzeKP07r2F++Op7E9B29JRUy+a27EibtBTQ="}
+		component, err := embeddedComponent(shared.BuildComponent{ID: "c1", Name: "golang.org/x/sys", Version: "v0.44.0", Source: source})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		encoded, err := json.Marshal(source)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(*component.Properties).To(gomega.Equal([]cdx.Property{{Name: "dk:source", Value: string(encoded)}}))
+
+		generic, err := embeddedComponent(shared.BuildComponent{ID: "c1", Name: "golang.org/x/sys", Version: "v0.44.0", Source: shared.BuildSource{Kind: "pm", Locator: "golang.org/x/sys@v0.44.0", Checksum: source.Checksum}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(component.BOMRef).NotTo(gomega.Equal(generic.BOMRef), "the identity of a component is its source, not the purl it is named by")
+	})
+})

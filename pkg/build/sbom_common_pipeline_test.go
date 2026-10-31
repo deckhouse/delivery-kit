@@ -291,6 +291,10 @@ var _ = Describe("Common SBOM pipeline", func() {
 			{Type: cdx.ComponentTypeLibrary, Name: "requests", Version: "2.0", BOMRef: "py", PackageURL: "pkg:pypi/requests@2.0", Licenses: &cdx.Licenses{{License: &cdx.License{ID: "MIT"}}}},
 			{Type: cdx.ComponentTypeLibrary, Name: "left-pad", Version: "1.0", BOMRef: "js", PackageURL: "pkg:npm/left-pad@1.0"},
 			{Type: cdx.ComponentTypeLibrary, Name: "github.com/x/y", Version: "v1.0", BOMRef: "go", PackageURL: "pkg:golang/github.com/x/y@v1.0"},
+			{
+				Type: cdx.ComponentTypeLibrary, Name: "github.com/x/embedded", Version: "v2.0", BOMRef: "go-embedded", PackageURL: "pkg:golang/github.com/x/embedded@v2.0",
+				Properties: &[]cdx.Property{{Name: nativeCompositionProperty, Value: `{"kind":"go","locator":"github.com/x/embedded@v2.0"}`}},
+			},
 			{Type: cdx.ComponentTypeLibrary, Name: "zlib", Version: "1.3", BOMRef: "pm", PackageURL: "pkg:generic/zlib@1.3?containerfactoryversion=4.2"},
 			{
 				Type: cdx.ComponentTypeLibrary, Name: "musl", Version: "1.2", BOMRef: "origin", PackageURL: "pkg:generic/musl@1.2",
@@ -325,6 +329,7 @@ var _ = Describe("Common SBOM pipeline", func() {
 
 		Expect(purls).NotTo(ContainElement("pkg:generic/zlib@1.3?containerfactoryversion=4.2"), "the pm attribution of the donor is superseded")
 		Expect(purls).NotTo(ContainElement("pkg:generic/musl@1.2"), "the donor's original-source attribution is superseded")
+		Expect(purls).NotTo(ContainElement("pkg:golang/github.com/x/embedded@v2.0"), "the donor's composition claim is superseded, whatever purl names the component")
 		Expect(lo.SomeBy(components, func(comp cdx.Component) bool {
 			return comp.Type == cdx.ComponentTypeFile && comp.PackageURL == "" && comp.Name == "/scan/go.mod"
 		})).To(BeFalse(), "the purl-less file component of a scan is dropped")

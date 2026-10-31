@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 
 	shared "fox.flant.com/deckhouse/container-base/pm.git/sbom"
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -107,10 +108,36 @@ func embeddedComponent(component shared.BuildComponent) (cdx.Component, error) {
 	if err != nil {
 		return cdx.Component{}, fmt.Errorf("encode component source: %w", err)
 	}
+	return cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: "urn:dk:component:" + digest(identity), Name: component.Name, Version: component.Version, PackageURL: embeddedPackageURL(component), Properties: &[]cdx.Property{{Name: "dk:source", Value: string(source)}}}, nil
+}
+
+// goSourceKind is the source of a component the producer read out of an original Go module
+// ZIP: its name is the module path and its version the module version.
+const goSourceKind = "go"
+
+// embeddedPackageURL names the component the way a catalog of its ecosystem knows it. A Go
+// module is published under the verified module path and version, so it gets the standard
+// purl of that ecosystem and no qualifier: a resolver answers that purl, while the source
+// the build read stays in the dk:source property and in the BOMRef, which carry the
+// identity this verification establishes.
+//
+// Every other source is an identity of this build alone — a package of a private registry,
+// a declaration of the user's own code — which no catalog publishes. It keeps the generic
+// purl spelling that identity out.
+func embeddedPackageURL(component shared.BuildComponent) string {
+	if component.Source.Kind == goSourceKind {
+		namespace, name := "", component.Name
+		if cut := strings.LastIndex(name, "/"); cut >= 0 {
+			namespace, name = name[:cut], name[cut+1:]
+		}
+
+		return packageurl.NewPackageURL(packageurl.TypeGolang, namespace, name, component.Version, nil, "").ToString()
+	}
+
 	qualifiers := packageurl.Qualifiers{{Key: "source_kind", Value: component.Source.Kind}, {Key: "source_locator", Value: component.Source.Locator}}
 	if component.Source.Checksum != "" {
 		qualifiers = append(qualifiers, packageurl.Qualifier{Key: "source_checksum", Value: component.Source.Checksum})
 	}
-	purl := packageurl.NewPackageURL("generic", "", component.Name, component.Version, qualifiers, "").ToString()
-	return cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: "urn:dk:component:" + digest(identity), Name: component.Name, Version: component.Version, PackageURL: purl, Properties: &[]cdx.Property{{Name: "dk:source", Value: string(source)}}}, nil
+
+	return packageurl.NewPackageURL(packageurl.TypeGeneric, "", component.Name, component.Version, qualifiers, "").ToString()
 }

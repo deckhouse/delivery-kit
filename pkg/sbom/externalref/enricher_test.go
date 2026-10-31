@@ -361,6 +361,98 @@ var _ = Describe("Enricher", func() {
 			})
 		})
 
+		Describe("component named by an identity of this build", func() {
+			refusing := func(resolved *[]string) func(context.Context, string) (*ResolveResult, error) {
+				return func(_ context.Context, purl string) (*ResolveResult, error) {
+					*resolved = append(*resolved, purl)
+					return nil, fmt.Errorf("resolve: %w", ErrEmptyURL)
+				}
+			}
+
+			It("never sends a package of the factory registry to the resolver and does not fail it", func() {
+				var resolved []string
+				enricher := NewEnricher(refusing(&resolved), service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{{
+					Name:       "golang-source",
+					Version:    "1.27.3-flant.1",
+					PackageURL: "pkg:generic/golang-source@1.27.3-flant.1?source_kind=pm&source_locator=dev-registry.example%2Fcontainer-factory&source_checksum=sha256:" + strings.Repeat("a", 64),
+					Type:       cdx.ComponentTypeLibrary,
+				}}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect((*bom.Components)[0].ExternalReferences).To(BeNil())
+			})
+
+			originalSource := func(refs ...cdx.ExternalReference) cdx.Component {
+				comp := cdx.Component{
+					Name:       "gogost-source",
+					Version:    "0.0.0-54c68c98-flant.1",
+					PackageURL: "pkg:generic/gogost-source@0.0.0-54c68c98-flant.1",
+					Type:       cdx.ComponentTypeLibrary,
+					Properties: &[]cdx.Property{{Name: cyclonedxutil.PropertyOriginalSource, Value: "pm-source:" + strings.Repeat("b", 64)}},
+				}
+				if len(refs) > 0 {
+					comp.ExternalReferences = &refs
+				}
+				return comp
+			}
+
+			It("never resolves an original source package and does not fail it without a link", func() {
+				var resolved []string
+				enricher := NewEnricher(refusing(&resolved), service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{originalSource()}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect((*bom.Components)[0].ExternalReferences).To(BeNil())
+			})
+
+			It("keeps the confirmed link of an original source package", func() {
+				var resolved []string
+				enricher := NewEnricher(refusing(&resolved), service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{originalSource(cdx.ExternalReference{URL: "https://git.example.com/confirmed.git", Type: cdx.ERTypeVCS})}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(BeEmpty())
+				Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "https://git.example.com/confirmed.git", Type: cdx.ERTypeVCS}}))
+			})
+
+			It("still resolves a third-party generic package and still fails it without a url", func() {
+				var resolved []string
+				enricher := NewEnricher(refusing(&resolved), service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					{Name: "zlib", Version: "1.3", PackageURL: "pkg:generic/zlib@1.3", Type: cdx.ComponentTypeLibrary},
+					{Name: "app", Version: "0.0.1", PackageURL: "pkg:generic/app@0.0.1?source_kind=declared&source_locator=https:%2F%2Fexample.invalid%2Fapp", Type: cdx.ComponentTypeLibrary},
+				}}
+
+				Expect(enricher.Enrich(ctx, bom)).To(MatchError(ContainSubstring("empty url in resolve response")))
+				Expect(resolved).To(ConsistOf(
+					"pkg:generic/zlib@1.3",
+					"pkg:generic/app@0.0.1?source_kind=declared&source_locator=https:%2F%2Fexample.invalid%2Fapp",
+				))
+			})
+
+			It("resolves a Go module of a verified composition under its own purl", func() {
+				var resolved []string
+				enricher := NewEnricher(func(_ context.Context, purl string) (*ResolveResult, error) {
+					resolved = append(resolved, purl)
+					return &ResolveResult{Kind: string(cdx.ERTypeVCS), URL: "https://github.com/spf13/cobra"}, nil
+				}, service.CheckVCS)
+				bom := &cdx.BOM{Components: &[]cdx.Component{{
+					Name:       "github.com/spf13/cobra",
+					Version:    "v1.10.2",
+					PackageURL: "pkg:golang/github.com/spf13/cobra@v1.10.2",
+					Type:       cdx.ComponentTypeLibrary,
+					Properties: &[]cdx.Property{{Name: "dk:source", Value: `{"kind":"go","locator":"github.com/spf13/cobra@v1.10.2"}`}},
+				}}}
+
+				Expect(enricher.Enrich(ctx, bom)).NotTo(HaveOccurred())
+				Expect(resolved).To(ConsistOf("pkg:golang/github.com/spf13/cobra@v1.10.2"))
+				Expect(*(*bom.Components)[0].ExternalReferences).To(Equal([]cdx.ExternalReference{{URL: "https://github.com/spf13/cobra", Comment: "resolved from purl", Type: cdx.ERTypeVCS}}))
+			})
+		})
+
 		Describe("component with a vcs link of its own", func() {
 			withVCS := func(name, purl, vcsURL string) cdx.Component {
 				return cdx.Component{

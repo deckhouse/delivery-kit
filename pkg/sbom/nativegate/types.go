@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -114,6 +116,15 @@ func Load(ctx context.Context) (*Policy, string, error) {
 	if p.Schema != "dk.policy/v2" || len(p.Images) == 0 {
 		return nil, "", fmt.Errorf("unsupported native policy %q", p.Schema)
 	}
+	// Which image holds a part of a runtime closure is its own recipe's statement
+	// about the build it describes. A policy file saying it of some image would
+	// relax the closure of an image whose recipe never asked for it.
+	for _, image := range slices.Sorted(maps.Keys(p.Images)) {
+		if p.Images[image].PartialRuntime {
+			return nil, "", fmt.Errorf("invalid: partialRuntime of %s is declared by the image's recipe, not by a policy file", image)
+		}
+	}
+
 	return &p, digest(body), nil
 }
 

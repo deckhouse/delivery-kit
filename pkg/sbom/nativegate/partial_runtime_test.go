@@ -4,6 +4,8 @@ import (
 	"context"
 	"debug/elf"
 	"encoding/json"
+	"os"
+	"path/filepath"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/onsi/ginkgo/v2"
@@ -139,6 +141,34 @@ var _ = ginkgo.Describe("an image declared a part of a runtime closure", func() 
 
 		gomega.Expect(Apply(ctx, partial, "libgcc-s", img, nil, cdx.NewBOM())).To(gomega.MatchError(gomega.ContainSubstring(
 			"invalid: this image declares a partial runtime, and every runtime name its files state resolves inside it")))
+	})
+})
+
+var _ = ginkgo.Describe("where a partial runtime may be declared", func() {
+	// The flag relaxes what an image is held to, so it is the recipe's to state and
+	// nobody else's: a policy file reaching the gate from outside the build could
+	// otherwise excuse an image whose recipe never asked for it.
+	ginkgo.It("refuses a policy file declaring an image a partial runtime", func(ctx ginkgo.SpecContext) {
+		path := filepath.Join(ginkgo.GinkgoT().TempDir(), "policy.json")
+		gomega.Expect(os.WriteFile(path, []byte(`{"schema":"dk.policy/v2","tools":[],"profiles":[],"images":{"libgcc-s":{"role":"final","outputs":[],"partialRuntime":true}}}`), 0o644)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("WERF_DK_NATIVE_POLICY", path)
+
+		policy, _, err := Load(ctx)
+
+		gomega.Expect(policy).To(gomega.BeNil())
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
+			"invalid: partialRuntime of libgcc-s is declared by the image's recipe, not by a policy file")))
+	})
+
+	ginkgo.It("reads a policy file declaring none", func(ctx ginkgo.SpecContext) {
+		path := filepath.Join(ginkgo.GinkgoT().TempDir(), "policy.json")
+		gomega.Expect(os.WriteFile(path, []byte(`{"schema":"dk.policy/v2","tools":[],"profiles":[],"images":{"libgcc-s":{"role":"final","outputs":[]}}}`), 0o644)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("WERF_DK_NATIVE_POLICY", path)
+
+		policy, _, err := Load(ctx)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(policy.Images["libgcc-s"].PartialRuntime).To(gomega.BeFalse())
 	})
 })
 

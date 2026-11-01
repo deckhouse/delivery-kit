@@ -235,4 +235,35 @@ var _ = Describe("Translating a verified catalog onto the document that is publi
 		Expect(refs.observe(published)).To(MatchError(ContainSubstring(
 			"invalid: the document lost components the verification proved: derived")))
 	})
+
+	// An archive names its components twice - once as the record of the whole file and
+	// again in the member that holds each - and a reader of the catalog holds the two to
+	// each other. A member left naming the ref the verification used credits the archive
+	// with a component its translated record no longer names, and the catalog no longer
+	// loads.
+	It("translates the components an archive's members hold", func() {
+		composition := `{"schema":"pm.buildinfo/v1","artifact":"object",` +
+			`"profile":{"id":"c-object","revision":1,"platform":"linux/amd64"},"subject":"app","complete":true,` +
+			`"components":[{"id":"app","name":"app","version":"1",` +
+			`"source":{"kind":"declared","locator":"https://example.invalid/app"}}],` +
+			`"inputs":[],"tools":[{"name":"fixture-tool","version":"1.0","sha256":"sha256:` + strings.Repeat("2", 64) + `"}]}`
+		catalog := `{"schema":"dk.catalog/v5","records":[` +
+			`{"path":"/lib/libgcc.a","sha256":"sha256:` + strings.Repeat("7", 64) + `","origin":"build",` +
+			`"components":["urn:dk:component:sha256:aaaa"],"archive":{"members":[` +
+			`{"name":"_muldi3.o","index":0,"sha256":"sha256:` + strings.Repeat("8", 64) + `","profile":"c-object",` +
+			`"components":["urn:dk:component:sha256:aaaa"],"composition":` + composition + `}]}}],` +
+			`"components":{"urn:dk:component:sha256:aaaa":` +
+			`{"type":"library","name":"app","version":"1","purl":"pkg:generic/app@1","bom-ref":"urn:dk:component:sha256:aaaa"}}}`
+		published, verified := documentWith(catalog, cdx.Component{
+			Type: cdx.ComponentTypeLibrary, Name: "app", Version: "1", BOMRef: "derived", PackageURL: "pkg:generic/app@1",
+		})
+
+		Expect(rewrite(published, verified)).To(Succeed())
+
+		var result nativegate.Catalog
+		property, _ := catalogPropertyOf(published)
+		Expect(json.Unmarshal([]byte(property.Value), &result)).To(Succeed())
+		Expect(result.Records[0].Components).To(Equal([]string{"derived"}))
+		Expect(result.Records[0].Archive.Members[0].Components).To(Equal([]string{"derived"}))
+	})
 })

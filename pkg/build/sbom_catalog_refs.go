@@ -167,7 +167,17 @@ func (c *catalogRefs) rewrite(published *cdx.BOM) error {
 
 	for i := range catalog.Records {
 		record := &catalog.Records[i]
-		for _, list := range []*[]string{&record.Components, &record.Owners} {
+		lists := []*[]string{&record.Components, &record.Owners}
+		// An archive states its composition through its members, and a reader
+		// holds the two to each other: a member left naming the ref the
+		// verification used would credit the archive with a component the
+		// record, translated, no longer names.
+		if record.Archive != nil {
+			for j := range record.Archive.Members {
+				lists = append(lists, &record.Archive.Members[j].Components)
+			}
+		}
+		for _, list := range lists {
 			for j, ref := range *list {
 				name, err := translate(ref)
 				if err != nil {

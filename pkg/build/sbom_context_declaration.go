@@ -41,6 +41,12 @@ type sbomBuildContextDeclaration struct {
 	// to be. It is the one image allowed to take files out of a bootstrap image without
 	// answering for them one by one.
 	PreparedSource bool `json:"preparedSource,omitempty"`
+	// PartialRuntime marks an image that holds a part of a runtime closure rather than
+	// one: a scratch image collecting the output of one build, whose dynamic files are
+	// loaded and resolved only once it has been assembled, with its siblings, into the
+	// image that is run. The runtime closure of that assembled image is checked in
+	// full; here, only the absence of what stands outside this one is tolerated.
+	PartialRuntime bool `json:"partialRuntime,omitempty"`
 	// BootstrapOriginals state, per bootstrap source image this recipe imports from,
 	// which prepared source the files of a subtree of it were opened from and at which
 	// path of that source they stand. A bootstrap image describes no composition of its
@@ -272,6 +278,15 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 	// A prepared source runs nothing, so there is no stage for a compiler context.
 	if declaration.PreparedSource && len(declaration.Stages) > 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a prepared source image declares no stages")
+	}
+	// A bootstrap image's own composition is described by nobody, so there is no
+	// closure of it to call partial; a prepared source is files and runs nothing, so
+	// it has none either.
+	if declaration.Bootstrap && declaration.PartialRuntime {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a bootstrap image states no runtime closure, partial or whole")
+	}
+	if declaration.PreparedSource && declaration.PartialRuntime {
+		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a prepared source image states no runtime closure, partial or whole")
 	}
 	if !declaration.Bootstrap && !declaration.PreparedSource && len(declaration.Stages) == 0 && len(declaration.BootstrapOriginals) == 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: at least one stage is required")

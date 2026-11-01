@@ -115,7 +115,14 @@ type extraSection struct {
 	body  []byte
 }
 
-func elfFile(machine elf.Machine, class elf.Class, interpreter, soname string, needed []string, rodata []byte, others []extraSection) []byte {
+// dynamicPath is a search path a fixture states for itself: DT_RPATH, which this gate
+// refuses, or DT_RUNPATH, which is searched before the loader's own directories.
+type dynamicPath struct {
+	tag   elf.DynTag
+	value string
+}
+
+func elfFile(machine elf.Machine, class elf.Class, interpreter, soname string, needed []string, rodata []byte, others []extraSection, paths ...dynamicPath) []byte {
 	ginkgo.GinkgoHelper()
 	wide := class == elf.ELFCLASS64
 	headerSize, progSize, sectionSize, dynSize := 52, 32, 40, 8
@@ -147,7 +154,13 @@ func elfFile(machine elf.Machine, class elf.Class, interpreter, soname string, n
 		dynstr = append(dynstr, soname...)
 		dynstr = append(dynstr, 0)
 	}
-	entries := len(needed)
+	pathOffsets := make([]uint64, 0, len(paths))
+	for _, search := range paths {
+		pathOffsets = append(pathOffsets, uint64(len(dynstr)))
+		dynstr = append(dynstr, search.value...)
+		dynstr = append(dynstr, 0)
+	}
+	entries := len(needed) + len(paths)
 	if soname != "" {
 		entries++
 	}
@@ -223,6 +236,13 @@ func elfFile(machine elf.Machine, class elf.Class, interpreter, soname string, n
 			write(elf.Dyn64{Tag: int64(elf.DT_SONAME), Val: sonameOff})
 		} else {
 			write(elf.Dyn32{Tag: int32(elf.DT_SONAME), Val: uint32(sonameOff)})
+		}
+	}
+	for i, search := range paths {
+		if wide {
+			write(elf.Dyn64{Tag: int64(search.tag), Val: pathOffsets[i]})
+		} else {
+			write(elf.Dyn32{Tag: int32(search.tag), Val: uint32(pathOffsets[i])})
 		}
 	}
 	if wide {
@@ -334,7 +354,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		body := fixtureBody(arm64FixtureRoot(), arm64PureName, arm64PureSHA256)
 		fs, present := nativeFilesystem(map[string][]byte{"/usr/local/bin/argocd": body})
 
-		edges, err := runtimeDependencies(fs, present)
+		edges, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(edges).To(gomega.BeEmpty())
@@ -348,7 +368,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			"/usr/local/bin/argocd": crossELF(elf.EM_AARCH64, elf.ELFCLASS64, "/lib/ld-linux-aarch64.so.1", nil),
 		})
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"unsupported: linux/arm64 executable needs a runtime loader, and this image resolves none for that machine")))
@@ -362,7 +382,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			"/usr/local/bin/argocd": crossELF(elf.EM_AARCH64, elf.ELFCLASS64, "", []string{"libc.so.6", "libz.so.1"}),
 		})
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"unsupported: linux/arm64 executable needs libc.so.6, libz.so.1, and this image resolves none for that machine")))
@@ -375,7 +395,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			"/opt/tool": crossELF(elf.EM_ARM, elf.ELFCLASS32, "", []string{"libc.so.6"}),
 		})
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"unsupported: linux/arm executable needs libc.so.6")))
@@ -411,7 +431,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		})
 		fs.index.Symlinks["/lib64"] = "/usr/lib"
 
-		edges, err := runtimeDependencies(fs, present)
+		edges, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(edges["/usr/bin/git-lfs"]).To(gomega.ConsistOf(
@@ -431,7 +451,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			"/lib64/libresolv.so.2":       fixtureBody(root, cgoResolvName, ""),
 		})
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		// The executable names the loader under /lib64 and the loader's own libc
 		// names it under /usr/lib; with no symlink joining them, the image holds
@@ -473,7 +493,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		fs.index.Symlinks["/lib64"] = "/usr/lib"
 		fs.index.Files["/etc/ld.so.cache"] = shippedscope.File{}
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader feature /etc/ld.so.cache")))
 	})
@@ -491,7 +511,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		fs.index.Symlinks["/lib64"] = "/usr/lib"
 		delete(present, "/usr/lib/ld-linux-x86-64.so.2")
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"unknown runtime loader /usr/lib/ld-linux-x86-64.so.2")))
@@ -507,7 +527,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		})
 		fs.index.Symlinks["/lib64"] = "/usr/lib"
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"runtime loader SONAME mismatch /usr/lib/ld-linux-x86-64.so.2: it is named as ld-linux-x86-64.so.2 and calls itself libc.so.6")))
@@ -522,7 +542,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			interp:         namedELF(elf.EM_X86_64, elf.ELFCLASS64, "", "ld-linux-x86-64.so.2", nil),
 		})
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"no-data: the runtime loader " + interp + " states no search directories this image can read")))
@@ -539,7 +559,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			"/usr/lib/libfoo.so.1": namedELF(elf.EM_X86_64, elf.ELFCLASS64, "", "libfoo.so.1", nil),
 		})
 
-		edges, err := runtimeDependencies(fs, present)
+		edges, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(edges["/usr/bin/app"]).To(gomega.ConsistOf("/usr/lib/libfoo.so.1", interp))
@@ -557,7 +577,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		})
 		fs.index.Symlinks[interp] = "/usr/lib/libc.so.6"
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"runtime loader SONAME mismatch /usr/lib/libc.so.6: it is named as ld-linux-x86-64.so.2 and calls itself libc.so.6")))
@@ -578,7 +598,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		})
 		fs.index.Symlinks[interp] = held
 
-		edges, err := runtimeDependencies(fs, present)
+		edges, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(edges["/usr/bin/app"]).To(gomega.ConsistOf("/usr/lib/libfoo.so.1", held))
@@ -618,7 +638,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			fs.index.Symlinks["/lib64"] = "/usr/lib"
 			lay(fs)
 
-			_, err := runtimeDependencies(fs, present)
+			_, _, err := runtimeDependencies(fs, present, false)
 
 			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 				"unsupported dynamic loader feature /etc/ld.so.cache")))
@@ -647,7 +667,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		})
 		fs.index.Files["/var/cache/ld.so.cache"] = shippedscope.File{}
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"unsupported dynamic loader feature /var/cache/ld.so.cache")))
@@ -669,7 +689,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		fs.index.Symlinks[right] = held
 		fs.index.Symlinks[wrong] = held
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"runtime loader SONAME mismatch " + held + ": it is named as ld-musl-x86_64.so.1 and calls itself ld-linux-x86-64.so.2")))
@@ -704,7 +724,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 		fs.index.Symlinks["/etc"] = "/usr/etc"
 		fs.index.Files["/usr/etc/ld.so.preload"] = shippedscope.File{}
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"unsupported dynamic loader feature /etc/ld.so.preload")))
@@ -720,7 +740,7 @@ var _ = ginkgo.Describe("Targets the record reader reports and the gate now agre
 			"/usr/lib/libresolv.so.2": fixtureBody(root, cgoResolvName, ""),
 		})
 
-		_, err := runtimeDependencies(fs, present)
+		_, _, err := runtimeDependencies(fs, present, false)
 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(
 			"no executable of this image names a runtime loader")))

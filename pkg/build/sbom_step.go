@@ -79,6 +79,9 @@ type ConvergeWithMergeOptions struct {
 	Sources []sbomSourceImportInput
 	// PreparedSource states that the recipe declares this image a prepared source.
 	PreparedSource bool
+	// PartialRuntime states that the recipe declares this image a partial runtime: a
+	// fragment whose runtime closure is resolved in the image it is assembled into.
+	PartialRuntime bool
 	// CapturedSources are the import source images already read while their documents
 	// were being scoped, keyed by pinned reference. The verification reads the same
 	// images, and reading them twice would answer the same.
@@ -117,6 +120,14 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	}
 
 	policy := nativegate.NewDefaultPolicy(ctx, werfImgName)
+	if options.PartialRuntime {
+		// The flag belongs to the image's own policy, and travels into the identity
+		// of the result with it: a document gated this way is not the one a full
+		// gating would have produced.
+		imagePolicy := policy.Images[werfImgName]
+		imagePolicy.PartialRuntime = true
+		policy.Images[werfImgName] = imagePolicy
+	}
 	policyChecksum, err := sbomPolicyChecksum(policy)
 	if err != nil {
 		return err

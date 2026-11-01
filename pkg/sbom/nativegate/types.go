@@ -27,6 +27,11 @@ type Tool struct {
 type ImagePolicy struct {
 	Role    string   `json:"role"`
 	Outputs []string `json:"outputs"`
+	// PartialRuntime marks an image that holds a part of a runtime closure rather than
+	// one: a fragment assembled into the image that is actually run, where the closure
+	// is read in full. Only the absence of what stands outside such an image is
+	// tolerated; everything it does hold is checked as in any other image.
+	PartialRuntime bool `json:"partialRuntime,omitempty"`
 }
 type Policy struct {
 	producerTools bool

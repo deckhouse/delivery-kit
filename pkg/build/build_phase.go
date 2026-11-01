@@ -769,7 +769,12 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource, CapturedSources: capturedSources}); err != nil {
+	partialRuntime, err := phase.partialRuntimeImage(img)
+	if err != nil {
+		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
+	}
+
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource, PartialRuntime: partialRuntime, CapturedSources: capturedSources}); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}
@@ -2937,6 +2942,17 @@ func (phase *BuildPhase) preparedSourceImage(img *image.Image) (bool, error) {
 	}
 
 	return declaration.PreparedSource, nil
+}
+
+// partialRuntimeImage answers whether this recipe declares the image itself a partial
+// runtime: a fragment of a closure that is resolved in the image it is assembled into.
+func (phase *BuildPhase) partialRuntimeImage(img *image.Image) (bool, error) {
+	declaration, err := phase.imageDeclaration(img)
+	if err != nil || declaration == nil {
+		return false, err
+	}
+
+	return declaration.PartialRuntime, nil
 }
 
 // bootstrapImportSource answers whether the image an import copies from is one this

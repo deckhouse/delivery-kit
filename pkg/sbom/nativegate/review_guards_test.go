@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("independent review regressions", func() {
 		policy := &Policy{Images: map[string]ImagePolicy{"image": {Role: "final"}}}
 		ginkgo.By("requiring embedded metadata even when an original package hash is known")
 		gomega.Expect(Apply(context.Background(), policy, "image", fixtureImage(imageFiles), []*cdx.BOM{inherited}, target)).To(gomega.MatchError(gomega.ContainSubstring("no-data")))
-		runtimeEdges, err := runtimeDependencies(fs, present)
+		runtimeEdges, _, err := runtimeDependencies(fs, present, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(catalog.writeBOM(present, runtimeEdges, target)).To(gomega.Succeed())
 		data, err := cyclonedxutil.ToJSON(target)

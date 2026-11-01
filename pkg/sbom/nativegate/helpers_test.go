@@ -83,12 +83,12 @@ func fixturePolicy(name string) *Policy {
 }
 
 func runtimeError(fs *filesystem, present map[string]Record) error {
-	_, err := runtimeDependencies(fs, present)
+	_, _, err := runtimeDependencies(fs, present, false)
 	return err
 }
 
 func runtimeTargets(fs *filesystem, present map[string]Record, name string) []string {
-	edges, err := runtimeDependencies(fs, present)
+	edges, _, err := runtimeDependencies(fs, present, false)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return edges[name]
 }

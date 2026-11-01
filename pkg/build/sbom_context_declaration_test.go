@@ -113,6 +113,14 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		gomega.Expect(declaration.Stages[stage.Install].Packages).To(gomega.HaveLen(1))
 	})
 
+	// A fragment of a runtime closure is built like any other image; what it declares
+	// beyond its stages is that the closure its files belong to is stated elsewhere.
+	ginkgo.It("reads the declaration of a partial runtime", func() {
+		declaration, err := parseSBOMBuildContextDeclaration([]byte(`{"version":1,"partialRuntime":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"gcc-source-prep","packageName":"gcc-source","packageVersion":"16.1.0","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(declaration.PartialRuntime).To(gomega.BeTrue())
+	})
+
 	ginkgo.DescribeTable("rejects a declaration",
 		func(data, message string) {
 			declaration, err := parseSBOMBuildContextDeclaration([]byte(data))
@@ -130,6 +138,8 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 		ginkgo.Entry("with a fractional version", `{"version":1.0,"stages":{}}`, "invalid"),
 		ginkgo.Entry("without stages", `{"version":1}`, "at least one stage is required"),
 		ginkgo.Entry("with an image declared both a prepared source and a bootstrap image", `{"version":1,"bootstrap":true,"preparedSource":true}`, "an image is either a bootstrap image or a prepared source, not both"),
+		ginkgo.Entry("with a bootstrap image declaring a partial runtime", `{"version":1,"bootstrap":true,"partialRuntime":true}`, "a bootstrap image states no runtime closure, partial or whole"),
+		ginkgo.Entry("with a prepared source declaring a partial runtime", `{"version":1,"preparedSource":true,"partialRuntime":true}`, "a prepared source image states no runtime closure, partial or whole"),
 		ginkgo.Entry("with a prepared source declaring a stage", `{"version":1,"preparedSource":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"glibc-source-prep","packageName":"glibc-source","packageVersion":"2.43","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`, "a prepared source image declares no stages"),
 		ginkgo.Entry("with null stages", `{"version":1,"stages":null}`, "at least one stage is required"),
 		ginkgo.Entry("with empty stages", `{"version":1,"stages":{}}`, "at least one stage is required"),

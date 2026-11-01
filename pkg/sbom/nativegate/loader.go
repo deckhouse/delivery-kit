@@ -169,8 +169,9 @@ func checkRuntimeLoader(fs *filesystem, present map[string]Record, resolved stri
 //
 // An image with dynamic files and no executable naming a loader states no closure at all,
 // and is answered with no data rather than with the directories some other image's loader
-// would have used.
-func imageRuntimeLoader(fs *filesystem, present map[string]Record) (*loaderModel, error) {
+// would have used - unless it is a declared partial runtime, which is the image saying
+// that the loader of the closure its files belong to stands elsewhere.
+func imageRuntimeLoader(fs *filesystem, present map[string]Record, partial bool) (*loaderModel, error) {
 	declared := map[string][]string{}
 	for _, name := range slices.Sorted(maps.Keys(present)) {
 		body := fs.bodies[name]
@@ -216,6 +217,13 @@ func imageRuntimeLoader(fs *filesystem, present map[string]Record) (*loaderModel
 	case 0:
 		return nil, nil
 	case 1:
+		// A partial runtime whose loader is not in the image resolves nothing
+		// through it; the name goes on the unresolved list where every other
+		// absent runtime name goes. A loader it does hold is read in full.
+		if _, held := fs.bodies[named[0]]; !held && partial {
+			return nil, nil
+		}
+
 		return checkRuntimeLoader(fs, present, named[0], declared[named[0]])
 	default:
 		return nil, fmt.Errorf("no-data: this image names %d runtime loaders (%s), and which closure each of its files belongs to is not settled",

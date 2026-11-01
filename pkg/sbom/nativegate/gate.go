@@ -7,6 +7,7 @@ import (
 	"debug/elf"
 	"debug/pe"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -396,6 +397,7 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 		present[name] = *record
 	}
 	runtimeEdges := map[string][]string{}
+	unresolvedRuntime := []string{}
 	if ip.Role == "final" {
 		cfg, err := img.ConfigFile()
 		if err != nil {
@@ -407,10 +409,23 @@ func apply(ctx context.Context, p *Policy, name string, img v1.Image, inputs []*
 				return fmt.Errorf("unsupported dynamic loader environment %s", key)
 			}
 		}
-		runtimeEdges, err = runtimeDependencies(fs, present)
+		runtimeEdges, unresolvedRuntime, err = runtimeDependencies(fs, present, ip.PartialRuntime)
 		if err != nil {
 			return err
 		}
+	}
+	if len(unresolvedRuntime) > 0 {
+		property, err := partialRuntimeClosureProperty(unresolvedRuntime)
+		if err != nil {
+			return err
+		}
+		if target.Metadata == nil {
+			target.Metadata = &cdx.Metadata{}
+		}
+		if target.Metadata.Properties == nil {
+			target.Metadata.Properties = &[]cdx.Property{}
+		}
+		*target.Metadata.Properties = append(*target.Metadata.Properties, property)
 	}
 	if p.PMOverlap != "" {
 		if target.Metadata == nil {
@@ -533,13 +548,21 @@ func resolvePath(fs *filesystem, name string) (string, error) {
 	return "", fmt.Errorf("symlink cycle %s", name)
 }
 
-func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string][]string, error) {
+func runtimeDependencies(fs *filesystem, present map[string]Record, partial bool) (map[string][]string, []string, error) {
 	edges := map[string][]string{}
 	sonames := map[string][]string{}
 	roots := []string{}
-	loader, err := imageRuntimeLoader(fs, present)
+	unresolved := []string{}
+	loader, err := imageRuntimeLoader(fs, present, partial)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	// A partial runtime is a part of a closure, not a closure. An image holding the
+	// loader its own executables name holds the file every search of theirs starts
+	// from, and states their closure itself; the declaration would then excuse
+	// nothing but the absences of an image that has none to excuse.
+	if partial && loader != nil {
+		return nil, nil, fmt.Errorf("invalid: this image declares a partial runtime but holds the runtime loader %s its executables name, so the closure of those executables is the one this image states", loader.path)
 	}
 	for name := range present {
 		body := fs.bodies[name]
@@ -551,28 +574,30 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 		}
 		f, err := elf.NewFile(bytes.NewReader(body))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if f.Class != elf.ELFCLASS64 || f.Machine != elf.EM_X86_64 {
 			foreign, err := crossBuiltELF(f)
 			f.Close()
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w", name, err)
+				return nil, nil, fmt.Errorf("%s: %w", name, err)
 			}
 			if !foreign {
-				return nil, fmt.Errorf("unsupported runtime ELF architecture %s", name)
+				return nil, nil, fmt.Errorf("unsupported runtime ELF architecture %s", name)
 			}
 			continue
 		}
 		if f.Section(".dynamic") != nil {
-			if err := requireRuntimeLoader(loader, name); err != nil {
-				f.Close()
-				return nil, err
+			if !partial {
+				if err := requireRuntimeLoader(loader, name); err != nil {
+					f.Close()
+					return nil, nil, err
+				}
 			}
 			for candidate := range fs.index.Files {
 				if strings.Contains(candidate, "/glibc-hwcaps/") {
 					f.Close()
-					return nil, fmt.Errorf("unsupported dynamic loader feature %s", candidate)
+					return nil, nil, fmt.Errorf("unsupported dynamic loader feature %s", candidate)
 				}
 			}
 			// The preload file is opened by path, and a path leads where the
@@ -583,23 +608,23 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 			if err != nil {
 				f.Close()
 
-				return nil, err
+				return nil, nil, err
 			}
 			if held {
 				f.Close()
 
-				return nil, fmt.Errorf("unsupported dynamic loader feature /etc/ld.so.preload")
+				return nil, nil, fmt.Errorf("unsupported dynamic loader feature /etc/ld.so.preload")
 			}
 		}
 		needed, err := f.ImportedLibraries()
 		if err != nil {
 			f.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		sonames[name], err = f.DynString(elf.DT_SONAME)
 		if err != nil {
 			f.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		if f.Type == elf.ET_EXEC {
 			roots = appendUnique(roots, name)
@@ -610,7 +635,7 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 				raw, err := io.ReadAll(prog.Open())
 				if err != nil {
 					f.Close()
-					return nil, err
+					return nil, nil, err
 				}
 				// Which file this name lands on, and whether that file is
 				// the loader it claims to be, was settled for the whole
@@ -623,21 +648,37 @@ func runtimeDependencies(fs *filesystem, present map[string]Record) (map[string]
 		dirs, err := runtimeDirs(f, name, loader)
 		if err != nil {
 			f.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		f.Close()
 		for _, soname := range needed {
 			resolved, err := resolveRuntime(fs, present, soname, dirs)
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w", name, err)
+				var absent missingRuntimeDependencyError
+				// The one absence a partial runtime excuses: a name no file of
+				// this image answers to. A file that does answer it is read,
+				// and refused, exactly as in any other image.
+				if partial && errors.As(err, &absent) {
+					unresolved = appendUnique(unresolved, absent.soname)
+
+					continue
+				}
+
+				return nil, nil, fmt.Errorf("%s: %w", name, err)
 			}
 			edges[name] = appendUnique(edges[name], resolved)
 		}
 	}
 	if err := rejectConflictingRuntimeSONAMEs(edges, sonames, roots); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return edges, nil
+	// Nothing of this image's closure stands outside it, so the declaration excused
+	// nothing and describes an image this is not.
+	if partial && len(unresolved) == 0 {
+		return nil, nil, fmt.Errorf("invalid: this image declares a partial runtime, and every runtime name its files state resolves inside it")
+	}
+
+	return edges, unresolved, nil
 }
 
 // crossBuiltELF reports whether f is an accepted ELF built for another machine
@@ -730,7 +771,11 @@ func runtimeDirs(f *elf.File, name string, loader *loaderModel) ([]string, error
 		}
 	}
 	// A file with no dynamic section names nothing and is searched for nothing; such
-	// an image need not hold a loader at all.
+	// an image need not hold a loader at all. A partial runtime whose loader stands in
+	// another image is the other case this reaches: what it asks for itself is all
+	// there is to search, because the directories a loader searches are read out of
+	// that loader and out of nothing else - a default list would be a guess, and a
+	// guessed directory resolves a name to the wrong file in silence.
 	if loader == nil {
 		return search, nil
 	}
@@ -775,5 +820,5 @@ func resolveRuntime(fs *filesystem, present map[string]Record, soname string, di
 		}
 		return resolved, nil
 	}
-	return "", fmt.Errorf("missing runtime dependency %s", soname)
+	return "", missingRuntimeDependencyError{soname: soname}
 }

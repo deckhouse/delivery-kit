@@ -34,6 +34,7 @@ var acceptedTargets = []struct{ artifact, profile, platform string }{
 	{"macho", "go-macho", "darwin/arm64"},
 	{"pe", "go-pe", "windows/amd64"},
 	{"object", "c-object", "linux/amd64"},
+	{"object", "c-relocatable", "linux/amd64"},
 }
 
 // inspect reads the build record of the native container in body. It reports

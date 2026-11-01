@@ -54,6 +54,25 @@ var _ = ginkgo.Describe("shipped relocatable object", func() {
 		gomega.Expect(component.Version).To(gomega.Equal("1"))
 	})
 
+	// An object GNU ld -r produced is a relocatable object like any other: the contract
+	// gives it the same artifact and the same ELF type, and what tells it apart is the
+	// composition it carries - the objects, members and scripts the partial link
+	// selected. glibc ships its start files that way.
+	ginkgo.It("accepts a relocatable object a partial link produced", func() {
+		record := fixtureBuildRecord(elf.ET_REL)
+		record.Profile.ID = "c-relocatable"
+		body := runtimeELFWithRecord(elf.ET_REL, record)
+		bom := cdx.NewBOM()
+
+		gomega.Expect(Apply(context.Background(), NewDefaultPolicy(context.Background(), "image"), "image",
+			fixtureImage(map[string]string{racePath: string(body)}), nil, bom)).To(gomega.Succeed())
+
+		catalog, err := ReadCatalog([]*cdx.BOM{bom})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(catalog.Records).To(gomega.HaveLen(1))
+		gomega.Expect(catalog.Records[0].Profile).To(gomega.Equal("c-relocatable"))
+	})
+
 	ginkgo.DescribeTable("refuses an object that does not carry a record of itself", func(build func() []byte, expected string) {
 		err := Apply(context.Background(), objectPolicy(), "image", fixtureImage(map[string]string{racePath: string(build())}), nil, cdx.NewBOM())
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(expected)))

@@ -288,7 +288,10 @@ func parseSBOMBuildContextDeclaration(data []byte) (*sbomBuildContextDeclaration
 	if declaration.PreparedSource && declaration.PartialRuntime {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: a prepared source image states no runtime closure, partial or whole")
 	}
-	if !declaration.Bootstrap && !declaration.PreparedSource && len(declaration.Stages) == 0 && len(declaration.BootstrapOriginals) == 0 {
+	// A fragment of a runtime closure compiles nothing of its own: it is a scratch
+	// image collecting the output of another build, and what it states is what its
+	// files are a part of.
+	if !declaration.Bootstrap && !declaration.PreparedSource && !declaration.PartialRuntime && len(declaration.Stages) == 0 && len(declaration.BootstrapOriginals) == 0 {
 		return nil, fmt.Errorf("parse SBOM build context declaration: invalid: at least one stage is required")
 	}
 	if err := validateSBOMBuildContextBootstrapOriginals(declaration.BootstrapOriginals); err != nil {

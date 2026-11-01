@@ -115,6 +115,15 @@ var _ = ginkgo.Describe("producer context declarations", func() {
 
 	// A fragment of a runtime closure is built like any other image; what it declares
 	// beyond its stages is that the closure its files belong to is stated elsewhere.
+	// The fragments of the C core compile nothing: they collect the output of another
+	// build, and the label states that and nothing else.
+	ginkgo.It("reads the declaration of a stageless partial runtime", func() {
+		declaration, err := parseSBOMBuildContextDeclaration([]byte(`{"version":1,"partialRuntime":true}`))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(declaration.PartialRuntime).To(gomega.BeTrue())
+		gomega.Expect(declaration.Stages).To(gomega.BeEmpty())
+	})
+
 	ginkgo.It("reads the declaration of a partial runtime", func() {
 		declaration, err := parseSBOMBuildContextDeclaration([]byte(`{"version":1,"partialRuntime":true,"stages":{"install":{"subject":0,"packages":[{"sourceImage":"gcc-source-prep","packageName":"gcc-source","packageVersion":"16.1.0","packageType":"source","sourcePlatform":"linux/amd64"}]}}}`))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

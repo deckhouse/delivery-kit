@@ -108,9 +108,11 @@ func elsewhereLoaderELF(soname, dir string, others []extraSection) []byte {
 	return elfFile(elf.EM_X86_64, elf.ELFCLASS64, "", soname, nil, rodata, others)
 }
 
-// extraSection is a section of a fixture beyond the ones every fixture carries.
+// extraSection is a section of a fixture beyond the ones every fixture carries. A zero
+// kind is the ordinary data of the sections this stands among.
 type extraSection struct {
 	name  string
+	kind  elf.SectionType
 	flags elf.SectionFlag
 	body  []byte
 }
@@ -264,9 +266,13 @@ func elfFile(machine elf.Machine, class elf.Class, interpreter, soname string, n
 		{rodataName, uint64(elf.SHT_PROGBITS), rodataOff, uint64(len(rodata)), 0, uint64(elf.SHF_ALLOC)},
 	}
 	for i, other := range others {
+		kind := other.kind
+		if kind == 0 {
+			kind = elf.SHT_PROGBITS
+		}
 		sections = append(sections, struct {
 			name, kind, off, size, link, flags uint64
-		}{extraNames[i], uint64(elf.SHT_PROGBITS), extraOffs[i], uint64(len(other.body)), 0, uint64(other.flags)})
+		}{extraNames[i], uint64(kind), extraOffs[i], uint64(len(other.body)), 0, uint64(other.flags)})
 	}
 	for _, section := range sections {
 		if wide {

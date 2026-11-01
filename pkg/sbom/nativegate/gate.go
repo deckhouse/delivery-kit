@@ -604,16 +604,18 @@ func runtimeDependencies(fs *filesystem, present map[string]Record, partial bool
 			// image's links say: one reached through a link, or standing in an
 			// /etc that is itself a link, is the same file. The cache is refused
 			// where the loader's own bytes name it, which is not always here.
-			held, err := holdsFile(fs, "/etc/ld.so.preload")
-			if err != nil {
-				f.Close()
+			for _, feature := range refusedLoaderFiles(partial, loader) {
+				held, err := holdsFile(fs, feature)
+				if err != nil {
+					f.Close()
 
-				return nil, nil, err
-			}
-			if held {
-				f.Close()
+					return nil, nil, err
+				}
+				if held {
+					f.Close()
 
-				return nil, nil, fmt.Errorf("unsupported dynamic loader feature /etc/ld.so.preload")
+					return nil, nil, fmt.Errorf("unsupported dynamic loader feature %s", feature)
+				}
 			}
 		}
 		needed, err := f.ImportedLibraries()

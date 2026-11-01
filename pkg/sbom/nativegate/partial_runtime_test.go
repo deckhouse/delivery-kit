@@ -10,9 +10,20 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
 const partialInterp = "/lib64/ld-linux-x86-64.so.2"
+
+// recordedDynamicELF is a dynamic file carrying the build record of its own build, which
+// is what the gate asks of every compiled file before it reads a closure at all.
+func recordedDynamicELF(interpreter, soname string, needed []string) []byte {
+	note := fixtureRecordNote(fixtureBuildRecord(elf.ET_DYN))
+
+	return elfFile(elf.EM_X86_64, elf.ELFCLASS64, interpreter, soname, needed, nil,
+		[]extraSection{{name: ".note.package", kind: elf.SHT_NOTE, flags: elf.SHF_ALLOC, body: note}})
+}
 
 // searchingELF is a dynamic x86-64 file stating one search path of its own.
 func searchingELF(interpreter, soname string, needed []string, tag elf.DynTag, value string) []byte {
@@ -85,6 +96,20 @@ var _ = ginkgo.Describe("an image declared a part of a runtime closure", func() 
 		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("runtime SONAME mismatch /opt/lib/libfoo.so.1")))
 	})
 
+	// The cache answers before any directory does, so an image holding one could be
+	// resolved past this model unnoticed - a loader of its own to name the path is
+	// what a partial runtime lacks, not a reason to stop looking for it.
+	ginkgo.It("refuses the loader cache an image holds while its loader is elsewhere", func() {
+		fs, present := nativeFilesystem(map[string][]byte{
+			"/usr/lib/libgcc_s.so.1": namedELF(elf.EM_X86_64, elf.ELFCLASS64, "", "libgcc_s.so.1", []string{"libc.so.6"}),
+		})
+		fs.index.Files["/etc/ld.so.cache"] = shippedscope.File{}
+
+		_, _, err := runtimeDependencies(fs, present, true)
+
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("unsupported dynamic loader feature /etc/ld.so.cache")))
+	})
+
 	// An image holding the loader its executables name states where every name of
 	// theirs resolves, so the declaration would excuse absences it does not have.
 	ginkgo.It("refuses the declaration on an image holding the loader its executables name", func() {
@@ -123,6 +148,24 @@ var _ = ginkgo.Describe("an image declared a part of a runtime closure", func() 
 		gomega.Expect(property.Name).To(gomega.Equal("dk:runtime-closure/v1"))
 		gomega.Expect(property.Value).To(gomega.Equal(
 			`{"schema":"dk:runtime-closure/v1","closure":"partial","unresolved":["` + partialInterp + `","libc.so.6","libstdc++.so.6"]}`))
+	})
+
+	// What was left open travels with the document, so that nobody reads it as the
+	// statement of a whole closure.
+	ginkgo.It("publishes on the document the names it resolved nothing for", func(ctx ginkgo.SpecContext) {
+		img := fixtureImage(map[string]string{"/usr/lib/libgcc_s.so.1": string(recordedDynamicELF("", "libgcc_s.so.1", []string{"libc.so.6", "ld-linux-x86-64.so.2"}))})
+		policy := fixturePolicy("libgcc-s")
+		policy.Images["libgcc-s"] = ImagePolicy{Role: "final", PartialRuntime: true}
+		bom := cdx.NewBOM()
+
+		gomega.Expect(Apply(ctx, policy, "libgcc-s", img, nil, bom)).To(gomega.Succeed())
+
+		published := map[string]string{}
+		for _, property := range *bom.Metadata.Properties {
+			published[property.Name] = property.Value
+		}
+		gomega.Expect(published).To(gomega.HaveKeyWithValue("dk:runtime-closure/v1",
+			`{"schema":"dk:runtime-closure/v1","closure":"partial","unresolved":["ld-linux-x86-64.so.2","libc.so.6"]}`))
 	})
 
 	// The policy of the image is what carries the declaration into the gate, and a

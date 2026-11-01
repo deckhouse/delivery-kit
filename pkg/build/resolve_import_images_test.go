@@ -1,6 +1,8 @@
 package build
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -153,4 +155,71 @@ var _ = Describe("resolveImportImages", func() {
 			[]expectedEntry{built("backend"), built("frontend")},
 		),
 	)
+
+	// An external source is in the backend only because something pulled it, and the
+	// pull belongs to the build of the stage that copies from it: a stage answered from
+	// the cache leaves the backend without the image the verification has to read.
+	DescribeTable("pulls an external import source the backend does not hold yet",
+		func(ctx SpecContext, absent func(ref string) (*imagePkg.Info, error)) {
+			const ref = "example.org/builder:latest"
+			info := infoFor(ref, "example.org/builder", "sha256:aaa")
+
+			backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+			var pulled bool
+			backend.EXPECT().
+				GetImageInfo(gomock.Any(), ref, gomock.Any()).
+				DoAndReturn(func(_ any, ref string, _ container_backend.GetImageInfoOpts) (*imagePkg.Info, error) {
+					if pulled {
+						return info, nil
+					}
+					return absent(ref)
+				}).AnyTimes()
+			backend.EXPECT().
+				Pull(gomock.Any(), ref, gomock.Any()).
+				DoAndReturn(func(_ any, _ string, _ container_backend.PullOpts) error {
+					pulled = true
+					return nil
+				}).Times(1)
+
+			phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{
+				ContainerBackend: backend,
+				imagesTree:       image.NewImagesTree(nil, image.ImagesTreeOptions{}),
+			}}}
+
+			resolved, err := phase.resolveImportImages(ctx, imageWithImports(external(ref)))
+
+			Expect(err).To(Succeed())
+			Expect(resolved).To(HaveLen(1))
+			Expect(resolved[0].info).To(Equal(info))
+		},
+
+		Entry("a backend answering that it holds no such image",
+			func(string) (*imagePkg.Info, error) { return nil, nil }),
+		Entry("a backend failing to inspect an image it does not hold",
+			func(ref string) (*imagePkg.Info, error) { return nil, fmt.Errorf("inspect image %q: not found", ref) }),
+	)
+
+	It("leaves an external import source it cannot pull unresolved", func(ctx SpecContext) {
+		const ref = "example.org/builder:latest"
+
+		backend := mock.NewMockContainerBackend(gomock.NewController(GinkgoT()))
+		backend.EXPECT().
+			GetImageInfo(gomock.Any(), ref, gomock.Any()).
+			Return(nil, nil).AnyTimes()
+		backend.EXPECT().
+			Pull(gomock.Any(), ref, gomock.Any()).
+			Return(fmt.Errorf("unauthorized")).Times(1)
+
+		phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{
+			ContainerBackend: backend,
+			imagesTree:       image.NewImagesTree(nil, image.ImagesTreeOptions{}),
+		}}}
+
+		resolved, err := phase.resolveImportImages(ctx, imageWithImports(external(ref)))
+
+		// A reference nothing answers is not guessed at: the entry carries no image,
+		// and the verification of the composition refuses it.
+		Expect(err).To(Succeed())
+		Expect(resolved).To(BeEmpty())
+	})
 })

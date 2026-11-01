@@ -2857,6 +2857,38 @@ func (phase *BuildPhase) sbomImportBackend() nativegate.ImportBackend {
 	return nativegate.ImportBackendCopyRecurse
 }
 
+// externalImportImageInfo reads an import source that is not built here. The backend
+// holds such an image only because something pulled it: werf pulls an external source
+// while it builds the stage that copies from it, and a stage taken from the cache never
+// did. One the backend does not hold is pulled and read again.
+//
+// A source that cannot be pulled stays unresolved, as it was before the pull: a
+// reference nothing answers is not guessed at here, and the verification of the
+// composition refuses it.
+func (phase *BuildPhase) externalImportImageInfo(ctx context.Context, targetPlatform, ref string) (*imagePkg.Info, error) {
+	backend := phase.Conveyor.ContainerBackend
+
+	info, inspectErr := backend.GetImageInfo(ctx, ref, container_backend.GetImageInfoOpts{})
+	if inspectErr == nil && info != nil {
+		return info, nil
+	}
+
+	if err := backend.Pull(ctx, ref, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {
+		logboek.Context(ctx).Warn().LogF("Warning: unable to pull external import image %s: %s\n", ref, err)
+		if inspectErr != nil {
+			return nil, fmt.Errorf("unable to get external import image info for %q: %w", ref, inspectErr)
+		}
+		return nil, nil
+	}
+
+	info, err := backend.GetImageInfo(ctx, ref, container_backend.GetImageInfoOpts{})
+	if err != nil {
+		return nil, fmt.Errorf("unable to get external import image info for %q: %w", ref, err)
+	}
+
+	return info, nil
+}
+
 func (phase *BuildPhase) resolveImportImage(ctx context.Context, img *image.Image, importElm *config.Import) (resolvedImportImage, error) {
 	if !importElm.ExternalImage {
 		if err, found := phase.sbomFailures.DependencyError(importElm.From); found {
@@ -2867,9 +2899,9 @@ func (phase *BuildPhase) resolveImportImage(ctx context.Context, img *image.Imag
 	var importImageInfo *imagePkg.Info
 
 	if importElm.ExternalImage {
-		info, err := phase.Conveyor.ContainerBackend.GetImageInfo(ctx, importElm.From, container_backend.GetImageInfoOpts{})
+		info, err := phase.externalImportImageInfo(ctx, img.TargetPlatform, importElm.From)
 		if err != nil {
-			return resolvedImportImage{}, fmt.Errorf("unable to get external import image info for %q: %w", importElm.From, err)
+			return resolvedImportImage{}, err
 		}
 		importImageInfo = info
 	} else {

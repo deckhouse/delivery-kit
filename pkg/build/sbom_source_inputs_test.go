@@ -2,6 +2,7 @@ package build
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -80,6 +81,16 @@ var _ = Describe("SBOM source import inputs", func() {
 			GetImageInfo(gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, ref string, _ container_backend.GetImageInfoOpts) (*imagePkg.Info, error) {
 				return infos[ref], nil
+			}).AnyTimes()
+		// An external source the backend does not hold is pulled before it is read; the
+		// registry here answers only for the two references of the source image.
+		backend.EXPECT().
+			Pull(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, ref string, _ container_backend.PullOpts) error {
+				if infos[ref] == nil {
+					return fmt.Errorf("pull %s: not found", ref)
+				}
+				return nil
 			}).AnyTimes()
 
 		img := &buildImage.Image{TargetPlatform: targetPlatform}

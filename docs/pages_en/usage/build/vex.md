@@ -3,82 +3,177 @@ title: VEX
 permalink: usage/build/vex.html
 ---
 
-[VEX](https://openvex.dev/) (Vulnerability Exploitability eXchange) is a document that states, for a given product, whether it is affected by particular vulnerabilities: a CVE reported by a scanner in a component of the image may not be exploitable because the vulnerable code is never executed, is mitigated by the configuration, or has already been fixed. werf attaches such a document to a built image as an OCI artifact, next to the [SBOM]({{ "/usage/build/sbom.html" | true_relative_url }}), so that vulnerability scanners and audit tooling can read both from the registry.
+A vulnerability scanner reports every CVE it can match against the packages in an image — including the ones that do not matter for this particular image: the vulnerable function is never called, the affected feature is disabled by configuration, or the fix has been backported under the same package version. [VEX](https://openvex.dev/) (Vulnerability Exploitability eXchange) is the standard way to record such verdicts so that scanners and audit tooling stop raising them.
 
-A VEX document is **attached per image** with the `vex` directive in `werf.yaml`. werf does not generate VEX statements: the document is written by the image maintainer, committed to the Git repository, and published together with the image. Publishing is independent of SBOM generation: an image may carry a VEX document with or without `build.sbom.enable: true`.
+werf lets you keep a VEX document next to the image it describes: declare it in `werf.yaml`, and `werf build` publishes it to the container registry as an attestation of the image — signed with the same key as the [SBOM]({{ "/usage/build/sbom.html" | true_relative_url }}) when signing is on. Anyone who has the image can fetch the verdicts, check who signed them, and feed them into their scanner.
 
-## Configuration in `werf.yaml`
+werf does not write VEX statements for you: deciding that a CVE does not apply is a security judgment made by the image maintainer, and the document is maintained in Git like the rest of the configuration.
 
-The `vex` directive is available for both Dockerfile and Stapel images. The value is a path to an [OpenVEX](https://github.com/openvex/spec) JSON document, relative to the project directory, in either the short or the long form:
+## Quick start
 
-```yaml
-project: my-project
-configVersion: 1
----
-image: app
-dockerfile: Dockerfile
-vex: vex/app.openvex.json
----
-image: worker
-from: registry.werf.io/werf/scratch:latest
-git:
-  - add: /
-    to: /app
-    excludePaths:
-      - vex
-vex:
-  document: vex/worker.openvex.json
+1. Write an [OpenVEX](https://github.com/openvex/spec) document, e.g. `vex/app.openvex.json`. The product is the image as the scanner sees it — the repository it is published to, not the `image:` name from `werf.yaml` (see [Using the verdicts in a scan](#using-the-verdicts-in-a-scan) for the details):
+
+   ```json
+   {
+     "@context": "https://openvex.dev/ns/v0.2.0",
+     "@id": "https://example.com/vex/app-2024-06-01",
+     "author": "Security team <security@example.com>",
+     "timestamp": "2024-06-01T00:00:00Z",
+     "version": 1,
+     "statements": [
+       {
+         "vulnerability": {"name": "CVE-2024-12345"},
+         "products": [{"@id": "pkg:oci/project?repository_url=registry.example.com/project"}],
+         "status": "not_affected",
+         "justification": "vulnerable_code_not_in_execute_path",
+         "impact_statement": "The vulnerable function is never called in this build."
+       }
+     ]
+   }
+   ```
+
+2. Point the image at it in `werf.yaml` — the path is relative to the project directory and the directive works for Dockerfile and Stapel images alike — and commit both files, as giterminism reads them from the commit:
+
+   ```yaml
+   image: app
+   dockerfile: Dockerfile
+   vex: vex/app.openvex.json
+   ```
+
+   ```shell
+   git add werf.yaml vex/app.openvex.json && git commit -m "Add VEX for app"
+   ```
+
+3. Build with a registry, tagging the image so that it can be referred to afterwards. If your builds sign SBOMs or manifests, keep passing the same `--sign-key` — the VEX document is signed with it too:
+
+   ```shell
+   werf build --repo registry.example.com/project --add-custom-tag '%image%-1.2.3' [--sign-key KEY]
+   ```
+
+   The log confirms the publish for every image that has a document:
+
+   ```
+   image app: Published VEX artifact
+   ```
+
+   Without `--sign-key` the document is published **unsigned**: anyone with push access to the repository could replace it. Consumers who must be able to trust the verdicts verify the signature with `werf attest verify` instead of `get` below; see [Trusting the verdicts](#trusting-the-verdicts).
+
+4. Check that the document is attached to the image:
+
+   ```shell
+   werf attest get --type openvex --repo registry.example.com/project --tag app-1.2.3
+   ```
+
+   The command prints the document you committed.
+
+## Working with VEX day to day
+
+### A scanner reports a CVE that does not apply
+
+Confirm the verdict, then add a statement to the image's document: the CVE id exactly as the scanner reports it (`vulnerability.name`), the image as the product, `status: not_affected` with one of the five OpenVEX justifications — `component_not_present`, `vulnerable_code_not_present`, `vulnerable_code_not_in_execute_path`, `vulnerable_code_cannot_be_controlled_by_adversary`, `inline_mitigations_already_exist` (see the [specification](https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md#status-justifications) for their meaning) — and an `impact_statement` explaining the reasoning for the reader who comes after you. If only a specific package is concerned, narrow the statement with `subcomponents` (the package's PURL); a statement without `subcomponents` applies to every occurrence of that CVE in the image.
+
+A CVE that is actually fixed in your build — a backported patch, for instance — is recorded with `status: fixed`. Scanners treat both `not_affected` and `fixed` as "do not report". To withdraw a verdict, change the statement's `status` to `affected` (or remove the statement) — the scanner reports the CVE again.
+
+When you change the document, bump its `version` and refresh `timestamp`: werf does not require it (it republishes whenever the file content differs), but OpenVEX consumers use them to order documents about the same product. The document `@id` is an identifier, not a URL that has to resolve — any IRI unique to your organization will do.
+
+Commit the document and run `werf build` again with the same flags as before. **The image is not rebuilt**: the `vex` directive and the document content do not take part in stage digests, so the build only republishes the attestation against the same image digest. Keep the document outside the paths that go into the image — a VEX file under a Stapel `git` mapping or copied by a Dockerfile `COPY` is ordinary image content, and editing it rebuilds the image like any other file.
+
+### Using the verdicts in a scan
+
+Fetch the document from the registry and hand it to the scanner. With [Trivy](https://trivy.dev/latest/docs/supply-chain/vex/file/):
+
+```shell
+werf attest get --type openvex --repo registry.example.com/project --tag app-1.2.3 > app.openvex.json
+trivy image --vex app.openvex.json registry.example.com/project:app-1.2.3
 ```
 
-The two forms are equivalent; an empty value is rejected:
+Findings covered by a `not_affected` or `fixed` statement are dropped from the report; `--show-suppressed` lists them with the statement that suppressed each one.
+
+A statement applies when both the vulnerability id and the product match. For a container image Trivy expects the product as a `pkg:oci` PURL: the repository the scanner pulls the image from goes into `repository_url` — `--final-repo` when you use one, since that is what gets scanned and deployed, otherwise `--repo` — its last path segment is the name, and the image digest is optional:
+
+```
+pkg:oci/project?repository_url=registry.example.com/project                  # every image in the repository
+pkg:oci/project@sha256:<digest>?repository_url=registry.example.com/project  # one image digest
+```
+
+Note that the name is taken from the repository, not from `image:` in `werf.yaml`, and werf publishes all images of a project into one repository. A product without a digest therefore covers every image of the project — fine while each image has its own document with its own statements, since the scanner only sees the document you hand it. To bind a statement to one image regardless of which document is used, pin the digest; after the build it is in the [build report]({{ "/usage/build/process.html#build-report" | true_relative_url }}) (`werf build --save-build-report`, field `Images.<name>.DockerImageDigest`), and for a multi-platform image this is the digest of the image index. Since the digest changes with every rebuild of the image, pinning is best reserved for verdicts that are tied to one specific build.
+
+To limit a statement to one package, add its PURL as a subcomponent of the product — take it from the Trivy JSON report (`trivy image -f json …`, the `PkgIdentifier.PURL` field of the finding):
+
+```json
+"products": [{
+  "@id": "pkg:oci/project?repository_url=registry.example.com/project",
+  "subcomponents": [{"@id": "pkg:deb/debian/openssl"}]
+}]
+```
+
+If a CVE is still reported after the document is applied, compare three things with the JSON report: the vulnerability id (`VulnerabilityID`), the product PURL (repository and, if you pinned it, the digest of the image being scanned), and the package PURL in `subcomponents`. The matching rules are described on the Trivy [Local VEX files](https://trivy.dev/latest/docs/supply-chain/vex/file/) and [OCI VEX](https://trivy.dev/latest/docs/supply-chain/vex/oci/) pages.
+
+### Trusting the verdicts
+
+When the build was signed (`--sign-key`), the attestation carries a signature, and a consumer can refuse unsigned or tampered verdicts:
+
+```shell
+werf attest verify --type openvex --key vex-signer.pub \
+  --repo registry.example.com/project --tag app-1.2.3 > app.openvex.json
+```
+
+`werf attest verify` prints the document only after the signature checks against one of the given public keys (`--key` may be repeated); an unsigned or badly signed attestation fails the command and prints nothing. `werf attest get` prints the document without verifying it.
+
+A consumer without werf can verify the same attestation with stock [cosign](https://github.com/sigstore/cosign) (v2.5 or later), fully offline — the attestation is a standard Sigstore bundle and werf's key-based signatures are not recorded in a transparency log, hence the trusted root without services and `--insecure-ignore-tlog`:
+
+```shell
+cosign trusted-root create --out trusted-root.json
+cosign verify-attestation --new-bundle-format --trusted-root trusted-root.json --insecure-ignore-tlog=true \
+  --key vex-signer.pub --type openvex registry.example.com/project@sha256:<digest>
+```
+
+For a multi-platform image `<digest>` is the digest of the image index.
+
+Signing uses the same flags and key material as [SBOM signing]({{ "/usage/build/sbom.html#sbom-signing" | true_relative_url }}): `--sign-key` / `WERF_SIGN_KEY` (a PEM file, a base64-encoded PEM, or `hashivault://[KEY]`), optionally `--sign-cert` and `--sign-intermediates`. Without `--sign-key` the document is published unsigned — this is not an error. Turning signing on, rotating the key, or turning it off republishes the attestation on the next build without rebuilding the image.
+
+### Listing what is attached to an image
+
+```shell
+werf attest ls --repo registry.example.com/project --tag app-1.2.3
+```
+
+shows every attestation of the image — SBOMs per platform and the VEX document — with its predicate type, digest and whether it is signed:
+
+```
+PLATFORM     PREDICATE TYPE             DIGEST                  SIGNED
+linux/amd64  https://cyclonedx.org/bom  sha256:3f1c9a0b2d4e...  yes
+linux/arm64  https://cyclonedx.org/bom  sha256:8e7d6c5b4a39...  yes
+index        https://openvex.dev/ns     sha256:a1b2c3d4e5f6...  yes
+```
+
+For a multi-platform image the VEX document is listed under the platform `index`, because it describes the image as a whole and is attached to the image index rather than to a platform manifest; `--platform OS/ARCH` lists that platform's attestations only.
+
+## What to expect
+
+- **A registry is required.** The attestation lives only in the container registry. With local stages storage (no `--repo`) the VEX step is skipped silently and nothing is published.
+- **Where it ends up.** The attestation is published to `--repo` and copied to `--final-repo` together with the image. For a single-platform image it is copied to `--cache-repo` as well; the VEX of a multi-platform image is attached to the image index, which cache repositories never hold, so it is not copied there. `--secondary-repo` is read-only. The copy runs on every build, so a destination holding the image without its attestations is repaired by the next run.
+- **Multi-platform images get one document.** Unlike the SBOM, which is produced per platform, one VEX attestation is attached to the image index. `werf attest get` and `werf attest verify` take the index reference; `--platform` is rejected for `--type openvex` on an index.
+- **Previously built images have none.** A VEX attestation exists for images built after the `vex` directive was added — until the next `werf build --repo`, older images carry no document. The reverse also holds: removing the `vex` directive stops publishing but does not detach what is already in the registry — an image digest that received a document keeps it. To withdraw verdicts from an image that stays in use, publish a document whose statements say `affected` instead.
+- **Unchanged document, unchanged image → nothing happens.** The build reports `VEX artifact is up to date — skipping publish`. Republishing is triggered by a change in the document, in the image digest, or in the signing key.
+- **`--check-built-images` publishes nothing**, VEX included; it only validates that images exist. `--require-built-images` (`-Z`) is not a check mode: it publishes previously built images and runs the VEX step as an ordinary build does.
+- **Hand-attached attestations take precedence.** An attestation attached with `werf attest sign` is kept apart from the build-published one: the build does not replace it, and while both exist `werf attest get` and `werf attest verify` return the hand-attached one. Editing the document in Git and rebuilding updates only the build-published attestation — if an image has a hand-attached VEX, update it with `werf attest sign` as well, or do not attach VEX by hand to images that carry one from the build. There is no command to detach an attestation; the practical way back is to rebuild the image under a new digest, which starts with no hand-attached attestations.
+
+### Validation errors
+
+The document is read and validated while `werf.yaml` is parsed, so a broken document fails every werf command that reads the configuration, not only `werf build`. werf requires the file to exist, to be JSON, and to carry the OpenVEX context exactly — `"@context": "https://openvex.dev/ns/v0.2.0"`; it does not validate the statements themselves.
 
 ```
 `vex` directive must specify a VEX document path, use `vex: PATH` or `vex:
   document: PATH`
-```
-
-### Document requirements
-
-The document is read and validated while `werf.yaml` is being parsed, so a broken document fails every command that reads the configuration, not only `werf build`. The document must:
-
-- exist and be a regular file at the given path;
-- be valid JSON;
-- be a JSON object with `"@context": "https://openvex.dev/ns/v0.2.0"` — the OpenVEX context, matched exactly.
-
-Otherwise the configuration fails with one of:
-
-```
 unable to read VEX file "vex/app.openvex.json": ...
 invalid VEX document "vex/app.openvex.json": VEX document is not valid JSON
 invalid VEX document "vex/app.openvex.json": VEX document has unexpected @context "...", expected "https://openvex.dev/ns/v0.2.0"
 ```
 
-A minimal document:
-
-```json
-{
-  "@context": "https://openvex.dev/ns/v0.2.0",
-  "@id": "https://example.com/vex/app-2024-06-01",
-  "author": "Security team <security@example.com>",
-  "timestamp": "2024-06-01T00:00:00Z",
-  "version": 1,
-  "statements": [
-    {
-      "vulnerability": {"name": "CVE-2024-12345"},
-      "products": [{"@id": "pkg:oci/app"}],
-      "status": "not_affected",
-      "justification": "vulnerable_code_not_in_execute_path",
-      "impact_statement": "The vulnerable function is never called in this build."
-    }
-  ]
-}
-```
-
-werf checks only that the document is JSON with the OpenVEX `@context`; the rest of the document — the presence and content of `statements`, `status`, `justification`, `products` — is not validated and is the responsibility of the author and of the tools that consume the document.
-
 ### Giterminism
 
-Like `werf.yaml` itself, the VEX document is read from the current commit: an uncommitted or untracked document fails the build in the usual giterminism way. For development, the `--dev` flag works as for any other file. To permanently allow reading certain VEX documents from the working tree, list them in `werf-giterminism.yaml`:
+Like `werf.yaml` itself, the VEX document is read from the current commit: an uncommitted or untracked document fails the build in the usual giterminism way, and `--dev` works as for any other file. To permanently allow reading certain documents from the working tree, list them in `werf-giterminism.yaml`:
 
 ```yaml
 giterminismConfigVersion: 1
@@ -90,101 +185,37 @@ config:
 
 See [giterminism]({{ "/usage/project_configuration/giterminism.html#vex" | true_relative_url }}) for the implications.
 
-## Publishing
+## Reference
 
-The VEX artifact is published by `werf build` (and by every command that runs the build conveyor, such as `werf converge`) after the image and its stages have been pushed, right after the SBOM step. It is stored **only in the container registry**: when the build uses local storage (no `--repo`), the VEX step is skipped and nothing is published.
+### `werf.yaml`
 
-For every image with a `vex` directive the log shows one of:
-
+```yaml
+vex: PATH
+# or
+vex:
+  document: PATH
 ```
-image app: Published VEX artifact
-image app: VEX artifact is up to date — skipping publish
-```
 
-The artifact is published to the stages repository (`--repo`) and copied from there to the final repository (`--final-repo`) together with the image. For a single-platform image it is also copied to the cache repositories (`--cache-repo`); the VEX artifact of a multi-platform image is attached to the image index, which never exists in a cache repository, so it is not copied there. Secondary repositories (`--secondary-repo`) are read-only and receive nothing. The copy runs on every build, so a destination holding the image without its artifacts is repaired by the next run.
+The two forms are equivalent. `PATH` is relative to the project directory. The directive is accepted on Dockerfile and Stapel images.
 
-With `--check-built-images` nothing is published, including VEX artifacts: the command only validates that the images already exist. `--require-built-images` (`-Z`) is not a check mode: it publishes previously built images without running build instructions, and the VEX step runs as in an ordinary build.
+### Storage layout
 
-### Multi-platform images
+The attestation is stored as an OCI artifact whose subject is the manifest (or the index) of the image, in the same way as the [SBOM]({{ "/usage/build/sbom.html#how-the-sbom-is-stored" | true_relative_url }}): werf maintains a tag-based index that works with any registry and additionally sets the OCI `subject` field for tools that understand the OCI referrers API.
 
-Unlike the SBOM, which is produced per platform, the VEX document describes the image as a whole. For a multi-platform image werf publishes **one** VEX artifact attached to the image index digest, not to the per-platform manifests. For this reason `--platform` is rejected by `werf attest get` and `werf attest verify` with `--type openvex` when the reference is an index.
-
-## How the VEX artifact is stored
-
-The VEX artifact is stored as an OCI artifact whose subject is the manifest (or index) of the target image, in the same way as the [SBOM]({{ "/usage/build/sbom.html#how-the-sbom-is-stored" | true_relative_url }}): werf maintains a tag-based index that works with any registry and additionally sets the OCI `subject` field for tools that understand the OCI referrers API.
-
-### Artifact structure
-
-The OpenVEX document is wrapped in an [in-toto](https://in-toto.io/) statement and then in a [DSSE](https://github.com/secure-systems-lab/dsse) envelope. The form of the artifact depends on whether the build was signed:
+The OpenVEX document is wrapped in an [in-toto](https://in-toto.io/) statement and then in a [DSSE](https://github.com/secure-systems-lab/dsse) envelope:
 
 | | Unsigned build | Signed build (`--sign-key`) |
 |---|---|---|
-| Layer media type | `application/vnd.dsse.envelope.v1+json` | `application/vnd.dev.sigstore.bundle.v0.3+json` (Sigstore bundle containing the signed DSSE envelope and a hint of the public key) |
+| Layer media type | `application/vnd.dsse.envelope.v1+json` | `application/vnd.dev.sigstore.bundle.v0.3+json` — a Sigstore bundle with the signed DSSE envelope and a hint of the public key |
 | in-toto predicate type | `https://openvex.dev/ns/v0.2.0` | `https://openvex.dev/ns` |
 
-The signed form uses the unversioned predicate URI because that is what cosign resolves the `openvex` well-known type to, so a signed VEX artifact is verifiable with stock cosign as well as with `werf attest verify`. Both URIs denote the same kind of artifact: `werf attest get --type openvex` finds either.
+The signed form uses the unversioned predicate URI because that is what cosign resolves the `openvex` type to, so a signed attestation is verifiable with stock cosign as well. Both URIs denote the same kind of attestation and `--type openvex` finds either. Exactly one build-published VEX attestation is kept per image: a signed one replaces the unsigned one and vice versa. werf recognizes its own attestations by the `io.werf.checksum` annotation, computed from the document content, the digest of the image, the signing key fingerprint and the artifact format version — this is what decides whether a build republishes.
 
-werf keeps exactly one build-published VEX artifact per image: publishing a signed artifact replaces the unsigned one and vice versa, so a reader never gets a stale artifact of the previous signing state. An attestation attached by hand with `werf attest sign` is kept separately from the build-published one (werf recognizes its own artifacts by the `io.werf.checksum` annotation), and `werf attest get` / `werf attest verify` prefer the hand-attached one when both exist.
+### `werf attest`
 
-### Artifact annotations
+`--repo` is required by every subcommand; the image is identified with `--tag` or `--digest` (mutually exclusive), and `--image` narrows the lookup to one image name when several images share a digest. `--type` accepts `openvex`, `cyclonedx`, `slsaprovenance`, `slsaprovenance1`, `spdxjson`, or a full predicate URI.
 
-Each VEX artifact carries the following annotations on its descriptor in the index:
-
-| Annotation | Contents |
-|---|---|
-| `io.werf.image-name` | Name of the image this VEX document belongs to |
-| `io.werf.checksum` | Cache identity of the artifact (see [Caching and rebuilds](#caching-and-rebuilds)) |
-| `io.werf.target-platform` | Target platform of a single-platform image (e.g. `linux/amd64`) |
-| `dev.sigstore.bundle.predicateType` | The in-toto predicate type, so that the kind can be recognized without downloading the layer |
-
-## VEX signing
-
-VEX signing uses the same flags as [SBOM signing]({{ "/usage/build/sbom.html#sbom-signing" | true_relative_url }}) and is enabled by passing a signing key to `werf build`:
-
-| Flag | Environment variable | Purpose |
-|---|---|---|
-| `--sign-key` | `WERF_SIGN_KEY` | the private key: a path to a PEM file, a base64-encoded PEM, or `hashivault://[KEY]` |
-| `--sign-cert` | `WERF_SIGN_CERT` | the leaf certificate: a path to a PEM file or a base64-encoded PEM |
-| `--sign-intermediates` | `WERF_SIGN_INTERMEDIATES` | the intermediate certificates: a path to a PEM file or a base64-encoded PEM |
-
-If `--sign-key` is not provided, the VEX document is published unsigned — this is not an error. The same key signs the SBOM and the VEX artifact in one build.
-
-To verify the signature, use `werf attest verify --type openvex` with the public key (`--key`), see below.
-
-## Caching and rebuilds
-
-The `vex` directive and the content of the document **do not take part in stage digests**: adding, changing or removing a VEX document does not rebuild the image by itself. Only the artifact is affected. This holds as long as the document is not part of the build context: a VEX file under a `git` mapping of a Stapel image or copied by a Dockerfile `COPY`/`ADD` is ordinary image content, and editing it rebuilds the image like any other file — keep the document outside the paths that go into the image (see `excludePaths` in the example above).
-
-Whether the artifact is republished is decided by its checksum (`io.werf.checksum`), computed from the document content, the digest of the image it is attached to, the fingerprint of the signing key (empty for an unsigned build) and the artifact format version. A build republishes the artifact when any of these differs from the one already in the registry, and skips the publish otherwise. In practice this means:
-
-- editing the document and rebuilding publishes the new statements under the same image digest — the usual way to react to a newly reported CVE without rebuilding the image;
-- enabling signing, rotating the key, or dropping signing republishes the artifact;
-- a rebuild with no changes reports `VEX artifact is up to date — skipping publish`.
-
-A VEX artifact exists only for images built after the `vex` directive was added — previously built images have none until the next build with `--repo`.
-
-## Working with VEX attestations
-
-VEX documents are handled by the generic attestation commands of the [`werf attest`]({{ "/reference/cli/werf_attest_get.html" | true_relative_url }}) group. All of them read the registry, so `--repo` is required, and the image is identified with `--tag` or `--digest` (mutually exclusive); `--image` narrows the lookup to one image name when several images share a digest.
-
-[`werf attest ls`]({{ "/reference/cli/werf_attest_ls.html" | true_relative_url }}) lists the attestations attached to the image with their predicate type, digest and whether they are signed. For a multi-platform image the SBOMs are listed under their platforms and the VEX document, attached to the index itself, under the platform `index`; with `--platform` only that platform's attestations are listed, without the index-level ones:
-
-```shell
-werf attest ls --repo registry.example.com/project --tag app-1.2.3
-```
-
-[`werf attest get`]({{ "/reference/cli/werf_attest_get.html" | true_relative_url }}) downloads the attestation, unwraps the DSSE envelope and the in-toto statement, and prints the OpenVEX document to stdout **without** verifying the signature:
-
-```shell
-werf attest get --type openvex --repo registry.example.com/project --tag app-1.2.3 > app.openvex.json
-```
-
-[`werf attest verify`]({{ "/reference/cli/werf_attest_verify.html" | true_relative_url }}) does the same after verifying the DSSE signature against one or more public keys (`--key`, repeatable, any match succeeds); an unsigned or badly signed artifact fails the command and prints nothing:
-
-```shell
-werf attest verify --type openvex --key vex-signer.pub --repo registry.example.com/project --digest sha256:...
-```
-
-[`werf attest sign`]({{ "/reference/cli/werf_attest_sign.html" | true_relative_url }}) signs an arbitrary predicate file (`--predicate`) with `--sign-key` and attaches it to an image. It does not replace the build-published VEX artifact and is not replaced by the next build; while both exist, `werf attest get` and `werf attest verify` return the hand-attached one. To update the VEX statements of an image, edit the document in Git and rebuild instead.
-
-`--type` accepts the well-known names `openvex`, `cyclonedx`, `slsaprovenance`, `slsaprovenance1`, `spdxjson`, or a full predicate URI.
+- [`werf attest get`]({{ "/reference/cli/werf_attest_get.html" | true_relative_url }}) — print the document without verifying the signature.
+- [`werf attest verify`]({{ "/reference/cli/werf_attest_verify.html" | true_relative_url }}) — verify the signature with `--key` (repeatable), then print the document.
+- [`werf attest ls`]({{ "/reference/cli/werf_attest_ls.html" | true_relative_url }}) — list the attestations of an image.
+- [`werf attest sign`]({{ "/reference/cli/werf_attest_sign.html" | true_relative_url }}) — sign an arbitrary predicate file (`--predicate`, `--type`) with a plain PEM `--sign-key` and attach it to an image.

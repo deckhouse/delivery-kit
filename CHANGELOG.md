@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.12.0-dk.5](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.4...v3.12.0-dk.5) (2026-11-02)
+
+
+### Features
+
+* **build, stapel:** sign UEFI binaries for Secure Boot in place ([#488](https://github.com/deckhouse/delivery-kit/issues/488)) ([2643d96](https://github.com/deckhouse/delivery-kit/commit/2643d965e5813b6e2109a1433f4ae29d67bc7d5c))
+* **sbom:** make the external references request timeouts configurable ([#484](https://github.com/deckhouse/delivery-kit/issues/484)) ([c033ba5](https://github.com/deckhouse/delivery-kit/commit/c033ba57f09736492bb1eef3606ea96ce4452c1a))
+
 ## [3.12.0-dk.4](https://github.com/deckhouse/delivery-kit/compare/v3.12.0-dk.3...v3.12.0-dk.4) (2026-10-28)
 
 

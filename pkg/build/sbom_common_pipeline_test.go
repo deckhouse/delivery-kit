@@ -582,6 +582,24 @@ var _ = Describe("Common SBOM pipeline", func() {
 			Expect(converged(ctx, desc, ConvergeWithMergeOptions{Cached: false})).To(Equal(1))
 		})
 
+		It("gates an image whose published document another release produced", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+			Expect(converged(ctx, desc)).To(Equal(1))
+
+			producer := werf.Version
+			werf.Version = producer + "-next"
+			DeferCleanup(func() { werf.Version = producer })
+
+			Expect(converged(ctx, desc, ConvergeWithMergeOptions{Cached: true})).To(Equal(1))
+
+			republished, err := step.GetImageBOM(ctx, "app", desc.Info)
+			Expect(err).NotTo(HaveOccurred())
+			version, recorded := cyclonedxutil.WerfToolVersion(republished)
+			Expect(recorded).To(BeTrue())
+			Expect(version).To(Equal(werf.Version), "the document the registry holds names the release that gated it last")
+		})
+
 		It("gates an image the registry holds no attestation for", func(specCtx SpecContext) {
 			ctx := logging.WithLogger(specCtx)
 			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})

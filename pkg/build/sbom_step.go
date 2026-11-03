@@ -155,16 +155,19 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	// What is already published is reused as a publication only: every check below runs
 	// first, and the checksum then decides whether the result has to be pushed again.
 	var publishedChecksum string
+	var publishedByRunningBuild bool
 	if found {
 		publishedChecksum = desc.Annotations[image.WerfChecksumAnnotation]
+		publishedByRunningBuild = step.publishedByRunningBuild(ctx, werfImgName, stageDesc.Info)
 	}
 
 	// An image no stage of which was rebuilt is, byte for byte, the image the
 	// attestation attached to this very digest was published for, and the checksum
 	// states the inputs of that publication: the gate policy, the format version of
 	// the generator, the scan and merge options, the signer and the import sources.
-	// All of them equal means the gate would arrive at the document already there.
-	if found && options.Cached && publishedChecksum == checksum {
+	// All of them equal, and the document produced by the binary now running, means
+	// the gate would arrive at the document already there.
+	if options.Cached && publishedChecksum == checksum && publishedByRunningBuild {
 		logboek.Context(ctx).Default().LogF("image %s: SBOM reused from published attestation (policy %s)\n", werfImgName, policyChecksum)
 
 		return nil
@@ -364,7 +367,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			return fmt.Errorf("validate BOM: %w", err)
 		}
 
-		if publishedChecksum == checksum {
+		if publishedChecksum == checksum && publishedByRunningBuild {
 			logboek.Context(ctx).Default().LogF("image %s: composition verified; the SBOM already in the registry describes it\n", werfImgName)
 			return nil
 		}
@@ -451,6 +454,22 @@ func verifiedBinaryContents(verified *cdx.BOM) map[string]string {
 	}
 
 	return contents
+}
+
+// publishedByRunningBuild reports whether the document already attached to the image
+// was produced by the binary now running. The producer is recorded in the document
+// itself, and a gate that reads or writes differently ships under a version of its
+// own, so what one release published is not reused by the next.
+func (step *sbomStep) publishedByRunningBuild(ctx context.Context, werfImgName string, imageInfo *image.Info) bool {
+	bom, err := step.pullImageSbom(ctx, werfImgName, imageInfo)
+	if err != nil {
+		logboek.Context(ctx).Debug().LogF("image %s: read the producer of the published SBOM: %s\n", werfImgName, err)
+
+		return false
+	}
+	version, recorded := cyclonedxutil.WerfToolVersion(bom)
+
+	return recorded && version == werf.Version
 }
 
 func sbomPolicyChecksum(policy *nativegate.Policy) (string, error) {

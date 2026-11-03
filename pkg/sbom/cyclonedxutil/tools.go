@@ -54,6 +54,23 @@ func MarkWerfTool(bom *cdx.BOM, version string) {
 	}))
 }
 
+// WerfToolVersion returns the version of werf recorded among the tools that produced
+// bom, in either form, and whether it is recorded at all.
+func WerfToolVersion(bom *cdx.BOM) (string, bool) {
+	if bom == nil || bom.Metadata == nil || bom.Metadata.Tools == nil {
+		return "", false
+	}
+	tools := bom.Metadata.Tools
+	if comp, found := lo.Find(lo.FromPtr(tools.Components), func(comp cdx.Component) bool { return comp.Name == werfToolName }); found {
+		return comp.Version, true
+	}
+	if tool, found := lo.Find(lo.FromPtr(tools.Tools), func(tool cdx.Tool) bool { return tool.Name == werfToolName }); found {
+		return tool.Version, true
+	}
+
+	return "", false
+}
+
 // HasWerfTool reports whether werf is recorded among the tools that produced
 // bom, in either form.
 func HasWerfTool(bom *cdx.BOM) bool {

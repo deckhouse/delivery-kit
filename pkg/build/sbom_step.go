@@ -82,6 +82,9 @@ type ConvergeWithMergeOptions struct {
 	// PartialRuntime states that the recipe declares this image a partial runtime: a
 	// fragment whose runtime closure is resolved in the image it is assembled into.
 	PartialRuntime bool
+	// Cached states that this run rebuilt no stage of the image: every stage of it,
+	// the last one included, was taken from the stages storage.
+	Cached bool
 	// CapturedSources are the import source images already read while their documents
 	// were being scoped, keyed by pinned reference. The verification reads the same
 	// images, and reading them twice would answer the same.
@@ -154,6 +157,17 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 	var publishedChecksum string
 	if found {
 		publishedChecksum = desc.Annotations[image.WerfChecksumAnnotation]
+	}
+
+	// An image no stage of which was rebuilt is, byte for byte, the image the
+	// attestation attached to this very digest was published for, and the checksum
+	// states the inputs of that publication: the gate policy, the format version of
+	// the generator, the scan and merge options, the signer and the import sources.
+	// All of them equal means the gate would arrive at the document already there.
+	if found && options.Cached && publishedChecksum == checksum {
+		logboek.Context(ctx).Default().LogF("image %s: SBOM reused from published attestation (policy %s)\n", werfImgName, policyChecksum)
+
+		return nil
 	}
 
 	if err := step.containerBackend.Pull(ctx, stageDesc.Info.Name, container_backend.PullOpts{TargetPlatform: targetPlatform}); err != nil {

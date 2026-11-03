@@ -774,7 +774,7 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return fmt.Errorf("unable to converge sbom for image %q: %w", name, err)
 	}
 
-	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource, PartialRuntime: partialRuntime, CapturedSources: capturedSources}); err != nil {
+	if err := phase.sbomStep.ConvergeWithMerge(ctx, name, stageDesc, scanOpts, mergeOpts, patchers, osPmPackages, isStapel, img.TargetPlatform, signer, signerIdentity, ConvergeWithMergeOptions{Sources: sourceImports, PreparedSource: preparedSource, PartialRuntime: partialRuntime, CapturedSources: capturedSources, Cached: !img.GetRebuilt()}); err != nil {
 		if img.TargetPlatform != "" {
 			return fmt.Errorf("unable to converge sbom for image %q (platform %s): %w", name, img.TargetPlatform, err)
 		}

@@ -533,6 +533,63 @@ var _ = Describe("Common SBOM pipeline", func() {
 		Expect(err).To(MatchError(ContainSubstring("no-data: the composition of the image cannot be verified")))
 	})
 
+	// A run that rebuilt nothing converges an image the registry already holds a
+	// document for; what the gate would read is what it read when that document was
+	// published, so reading the image again answers the same.
+	Describe("an image taken from cache", func() {
+		converged := func(ctx context.Context, desc *imagePkg.StageDesc, opts ...ConvergeWithMergeOptions) int {
+			GinkgoHelper()
+			before := saves
+			Expect(step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{}, nil, nil, true, "", nil, "", opts...)).To(Succeed())
+
+			return saves - before
+		}
+
+		It("reuses the published document instead of gating the image again", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+			Expect(converged(ctx, desc)).To(Equal(1), "the first convergence gates the image")
+			published, err := step.GetImageBOM(ctx, "app", desc.Info)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(converged(ctx, desc, ConvergeWithMergeOptions{Cached: true})).To(BeZero(), "the gate does not read the image again")
+
+			reused, err := step.GetImageBOM(ctx, "app", desc.Info)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cyclonedxutil.ToJSON(reused)).To(Equal(lo.Must(cyclonedxutil.ToJSON(published))), "the document the consumers read is the one already published")
+		})
+
+		It("gates the image again when the policy it was published under is not the one it is converged under", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+			Expect(converged(ctx, desc)).To(Equal(1))
+
+			before := saves
+			err := step.ConvergeWithMerge(ctx, "app", desc, scanOpts, cyclonedxutil.MergeOpts{}, nil, nil, true, "", nil, "",
+				ConvergeWithMergeOptions{Cached: true, PartialRuntime: true})
+
+			// The policy this convergence states is not the one the published document
+			// was gated under, and the image is held to it.
+			Expect(err).To(MatchError(ContainSubstring("this image declares a partial runtime")))
+			Expect(saves-before).To(Equal(1), "the image is read again under the policy it was not published under")
+		})
+
+		It("gates an image a stage of which was rebuilt", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+			Expect(converged(ctx, desc)).To(Equal(1))
+
+			Expect(converged(ctx, desc, ConvergeWithMergeOptions{Cached: false})).To(Equal(1))
+		})
+
+		It("gates an image the registry holds no attestation for", func(specCtx SpecContext) {
+			ctx := logging.WithLogger(specCtx)
+			desc := pipelineImage(ctx, map[string][]byte{"/app/tool": buildRecordELF(elf.ET_EXEC)})
+
+			Expect(converged(ctx, desc, ConvergeWithMergeOptions{Cached: true})).To(Equal(1))
+		})
+	})
+
 	It("reads a reserved source receipt path held by a directory as invalid, not as an absent receipt", func(specCtx SpecContext) {
 		ctx := logging.WithLogger(specCtx)
 		desc := pipelineImage(ctx, map[string][]byte{"/etc/app/app.conf": []byte("key = value\n")}, sources.DefaultPath)

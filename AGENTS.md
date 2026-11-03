@@ -97,9 +97,11 @@ NEVER assume a change compiles. While iterating, scope the slow steps (`task lin
 
 A failure in a package the diff does not touch is usually a host-environment flake, not your change: re-run that suite alone before investigating it.
 
-Wait for PR checks with a single blocking `gh pr checks <number> --watch`, never a `sleep`-and-poll loop: a run takes tens of minutes and every poll is another turn that re-reads the whole context.
+If the user asks you to wait for PR checks, use a single blocking `gh pr checks <number> --watch`, never a `sleep`-and-poll loop: a run takes tens of minutes and every poll is another turn that re-reads the whole context.
 
 Before re-running CI, check the workflow revision used by that run, not just the current worktree. In PR and daily test workflows with per-job environments, failed jobs can be re-run with `gh run rerun <run-id> --rerun-failed`: each test job recreates its own environment. First verify that `build_test_binary` succeeded and its `werf-test-binary` artifact is still available; if the producer failed or the artifact is missing/expired, re-run the workflow in full (`gh run rerun <run-id>`). Older workflow revisions with shared `kind_setup`/`kind_cleanup` MUST be re-run in full because their local environment no longer exists after cleanup.
+
+CI in this repository is unstable. Do NOT block on a run and do NOT `gh run rerun` on your own initiative — the paragraph above describes how a rerun works when the user asks for one. Verify a change with a targeted run of the affected suite (scoped as in the list above), locally or on a Linux host where the suite can run (see the macOS limits below), and report the CI status as a fact.
 
 A green `task test:unit` does NOT prove a command runs. No unit test constructs the storage manager, so a command that dereferences a flag group it never registered dies with a SIGSEGV before doing any work while the whole unit suite stays green. After adding or changing a command, execute it once — via `task test:integration`, or the binary in `./bin/` — before calling it done.
 

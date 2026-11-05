@@ -39,6 +39,8 @@ const (
 	maxBundleOutputPathLen        = 4096
 	maxNPMNameLen                 = 214
 	maxNPMVersionLen              = 256
+
+	emptyFileDigest = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
 
 var (
@@ -51,10 +53,10 @@ type BundlePackage struct {
 	Version string
 }
 
-// BundleOutput is the last record the build's JavaScript observer left for one output.
-// Verified means the image holds the recorded bytes at the recorded path; an output
-// rewritten, moved or removed after it was observed is unverified, and its packages can be
-// shown neither present nor absent by it.
+// BundleOutput is a record the build's JavaScript observer left for one output, at the path
+// it was observed at. Verified means the image holds the recorded bytes, at that path or
+// wherever a later step of the build moved them. The last record of a path whose bytes the
+// image holds nowhere is unverified: its packages can be shown neither present nor absent.
 type BundleOutput struct {
 	Path     string
 	Digest   string
@@ -78,7 +80,9 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 		return nil
 	}
 
-	records := make(map[string]BundleOutput)
+	byDigest := indexByDigest(index)
+	last := make(map[string]BundleOutput)
+	verified := make(map[[2]string]BundleOutput)
 	invalid := 0
 	var warnings []string
 	for len(body) > 0 {
@@ -109,11 +113,14 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 		}
 
 		for _, output := range event.Outputs {
-			record, valid := bundleRecord(index, output)
+			record, valid := bundleRecord(byDigest, output)
 			if !valid {
 				invalid++
 			}
-			records[output.Path] = record
+			last[record.Path] = record
+			if record.Verified {
+				verified[[2]string{record.Path, record.Digest}] = record
+			}
 		}
 	}
 
@@ -124,20 +131,31 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 		logboek.Context(ctx).Warn().LogF("WARNING: %d JavaScript bundle observer records could not be read; the packages they name are not proven shipped by them\n", invalid)
 	}
 
-	var outputs []BundleOutput
-	for _, file := range slices.Sorted(maps.Keys(records)) {
-		if len(records[file].Packages) > 0 {
-			outputs = append(outputs, records[file])
+	// A record its path's later record overrides still holds whatever bytes it was observed
+	// with, and those may have been moved before the path was written again.
+	outputs := slices.Collect(maps.Values(verified))
+	for _, record := range last {
+		if !record.Verified {
+			outputs = append(outputs, record)
 		}
 	}
+	outputs = lo.Filter(outputs, func(output BundleOutput, _ int) bool { return len(output.Packages) > 0 })
+	slices.SortFunc(outputs, func(a, b BundleOutput) int {
+		return cmp.Or(cmp.Compare(a.Path, b.Path), cmp.Compare(a.Digest, b.Digest))
+	})
 
 	return outputs
 }
 
 // An empty output yields no packages: its digest is every empty file's.
-func bundleRecord(index *FileIndex, output jsobserver.Output) (BundleOutput, bool) {
+func bundleRecord(byDigest map[string][]string, output jsobserver.Output) (BundleOutput, bool) {
 	record := BundleOutput{Path: output.Path, Digest: output.Digest}
 	valid := validBundleOutputPath(output.Path) && validDigest(output.Digest)
+	if output.Digest == emptyFileDigest {
+		return BundleOutput{Path: output.Path}, valid
+	}
+
+	seen := make(map[BundlePackage]struct{}, len(output.Packages))
 	for _, pkg := range output.Packages {
 		bundlePackage := BundlePackage{Name: pkg.Name, Version: pkg.Version}
 		if !validBundlePackage(bundlePackage) {
@@ -145,16 +163,14 @@ func bundleRecord(index *FileIndex, output jsobserver.Output) (BundleOutput, boo
 
 			continue
 		}
-		if !slices.Contains(record.Packages, bundlePackage) {
-			record.Packages = append(record.Packages, bundlePackage)
+		if _, ok := seen[bundlePackage]; ok {
+			continue
 		}
+		seen[bundlePackage] = struct{}{}
+		record.Packages = append(record.Packages, bundlePackage)
 	}
 
-	file, ok := index.Files[output.Path]
-	record.Verified = ok && validDigest(output.Digest) && file.Digest == output.Digest && validBundleOutputPath(output.Path)
-	if record.Verified && file.Size == 0 {
-		return BundleOutput{Path: output.Path}, valid
-	}
+	record.Verified = validBundleOutputPath(output.Path) && validDigest(output.Digest) && len(byDigest[output.Digest]) > 0
 
 	return record, valid
 }
@@ -207,10 +223,11 @@ func BundleComponents(_ context.Context, filesets *Filesets, boms []*cdx.BOM) []
 
 // RecordBundleOccurrences writes onto every npm component the verified outputs that hold
 // it, beside its file evidence, and PropertyJSBundles onto those an unverified output
-// names. An earlier image's record of an output at a path this image's observer recorded
-// again is replaced; the rest of what earlier images recorded is kept, since an import may
-// have moved those outputs anywhere. A package no output names is left as it was: a bundle
-// leaving a package out says nothing about its installed files.
+// names. Each occurrence keeps the path the output was observed at. Bundle occurrences the
+// component already carries are kept, even at a path recorded again with other bytes: the
+// earlier bytes may have been moved elsewhere, and only their digest is looked for. A
+// package no output names is left as it was: a bundle leaving a package out says nothing
+// about its installed files.
 //
 // Returns the number of components given bundle evidence.
 func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets) int {
@@ -251,14 +268,15 @@ func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets
 		}
 		recorded++
 
-		rewritten := lo.SliceToMap(outputs, func(occurrence cdx.EvidenceOccurrence) (string, bool) { return occurrence.Location, true })
 		if comp.Evidence == nil {
 			comp.Evidence = &cdx.Evidence{}
 		}
-		occurrences := lo.Filter(lo.FromPtr(comp.Evidence.Occurrences), func(occurrence cdx.EvidenceOccurrence, _ int) bool {
-			return !strings.HasPrefix(occurrence.AdditionalContext, bundleEvidencePrefix) || !rewritten[occurrence.Location]
-		})
-		occurrences = append(occurrences, outputs...)
+		occurrences := lo.FromPtr(comp.Evidence.Occurrences)
+		for _, output := range outputs {
+			if !slices.Contains(occurrences, output) {
+				occurrences = append(occurrences, output)
+			}
+		}
 		comp.Evidence.Occurrences = &occurrences
 	})
 

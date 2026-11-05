@@ -121,16 +121,35 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			))
 		})
 
-		It("does not verify an output by the same bytes at an unrelated path", func(ctx SpecContext) {
+		It("verifies an output a later step of the same build moved, by its bytes, and names its pruned packages", func(ctx SpecContext) {
 			filesets := collect(ctx,
-				regularFile("srv/other/main.js", "as bundled"),
+				regularFile("srv/www/main.js", "as bundled"),
 				regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(
 					eventOf(outputOf("/app/dist/main.js", "as bundled", "dep@1.0.0")),
 				)),
 			)
 
 			Expect(filesets.Bundles).To(ConsistOf(
-				bundleOf("/app/dist/main.js", "as bundled", false, BundlePackage{Name: "dep", Version: "1.0.0"}),
+				bundleOf("/app/dist/main.js", "as bundled", true, BundlePackage{Name: "dep", Version: "1.0.0"}),
+			), "the code is in the image wherever it went; the path stays the one it was observed at")
+			Expect(BundleComponents(ctx, filesets, nil)).To(Equal([]cdx.Component{
+				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/dep@1.0.0", Name: "dep", Version: "1.0.0", PackageURL: "pkg:npm/dep@1.0.0"},
+			}))
+		})
+
+		It("keeps an overridden output whose bytes were moved before its path was written again", func(ctx SpecContext) {
+			filesets := collect(ctx,
+				regularFile("app/dist/main.js", "second build"),
+				regularFile("srv/www/main.js", "first build"),
+				regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(
+					eventOf(outputOf("/app/dist/main.js", "first build", "old-dep@1.0.0")),
+					eventOf(outputOf("/app/dist/main.js", "second build", "new-dep@1.0.0")),
+				)),
+			)
+
+			Expect(filesets.Bundles).To(ConsistOf(
+				bundleOf("/app/dist/main.js", "first build", true, BundlePackage{Name: "old-dep", Version: "1.0.0"}),
+				bundleOf("/app/dist/main.js", "second build", true, BundlePackage{Name: "new-dep", Version: "1.0.0"}),
 			))
 		})
 
@@ -278,7 +297,7 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			}
 		})
 
-		It("replaces what an earlier image recorded at an output this image rewrote, and keeps the rest", func(ctx SpecContext) {
+		It("keeps what an earlier image recorded at an output this image wrote again, since those bytes may have moved", func(ctx SpecContext) {
 			bom := &cdx.BOM{Components: &[]cdx.Component{
 				componentOf("pkg:npm/dep@1.0.0",
 					fileOccurrence("/app/node_modules/dep/index.js", "dep"),
@@ -293,6 +312,7 @@ var _ = Describe("JavaScript bundle evidence", func() {
 
 			Expect(occurrencesOf((*bom.Components)[0])).To(ConsistOf(
 				fileOccurrence("/app/node_modules/dep/index.js", "dep"),
+				bundleOccurrence("/app/dist/main.js", "donor bytes"),
 				bundleOccurrence("/app/dist/main.js", "this image's bytes"),
 				bundleOccurrence("/donor/dist/other.js", "other bytes"),
 			))
@@ -507,6 +527,21 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			Expect(decisions[0]).To(Equal(Decision{Shipped: true, Reason: ReasonBundle, Matched: []string{"/srv/vendor.js"}}))
 			Expect(decisions[1]).To(Equal(Decision{Shipped: true, Reason: ReasonBundle, Matched: []string{"/srv/vendor.js"}}))
 			Expect(decisions[2].Shipped).To(BeFalse())
+		})
+
+		It("says why a package with no file evidence is kept", func(ctx SpecContext) {
+			components := []Component{
+				{Ecosystem: EcosystemJavaScript, Name: "bundled", Version: "1.0.0", Bundles: []Occurrence{{Path: "/app/dist/main.js", Digest: digestOf("main")}}},
+				{Ecosystem: EcosystemJavaScript, Name: "missing", Version: "1.0.0", Bundles: []Occurrence{{Path: "/app/dist/gone.js", Digest: digestOf("gone")}}},
+			}
+
+			decisions := Match(ctx, components, ProducedBinaries{}, indexOf(map[string]File{
+				"/srv/main.js": {Digest: digestOf("main"), Size: 4},
+			}))
+
+			Expect(decisions[0]).To(Equal(Decision{Shipped: true, Reason: ReasonBundle, Matched: []string{"/srv/main.js"}}))
+			Expect(decisions[1]).To(Equal(Decision{Shipped: true, Reason: ReasonNoData}),
+				"without file evidence its code may still ship untracked, so a missing bundle is not absence")
 		})
 	})
 })

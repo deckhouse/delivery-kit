@@ -182,7 +182,7 @@ var _ = Describe("JavaScript bundle evidence in the image SBOM", func() {
 		Expect(lo.FromPtr((*target.Components)[0].Evidence.Occurrences)).To(HaveLen(1))
 	})
 
-	It("records a pruned bundled package in the SBOM a stapel image converges to", func(specCtx SpecContext) {
+	It("records a pruned bundled package in the SBOM a stapel image converges to, after the build moved its bundle", func(specCtx SpecContext) {
 		ctx := logging.WithLogger(specCtx)
 		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
 		server := httptest.NewServer(registry.New())
@@ -192,7 +192,7 @@ var _ = Describe("JavaScript bundle evidence in the image SBOM", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		img := imageWithFiles(map[string]string{
-			"/app/dist/main.js": "main chunk",
+			"/srv/www/main.js": "main chunk",
 			jsobserver.LogPath: logOf(jsobserver.Output{Path: "/app/dist/main.js", Digest: digestOf("main chunk"), Packages: []jsobserver.Package{
 				{Name: "pruned", Version: "1.0.0"},
 			}}),

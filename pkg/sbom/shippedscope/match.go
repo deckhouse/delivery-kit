@@ -190,6 +190,9 @@ func Match(ctx context.Context, components []Component, binaries ProducedBinarie
 
 		if component.Occurrences == nil {
 			decisions[i] = Decision{Shipped: true, Reason: ReasonNoData}
+			if decision, ok := bundleDecision(component, byDigest); ok {
+				decisions[i] = decision
+			}
 
 			continue
 		}
@@ -271,14 +274,8 @@ func Match(ctx context.Context, components []Component, binaries ProducedBinarie
 		}
 
 		decision := &decisions[i]
-		var bundled []string
-		for _, bundle := range component.Bundles {
-			bundled = append(bundled, byDigest[bundle.Digest]...)
-		}
-		if len(bundled) > 0 {
-			decision.Shipped = true
-			decision.Reason = ReasonBundle
-			decision.Matched = bundled
+		if bundled, ok := bundleDecision(component, byDigest); ok {
+			*decision = bundled
 
 			continue
 		}
@@ -338,6 +335,18 @@ func Match(ctx context.Context, components []Component, binaries ProducedBinarie
 	}
 
 	return decisions
+}
+
+func bundleDecision(component Component, byDigest map[string][]string) (Decision, bool) {
+	var matched []string
+	for _, bundle := range component.Bundles {
+		matched = append(matched, byDigest[bundle.Digest]...)
+	}
+	if len(matched) == 0 {
+		return Decision{}, false
+	}
+
+	return Decision{Shipped: true, Reason: ReasonBundle, Matched: matched}, true
 }
 
 // indexByDigest inverts the index for the content pass, leaving out zero-size files: their

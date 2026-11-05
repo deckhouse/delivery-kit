@@ -9,7 +9,7 @@ var _ = ginkgo.Describe("Same-layer hardlink chains", func() {
 	ginkgo.It("keeps captured historical bytes after the terminal target is replaced", func(ctx ginkgo.SpecContext) {
 		img, err := imageOf([]tarEntry{hardlink("a", "b"), hardlink("b", "origin"), regularFile("origin", "old")}, []tarEntry{regularFile("origin", "new")})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		index, captured, err := indexImageFiles(ctx, img, func(name string) bool { return name == "/a" })
+		index, captured, err := indexImageFiles(ctx, img, func(name string, _ int64) bool { return name == "/a" })
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(index.Incomplete).To(gomega.BeFalse())
 		gomega.Expect(index.Files["/a"].Digest).To(gomega.Equal(digestOf("old")))

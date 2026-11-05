@@ -157,6 +157,9 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 			}
 			mergeOpts.ImportBOMs = append(slices.Clone(mergeOpts.ImportBOMs), installedBOMs...)
 		}
+		if bundled := bundleComponentsBOM(ctx, filesets, append([]*cdx.BOM{targetBOM, mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...)); bundled != nil {
+			mergeOpts.ImportBOMs = append(slices.Clone(mergeOpts.ImportBOMs), bundled)
+		}
 		mergeOpts, err = prepareBinaryMerge(ctx, targetBOM, mergeOpts, produced)
 		if err != nil {
 			return err
@@ -300,6 +303,24 @@ func collectShippedScope(ctx context.Context, backend imageSaver, werfImgName, i
 	return filesets, produced
 }
 
+// bundleComponentsBOM holds the packages the image's bundles carry that no input declares,
+// such as those whose node_modules a later stage pruned. They are merged like scanned
+// components, so GOST properties and external references are set on them as on any other.
+func bundleComponentsBOM(ctx context.Context, filesets *shippedscope.Filesets, inputs []*cdx.BOM) *cdx.BOM {
+	components := shippedscope.BundleComponents(ctx, filesets, inputs)
+	if len(components) == 0 {
+		return nil
+	}
+	for i := range components {
+		gost.SetComponentSourceLangs(ctx, &components[i], []string{"JavaScript"})
+	}
+
+	bom := cyclonedxutil.NewBOM()
+	bom.Components = &components
+
+	return bom
+}
+
 func prepareBinaryMerge(ctx context.Context, target *cdx.BOM, opts cyclonedxutil.MergeOpts, produced *shippedscope.ProducedFiles) (cyclonedxutil.MergeOpts, error) {
 	shippedscope.PrepareBinaryOccurrences(ctx, target, produced)
 	inputs := append([]*cdx.BOM{opts.BaseBOM}, opts.ImportBOMs...)
@@ -327,6 +348,8 @@ func recordShippedScope(ctx context.Context, bom *cdx.BOM, filesets *shippedscop
 	}
 	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
+	bundled := shippedscope.RecordBundleOccurrences(ctx, bom, filesets)
+	logboek.Context(ctx).Debug().LogF("Collected %d JavaScript bundle outputs of the image, recorded onto %d components\n", len(filesets.Bundles), bundled)
 
 	if marked := shippedscope.MarkNotShipped(ctx, bom, filesets); marked > 0 {
 		logboek.Context(ctx).Default().LogF("image %s: %d components of the SBOM are not shipped by the image\n", werfImgName, marked)
@@ -612,7 +635,7 @@ func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, 
 	return nil
 }
 
-const sbomArtifactFormatVersion = "19"
+const sbomArtifactFormatVersion = "20"
 
 // calculateStableChecksum computes the SBOM artifact cache checksum. Together with the
 // parent stage digest it forms the cache key: a previously attached SBOM is reused only

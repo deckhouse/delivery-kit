@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	. "github.com/onsi/ginkgo/v2"
@@ -217,6 +219,34 @@ func readImageFile(img v1.Image, path string) []byte {
 	return nil
 }
 
+// imageFilesUnder returns the regular files below dir in the flattened image, keyed by
+// their path relative to dir. Files deleted by a later layer are not returned.
+func imageFilesUnder(img v1.Image, dir string) map[string][]byte {
+	rc := mutate.Extract(img)
+	defer rc.Close()
+
+	prefix := strings.Trim(dir, "/") + "/"
+	files := make(map[string][]byte)
+	reader := tar.NewReader(rc)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return files
+		}
+		Expect(err).NotTo(HaveOccurred())
+
+		entry := strings.TrimPrefix(strings.TrimPrefix(header.Name, "./"), "/")
+		if header.Typeflag != tar.TypeReg || !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+
+		body, err := io.ReadAll(reader)
+		Expect(err).NotTo(HaveOccurred())
+
+		files[strings.TrimPrefix(entry, prefix)] = body
+	}
+}
+
 func readLayerFile(layer v1.Layer, want string) ([]byte, bool) {
 	rc, err := layer.Uncompressed()
 	Expect(err).NotTo(HaveOccurred())
@@ -323,4 +353,141 @@ func assertGoModuleCaseImages(ctx SpecContext, project *werf.Project) map[string
 	}
 
 	return snapshot
+}
+
+const (
+	jsBundleEvidencePrefix = "werf:js-bundle:v1:"
+
+	jsMainOwnerPURL    = "pkg:npm/pretty-bytes@6.1.1"
+	jsLazyOwnerPURL    = "pkg:npm/escape-string-regexp@5.0.0"
+	jsTreeShakenPURL   = "pkg:npm/lodash-es@4.17.21"
+	jsMainOwnerMarker  = "Mibit"
+	jsLazyOwnerMarker  = `\\x2d`
+	jsTreeShakenMarker = "__lodash_hash_undefined__"
+)
+
+type jsBundleSnapshot struct {
+	Shipped     bool
+	Occurrences []cdx.EvidenceOccurrence
+}
+
+// assertJavaScriptBundleOutputs proves the fixture is a valid oracle before any SBOM is
+// read. dist-baseline is built with an emptied environment, so without the observer: dist
+// must match it byte for byte. Each chunk must hold only its owner's code, and the
+// tree-shaken package must be installed but not emitted. Returns each chunk's digest.
+func assertJavaScriptBundleOutputs(ctx SpecContext, project *werf.Project, repoPath string) map[string]string {
+	repo := os.Getenv("WERF_REPO")
+	Expect(repo).NotTo(BeEmpty())
+	filesOf := func(imageName, dir string) map[string][]byte {
+		return imageFilesUnder(pullImage(ctx, repo+"@"+stagesImageDigestOf(ctx, project, imageName)), dir)
+	}
+
+	donor := filesOf("donor", "/app")
+	pruned := filesOf("pruned-donor", "/app")
+	dist := filesUnder(donor, "dist")
+	Expect(lo.Keys(dist)).To(ConsistOf("main.js", "lazy.js"))
+	Expect(filesUnder(donor, "dist-baseline")).To(Equal(dist), "the observer must not change emitted bytes")
+	Expect(filesUnder(pruned, "moved-dist")).To(Equal(dist))
+	Expect(filesUnder(pruned, "dist")).To(BeEmpty())
+	Expect(filesUnder(pruned, "dist-baseline")).To(Equal(dist))
+	Expect(filesUnder(pruned, "node_modules")).To(BeEmpty())
+
+	for _, input := range []string{"package.json", "package-lock.json", "vite.config.js", "src/main.js", "src/lazy.js"} {
+		body, err := os.ReadFile(filepath.Join(repoPath, input))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(donor).To(HaveKeyWithValue(input, body), "the build must not rewrite %s", input)
+	}
+
+	Expect(string(donor["node_modules/pretty-bytes/index.js"])).To(ContainSubstring(jsMainOwnerMarker))
+	Expect(string(donor["node_modules/escape-string-regexp/index.js"])).To(ContainSubstring(jsLazyOwnerMarker))
+	Expect(string(donor["node_modules/lodash-es/_hashSet.js"])).To(ContainSubstring(jsTreeShakenMarker))
+	main, lazy := string(dist["main.js"]), string(dist["lazy.js"])
+	Expect(main).To(ContainSubstring(jsMainOwnerMarker))
+	Expect(main).NotTo(ContainSubstring(jsLazyOwnerMarker))
+	Expect(lazy).To(ContainSubstring(jsLazyOwnerMarker))
+	Expect(lazy).NotTo(ContainSubstring(jsMainOwnerMarker))
+	Expect(main + lazy).NotTo(ContainSubstring(jsTreeShakenMarker))
+
+	Expect(filesOf("one-chunk", "/srv")).To(Equal(map[string][]byte{"bundle.js": dist["main.js"]}))
+	Expect(filesOf("grandchild", "/www")).To(Equal(map[string][]byte{"app.js": dist["main.js"]}))
+	Expect(filesOf("all-chunks", "/srv/dist")).To(Equal(dist))
+	Expect(filesOf("lock-only", "/app")).To(Equal(map[string][]byte{"package-lock.json": donor["package-lock.json"]}))
+
+	return lo.MapValues(dist, func(body []byte, _ string) string { return digestOfString(string(body)) })
+}
+
+func filesUnder(files map[string][]byte, dir string) map[string][]byte {
+	under := make(map[string][]byte)
+	for path, body := range files {
+		if rel, ok := strings.CutPrefix(path, dir+"/"); ok {
+			under[rel] = body
+		}
+	}
+	return under
+}
+
+func assertJavaScriptBundleImages(ctx SpecContext, project *werf.Project, chunks map[string]string) map[string]jsBundleSnapshot {
+	negative := cdx.Property{Name: shippedscope.PropertyShipped, Value: "false"}
+	owners := map[string]string{jsMainOwnerPURL: "main.js", jsLazyOwnerPURL: "lazy.js", jsTreeShakenPURL: ""}
+
+	snapshot := make(map[string]jsBundleSnapshot)
+	for imageName, present := range map[string][]string{
+		"donor":        {"main.js", "lazy.js"},
+		"pruned-donor": {"main.js", "lazy.js"},
+		"one-chunk":    {"main.js"},
+		"grandchild":   {"main.js"},
+		"all-chunks":   {"main.js", "lazy.js"},
+		"lock-only":    {},
+	} {
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{imageName}}}))
+
+		for _, comp := range lo.FromPtr(bom.Components) {
+			if len(jsBundleOccurrences(&comp)) == 0 {
+				continue
+			}
+			Expect(owners).To(HaveKey(comp.PackageURL), "%s: %s must not carry bundle evidence", imageName, comp.PackageURL)
+		}
+
+		for purl, chunk := range owners {
+			comp := sbomtest.FindComponentByPURL(bom, purl)
+			Expect(comp).NotTo(BeNil(), "%s must retain component %s", imageName, purl)
+			Expect(comp.PackageURL).To(Equal(purl))
+			properties := lo.FromPtr(comp.Properties)
+			occurrences := jsBundleOccurrences(comp)
+
+			if chunk == "" {
+				Expect(occurrences).To(BeEmpty(), "%s: tree-shaken %s must not carry bundle evidence", imageName, purl)
+			}
+			own := And(
+				HaveField("Location", "/app/dist/"+chunk),
+				HaveField("AdditionalContext", jsBundleEvidencePrefix+chunks[chunk]),
+			)
+			for _, occurrence := range occurrences {
+				Expect(occurrence).To(own, "%s: %s evidence must name only its own chunk", imageName, purl)
+			}
+
+			switch {
+			case chunk != "" && slices.Contains(present, chunk):
+				Expect(occurrences).To(ContainElement(own), "%s: %s must carry evidence for %s", imageName, purl, chunk)
+				Expect(properties).NotTo(ContainElement(negative), "%s must ship %s", imageName, purl)
+			case imageName == "donor":
+				Expect(properties).NotTo(ContainElement(negative), "the donor installed %s", purl)
+			case imageName == "pruned-donor":
+				// Pruning removed the tree-shaken package's files, and no bundle evidence can
+				// stand in for them, so its verdict there is left to the contract for unknown.
+			default:
+				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, purl)
+			}
+
+			snapshot[imageName+"/"+purl] = jsBundleSnapshot{Shipped: !slices.Contains(properties, negative), Occurrences: occurrencesOf(comp)}
+		}
+	}
+
+	return snapshot
+}
+
+func jsBundleOccurrences(comp *cdx.Component) []cdx.EvidenceOccurrence {
+	return lo.Filter(occurrencesOf(comp), func(occurrence cdx.EvidenceOccurrence, _ int) bool {
+		return strings.HasPrefix(occurrence.AdditionalContext, "werf:js-bundle:")
+	})
 }

@@ -118,5 +118,6 @@ var _ = Describe("Installed inventory convergence", func() {
 		Entry("inventory before legacy bytecode evidence", "16"),
 		Entry("inventory before external references resolved after deduplication", "17"),
 		Entry("inventory before case-sensitive Go binary evidence", "18"),
+		Entry("inventory before JavaScript bundle evidence", "19"),
 	)
 })

@@ -62,8 +62,9 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 // capture names the files whose bytes the caller needs beside their digest; they are read
 // once, while the file passes by, instead of costing another walk of the image. The bytes
 // travel with the entry, so a hardlink to such a file gets them along with its digest. A
-// symlink to one does not: it stays a symlink in the index, as everywhere else.
-func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string) bool) (*FileIndex, map[string][]byte, error) {
+// symlink to one does not: it stays a symlink in the index, as everywhere else. The size is
+// negative for a hardlink, whose target is not known yet when it is asked.
+func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string, size int64) bool) (*FileIndex, map[string][]byte, error) {
 	index := &FileIndex{
 		Files:        make(map[string]File),
 		Symlinks:     make(map[string]string),
@@ -72,7 +73,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 	}
 	hardlinks := make(map[string]string)
 	if capture == nil {
-		capture = func(string) bool { return false }
+		capture = func(string, int64) bool { return false }
 	}
 
 	rootfs := mutate.Extract(img)
@@ -99,7 +100,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 
 		switch header.Typeflag {
 		case tar.TypeReg:
-			file, body, err := readFile(reader, header, capture(name))
+			file, body, err := readFile(reader, header, capture(name, header.Size))
 			if err != nil {
 				return nil, nil, fmt.Errorf("hash %q: %w", name, err)
 			}
@@ -172,7 +173,7 @@ func readFile(reader io.Reader, header *tar.Header, keepBody bool) (File, []byte
 // sixth of the first pass on uncompressed layers and at nearly its equal on compressed ones,
 // where the gzip dominates — so it runs only for images that hold hardlinks and stops as
 // soon as every link has been answered.
-func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *FileIndex, hardlinks map[string]string, capture func(path string) bool) (map[string]string, error) {
+func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *FileIndex, hardlinks map[string]string, capture func(path string, size int64) bool) (map[string]string, error) {
 	if len(hardlinks) == 0 {
 		return hardlinks, nil
 	}
@@ -183,7 +184,7 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 	remaining := make(map[string]string, len(hardlinks))
 	for name, target := range hardlinks {
 		remaining[name] = target
-		keepBody := capture(name)
+		keepBody := capture(name, -1)
 		for !targets[target] {
 			targets[target] = keepBody
 			if !keepBody {
@@ -218,9 +219,9 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 
 // A link its own layer could not answer is resolved against the flattened view later, and
 // the bytes its name asked for have to come from the layer that holds the target.
-func bodyOwed(index *FileIndex, remaining map[string]string, capture func(path string) bool) bool {
+func bodyOwed(index *FileIndex, remaining map[string]string, capture func(path string, size int64) bool) bool {
 	for name, target := range remaining {
-		if !capture(name) {
+		if !capture(name, -1) {
 			continue
 		}
 

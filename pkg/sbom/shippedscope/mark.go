@@ -68,12 +68,16 @@ func MarkNotShipped(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 			return
 		}
 
-		components = append(components, Component{
+		component := Component{
 			Ecosystem:   key.ecosystem,
 			Name:        key.name,
 			Version:     key.version,
 			Occurrences: recordedOccurrences(comp),
-		})
+		}
+		if key.ecosystem == EcosystemJavaScript {
+			component.Bundles, component.BundlesUnknown = bundleOccurrences(comp)
+		}
+		components = append(components, component)
 		judged = append(judged, comp)
 	})
 

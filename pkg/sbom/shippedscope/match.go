@@ -42,6 +42,14 @@ type Component struct {
 	// carrying this module or crate. The caller must exclude manifests and source files;
 	// a matching digest alone cannot establish that a binary contains the dependency.
 	Occurrences []Occurrence
+	// Bundles are outputs a JavaScript bundler was observed writing the component's code
+	// into, by the digest they had then. Any of them in the image, wherever an import put
+	// it, holds the component however many others it holds; none of them in the image
+	// proves nothing on its own.
+	Bundles []Occurrence
+	// BundlesUnknown means an output the component was observed in changed afterwards, so
+	// its files missing from the image cannot show it absent.
+	BundlesUnknown bool
 }
 
 // ProducedBinaries is every binary the image's own build produced, classified. The rule
@@ -72,6 +80,9 @@ const (
 	// ReasonContent — a file of the component is in the image, byte for byte, and no other
 	// component of the same ecosystem claims those bytes.
 	ReasonContent Reason = "content"
+	// ReasonBundle — an output a bundler wrote the component into is in the image, byte for
+	// byte.
+	ReasonBundle Reason = "bundle"
 	// ReasonContentShared — the component's files in the image are all shared with other
 	// components of its ecosystem, and none of those proved itself present either.
 	ReasonContentShared Reason = "content-shared"
@@ -123,7 +134,10 @@ type Decision struct {
 //     (name, version) so that identical copies of one package are one owner. A component
 //     whose every matching file is shared is held only when none of the co-owners proved
 //     itself by a file of its own: the one physical file belongs to whoever did.
-//  3. Among files no proven component explains: a component's path still present in the
+//  3. A component its own files do not hold is held by any bundle output recorded as
+//     carrying it that the image holds byte for byte, shared or not; failing that, it is
+//     kept when such an output changed after it was recorded.
+//  4. Among files no proven component explains: a component's path still present in the
 //     image holds it; failing that, a file named like one of its, when no other component
 //     has a file of that name and the name is not one every package carries.
 //
@@ -257,6 +271,24 @@ func Match(ctx context.Context, components []Component, binaries ProducedBinarie
 		}
 
 		decision := &decisions[i]
+		var bundled []string
+		for _, bundle := range component.Bundles {
+			bundled = append(bundled, byDigest[bundle.Digest]...)
+		}
+		if len(bundled) > 0 {
+			decision.Shipped = true
+			decision.Reason = ReasonBundle
+			decision.Matched = bundled
+
+			continue
+		}
+		if component.BundlesUnknown {
+			decision.Shipped = true
+			decision.Reason = ReasonNoData
+
+			continue
+		}
+
 		for _, occurrence := range component.Occurrences {
 			if explained[occurrence.Path] {
 				continue

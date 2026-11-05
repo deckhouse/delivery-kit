@@ -47,18 +47,18 @@ var _ = Describe("formatEnvVars shell safety", func() {
 
 var _ = Describe("formatWorkdirCommand", func() {
 	It("places the env prefix in front of the package manager, not in front of cd", func() {
-		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "direct"})).
+		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "direct"}).run).
 			To(Equal(`cd "/app" && GOPROXY=direct go mod download`))
 	})
 
 	It("keeps cd in the parent shell and isolates only a secret-backed value", func() {
-		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"})).
+		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"}).run).
 			To(Equal(`cd "/app" && (GOPROXY="$(</run/secrets/proxy)"; GOPROXY="$GOPROXY" go mod download)`))
 	})
 
 	It("exposes the env var to the package manager process", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
-		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir}, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"})
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir}, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"}).run
 
 		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
 		stderr := &bytes.Buffer{}
@@ -83,8 +83,8 @@ var _ = Describe("formatWorkdirCommand", func() {
 			// The second workdir is relative: it resolves against the `cd` of the first directive,
 			// which the shared stage shell keeps between directives.
 			script := strings.Join([]string{
-				formatWorkdirCommand(FileBasedSpec{Workdir: appDir}, "printenv GOPROXY", firstEnv),
-				formatWorkdirCommand(FileBasedSpec{Workdir: "tools"}, "printenv GOPROXY", nil),
+				formatWorkdirCommand(FileBasedSpec{Workdir: appDir}, "printenv GOPROXY", firstEnv).run,
+				formatWorkdirCommand(FileBasedSpec{Workdir: "tools"}, "printenv GOPROXY", nil).run,
 			}, "\n")
 			script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
 
@@ -680,7 +680,7 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 	It("runs the package manager when the lock is present", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
 		Expect(os.WriteFile(filepath.Join(dir, "poetry.lock"), nil, 0o600)).To(Succeed())
-		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil)
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil).run
 
 		stdout, err := exec.CommandContext(ctx, "bash", "-ec", command).Output()
 		Expect(err).NotTo(HaveOccurred())
@@ -690,7 +690,7 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 	It("fails the stage script before the package manager runs when the lock is absent", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
 		script := strings.Join([]string{
-			formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil),
+			formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil).run,
 			"echo next-directive",
 		}, "\n")
 
@@ -705,7 +705,7 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 
 	It("reports a missing workdir as such, not as a missing lock", func(ctx SpecContext) {
 		dir := filepath.Join(GinkgoT().TempDir(), "absent")
-		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil)
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil).run
 
 		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
 		stderr := &bytes.Buffer{}
@@ -715,5 +715,69 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 		Expect(string(stdout)).To(BeEmpty())
 		Expect(stderr.String()).To(ContainSubstring("No such file or directory"))
 		Expect(stderr.String()).NotTo(ContainSubstring("lock file"))
+	})
+})
+
+var _ = Describe("generatePackagesDigestInputs", func() {
+	goMod := func(env map[string]string) *PackagesDirective {
+		return &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum"}, Env: env}
+	}
+
+	It("names the type, spec, lock and workdir with the manager invocation, byte for byte", func() {
+		Expect(generatePackagesDigestInputs([]*PackagesDirective{goMod(map[string]string{"GOPROXY": "%secret:proxy%", "GOFLAGS": "-mod=mod"})})).
+			To(Equal([]string{`go-mod spec="go.mod" lock="go.sum" cd "/app" && (GOPROXY="$(</run/secrets/proxy)"; GOFLAGS=-mod=mod GOPROXY="$GOPROXY" go mod download)`}))
+	})
+
+	It("leaves the lock guard and its message out while the executed command keeps them", func() {
+		directives := []*PackagesDirective{goMod(nil)}
+		Expect(GeneratePackagesCommands(directives)[0]).To(ContainSubstring(`test -f "go.sum"`))
+		Expect(GeneratePackagesCommands(directives)[0]).To(ContainSubstring("lock file go.sum not found"))
+		Expect(generatePackagesDigestInputs(directives)[0]).NotTo(ContainSubstring("test -f"))
+		Expect(generatePackagesDigestInputs(directives)[0]).NotTo(ContainSubstring("not found"))
+	})
+
+	It("leaves the os-pm version check and its message out but keeps the version file write", func() {
+		directives := []*PackagesDirective{{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: map[string]string{"PACKAGES_VERSION": "1.0.0"}}}
+		Expect(GeneratePackagesCommands(directives)[0]).To(ContainSubstring(packagesVersionMissingMessage))
+		Expect(generatePackagesDigestInputs(directives)).To(Equal([]string{fmt.Sprintf(
+			`os-pm spec="" lock="" (PACKAGES_VERSION=1.0.0; %s -p /var/lib/pm; printf '%%s\n' "$PACKAGES_VERSION" > /var/lib/pm/container-factory-version; PACKAGES_VERSION="$PACKAGES_VERSION" pm install curl jq)`,
+			stapel.MkdirBinPath(),
+		)}))
+	})
+
+	DescribeTable("changes with what selects another result",
+		func(other *PackagesDirective) {
+			base := generatePackagesDigestInputs([]*PackagesDirective{goMod(map[string]string{"GOPROXY": "direct"})})
+			Expect(generatePackagesDigestInputs([]*PackagesDirective{other})).NotTo(Equal(base))
+		},
+		Entry("type", &PackagesDirective{Type: PackagesDirectiveTypeRustCargo, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum"}, Env: map[string]string{"GOPROXY": "direct"}}),
+		Entry("workdir", &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/src", Spec: "go.mod", Lock: "go.sum"}, Env: map[string]string{"GOPROXY": "direct"}}),
+		Entry("spec", &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "tools/go.mod", Lock: "go.sum"}, Env: map[string]string{"GOPROXY": "direct"}}),
+		Entry("lock", &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: ""}, Env: map[string]string{"GOPROXY": "direct"}}),
+		Entry("manager", &PackagesDirective{Type: PackagesDirectiveTypeGoMod, FileBased: FileBasedSpec{Workdir: "/app", Spec: "go.mod", Lock: "go.sum", Manager: "/opt/go/bin/go"}, Env: map[string]string{"GOPROXY": "direct"}}),
+		Entry("env value", goMod(map[string]string{"GOPROXY": "off"})),
+		Entry("env secret reference", goMod(map[string]string{"GOPROXY": "%secret:proxy%"})),
+	)
+
+	It("changes with the os-pm package list", func() {
+		osPm := func(pkgs ...string) []*PackagesDirective {
+			return []*PackagesDirective{{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: pkgs}}}
+		}
+		Expect(generatePackagesDigestInputs(osPm("curl", "jq"))).NotTo(Equal(generatePackagesDigestInputs(osPm("curl"))))
+		Expect(generatePackagesDigestInputs(osPm("curl==8.12.1"))).NotTo(Equal(generatePackagesDigestInputs(osPm("curl"))))
+	})
+
+	It("yields one input per executed command, in the same order", func() {
+		directives := []*PackagesDirective{
+			{Type: PackagesDirectiveTypeOSPM, Spec: PackagesSpec{Packages: []string{"curl"}}},
+			goMod(nil),
+			{Type: PackagesDirectiveTypePythonUV, FileBased: FileBasedSpec{Workdir: "/app", Spec: "pyproject.toml", Lock: "uv.lock"}},
+		}
+		inputs := generatePackagesDigestInputs(directives)
+		Expect(inputs).To(HaveLen(len(GeneratePackagesCommands(directives))))
+		Expect(inputs[0]).To(HavePrefix("os-pm "))
+		Expect(inputs[1]).To(HavePrefix("go-mod "))
+		Expect(inputs[2]).To(HavePrefix("python-uv "))
+		Expect(inputs[2]).To(HaveSuffix(`cd "/app" && UV_PYTHON_DOWNLOADS=never uv sync --frozen`))
 	})
 })

@@ -107,8 +107,9 @@ var _ = Describe("PackagesStage", func() {
 		It("does not affect install stage creation", func(ctx context.Context) {
 			imageBaseConfig := &config.StapelImageBase{
 				Shell: &config.Shell{
-					Packages: []string{"cd /app && go mod download"},
-					Install:  []string{"go build ./..."},
+					Packages:             []string{"cd /app && go mod download"},
+					PackagesDigestInputs: []string{"cd /app && go mod download"},
+					Install:              []string{"go build ./..."},
 				},
 			}
 
@@ -461,7 +462,7 @@ func generateTestPackagesStage(ctx context.Context, command string) *PackagesSta
 
 func generateTestPackagesStageMulti(ctx context.Context, commands []string) *PackagesStage {
 	imageBaseConfig := &config.StapelImageBase{
-		Shell: &config.Shell{Packages: commands},
+		Shell: &config.Shell{Packages: commands, PackagesDigestInputs: commands},
 	}
 	return GeneratePackagesStage(ctx, imageBaseConfig, testGitPatchOpts(), testBaseOpts())
 }

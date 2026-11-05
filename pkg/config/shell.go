@@ -6,6 +6,7 @@ type Shell struct {
 	BeforeSetup               []string
 	Setup                     []string
 	Packages                  []string
+	PackagesDigestInputs      []string
 	CacheVersion              string
 	BeforeInstallCacheVersion string
 	InstallCacheVersion       string

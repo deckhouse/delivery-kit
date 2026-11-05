@@ -70,8 +70,8 @@ func joinDirective(assignments, commands []string) string {
 
 // `cd` stays in the parent shell: a later directive may use a relative workdir that
 // counts on it, as it did when every command ran there.
-func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]string) string {
-	return formatWorkdirCommands(files, []string{command}, env)
+func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]string, guards packagesGuards) string {
+	return formatWorkdirCommands(files, []string{command}, env, guards)
 }
 
 // The environment prefix goes on the last command, the one that installs: a prefix
@@ -80,7 +80,7 @@ func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]st
 // The lock is checked here rather than left to the manager: poetry, go, cargo and yarn 1
 // resolve from the network and write a lock of their own when none is committed, so the
 // stage would record an unpinned resolution in the SBOM without a word.
-func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[string]string) string {
+func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[string]string, guards packagesGuards) string {
 	assignments, prefix := formatEnvVars(env, nil)
 	commands = slices.Clone(commands)
 	if prefix != "" {
@@ -90,7 +90,7 @@ func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[strin
 
 	steps := []string{fmt.Sprintf("cd %q", files.Workdir)}
 	if files.Lock != "" {
-		steps = append(steps, formatLockGuard(files))
+		steps = append(steps, guards.lock(files))
 	}
 	steps = append(steps, joinDirective(assignments, []string{strings.Join(commands, " && ")}))
 
@@ -116,26 +116,45 @@ func formatMkdirCommand() string {
 	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
-func formatVersionFileCommand() string {
-	return fmt.Sprintf(
-		`: "${%[1]s:?%[2]s}" && printf '%%s\n' "$%[1]s" > %[3]s`,
-		packagesVersionEnvName, packagesVersionMissingMessage, metadata.ContainerFactoryVersionPath,
-	)
+func formatPackagesVersionGuard() string {
+	return fmt.Sprintf(`: "${%s:?%s}"`, packagesVersionEnvName, packagesVersionMissingMessage)
 }
 
-func formatInstallCommand(pkgs []string, env map[string]string) string {
+func formatVersionFileCommand(guards packagesGuards) string {
+	return fmt.Sprintf(`%s && printf '%%s\n' "$%s" > %s`, guards.version(), packagesVersionEnvName, metadata.ContainerFactoryVersionPath)
+}
+
+func formatInstallCommand(pkgs []string, env map[string]string, guards packagesGuards) string {
 	assignments, prefix := formatEnvVars(env, []string{packagesVersionEnvName})
 
 	commands := []string{
 		formatMkdirCommand(),
-		formatVersionFileCommand(),
+		formatVersionFileCommand(guards),
 		strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " "))),
 	}
 
 	return joinDirective(assignments, commands)
 }
 
+type packagesGuards struct {
+	lock    func(files FileBasedSpec) string
+	version func() string
+}
+
+var (
+	execPackagesGuards   = packagesGuards{lock: formatLockGuard, version: formatPackagesVersionGuard}
+	digestPackagesGuards = packagesGuards{lock: legacyLockGuard, version: legacyPackagesVersionGuard}
+)
+
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {
+	return generatePackagesCommands(packages, execPackagesGuards)
+}
+
+func GeneratePackagesDigestInputs(packages []*PackagesDirective) []string {
+	return generatePackagesCommands(packages, digestPackagesGuards)
+}
+
+func generatePackagesCommands(packages []*PackagesDirective, guards packagesGuards) []string {
 	var commands []string
 	for _, pkg := range packages {
 		eco, ok := ecosystems[pkg.Type]
@@ -143,7 +162,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env))
+		commands = append(commands, eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env, guards))
 	}
 	return commands
 }

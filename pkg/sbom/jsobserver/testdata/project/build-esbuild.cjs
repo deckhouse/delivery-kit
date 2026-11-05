@@ -5,6 +5,15 @@ const path = require("node:path");
 const esbuild = require("esbuild");
 const plan = require("./plan.cjs");
 
+function descriptors(api) {
+  return Object.entries(Object.getOwnPropertyDescriptors(api)).map(([name, descriptor]) => [
+    name,
+    descriptor.get ? "get" : "value",
+    descriptor.enumerable,
+    descriptor.configurable,
+  ]);
+}
+
 function summary(result) {
   return {
     keys: Object.keys(result),
@@ -33,6 +42,10 @@ function summary(result) {
     exports: Object.keys(esbuild),
     defaultExports: Object.keys(esbuild.default),
     esModule: esbuild.__esModule,
+    descriptors: descriptors(esbuild),
+    defaultDescriptors: descriptors(esbuild.default),
+    defaultIsModule: esbuild.default === esbuild,
+    defaultIsOwnDefault: esbuild.default.default === esbuild.default,
     results: [disk, memory, requested, viaDefault, rebuilt].map(summary),
     invalid,
   }));

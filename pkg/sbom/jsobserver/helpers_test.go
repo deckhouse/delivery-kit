@@ -30,10 +30,11 @@ func newObserverFixture(ctx context.Context) observerFixture {
 	dir, err := filepath.EvalSymlinks(ginkgo.GinkgoT().TempDir())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fixture := observerFixture{
-		Dir:        dir,
-		AssetsDir:  filepath.Join(dir, "assets"),
-		LogPath:    filepath.Join(dir, "log", "events.jsonl"),
-		ProjectDir: filepath.Join(dir, "project"),
+		Dir:       dir,
+		AssetsDir: filepath.Join(dir, "assets"),
+		LogPath:   filepath.Join(dir, "log", "events.jsonl"),
+		// A non-ASCII path makes JSON byte and character lengths differ.
+		ProjectDir: filepath.Join(dir, "prøject"),
 	}
 	gomega.Expect(os.CopyFS(fixture.ProjectDir, os.DirFS("testdata/project"))).To(gomega.Succeed())
 	gomega.Expect(os.CopyFS(filepath.Join(dir, "linked-dep"), os.DirFS("testdata/linked-dep"))).To(gomega.Succeed())
@@ -44,6 +45,41 @@ func newObserverFixture(ctx context.Context) observerFixture {
 	gomega.Expect(os.Mkdir(fixture.AssetsDir, 0o755)).To(gomega.Succeed())
 	gomega.Expect(writeAssets(ctx, fixture.AssetsDir, fixture.LogPath)).To(gomega.Succeed())
 	return fixture
+}
+
+func (fixture observerFixture) setMaxEventBytes(maxEventBytes int) {
+	settingsPath := filepath.Join(fixture.AssetsDir, "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var settings assetSettings
+	gomega.Expect(json.Unmarshal(data, &settings)).To(gomega.Succeed())
+	settings.MaxEventBytes = maxEventBytes
+	data, err = json.Marshal(settings)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(os.WriteFile(settingsPath, data, 0o644)).To(gomega.Succeed())
+}
+
+func (fixture observerFixture) setPackageVersion(packageName, version string) {
+	manifestPath := filepath.Join(fixture.ProjectDir, "node_modules", packageName, "package.json")
+	data, err := os.ReadFile(manifestPath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var manifest map[string]any
+	gomega.Expect(json.Unmarshal(data, &manifest)).To(gomega.Succeed())
+	manifest["version"] = version
+	data, err = json.Marshal(manifest)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(os.WriteFile(manifestPath, data, 0o644)).To(gomega.Succeed())
+}
+
+// eventLineBytes is the size of the JSONL line holding exactly these outputs.
+func eventLineBytes(outputs ...Output) int {
+	size := len(`{"version":1,"outputs":[]}`) + 1 + len(outputs) - 1
+	for _, output := range outputs {
+		data, err := json.Marshal(output)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		size += len(data)
+	}
+	return size
 }
 
 func (fixture observerFixture) bootstrapOption() string {

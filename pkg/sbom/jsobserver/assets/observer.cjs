@@ -24,24 +24,32 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     appendEvent({ warning: message });
   }
 
-  function eventBytes(outputs) {
-    return Buffer.byteLength(JSON.stringify({ version: settings.protocolVersion, outputs })) + 1;
-  }
-
+  // Lines are assembled from outputs serialized once; the result is the same
+  // JSON as serializing the whole event.
   function emitOutputs(outputs) {
+    const head = `{"version":${JSON.stringify(settings.protocolVersion)},"outputs":[`;
+    const tail = "]}\n";
+    const emptyLineBytes = Buffer.byteLength(head) + Buffer.byteLength(tail);
     let batch = [];
+    let batchBytes = emptyLineBytes;
+    const flush = () => {
+      if (batch.length > 0) appendLine(head + batch.join(",") + tail);
+      batch = [];
+      batchBytes = emptyLineBytes;
+    };
     for (const output of outputs) {
-      if (eventBytes([output]) > settings.maxEventBytes) {
+      const serialized = JSON.stringify(output);
+      const bytes = Buffer.byteLength(serialized);
+      if (emptyLineBytes + bytes > settings.maxEventBytes) {
         warn(`observation of ${output.path} exceeds ${settings.maxEventBytes} bytes and is not recorded`);
         continue;
       }
-      if (batch.length > 0 && eventBytes([...batch, output]) > settings.maxEventBytes) {
-        appendEvent({ outputs: batch });
-        batch = [];
-      }
-      batch.push(output);
+      const separatorBytes = batch.length > 0 ? 1 : 0;
+      if (batchBytes + separatorBytes + bytes > settings.maxEventBytes) flush();
+      batchBytes += (batch.length > 0 ? 1 : 0) + bytes;
+      batch.push(serialized);
     }
-    if (batch.length > 0) appendEvent({ outputs: batch });
+    flush();
   }
 
   function observe(tool, collect) {
@@ -123,10 +131,10 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     }
     const owner = owningPackage(realFile);
     if (!owner) return null;
-    if (root !== null) {
-      if (isInside(root, owner.root)) return null;
-      if (isInside(owner.root, root) && !path.relative(root, owner.root).split(path.sep).includes("node_modules")) return null;
-    }
+    // Without a known project root only installed dependencies are certainly not first-party.
+    if (root === null) return owner.root.split(path.sep).includes("node_modules") ? owner : null;
+    if (isInside(root, owner.root)) return null;
+    if (isInside(owner.root, root) && !path.relative(root, owner.root).split(path.sep).includes("node_modules")) return null;
     return owner;
   }
 
@@ -200,7 +208,10 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
   }
 
   function wrapRollup(original) {
-    if (typeof original !== "function") return original;
+    if (typeof original !== "function") {
+      warn("Rollup exports are not recognized, its bundles are not observed");
+      return original;
+    }
     return {
       async rollup(inputOptions, ...rest) {
         const bundle = await original.call(this, inputOptions, ...rest);
@@ -247,48 +258,67 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     return result;
   }
 
-  function replaceDescriptor(descriptors, name, value) {
+  // Replaced members keep the kind and attributes of the original property,
+  // so getters of esbuild's CommonJS exports stay getters.
+  function replaceMember(descriptors, name, value) {
     const original = descriptors[name];
-    descriptors[name] = {
-      value,
-      enumerable: original.enumerable,
-      configurable: original.configurable,
-      writable: "writable" in original ? original.writable : false,
-    };
+    if (!original) throw new Error(`no own "${name}" export`);
+    descriptors[name] = original.get || original.set
+      ? { get: () => value, enumerable: original.enumerable, configurable: original.configurable }
+      : { value, enumerable: original.enumerable, configurable: original.configurable, writable: original.writable };
   }
 
-  function wrapEsbuild(original) {
-    if (!original || typeof original.build !== "function") return original;
+  function wrapEsbuildObject(original, resolveDefault) {
     const descriptors = Object.getOwnPropertyDescriptors(original);
     const originalBuild = original.build;
-    replaceDescriptor(descriptors, "build", function build(options) {
+    const originalContext = original.context;
+    if (typeof originalBuild !== "function" || typeof originalContext !== "function") throw new Error("build or context is not a function");
+    replaceMember(descriptors, "build", function build(options) {
       const forced = forceMetafile(options);
       if (!forced) return originalBuild(options);
       return originalBuild(forced.options).then((result) => finishEsbuild(forced, result));
     });
-    if (typeof original.context === "function") {
-      const originalContext = original.context;
-      replaceDescriptor(descriptors, "context", function context(options) {
-        const forced = forceMetafile(options);
-        if (!forced) return originalContext(options);
-        return originalContext(forced.options).then((ctx) => {
-          if (!ctx || typeof ctx.rebuild !== "function") return ctx;
-          const originalRebuild = ctx.rebuild;
-          ctx.rebuild = function rebuild() {
-            return originalRebuild.call(ctx).then((result) => finishEsbuild(forced, result));
-          };
-          return ctx;
-        });
+    replaceMember(descriptors, "context", function context(options) {
+      const forced = forceMetafile(options);
+      if (!forced) return originalContext(options);
+      return originalContext(forced.options).then((ctx) => {
+        if (!ctx || typeof ctx.rebuild !== "function") return ctx;
+        const originalRebuild = ctx.rebuild;
+        ctx.rebuild = function rebuild() {
+          return originalRebuild.call(ctx).then((result) => finishEsbuild(forced, result));
+        };
+        return ctx;
       });
-    }
-    let wrapped;
-    // esbuild exposes its API again as "default"; it must not bypass the wrappers.
-    if ("default" in descriptors) {
+    });
+    if (resolveDefault && descriptors.default) {
       const { enumerable, configurable } = descriptors.default;
-      descriptors.default = { get: () => wrapped, enumerable, configurable };
+      descriptors.default = { get: resolveDefault, enumerable, configurable };
     }
-    wrapped = Object.create(Object.getPrototypeOf(original), descriptors);
-    return wrapped;
+    return Object.create(Object.getPrototypeOf(original), descriptors);
+  }
+
+  // esbuild 0.24 exports its API twice: as module.exports and as the distinct
+  // object behind "default", whose own "default" refers to itself.
+  function wrapEsbuildApi(exportsObject) {
+    if (!exportsObject || typeof exportsObject !== "object") throw new Error("exports are not an object");
+    const defaultObject = Object.prototype.hasOwnProperty.call(exportsObject, "default") ? exportsObject.default : undefined;
+    const separateDefault = defaultObject !== null && typeof defaultObject === "object" && defaultObject !== exportsObject;
+    let wrappedDefault;
+    const resolveDefault = separateDefault ? () => wrappedDefault : defaultObject === exportsObject ? () => wrappedExports : null;
+    const wrappedExports = wrapEsbuildObject(exportsObject, resolveDefault);
+    if (separateDefault) {
+      wrappedDefault = wrapEsbuildObject(defaultObject, defaultObject.default === defaultObject ? () => wrappedDefault : null);
+    }
+    return wrappedExports;
+  }
+
+  function wrapEsbuild(original) {
+    try {
+      return wrapEsbuildApi(original);
+    } catch (err) {
+      warn(`esbuild exports are not recognized, its builds are not observed: ${err.message}`);
+      return original;
+    }
   }
 
   globalThis[instrumentKey] = { wrapRollup, wrapEsbuild };
@@ -310,18 +340,38 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     return { file, manifest };
   }
 
+  const warnedVersions = new Set();
+
+  // Only versions whose result metadata the observer was verified against are
+  // wrapped: Rollup 4 and esbuild 0.24.
+  function supportedVersion(entry, toolName, isSupported) {
+    const match = /^(\d+)\.(\d+)\./.exec(String(entry.manifest.version));
+    if (match && isSupported(Number(match[1]), Number(match[2]))) return entry;
+    const key = `${toolName}@${entry.manifest.version}`;
+    if (!warnedVersions.has(key)) {
+      warnedVersions.add(key);
+      warn(`${toolName} ${entry.manifest.version} is not supported, its output is not observed`);
+    }
+    return null;
+  }
+
+  function rollupEntry(url, relativeEntry) {
+    const entry = packageEntry(url, relativeEntry, "rollup");
+    return entry && supportedVersion(entry, "Rollup", (major) => major === 4);
+  }
+
   function rollupESMEntry(url) {
-    return packageEntry(url, "dist/es/rollup.js", "rollup");
+    return rollupEntry(url, "dist/es/rollup.js");
   }
 
   function rollupCommonJSEntry(url) {
-    return packageEntry(url, "dist/rollup.js", "rollup");
+    return rollupEntry(url, "dist/rollup.js");
   }
 
   function esbuildEntry(url) {
     const entry = packageEntry(url, "lib/main.js", "esbuild");
     if (!entry || typeof entry.manifest.main !== "string" || path.posix.normalize(entry.manifest.main) !== "lib/main.js") return null;
-    return entry;
+    return supportedVersion(entry, "esbuild", (major, minor) => major === 0 && minor === 24);
   }
 
   const instrument = `globalThis[Symbol.for(${JSON.stringify(instrumentKey.description)})]`;
@@ -330,7 +380,9 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
   // file is not modified.
   function appendToCommonJS(result, file, statement) {
     if (result.format && result.format !== "commonjs") return result;
-    const source = result.source == null ? fs.readFileSync(file, "utf8") : String(result.source);
+    let source = result.source;
+    if (source == null) source = fs.readFileSync(file, "utf8");
+    else if (typeof source !== "string") source = Buffer.from(source instanceof ArrayBuffer ? new Uint8Array(source) : source).toString("utf8");
     return { ...result, format: "commonjs", source: `${source}\n;${statement}\n` };
   }
 

@@ -97,12 +97,19 @@ func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[strin
 	return strings.Join(steps, " && ")
 }
 
+// A Go module that requires nothing has nothing to pin: `go mod tidy` writes no go.sum
+// for it, so the guard lets such a module through instead of demanding a file Go itself
+// does not produce.
 func formatLockGuard(files FileBasedSpec) string {
-	return fmt.Sprintf(
-		`{ test -f %q || { echo %s >&2; exit 1; }; }`,
-		files.Lock,
-		shellescape.Quote(fmt.Sprintf("lock file %s not found in %s; the packages stage installs only what the lock pins, commit it", files.Lock, files.Workdir)),
-	)
+	message := shellescape.Quote(fmt.Sprintf("lock file %s not found in %s; the packages stage installs only what the lock pins, commit it", files.Lock, files.Workdir))
+	if files.Lock == "go.sum" && files.Spec == "go.mod" {
+		return fmt.Sprintf(
+			`{ test -f %q || ! grep -Eq '^[[:space:]]*require([[:space:]]|$)' %q || { echo %s >&2; exit 1; }; }`,
+			files.Lock, files.Spec, message,
+		)
+	}
+
+	return fmt.Sprintf(`{ test -f %q || { echo %s >&2; exit 1; }; }`, files.Lock, message)
 }
 
 func withDefaultEnv(env, defaults map[string]string) map[string]string {

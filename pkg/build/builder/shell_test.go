@@ -38,7 +38,7 @@ var _ = ginkgo.Describe("Shell stage checksums", func() {
 	ginkgo.It("owns the commands and versions used by checksums and execution", func(ctx ginkgo.SpecContext) {
 		commands := []string{"echo original"}
 		shell := &config.Shell{
-			BeforeInstall: commands, Install: commands, BeforeSetup: commands, Setup: commands, Packages: commands,
+			BeforeInstall: commands, Install: commands, BeforeSetup: commands, Setup: commands, Packages: commands, PackagesDigestInputs: commands,
 			CacheVersion: "global", BeforeInstallCacheVersion: "stage", InstallCacheVersion: "stage",
 			BeforeSetupCacheVersion: "stage", SetupCacheVersion: "stage", PackagesCacheVersion: "stage",
 		}
@@ -53,6 +53,19 @@ var _ = ginkgo.Describe("Shell stage checksums", func() {
 			gomega.Expect(b.stageChecksum(ctx, name)).To(gomega.Equal(expected))
 			gomega.Expect(b.stageCommands(name)).To(gomega.Equal([]string{"echo original"}))
 		}
+	})
+
+	ginkgo.It("identifies the packages stage by its digest inputs, not by the commands it runs", func(ctx ginkgo.SpecContext) {
+		digestInputs := []string{"cd \"/app\" && go mod download"}
+		checksum := func(packages, packagesDigestInputs []string) string {
+			return NewShellBuilder(&config.Shell{Packages: packages, PackagesDigestInputs: packagesDigestInputs, PackagesCacheVersion: "v1"}, &Extra{}, []config.Secret{}, "").PackagesChecksum(ctx)
+		}
+
+		expected := util.Sha256Hash(digestInputs[0], util.Sha256Hash("v1"))
+		gomega.Expect(checksum(digestInputs, digestInputs)).To(gomega.Equal(expected))
+		gomega.Expect(checksum([]string{"cd \"/app\" && echo reworded guard && go mod download"}, digestInputs)).To(gomega.Equal(expected))
+		gomega.Expect(checksum(digestInputs, []string{"cd \"/lib\" && go mod download"})).NotTo(gomega.Equal(expected))
+		gomega.Expect(func() { checksum(digestInputs, nil) }).To(gomega.Panic())
 	})
 
 	ginkgo.It("supports concurrent first checksum reads", func(ctx ginkgo.SpecContext) {

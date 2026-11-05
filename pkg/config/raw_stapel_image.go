@@ -281,6 +281,7 @@ func (c *rawStapelImage) toStapelImageBaseDirective(ctx context.Context, gitermi
 			imageBase.Shell = &Shell{}
 		}
 		imageBase.Shell.Packages = packagesCommands
+		imageBase.Shell.PackagesDigestInputs = GeneratePackagesDigestInputs(imageBase.Packages)
 	}
 
 	if imageBase.sbom, err = buildImageSbom(meta, c.RawSbom, c.doc); err != nil {

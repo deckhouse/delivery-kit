@@ -46,6 +46,7 @@ func NewShellBuilder(config *config.Shell, extra *Extra, secrets []config.Secret
 	shellConfig.BeforeSetup = slices.Clone(config.BeforeSetup)
 	shellConfig.Setup = slices.Clone(config.Setup)
 	shellConfig.Packages = slices.Clone(config.Packages)
+	shellConfig.PackagesDigestInputs = slices.Clone(config.PackagesDigestInputs)
 	return &Shell{config: &shellConfig, extra: extra, secrets: secrets, sshAuthSock: sshAuthSock}
 }
 
@@ -155,7 +156,7 @@ func (b *Shell) stageChecksum(ctx context.Context, userStageName string) string 
 func (b *Shell) calculateStageChecksum(ctx context.Context, userStageName string) string {
 	var checksumArgs []string
 
-	checksumArgs = append(checksumArgs, b.stageCommands(userStageName)...)
+	checksumArgs = append(checksumArgs, b.stageChecksumCommands(userStageName)...)
 
 	if debugUserStageChecksum() {
 		logboek.Context(ctx).Debug().LogFHighlight("DEBUG: %s stage tasks checksum dependencies %v\n", userStageName, checksumArgs)
@@ -204,6 +205,18 @@ func (b *Shell) stageVersionChecksum(userStageName string) string {
 	} else {
 		return ""
 	}
+}
+
+func (b *Shell) stageChecksumCommands(userStageName string) []string {
+	if userStageName != "Packages" {
+		return b.stageCommands(userStageName)
+	}
+
+	if len(b.config.PackagesDigestInputs) != len(b.config.Packages) {
+		panic(fmt.Sprintf("runtime error: %d packages digest inputs for %d packages commands", len(b.config.PackagesDigestInputs), len(b.config.Packages)))
+	}
+
+	return b.config.PackagesDigestInputs
 }
 
 func (b *Shell) stageCommands(userStageName string) []string {

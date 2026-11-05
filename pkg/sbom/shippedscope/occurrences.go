@@ -26,8 +26,9 @@ import (
 //
 // Occurrences the component already carries are replaced: a fileset is what the image
 // holds, and a scanner's guess at where it saw the package is not evidence of the same
-// kind. Bundle outputs recorded for the component are kept: they are not its files. The one exception is a fileset naming files the image holds at none of them, over
-// a component werf itself recorded occurrences for before: those digests are the only way
+// kind. Bundle outputs recorded for the component are kept: they are not its files.
+// The one exception is a fileset naming files the image holds at none of them, over a
+// component werf itself recorded occurrences for before: those digests are the only way
 // left to find the bytes where this image put them, and an empty list over them would say
 // the files are gone when they may only have moved. Over a component werf never recorded,
 // the empty list is written, because there is nothing else that could show the files and

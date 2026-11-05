@@ -51,8 +51,8 @@ type Filesets struct {
 	// by a pm that recorded no file list for them, so none of them has a fileset here. A
 	// consumer that would drop a component without a fileset must not do so for os-pm then.
 	OSPMFileListMissing bool
-	// Bundles are the JavaScript outputs the build's observer recorded, the last record of
-	// each path, checked against the bytes the image holds there.
+	// Bundles retain observed JavaScript outputs whose bytes survive anywhere in the
+	// image, plus the last unverified record for each output path.
 	Bundles []BundleOutput
 }
 

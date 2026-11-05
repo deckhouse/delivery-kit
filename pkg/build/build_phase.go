@@ -278,6 +278,7 @@ func (phase *BuildPhase) calculateAnchorDigest(ctx context.Context, img *image.I
 		ELFSigningOptions:      phase.ELFSigningOptions,
 		Anchor:                 true,
 		HolisticInputs:         holisticInputs,
+		JSObserver:             jsObserverImageInstrumentation(phase.Conveyor, img),
 	})
 	if err != nil {
 		return fmt.Errorf("image %q: %w", img.Name, err)
@@ -1705,6 +1706,7 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 	opts.ManifestSigningOptions = phase.ManifestSigningOptions
 	opts.ELFSigningOptions = phase.ELFSigningOptions
 	opts.BuildCacheVersion = imagePkg.BuildCacheVersion
+	opts.JSObserver = jsObserverInstrumentation(phase.Conveyor, img, stg)
 
 	var stageDependencies string
 	var prevNonEmptyStage stage.Interface
@@ -1878,6 +1880,14 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 			stageImage.Builder.LegacyStapelStageBuilder().Container().AddBuildTimeEnv(commitEnvs)
 		} else {
 			stageImage.Builder.StapelStageBuilder().AddBuildTimeEnvs(commitEnvs)
+		}
+
+		if jsObserverInstrumentation(phase.Conveyor, img, stg) != "" {
+			assetsDir, err := prepareJSObserverAssets(ctx, phase.Conveyor.tmpDir)
+			if err != nil {
+				return fmt.Errorf("prepare JavaScript bundle observer: %w", err)
+			}
+			attachJSObserver(stageImage.Builder, phase.Conveyor.UseLegacyStapelBuilder(phase.Conveyor.ContainerBackend), assetsDir)
 		}
 	} else if _, ok := stg.(*stage.FullDockerfileStage); ok {
 		var labels []string
@@ -2218,6 +2228,8 @@ type calculateDigestOptions struct {
 	// Sha3_224(BuildCacheVersion, TargetPlatform, HolisticInputs...).
 	Anchor         bool
 	HolisticInputs []string
+	// JSObserver is the version of the JavaScript bundle observer the stage runs, if any.
+	JSObserver string
 }
 
 func calculateDigest(ctx context.Context, stageName, stageDependencies string, prevNonEmptyStage stage.Interface, conveyor *Conveyor, opts calculateDigestOptions) (string, error) {
@@ -2242,6 +2254,9 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 		}
 		if conveyor != nil && conveyor.EnableSbom() {
 			args = append(args, "sbom_enabled")
+		}
+		if opts.JSObserver != "" {
+			args = append(args, "js_observer:"+opts.JSObserver)
 		}
 		digest := util.Sha3_224Hash(args...)
 		logboek.Context(ctx).Debug().LogBlock(fmt.Sprintf("Content-based tag stage %s digest %s", stageName, digest)).Do(func() {
@@ -2302,6 +2317,11 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 	if conveyor != nil && conveyor.EnableSbom() {
 		checksumArgs = append(checksumArgs, "sbom_enabled")
 		checksumArgsNames = append(checksumArgsNames, "SbomEnabled")
+	}
+
+	if opts.JSObserver != "" {
+		checksumArgs = append(checksumArgs, "js_observer:"+opts.JSObserver)
+		checksumArgsNames = append(checksumArgsNames, "JSObserver")
 	}
 
 	digest := util.Sha3_224Hash(checksumArgs...)

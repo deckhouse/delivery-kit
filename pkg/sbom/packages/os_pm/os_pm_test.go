@@ -3,11 +3,13 @@ package os_pm
 import (
 	"context"
 	"os"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 )
 
@@ -161,6 +163,32 @@ var _ = Describe("ParsePmInstalledJSON", func() {
 })
 
 var _ = Describe("ConvertToCycloneDX", func() {
+	DescribeTable("writes the package's VCS as a URL CycloneDX accepts",
+		func(ctx SpecContext, originalRepo, want string) {
+			pkgs := map[string]PmPackageInfo{"x": {Name: "x", Version: "1", Digest: "sha256:" + strings.Repeat("a", 64), OriginalRepo: originalRepo}}
+
+			bom := ConvertToCycloneDX(ctx, pkgs, testContainerFactoryVersion)
+
+			refs := *(*bom.Components)[0].ExternalReferences
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].URL).To(Equal(want))
+			bom.Version = 1
+			Expect(cyclonedxutil.ValidateBOM(bom)).To(Succeed())
+		},
+		Entry("https stays as is", "https://github.com/curl/curl", "https://github.com/curl/curl"),
+		Entry("git:// stays as is", "git://git.savannah.gnu.org/make.git", "git://git.savannah.gnu.org/make.git"),
+		Entry("scp-style git@host:path becomes an ssh URL", "git@github.com:asciidoctor/asciidoctor.git", "ssh://git@github.com/asciidoctor/asciidoctor.git"),
+		Entry("scp-style with a nested path", "git@gitlab.alpinelinux.org:alpine/aports.git", "ssh://git@gitlab.alpinelinux.org/alpine/aports.git"),
+	)
+
+	It("writes no VCS reference when the package names none", func(ctx SpecContext) {
+		pkgs := map[string]PmPackageInfo{"x": {Name: "x", Version: "1", Digest: "sha256:" + strings.Repeat("a", 64)}}
+
+		bom := ConvertToCycloneDX(ctx, pkgs, testContainerFactoryVersion)
+
+		Expect((*bom.Components)[0].ExternalReferences).To(BeNil())
+	})
+
 	It("generates valid CycloneDX BOM with correct component count", func(ctx SpecContext) {
 		pkgs, err := ParsePmInstalledJSON(examplePmInstalledJSON)
 		Expect(err).To(Succeed())

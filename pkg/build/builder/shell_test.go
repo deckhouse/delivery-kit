@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -28,7 +29,14 @@ var _ = ginkgo.Describe("Shell stage checksums", func() {
 		ginkgo.Entry("empty", "Install", config.Shell{}, ""),
 		ginkgo.Entry("commands", "Install", config.Shell{Install: []string{"echo one", "echo two"}}, util.Sha256Hash("echo one", "echo two")),
 		ginkgo.Entry("stage version", "BeforeInstall", config.Shell{BeforeInstall: []string{"echo one"}, BeforeInstallCacheVersion: "v1"}, util.Sha256Hash("echo one", util.Sha256Hash("v1"))),
+		ginkgo.Entry("packages digest inputs instead of commands", "Packages",
+			config.Shell{Packages: []string{"cd /app && { test -f go.sum || exit 1; } && go mod download"}, PackagesDigestInputs: []string{"go-mod cd /app && go mod download"}, PackagesCacheVersion: "v1"},
+			util.Sha256Hash("go-mod cd /app && go mod download", util.Sha256Hash("v1"))),
 	)
+	ginkgo.It("refuses packages commands without their digest inputs", func(ctx ginkgo.SpecContext) {
+		b := NewShellBuilder(&config.Shell{Packages: []string{"go mod download"}}, &Extra{}, []config.Secret{}, "")
+		gomega.Expect(func() { b.PackagesChecksum(ctx) }).To(gomega.PanicWith(gomega.ContainSubstring("1 packages commands but 0 digest inputs")))
+	})
 	ginkgo.It("keeps stage and global versions distinct", func(ctx ginkgo.SpecContext) {
 		b := NewShellBuilder(&config.Shell{Install: []string{"echo one"}, CacheVersion: "global", InstallCacheVersion: "stage"}, &Extra{}, []config.Secret{}, "")
 		gomega.Expect(b.InstallChecksum(ctx)).To(gomega.Equal(util.Sha256Hash("echo one", util.Sha256Hash("stage", "global"))))
@@ -39,7 +47,8 @@ var _ = ginkgo.Describe("Shell stage checksums", func() {
 		commands := []string{"echo original"}
 		shell := &config.Shell{
 			BeforeInstall: commands, Install: commands, BeforeSetup: commands, Setup: commands, Packages: commands,
-			CacheVersion: "global", BeforeInstallCacheVersion: "stage", InstallCacheVersion: "stage",
+			PackagesDigestInputs: slices.Clone(commands),
+			CacheVersion:         "global", BeforeInstallCacheVersion: "stage", InstallCacheVersion: "stage",
 			BeforeSetupCacheVersion: "stage", SetupCacheVersion: "stage", PackagesCacheVersion: "stage",
 		}
 		b := NewShellBuilder(shell, &Extra{}, []config.Secret{}, "")
@@ -47,6 +56,7 @@ var _ = ginkgo.Describe("Shell stage checksums", func() {
 		gomega.Expect(b.InstallChecksum(ctx)).To(gomega.Equal(expected))
 		commands[0] = "echo modified"
 		shell.Install = []string{"echo replaced"}
+		shell.PackagesDigestInputs[0] = "echo modified"
 		shell.CacheVersion = "modified"
 		shell.BeforeInstallCacheVersion = "modified"
 		for _, name := range []string{"BeforeInstall", "Install", "BeforeSetup", "Setup", "Packages"} {

@@ -46,6 +46,7 @@ func NewShellBuilder(config *config.Shell, extra *Extra, secrets []config.Secret
 	shellConfig.BeforeSetup = slices.Clone(config.BeforeSetup)
 	shellConfig.Setup = slices.Clone(config.Setup)
 	shellConfig.Packages = slices.Clone(config.Packages)
+	shellConfig.PackagesDigestInputs = slices.Clone(config.PackagesDigestInputs)
 	return &Shell{config: &shellConfig, extra: extra, secrets: secrets, sshAuthSock: sshAuthSock}
 }
 
@@ -155,7 +156,7 @@ func (b *Shell) stageChecksum(ctx context.Context, userStageName string) string 
 func (b *Shell) calculateStageChecksum(ctx context.Context, userStageName string) string {
 	var checksumArgs []string
 
-	checksumArgs = append(checksumArgs, b.stageCommands(userStageName)...)
+	checksumArgs = append(checksumArgs, b.stageChecksumInputs(userStageName)...)
 
 	if debugUserStageChecksum() {
 		logboek.Context(ctx).Debug().LogFHighlight("DEBUG: %s stage tasks checksum dependencies %v\n", userStageName, checksumArgs)
@@ -213,6 +214,20 @@ func (b *Shell) stageCommands(userStageName string) []string {
 	}
 
 	return commands
+}
+
+// The packages commands are generated, so their digest hashes what they do, not their text.
+func (b *Shell) stageChecksumInputs(userStageName string) []string {
+	commands := b.stageCommands(userStageName)
+	if userStageName != "Packages" {
+		return commands
+	}
+
+	if len(b.config.PackagesDigestInputs) != len(commands) {
+		panic(fmt.Sprintf("runtime error: %d packages commands but %d digest inputs", len(commands), len(b.config.PackagesDigestInputs)))
+	}
+
+	return b.config.PackagesDigestInputs
 }
 
 func (b *Shell) configFieldValue(fieldName string) interface{} {

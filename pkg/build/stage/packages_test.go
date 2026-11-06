@@ -80,6 +80,23 @@ var _ = Describe("PackagesStage", func() {
 				false),
 		)
 
+		It("depends on the digest inputs, not on the executed commands", func(ctx context.Context) {
+			conveyor := testConveyor()
+			guarded := generateTestPackagesStageWithDigestInputs(ctx, []string{"cd /app && test -f go.sum && go mod download"}, []string{"go-mod cd /app && go mod download"})
+			reworded := generateTestPackagesStageWithDigestInputs(ctx, []string{"cd /app && go mod download"}, []string{"go-mod cd /app && go mod download"})
+			other := generateTestPackagesStageWithDigestInputs(ctx, []string{"cd /app && go mod download"}, []string{"go-mod cd /lib && go mod download"})
+
+			guardedDigest, err := guarded.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			rewordedDigest, err := reworded.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			otherDigest, err := other.GetDependencies(ctx, conveyor, nil, nil, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(rewordedDigest).To(Equal(guardedDigest))
+			Expect(otherDigest).NotTo(Equal(rewordedDigest))
+		})
+
 		It("returns non-empty hash", func(ctx context.Context) {
 			s := generateTestPackagesStage(ctx, "cd /app && go mod download")
 			digest, err := s.GetDependencies(ctx, testConveyor(), nil, nil, nil, nil)
@@ -107,8 +124,9 @@ var _ = Describe("PackagesStage", func() {
 		It("does not affect install stage creation", func(ctx context.Context) {
 			imageBaseConfig := &config.StapelImageBase{
 				Shell: &config.Shell{
-					Packages: []string{"cd /app && go mod download"},
-					Install:  []string{"go build ./..."},
+					Packages:             []string{"cd /app && go mod download"},
+					PackagesDigestInputs: []string{"go-mod cd /app && go mod download"},
+					Install:              []string{"go build ./..."},
 				},
 			}
 
@@ -460,8 +478,12 @@ func generateTestPackagesStage(ctx context.Context, command string) *PackagesSta
 }
 
 func generateTestPackagesStageMulti(ctx context.Context, commands []string) *PackagesStage {
+	return generateTestPackagesStageWithDigestInputs(ctx, commands, commands)
+}
+
+func generateTestPackagesStageWithDigestInputs(ctx context.Context, commands, digestInputs []string) *PackagesStage {
 	imageBaseConfig := &config.StapelImageBase{
-		Shell: &config.Shell{Packages: commands},
+		Shell: &config.Shell{Packages: commands, PackagesDigestInputs: digestInputs},
 	}
 	return GeneratePackagesStage(ctx, imageBaseConfig, testGitPatchOpts(), testBaseOpts())
 }

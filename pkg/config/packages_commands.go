@@ -68,9 +68,18 @@ func joinDirective(assignments, commands []string) string {
 	return fmt.Sprintf("(%s)", strings.Join(append(assignments, commands...), "; "))
 }
 
+// digest leaves out the checks that can only fail the build, so that rewording a
+// diagnostic does not rebuild every packages stage of every project. A check cannot change
+// the content of a stage it let through; one that is tightened later does not reach stages
+// already in the cache.
+type packagesCommand struct {
+	run    string
+	digest string
+}
+
 // `cd` stays in the parent shell: a later directive may use a relative workdir that
 // counts on it, as it did when every command ran there.
-func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]string) string {
+func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]string) packagesCommand {
 	return formatWorkdirCommands(files, []string{command}, env)
 }
 
@@ -80,7 +89,7 @@ func formatWorkdirCommand(files FileBasedSpec, command string, env map[string]st
 // The lock is checked here rather than left to the manager: poetry, go, cargo and yarn 1
 // resolve from the network and write a lock of their own when none is committed, so the
 // stage would record an unpinned resolution in the SBOM without a word.
-func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[string]string) string {
+func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[string]string) packagesCommand {
 	assignments, prefix := formatEnvVars(env, nil)
 	commands = slices.Clone(commands)
 	if prefix != "" {
@@ -88,13 +97,19 @@ func formatWorkdirCommands(files FileBasedSpec, commands []string, env map[strin
 		commands[last] = fmt.Sprintf("%s %s", prefix, commands[last])
 	}
 
-	steps := []string{fmt.Sprintf("cd %q", files.Workdir)}
+	chdir := fmt.Sprintf("cd %q", files.Workdir)
+	install := joinDirective(assignments, []string{strings.Join(commands, " && ")})
+
+	steps := []string{chdir}
 	if files.Lock != "" {
 		steps = append(steps, formatLockGuard(files))
 	}
-	steps = append(steps, joinDirective(assignments, []string{strings.Join(commands, " && ")}))
+	steps = append(steps, install)
 
-	return strings.Join(steps, " && ")
+	return packagesCommand{
+		run:    strings.Join(steps, " && "),
+		digest: strings.Join([]string{chdir, install}, " && "),
+	}
 }
 
 func formatLockGuard(files FileBasedSpec) string {
@@ -116,34 +131,58 @@ func formatMkdirCommand() string {
 	return fmt.Sprintf("%s -p %s", stapel.MkdirBinPath(), path.Dir(metadata.ContainerFactoryVersionPath))
 }
 
-func formatVersionFileCommand() string {
-	return fmt.Sprintf(
-		`: "${%[1]s:?%[2]s}" && printf '%%s\n' "$%[1]s" > %[3]s`,
-		packagesVersionEnvName, packagesVersionMissingMessage, metadata.ContainerFactoryVersionPath,
-	)
+func formatVersionCheckCommand() string {
+	return fmt.Sprintf(`: "${%s:?%s}"`, packagesVersionEnvName, packagesVersionMissingMessage)
 }
 
-func formatInstallCommand(pkgs []string, env map[string]string) string {
+func formatVersionWriteCommand() string {
+	return fmt.Sprintf(`printf '%%s\n' "$%s" > %s`, packagesVersionEnvName, metadata.ContainerFactoryVersionPath)
+}
+
+func formatInstallCommand(pkgs []string, env map[string]string) packagesCommand {
 	assignments, prefix := formatEnvVars(env, []string{packagesVersionEnvName})
+	install := strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " ")))
 
-	commands := []string{
-		formatMkdirCommand(),
-		formatVersionFileCommand(),
-		strings.TrimSpace(fmt.Sprintf("%s pm install %s", prefix, strings.Join(pkgs, " "))),
+	return packagesCommand{
+		run: joinDirective(assignments, []string{
+			formatMkdirCommand(),
+			formatVersionCheckCommand() + " && " + formatVersionWriteCommand(),
+			install,
+		}),
+		digest: joinDirective(assignments, []string{formatMkdirCommand(), formatVersionWriteCommand(), install}),
 	}
-
-	return joinDirective(assignments, commands)
 }
 
-func GeneratePackagesCommands(packages []*PackagesDirective) []string {
-	var commands []string
+func renderPackagesCommands(packages []*PackagesDirective) []packagesCommand {
+	var commands []packagesCommand
 	for _, pkg := range packages {
 		eco, ok := ecosystems[pkg.Type]
 		if !ok {
 			continue
 		}
 
-		commands = append(commands, eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env))
+		command := eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env)
+		// The type, spec and lock select the result but are absent from the command of
+		// some ecosystems: go reads go.mod by convention, and the lock appears only in the
+		// guard the digest leaves out.
+		command.digest = fmt.Sprintf("%s spec=%q lock=%q %s", pkg.Type, pkg.FileBased.Spec, pkg.FileBased.Lock, command.digest)
+		commands = append(commands, command)
 	}
 	return commands
+}
+
+func GeneratePackagesCommands(packages []*PackagesDirective) []string {
+	var commands []string
+	for _, command := range renderPackagesCommands(packages) {
+		commands = append(commands, command.run)
+	}
+	return commands
+}
+
+func generatePackagesDigestInputs(packages []*PackagesDirective) []string {
+	var inputs []string
+	for _, command := range renderPackagesCommands(packages) {
+		inputs = append(inputs, command.digest)
+	}
+	return inputs
 }

@@ -703,6 +703,44 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 		Expect(stderr.String()).To(Equal("lock file poetry.lock not found in " + dir + "; the packages stage installs only what the lock pins, commit it\n"))
 	})
 
+	It("accepts a Go module without dependencies that has no go.sum", func(ctx SpecContext) {
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/tool\n\ngo 1.25\n"), 0o600)).To(Succeed())
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Spec: "go.mod", Lock: "go.sum"}, "echo installed", nil)
+
+		stdout, err := exec.CommandContext(ctx, "bash", "-ec", command).Output()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(stdout)).To(Equal("installed\n"))
+	})
+
+	DescribeTable("still demands go.sum from a Go module that requires something",
+		func(ctx SpecContext, gomod string) {
+			dir := GinkgoT().TempDir()
+			Expect(os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600)).To(Succeed())
+			command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Spec: "go.mod", Lock: "go.sum"}, "echo installed", nil)
+
+			cmd := exec.CommandContext(ctx, "bash", "-ec", command)
+			stderr := &bytes.Buffer{}
+			cmd.Stderr = stderr
+			stdout, err := cmd.Output()
+			Expect(err).To(HaveOccurred())
+			Expect(string(stdout)).To(BeEmpty())
+			Expect(stderr.String()).To(HavePrefix("lock file go.sum not found in " + dir))
+		},
+		Entry("a require block", "module example.com/tool\n\ngo 1.25\n\nrequire (\n\tgolang.org/x/sys v0.1.0\n)\n"),
+		Entry("a one-line require", "module example.com/tool\n\ngo 1.25\n\nrequire golang.org/x/sys v0.1.0\n"),
+		Entry("a require written in a comment-free indented form", "module example.com/tool\ngo 1.25\n  require golang.org/x/sys v0.1.0 // indirect\n"),
+	)
+
+	It("does not extend the exception to other ecosystems", func(ctx SpecContext) {
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname = \"tool\"\n"), 0o600)).To(Succeed())
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Spec: "pyproject.toml", Lock: "poetry.lock"}, "echo installed", nil)
+
+		_, err := exec.CommandContext(ctx, "bash", "-ec", command).Output()
+		Expect(err).To(HaveOccurred())
+	})
+
 	It("reports a missing workdir as such, not as a missing lock", func(ctx SpecContext) {
 		dir := filepath.Join(GinkgoT().TempDir(), "absent")
 		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil)

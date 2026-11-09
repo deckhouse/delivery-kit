@@ -367,6 +367,8 @@ packages:
 
 The `os-pm` type does not need `stageDependencies`: its package list lives in `werf.yaml` itself, so any change to it rebuilds the stage automatically.
 
+The digest of the packages stage depends on the directives themselves — type, `workdir`, `spec`, `lock`, `manager`, `env` and the package list — on the command werf runs for the package manager, on `shell.cacheVersion` and on the files declared in `stageDependencies`. The checks werf wraps around that command, such as the one that fails the build when the lock file is missing, and their messages are not part of the digest: a werf release that only changes them does not rebuild the stage.
+
 ### Package managers absent from the builder image
 
 When the builder image has no Yarn, pnpm, uv or Poetry, install the manager with an earlier `packages` entry and point the next entry at it with `manager`. The packages stage is the only stage with network access, so every step happens there — including installing npm itself with `os-pm`, when the builder image ships no Node.js either:

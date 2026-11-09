@@ -50,7 +50,7 @@ var _ = Describe("RecordOccurrences", func() {
 		}
 	}
 
-	It("records the files of a component of each ecosystem", func() {
+	It("records the files of a component of each ecosystem", func(ctx SpecContext) {
 		bom := bomOf(
 			"pkg:generic/zlib@1.3.1?containerfactoryversion=1",
 			"pkg:pypi/requests@2.32.3",
@@ -58,7 +58,7 @@ var _ = Describe("RecordOccurrences", func() {
 			"pkg:luarocks/luasocket@3.1.0-1",
 		)
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", map[string]string{"/usr/lib/libz.so.1.3.1": "z"}, nil),
 			fileset(EcosystemPython, "requests", "2.32.3", map[string]string{"/usr/lib/python3/requests/__init__.py": "r"}, nil),
 			fileset(EcosystemJavaScript, "debug", "4.3.4", map[string]string{"/app/node_modules/debug/index.js": "d"}, nil),
@@ -80,10 +80,10 @@ var _ = Describe("RecordOccurrences", func() {
 		}))
 	})
 
-	It("marks a symlink as one instead of leaving it to be told apart by a missing digest", func() {
+	It("marks a symlink as one instead of leaving it to be told apart by a missing digest", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 
-		RecordOccurrences(bom, []Fileset{
+		RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1",
 				map[string]string{"/usr/lib/libz.so.1.3.1": "z"},
 				map[string]string{"/usr/lib/libz.so.1": "libz.so.1.3.1"},
@@ -96,10 +96,10 @@ var _ = Describe("RecordOccurrences", func() {
 		}))
 	})
 
-	It("leaves a component that declares no files alone, instead of saying none were found", func() {
+	It("leaves a component that declares no files alone, instead of saying none were found", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/build-essential@12.9")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			{Ecosystem: EcosystemOSPM, Name: "build-essential", Version: "12.9"},
 		})
 
@@ -107,13 +107,13 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect((*bom.Components)[0].Evidence).To(BeNil())
 	})
 
-	It("keeps what a donor recorded when the image holds none of the files its manifest declares", func() {
+	It("keeps what a donor recorded when the image holds none of the files its manifest declares", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/requests@2.32.3")
 		(*bom.Components)[0].Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
 			{Location: "/usr/lib/python3/requests/__init__.py", AdditionalContext: digestOf("r")},
 		}}
 
-		recorded := RecordOccurrences(bom, []Fileset{{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{{
 			Ecosystem:     EcosystemPython,
 			Name:          "requests",
 			Version:       "2.32.3",
@@ -126,10 +126,10 @@ var _ = Describe("RecordOccurrences", func() {
 		}), "the digests a donor recorded are the only way left to find the bytes this image moved")
 	})
 
-	It("says the files were looked for when the image holds no declared file of a component no donor described", func() {
+	It("says the files were looked for when the image holds no declared file of a component no donor described", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/requests@2.32.3")
 
-		recorded := RecordOccurrences(bom, []Fileset{{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{{
 			Ecosystem:     EcosystemPython,
 			Name:          "requests",
 			Version:       "2.32.3",
@@ -141,10 +141,10 @@ var _ = Describe("RecordOccurrences", func() {
 			"a package the image installed and then deleted looks exactly like this, and nothing else could show its files")
 	})
 
-	It("says the files were looked for after the SBOM has been written and read back", func() {
+	It("says the files were looked for after the SBOM has been written and read back", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/requests@2.32.3")
 
-		Expect(RecordOccurrences(bom, []Fileset{{
+		Expect(RecordOccurrences(ctx, bom, []Fileset{{
 			Ecosystem:     EcosystemPython,
 			Name:          "requests",
 			Version:       "2.32.3",
@@ -160,9 +160,9 @@ var _ = Describe("RecordOccurrences", func() {
 			"an empty occurrence list does not survive serialization, so what it said has to")
 	})
 
-	It("keeps the verdict that no file was found through a merge of two documents", func() {
+	It("keeps the verdict that no file was found through a merge of two documents", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/requests@2.32.3")
-		Expect(RecordOccurrences(bom, []Fileset{{
+		Expect(RecordOccurrences(ctx, bom, []Fileset{{
 			Ecosystem:     EcosystemPython,
 			Name:          "requests",
 			Version:       "2.32.3",
@@ -177,16 +177,16 @@ var _ = Describe("RecordOccurrences", func() {
 			"a copy of the component that says nothing must not undo what werf looked for")
 	})
 
-	It("drops the verdict once the image does hold a file of the component", func() {
+	It("drops the verdict once the image does hold a file of the component", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/requests@2.32.3")
-		Expect(RecordOccurrences(bom, []Fileset{{
+		Expect(RecordOccurrences(ctx, bom, []Fileset{{
 			Ecosystem:     EcosystemPython,
 			Name:          "requests",
 			Version:       "2.32.3",
 			DeclaresFiles: true,
 		}})).To(Equal(1))
 
-		Expect(RecordOccurrences(bom, []Fileset{
+		Expect(RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemPython, "requests", "2.32.3", map[string]string{"/usr/lib/python3/requests/__init__.py": "r"}, nil),
 		})).To(Equal(1))
 
@@ -200,10 +200,10 @@ var _ = Describe("RecordOccurrences", func() {
 			"a document that lists a file of the component must not also say the image holds none")
 	})
 
-	It("records a component one of whose copies declares files", func() {
+	It("records a component one of whose copies declares files", func(ctx SpecContext) {
 		bom := bomOf("pkg:npm/debug@4.3.4")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			{Ecosystem: EcosystemJavaScript, Name: "debug", Version: "4.3.4"},
 			fileset(EcosystemJavaScript, "debug", "4.3.4", map[string]string{"/app/node_modules/debug/index.js": "d"}, nil),
 		})
@@ -212,10 +212,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(HaveLen(1))
 	})
 
-	It("leaves a component of another version alone", func() {
+	It("leaves a component of another version alone", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.2.13", map[string]string{"/usr/lib/libz.so.1.2.13": "old"}, nil),
 		})
 
@@ -223,10 +223,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(BeNil())
 	})
 
-	It("leaves a component of another ecosystem alone, however alike it is named", func() {
+	It("leaves a component of another ecosystem alone, however alike it is named", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/debug@4.3.4")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemJavaScript, "debug", "4.3.4", map[string]string{"/app/node_modules/debug/index.js": "d"}, nil),
 		})
 
@@ -234,10 +234,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(BeNil())
 	})
 
-	It("matches a PyPI component whose purl keeps a separator the install folds", func() {
+	It("matches a PyPI component whose purl keeps a separator the install folds", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/ruamel.yaml@0.18.6")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemPython, "ruamel-yaml", "0.18.6", map[string]string{"/usr/lib/python3/ruamel/yaml/__init__.py": "y"}, nil),
 		})
 
@@ -245,10 +245,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(HaveLen(1))
 	})
 
-	It("matches an npm component whose package.json spells the name in mixed case", func() {
+	It("matches an npm component whose package.json spells the name in mixed case", func(ctx SpecContext) {
 		bom := bomOf("pkg:npm/JSONStream@1.3.5")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemJavaScript, "JSONStream", "1.3.5", map[string]string{"/app/node_modules/JSONStream/index.js": "j"}, nil),
 		})
 
@@ -256,10 +256,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(HaveLen(1))
 	})
 
-	It("matches a scoped npm component to the package tree it was installed into", func() {
+	It("matches a scoped npm component to the package tree it was installed into", func(ctx SpecContext) {
 		bom := bomOf("pkg:npm/%40babel/core@7.24.0")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemJavaScript, "@babel/core", "7.24.0", map[string]string{"/app/node_modules/@babel/core/index.js": "b"}, nil),
 		})
 
@@ -267,10 +267,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(HaveLen(1))
 	})
 
-	It("gives a component installed more than once the files of every copy", func() {
+	It("gives a component installed more than once the files of every copy", func(ctx SpecContext) {
 		bom := bomOf("pkg:npm/debug@4.3.4")
 
-		RecordOccurrences(bom, []Fileset{
+		RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemJavaScript, "debug", "4.3.4", map[string]string{"/app/node_modules/debug/index.js": "d"}, nil),
 			fileset(EcosystemJavaScript, "debug", "4.3.4", map[string]string{"/app/node_modules/ms/node_modules/debug/index.js": "d"}, nil),
 		})
@@ -281,10 +281,10 @@ var _ = Describe("RecordOccurrences", func() {
 		}))
 	})
 
-	It("says the files were looked for when a fileset names a component but the image kept none", func() {
+	It("says the files were looked for when a fileset names a component but the image kept none", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", nil, nil),
 		})
 
@@ -292,13 +292,13 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(Equal([]cdx.EvidenceOccurrence{}))
 	})
 
-	It("keeps the occurrences werf recorded before over a fileset the image kept no file of, but replaces a scanner's", func() {
+	It("keeps the occurrences werf recorded before over a fileset the image kept no file of, but replaces a scanner's", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 		(*bom.Components)[0].Evidence = &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
 			{Location: "/var/lib/dpkg/status"},
 		}}
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", nil, nil),
 		})
 
@@ -307,10 +307,10 @@ var _ = Describe("RecordOccurrences", func() {
 			"where a scanner saw the package says nothing of its files, so there is nothing worth keeping over the image's own answer")
 	})
 
-	It("leaves a component no fileset names unmarked, so nothing is known of its files", func() {
+	It("leaves a component no fileset names unmarked, so nothing is known of its files", func(ctx SpecContext) {
 		bom := bomOf("pkg:deb/debian/libc6@2.36", "pkg:golang/gopkg.in/yaml.v3@3.0.1")
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "libc6", "2.36", map[string]string{"/lib/libc.so.6": "c"}, nil),
 		})
 
@@ -319,13 +319,13 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 1)).To(BeNil())
 	})
 
-	It("records a component nested under another", func() {
+	It("records a component nested under another", func(ctx SpecContext) {
 		nested := []cdx.Component{componentOf("pkg:generic/zlib@1.3.1")}
 		outer := componentOf("pkg:generic/git@2.50.1")
 		outer.Components = &nested
 		bom := &cdx.BOM{Components: &[]cdx.Component{outer}}
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", map[string]string{"/usr/lib/libz.so.1.3.1": "z"}, nil),
 		})
 
@@ -333,14 +333,14 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(lo.FromPtr((*(*bom.Components)[0].Components)[0].Evidence.Occurrences)).To(HaveLen(1))
 	})
 
-	It("records a component listed under the image's own component", func() {
+	It("records a component listed under the image's own component", func(ctx SpecContext) {
 		nested := []cdx.Component{componentOf("pkg:generic/zlib@1.3.1")}
 		bom := &cdx.BOM{Metadata: &cdx.Metadata{Component: &cdx.Component{
 			Type:       cdx.ComponentTypeContainer,
 			Components: &nested,
 		}}}
 
-		recorded := RecordOccurrences(bom, []Fileset{
+		recorded := RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", map[string]string{"/usr/lib/libz.so.1.3.1": "z"}, nil),
 		})
 
@@ -350,13 +350,13 @@ var _ = Describe("RecordOccurrences", func() {
 		}))
 	})
 
-	It("replaces the occurrences a scanner guessed with the files the image holds", func() {
+	It("replaces the occurrences a scanner guessed with the files the image holds", func(ctx SpecContext) {
 		bom := bomOf("pkg:pypi/requests@2.32.3")
 		(*bom.Components)[0].Evidence = &cdx.Evidence{
 			Occurrences: &[]cdx.EvidenceOccurrence{{Location: "/usr/lib/python3/requests-2.32.3.dist-info/RECORD"}},
 		}
 
-		RecordOccurrences(bom, []Fileset{
+		RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemPython, "requests", "2.32.3", map[string]string{"/usr/lib/python3/requests/__init__.py": "r"}, nil),
 		})
 
@@ -365,13 +365,13 @@ var _ = Describe("RecordOccurrences", func() {
 		}))
 	})
 
-	It("keeps the evidence a component already carries of another kind", func() {
+	It("keeps the evidence a component already carries of another kind", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 		(*bom.Components)[0].Evidence = &cdx.Evidence{
 			Identity: &[]cdx.EvidenceIdentity{{Field: cdx.EvidenceIdentityFieldTypeCPE}},
 		}
 
-		RecordOccurrences(bom, []Fileset{
+		RecordOccurrences(ctx, bom, []Fileset{
 			fileset(EcosystemOSPM, "zlib", "1.3.1", map[string]string{"/usr/lib/libz.so.1.3.1": "z"}, nil),
 		})
 
@@ -379,10 +379,10 @@ var _ = Describe("RecordOccurrences", func() {
 		Expect(occurrencesOf(bom, 0)).To(HaveLen(1))
 	})
 
-	It("does nothing to a BOM when the image yielded no filesets", func() {
+	It("does nothing to a BOM when the image yielded no filesets", func(ctx SpecContext) {
 		bom := bomOf("pkg:generic/zlib@1.3.1")
 
-		Expect(RecordOccurrences(bom, nil)).To(BeZero())
+		Expect(RecordOccurrences(ctx, bom, nil)).To(BeZero())
 		Expect(occurrencesOf(bom, 0)).To(BeNil())
 	})
 })
@@ -397,29 +397,29 @@ var _ = Describe("HasFileBackedComponents", func() {
 		return &cdx.BOM{Components: &components}
 	}
 
-	It("finds a component of each ecosystem that records file lists", func() {
-		Expect(HasFileBackedComponents(bomOf("pkg:generic/zlib@1.3.1"))).To(BeTrue())
-		Expect(HasFileBackedComponents(bomOf("pkg:pypi/requests@2.32.3"))).To(BeTrue())
-		Expect(HasFileBackedComponents(bomOf("pkg:npm/debug@4.3.4"))).To(BeTrue())
-		Expect(HasFileBackedComponents(bomOf("pkg:luarocks/luasocket@3.1.0-1"))).To(BeTrue())
+	It("finds a component of each ecosystem that records file lists", func(ctx SpecContext) {
+		Expect(HasFileBackedComponents(ctx, bomOf("pkg:generic/zlib@1.3.1"))).To(BeTrue())
+		Expect(HasFileBackedComponents(ctx, bomOf("pkg:pypi/requests@2.32.3"))).To(BeTrue())
+		Expect(HasFileBackedComponents(ctx, bomOf("pkg:npm/debug@4.3.4"))).To(BeTrue())
+		Expect(HasFileBackedComponents(ctx, bomOf("pkg:luarocks/luasocket@3.1.0-1"))).To(BeTrue())
 	})
 
-	It("finds nothing in a BOM whose components no ecosystem here records", func() {
-		Expect(HasFileBackedComponents(bomOf(
+	It("finds nothing in a BOM whose components no ecosystem here records", func(ctx SpecContext) {
+		Expect(HasFileBackedComponents(ctx, bomOf(
 			"pkg:golang/gopkg.in/yaml.v3@3.0.1",
 			"pkg:deb/debian/libc6@2.36",
 			"pkg:cargo/serde@1.0.0",
 		))).To(BeFalse())
 	})
 
-	It("finds a component nested under another", func() {
+	It("finds a component nested under another", func(ctx SpecContext) {
 		nested := []cdx.Component{{BOMRef: "z", PackageURL: "pkg:generic/zlib@1.3.1"}}
 		outer := cdx.Component{BOMRef: "g", PackageURL: "pkg:golang/x@1", Components: &nested}
 
-		Expect(HasFileBackedComponents(&cdx.BOM{Components: &[]cdx.Component{outer}})).To(BeTrue())
+		Expect(HasFileBackedComponents(ctx, &cdx.BOM{Components: &[]cdx.Component{outer}})).To(BeTrue())
 	})
 
-	It("finds nothing in an empty BOM", func() {
-		Expect(HasFileBackedComponents(&cdx.BOM{})).To(BeFalse())
+	It("finds nothing in an empty BOM", func(ctx SpecContext) {
+		Expect(HasFileBackedComponents(ctx, &cdx.BOM{})).To(BeFalse())
 	})
 })

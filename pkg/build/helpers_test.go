@@ -840,7 +840,7 @@ var _ container_backend.ContainerBackend = (*publicationContainerBackend)(nil)
 func (b *publicationContainerBackend) HasStapelBuildSupport() bool { return true }
 
 func recordSavedShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
-	if !shippedscope.HasFileBackedComponents(bom) && !shippedscope.HasBinaryBackedComponents(ctx, bom) {
+	if !shippedscope.HasFileBackedComponents(ctx, bom) && !shippedscope.HasBinaryBackedComponents(ctx, bom) {
 		return
 	}
 	filesets, produced := collectShippedScope(ctx, backend, werfImgName, imageName, sbomStageProvenance{})

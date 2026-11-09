@@ -32,7 +32,7 @@ var _ = Describe("Python bytecode evidence", func() {
 			Expect(filesetOf(filesets, EcosystemPython, "pkg", "1.0").Files).To(HaveKey("/" + filename))
 			bom := cyclonedxutil.NewBOM()
 			bom.Components = &[]cdx.Component{{PackageURL: "pkg:pypi/pkg@1.0", Name: "pkg", Version: "1.0"}}
-			RecordOccurrences(bom, filesets.Filesets)
+			RecordOccurrences(ctx, bom, filesets.Filesets)
 			Expect(MarkNotShipped(ctx, bom, filesets)).To(BeZero())
 
 			for _, target := range []string{"app/renamed.pyc", "another/copy.pyc"} {
@@ -42,7 +42,7 @@ var _ = Describe("Python bytecode evidence", func() {
 				Expect(err).NotTo(HaveOccurred())
 				importedFiles, err := CollectFilesets(ctx, imported)
 				Expect(err).NotTo(HaveOccurred())
-				RecordOccurrences(bom, importedFiles.Filesets)
+				RecordOccurrences(ctx, bom, importedFiles.Filesets)
 				Expect(MarkNotShipped(ctx, bom, importedFiles)).To(BeZero())
 			}
 			Expect(MarkNotShipped(ctx, bom, filesetsOf(emptyIndex()))).To(Equal(1))

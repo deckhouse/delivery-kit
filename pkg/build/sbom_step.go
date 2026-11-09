@@ -146,7 +146,7 @@ func (step *sbomStep) ConvergeWithMerge(ctx context.Context, werfImgName string,
 		produced := &shippedscope.ProducedFiles{}
 		inputs := append([]*cdx.BOM{targetBOM, mergeOpts.BaseBOM}, mergeOpts.ImportBOMs...)
 		if isStapel || len(osPmPackages) > 0 || lo.SomeBy(inputs, func(bom *cdx.BOM) bool {
-			return bom != nil && (shippedscope.HasFileBackedComponents(bom) || shippedscope.HasBinaryBackedComponents(ctx, bom))
+			return bom != nil && (shippedscope.HasFileBackedComponents(ctx, bom) || shippedscope.HasBinaryBackedComponents(ctx, bom))
 		}) {
 			filesets, produced = collectShippedScope(ctx, step.containerBackend, werfImgName, stageDesc.Info.Name, provenance)
 		}
@@ -346,7 +346,7 @@ func recordShippedScope(ctx context.Context, bom *cdx.BOM, filesets *shippedscop
 	if filesets == nil {
 		return
 	}
-	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
+	recorded := shippedscope.RecordOccurrences(ctx, bom, filesets.Filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
 	bundled := shippedscope.RecordBundleOccurrences(ctx, bom, filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d JavaScript bundle outputs of the image, recorded onto or marked unknown on %d components\n", len(filesets.Bundles), bundled)

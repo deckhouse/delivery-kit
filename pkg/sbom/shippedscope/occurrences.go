@@ -1,6 +1,7 @@
 package shippedscope
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"strings"
@@ -41,7 +42,7 @@ import (
 // installs cannot establish completeness for an inherited origin.
 //
 // Returns the number of components whose file evidence was recorded or marked unknown.
-func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
+func RecordOccurrences(_ context.Context, bom *cdx.BOM, filesets []Fileset) int {
 	if bom == nil || len(filesets) == 0 {
 		return 0
 	}
@@ -84,7 +85,7 @@ func RecordOccurrences(bom *cdx.BOM, filesets []Fileset) int {
 //
 // Go and Rust are binary-backed, not file-backed: they need binary classification, not
 // file enumeration.
-func HasFileBackedComponents(bom *cdx.BOM) bool {
+func HasFileBackedComponents(_ context.Context, bom *cdx.BOM) bool {
 	if bom == nil {
 		return false
 	}

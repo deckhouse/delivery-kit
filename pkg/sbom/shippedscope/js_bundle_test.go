@@ -454,7 +454,7 @@ var _ = Describe("JavaScript bundle evidence", func() {
 				bundleOf("/app/dist/main.js", "chunk", true, BundlePackage{Name: "dep", Version: "1.0.0"}),
 			}})
 
-			Expect(RecordOccurrences(bom, []Fileset{{
+			Expect(RecordOccurrences(ctx, bom, []Fileset{{
 				Ecosystem: EcosystemJavaScript, Name: "dep", Version: "1.0.0", DeclaresFiles: true,
 				Files: map[string]File{"/app/node_modules/dep/index.js": {Digest: digestOf("dep"), Size: 3}},
 			}})).To(Equal(1))
@@ -471,7 +471,7 @@ var _ = Describe("JavaScript bundle evidence", func() {
 		It("keeps a checked-empty file list beside bundle evidence", func(ctx SpecContext) {
 			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/dep@1.0.0", bundleOccurrence("/app/dist/main.js", "chunk"))}}
 
-			Expect(RecordOccurrences(bom, []Fileset{{Ecosystem: EcosystemJavaScript, Name: "dep", Version: "1.0.0", DeclaresFiles: true}})).To(Equal(1))
+			Expect(RecordOccurrences(ctx, bom, []Fileset{{Ecosystem: EcosystemJavaScript, Name: "dep", Version: "1.0.0", DeclaresFiles: true}})).To(Equal(1))
 
 			comp := (*bom.Components)[0]
 			Expect(occurrencesOf(comp)).To(Equal([]cdx.EvidenceOccurrence{bundleOccurrence("/app/dist/main.js", "chunk")}))

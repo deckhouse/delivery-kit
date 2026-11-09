@@ -1,10 +1,15 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,8 +26,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/static"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/lockgate/pkg/distributed_locker"
 	"github.com/werf/lockgate/pkg/distributed_locker/optimistic_locking_store"
@@ -40,6 +49,7 @@ import (
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/opstats"
+	"github.com/werf/werf/v3/pkg/sbom/jsobserver"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
@@ -933,4 +943,55 @@ func (r *jsObserverGitRepo) HeadCommitHash(_ context.Context) (string, error) {
 func (r *jsObserverGitRepo) HeadCommitTime(_ context.Context) (*time.Time, error) {
 	headTime := time.Unix(0, 0)
 	return &headTime, nil
+}
+
+func sha256DigestOf(body string) string {
+	sum := sha256.Sum256([]byte(body))
+
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func imageWithFiles(files map[string]string) v1.Image {
+	var buf bytes.Buffer
+	writer := tar.NewWriter(&buf)
+	for _, path := range lo.Keys(files) {
+		gomega.Expect(writer.WriteHeader(&tar.Header{
+			Name:     strings.TrimPrefix(path, "/"),
+			Typeflag: tar.TypeReg,
+			Size:     int64(len(files[path])),
+			Mode:     0o644,
+		})).To(gomega.Succeed())
+		_, err := io.WriteString(writer, files[path])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	gomega.Expect(writer.Close()).To(gomega.Succeed())
+
+	img, err := mutate.AppendLayers(empty.Image, static.NewLayer(buf.Bytes(), types.DockerUncompressedLayer))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return img
+}
+
+func savedImageBackendWithFiles(files map[string]string) *savedImageBackend {
+	img := imageWithFiles(files)
+	tag, err := name.NewTag("werf-stages:app")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var saved bytes.Buffer
+	gomega.Expect(tarball.Write(tag, img, &saved)).To(gomega.Succeed())
+
+	return &savedImageBackend{tarball: saved.Bytes()}
+}
+
+func jsObserverLogOf(outputs ...jsobserver.Output) string {
+	data, err := json.Marshal(jsobserver.Event{Version: jsobserver.ProtocolVersion, Outputs: outputs})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return string(data) + "\n"
+}
+
+func componentByPURL(bom *cdx.BOM, purl string) cdx.Component {
+	comp, found := lo.Find(lo.FromPtr(bom.Components), func(comp cdx.Component) bool { return comp.PackageURL == purl })
+	gomega.Expect(found).To(gomega.BeTrue(), purl)
+
+	return comp
 }

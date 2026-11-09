@@ -165,3 +165,49 @@ func sortedKeys(outputs map[string]Output) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+type expectedOutput struct {
+	Path string
+	// MemoryCode is set for outputs kept in memory, whose digest covers the
+	// code the bundler returned rather than a file on disk.
+	MemoryCode string
+	Packages   []Package
+}
+
+func esbuildOutputs(dir string) []expectedOutput {
+	return []expectedOutput{
+		{Path: dir + "/app.js", Packages: esbuildAppPackages},
+		{Path: dir + "/chunk.js", Packages: esbuildChunkPackage},
+	}
+}
+
+// expectObservedBuild runs script without and with the observer in two copies
+// of the fixture, each prepared by prepare, and returns the observed copy.
+func expectObservedBuild(ctx context.Context, script string, prepare func(observerFixture) string, expected []expectedOutput) observerFixture {
+	baseline := newObserverFixture(ctx)
+	baselineStdout, _ := runNode(ctx, baseline.ProjectDir, prepare(baseline), script)
+
+	observed := newObserverFixture(ctx)
+	observedStdout, _ := runNode(ctx, observed.ProjectDir, strings.TrimSpace(prepare(observed)+" "+observed.bootstrapOption()), script)
+
+	gomega.Expect(observedStdout).To(gomega.Equal(baselineStdout))
+	gomega.Expect(treeContents(filepath.Join(observed.ProjectDir, "dist"))).To(gomega.Equal(treeContents(filepath.Join(baseline.ProjectDir, "dist"))))
+
+	outputs := outputsByPath(readEvents(observed.LogPath))
+	var expectedPaths []string
+	for _, want := range expected {
+		path := filepath.Join(observed.ProjectDir, want.Path)
+		expectedPaths = append(expectedPaths, path)
+		digest := digestOf([]byte(want.MemoryCode))
+		if want.MemoryCode == "" {
+			data, err := os.ReadFile(path)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			digest = digestOf(data)
+		}
+		gomega.Expect(outputs).To(gomega.HaveKeyWithValue(path, Output{Path: path, Digest: digest, Packages: want.Packages}))
+	}
+	gomega.Expect(sortedKeys(outputs)).To(gomega.ConsistOf(expectedPaths))
+	return observed
+}
+
+func noPreparation(observerFixture) string { return "" }

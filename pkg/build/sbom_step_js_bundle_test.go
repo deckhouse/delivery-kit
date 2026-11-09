@@ -1,12 +1,8 @@
 package build
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -15,15 +11,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/empty"
-	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
-	"github.com/google/go-containerregistry/pkg/v1/types"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"go.uber.org/mock/gomock"
 
@@ -37,75 +28,24 @@ import (
 	"github.com/werf/werf/v3/test/mock"
 )
 
-var _ = Describe("JavaScript bundle evidence in the image SBOM", func() {
-	digestOf := func(body string) string {
-		sum := sha256.Sum256([]byte(body))
-
-		return "sha256:" + hex.EncodeToString(sum[:])
-	}
-
-	imageWithFiles := func(files map[string]string) v1.Image {
-		var buf bytes.Buffer
-		writer := tar.NewWriter(&buf)
-		for _, path := range lo.Keys(files) {
-			Expect(writer.WriteHeader(&tar.Header{
-				Name:     strings.TrimPrefix(path, "/"),
-				Typeflag: tar.TypeReg,
-				Size:     int64(len(files[path])),
-				Mode:     0o644,
-			})).To(Succeed())
-			_, err := io.WriteString(writer, files[path])
-			Expect(err).NotTo(HaveOccurred())
-		}
-		Expect(writer.Close()).To(Succeed())
-
-		img, err := mutate.AppendLayers(empty.Image, static.NewLayer(buf.Bytes(), types.DockerUncompressedLayer))
-		Expect(err).NotTo(HaveOccurred())
-
-		return img
-	}
-
-	backendWithFiles := func(files map[string]string) *savedImageBackend {
-		img := imageWithFiles(files)
-		tag, err := name.NewTag("werf-stages:app")
-		Expect(err).NotTo(HaveOccurred())
-		var saved bytes.Buffer
-		Expect(tarball.Write(tag, img, &saved)).To(Succeed())
-
-		return &savedImageBackend{tarball: saved.Bytes()}
-	}
-
-	logOf := func(outputs ...jsobserver.Output) string {
-		data, err := json.Marshal(jsobserver.Event{Version: jsobserver.ProtocolVersion, Outputs: outputs})
-		Expect(err).NotTo(HaveOccurred())
-
-		return string(data) + "\n"
-	}
-
-	byPURL := func(bom *cdx.BOM, purl string) cdx.Component {
-		comp, found := lo.Find(lo.FromPtr(bom.Components), func(comp cdx.Component) bool { return comp.PackageURL == purl })
-		Expect(found).To(BeTrue(), purl)
-
-		return comp
-	}
-
+var _ = ginkgo.Describe("JavaScript bundle evidence in the image SBOM", func() {
 	notShipped := cdx.Property{Name: "werf:shipped", Value: "false"}
 
-	BeforeEach(func() {
-		Expect(werf.Init(GinkgoT().TempDir(), "")).To(Succeed())
+	ginkgo.BeforeEach(func() {
+		gomega.Expect(werf.Init(ginkgo.GinkgoT().TempDir(), "")).To(gomega.Succeed())
 	})
 
-	It("adds a pruned bundled package, proves it in the image and in an image importing the bundle", func(ctx SpecContext) {
-		backend := backendWithFiles(map[string]string{
+	ginkgo.It("adds a pruned bundled package, proves it in the image and in an image importing the bundle", func(ctx ginkgo.SpecContext) {
+		backend := savedImageBackendWithFiles(map[string]string{
 			"/app/dist/main.js":                     "main chunk",
 			"/app/dist/changed.js":                  "minified after bundling",
 			"/app/node_modules/listed/package.json": `{"name":"listed","version":"1.0.0"}`,
-			jsobserver.LogPath: logOf(
-				jsobserver.Output{Path: "/app/dist/main.js", Digest: digestOf("main chunk"), Packages: []jsobserver.Package{
+			jsobserver.LogPath: jsObserverLogOf(
+				jsobserver.Output{Path: "/app/dist/main.js", Digest: sha256DigestOf("main chunk"), Packages: []jsobserver.Package{
 					{Name: "@scope/pruned", Version: "2.0.0"},
 					{Name: "listed", Version: "1.0.0"},
 				}},
-				jsobserver.Output{Path: "/app/dist/changed.js", Digest: digestOf("as bundled"), Packages: []jsobserver.Package{
+				jsobserver.Output{Path: "/app/dist/changed.js", Digest: sha256DigestOf("as bundled"), Packages: []jsobserver.Package{
 					{Name: "clouded", Version: "1.0.0"},
 				}},
 			),
@@ -113,99 +53,99 @@ var _ = Describe("JavaScript bundle evidence in the image SBOM", func() {
 		target := cyclonedxutil.NewBOM()
 		target.Components = &[]cdx.Component{
 			{BOMRef: "listed", Name: "listed", Version: "1.0.0", PackageURL: "pkg:npm/listed@1.0.0", Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
-				{Location: "/app/node_modules/listed/index.js", AdditionalContext: digestOf("listed")},
+				{Location: "/app/node_modules/listed/index.js", AdditionalContext: sha256DigestOf("listed")},
 			}}},
 			{BOMRef: "clouded", Name: "clouded", Version: "1.0.0", PackageURL: "pkg:npm/clouded@1.0.0", Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
-				{Location: "/app/node_modules/clouded/index.js", AdditionalContext: digestOf("clouded")},
+				{Location: "/app/node_modules/clouded/index.js", AdditionalContext: sha256DigestOf("clouded")},
 			}}},
 			{BOMRef: "shaken", Name: "shaken", Version: "1.0.0", PackageURL: "pkg:npm/shaken@1.0.0", Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
-				{Location: "/app/node_modules/shaken/index.js", AdditionalContext: digestOf("shaken")},
+				{Location: "/app/node_modules/shaken/index.js", AdditionalContext: sha256DigestOf("shaken")},
 			}}},
 		}
 
 		filesets, produced := collectShippedScope(ctx, backend, "app", "werf-stages:app", sbomStageProvenance{})
-		Expect(filesets).NotTo(BeNil())
+		gomega.Expect(filesets).NotTo(gomega.BeNil())
 		pruned := bundleComponentsBOM(ctx, filesets, []*cdx.BOM{target, nil})
-		Expect(pruned).NotTo(BeNil())
+		gomega.Expect(pruned).NotTo(gomega.BeNil())
 		merged, err := cyclonedxutil.MergeBOMs(ctx, target, cyclonedxutil.MergeOpts{ImportBOMs: []*cdx.BOM{pruned}})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		recordShippedScope(ctx, merged, filesets, produced, "app")
 
 		data, err := cyclonedxutil.ToJSON(merged)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(cyclonedxutil.ValidateCycloneDX16Schema(data)).To(Succeed())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(cyclonedxutil.ValidateCycloneDX16Schema(data)).To(gomega.Succeed())
 		donor, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		bundled := cdx.EvidenceOccurrence{Location: "/app/dist/main.js", AdditionalContext: "werf:js-bundle:v1:" + digestOf("main chunk")}
-		prunedComp := byPURL(donor, "pkg:npm/%40scope/pruned@2.0.0")
-		Expect(prunedComp.Name).To(Equal("@scope/pruned"))
-		Expect(prunedComp.Version).To(Equal("2.0.0"))
-		Expect(prunedComp.Licenses).To(BeNil(), "nothing is invented about a package only a bundle names")
-		Expect(prunedComp.Evidence).NotTo(BeNil())
-		Expect(lo.FromPtr(prunedComp.Evidence.Occurrences)).To(Equal([]cdx.EvidenceOccurrence{bundled}))
-		Expect(lo.FromPtr(prunedComp.Properties)).NotTo(ContainElement(notShipped))
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/listed@1.0.0").Properties)).NotTo(ContainElement(notShipped))
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/clouded@1.0.0").Properties)).To(ConsistOf(cdx.Property{Name: "werf:js-bundles", Value: "unknown"}))
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/shaken@1.0.0").Properties)).To(ContainElement(notShipped))
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/clouded@1.0.0").Evidence.Occurrences)).To(Equal([]cdx.EvidenceOccurrence{
-			{Location: "/app/node_modules/clouded/index.js", AdditionalContext: digestOf("clouded")},
+		bundled := cdx.EvidenceOccurrence{Location: "/app/dist/main.js", AdditionalContext: "werf:js-bundle:v1:" + sha256DigestOf("main chunk")}
+		prunedComp := componentByPURL(donor, "pkg:npm/%40scope/pruned@2.0.0")
+		gomega.Expect(prunedComp.Name).To(gomega.Equal("@scope/pruned"))
+		gomega.Expect(prunedComp.Version).To(gomega.Equal("2.0.0"))
+		gomega.Expect(prunedComp.Licenses).To(gomega.BeNil(), "nothing is invented about a package only a bundle names")
+		gomega.Expect(prunedComp.Evidence).NotTo(gomega.BeNil())
+		gomega.Expect(lo.FromPtr(prunedComp.Evidence.Occurrences)).To(gomega.Equal([]cdx.EvidenceOccurrence{bundled}))
+		gomega.Expect(lo.FromPtr(prunedComp.Properties)).NotTo(gomega.ContainElement(notShipped))
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/listed@1.0.0").Properties)).NotTo(gomega.ContainElement(notShipped))
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/clouded@1.0.0").Properties)).To(gomega.ConsistOf(cdx.Property{Name: "werf:js-bundles", Value: "unknown"}))
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/shaken@1.0.0").Properties)).To(gomega.ContainElement(notShipped))
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/clouded@1.0.0").Evidence.Occurrences)).To(gomega.Equal([]cdx.EvidenceOccurrence{
+			{Location: "/app/node_modules/clouded/index.js", AdditionalContext: sha256DigestOf("clouded")},
 		}), "an output that changed proves nothing")
 
-		importer := backendWithFiles(map[string]string{"/srv/www/main.js": "main chunk"})
+		importer := savedImageBackendWithFiles(map[string]string{"/srv/www/main.js": "main chunk"})
 		importerFilesets, importerProduced := collectShippedScope(ctx, importer, "web", "werf-stages:app", sbomStageProvenance{})
-		Expect(bundleComponentsBOM(ctx, importerFilesets, []*cdx.BOM{donor})).To(BeNil())
+		gomega.Expect(bundleComponentsBOM(ctx, importerFilesets, []*cdx.BOM{donor})).To(gomega.BeNil())
 		recordShippedScope(ctx, donor, importerFilesets, importerProduced, "web")
 
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/%40scope/pruned@2.0.0").Properties)).NotTo(ContainElement(notShipped))
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/listed@1.0.0").Properties)).NotTo(ContainElement(notShipped),
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/%40scope/pruned@2.0.0").Properties)).NotTo(gomega.ContainElement(notShipped))
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/listed@1.0.0").Properties)).NotTo(gomega.ContainElement(notShipped),
 			"the bundle the importer moved still holds the package its installed files left behind")
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/clouded@1.0.0").Properties)).NotTo(ContainElement(notShipped))
-		Expect(lo.FromPtr(byPURL(donor, "pkg:npm/%40scope/pruned@2.0.0").Evidence.Occurrences)).To(ContainElement(bundled),
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/clouded@1.0.0").Properties)).NotTo(gomega.ContainElement(notShipped))
+		gomega.Expect(lo.FromPtr(componentByPURL(donor, "pkg:npm/%40scope/pruned@2.0.0").Evidence.Occurrences)).To(gomega.ContainElement(bundled),
 			"the donor's record of where the bundle was is kept")
 	})
 
-	It("adds nothing and changes nothing when the build left no log", func(ctx SpecContext) {
-		backend := backendWithFiles(map[string]string{"/app/dist/main.js": "main chunk"})
+	ginkgo.It("adds nothing and changes nothing when the build left no log", func(ctx ginkgo.SpecContext) {
+		backend := savedImageBackendWithFiles(map[string]string{"/app/dist/main.js": "main chunk"})
 		target := cyclonedxutil.NewBOM()
 		target.Components = &[]cdx.Component{
 			{BOMRef: "shaken", Name: "shaken", Version: "1.0.0", PackageURL: "pkg:npm/shaken@1.0.0", Evidence: &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{
-				{Location: "/app/node_modules/shaken/index.js", AdditionalContext: digestOf("shaken")},
+				{Location: "/app/node_modules/shaken/index.js", AdditionalContext: sha256DigestOf("shaken")},
 			}}},
 		}
 
 		filesets, produced := collectShippedScope(ctx, backend, "app", "werf-stages:app", sbomStageProvenance{})
-		Expect(bundleComponentsBOM(ctx, filesets, []*cdx.BOM{target})).To(BeNil())
+		gomega.Expect(bundleComponentsBOM(ctx, filesets, []*cdx.BOM{target})).To(gomega.BeNil())
 		recordShippedScope(ctx, target, filesets, produced, "app")
 
-		Expect(lo.FromPtr((*target.Components)[0].Properties)).To(Equal([]cdx.Property{notShipped}))
-		Expect(lo.FromPtr((*target.Components)[0].Evidence.Occurrences)).To(HaveLen(1))
+		gomega.Expect(lo.FromPtr((*target.Components)[0].Properties)).To(gomega.Equal([]cdx.Property{notShipped}))
+		gomega.Expect(lo.FromPtr((*target.Components)[0].Evidence.Occurrences)).To(gomega.HaveLen(1))
 	})
 
-	It("records a pruned bundled package in the SBOM a stapel image converges to, after the build moved its bundle", func(specCtx SpecContext) {
+	ginkgo.It("records a pruned bundled package in the SBOM a stapel image converges to, after the build moved its bundle", func(specCtx ginkgo.SpecContext) {
 		ctx := logging.WithLogger(specCtx)
-		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
+		gomega.Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(gomega.Succeed())
 		server := httptest.NewServer(registry.New())
-		DeferCleanup(server.Close)
+		ginkgo.DeferCleanup(server.Close)
 		repo := strings.TrimPrefix(server.URL, "http://") + "/bundles"
 		ref, err := name.NewTag(repo + ":app")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		img := imageWithFiles(map[string]string{
 			"/srv/www/main.js": "main chunk",
-			jsobserver.LogPath: logOf(jsobserver.Output{Path: "/app/dist/main.js", Digest: digestOf("main chunk"), Packages: []jsobserver.Package{
+			jsobserver.LogPath: jsObserverLogOf(jsobserver.Output{Path: "/app/dist/main.js", Digest: sha256DigestOf("main chunk"), Packages: []jsobserver.Package{
 				{Name: "pruned", Version: "1.0.0"},
 			}}),
 		})
-		Expect(remote.Write(ref, img, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))).To(Succeed())
+		gomega.Expect(remote.Write(ref, img, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))).To(gomega.Succeed())
 		digest, err := img.Digest()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var saved bytes.Buffer
-		Expect(tarball.Write(ref, img, &saved)).To(Succeed())
+		gomega.Expect(tarball.Write(ref, img, &saved)).To(gomega.Succeed())
 		info := &image.Info{Name: ref.Name(), Repository: repo, RepoDigest: repo + "@" + digest.String()}
 		desc := &image.StageDesc{StageID: image.NewStageID("bundles", 1), Info: info}
 
-		ctrl := gomock.NewController(GinkgoT())
+		ctrl := gomock.NewController(ginkgo.GinkgoT())
 		backend := mock.NewMockContainerBackend(ctrl)
 		backend.EXPECT().Pull(gomock.Any(), info.Name, gomock.Any()).Return(nil).Times(1)
 		backend.EXPECT().SaveImageToStream(gomock.Any(), info.Name).Return(io.NopCloser(bytes.NewReader(saved.Bytes())), nil).Times(1)
@@ -217,15 +157,15 @@ var _ = Describe("JavaScript bundle evidence in the image SBOM", func() {
 		}).Times(1)
 
 		step := &sbomStep{containerBackend: backend}
-		Expect(step.ConvergeWithMerge(ctx, "app", desc, scanner.DefaultSyftScanOptions(), cyclonedxutil.MergeOpts{}, []BOMPatcherInterface{}, externalRefPatcher, []string{}, true, "", nil, "")).To(Succeed())
+		gomega.Expect(step.ConvergeWithMerge(ctx, "app", desc, scanner.DefaultSyftScanOptions(), cyclonedxutil.MergeOpts{}, []BOMPatcherInterface{}, externalRefPatcher, []string{}, true, "", nil, "")).To(gomega.Succeed())
 
-		Expect(resolved).To(ContainElement("pkg:npm/pruned@1.0.0"), "the added package has its external references resolved like any other")
+		gomega.Expect(resolved).To(gomega.ContainElement("pkg:npm/pruned@1.0.0"), "the added package has its external references resolved like any other")
 		bom, err := step.GetImageBOM(ctx, "app", info)
-		Expect(err).NotTo(HaveOccurred())
-		comp := byPURL(bom, "pkg:npm/pruned@1.0.0")
-		Expect(lo.FromPtr(comp.Evidence.Occurrences)).To(Equal([]cdx.EvidenceOccurrence{
-			{Location: "/app/dist/main.js", AdditionalContext: "werf:js-bundle:v1:" + digestOf("main chunk")},
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		comp := componentByPURL(bom, "pkg:npm/pruned@1.0.0")
+		gomega.Expect(lo.FromPtr(comp.Evidence.Occurrences)).To(gomega.Equal([]cdx.EvidenceOccurrence{
+			{Location: "/app/dist/main.js", AdditionalContext: "werf:js-bundle:v1:" + sha256DigestOf("main chunk")},
 		}))
-		Expect(lo.FromPtr(comp.Properties)).NotTo(ContainElement(notShipped))
+		gomega.Expect(lo.FromPtr(comp.Properties)).NotTo(gomega.ContainElement(notShipped))
 	})
 })

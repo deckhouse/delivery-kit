@@ -349,7 +349,7 @@ func recordShippedScope(ctx context.Context, bom *cdx.BOM, filesets *shippedscop
 	recorded := shippedscope.RecordOccurrences(bom, filesets.Filesets)
 	logboek.Context(ctx).Debug().LogF("Collected %d component filesets of the image, recorded onto %d components\n", len(filesets.Filesets), recorded)
 	bundled := shippedscope.RecordBundleOccurrences(ctx, bom, filesets)
-	logboek.Context(ctx).Debug().LogF("Collected %d JavaScript bundle outputs of the image, recorded onto %d components\n", len(filesets.Bundles), bundled)
+	logboek.Context(ctx).Debug().LogF("Collected %d JavaScript bundle outputs of the image, recorded onto or marked unknown on %d components\n", len(filesets.Bundles), bundled)
 
 	if marked := shippedscope.MarkNotShipped(ctx, bom, filesets); marked > 0 {
 		logboek.Context(ctx).Default().LogF("image %s: %d components of the SBOM are not shipped by the image\n", werfImgName, marked)

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	packageurl "github.com/package-url/packageurl-go"
@@ -58,11 +59,14 @@ type BundlePackage struct {
 // it was observed at. Verified means the image holds the recorded bytes, at that path or
 // wherever a later step of the build moved them. The last record of a path whose bytes the
 // image holds nowhere is unverified: its packages can be shown neither present nor absent.
+// Unidentified are the packages it names under a name or version werf does not accept: none
+// of them is proven shipped, and none can be shown absent either.
 type BundleOutput struct {
-	Path     string
-	Digest   string
-	Packages []BundlePackage
-	Verified bool
+	Path         string
+	Digest       string
+	Packages     []BundlePackage
+	Unidentified []BundlePackage
+	Verified     bool
 }
 
 // A record too malformed to name its packages is only warned about: there is no package to
@@ -128,6 +132,9 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 				key := [2]string{record.Path, record.Digest}
 				if earlier, ok := verified[key]; ok {
 					record.Packages = lo.Uniq(slices.Concat(earlier.Packages, record.Packages))
+					if len(earlier.Unidentified) > 0 {
+						record.Unidentified = lo.Uniq(slices.Concat(earlier.Unidentified, record.Unidentified))
+					}
 				}
 				verified[key] = record
 			}
@@ -149,7 +156,7 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 			outputs = append(outputs, record)
 		}
 	}
-	outputs = lo.Filter(outputs, func(output BundleOutput, _ int) bool { return len(output.Packages) > 0 })
+	outputs = lo.Filter(outputs, func(output BundleOutput, _ int) bool { return len(output.Packages) > 0 || len(output.Unidentified) > 0 })
 	slices.SortFunc(outputs, func(a, b BundleOutput) int {
 		return cmp.Or(cmp.Compare(a.Path, b.Path), cmp.Compare(a.Digest, b.Digest))
 	})
@@ -168,16 +175,19 @@ func bundleRecord(byDigest map[string][]string, output jsobserver.Output) (Bundl
 	seen := make(map[BundlePackage]struct{}, len(output.Packages))
 	for _, pkg := range output.Packages {
 		bundlePackage := BundlePackage{Name: pkg.Name, Version: pkg.Version}
-		if !validBundlePackage(bundlePackage) {
-			valid = false
-
-			continue
-		}
 		if _, ok := seen[bundlePackage]; ok {
 			continue
 		}
 		seen[bundlePackage] = struct{}{}
-		record.Packages = append(record.Packages, bundlePackage)
+		if validBundlePackage(bundlePackage) {
+			record.Packages = append(record.Packages, bundlePackage)
+
+			continue
+		}
+		valid = false
+		if boundedBundlePackage(bundlePackage) {
+			record.Unidentified = append(record.Unidentified, bundlePackage)
+		}
 	}
 
 	record.Verified = validBundleOutputPath(output.Path) && validDigest(output.Digest) && len(byDigest[output.Digest]) > 0
@@ -237,17 +247,24 @@ func BundleComponents(_ context.Context, filesets *Filesets, boms []*cdx.BOM) []
 // path the output was observed at. Bundle occurrences the component already carries are
 // kept, even at a path recorded again with other bytes: the earlier bytes may have been
 // moved elsewhere, and only their digest is looked for. A package no output names is left
-// as it was: a bundle leaving a package out says nothing about its installed files.
+// as it was: a bundle leaving a package out says nothing about its installed files. A
+// package an output names under a name werf does not accept is marked unknown too, whether
+// or not the output is verified: its name proves nothing, but its files being gone does not
+// make it absent.
 //
-// Returns the number of components given bundle evidence.
-func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets) int {
+// Returns the number of components given bundle evidence or marked unknown.
+func RecordBundleOccurrences(ctx context.Context, bom *cdx.BOM, filesets *Filesets) int {
 	if bom == nil || filesets == nil {
 		return 0
 	}
 
 	proven := make(map[componentKey][]cdx.EvidenceOccurrence)
 	unknown := make(map[componentKey]bool)
+	unidentified := make(map[componentKey]bool)
 	for _, output := range filesets.Bundles {
+		for _, pkg := range output.Unidentified {
+			unidentified[bundleKey(pkg)] = true
+		}
 		for _, pkg := range output.Packages {
 			if !output.Verified {
 				unknown[bundleKey(pkg)] = true
@@ -262,18 +279,27 @@ func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets
 	}
 
 	recorded := 0
+	unidentifiedMarked := 0
 	walkComponents(bom, func(comp *cdx.Component) {
 		key, ok := keyOfComponent(comp)
 		if !ok || key.ecosystem != EcosystemJavaScript {
 			return
 		}
 
-		if (filesets.BundlesUnknown || unknown[key]) && !slices.Contains(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}) {
-			comp.Properties = lo.ToPtr(append(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}))
+		outputs, isProven := proven[key]
+		if unidentified[key] {
+			unidentifiedMarked++
+		}
+		if filesets.BundlesUnknown || unknown[key] || unidentified[key] {
+			if !slices.Contains(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}) {
+				comp.Properties = lo.ToPtr(append(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}))
+			}
+			if !isProven {
+				recorded++
+			}
 		}
 
-		outputs, ok := proven[key]
-		if !ok {
+		if !isProven {
 			return
 		}
 		recorded++
@@ -289,6 +315,10 @@ func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets
 		}
 		comp.Evidence.Occurrences = &occurrences
 	})
+
+	if unidentifiedMarked > 0 {
+		logboek.Context(ctx).Warn().LogF("WARNING: %d npm packages a JavaScript bundle observer record names under a name werf does not accept are marked unknown in the bundles\n", unidentifiedMarked)
+	}
 
 	return recorded
 }
@@ -348,6 +378,12 @@ func validBundlePackage(pkg BundlePackage) bool {
 	key, ok := keyOfComponent(&cdx.Component{PackageURL: npmPackageURL(pkg)})
 
 	return ok && key == bundleKey(pkg)
+}
+
+// A package too malformed to stand for any installed component is only counted invalid.
+func boundedBundlePackage(pkg BundlePackage) bool {
+	return pkg.Name != "" && pkg.Version != "" && len(pkg.Name) <= maxNPMNameLen && len(pkg.Version) <= maxNPMVersionLen &&
+		!strings.ContainsFunc(pkg.Name+pkg.Version, unicode.IsControl)
 }
 
 func validBundleOutputPath(file string) bool {

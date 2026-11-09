@@ -154,21 +154,23 @@ var _ = Describe("JavaScript bundle evidence", func() {
 		})
 
 		It("keeps every package named for the same bytes at the same path", func(ctx SpecContext) {
+			first := outputOf("/app/dist/main.js", "same bytes", "dep@1.0.0", "shared@1.0.0")
+			first.Packages = append(first.Packages, jsobserver.Package{Name: "legacy!name", Version: "1.0.0"})
 			filesets := collect(ctx,
 				regularFile("app/dist/main.js", "same bytes"),
 				regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(
-					eventOf(outputOf("/app/dist/main.js", "same bytes", "dep@1.0.0", "shared@1.0.0")),
+					eventOf(first),
 					eventOf(outputOf("/app/dist/main.js", "same bytes", "dep@2.0.0", "shared@1.0.0")),
 				)),
 			)
 
-			Expect(filesets.Bundles).To(ConsistOf(
-				bundleOf("/app/dist/main.js", "same bytes", true,
-					BundlePackage{Name: "dep", Version: "1.0.0"},
-					BundlePackage{Name: "shared", Version: "1.0.0"},
-					BundlePackage{Name: "dep", Version: "2.0.0"},
-				),
-			), "either build's copy may be the one the image ships")
+			merged := bundleOf("/app/dist/main.js", "same bytes", true,
+				BundlePackage{Name: "dep", Version: "1.0.0"},
+				BundlePackage{Name: "shared", Version: "1.0.0"},
+				BundlePackage{Name: "dep", Version: "2.0.0"},
+			)
+			merged.Unidentified = []BundlePackage{{Name: "legacy!name", Version: "1.0.0"}}
+			Expect(filesets.Bundles).To(ConsistOf(merged), "either build's copy may be the one the image ships")
 			Expect(BundleComponents(ctx, filesets, nil)).To(Equal([]cdx.Component{
 				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/dep@1.0.0", Name: "dep", Version: "1.0.0", PackageURL: "pkg:npm/dep@1.0.0"},
 				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/dep@2.0.0", Name: "dep", Version: "2.0.0", PackageURL: "pkg:npm/dep@2.0.0"},
@@ -197,6 +199,7 @@ var _ = Describe("JavaScript bundle evidence", func() {
 				jsobserver.Package{Name: "loose", Version: "^1.0"},
 				jsobserver.Package{Name: "@scope/", Version: "1.0.0"},
 				jsobserver.Package{Name: "", Version: "1.0.0"},
+				jsobserver.Package{Name: "bad\x00name", Version: "1.0.0"},
 			)
 			onlyBad := outputOf("/app/dist/e.js", "chunk e")
 			onlyBad.Packages = []jsobserver.Package{{Name: "_private", Version: "1.0.0"}}
@@ -219,10 +222,13 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			)
 			out := output.String()
 
+			goodOutput := bundleOf("/app/dist/a.js", "chunk a", true, BundlePackage{Name: "good", Version: "1.0.0"})
+			goodOutput.Unidentified = []BundlePackage{{Name: "Bad Name", Version: "1.0.0"}, {Name: "loose", Version: "^1.0"}, {Name: "@scope/", Version: "1.0.0"}}
 			Expect(filesets.Bundles).To(ConsistOf(
-				bundleOf("/app/dist/a.js", "chunk a", true, BundlePackage{Name: "good", Version: "1.0.0"}),
+				goodOutput,
 				BundleOutput{Path: "/app/dist/c.js", Digest: "sha256:ABC", Packages: []BundlePackage{{Name: "clouded", Version: "1.0.0"}}},
 				BundleOutput{Path: "app/dist/../d.js", Digest: digestOf("chunk d"), Packages: []BundlePackage{{Name: "relative", Version: "1.0.0"}}},
+				BundleOutput{Path: "/app/dist/e.js", Digest: digestOf("chunk e"), Unidentified: []BundlePackage{{Name: "_private", Version: "1.0.0"}}, Verified: true},
 			), "an unreadable output still clouds the packages it names; an unreadable package proves nothing")
 			Expect(out).To(ContainSubstring("unsupported Node runtime"))
 			Expect(out).To(ContainSubstring("JavaScript bundle observer"))
@@ -347,10 +353,12 @@ var _ = Describe("JavaScript bundle evidence", func() {
 				componentOf("pkg:npm/clear@1.0.0"),
 			}}
 
-			RecordBundleOccurrences(ctx, bom, &Filesets{Bundles: []BundleOutput{
+			recorded := RecordBundleOccurrences(ctx, bom, &Filesets{Bundles: []BundleOutput{
 				bundleOf("/app/dist/main.js", "as bundled", false, BundlePackage{Name: "clouded", Version: "1.0.0"}),
 				bundleOf("/app/dist/other.js", "other", true, BundlePackage{Name: "clear", Version: "1.0.0"}),
 			}})
+
+			Expect(recorded).To(Equal(2), "a package marked unknown is counted like one given evidence")
 
 			Expect(lo.FromPtr((*bom.Components)[0].Properties)).To(Equal([]cdx.Property{{Name: PropertyJSBundles, Value: "unknown"}}))
 			Expect(occurrencesOf((*bom.Components)[0])).To(BeNil())
@@ -382,6 +390,36 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			Entry("a log that was read", []tarEntry{regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0"))))}, false),
 			Entry("no log", nil, false),
 		)
+
+		It("marks a package a record names under a name werf does not accept unknown, not pruned", func(ctx SpecContext) {
+			output := outputOf("/app/dist/main.js", "chunk", "dep@1.0.0")
+			output.Packages = append(output.Packages,
+				jsobserver.Package{Name: "Legacy!Name", Version: "1.0.0"},
+			)
+			filesets := collect(ctx,
+				regularFile("app/dist/main.js", "chunk"),
+				regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(eventOf(output))),
+			)
+			bom := &cdx.BOM{Components: &[]cdx.Component{
+				componentOf("pkg:npm/legacy%21name@1.0.0", fileOccurrence("/app/node_modules/legacy!name/index.js", "legacy")),
+				componentOf("pkg:npm/other@1.0.0", fileOccurrence("/app/node_modules/other/index.js", "other")),
+			}}
+
+			var log bytes.Buffer
+			recorded := RecordBundleOccurrences(logboek.NewContext(ctx, logboek.NewLogger(&log, &log)), bom, filesets)
+			MarkNotShipped(ctx, bom, filesets)
+
+			legacy, other := (*bom.Components)[0], (*bom.Components)[1]
+			Expect(recorded).To(Equal(1))
+			Expect(lo.FromPtr(legacy.Properties)).To(ContainElement(cdx.Property{Name: PropertyJSBundles, Value: "unknown"}))
+			Expect(occurrencesOf(legacy)).To(Equal([]cdx.EvidenceOccurrence{fileOccurrence("/app/node_modules/legacy!name/index.js", "legacy")}), "an unaccepted name proves nothing")
+			Expect(shipped(legacy)).To(BeTrue(), "its files being pruned does not make a bundled package absent")
+			Expect(shipped(other)).To(BeFalse())
+			Expect(log.String()).To(ContainSubstring("1 npm packages"))
+			Expect(BundleComponents(ctx, filesets, nil)).To(Equal([]cdx.Component{
+				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/dep@1.0.0", Name: "dep", Version: "1.0.0", PackageURL: "pkg:npm/dep@1.0.0"},
+			}))
+		})
 
 		It("marks every npm package unknown when the log is a hardlink no layer can resolve", func(ctx SpecContext) {
 			img, err := imageOf(

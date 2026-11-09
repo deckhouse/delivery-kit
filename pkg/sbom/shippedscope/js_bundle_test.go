@@ -269,6 +269,20 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			Entry("a manifest of any size", "/app/node_modules/dep/package.json", maxJSObserverLogBytes+1, true),
 		)
 
+		It("does not read a log body over the limit, however it was captured", func(ctx SpecContext) {
+			body := []byte(logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0"))))
+			body = append(body, bytes.Repeat([]byte("\n"), int(maxJSObserverLogBytes)+1-len(body))...)
+			index := indexOf(map[string]File{
+				"/app/dist/main.js": {Digest: digestOf("chunk"), Size: 5},
+				jsobserver.LogPath:  {Digest: digestOf(string(body)), Size: int64(len(body))},
+			})
+
+			outputs, unknown := bundleOutputs(ctx, index, map[string][]byte{jsobserver.LogPath: body})
+
+			Expect(outputs).To(BeNil())
+			Expect(unknown).To(BeTrue())
+		})
+
 		It("takes nothing from a log that is a symlink", func(ctx SpecContext) {
 			filesets := collect(ctx,
 				regularFile("app/dist/main.js", "chunk"),
@@ -411,6 +425,10 @@ var _ = Describe("JavaScript bundle evidence", func() {
 				Expect(shipped(pypi)).To(BeFalse())
 			},
 			Entry("a log that is a hardlink", []tarEntry{hardlink(strings.TrimPrefix(jsobserver.LogPath, "/"), "srv/log.jsonl")}, true),
+			Entry("a log that is a hardlink sharing its target with a package manifest", []tarEntry{
+				hardlink(strings.TrimPrefix(jsobserver.LogPath, "/"), "srv/log.jsonl"),
+				hardlink("app/node_modules/dep/package.json", "srv/log.jsonl"),
+			}, true),
 			Entry("a log that is a symlink", []tarEntry{symlink(strings.TrimPrefix(jsobserver.LogPath, "/"), "/srv/log.jsonl")}, true),
 			Entry("a log that was read", []tarEntry{regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0"))))}, false),
 			Entry("no log", nil, false),

@@ -42,6 +42,10 @@ type FileIndex struct {
 	// unresolved holds the hardlinks left out of Files and Symlinks: something is at the
 	// path, but no layer names its content.
 	unresolved map[string]bool
+	// linked holds the names a hardlink entry put in the index. Such a name carries any bytes
+	// captured for its target, which another name sharing that target may have asked for,
+	// whatever their size.
+	linked map[string]bool
 }
 
 // IndexImageFiles records what the image ships: every regular file by rooted path, with
@@ -74,6 +78,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 		bodies:       make(map[string][]byte),
 		targetBodies: make(map[string][]byte),
 		unresolved:   make(map[string]bool),
+		linked:       make(map[string]bool),
 	}
 	hardlinks := make(map[string]string)
 	if capture == nil {
@@ -117,6 +122,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 			index.Symlinks[name] = header.Linkname
 		case tar.TypeLink:
 			hardlinks[name] = rootedPath(header.Linkname)
+			index.linked[name] = true
 		}
 	}
 

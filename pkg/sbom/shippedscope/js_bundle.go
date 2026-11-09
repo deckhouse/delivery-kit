@@ -83,7 +83,7 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 	delete(index.Files, jsobserver.LogPath)
 	body, ok := manifests[jsobserver.LogPath]
 	delete(manifests, jsobserver.LogPath)
-	if !ok {
+	if !ok || index.linked[jsobserver.LogPath] || int64(len(body)) > maxJSObserverLogBytes {
 		logboek.Context(ctx).Warn().LogF("WARNING: JavaScript bundle observer log %s is over %d bytes, a hardlink or a symlink and is not read; no npm package can be shown absent from the bundles\n", jsobserver.LogPath, maxJSObserverLogBytes)
 
 		return nil, true

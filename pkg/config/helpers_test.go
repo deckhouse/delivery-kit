@@ -159,3 +159,37 @@ func directivesFromYaml(ctx context.Context, giterminismManager *GiterminismMana
 	}
 	return stapelImage.Packages, nil
 }
+
+func packagesDigestTestDirectives() []*PackagesDirective {
+	envs := []map[string]string{
+		nil,
+		{"GOPROXY": "direct"},
+		{"GOPROXY": "%secret:proxy%"},
+		{"A": "1", "B": "%secret:b%", "PACKAGES_VERSION": "%secret:PACKAGES_VERSION%"},
+		{"PACKAGES_VERSION": "1.2.3", "REGISTRY": "registry.example.com"},
+	}
+
+	var directives []*PackagesDirective
+	for pkgType, eco := range Ecosystems() {
+		if pkgType == PackagesDirectiveTypeOSPM {
+			for _, env := range envs {
+				directives = append(directives, &PackagesDirective{Type: pkgType, Spec: PackagesSpec{Packages: []string{"curl", "jq"}}, Env: env})
+			}
+			continue
+		}
+
+		for _, lock := range []string{"", eco.DefaultLockFile, "custom.lock"} {
+			for _, manager := range []string{"", "/app/bin/tool"} {
+				for _, env := range envs {
+					directives = append(directives, &PackagesDirective{
+						Type:      pkgType,
+						FileBased: FileBasedSpec{Workdir: "/app dir", Spec: "spec.file", Lock: lock, Manager: manager},
+						Env:       env,
+					})
+				}
+			}
+		}
+	}
+
+	return directives
+}

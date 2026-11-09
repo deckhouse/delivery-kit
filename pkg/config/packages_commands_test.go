@@ -47,18 +47,18 @@ var _ = Describe("formatEnvVars shell safety", func() {
 
 var _ = Describe("formatWorkdirCommand", func() {
 	It("places the env prefix in front of the package manager, not in front of cd", func() {
-		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "direct"}, execPackagesGuards)).
+		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "direct"}, execPackagesGuards())).
 			To(Equal(`cd "/app" && GOPROXY=direct go mod download`))
 	})
 
 	It("keeps cd in the parent shell and isolates only a secret-backed value", func() {
-		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"}, execPackagesGuards)).
+		Expect(formatWorkdirCommand(FileBasedSpec{Workdir: "/app"}, "go mod download", map[string]string{"GOPROXY": "%secret:proxy%"}, execPackagesGuards())).
 			To(Equal(`cd "/app" && (GOPROXY="$(</run/secrets/proxy)"; GOPROXY="$GOPROXY" go mod download)`))
 	})
 
 	It("exposes the env var to the package manager process", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
-		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir}, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"}, execPackagesGuards)
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir}, "printenv SOME_VAR", map[string]string{"SOME_VAR": "some-value"}, execPackagesGuards())
 
 		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
 		stderr := &bytes.Buffer{}
@@ -83,8 +83,8 @@ var _ = Describe("formatWorkdirCommand", func() {
 			// The second workdir is relative: it resolves against the `cd` of the first directive,
 			// which the shared stage shell keeps between directives.
 			script := strings.Join([]string{
-				formatWorkdirCommand(FileBasedSpec{Workdir: appDir}, "printenv GOPROXY", firstEnv, execPackagesGuards),
-				formatWorkdirCommand(FileBasedSpec{Workdir: "tools"}, "printenv GOPROXY", nil, execPackagesGuards),
+				formatWorkdirCommand(FileBasedSpec{Workdir: appDir}, "printenv GOPROXY", firstEnv, execPackagesGuards()),
+				formatWorkdirCommand(FileBasedSpec{Workdir: "tools"}, "printenv GOPROXY", nil, execPackagesGuards()),
 			}, "\n")
 			script = strings.ReplaceAll(script, packageSecretsDir, secretsDir+"/")
 
@@ -680,7 +680,7 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 	It("runs the package manager when the lock is present", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
 		Expect(os.WriteFile(filepath.Join(dir, "poetry.lock"), nil, 0o600)).To(Succeed())
-		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil, execPackagesGuards)
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil, execPackagesGuards())
 
 		stdout, err := exec.CommandContext(ctx, "bash", "-ec", command).Output()
 		Expect(err).NotTo(HaveOccurred())
@@ -690,7 +690,7 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 	It("fails the stage script before the package manager runs when the lock is absent", func(ctx SpecContext) {
 		dir := GinkgoT().TempDir()
 		script := strings.Join([]string{
-			formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil, execPackagesGuards),
+			formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil, execPackagesGuards()),
 			"echo next-directive",
 		}, "\n")
 
@@ -705,7 +705,7 @@ var _ = Describe("formatWorkdirCommand lock guard", func() {
 
 	It("reports a missing workdir as such, not as a missing lock", func(ctx SpecContext) {
 		dir := filepath.Join(GinkgoT().TempDir(), "absent")
-		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil, execPackagesGuards)
+		command := formatWorkdirCommand(FileBasedSpec{Workdir: dir, Lock: "poetry.lock"}, "echo installed", nil, execPackagesGuards())
 
 		cmd := exec.CommandContext(ctx, "bash", "-ec", command)
 		stderr := &bytes.Buffer{}

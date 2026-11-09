@@ -141,17 +141,20 @@ type packagesGuards struct {
 	version func() string
 }
 
-var (
-	execPackagesGuards   = packagesGuards{lock: formatLockGuard, version: formatPackagesVersionGuard}
-	digestPackagesGuards = packagesGuards{lock: legacyLockGuard, version: legacyPackagesVersionGuard}
-)
-
-func GeneratePackagesCommands(packages []*PackagesDirective) []string {
-	return generatePackagesCommands(packages, execPackagesGuards)
+func execPackagesGuards() packagesGuards {
+	return packagesGuards{lock: formatLockGuard, version: formatPackagesVersionGuard}
 }
 
-func GeneratePackagesDigestInputs(packages []*PackagesDirective) []string {
-	return generatePackagesCommands(packages, digestPackagesGuards)
+func digestPackagesGuards() packagesGuards {
+	return packagesGuards{lock: legacyLockGuard, version: legacyPackagesVersionGuard}
+}
+
+func GeneratePackagesCommands(packages []*PackagesDirective) []string {
+	return generatePackagesCommands(packages, execPackagesGuards())
+}
+
+func generatePackagesDigestInputs(packages []*PackagesDirective) []string {
+	return generatePackagesCommands(packages, digestPackagesGuards())
 }
 
 func generatePackagesCommands(packages []*PackagesDirective, guards packagesGuards) []string {

@@ -118,7 +118,7 @@ var _ = Describe("rawStapelImage packages stage commands", func() {
 			Expect(stapelImage.Shell).NotTo(BeNil())
 			Expect(stapelImage.Shell.Packages).To(Equal(GeneratePackagesCommands(stapelImage.Packages)))
 			Expect(stapelImage.Shell.Packages).To(HaveLen(2))
-			Expect(stapelImage.Shell.PackagesDigestInputs).To(Equal(GeneratePackagesDigestInputs(stapelImage.Packages)))
+			Expect(stapelImage.Shell.PackagesDigestInputs).To(Equal(generatePackagesDigestInputs(stapelImage.Packages)))
 		},
 		Entry("build.sbom absent", &Meta{}),
 		Entry("build.sbom.enable false", &Meta{Build: MetaBuild{Sbom: &MetaBuildSbom{Enable: false}}}),

@@ -58,7 +58,8 @@ type BundlePackage struct {
 // BundleOutput is a record the build's JavaScript observer left for one output, at the path
 // it was observed at. Verified means the image holds the recorded bytes, at that path or
 // wherever a later step of the build moved them. The last record of a path whose bytes the
-// image holds nowhere is unverified: its packages can be shown neither present nor absent.
+// image holds nowhere is unverified, with the packages the records just before it named for
+// the same bytes: those packages can be shown neither present nor absent.
 // Unidentified are the packages it names under a name or version werf does not accept: none
 // of them is proven shipped, and none can be shown absent either.
 type BundleOutput struct {
@@ -125,16 +126,17 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 			if !valid {
 				invalid++
 			}
+			// Builds of different package versions can render the same bytes, and either
+			// build's copy may be the one that was moved before the path was written again,
+			// or the one the image changed afterwards.
+			if earlier, ok := last[record.Path]; ok && earlier.Digest == record.Digest {
+				record = mergeBundleOutputs(earlier, record)
+			}
 			last[record.Path] = record
 			if record.Verified {
-				// Builds of different package versions can render the same bytes, and either
-				// build's copy may be the one that was moved before the path was written again.
 				key := [2]string{record.Path, record.Digest}
 				if earlier, ok := verified[key]; ok {
-					record.Packages = lo.Uniq(slices.Concat(earlier.Packages, record.Packages))
-					if len(earlier.Unidentified) > 0 {
-						record.Unidentified = lo.Uniq(slices.Concat(earlier.Unidentified, record.Unidentified))
-					}
+					record = mergeBundleOutputs(earlier, record)
 				}
 				verified[key] = record
 			}
@@ -162,6 +164,15 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 	})
 
 	return outputs, false
+}
+
+func mergeBundleOutputs(earlier, record BundleOutput) BundleOutput {
+	record.Packages = lo.Uniq(slices.Concat(earlier.Packages, record.Packages))
+	if len(earlier.Unidentified) > 0 {
+		record.Unidentified = lo.Uniq(slices.Concat(earlier.Unidentified, record.Unidentified))
+	}
+
+	return record
 }
 
 // An empty output yields no packages: its digest is every empty file's.

@@ -178,6 +178,31 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			}))
 		})
 
+		It("keeps every package named for the same bytes at a path whose bytes changed afterwards unknown", func(ctx SpecContext) {
+			first := outputOf("/app/dist/main.js", "as bundled", "first@1.0.0")
+			first.Packages = append(first.Packages, jsobserver.Package{Name: "Legacy!Name", Version: "1.0.0"})
+			filesets := collect(ctx,
+				regularFile("app/dist/main.js", "minified afterwards"),
+				regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(
+					eventOf(first),
+					eventOf(outputOf("/app/dist/main.js", "as bundled", "second@1.0.0")),
+				)),
+			)
+			bom := &cdx.BOM{Components: &[]cdx.Component{
+				componentOf("pkg:npm/first@1.0.0", fileOccurrence("/app/node_modules/first/index.js", "first")),
+				componentOf("pkg:npm/second@1.0.0", fileOccurrence("/app/node_modules/second/index.js", "second")),
+				componentOf("pkg:npm/legacy%21name@1.0.0", fileOccurrence("/app/node_modules/legacy!name/index.js", "legacy")),
+			}}
+
+			RecordBundleOccurrences(ctx, bom, filesets)
+			MarkNotShipped(ctx, bom, filesets)
+
+			for _, comp := range *bom.Components {
+				Expect(lo.FromPtr(comp.Properties)).To(ContainElement(cdx.Property{Name: PropertyJSBundles, Value: "unknown"}), comp.PackageURL)
+				Expect(shipped(comp)).To(BeTrue(), "either record may be the one the changed bytes came from: %s", comp.PackageURL)
+			}
+		})
+
 		It("takes nothing from an empty output", func(ctx SpecContext) {
 			filesets := collect(ctx,
 				regularFile("app/dist/empty.js", ""),

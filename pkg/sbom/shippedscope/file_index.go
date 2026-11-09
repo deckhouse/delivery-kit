@@ -39,6 +39,9 @@ type FileIndex struct {
 	// path, the content a hardlink's name asked for while the layers were read.
 	bodies       map[string][]byte
 	targetBodies map[string][]byte
+	// unresolved holds the hardlinks left out of Files and Symlinks: something is at the
+	// path, but no layer names its content.
+	unresolved map[string]bool
 }
 
 // IndexImageFiles records what the image ships: every regular file by rooted path, with
@@ -70,6 +73,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 		Symlinks:     make(map[string]string),
 		bodies:       make(map[string][]byte),
 		targetBodies: make(map[string][]byte),
+		unresolved:   make(map[string]bool),
 	}
 	hardlinks := make(map[string]string)
 	if capture == nil {
@@ -373,6 +377,7 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 			next, ok := hardlinks[target]
 			if !ok || visited[target] {
 				unresolved++
+				index.unresolved[name] = true
 				logboek.Context(ctx).Debug().LogF("hardlink %q could not be resolved to the content of %q\n", name, target)
 				break
 			}

@@ -72,7 +72,7 @@ type BundleOutput struct {
 func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][]byte) ([]BundleOutput, bool) {
 	_, isFile := index.Files[jsobserver.LogPath]
 	_, isSymlink := index.Symlinks[jsobserver.LogPath]
-	if !isFile && !isSymlink {
+	if !isFile && !isSymlink && !index.unresolved[jsobserver.LogPath] {
 		return nil, false
 	}
 	delete(index.Files, jsobserver.LogPath)
@@ -123,7 +123,13 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 			}
 			last[record.Path] = record
 			if record.Verified {
-				verified[[2]string{record.Path, record.Digest}] = record
+				// Builds of different package versions can render the same bytes, and either
+				// build's copy may be the one that was moved before the path was written again.
+				key := [2]string{record.Path, record.Digest}
+				if earlier, ok := verified[key]; ok {
+					record.Packages = lo.Uniq(slices.Concat(earlier.Packages, record.Packages))
+				}
+				verified[key] = record
 			}
 		}
 	}

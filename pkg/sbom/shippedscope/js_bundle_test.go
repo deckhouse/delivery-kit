@@ -153,6 +153,29 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			))
 		})
 
+		It("keeps every package named for the same bytes at the same path", func(ctx SpecContext) {
+			filesets := collect(ctx,
+				regularFile("app/dist/main.js", "same bytes"),
+				regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(
+					eventOf(outputOf("/app/dist/main.js", "same bytes", "dep@1.0.0", "shared@1.0.0")),
+					eventOf(outputOf("/app/dist/main.js", "same bytes", "dep@2.0.0", "shared@1.0.0")),
+				)),
+			)
+
+			Expect(filesets.Bundles).To(ConsistOf(
+				bundleOf("/app/dist/main.js", "same bytes", true,
+					BundlePackage{Name: "dep", Version: "1.0.0"},
+					BundlePackage{Name: "shared", Version: "1.0.0"},
+					BundlePackage{Name: "dep", Version: "2.0.0"},
+				),
+			), "either build's copy may be the one the image ships")
+			Expect(BundleComponents(ctx, filesets, nil)).To(Equal([]cdx.Component{
+				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/dep@1.0.0", Name: "dep", Version: "1.0.0", PackageURL: "pkg:npm/dep@1.0.0"},
+				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/dep@2.0.0", Name: "dep", Version: "2.0.0", PackageURL: "pkg:npm/dep@2.0.0"},
+				{Type: cdx.ComponentTypeLibrary, BOMRef: "pkg:npm/shared@1.0.0", Name: "shared", Version: "1.0.0", PackageURL: "pkg:npm/shared@1.0.0"},
+			}))
+		})
+
 		It("takes nothing from an empty output", func(ctx SpecContext) {
 			filesets := collect(ctx,
 				regularFile("app/dist/empty.js", ""),
@@ -359,6 +382,33 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			Entry("a log that was read", []tarEntry{regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0"))))}, false),
 			Entry("no log", nil, false),
 		)
+
+		It("marks every npm package unknown when the log is a hardlink no layer can resolve", func(ctx SpecContext) {
+			img, err := imageOf(
+				[]tarEntry{
+					regularFile("app/dist/main.js", "chunk"),
+					regularFile("srv/log.jsonl", logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0")))),
+				},
+				[]tarEntry{hardlink(strings.TrimPrefix(jsobserver.LogPath, "/"), "srv/log.jsonl")},
+				[]tarEntry{whiteout("srv/.wh.log.jsonl")},
+			)
+			Expect(err).NotTo(HaveOccurred())
+			filesets, err := CollectFilesets(ctx, img)
+			Expect(err).NotTo(HaveOccurred())
+			bom := &cdx.BOM{Components: &[]cdx.Component{
+				componentOf("pkg:npm/other@1.0.0", fileOccurrence("/app/node_modules/other/index.js", "other")),
+			}}
+
+			RecordBundleOccurrences(ctx, bom, filesets)
+			MarkNotShipped(ctx, bom, filesets)
+
+			Expect(filesets.BundlesUnknown).To(BeTrue())
+			Expect(filesets.Index.Files).NotTo(HaveKey(jsobserver.LogPath))
+			Expect(filesets.Index.Symlinks).NotTo(HaveKey(jsobserver.LogPath))
+			npm := (*bom.Components)[0]
+			Expect(lo.FromPtr(npm.Properties)).To(ContainElement(cdx.Property{Name: PropertyJSBundles, Value: "unknown"}))
+			Expect(shipped(npm)).To(BeTrue(), "a log whose content cannot be named could still name the package")
+		})
 
 		It("survives file evidence recorded over the same component", func(ctx SpecContext) {
 			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/dep@1.0.0")}}

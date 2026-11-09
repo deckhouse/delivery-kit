@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/werf/lockgate/pkg/distributed_locker"
 	"github.com/werf/lockgate/pkg/distributed_locker/optimistic_locking_store"
+	"github.com/werf/werf/v3/pkg/build/builder"
 	buildImage "github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/build/stage"
@@ -841,4 +843,94 @@ func installedRockspec(name string) string {
 		panic(err)
 	}
 	return string(data)
+}
+
+func sbomConveyor(enabled bool) *Conveyor {
+	return &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: enabled}}}}}
+}
+
+func userShell(tmpDir string) *builder.Shell {
+	return builder.NewShellBuilder(&config.Shell{Install: []string{"npm run build"}, Packages: []string{"npm ci"}}, &builder.Extra{ContainerWerfPath: "/.werf", TmpPath: tmpDir}, nil, "")
+}
+
+var (
+	_ stage_builder.StageBuilderInterface             = (*jsObserverLegacyStageBuilder)(nil)
+	_ stage_builder.LegacyStapelStageBuilderInterface = (*jsObserverLegacyStapelBuilder)(nil)
+	_ container_backend.LegacyBuilderContainer        = (*jsObserverLegacyContainer)(nil)
+	_ stage.Interface                                 = (*jsObserverStage)(nil)
+	_ giterminism_manager.Interface                   = (*jsObserverGiterminismManager)(nil)
+	_ git_repo.GitRepo                                = (*jsObserverGitRepo)(nil)
+)
+
+type jsObserverLegacyStageBuilder struct {
+	stage_builder.StageBuilderInterface
+	container *jsObserverLegacyContainer
+}
+
+func (b *jsObserverLegacyStageBuilder) LegacyStapelStageBuilder() stage_builder.LegacyStapelStageBuilderInterface {
+	return jsObserverLegacyStapelBuilder{container: b.container}
+}
+
+type jsObserverLegacyStapelBuilder struct {
+	stage_builder.LegacyStapelStageBuilderInterface
+	container *jsObserverLegacyContainer
+}
+
+func (b jsObserverLegacyStapelBuilder) BuilderContainer() container_backend.LegacyBuilderContainer {
+	return b.container
+}
+
+// Any call to a method that is not overridden, such as adding an environment
+// variable, panics through the nil embedded interface.
+type jsObserverLegacyContainer struct {
+	container_backend.LegacyBuilderContainer
+	volumes         []string
+	serviceCommands []string
+}
+
+func (c *jsObserverLegacyContainer) AddVolume(volumes ...string) {
+	c.volumes = append(c.volumes, volumes...)
+}
+
+func (c *jsObserverLegacyContainer) AddServiceRunCommands(commands ...string) {
+	c.serviceCommands = append(c.serviceCommands, commands...)
+}
+
+func (c *jsObserverLegacyContainer) MountSSHAgentSocket(string) {}
+
+// jsObserverStage is a first Stapel stage without content inputs whose
+// image preparation adds nothing to the stage builder.
+type jsObserverStage struct{ *stage.BaseStage }
+
+func newJSObserverStage(name stage.StageName) *jsObserverStage {
+	return &jsObserverStage{BaseStage: stage.NewBaseStage(name, &stage.BaseStageOptions{ImageName: "app", TargetPlatform: "linux/amd64"})}
+}
+
+func (s *jsObserverStage) HasPrevStage() bool { return false }
+
+func (s *jsObserverStage) GetContentDependencies(_ context.Context, _ stage.Conveyor, _ container_backend.BuildContextArchiver) (string, error) {
+	return "", nil
+}
+
+func (s *jsObserverStage) PrepareImage(_ context.Context, _ stage.Conveyor, _ container_backend.ContainerBackend, _, _ *stage.StageImage, _ container_backend.BuildContextArchiver) error {
+	return nil
+}
+
+type jsObserverGiterminismManager struct {
+	giterminism_manager.Interface
+}
+
+func (m *jsObserverGiterminismManager) LocalGitRepo() git_repo.GitRepo { return &jsObserverGitRepo{} }
+
+type jsObserverGitRepo struct {
+	git_repo.GitRepo
+}
+
+func (r *jsObserverGitRepo) HeadCommitHash(_ context.Context) (string, error) {
+	return "headcommit", nil
+}
+
+func (r *jsObserverGitRepo) HeadCommitTime(_ context.Context) (*time.Time, error) {
+	headTime := time.Unix(0, 0)
+	return &headTime, nil
 }

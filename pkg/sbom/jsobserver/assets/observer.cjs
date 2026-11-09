@@ -157,6 +157,14 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     }
   }
 
+  function fileHolds(file, data) {
+    try {
+      return fs.readFileSync(file).equals(data);
+    } catch {
+      return false;
+    }
+  }
+
   function addPackage(packages, owner) {
     if (owner) packages.set(`${owner.name}@${owner.version}`, owner);
   }
@@ -186,8 +194,13 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
       }
       if (packages.size === 0) continue;
       const outputPath = path.resolve(dir, item.fileName);
-      const digest = method === "write" ? fileDigest(outputPath) : sha256(Buffer.from(item.code, "utf8"));
-      if (digest) outputs.push({ path: outputPath, digest, packages: sortedPackages(packages) });
+      const code = Buffer.from(item.code, "utf8");
+      // An outputOptions plugin hook can make Rollup write somewhere else.
+      if (method === "write" && !fileHolds(outputPath, code)) {
+        warn(`Rollup output ${outputPath} does not hold the written chunk and is not recorded`);
+        continue;
+      }
+      outputs.push({ path: outputPath, digest: sha256(code), packages: sortedPackages(packages) });
     }
     return outputs;
   }
@@ -222,17 +235,20 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
   }
 
   // Plugins still see the forced metafile in initialOptions and onEnd results;
-  // only the result returned to the caller is restored.
+  // only the result returned to the caller is restored. esbuild also reads
+  // options the caller's object inherits, so the copy keeps its prototype.
   function forceMetafile(options) {
     if (!options || typeof options !== "object") return null;
     if (options.metafile === true) return { options, requested: true };
     if (options.metafile !== undefined && options.metafile !== false) return null;
-    return { options: { ...options, metafile: true }, requested: false };
+    const descriptors = Object.getOwnPropertyDescriptors(options);
+    descriptors.metafile = { value: true, enumerable: true, configurable: true, writable: true };
+    return { options: Object.create(Object.getPrototypeOf(options), descriptors), requested: false };
   }
 
-  function esbuildOutputs(options, result) {
+  function esbuildOutputs(options, result, defaultWorkingDir) {
     if (!result || !result.metafile || !result.metafile.outputs) return [];
-    const workDir = options.absWorkingDir ? path.resolve(options.absWorkingDir) : process.cwd();
+    const workDir = options.absWorkingDir ? path.resolve(options.absWorkingDir) : defaultWorkingDir;
     const root = projectRoot(workDir);
     const memory = new Map((result.outputFiles || []).map((file) => [path.resolve(file.path), file.contents]));
     const outputs = [];
@@ -252,8 +268,8 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     return outputs;
   }
 
-  function finishEsbuild(forced, result) {
-    observe("esbuild", () => esbuildOutputs(forced.options, result));
+  function finishEsbuild(forced, result, defaultWorkingDir) {
+    observe("esbuild", () => esbuildOutputs(forced.options, result, defaultWorkingDir));
     if (!forced.requested && result && typeof result === "object") result.metafile = undefined;
     return result;
   }
@@ -268,7 +284,7 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
       : { value, enumerable: original.enumerable, configurable: original.configurable, writable: original.writable };
   }
 
-  function wrapEsbuildObject(original, resolveDefault) {
+  function wrapEsbuildObject(original, resolveDefault, defaultWorkingDir) {
     const descriptors = Object.getOwnPropertyDescriptors(original);
     const originalBuild = original.build;
     const originalContext = original.context;
@@ -276,7 +292,7 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     replaceMember(descriptors, "build", function build(options) {
       const forced = forceMetafile(options);
       if (!forced) return originalBuild(options);
-      return originalBuild(forced.options).then((result) => finishEsbuild(forced, result));
+      return originalBuild(forced.options).then((result) => finishEsbuild(forced, result, defaultWorkingDir));
     });
     replaceMember(descriptors, "context", function context(options) {
       const forced = forceMetafile(options);
@@ -285,7 +301,7 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
         if (!ctx || typeof ctx.rebuild !== "function") return ctx;
         const originalRebuild = ctx.rebuild;
         ctx.rebuild = function rebuild() {
-          return originalRebuild.call(ctx).then((result) => finishEsbuild(forced, result));
+          return originalRebuild.call(ctx).then((result) => finishEsbuild(forced, result, defaultWorkingDir));
         };
         return ctx;
       });
@@ -299,22 +315,24 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
 
   // esbuild 0.24 exports its API twice: as module.exports and as the distinct
   // object behind "default", whose own "default" refers to itself.
-  function wrapEsbuildApi(exportsObject) {
+  function wrapEsbuildApi(exportsObject, defaultWorkingDir) {
     if (!exportsObject || typeof exportsObject !== "object") throw new Error("exports are not an object");
     const defaultObject = Object.prototype.hasOwnProperty.call(exportsObject, "default") ? exportsObject.default : undefined;
     const separateDefault = defaultObject !== null && typeof defaultObject === "object" && defaultObject !== exportsObject;
     let wrappedDefault;
     const resolveDefault = separateDefault ? () => wrappedDefault : defaultObject === exportsObject ? () => wrappedExports : null;
-    const wrappedExports = wrapEsbuildObject(exportsObject, resolveDefault);
+    const wrappedExports = wrapEsbuildObject(exportsObject, resolveDefault, defaultWorkingDir);
     if (separateDefault) {
-      wrappedDefault = wrapEsbuildObject(defaultObject, defaultObject.default === defaultObject ? () => wrappedDefault : null);
+      wrappedDefault = wrapEsbuildObject(defaultObject, defaultObject.default === defaultObject ? () => wrappedDefault : null, defaultWorkingDir);
     }
     return wrappedExports;
   }
 
+  // esbuild resolves relative paths against the working directory of the
+  // moment it was loaded, which is when it is wrapped.
   function wrapEsbuild(original) {
     try {
-      return wrapEsbuildApi(original);
+      return wrapEsbuildApi(original, process.cwd());
     } catch (err) {
       warn(`esbuild exports are not recognized, its builds are not observed: ${err.message}`);
       return original;

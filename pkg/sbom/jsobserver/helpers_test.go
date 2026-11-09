@@ -182,8 +182,9 @@ func esbuildOutputs(dir string) []expectedOutput {
 }
 
 // expectObservedBuild runs script without and with the observer in two copies
-// of the fixture, each prepared by prepare, and returns the observed copy.
-func expectObservedBuild(ctx context.Context, script string, prepare func(observerFixture) string, expected []expectedOutput) observerFixture {
+// of the fixture, each prepared by prepare, and returns the observed copy and
+// the standard output both runs printed.
+func expectObservedBuild(ctx context.Context, script string, prepare func(observerFixture) string, expected []expectedOutput) (observerFixture, string) {
 	baseline := newObserverFixture(ctx)
 	baselineStdout, _ := runNode(ctx, baseline.ProjectDir, prepare(baseline), script)
 
@@ -207,7 +208,7 @@ func expectObservedBuild(ctx context.Context, script string, prepare func(observ
 		gomega.Expect(outputs).To(gomega.HaveKeyWithValue(path, Output{Path: path, Digest: digest, Packages: want.Packages}))
 	}
 	gomega.Expect(sortedKeys(outputs)).To(gomega.ConsistOf(expectedPaths))
-	return observed
+	return observed, observedStdout
 }
 
 func noPreparation(observerFixture) string { return "" }

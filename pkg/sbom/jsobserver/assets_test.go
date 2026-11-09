@@ -49,13 +49,16 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 		ginkgo.Entry("esbuild imported from an ES module", "build-esbuild.mjs", append(
 			esbuildOutputs("dist/esbuild-esm-named"),
 			esbuildOutputs("dist/esbuild-esm-default")...)),
+		ginkgo.Entry("esbuild options inherited from a prototype", "build-esbuild-inherited-options.cjs", esbuildOutputs("dist/esbuild-inherited")),
+		ginkgo.Entry("esbuild loaded before the working directory changes", "build-esbuild-chdir.cjs", esbuildOutputs("dist/esbuild-chdir")),
 	)
 
-	ginkgo.DescribeTable("accepts bundler sources an earlier module hook returns as a Uint8Array",
+	ginkgo.DescribeTable("keeps changes an earlier module hook makes to bundler sources returned as a Uint8Array",
 		func(ctx context.Context, script string, expected []expectedOutput) {
-			expectObservedBuild(ctx, script, func(fixture observerFixture) string {
+			_, stdout := expectObservedBuild(ctx, script, func(fixture observerFixture) string {
 				return "--require " + filepath.Join(fixture.ProjectDir, "prior-hook.cjs")
 			}, expected)
+			gomega.Expect(stdout).To(gomega.ContainSubstring(`"priorHookApplied"`))
 		},
 		ginkgo.Entry("Rollup", "build-rollup.cjs", rollupCommonJSOutputs),
 		ginkgo.Entry("esbuild", "build-esbuild.cjs", allEsbuildCommonJSOutputs),
@@ -63,7 +66,7 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 
 	ginkgo.DescribeTable("leaves bundlers it does not support untouched and warns",
 		func(ctx context.Context, script string, prepare func(observerFixture), warning string) {
-			observed := expectObservedBuild(ctx, script, func(fixture observerFixture) string {
+			observed, _ := expectObservedBuild(ctx, script, func(fixture observerFixture) string {
 				prepare(fixture)
 				return ""
 			}, nil)
@@ -95,6 +98,13 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 			}
 			return ""
 		}, []expectedOutput{{Path: "dist/rollup-cjs/main.js", Packages: rollupMainPackages}})
+	})
+
+	ginkgo.It("does not record a stale file left where a plugin moved the Rollup output from", func(ctx context.Context) {
+		observed, _ := expectObservedBuild(ctx, "build-rollup-redirected.cjs", noPreparation, nil)
+
+		stale := filepath.Join(observed.ProjectDir, "dist", "rollup-original", "main.js")
+		gomega.Expect(readEvents(observed.LogPath)).To(gomega.ContainElement(gomega.HaveField("Warning", gomega.ContainSubstring(stale))))
 	})
 
 	ginkgo.Describe("bounding event lines", func() {
@@ -242,6 +252,6 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 
 		// Cached stages keep the observations of the observer that built them;
 		// bump InstrumentationVersion and update both values when the assets change.
-		gomega.Expect(strings.Join([]string{InstrumentationVersion, hex.EncodeToString(hash.Sum(nil))}, ":")).To(gomega.Equal("2:17a7297543f8fda1adb79b9989b61d0caa7fa9518d0d5955f4990a3b0e1e0f82"))
+		gomega.Expect(strings.Join([]string{InstrumentationVersion, hex.EncodeToString(hash.Sum(nil))}, ":")).To(gomega.Equal("3:3fac418a5f44ecea85f372243b57f5f2ed3c85167de287cae8e0769425f547e9"))
 	})
 })

@@ -530,6 +530,22 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			}),
 		)
 
+		DescribeTable("does not take a bundle occurrence it cannot read for one whose bytes are gone",
+			func(ctx SpecContext, context string) {
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					componentOf("pkg:npm/clouded@1.0.0",
+						fileOccurrence("/app/node_modules/clouded/index.js", "clouded"),
+						cdx.EvidenceOccurrence{Location: "/app/dist/main.js", AdditionalContext: context},
+					),
+				}}
+
+				Expect(MarkNotShipped(ctx, bom, index(map[string]string{}))).To(BeZero())
+				Expect(shipped((*bom.Components)[0])).To(BeTrue())
+			},
+			Entry("empty digest", "werf:js-bundle:v1:"),
+			Entry("future format", "werf:js-bundle:v2:"+digestOf("chunk")),
+		)
+
 		It("clears an inherited verdict once a bundle proves the package", func(ctx SpecContext) {
 			bom := &cdx.BOM{Components: &[]cdx.Component{
 				componentOf("pkg:npm/bundled@1.0.0", fileOccurrence("/app/node_modules/bundled/index.js", "bundled"), bundleOccurrence("/app/dist/main.js", "chunk")),

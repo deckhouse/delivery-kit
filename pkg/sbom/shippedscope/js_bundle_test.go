@@ -334,6 +334,32 @@ var _ = Describe("JavaScript bundle evidence", func() {
 			Expect(lo.FromPtr((*bom.Components)[1].Properties)).To(BeEmpty(), "no checked-empty marker is invented")
 		})
 
+		DescribeTable("marks every npm package of a pruned image unknown only when the log is there but not read",
+			func(ctx SpecContext, log []tarEntry, unknown bool) {
+				filesets := collect(ctx, append([]tarEntry{
+					regularFile("app/dist/main.js", "chunk"),
+					regularFile("srv/log.jsonl", logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0")))),
+				}, log...)...)
+				bom := &cdx.BOM{Components: &[]cdx.Component{
+					componentOf("pkg:npm/other@1.0.0", fileOccurrence("/app/node_modules/other/index.js", "other")),
+					componentOf("pkg:pypi/other@1.0.0", fileOccurrence("/app/lib/other.py", "other")),
+				}}
+
+				RecordBundleOccurrences(ctx, bom, filesets)
+				MarkNotShipped(ctx, bom, filesets)
+
+				npm, pypi := (*bom.Components)[0], (*bom.Components)[1]
+				Expect(lo.Contains(lo.FromPtr(npm.Properties), cdx.Property{Name: PropertyJSBundles, Value: "unknown"})).To(Equal(unknown))
+				Expect(shipped(npm)).To(Equal(unknown), "a log werf chose not to read cannot show a bundled package absent")
+				Expect(lo.FromPtr(pypi.Properties)).NotTo(ContainElement(HaveField("Name", PropertyJSBundles)))
+				Expect(shipped(pypi)).To(BeFalse())
+			},
+			Entry("a log that is a hardlink", []tarEntry{hardlink(strings.TrimPrefix(jsobserver.LogPath, "/"), "srv/log.jsonl")}, true),
+			Entry("a log that is a symlink", []tarEntry{symlink(strings.TrimPrefix(jsobserver.LogPath, "/"), "/srv/log.jsonl")}, true),
+			Entry("a log that was read", []tarEntry{regularFile(strings.TrimPrefix(jsobserver.LogPath, "/"), logOf(eventOf(outputOf("/app/dist/main.js", "chunk", "dep@1.0.0"))))}, false),
+			Entry("no log", nil, false),
+		)
+
 		It("survives file evidence recorded over the same component", func(ctx SpecContext) {
 			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/dep@1.0.0")}}
 			RecordBundleOccurrences(ctx, bom, &Filesets{Bundles: []BundleOutput{

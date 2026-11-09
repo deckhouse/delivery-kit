@@ -21,7 +21,8 @@ import (
 
 // PropertyJSBundles is written as "unknown" on a package an observed bundle output named
 // when that output no longer holds the bytes it was observed with: whether the package
-// still ships in it cannot be shown either way. Like the other unknown markers it survives
+// still ships in it cannot be shown either way, and on every npm package when the image
+// holds the observer log but it was not read. Like the other unknown markers it survives
 // merges, so an image importing from this one does not take the package for absent.
 const PropertyJSBundles = "werf:js-bundles"
 
@@ -66,18 +67,21 @@ type BundleOutput struct {
 
 // A record too malformed to name its packages is only warned about: there is no package to
 // mark unknown, and it does not make every package unknown either. A package only such a
-// record named is judged by its files, as if no bundle had been observed.
-func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][]byte) []BundleOutput {
-	if _, ok := index.Files[jsobserver.LogPath]; !ok {
-		return nil
+// record named is judged by its files, as if no bundle had been observed. A log the image
+// holds but that is not read could name any package, so it reports every package unknown.
+func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][]byte) ([]BundleOutput, bool) {
+	_, isFile := index.Files[jsobserver.LogPath]
+	_, isSymlink := index.Symlinks[jsobserver.LogPath]
+	if !isFile && !isSymlink {
+		return nil, false
 	}
 	delete(index.Files, jsobserver.LogPath)
 	body, ok := manifests[jsobserver.LogPath]
 	delete(manifests, jsobserver.LogPath)
 	if !ok {
-		logboek.Context(ctx).Warn().LogF("WARNING: JavaScript bundle observer log %s is over %d bytes or a hardlink and is not read; bundled packages are not proven shipped by it\n", jsobserver.LogPath, maxJSObserverLogBytes)
+		logboek.Context(ctx).Warn().LogF("WARNING: JavaScript bundle observer log %s is over %d bytes, a hardlink or a symlink and is not read; no npm package can be shown absent from the bundles\n", jsobserver.LogPath, maxJSObserverLogBytes)
 
-		return nil
+		return nil, true
 	}
 
 	byDigest := indexByDigest(index)
@@ -144,7 +148,7 @@ func bundleOutputs(ctx context.Context, index *FileIndex, manifests map[string][
 		return cmp.Or(cmp.Compare(a.Path, b.Path), cmp.Compare(a.Digest, b.Digest))
 	})
 
-	return outputs
+	return outputs, false
 }
 
 // An empty output yields no packages: its digest is every empty file's.
@@ -223,11 +227,11 @@ func BundleComponents(_ context.Context, filesets *Filesets, boms []*cdx.BOM) []
 
 // RecordBundleOccurrences writes onto every npm component the verified outputs that hold
 // it, beside its file evidence, and PropertyJSBundles onto those an unverified output
-// names. Each occurrence keeps the path the output was observed at. Bundle occurrences the
-// component already carries are kept, even at a path recorded again with other bytes: the
-// earlier bytes may have been moved elsewhere, and only their digest is looked for. A
-// package no output names is left as it was: a bundle leaving a package out says nothing
-// about its installed files.
+// names, or onto every one when the observer log was not read. Each occurrence keeps the
+// path the output was observed at. Bundle occurrences the component already carries are
+// kept, even at a path recorded again with other bytes: the earlier bytes may have been
+// moved elsewhere, and only their digest is looked for. A package no output names is left
+// as it was: a bundle leaving a package out says nothing about its installed files.
 //
 // Returns the number of components given bundle evidence.
 func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets) int {
@@ -258,7 +262,7 @@ func RecordBundleOccurrences(_ context.Context, bom *cdx.BOM, filesets *Filesets
 			return
 		}
 
-		if unknown[key] && !slices.Contains(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}) {
+		if (filesets.BundlesUnknown || unknown[key]) && !slices.Contains(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}) {
 			comp.Properties = lo.ToPtr(append(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyJSBundles, Value: propertyJSBundlesUnknown}))
 		}
 

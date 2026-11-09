@@ -54,6 +54,8 @@ type Filesets struct {
 	// Bundles retain observed JavaScript outputs whose bytes survive anywhere in the
 	// image, plus the last unverified record for each output path.
 	Bundles []BundleOutput
+	// BundlesUnknown is set when the image holds the observer log but it was not read.
+	BundlesUnknown bool
 }
 
 // CollectFilesets reads the image once and answers, for every component an ecosystem
@@ -77,7 +79,7 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 	if err != nil {
 		return nil, err
 	}
-	bundles := bundleOutputs(ctx, index, manifests)
+	bundles, bundlesUnknown := bundleOutputs(ctx, index, manifests)
 
 	osPM, missing, err := osPMFilesets(ctx, index, manifests)
 	if err != nil {
@@ -89,6 +91,7 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 		Index:               index,
 		OSPMFileListMissing: missing,
 		Bundles:             bundles,
+		BundlesUnknown:      bundlesUnknown,
 	}
 	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)
 	filesets.Filesets = append(filesets.Filesets, javascriptFilesets(index, manifests)...)

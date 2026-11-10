@@ -13,7 +13,7 @@ import (
 const (
 	// InstrumentationVersion identifies the embedded observer. Stages it runs in
 	// include it in their digest, so it must change whenever the assets change.
-	InstrumentationVersion = "5"
+	InstrumentationVersion = "6"
 	BootstrapFileName      = "bootstrap.cjs"
 	// MaxEventBytes bounds one JSONL record of LogPath, newline included.
 	MaxEventBytes = 1 << 20

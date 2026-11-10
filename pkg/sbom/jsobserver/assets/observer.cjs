@@ -222,9 +222,14 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
       if (typeof original !== "function") continue;
       bundle[method] = {
         async [method](outputOptions, ...rest) {
-          const cwd = process.cwd();
+          let cwd = null;
+          try {
+            cwd = process.cwd();
+          } catch (err) {
+            warn(`Rollup output observation failed: ${err && err.message}`);
+          }
           const result = await original.call(this, outputOptions, ...rest);
-          observe("Rollup", () => rollupOutputs(method, outputOptions, result, cwd, process.cwd()));
+          if (cwd !== null) observe("Rollup", () => rollupOutputs(method, outputOptions, result, cwd, process.cwd()));
           return result;
         },
       }[method];

@@ -115,6 +115,13 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 		gomega.Expect(readEvents(observed.LogPath)).To(gomega.ContainElement(gomega.HaveField("Warning", gomega.ContainSubstring(stale))))
 	})
 
+	ginkgo.It("keeps a Rollup write running when the working directory cannot be read", func(ctx context.Context) {
+		observed, _ := expectObservedBuild(ctx, "build-rollup-removed-cwd.cjs", noPreparation, nil)
+
+		gomega.Expect(filepath.Join(observed.ProjectDir, "dist", "rollup-removed-cwd", "main.js")).To(gomega.BeAnExistingFile())
+		gomega.Expect(readEvents(observed.LogPath)).To(gomega.ContainElement(gomega.HaveField("Warning", gomega.ContainSubstring("Rollup output observation failed"))))
+	})
+
 	ginkgo.Describe("bounding event lines", func() {
 		var main, lazy Output
 		var fixture observerFixture
@@ -260,6 +267,6 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 
 		// Cached stages keep the observations of the observer that built them;
 		// bump InstrumentationVersion and update both values when the assets change.
-		gomega.Expect(strings.Join([]string{InstrumentationVersion, hex.EncodeToString(hash.Sum(nil))}, ":")).To(gomega.Equal("5:249f2bd2f7b40ad91760ebd265d80b161562b3986946de365e176b782e2a9484"))
+		gomega.Expect(strings.Join([]string{InstrumentationVersion, hex.EncodeToString(hash.Sum(nil))}, ":")).To(gomega.Equal("6:300b43e700c2c4010e291268d623edfb52ed6a1cf4930f92770a10425fdf4846"))
 	})
 })

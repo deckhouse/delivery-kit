@@ -45,6 +45,10 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 			{Path: "dist/rollup-esm/lazy.js", Packages: rollupLazyPackages},
 		}),
 		ginkgo.Entry("Rollup CommonJS API writing to output.file", "build-rollup.cjs", rollupCommonJSOutputs),
+		ginkgo.Entry("Rollup plugin changing the working directory during write", "build-rollup-chdir.cjs", []expectedOutput{
+			{Path: "dist/rollup-chdir/main.js", Packages: rollupMainPackages},
+			{Path: "dist/rollup-chdir/lazy.js", Packages: rollupLazyPackages},
+		}),
 		ginkgo.Entry("esbuild CommonJS API: build, write:false, requested metafile, default export, context", "build-esbuild.cjs", allEsbuildCommonJSOutputs),
 		ginkgo.Entry("esbuild imported from an ES module", "build-esbuild.mjs", append(
 			esbuildOutputs("dist/esbuild-esm-named"),
@@ -252,6 +256,6 @@ var _ = ginkgo.Describe("JavaScript observer assets", func() {
 
 		// Cached stages keep the observations of the observer that built them;
 		// bump InstrumentationVersion and update both values when the assets change.
-		gomega.Expect(strings.Join([]string{InstrumentationVersion, hex.EncodeToString(hash.Sum(nil))}, ":")).To(gomega.Equal("3:3fac418a5f44ecea85f372243b57f5f2ed3c85167de287cae8e0769425f547e9"))
+		gomega.Expect(strings.Join([]string{InstrumentationVersion, hex.EncodeToString(hash.Sum(nil))}, ":")).To(gomega.Equal("4:a045dd2e9ae3a32ab80a83d82ac86b848a500c0a9f5494219b5ec85c44685352"))
 	})
 })

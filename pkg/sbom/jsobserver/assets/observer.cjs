@@ -177,12 +177,12 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     return path.isAbsolute(file) ? file : null;
   }
 
-  function rollupOutputs(method, outputOptions, result) {
+  function rollupOutputs(method, outputOptions, result, cwd) {
     const dir = outputOptions && outputOptions.dir
-      ? path.resolve(outputOptions.dir)
-      : outputOptions && outputOptions.file ? path.dirname(path.resolve(outputOptions.file)) : null;
+      ? path.resolve(cwd, outputOptions.dir)
+      : outputOptions && outputOptions.file ? path.dirname(path.resolve(cwd, outputOptions.file)) : null;
     if (!dir || !result || !Array.isArray(result.output)) return [];
-    const root = projectRoot(process.cwd());
+    const root = projectRoot(cwd);
     const outputs = [];
     for (const item of result.output) {
       if (item.type !== "chunk" || !item.modules) continue;
@@ -212,8 +212,11 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
       if (typeof original !== "function") continue;
       bundle[method] = {
         async [method](outputOptions, ...rest) {
+          // A writeBundle hook may change the working directory after Rollup
+          // resolved relative output paths against it.
+          const cwd = process.cwd();
           const result = await original.call(this, outputOptions, ...rest);
-          observe("Rollup", () => rollupOutputs(method, outputOptions, result));
+          observe("Rollup", () => rollupOutputs(method, outputOptions, result, cwd));
           return result;
         },
       }[method];

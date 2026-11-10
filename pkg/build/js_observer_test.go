@@ -30,7 +30,9 @@ var _ = ginkgo.Describe("JavaScript bundle observer in Stapel stages", func() {
 			stg := stage.NewBaseStage(stageName, &stage.BaseStageOptions{})
 			gomega.Expect(jsObserverInstrumentation(conveyor, img, stg)).To(gomega.Equal(expected))
 		},
+		ginkgo.Entry("before install with SBOM", sbomConveyor(true), stapelImage, stage.BeforeInstall, jsobserver.InstrumentationVersion),
 		ginkgo.Entry("install with SBOM", sbomConveyor(true), stapelImage, stage.Install, jsobserver.InstrumentationVersion),
+		ginkgo.Entry("before setup with SBOM", sbomConveyor(true), stapelImage, stage.BeforeSetup, jsobserver.InstrumentationVersion),
 		ginkgo.Entry("setup with SBOM", sbomConveyor(true), stapelImage, stage.Setup, jsobserver.InstrumentationVersion),
 		ginkgo.Entry("install without SBOM", sbomConveyor(false), stapelImage, stage.Install, ""),
 		ginkgo.Entry("packages installation", sbomConveyor(true), stapelImage, stage.Packages, jsobserver.InstrumentationVersion),
@@ -102,8 +104,8 @@ var _ = ginkgo.Describe("JavaScript bundle observer in Stapel stages", func() {
 	})
 
 	ginkgo.DescribeTable("attaches the observer when preparing the instructions of a Stapel stage that runs it",
-		func(ctx ginkgo.SpecContext, stageName stage.StageName, attached bool) {
-			conveyor := sbomConveyor(true)
+		func(ctx ginkgo.SpecContext, stageName stage.StageName, sbom, attached bool) {
+			conveyor := sbomConveyor(sbom)
 			conveyor.ContainerBackend = &publicationContainerBackend{}
 			conveyor.giterminismManager = &jsObserverGiterminismManager{}
 			conveyor.tmpDir = ginkgo.GinkgoT().TempDir()
@@ -119,15 +121,17 @@ var _ = ginkgo.Describe("JavaScript bundle observer in Stapel stages", func() {
 
 			opts := stageBuilder.GetStapelStageBuilderImplementation().BuildStapelStageOptions
 			if !attached {
-				gomega.Expect(opts.Commands).To(gomega.BeEmpty())
+				gomega.Expect(opts.Commands).To(gomega.Equal([]string{jsObserverStageCommand}))
 				gomega.Expect(opts.BuildVolumes).To(gomega.BeEmpty())
 				return
 			}
-			gomega.Expect(opts.Commands).To(gomega.Equal([]string{jsObserverNodeOptionsExport(jsObserverContainerDir)}))
+			gomega.Expect(opts.Commands).To(gomega.Equal([]string{jsObserverNodeOptionsExport(jsObserverContainerDir), jsObserverStageCommand}))
 			gomega.Expect(opts.BuildVolumes).To(gomega.ConsistOf(gomega.And(gomega.HavePrefix(conveyor.tmpDir), gomega.HaveSuffix(":"+jsObserverContainerDir+":ro"))))
 		},
-		ginkgo.Entry("install", stage.Install, true),
-		ginkgo.Entry("git archive", stage.GitArchive, false),
+		ginkgo.Entry("install", stage.Install, true, true),
+		ginkgo.Entry("setup", stage.Setup, true, true),
+		ginkgo.Entry("install without SBOM", stage.Install, false, false),
+		ginkgo.Entry("git archive", stage.GitArchive, true, false),
 	)
 
 	ginkgo.DescribeTable("mounts the observer read-only and exports NODE_OPTIONS before the Buildah stage commands",

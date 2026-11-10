@@ -908,8 +908,10 @@ func (c *jsObserverLegacyContainer) AddServiceRunCommands(commands ...string) {
 
 func (c *jsObserverLegacyContainer) MountSSHAgentSocket(string) {}
 
+const jsObserverStageCommand = "npm run build"
+
 // jsObserverStage is a first Stapel stage without content inputs whose
-// image preparation adds nothing to the stage builder.
+// image preparation adds jsObserverStageCommand as its user command.
 type jsObserverStage struct{ *stage.BaseStage }
 
 func newJSObserverStage(name stage.StageName) *jsObserverStage {
@@ -922,7 +924,8 @@ func (s *jsObserverStage) GetContentDependencies(_ context.Context, _ stage.Conv
 	return "", nil
 }
 
-func (s *jsObserverStage) PrepareImage(_ context.Context, _ stage.Conveyor, _ container_backend.ContainerBackend, _, _ *stage.StageImage, _ container_backend.BuildContextArchiver) error {
+func (s *jsObserverStage) PrepareImage(_ context.Context, _ stage.Conveyor, _ container_backend.ContainerBackend, _, stageImage *stage.StageImage, _ container_backend.BuildContextArchiver) error {
+	stageImage.Builder.StapelStageBuilder().AddCommands(jsObserverStageCommand)
 	return nil
 }
 

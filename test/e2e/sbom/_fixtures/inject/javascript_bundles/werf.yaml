@@ -1,0 +1,81 @@
+project: werf-test-e2e-sbom-javascript-bundles
+configVersion: 1
+build:
+  cacheVersion: javascript-bundles-v1
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
+packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
+  - type: javascript-npm
+    workdir: /app
+shell:
+  install:
+    - cd /app && env -i PATH="$PATH" HOME="$HOME" npm run build -- --outDir dist-baseline
+    - cd /app && npm run build
+---
+image: pruned-donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
+packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
+  - type: javascript-npm
+    workdir: /app
+shell:
+  install:
+    - cd /app && env -i PATH="$PATH" HOME="$HOME" npm run build -- --outDir dist-baseline
+    - cd /app && npm run build
+    - mv /app/dist /app/moved-dist
+    - rm -rf /app/node_modules
+---
+image: one-chunk
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/dist/main.js
+    to: /srv/bundle.js
+    before: setup
+---
+image: grandchild
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: one-chunk
+    add: /srv/bundle.js
+    to: /www/app.js
+    before: setup
+---
+image: all-chunks
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/dist
+    to: /srv/dist
+    before: setup
+---
+image: lock-only
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/package-lock.json
+    to: /app/package-lock.json
+    before: setup

@@ -88,7 +88,7 @@ var _ = Describe("MarkNotShipped", func() {
 			const purl = "pkg:pypi/requests@2.32.3"
 			donor := bomOf(componentOf(purl))
 			donor.SpecVersion = cdx.SpecVersion1_6
-			Expect(RecordOccurrences(donor, []Fileset{{
+			Expect(RecordOccurrences(ctx, donor, []Fileset{{
 				Ecosystem: EcosystemPython, Name: "requests", Version: "2.32.3", DeclaresFiles: true,
 			}})).To(Equal(1))
 

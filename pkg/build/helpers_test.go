@@ -1,10 +1,15 @@
 package build
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -20,11 +26,16 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/static"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/werf/lockgate/pkg/distributed_locker"
 	"github.com/werf/lockgate/pkg/distributed_locker/optimistic_locking_store"
+	"github.com/werf/werf/v3/pkg/build/builder"
 	buildImage "github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/signing"
 	"github.com/werf/werf/v3/pkg/build/stage"
@@ -38,6 +49,7 @@ import (
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/opstats"
+	"github.com/werf/werf/v3/pkg/sbom/jsobserver"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
@@ -828,7 +840,7 @@ var _ container_backend.ContainerBackend = (*publicationContainerBackend)(nil)
 func (b *publicationContainerBackend) HasStapelBuildSupport() bool { return true }
 
 func recordSavedShippedScope(ctx context.Context, bom *cdx.BOM, backend imageSaver, werfImgName, imageName string) {
-	if !shippedscope.HasFileBackedComponents(bom) && !shippedscope.HasBinaryBackedComponents(ctx, bom) {
+	if !shippedscope.HasFileBackedComponents(ctx, bom) && !shippedscope.HasBinaryBackedComponents(ctx, bom) {
 		return
 	}
 	filesets, produced := collectShippedScope(ctx, backend, werfImgName, imageName, sbomStageProvenance{})
@@ -841,4 +853,148 @@ func installedRockspec(name string) string {
 		panic(err)
 	}
 	return string(data)
+}
+
+func sbomConveyor(enabled bool) *Conveyor {
+	return &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: enabled}}}}}
+}
+
+func userShell(tmpDir string) *builder.Shell {
+	return builder.NewShellBuilder(&config.Shell{Install: []string{"npm run build"}, Packages: []string{"npm ci"}}, &builder.Extra{ContainerWerfPath: "/.werf", TmpPath: tmpDir}, nil, "")
+}
+
+var (
+	_ stage_builder.StageBuilderInterface             = (*jsObserverLegacyStageBuilder)(nil)
+	_ stage_builder.LegacyStapelStageBuilderInterface = (*jsObserverLegacyStapelBuilder)(nil)
+	_ container_backend.LegacyBuilderContainer        = (*jsObserverLegacyContainer)(nil)
+	_ stage.Interface                                 = (*jsObserverStage)(nil)
+	_ giterminism_manager.Interface                   = (*jsObserverGiterminismManager)(nil)
+	_ git_repo.GitRepo                                = (*jsObserverGitRepo)(nil)
+)
+
+type jsObserverLegacyStageBuilder struct {
+	stage_builder.StageBuilderInterface
+	container *jsObserverLegacyContainer
+}
+
+func (b *jsObserverLegacyStageBuilder) LegacyStapelStageBuilder() stage_builder.LegacyStapelStageBuilderInterface {
+	return jsObserverLegacyStapelBuilder{container: b.container}
+}
+
+type jsObserverLegacyStapelBuilder struct {
+	stage_builder.LegacyStapelStageBuilderInterface
+	container *jsObserverLegacyContainer
+}
+
+func (b jsObserverLegacyStapelBuilder) BuilderContainer() container_backend.LegacyBuilderContainer {
+	return b.container
+}
+
+// Any call to a method that is not overridden, such as adding an environment
+// variable, panics through the nil embedded interface.
+type jsObserverLegacyContainer struct {
+	container_backend.LegacyBuilderContainer
+	volumes         []string
+	serviceCommands []string
+}
+
+func (c *jsObserverLegacyContainer) AddVolume(volumes ...string) {
+	c.volumes = append(c.volumes, volumes...)
+}
+
+func (c *jsObserverLegacyContainer) AddServiceRunCommands(commands ...string) {
+	c.serviceCommands = append(c.serviceCommands, commands...)
+}
+
+func (c *jsObserverLegacyContainer) MountSSHAgentSocket(string) {}
+
+const jsObserverStageCommand = "npm run build"
+
+// jsObserverStage is a first Stapel stage without content inputs whose
+// image preparation adds jsObserverStageCommand as its user command.
+type jsObserverStage struct{ *stage.BaseStage }
+
+func newJSObserverStage(name stage.StageName) *jsObserverStage {
+	return &jsObserverStage{BaseStage: stage.NewBaseStage(name, &stage.BaseStageOptions{ImageName: "app", TargetPlatform: "linux/amd64"})}
+}
+
+func (s *jsObserverStage) HasPrevStage() bool { return false }
+
+func (s *jsObserverStage) GetContentDependencies(_ context.Context, _ stage.Conveyor, _ container_backend.BuildContextArchiver) (string, error) {
+	return "", nil
+}
+
+func (s *jsObserverStage) PrepareImage(_ context.Context, _ stage.Conveyor, _ container_backend.ContainerBackend, _, stageImage *stage.StageImage, _ container_backend.BuildContextArchiver) error {
+	stageImage.Builder.StapelStageBuilder().AddCommands(jsObserverStageCommand)
+	return nil
+}
+
+type jsObserverGiterminismManager struct {
+	giterminism_manager.Interface
+}
+
+func (m *jsObserverGiterminismManager) LocalGitRepo() git_repo.GitRepo { return &jsObserverGitRepo{} }
+
+type jsObserverGitRepo struct {
+	git_repo.GitRepo
+}
+
+func (r *jsObserverGitRepo) HeadCommitHash(_ context.Context) (string, error) {
+	return "headcommit", nil
+}
+
+func (r *jsObserverGitRepo) HeadCommitTime(_ context.Context) (*time.Time, error) {
+	headTime := time.Unix(0, 0)
+	return &headTime, nil
+}
+
+func sha256DigestOf(body string) string {
+	sum := sha256.Sum256([]byte(body))
+
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func imageWithFiles(files map[string]string) v1.Image {
+	var buf bytes.Buffer
+	writer := tar.NewWriter(&buf)
+	for _, path := range lo.Keys(files) {
+		gomega.Expect(writer.WriteHeader(&tar.Header{
+			Name:     strings.TrimPrefix(path, "/"),
+			Typeflag: tar.TypeReg,
+			Size:     int64(len(files[path])),
+			Mode:     0o644,
+		})).To(gomega.Succeed())
+		_, err := io.WriteString(writer, files[path])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	gomega.Expect(writer.Close()).To(gomega.Succeed())
+
+	img, err := mutate.AppendLayers(empty.Image, static.NewLayer(buf.Bytes(), types.DockerUncompressedLayer))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return img
+}
+
+func savedImageBackendWithFiles(files map[string]string) *savedImageBackend {
+	img := imageWithFiles(files)
+	tag, err := name.NewTag("werf-stages:app")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var saved bytes.Buffer
+	gomega.Expect(tarball.Write(tag, img, &saved)).To(gomega.Succeed())
+
+	return &savedImageBackend{tarball: saved.Bytes()}
+}
+
+func jsObserverLogOf(outputs ...jsobserver.Output) string {
+	data, err := json.Marshal(jsobserver.Event{Version: jsobserver.ProtocolVersion, Outputs: outputs})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return string(data) + "\n"
+}
+
+func componentByPURL(bom *cdx.BOM, purl string) cdx.Component {
+	comp, found := lo.Find(lo.FromPtr(bom.Components), func(comp cdx.Component) bool { return comp.PackageURL == purl })
+	gomega.Expect(found).To(gomega.BeTrue(), purl)
+
+	return comp
 }

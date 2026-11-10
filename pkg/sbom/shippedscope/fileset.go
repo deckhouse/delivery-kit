@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+
+	"github.com/werf/werf/v3/pkg/sbom/jsobserver"
 )
 
 type Ecosystem string
@@ -49,6 +51,11 @@ type Filesets struct {
 	// by a pm that recorded no file list for them, so none of them has a fileset here. A
 	// consumer that would drop a component without a fileset must not do so for os-pm then.
 	OSPMFileListMissing bool
+	// Bundles retain observed JavaScript outputs whose bytes survive anywhere in the
+	// image, plus the last unverified record for each output path.
+	Bundles []BundleOutput
+	// BundlesUnknown is set when the image holds the observer log but it was not read.
+	BundlesUnknown bool
 }
 
 // CollectFilesets reads the image once and answers, for every component an ecosystem
@@ -64,11 +71,15 @@ type Filesets struct {
 //
 // A component installed some other way — a Python egg-info, a LuaRocks 2 tree, a Yarn PnP
 // cache — has no fileset, and this says nothing about whether it shipped.
+//
+// The same read takes the log the build's JavaScript observer left, and leaves it out of
+// the index: it is werf's record of the bundles, not a file of the image's components.
 func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
-	index, manifests, err := indexImageFiles(ctx, img, isFilesetManifest)
+	index, manifests, err := indexImageFiles(ctx, img, capturesFilesetFile)
 	if err != nil {
 		return nil, err
 	}
+	bundles, bundlesUnknown := bundleOutputs(ctx, index, manifests)
 
 	osPM, missing, err := osPMFilesets(ctx, index, manifests)
 	if err != nil {
@@ -79,6 +90,8 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 		Filesets:            osPM,
 		Index:               index,
 		OSPMFileListMissing: missing,
+		Bundles:             bundles,
+		BundlesUnknown:      bundlesUnknown,
 	}
 	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)
 	filesets.Filesets = append(filesets.Filesets, javascriptFilesets(index, manifests)...)
@@ -95,6 +108,14 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 	})
 
 	return filesets, nil
+}
+
+func capturesFilesetFile(file string, size int64) bool {
+	if file == jsobserver.LogPath {
+		return size >= 0 && size <= maxJSObserverLogBytes
+	}
+
+	return isFilesetManifest(file)
 }
 
 func isFilesetManifest(file string) bool {

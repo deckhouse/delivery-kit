@@ -30,7 +30,7 @@ var _ = Describe("Editable Python evidence", func() {
 			Expect(set.Incomplete).To(Equal(wantUnknown))
 			bom := cyclonedxutil.NewBOM()
 			bom.Components = &[]cdx.Component{{PackageURL: "pkg:pypi/pkg@1.0"}}
-			RecordOccurrences(bom, filesets.Filesets)
+			RecordOccurrences(ctx, bom, filesets.Filesets)
 			Expect(incompleteFileEvidence(&(*bom.Components)[0])).To(Equal(wantUnknown))
 		},
 		Entry("PEP 660 without a pth", `{"dir_info":{"editable":true}}`, "pkg.py,,\n", true),
@@ -81,7 +81,7 @@ var _ = Describe("Editable Python evidence", func() {
 			} else {
 				setProperty(&(*known.Components)[0], PropertyFiles, propertyFilesNone)
 			}
-			RecordOccurrences(bom, filesets.Filesets)
+			RecordOccurrences(ctx, bom, filesets.Filesets)
 			Expect(incompleteFileEvidence(&(*bom.Components)[0])).To(BeTrue(), "a regular copy cannot make an editable copy's manifest complete")
 			if reverse {
 				bom, known = known, bom
@@ -91,7 +91,7 @@ var _ = Describe("Editable Python evidence", func() {
 			for range 2 {
 				merged, err = cyclonedxutil.CloneBOM(merged)
 				Expect(err).NotTo(HaveOccurred())
-				RecordOccurrences(merged, []Fileset{{Ecosystem: EcosystemPython, Name: "pkg", Version: "1.0", DeclaresFiles: true}})
+				RecordOccurrences(ctx, merged, []Fileset{{Ecosystem: EcosystemPython, Name: "pkg", Version: "1.0", DeclaresFiles: true}})
 				Expect(MarkNotShipped(ctx, merged, &Filesets{Index: emptyIndex()})).To(BeZero())
 				Expect(recordedOccurrences(&(*merged.Components)[0])).To(BeNil())
 			}
@@ -116,7 +116,7 @@ var _ = Describe("Editable Python evidence", func() {
 			bom := &cdx.BOM{SpecVersion: cdx.SpecVersion1_6, Components: &[]cdx.Component{{
 				BOMRef: "pkg:pypi/editable@1.0", PackageURL: "pkg:pypi/editable@1.0", Name: "editable", Version: "1.0",
 			}}}
-			RecordOccurrences(bom, donorFilesets.Filesets)
+			RecordOccurrences(ctx, bom, donorFilesets.Filesets)
 			Expect(MarkNotShipped(ctx, bom, donorFilesets)).To(BeZero())
 
 			body, err := json.Marshal(bom)
@@ -127,7 +127,7 @@ var _ = Describe("Editable Python evidence", func() {
 			Expect(err).NotTo(HaveOccurred())
 			filesets, err := CollectFilesets(ctx, image)
 			Expect(err).NotTo(HaveOccurred())
-			RecordOccurrences(&inherited, filesets.Filesets)
+			RecordOccurrences(ctx, &inherited, filesets.Filesets)
 
 			Expect(MarkNotShipped(ctx, &inherited, filesets)).To(BeZero(), "missing editable scaffolding does not prove that the source was omitted")
 			Expect(recordedOccurrences(&(*inherited.Components)[0])).To(BeNil(), "neither copied metadata nor a .pth file is complete evidence of editable source files")

@@ -177,12 +177,18 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
     return path.isAbsolute(file) ? file : null;
   }
 
-  function rollupOutputs(method, outputOptions, result, cwd) {
-    const dir = outputOptions && outputOptions.dir
-      ? path.resolve(cwd, outputOptions.dir)
-      : outputOptions && outputOptions.file ? path.dirname(path.resolve(cwd, outputOptions.file)) : null;
+  function rollupOutputDir(outputOptions, cwd) {
+    if (outputOptions && outputOptions.dir) return path.resolve(cwd, outputOptions.dir);
+    return outputOptions && outputOptions.file ? path.dirname(path.resolve(cwd, outputOptions.file)) : null;
+  }
+
+  // Rollup resolves relative output paths after generateBundle hooks and
+  // before writeBundle hooks, and either may change the working directory.
+  function rollupOutputs(method, outputOptions, result, cwdBefore, cwdAfter) {
+    const dir = rollupOutputDir(outputOptions, cwdBefore);
     if (!dir || !result || !Array.isArray(result.output)) return [];
-    const root = projectRoot(cwd);
+    const dirAfter = rollupOutputDir(outputOptions, cwdAfter);
+    const root = projectRoot(cwdBefore);
     const outputs = [];
     for (const item of result.output) {
       if (item.type !== "chunk" || !item.modules) continue;
@@ -193,12 +199,16 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
         if (file) addPackage(packages, thirdPartyPackage(file, root));
       }
       if (packages.size === 0) continue;
-      const outputPath = path.resolve(dir, item.fileName);
+      let outputPath = path.resolve(dir, item.fileName);
       const code = Buffer.from(item.code, "utf8");
       // An outputOptions plugin hook can make Rollup write somewhere else.
       if (method === "write" && !fileHolds(outputPath, code)) {
-        warn(`Rollup output ${outputPath} does not hold the written chunk and is not recorded`);
-        continue;
+        const pathAfter = path.resolve(dirAfter, item.fileName);
+        if (!fileHolds(pathAfter, code)) {
+          warn(`Rollup output ${outputPath} does not hold the written chunk and is not recorded`);
+          continue;
+        }
+        outputPath = pathAfter;
       }
       outputs.push({ path: outputPath, digest: sha256(code), packages: sortedPackages(packages) });
     }
@@ -212,11 +222,9 @@ module.exports = function start({ registerHooks, appendLine, settings }) {
       if (typeof original !== "function") continue;
       bundle[method] = {
         async [method](outputOptions, ...rest) {
-          // A writeBundle hook may change the working directory after Rollup
-          // resolved relative output paths against it.
           const cwd = process.cwd();
           const result = await original.call(this, outputOptions, ...rest);
-          observe("Rollup", () => rollupOutputs(method, outputOptions, result, cwd));
+          observe("Rollup", () => rollupOutputs(method, outputOptions, result, cwd, process.cwd()));
           return result;
         },
       }[method];

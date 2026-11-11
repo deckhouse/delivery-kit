@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(ms.Files).To(gomega.HaveKey(msCachePath))
 	})
 
-	ginkgo.It("finds an archive through a hardlink whose target, not named as one, is in a lower layer", func(ctx ginkgo.SpecContext) {
+	ginkgo.It("leaves a package unknown whose archive is a hardlink to a lower layer", func(ctx ginkgo.SpecContext) {
 		filesets := collectFilesetsOf(ctx,
 			[]tarEntry{regularFile("srv/objects/blob", msArchive)},
 			[]tarEntry{
@@ -107,6 +107,15 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		ms := filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")
 		gomega.Expect(ms).NotTo(gomega.BeNil())
 		gomega.Expect(ms.Files).To(gomega.HaveKey(msCachePath))
+		gomega.Expect(ms.Incomplete).To(gomega.BeTrue())
+
+		bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/ms@2.1.3")}}
+		gomega.Expect(RecordOccurrences(ctx, bom, filesets.Filesets)).To(gomega.Equal(1))
+		gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
+
+		consumer := collectFilesetsOf(ctx, []tarEntry{regularFile("srv/other", "other")})
+		gomega.Expect(MarkNotShipped(ctx, bom, consumer)).To(gomega.BeZero())
+		gomega.Expect(isShipped((*bom.Components)[0])).To(gomega.BeTrue())
 	})
 
 	ginkgo.It("does not take a hardlink to an archive for one unless it is named as one", func(ctx ginkgo.SpecContext) {

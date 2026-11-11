@@ -2,7 +2,6 @@ package shippedscope
 
 import (
 	"bytes"
-	"context"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -26,43 +25,22 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		debug4Path     = "/app/.yarn/cache/debug-npm-4.3.4-4b45b5c91c-cedbec4529.zip"
 	)
 
-	checksumOf := func(body string) string {
-		return "10c0/" + sha512Of(body)
-	}
-
-	collect := func(ctx context.Context, layers ...[]tarEntry) *Filesets {
-		img, err := imageOf(layers...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		filesets, err := CollectFilesets(ctx, img)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		return filesets
-	}
-
-	javascript := func(filesets *Filesets) []Fileset {
-		return lo.Filter(filesets.Filesets, func(fileset Fileset, _ int) bool { return fileset.Ecosystem == EcosystemJavaScript })
-	}
-
-	shipped := func(comp cdx.Component) bool {
-		return !lo.Contains(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyShipped, Value: "false"})
-	}
-
 	ginkgo.It("gives each npm entry of the lockfile the cache archives holding its checksum", func(ctx ginkgo.SpecContext) {
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
 			regularFile(strings.TrimPrefix(babelCachePath, "/"), babelArchive),
 			regularFile(strings.TrimPrefix(debug2Path, "/"), debug2Archive),
 			regularFile(strings.TrimPrefix(debug4Path, "/"), debug4Archive),
 			regularFile("srv/copy/ms.zip", msArchive),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:2.1.3, ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
-				berryLockEntry{descriptor: "@babel/core@npm:^7.28.0", resolution: "@babel/core@npm:7.28.0", checksum: checksumOf(babelArchive)},
-				berryLockEntry{descriptor: "debug@npm:2.6.9", resolution: "debug@npm:2.6.9", checksum: checksumOf(debug2Archive)},
-				berryLockEntry{descriptor: "debug@npm:^4.3.4", resolution: "debug@npm:4.3.4", checksum: checksumOf(debug4Archive)},
+				berryLockEntry{descriptor: "ms@npm:2.1.3, ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+				berryLockEntry{descriptor: "@babel/core@npm:^7.28.0", resolution: "@babel/core@npm:7.28.0", checksum: berryChecksumOf(babelArchive)},
+				berryLockEntry{descriptor: "debug@npm:2.6.9", resolution: "debug@npm:2.6.9", checksum: berryChecksumOf(debug2Archive)},
+				berryLockEntry{descriptor: "debug@npm:^4.3.4", resolution: "debug@npm:4.3.4", checksum: berryChecksumOf(debug4Archive)},
 			)),
 		})
 
-		gomega.Expect(javascript(filesets)).To(gomega.ConsistOf(
+		gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.ConsistOf(
 			Fileset{
 				Ecosystem: EcosystemJavaScript, Name: "@babel/core", Version: "7.28.0", DeclaresFiles: true, Symlinks: map[string]string{},
 				Files: map[string]File{babelCachePath: filesets.Index.Files[babelCachePath]},
@@ -85,11 +63,11 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 	ginkgo.It("finds an archive in the global cache, and through a hardlink", func(ctx ginkgo.SpecContext) {
 		globalPath := "/root/.yarn/berry/cache/ms-npm-2.1.3-81ff3cfac1-10c0.zip"
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(globalPath, "/"), msArchive),
 			hardlink("app/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-10c0.zip", strings.TrimPrefix(globalPath, "/")),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+				berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 			)),
 		})
 
@@ -101,11 +79,11 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	})
 
 	ginkgo.It("finds an archive through a hardlink whose target is not named as one", func(ctx ginkgo.SpecContext) {
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile("srv/objects/blob", msArchive),
 			hardlink(strings.TrimPrefix(msCachePath, "/"), "srv/objects/blob"),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+				berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 			)),
 		})
 
@@ -116,20 +94,20 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 	ginkgo.It("takes the union of every lockfile naming the same package", func(ctx ginkgo.SpecContext) {
 		repacked := "ms 2.1.3 archive under another cache key"
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
 			regularFile("other/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-8.zip", repacked),
 			regularFile("app/node_modules/ms/package.json", `{"name":"ms","version":"2.1.3"}`),
 			regularFile("app/node_modules/ms/index.js", "ms"),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 			)),
 			regularFile("other/yarn.lock", berryLockOf("8",
 				berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: "8/" + sha512Of(repacked)},
 			)),
 		})
 
-		archives := lo.Filter(javascript(filesets), func(fileset Fileset, _ int) bool { return fileset.Files[msCachePath].Digest != "" })
+		archives := lo.Filter(javascriptFilesetsOf(filesets), func(fileset Fileset, _ int) bool { return fileset.Files[msCachePath].Digest != "" })
 		gomega.Expect(archives).To(gomega.HaveLen(1))
 		gomega.Expect(archives[0].Files).To(gomega.HaveLen(2))
 		gomega.Expect(archives[0].Files).To(gomega.HaveKey("/other/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-8.zip"))
@@ -143,7 +121,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	})
 
 	ginkgo.It("accepts a checksum without the cache key Yarn 3 leaves out", func(ctx ginkgo.SpecContext) {
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
 			regularFile("app/yarn.lock", berryLockOf("8",
 				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: sha512Of(msArchive)},
@@ -156,28 +134,28 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	})
 
 	ginkgo.It("gives no fileset to an entry whose checksum no archive matches", func(ctx ginkgo.SpecContext) {
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), "tampered archive"),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 			)),
 		})
 
-		gomega.Expect(javascript(filesets)).To(gomega.BeEmpty())
+		gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.BeEmpty())
 	})
 
 	ginkgo.It("leaves a package whose archive the image does not hold unknown rather than absent", func(ctx ginkgo.SpecContext) {
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 			)),
 		})
-		gomega.Expect(javascript(filesets)).To(gomega.BeEmpty())
+		gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.BeEmpty())
 
 		bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/ms@2.1.3")}}
 		gomega.Expect(RecordOccurrences(ctx, bom, filesets.Filesets)).To(gomega.BeZero())
 		gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
-		gomega.Expect(shipped((*bom.Components)[0])).To(gomega.BeTrue())
+		gomega.Expect(isShipped((*bom.Components)[0])).To(gomega.BeTrue())
 	})
 
 	ginkgo.It("gives no fileset to an entry not resolved from the npm registry", func(ctx ginkgo.SpecContext) {
@@ -185,10 +163,10 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 			return regularFile("app/.yarn/cache/"+name+".zip", name+" archive")
 		}
 		entry := func(resolution, name string) berryLockEntry {
-			return berryLockEntry{descriptor: resolution, resolution: resolution, checksum: checksumOf(name + " archive")}
+			return berryLockEntry{descriptor: resolution, resolution: resolution, checksum: berryChecksumOf(name + " archive")}
 		}
 
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			archive("patched"), archive("local"), archive("linked"), archive("portal"), archive("git"), archive("tarball"), archive("aliased"),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
 				entry("app@workspace:.", "app"),
@@ -202,24 +180,24 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 			)),
 		})
 
-		gomega.Expect(javascript(filesets)).To(gomega.BeEmpty())
+		gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.BeEmpty())
 	})
 
 	ginkgo.It("reads only Berry lockfiles", func(ctx ginkgo.SpecContext) {
 		withoutMetadata := strings.Replace(berryLockOf("10c0",
-			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 		), "__metadata:\n  version: 8\n  cacheKey: 10c0\n", "", 1)
 		classic := "# THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.\n# yarn lockfile v1\n\n\n" +
 			"ms@^2.1.1:\n  version \"2.1.3\"\n  resolved \"https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz#574c8138ce1d2b5861f0b44579dbadd60c6615b2\"\n" +
 			"  integrity sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==\n"
 
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
 			regularFile("app/yarn.lock", withoutMetadata),
 			regularFile("classic/yarn.lock", classic),
 		})
 
-		gomega.Expect(javascript(filesets)).To(gomega.BeEmpty())
+		gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.BeEmpty())
 	})
 
 	ginkgo.DescribeTable("bounds what it captures of a lockfile",
@@ -234,17 +212,17 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 	ginkgo.It("warns about a lockfile over the limit and takes nothing from it", func(ctx ginkgo.SpecContext) {
 		lock := berryLockOf("10c0",
-			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 		)
 		lock += strings.Repeat("#", int(maxYarnLockBytes)+1-len(lock))
 
 		var output bytes.Buffer
-		filesets := collect(logboek.NewContext(ctx, logboek.NewLogger(&output, &output)), []tarEntry{
+		filesets := collectFilesetsOf(logboek.NewContext(ctx, logboek.NewLogger(&output, &output)), []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
 			regularFile("app/yarn.lock", lock),
 		})
 
-		gomega.Expect(javascript(filesets)).To(gomega.BeEmpty())
+		gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.BeEmpty())
 		gomega.Expect(output.String()).To(gomega.ContainSubstring("Yarn lockfile /app/yarn.lock is over"))
 
 		bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/ms@2.1.3")}}
@@ -254,7 +232,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 	ginkgo.It("does not read a lockfile body over the limit, however it was captured", func(ctx ginkgo.SpecContext) {
 		lock := berryLockOf("10c0",
-			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 		)
 		lock += strings.Repeat("#", int(maxYarnLockBytes)+1-len(lock))
 		index := indexOf(map[string]File{
@@ -267,7 +245,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 	ginkgo.It("does not hold a lockfile reached through a hardlink in memory, whatever its size", func(ctx ginkgo.SpecContext) {
 		lock := berryLockOf("10c0",
-			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 		)
 		lock += strings.Repeat("#", int(maxYarnLockBytes)+1-len(lock))
 		img, err := imageOf([]tarEntry{
@@ -285,11 +263,11 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 	ginkgo.It("still takes an unplugged package from its node_modules tree", func(ctx ginkgo.SpecContext) {
 		root := "app/.yarn/unplugged/esbuild-npm-0.20.0-0123456789/node_modules/esbuild"
-		filesets := collect(ctx, []tarEntry{
+		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(root+"/package.json", `{"name":"esbuild","version":"0.20.0"}`),
 			regularFile(root+"/bin/esbuild", "esbuild binary"),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "esbuild@npm:0.20.0", resolution: "esbuild@npm:0.20.0", checksum: checksumOf("esbuild archive")},
+				berryLockEntry{descriptor: "esbuild@npm:0.20.0", resolution: "esbuild@npm:0.20.0", checksum: berryChecksumOf("esbuild archive")},
 			)),
 		})
 
@@ -301,19 +279,19 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	ginkgo.DescribeTable("leaves a package whose archive lies inside another package's tree unknown",
 		func(ctx ginkgo.SpecContext, root string) {
 			fixtures := root + "/fixtures"
-			filesets := collect(ctx, []tarEntry{
+			filesets := collectFilesetsOf(ctx, []tarEntry{
 				regularFile(root+"/package.json", `{"name":"debug","version":"4.3.4"}`),
 				regularFile(root+"/index.js", "debug"),
 				regularFile(fixtures+"/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-f8fda810b3.zip", msArchive),
 				regularFile(fixtures+"/yarn.lock", berryLockOf("10c0",
-					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 				)),
 			})
 
 			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/debug@4.3.4"), componentOf("pkg:npm/ms@2.1.3")}}
 			RecordOccurrences(ctx, bom, filesets.Filesets)
 			gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
-			gomega.Expect(shipped((*bom.Components)[1])).To(gomega.BeTrue())
+			gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
 			gomega.Expect(filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")).To(gomega.BeNil())
 		},
 		ginkgo.Entry("under node_modules", "app/node_modules/debug"),
@@ -321,12 +299,12 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	)
 
 	ginkgo.It("proves a package shipped in an image that copied only its archive, and the other not", func(ctx ginkgo.SpecContext) {
-		donor := collect(ctx, []tarEntry{
+		donor := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
 			regularFile(strings.TrimPrefix(debug4Path, "/"), debug4Archive),
 			regularFile("app/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
-				berryLockEntry{descriptor: "debug@npm:^4.3.4", resolution: "debug@npm:4.3.4", checksum: checksumOf(debug4Archive)},
+				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+				berryLockEntry{descriptor: "debug@npm:^4.3.4", resolution: "debug@npm:4.3.4", checksum: berryChecksumOf(debug4Archive)},
 			)),
 		})
 
@@ -340,7 +318,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		read, err := cyclonedxutil.BuildCycloneDX16BOMFromJSON(data)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		consumer := collect(ctx, []tarEntry{
+		consumer := collectFilesetsOf(ctx, []tarEntry{
 			regularFile("srv/vendor/ms.zip", msArchive),
 		})
 		gomega.Expect(MarkNotShipped(ctx, read, consumer)).To(gomega.Equal(1))
@@ -351,7 +329,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 
 			return comp
 		}
-		gomega.Expect(shipped(byPURL("pkg:npm/ms@2.1.3"))).To(gomega.BeTrue())
-		gomega.Expect(shipped(byPURL("pkg:npm/debug@4.3.4"))).To(gomega.BeFalse())
+		gomega.Expect(isShipped(byPURL("pkg:npm/ms@2.1.3"))).To(gomega.BeTrue())
+		gomega.Expect(isShipped(byPURL("pkg:npm/debug@4.3.4"))).To(gomega.BeFalse())
 	})
 })

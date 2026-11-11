@@ -20,6 +20,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/samber/lo"
 )
 
 type tarEntry struct {
@@ -147,6 +148,29 @@ func berryLockOf(cacheKey string, entries ...berryLockEntry) string {
 	}
 
 	return lock.String()
+}
+
+func berryChecksumOf(body string) string {
+	return "10c0/" + sha512Of(body)
+}
+
+func collectFilesetsOf(ctx context.Context, layers ...[]tarEntry) *Filesets {
+	ginkgo.GinkgoHelper()
+
+	img, err := imageOf(layers...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	filesets, err := CollectFilesets(ctx, img)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return filesets
+}
+
+func javascriptFilesetsOf(filesets *Filesets) []Fileset {
+	return lo.Filter(filesets.Filesets, func(fileset Fileset, _ int) bool { return fileset.Ecosystem == EcosystemJavaScript })
+}
+
+func isShipped(comp cdx.Component) bool {
+	return !lo.Contains(lo.FromPtr(comp.Properties), cdx.Property{Name: PropertyShipped, Value: "false"})
 }
 
 func filesetOf(filesets *Filesets, ecosystem Ecosystem, name, version string) *Fileset {

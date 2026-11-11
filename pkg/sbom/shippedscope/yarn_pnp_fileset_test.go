@@ -134,6 +134,21 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(ms.Files).To(gomega.HaveKey(msCachePath))
 	})
 
+	ginkgo.DescribeTable("gives no fileset to a checksum in uppercase hex, which Yarn does not write",
+		func(ctx ginkgo.SpecContext, checksum string) {
+			filesets := collectFilesetsOf(ctx, []tarEntry{
+				regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
+				regularFile("app/yarn.lock", berryLockOf("10c0",
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksum},
+				)),
+			})
+
+			gomega.Expect(javascriptFilesetsOf(filesets)).To(gomega.BeEmpty())
+		},
+		ginkgo.Entry("with the cache key", "10c0/"+strings.ToUpper(sha512Of(msArchive))),
+		ginkgo.Entry("without the cache key", strings.ToUpper(sha512Of(msArchive))),
+	)
+
 	ginkgo.It("gives no fileset to an entry whose checksum no archive matches", func(ctx ginkgo.SpecContext) {
 		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), "tampered archive"),
@@ -231,18 +246,22 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
 	})
 
-	ginkgo.It("does not read a lockfile body over the limit, however it was captured", func(ctx ginkgo.SpecContext) {
-		lock := berryLockOf("10c0",
-			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
-		)
-		lock += strings.Repeat("#", int(maxYarnLockBytes)+1-len(lock))
-		index := indexOf(map[string]File{
-			msCachePath:      {Digest: digestOf(msArchive), Size: int64(len(msArchive)), sha512: sha512Of(msArchive)},
-			"/app/yarn.lock": {Digest: digestOf(lock), Size: int64(len(lock))},
-		})
+	ginkgo.DescribeTable("reads a captured lockfile body only within the limit",
+		func(ctx ginkgo.SpecContext, size int64, read bool) {
+			lock := berryLockOf("10c0",
+				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+			)
+			lock += strings.Repeat("#", int(size)-len(lock))
+			index := indexOf(map[string]File{
+				msCachePath:      {Digest: digestOf(msArchive), Size: int64(len(msArchive)), sha512: sha512Of(msArchive)},
+				"/app/yarn.lock": {Digest: digestOf(lock), Size: int64(len(lock))},
+			})
 
-		gomega.Expect(yarnPnPFilesets(ctx, index, map[string][]byte{"/app/yarn.lock": []byte(lock)}, nil)).To(gomega.BeEmpty())
-	})
+			gomega.Expect(yarnPnPFilesets(ctx, index, map[string][]byte{"/app/yarn.lock": []byte(lock)}, nil)).To(gomega.HaveLen(lo.Ternary(read, 1, 0)))
+		},
+		ginkgo.Entry("a body at the limit", maxYarnLockBytes, true),
+		ginkgo.Entry("a body over the limit", maxYarnLockBytes+1, false),
+	)
 
 	ginkgo.It("does not hold a lockfile reached through a hardlink in memory, whatever its size", func(ctx ginkgo.SpecContext) {
 		lock := berryLockOf("10c0",

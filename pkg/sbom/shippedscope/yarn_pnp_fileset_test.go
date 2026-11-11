@@ -2,6 +2,7 @@ package shippedscope
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -314,6 +315,27 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		ginkgo.Entry("under node_modules", "app/node_modules/debug"),
 		ginkgo.Entry("in a distribution directory", "usr/share/nodejs/debug"),
 	)
+
+	ginkgo.It("does not take a hardlink not named as an archive for an archive inside another package's tree", func(ctx ginkgo.SpecContext) {
+		root := "app/node_modules/debug"
+		debugTree := []tarEntry{
+			regularFile(root+"/package.json", `{"name":"debug","version":"4.3.4"}`),
+			regularFile(root+"/index.js", "debug"),
+			regularFile(root+"/fixtures/ms.zip", msArchive),
+			regularFile(root+"/fixtures/yarn.lock", berryLockOf("10c0",
+				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+			)),
+		}
+		donor := collectFilesetsOf(ctx, append(slices.Clone(debugTree), hardlink("srv/blob", root+"/fixtures/ms.zip")))
+
+		bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/debug@4.3.4"), componentOf("pkg:npm/ms@2.1.3")}}
+		RecordOccurrences(ctx, bom, donor.Filesets)
+		gomega.Expect(MarkNotShipped(ctx, bom, donor)).To(gomega.BeZero())
+
+		consumer := collectFilesetsOf(ctx, debugTree)
+		gomega.Expect(MarkNotShipped(ctx, bom, consumer)).To(gomega.BeZero())
+		gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
+	})
 
 	ginkgo.It("proves a package shipped in an image that copied only its archive, and the other not", func(ctx ginkgo.SpecContext) {
 		donor := collectFilesetsOf(ctx, []tarEntry{

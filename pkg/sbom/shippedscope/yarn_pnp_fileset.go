@@ -42,7 +42,7 @@ func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string
 
 	archives := make(map[string][]string)
 	for file, entry := range index.Files {
-		if entry.sha512 != "" && !owned[file] {
+		if entry.sha512 != "" && strings.HasSuffix(file, yarnArchiveSuffix) && !owned[file] {
 			archives[entry.sha512] = append(archives[entry.sha512], file)
 		}
 	}

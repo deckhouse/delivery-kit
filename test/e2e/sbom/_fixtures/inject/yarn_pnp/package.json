@@ -1,0 +1,16 @@
+{
+  "name": "yarn-pnp",
+  "version": "1.0.0",
+  "packageManager": "yarn@4.18.1",
+  "dependencies": {
+    "@sindresorhus/is": "4.6.0",
+    "debug": "2.6.9",
+    "escape-string-regexp": "4.0.0",
+    "ms": "2.1.3"
+  },
+  "dependenciesMeta": {
+    "escape-string-regexp": {
+      "unplugged": true
+    }
+  }
+}

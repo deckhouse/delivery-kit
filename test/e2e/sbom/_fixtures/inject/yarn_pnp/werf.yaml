@@ -1,0 +1,100 @@
+project: werf-test-e2e-sbom-yarn-pnp
+configVersion: 1
+build:
+  cacheVersion: yarn-pnp-v1
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: donor
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /
+    to: /app
+    excludePaths:
+      - tools
+      - global
+    stageDependencies:
+      packages:
+        - package.json
+        - yarn.lock
+        - .yarnrc.yml
+  - add: /tools
+    to: /opt/tools
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
+packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
+  - type: javascript-npm
+    workdir: /opt/tools
+  - type: javascript-yarn
+    workdir: /app
+    manager: /opt/tools/node_modules/.bin/yarn
+---
+image: donor-global
+from: registry.deckhouse.io/container-factory@sha256:7aac8d97a91ac233b19111aaad9d7bba12b975e620cfa9287b97e0003e4d0a71
+git:
+  - add: /global
+    to: /app
+    stageDependencies:
+      packages:
+        - package.json
+        - yarn.lock
+        - .yarnrc.yml
+  - add: /tools
+    to: /opt/tools
+    stageDependencies:
+      packages:
+        - package.json
+        - package-lock.json
+packages:
+  - type: os-pm
+    spec:
+      - node==24.18.0
+  - type: javascript-npm
+    workdir: /opt/tools
+  - type: javascript-yarn
+    workdir: /app
+    manager: /opt/tools/node_modules/.bin/yarn
+---
+image: consumer-one
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/index.js
+    to: /srv/app/index.js
+    before: setup
+  - image: donor
+    add: /app/package.json
+    to: /srv/app/package.json
+    before: setup
+  - image: donor
+    add: /app/.pnp.cjs
+    to: /srv/app/.pnp.cjs
+    before: setup
+  - image: donor
+    add: /app/.yarn/cache
+    to: /srv/app/.yarn/cache
+    includePaths:
+      - ms-npm-2.1.3-*.zip
+    before: setup
+---
+image: grandchild
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: consumer-one
+    add: /srv/app
+    to: /opt/app
+    before: setup
+---
+image: lock-only
+from: registry.werf.io/werf/scratch:latest
+import:
+  - image: donor
+    add: /app/yarn.lock
+    to: /app/yarn.lock
+    before: setup

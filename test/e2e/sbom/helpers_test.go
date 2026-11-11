@@ -598,7 +598,6 @@ func assertYarnPnPOutputs(ctx SpecContext, project *werf.Project, repoPath strin
 
 func assertYarnPnPImages(ctx SpecContext, project *werf.Project, archives map[string]map[string]cdx.EvidenceOccurrence) map[string]yarnPnPSnapshot {
 	negative := cdx.Property{Name: shippedscope.PropertyShipped, Value: "false"}
-	shippedDigest := archives["donor"][yarnPnPShippedPURL].AdditionalContext
 
 	snapshot := make(map[string]yarnPnPSnapshot)
 	for _, imageName := range []string{"donor", "donor-global", "consumer-one", "grandchild", "lock-only"} {
@@ -635,7 +634,7 @@ func assertYarnPnPImages(ctx SpecContext, project *werf.Project, archives map[st
 				}
 				Expect(properties).NotTo(ContainElement(negative), "%s must ship %s", imageName, purl)
 			case imageName != "lock-only" && purl == yarnPnPShippedPURL:
-				Expect(occurrences).To(ContainElement(HaveField("AdditionalContext", shippedDigest)), "%s must keep the zip evidence of %s", imageName, purl)
+				Expect(occurrences).To(ContainElement(archives["donor"][purl]), "%s must keep the zip evidence of %s", imageName, purl)
 				Expect(properties).NotTo(ContainElement(negative), "%s imported the zip of %s", imageName, purl)
 			default:
 				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, purl)

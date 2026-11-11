@@ -343,7 +343,9 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 			RecordOccurrences(ctx, bom, filesets.Filesets)
 			gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
 			gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
-			gomega.Expect(filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")).To(gomega.BeNil())
+			gomega.Expect(filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")).To(gomega.Equal(&Fileset{
+				Ecosystem: EcosystemJavaScript, Name: "ms", Version: "2.1.3", Incomplete: true, Files: map[string]File{}, Symlinks: map[string]string{},
+			}))
 		},
 		ginkgo.Entry("under node_modules", "app/node_modules/debug"),
 		ginkgo.Entry("in a distribution directory", "usr/share/nodejs/debug"),
@@ -371,12 +373,12 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	})
 
 	ginkgo.DescribeTable("does not take an archive outside another package's tree whose bytes that package owns",
-		func(ctx ginkgo.SpecContext, outside tarEntry) {
+		func(ctx ginkgo.SpecContext, vendored string, outside tarEntry) {
 			root := "app/node_modules/debug"
 			debugTree := []tarEntry{
 				regularFile(root+"/package.json", `{"name":"debug","version":"4.3.4"}`),
 				regularFile(root+"/index.js", "debug"),
-				regularFile(root+"/fixtures/ms.zip", msArchive),
+				regularFile(root+"/fixtures/"+vendored, msArchive),
 				regularFile(root+"/fixtures/yarn.lock", berryLockOf("10c0",
 					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 				)),
@@ -391,8 +393,51 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 			gomega.Expect(MarkNotShipped(ctx, bom, consumer)).To(gomega.BeZero())
 			gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
 		},
-		ginkgo.Entry("a hardlink named as an archive", hardlink("srv/copy.zip", "app/node_modules/debug/fixtures/ms.zip")),
-		ginkgo.Entry("a byte-identical copy", regularFile("srv/copy.zip", msArchive)),
+		ginkgo.Entry("a hardlink named as an archive", "ms.zip", hardlink("srv/copy.zip", "app/node_modules/debug/fixtures/ms.zip")),
+		ginkgo.Entry("a byte-identical copy", "ms.zip", regularFile("srv/copy.zip", msArchive)),
+		ginkgo.Entry("a copy of a file not named as an archive", "ms.bin", regularFile("srv/copy.zip", msArchive)),
+	)
+
+	ginkgo.DescribeTable("leaves a package unknown when another package owns an archive its lockfile names",
+		func(ctx ginkgo.SpecContext, donorFiles, consumerFiles []tarEntry) {
+			debugTree := []tarEntry{
+				regularFile("app/node_modules/debug/package.json", `{"name":"debug","version":"4.3.4"}`),
+				regularFile("app/node_modules/debug/index.js", "debug"),
+				regularFile("app/node_modules/debug/fixtures/ms.zip", msArchive),
+			}
+			donor := collectFilesetsOf(ctx, append(slices.Clone(debugTree), donorFiles...))
+
+			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/debug@4.3.4"), componentOf("pkg:npm/ms@2.1.3")}}
+			RecordOccurrences(ctx, bom, donor.Filesets)
+			gomega.Expect(MarkNotShipped(ctx, bom, donor)).To(gomega.BeZero())
+
+			consumer := collectFilesetsOf(ctx, append(slices.Clone(debugTree), consumerFiles...))
+			MarkNotShipped(ctx, bom, consumer)
+			gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
+		},
+		ginkgo.Entry("beside an archive of another lockfile",
+			[]tarEntry{
+				regularFile("srv/a/.yarn/cache/ms-npm-2.1.3-a.zip", msArchive),
+				regularFile("srv/b/.yarn/cache/ms-npm-2.1.3-b.zip", "ms 2.1.3 archive under another cache key"),
+				regularFile("srv/a/yarn.lock", berryLockOf("10c0",
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+				)),
+				regularFile("srv/b/yarn.lock", berryLockOf("8",
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: "8/" + sha512Of("ms 2.1.3 archive under another cache key")},
+				)),
+			},
+			[]tarEntry{regularFile("srv/a/.yarn/cache/ms-npm-2.1.3-a.zip", msArchive)},
+		),
+		ginkgo.Entry("beside its node_modules install",
+			[]tarEntry{
+				regularFile("app/node_modules/ms/package.json", `{"name":"ms","version":"2.1.3"}`),
+				regularFile("app/node_modules/ms/index.js", "ms"),
+				regularFile("app/yarn.lock", berryLockOf("10c0",
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+				)),
+			},
+			nil,
+		),
 	)
 
 	ginkgo.It("proves a package shipped in an image that copied only its archive, and the other not", func(ctx ginkgo.SpecContext) {

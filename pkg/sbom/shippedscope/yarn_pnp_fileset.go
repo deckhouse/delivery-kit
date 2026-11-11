@@ -29,10 +29,11 @@ var yarnChecksumPattern = regexp.MustCompile(`^(?:[0-9A-Za-z]+/)?([0-9a-f]{128})
 // archive, wherever in the image it sits. A package whose archive the image does not hold
 // gets no fileset, so it is not shown absent by a lockfile that outlived its cache. Packages
 // from any other source — a workspace, a patch, a git repository, a local path — have no
-// fileset either: their archive is not the published package. Neither does an archive inside
-// the tree of an installed package, nor anywhere else holding the bytes of such a file: they
-// are already that package's, and two owners of one content let the proven one disprove the
-// other.
+// fileset either: their archive is not the published package. An archive holding the bytes
+// of a file of an installed package is not taken either: they are already that package's,
+// and two owners of one content let the proven one disprove the other. A package such an
+// archive matches gets an incomplete fileset instead, since its other archives and its
+// installed files no longer tell where all of it is.
 func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte, installed []Fileset) []Fileset {
 	owned := make(map[string]bool)
 	for _, fileset := range installed {
@@ -42,13 +43,20 @@ func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string
 	}
 
 	archives := make(map[string][]string)
+	ownedArchives := make(map[string]bool)
 	for file, entry := range index.Files {
-		if entry.sha512 != "" && strings.HasSuffix(file, yarnArchiveSuffix) && !owned[entry.Digest] {
+		if entry.sha512 == "" || !strings.HasSuffix(file, yarnArchiveSuffix) {
+			continue
+		}
+		if owned[entry.Digest] {
+			ownedArchives[entry.sha512] = true
+		} else {
 			archives[entry.sha512] = append(archives[entry.sha512], file)
 		}
 	}
 
 	declared := make(map[[2]string]map[string]bool)
+	incomplete := make(map[[2]string]bool)
 	for _, lockfile := range slices.Sorted(maps.Keys(index.Files)) {
 		if path.Base(lockfile) != yarnLockName {
 			continue
@@ -85,12 +93,21 @@ func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string
 			}
 
 			pkg := [2]string{name, version}
+			if ownedArchives[checksum[1]] {
+				incomplete[pkg] = true
+			}
 			for _, archive := range archives[checksum[1]] {
 				if declared[pkg] == nil {
 					declared[pkg] = make(map[string]bool)
 				}
 				declared[pkg][archive] = true
 			}
+		}
+	}
+
+	for pkg := range incomplete {
+		if declared[pkg] == nil {
+			declared[pkg] = make(map[string]bool)
 		}
 	}
 
@@ -105,7 +122,8 @@ func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string
 			Version:       pkg[1],
 			Files:         files,
 			Symlinks:      symlinks,
-			DeclaresFiles: true,
+			DeclaresFiles: len(declared[pkg]) > 0,
+			Incomplete:    incomplete[pkg],
 		})
 	}
 

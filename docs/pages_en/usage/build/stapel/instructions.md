@@ -294,7 +294,7 @@ packages:
     workdir: /app
 ```
 
-Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock). Supported: Yarn Classic 1.x and Yarn Berry 3.x and 4.x; Yarn 2.x is not supported. Berry is installed from `@yarnpkg/cli-dist` through a preceding entry and `manager`, see [Package managers absent from the builder image](#package-managers-absent-from-the-builder-image), and needs `nodeLinker: node-modules` in `.yarnrc.yml` for its packages to be cataloged.
+Runs `yarn install --frozen-lockfile`. Default files: `package.json` (spec) and `yarn.lock` (lock). Supported: Yarn Classic 1.x and Yarn Berry 3.x and 4.x; Yarn 2.x is not supported. Berry is installed from `@yarnpkg/cli-dist` through a preceding entry and `manager`, see [Package managers absent from the builder image](#package-managers-absent-from-the-builder-image). With Berry's Plug'n'Play linker (`nodeLinker: pnp`, the default) packages are cataloged from `yarn.lock`, and the file evidence of a package is its cache zip — in the project or the global cache — whose SHA-512 matches the `checksum` of its lock entry, see [Yarn PnP archives]({{ "/usage/build/sbom.html#yarn-pnp-archives" | true_relative_url }}). Licenses of zipped packages are not extracted; use `nodeLinker: node-modules` when the SBOM needs them. Unplugged packages (`.yarn/unplugged`) are handled like packages in `node_modules`.
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 

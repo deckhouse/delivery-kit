@@ -201,6 +201,10 @@ For each output file (chunk) the observer records its SHA-256 digest and the ins
 
 The observer only instruments Rollup 4.x and esbuild 0.24.x; other versions discovered through those entry points are left unchanged with a warning. Coverage is best-effort. End-to-end verification covers Vite 6.0.11 production builds with Rollup 4.65.0 on Node.js 24.18. The observer also wraps the Rollup ESM and CommonJS APIs and the esbuild 0.24.x `build` and `context` (`rebuild`) APIs; these are not all covered by that end-to-end scenario. Existing esbuild plugins can observe the internally enabled `metafile` option and metadata in `onEnd`, even when the caller did not request them; the caller's result keeps its original metadata shape. The Rollup CLI, the native esbuild CLI, `buildSync`, watch and serve modes, Vite SSR, workers and virtual helper modules are not covered. The observer checks that Node.js provides `module.registerHooks` (for example, Node.js 22.15 or 24); without it werf logs a warning and the bundles of that process are not observed. An existing observer log that is unreadable, malformed or oversized is reported by a warning; when nothing was observed at all, there may be no warning. Neither case means that bundled packages are absent. The result may miss bundles when a stage overrides or removes `NODE_OPTIONS` explicitly, or switches to a user that cannot write the observer's private files. The observer keeps its records in an internal file under `/tmp` of the image, which must survive until the SBOM is calculated: a command that cleans `/tmp` deletes them, and they cannot be recovered.
 
+## Yarn PnP archives
+
+Yarn Berry's Plug'n'Play linker leaves no `node_modules`: packages stay in cache zips. werf reads the Berry `yarn.lock` from the image, and every `npm:` entry whose `checksum` equals the SHA-512 of a `.zip` file anywhere in the image — the project `.yarn/cache`, the global cache, or wherever an import put it — gets an `evidence.occurrences` entry at the zip's path with `additionalContext` `sha256:…`. An image that imports the zip of a package keeps it shipped; an image that inherits the package from a donor without its zip marks it `werf:shipped: false`. An entry whose zip the image that installed it does not hold gets no evidence and is never marked. Other resolutions (`workspace:`, `patch:` and others) get no zip evidence. A zip that is a file of an installed package (under `node_modules`, `/usr/share/nodejs` or `/usr/lib/nodejs`) belongs to that package and is not matched. A `yarn.lock` that is a hardlink or larger than 32 MiB is not read, with a warning: its entries get no zip evidence, so whether their packages ship stays unknown. Unplugged packages (`.yarn/unplugged`) are matched like packages in `node_modules`. Licenses of zipped packages are not extracted.
+
 ## Caching and rebuilds
 
 Toggling `build.sbom.enable` changes the stage digest, so enabling or disabling SBOM generation invalidates the cache and triggers a full rebuild.
@@ -208,6 +212,8 @@ Toggling `build.sbom.enable` changes the stage digest, so enabling or disabling 
 While SBOM generation is off (the default), stage digests are identical to those of a project that has never used this feature. Caches built before SBOM support was introduced remain valid and continue to be reused. If you enable the feature and later turn it off again, digests return to their original values.
 
 A werf upgrade that changes the JavaScript observer changes the digests of the SBOM-enabled stages that run user commands, so those stages are rebuilt.
+
+A werf upgrade that changes the SBOM artifact format does not rebuild stages: the SBOMs of cached stages are regenerated during the SBOM step, for example to add [Yarn PnP archive](#yarn-pnp-archives) evidence.
 
 Changing GOST properties (`sbom.gost`) does not affect stage digests. Cached stages are reused, and the SBOM document is regenerated with the updated properties during the SBOM step.
 

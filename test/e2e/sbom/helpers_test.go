@@ -2,6 +2,8 @@ package e2e_build_test
 
 import (
 	"archive/tar"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"gopkg.in/yaml.v3"
 
 	"github.com/werf/werf/v3/pkg/attestation"
 	"github.com/werf/werf/v3/pkg/oci/artifact"
@@ -490,4 +493,156 @@ func jsBundleOccurrences(comp *cdx.Component) []cdx.EvidenceOccurrence {
 	return lo.Filter(occurrencesOf(comp), func(occurrence cdx.EvidenceOccurrence, _ int) bool {
 		return strings.HasPrefix(occurrence.AdditionalContext, "werf:js-bundle:")
 	})
+}
+
+const (
+	yarnPnPProjectCache = "/app/.yarn/cache"
+	yarnPnPGlobalCache  = "/root/.yarn/berry/cache"
+	yarnPnPUnplugged    = "/app/.yarn/unplugged/escape-string-regexp-npm-4.0.0-"
+
+	yarnPnPShippedPURL   = "pkg:npm/ms@2.1.3"
+	yarnPnPUnpluggedPURL = "pkg:npm/escape-string-regexp@4.0.0"
+)
+
+var yarnPnPLockedPURLs = map[string]string{
+	"@sindresorhus/is@npm:4.6.0":     "pkg:npm/%40sindresorhus/is@4.6.0",
+	"debug@npm:2.6.9":                "pkg:npm/debug@2.6.9",
+	"escape-string-regexp@npm:4.0.0": yarnPnPUnpluggedPURL,
+	"ms@npm:2.0.0":                   "pkg:npm/ms@2.0.0",
+	"ms@npm:2.1.3":                   yarnPnPShippedPURL,
+}
+
+type yarnPnPSnapshot struct {
+	Shipped     bool
+	Occurrences []cdx.EvidenceOccurrence
+}
+
+// assertYarnPnPOutputs proves the fixture is a valid oracle before any SBOM is read: each
+// donor holds every locked package as a cache zip whose SHA-512 is the lock checksum, in
+// the project cache or the default global one, and each consumer holds exactly what it
+// imported. Returns, per donor, the occurrence each locked package's zip must produce.
+func assertYarnPnPOutputs(ctx SpecContext, project *werf.Project, repoPath string) map[string]map[string]cdx.EvidenceOccurrence {
+	repo := os.Getenv("WERF_REPO")
+	Expect(repo).NotTo(BeEmpty())
+	images := make(map[string]v1.Image)
+	filesOf := func(imageName, dir string) map[string][]byte {
+		if _, ok := images[imageName]; !ok {
+			images[imageName] = pullImage(ctx, repo+"@"+stagesImageDigestOf(ctx, project, imageName))
+		}
+		return imageFilesUnder(images[imageName], dir)
+	}
+
+	lock, err := os.ReadFile(filepath.Join(repoPath, "yarn.lock"))
+	Expect(err).NotTo(HaveOccurred())
+	globalLock, err := os.ReadFile(filepath.Join(repoPath, "global", "yarn.lock"))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(globalLock).To(Equal(lock))
+
+	var entries map[string]struct {
+		Resolution string `yaml:"resolution"`
+		Checksum   string `yaml:"checksum"`
+	}
+	Expect(yaml.Unmarshal(lock, &entries)).To(Succeed())
+	checksums := make(map[string]string)
+	for _, entry := range entries {
+		purl, ok := yarnPnPLockedPURLs[entry.Resolution]
+		if !ok {
+			continue
+		}
+		_, checksum, found := strings.Cut(entry.Checksum, "/")
+		Expect(found).To(BeTrue(), "%s: checksum %q carries no cache key", entry.Resolution, entry.Checksum)
+		checksums[checksum] = purl
+	}
+	Expect(lo.Values(checksums)).To(ConsistOf(lo.Values(yarnPnPLockedPURLs)))
+
+	archivesIn := func(imageName, dir string) map[string]cdx.EvidenceOccurrence {
+		archives := make(map[string]cdx.EvidenceOccurrence)
+		for file, body := range filesOf(imageName, dir) {
+			if !strings.HasSuffix(file, ".zip") {
+				continue
+			}
+			sum := sha512.Sum512(body)
+			purl, ok := checksums[hex.EncodeToString(sum[:])]
+			Expect(ok).To(BeTrue(), "%s: %s/%s matches no lock checksum", imageName, dir, file)
+			archives[purl] = cdx.EvidenceOccurrence{Location: dir + "/" + file, AdditionalContext: digestOfString(string(body))}
+		}
+		Expect(lo.Keys(archives)).To(ConsistOf(lo.Values(yarnPnPLockedPURLs)), "%s must cache a zip of every locked package in %s", imageName, dir)
+		return archives
+	}
+
+	donor := filesOf("donor", "/app")
+	Expect(donor).To(HaveKeyWithValue("yarn.lock", lock), "the install must not rewrite the lock")
+	Expect(donor).To(HaveKey(".pnp.cjs"))
+	Expect(filesUnder(donor, "node_modules")).To(BeEmpty(), "the PnP linker writes no node_modules")
+	Expect(donor).To(HaveKey(MatchRegexp(`^\.yarn/unplugged/escape-string-regexp-npm-4\.0\.0-[^/]+/node_modules/escape-string-regexp/index\.js$`)))
+	archives := archivesIn("donor", yarnPnPProjectCache)
+
+	global := filesOf("donor-global", "/app")
+	Expect(global).To(HaveKey(".pnp.cjs"))
+	Expect(filesUnder(global, ".yarn/cache")).To(BeEmpty(), "the default global cache leaves no project cache")
+	globalArchives := archivesIn("donor-global", yarnPnPGlobalCache)
+
+	shippedZip := strings.TrimPrefix(archives[yarnPnPShippedPURL].Location, yarnPnPProjectCache+"/")
+	imported := map[string][]byte{
+		"index.js":                  donor["index.js"],
+		"package.json":              donor["package.json"],
+		".pnp.cjs":                  donor[".pnp.cjs"],
+		".yarn/cache/" + shippedZip: donor[".yarn/cache/"+shippedZip],
+	}
+	Expect(filesOf("consumer-one", "/srv/app")).To(Equal(imported))
+	Expect(filesOf("grandchild", "/opt/app")).To(Equal(imported))
+	Expect(filesOf("lock-only", "/app")).To(Equal(map[string][]byte{"yarn.lock": lock}))
+
+	return map[string]map[string]cdx.EvidenceOccurrence{"donor": archives, "donor-global": globalArchives}
+}
+
+func assertYarnPnPImages(ctx SpecContext, project *werf.Project, archives map[string]map[string]cdx.EvidenceOccurrence) map[string]yarnPnPSnapshot {
+	negative := cdx.Property{Name: shippedscope.PropertyShipped, Value: "false"}
+
+	snapshot := make(map[string]yarnPnPSnapshot)
+	for _, imageName := range []string{"donor", "donor-global", "consumer-one", "grandchild", "lock-only"} {
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{imageName}}}))
+		donorArchives, isDonor := archives[imageName]
+
+		for _, comp := range lo.FromPtr(bom.Components) {
+			properties := lo.FromPtr(comp.Properties)
+			switch {
+			case isDonor:
+				Expect(properties).NotTo(ContainElement(negative), "%s installed %s", imageName, comp.PackageURL)
+			case !strings.HasPrefix(comp.PackageURL, "pkg:npm/") || strings.HasPrefix(comp.PackageURL, "pkg:npm/yarn-pnp@") || len(occurrencesOf(&comp)) == 0:
+			case imageName != "lock-only" && comp.PackageURL == yarnPnPShippedPURL:
+			default:
+				Expect(properties).To(ContainElement(negative), "%s carries no file of %s", imageName, comp.PackageURL)
+			}
+		}
+
+		for _, purl := range yarnPnPLockedPURLs {
+			comp := sbomtest.FindComponentByPURL(bom, purl)
+			Expect(comp).NotTo(BeNil(), "%s must retain component %s", imageName, purl)
+			Expect(comp.PackageURL).To(Equal(purl))
+			properties := lo.FromPtr(comp.Properties)
+			occurrences := occurrencesOf(comp)
+
+			switch {
+			case isDonor:
+				Expect(occurrences).To(ContainElement(donorArchives[purl]), "%s must evidence %s by its cache zip", imageName, purl)
+				if purl == yarnPnPUnpluggedPURL {
+					Expect(occurrences).To(ContainElement(And(
+						HaveField("Location", HavePrefix(yarnPnPUnplugged)),
+						HaveField("AdditionalContext", MatchRegexp(`^sha256:[0-9a-f]{64}$`)),
+					)), "%s must evidence the unplugged %s by its node_modules files", imageName, purl)
+				}
+				Expect(properties).NotTo(ContainElement(negative), "%s must ship %s", imageName, purl)
+			case imageName != "lock-only" && purl == yarnPnPShippedPURL:
+				Expect(occurrences).To(ContainElement(archives["donor"][purl]), "%s must keep the zip evidence of %s", imageName, purl)
+				Expect(properties).NotTo(ContainElement(negative), "%s imported the zip of %s", imageName, purl)
+			default:
+				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, purl)
+			}
+
+			snapshot[imageName+"/"+purl] = yarnPnPSnapshot{Shipped: !slices.Contains(properties, negative), Occurrences: occurrences}
+		}
+	}
+
+	return snapshot
 }

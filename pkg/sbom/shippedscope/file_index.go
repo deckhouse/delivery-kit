@@ -115,7 +115,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 
 		switch header.Typeflag {
 		case tar.TypeReg:
-			file, body, err := readFile(reader, header, capture(name, header.Size))
+			file, body, err := readFile(reader, header, capture(name, header.Size), strings.HasSuffix(name, yarnArchiveSuffix))
 			if err != nil {
 				return nil, nil, fmt.Errorf("hash %q: %w", name, err)
 			}
@@ -158,12 +158,12 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 }
 
 // The body is nil unless kept; a kept body is never nil, however short the file.
-func readFile(reader io.Reader, header *tar.Header, keepBody bool) (File, []byte, error) {
+func readFile(reader io.Reader, header *tar.Header, keepBody, archive bool) (File, []byte, error) {
 	hasher := sha256.New()
 	sinks := []io.Writer{hasher}
 
 	var archiveHasher hash.Hash
-	if strings.HasSuffix(header.Name, yarnArchiveSuffix) {
+	if archive {
 		archiveHasher = sha512.New()
 		sinks = append(sinks, archiveHasher)
 	}
@@ -223,6 +223,23 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 		}
 	}
 
+	// A .zip name may link to a target spelled otherwise, and it is the name that makes the
+	// content an archive worth its SHA-512.
+	archives := make(map[string]bool)
+	for name, target := range hardlinks {
+		if !strings.HasSuffix(name, yarnArchiveSuffix) {
+			continue
+		}
+		for !archives[target] {
+			archives[target] = true
+			next, ok := hardlinks[target]
+			if !ok {
+				break
+			}
+			target = next
+		}
+	}
+
 	layers, err := img.Layers()
 	if err != nil {
 		return nil, fmt.Errorf("read image layers: %w", err)
@@ -234,7 +251,7 @@ func resolveHardlinksWithinLayers(ctx context.Context, img v1.Image, index *File
 			break
 		}
 
-		if err := resolveHardlinksInLayer(ctx, layers[i], index, remaining, targets, settled); err != nil {
+		if err := resolveHardlinksInLayer(ctx, layers[i], index, remaining, targets, archives, settled); err != nil {
 			return nil, err
 		}
 	}
@@ -258,7 +275,7 @@ func bodyOwed(index *FileIndex, remaining map[string]string, capture func(path s
 	return false
 }
 
-func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileIndex, remaining map[string]string, targets, settled map[string]bool) error {
+func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileIndex, remaining map[string]string, targets, archives, settled map[string]bool) error {
 	contents, err := layer.Uncompressed()
 	if err != nil {
 		return fmt.Errorf("read layer contents: %w", err)
@@ -295,7 +312,7 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 				continue
 			}
 
-			file, body, err := readFile(reader, header, keepBody)
+			file, body, err := readFile(reader, header, keepBody, archives[name] || strings.HasSuffix(name, yarnArchiveSuffix))
 			if err != nil {
 				return fmt.Errorf("hash %q: %w", name, err)
 			}

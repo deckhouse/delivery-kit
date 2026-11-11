@@ -100,6 +100,20 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(ms.Files).To(gomega.HaveKey("/app/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-10c0.zip"))
 	})
 
+	ginkgo.It("finds an archive through a hardlink whose target is not named as one", func(ctx ginkgo.SpecContext) {
+		filesets := collect(ctx, []tarEntry{
+			regularFile("srv/objects/blob", msArchive),
+			hardlink(strings.TrimPrefix(msCachePath, "/"), "srv/objects/blob"),
+			regularFile("app/yarn.lock", berryLockOf("10c0",
+				berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+			)),
+		})
+
+		ms := filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")
+		gomega.Expect(ms).NotTo(gomega.BeNil())
+		gomega.Expect(ms.Files).To(gomega.HaveKey(msCachePath))
+	})
+
 	ginkgo.It("takes the union of every lockfile naming the same package", func(ctx ginkgo.SpecContext) {
 		repacked := "ms 2.1.3 archive under another cache key"
 		filesets := collect(ctx, []tarEntry{

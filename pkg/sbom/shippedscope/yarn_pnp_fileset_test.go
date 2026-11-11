@@ -93,6 +93,22 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(ms.Files).To(gomega.HaveKey(msCachePath))
 	})
 
+	ginkgo.It("finds an archive through a hardlink whose target, not named as one, is in a lower layer", func(ctx ginkgo.SpecContext) {
+		filesets := collectFilesetsOf(ctx,
+			[]tarEntry{regularFile("srv/objects/blob", msArchive)},
+			[]tarEntry{
+				hardlink(strings.TrimPrefix(msCachePath, "/"), "srv/objects/blob"),
+				regularFile("app/yarn.lock", berryLockOf("10c0",
+					berryLockEntry{descriptor: "ms@npm:^2.1.1", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+				)),
+			},
+		)
+
+		ms := filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")
+		gomega.Expect(ms).NotTo(gomega.BeNil())
+		gomega.Expect(ms.Files).To(gomega.HaveKey(msCachePath))
+	})
+
 	ginkgo.It("does not take a hardlink to an archive for one unless it is named as one", func(ctx ginkgo.SpecContext) {
 		filesets := collectFilesetsOf(ctx, []tarEntry{
 			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
@@ -397,6 +413,32 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		ginkgo.Entry("a byte-identical copy", "ms.zip", regularFile("srv/copy.zip", msArchive)),
 		ginkgo.Entry("a copy of a file not named as an archive", "ms.bin", regularFile("srv/copy.zip", msArchive)),
 	)
+
+	ginkgo.It("leaves a package unknown when another package's archive is a hardlink to a lower layer", func(ctx ginkgo.SpecContext) {
+		debugTree := []tarEntry{
+			regularFile("app/node_modules/debug/package.json", `{"name":"debug","version":"4.3.4"}`),
+			regularFile("app/node_modules/debug/index.js", "debug"),
+		}
+		donor := collectFilesetsOf(ctx,
+			[]tarEntry{regularFile("blob", msArchive)},
+			append(slices.Clone(debugTree),
+				hardlink("app/node_modules/debug/fixtures/ms.zip", "blob"),
+				regularFile("app/node_modules/ms/package.json", `{"name":"ms","version":"2.1.3"}`),
+				regularFile("app/node_modules/ms/index.js", "ms"),
+				regularFile("app/yarn.lock", berryLockOf("10c0",
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+				)),
+			),
+		)
+
+		bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/debug@4.3.4"), componentOf("pkg:npm/ms@2.1.3")}}
+		RecordOccurrences(ctx, bom, donor.Filesets)
+		gomega.Expect(MarkNotShipped(ctx, bom, donor)).To(gomega.BeZero())
+
+		consumer := collectFilesetsOf(ctx, append(slices.Clone(debugTree), regularFile("app/node_modules/debug/fixtures/ms.zip", msArchive)))
+		MarkNotShipped(ctx, bom, consumer)
+		gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
+	})
 
 	ginkgo.DescribeTable("leaves a package unknown when another package owns an archive its lockfile names",
 		func(ctx ginkgo.SpecContext, donorFiles, consumerFiles []tarEntry) {

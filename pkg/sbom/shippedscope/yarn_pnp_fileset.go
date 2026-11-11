@@ -33,7 +33,9 @@ var yarnChecksumPattern = regexp.MustCompile(`^(?:[0-9A-Za-z]+/)?([0-9a-f]{128})
 // of a file of an installed package is not taken either: they are already that package's,
 // and two owners of one content let the proven one disprove the other. A package such an
 // archive matches gets an incomplete fileset instead, since its other archives and its
-// installed files no longer tell where all of it is.
+// installed files no longer tell where all of it is. An incomplete index makes every fileset
+// incomplete: a hardlink it resolved against the flattened view may hold other bytes than
+// its digest says, so an archive found or missed there proves nothing.
 func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte, installed []Fileset) []Fileset {
 	owned := make(map[string]bool)
 	for _, fileset := range installed {
@@ -123,7 +125,7 @@ func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string
 			Files:         files,
 			Symlinks:      symlinks,
 			DeclaresFiles: len(declared[pkg]) > 0,
-			Incomplete:    incomplete[pkg],
+			Incomplete:    incomplete[pkg] || index.Incomplete,
 		})
 	}
 

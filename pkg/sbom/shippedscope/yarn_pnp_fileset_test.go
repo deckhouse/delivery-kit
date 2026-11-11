@@ -439,6 +439,37 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
 	})
 
+	ginkgo.DescribeTable("leaves a package unknown when a hardlink to a lower layer outlived the bytes of its target",
+		func(ctx ginkgo.SpecContext, extra []tarEntry) {
+			repacked := "ms 2.1.3 archive under another cache key"
+			donor := collectFilesetsOf(ctx,
+				[]tarEntry{regularFile("blob", msArchive)},
+				[]tarEntry{hardlink("cache.zip", "blob")},
+				[]tarEntry{whiteout(".wh.blob")},
+				append([]tarEntry{
+					regularFile("blob", repacked),
+					regularFile("a/yarn.lock", berryLockOf("10c0",
+						berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+					)),
+					regularFile("b/yarn.lock", berryLockOf("8",
+						berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: "8/" + sha512Of(repacked)},
+					)),
+				}, extra...),
+			)
+			gomega.Expect(donor.Index.Files["/cache.zip"].sha512).To(gomega.BeEmpty(), "the link holds the bytes its own layer gave it, not the recreated target")
+
+			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/ms@2.1.3")}}
+			RecordOccurrences(ctx, bom, donor.Filesets)
+			gomega.Expect(MarkNotShipped(ctx, bom, donor)).To(gomega.BeZero())
+
+			consumer := collectFilesetsOf(ctx, []tarEntry{regularFile("vendor/renamed.zip", msArchive)})
+			MarkNotShipped(ctx, bom, consumer)
+			gomega.Expect(isShipped((*bom.Components)[0])).To(gomega.BeTrue())
+		},
+		ginkgo.Entry("with no other archive", nil),
+		ginkgo.Entry("beside an archive of the recreated bytes", []tarEntry{regularFile("srv/b.zip", "ms 2.1.3 archive under another cache key")}),
+	)
+
 	ginkgo.DescribeTable("leaves a package unknown when another package owns an archive its lockfile names",
 		func(ctx ginkgo.SpecContext, donorFiles, consumerFiles []tarEntry) {
 			debugTree := []tarEntry{

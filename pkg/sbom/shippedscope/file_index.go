@@ -45,9 +45,9 @@ type FileIndex struct {
 	// path, the content a hardlink's name asked for while the layers were read.
 	bodies       map[string][]byte
 	targetBodies map[string][]byte
-	// targetArchives holds, by target path, what the topmost layer holding a hardlink target
-	// had there when a .zip name asked for its SHA-512.
-	targetArchives map[string]File
+	// linkArchives holds, by hardlink name, the target its own layer could not answer as the
+	// first layer below read it, when a .zip name asked for its SHA-512.
+	linkArchives map[string]File
 	// unresolved holds the hardlinks left out of Files and Symlinks: something is at the
 	// path, but no layer names its content.
 	unresolved map[string]bool
@@ -82,13 +82,13 @@ func IndexImageFiles(ctx context.Context, img v1.Image) (*FileIndex, error) {
 // negative for a hardlink, whose target is not known yet when it is asked.
 func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string, size int64) bool) (*FileIndex, map[string][]byte, error) {
 	index := &FileIndex{
-		Files:          make(map[string]File),
-		Symlinks:       make(map[string]string),
-		bodies:         make(map[string][]byte),
-		targetBodies:   make(map[string][]byte),
-		targetArchives: make(map[string]File),
-		unresolved:     make(map[string]bool),
-		linked:         make(map[string]bool),
+		Files:        make(map[string]File),
+		Symlinks:     make(map[string]string),
+		bodies:       make(map[string][]byte),
+		targetBodies: make(map[string][]byte),
+		linkArchives: make(map[string]File),
+		unresolved:   make(map[string]bool),
+		linked:       make(map[string]bool),
 	}
 	hardlinks := make(map[string]string)
 	if capture == nil {
@@ -157,7 +157,7 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 	captured := index.bodies
 	index.bodies = nil
 	index.targetBodies = nil
-	index.targetArchives = nil
+	index.linkArchives = nil
 
 	return index, captured, nil
 }
@@ -283,12 +283,12 @@ func bodyOwed(index *FileIndex, remaining map[string]string, capture func(path s
 // A .zip name whose own layer could not answer gets the flattened view's bytes, which the
 // first pass hashed without SHA-512 unless the target is itself named as an archive.
 func archiveOwed(index *FileIndex, remaining map[string]string, archives map[string]bool) bool {
-	for _, target := range remaining {
+	for name, target := range remaining {
 		if !archives[target] {
 			continue
 		}
 
-		if _, ok := index.targetArchives[target]; !ok {
+		if _, ok := index.linkArchives[name]; !ok {
 			return true
 		}
 	}
@@ -317,6 +317,14 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
 			resolveOwnedHardlinks(index, remaining, owned, files, bodies, symlinks)
+			for name, target := range remaining {
+				if _, ok := index.linkArchives[name]; ok || !settled[name] {
+					continue
+				}
+				if file, ok := files[target]; ok && file.sha512 != "" {
+					index.linkArchives[name] = file
+				}
+			}
 
 			return nil
 		}
@@ -339,9 +347,6 @@ func resolveHardlinksInLayer(ctx context.Context, layer v1.Layer, index *FileInd
 			}
 
 			files[name] = file
-			if _, ok := index.targetArchives[name]; !ok && file.sha512 != "" {
-				index.targetArchives[name] = file
-			}
 			if body != nil {
 				bodies[name] = body
 				if _, ok := index.targetBodies[name]; !ok {
@@ -425,7 +430,8 @@ func resolveHardlinks(ctx context.Context, index *FileIndex, hardlinks map[strin
 
 		for {
 			if file, ok := index.Files[target]; ok {
-				if archive, ok := index.targetArchives[target]; ok && file.sha512 == "" && archive.Digest == file.Digest {
+				// The flattened target may hold other bytes than the link's own layer gave it.
+				if archive, ok := index.linkArchives[name]; ok && file.sha512 == "" && archive.Digest == file.Digest {
 					file.sha512 = archive.sha512
 				}
 				index.Files[name] = file

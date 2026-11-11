@@ -48,7 +48,7 @@ func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string
 
 		body, ok := manifests[lockfile]
 		if !ok || int64(len(body)) > maxYarnLockBytes {
-			logboek.Context(ctx).Warn().LogF("WARNING: Yarn lockfile %s is over %d bytes and is not read; the Yarn Plug'n'Play archives it names are not attributed to their packages\n", lockfile, maxYarnLockBytes)
+			logboek.Context(ctx).Warn().LogF("WARNING: Yarn lockfile %s is over %d bytes or a hardlink and is not read; the Yarn Plug'n'Play archives it names are not attributed to their packages\n", lockfile, maxYarnLockBytes)
 
 			continue
 		}

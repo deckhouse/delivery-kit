@@ -118,7 +118,7 @@ func capturesFilesetFile(file string, size int64) bool {
 		return size >= 0 && size <= maxJSObserverLogBytes
 	}
 	if path.Base(file) == yarnLockName {
-		return size <= maxYarnLockBytes
+		return size >= 0 && size <= maxYarnLockBytes
 	}
 
 	return isFilesetManifest(file)

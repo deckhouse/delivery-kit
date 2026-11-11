@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		},
 		ginkgo.Entry("a lockfile within the limit", "/app/yarn.lock", maxYarnLockBytes, true),
 		ginkgo.Entry("a lockfile over the limit", "/app/yarn.lock", maxYarnLockBytes+1, false),
-		ginkgo.Entry("a lockfile reached through a hardlink of unknown size", "/app/yarn.lock", int64(-1), true),
+		ginkgo.Entry("a lockfile reached through a hardlink of unknown size", "/app/yarn.lock", int64(-1), false),
 		ginkgo.Entry("another file of that size", "/app/yarn.lock.bak", int64(1024), false),
 	)
 
@@ -249,6 +249,24 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		})
 
 		gomega.Expect(yarnPnPFilesets(ctx, index, map[string][]byte{"/app/yarn.lock": []byte(lock)})).To(gomega.BeEmpty())
+	})
+
+	ginkgo.It("does not hold a lockfile reached through a hardlink in memory, whatever its size", func(ctx ginkgo.SpecContext) {
+		lock := berryLockOf("10c0",
+			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+		)
+		lock += strings.Repeat("#", int(maxYarnLockBytes)+1-len(lock))
+		img, err := imageOf([]tarEntry{
+			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
+			regularFile("srv/objects/lock", lock),
+			hardlink("app/yarn.lock", "srv/objects/lock"),
+		})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		index, captured, err := indexImageFiles(ctx, img, capturesFilesetFile)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(index.Files).To(gomega.HaveKey("/app/yarn.lock"))
+		gomega.Expect(lo.Keys(captured)).NotTo(gomega.ContainElement("/app/yarn.lock"))
 	})
 
 	ginkgo.It("still takes an unplugged package from its node_modules tree", func(ctx ginkgo.SpecContext) {

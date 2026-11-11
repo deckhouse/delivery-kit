@@ -12,7 +12,7 @@ import (
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
-var _ = ginkgo.Describe("SBOM Yarn Plug'n'Play shipped-scope", ginkgo.Label("e2e", "sbom", "yarn", "yarn-pnp"), func() {
+var _ = ginkgo.Describe("SBOM Yarn Plug'n'Play shipped-scope", ginkgo.Label("e2e", "sbom", "yarn", "yarn-pnp", "simple"), func() {
 	ginkgo.It("evidences packages by their cache zips through imports, cache reuse and SBOM regeneration", func(ctx ginkgo.SpecContext) {
 		setupSbomBuildEnv()
 		repoDirname := "repo_sbom_yarn_pnp"

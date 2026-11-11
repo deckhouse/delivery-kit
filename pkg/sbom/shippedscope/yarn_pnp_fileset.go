@@ -29,11 +29,13 @@ var yarnChecksumPattern = regexp.MustCompile(`^(?:[0-9A-Za-z]+/)?([0-9a-f]{128})
 // archive, wherever in the image it sits. A package whose archive the image does not hold
 // gets no fileset, so it is not shown absent by a lockfile that outlived its cache. Packages
 // from any other source — a workspace, a patch, a git repository, a local path — have no
-// fileset either: their archive is not the published package.
+// fileset either: their archive is not the published package. Neither does an archive inside
+// a node_modules tree: it is already a file of the package installed there, and two owners
+// of one file let the proven one disprove the other.
 func yarnPnPFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte) []Fileset {
 	archives := make(map[string][]string)
 	for file, entry := range index.Files {
-		if entry.sha512 != "" {
+		if entry.sha512 != "" && !slices.Contains(strings.Split(file, "/"), nodeModulesDir) {
 			archives[entry.sha512] = append(archives[entry.sha512], file)
 		}
 	}

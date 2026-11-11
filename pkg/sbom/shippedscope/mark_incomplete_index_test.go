@@ -49,3 +49,23 @@ var _ = ginkgo.Describe("MarkNotShipped on an image indexed through the hardlink
 		gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeFalse())
 	})
 })
+
+var _ = ginkgo.Describe("Match on an incomplete index", func() {
+	ginkgo.It("keeps a missing component for lack of data and leaves positive matches as they are", func(ctx ginkgo.SpecContext) {
+		index := indexOf(map[string]File{
+			"/app/present.py": {Digest: digestOf("present"), Size: 7},
+			"/app/patched.py": {Digest: digestOf("patched"), Size: 7},
+		})
+		index.Incomplete = true
+
+		decisions := Match(ctx, []Component{
+			{Ecosystem: EcosystemPython, Name: "present", Version: "1.0", Occurrences: []Occurrence{{Path: "/app/present.py", Digest: digestOf("present")}}},
+			{Ecosystem: EcosystemPython, Name: "patched", Version: "1.0", Occurrences: []Occurrence{{Path: "/app/patched.py", Digest: digestOf("original")}}},
+			{Ecosystem: EcosystemPython, Name: "missing", Version: "1.0", Occurrences: []Occurrence{{Path: "/app/missing.py", Digest: digestOf("missing")}}},
+		}, ProducedBinaries{}, index)
+
+		gomega.Expect(decisions[0]).To(gomega.Equal(Decision{Shipped: true, Reason: ReasonContent, Checked: 1, Matched: []string{"/app/present.py"}}))
+		gomega.Expect(decisions[1]).To(gomega.Equal(Decision{Shipped: true, Reason: ReasonPath, Checked: 1, Matched: []string{"/app/patched.py"}}))
+		gomega.Expect(decisions[2]).To(gomega.Equal(Decision{Shipped: true, Reason: ReasonNoData, Checked: 1}))
+	})
+})

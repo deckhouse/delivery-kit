@@ -263,7 +263,7 @@ packages:
     workdir: /app
 ```
 
-Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock). Поддерживаются Yarn Classic 1.x и Yarn Berry 3.x и 4.x; Yarn 2.x не поддерживается. Berry устанавливается из `@yarnpkg/cli-dist` через предыдущую запись и `manager`, см. [Менеджеры пакетов, которых нет в сборочном образе](#менеджеры-пакетов-которых-нет-в-сборочном-образе), и требует `nodeLinker: node-modules` в `.yarnrc.yml`, чтобы его пакеты попали в SBOM.
+Выполняет `yarn install --frozen-lockfile`. Файлы по умолчанию: `package.json` (spec) и `yarn.lock` (lock). Поддерживаются Yarn Classic 1.x и Yarn Berry 3.x и 4.x; Yarn 2.x не поддерживается. Berry устанавливается из `@yarnpkg/cli-dist` через предыдущую запись и `manager`, см. [Менеджеры пакетов, которых нет в сборочном образе](#менеджеры-пакетов-которых-нет-в-сборочном-образе). С линкером Plug'n'Play (`nodeLinker: pnp`, используется по умолчанию) пакеты Berry попадают в SBOM из `yarn.lock`, а файловым свидетельством пакета служит его zip-архив в кеше — проектном или глобальном, — SHA-512 которого совпадает с `checksum` его записи в lock-файле, см. [Архивы Yarn PnP]({{ "/usage/build/sbom.html#архивы-yarn-pnp" | true_relative_url }}). Лицензии пакетов из архивов не извлекаются; если они нужны в SBOM, используйте `nodeLinker: node-modules`. Распакованные пакеты (`.yarn/unplugged`) обрабатываются как пакеты в `node_modules`.
 
 **JavaScript — pnpm** (`javascript-pnpm`):
 

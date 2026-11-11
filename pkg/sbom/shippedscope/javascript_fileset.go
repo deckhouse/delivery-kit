@@ -21,7 +21,8 @@ var distributionNodeDirs = []string{"/usr/share/nodejs", "/usr/lib/nodejs"}
 //
 // Only a package.json sitting where an installer puts packages counts. Packages ship
 // fixtures and examples with a package.json of their own, and those stay the package's
-// files. A Yarn PnP cache holds packages as archives and is not read.
+// files. A package Yarn Plug'n'Play keeps in its cache archive is drawn by yarnPnPFilesets;
+// one it unplugs lands in a node_modules directory and is drawn here.
 func javascriptFilesets(index *FileIndex, manifests map[string][]byte) []Fileset {
 	var filesets []Fileset
 

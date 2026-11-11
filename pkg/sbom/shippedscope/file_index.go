@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"maps"
 	"path"
@@ -24,6 +26,10 @@ type File struct {
 	// Digest is "sha256:<hex>", the form /var/lib/pm/files.json and SBOM occurrences use.
 	Digest string
 	Size   int64
+
+	// sha512 is the hex SHA-512 of a .zip file: the digest a Yarn Berry lockfile records for
+	// the cache archive of each package.
+	sha512 string
 }
 
 type FileIndex struct {
@@ -154,20 +160,29 @@ func indexImageFiles(ctx context.Context, img v1.Image, capture func(path string
 // The body is nil unless kept; a kept body is never nil, however short the file.
 func readFile(reader io.Reader, header *tar.Header, keepBody bool) (File, []byte, error) {
 	hasher := sha256.New()
+	sinks := []io.Writer{hasher}
 
-	var body bytes.Buffer
-	var sink io.Writer = hasher
-	if keepBody {
-		sink = io.MultiWriter(hasher, &body)
+	var archiveHasher hash.Hash
+	if strings.HasSuffix(header.Name, yarnArchiveSuffix) {
+		archiveHasher = sha512.New()
+		sinks = append(sinks, archiveHasher)
 	}
 
-	if _, err := io.Copy(sink, reader); err != nil {
+	var body bytes.Buffer
+	if keepBody {
+		sinks = append(sinks, &body)
+	}
+
+	if _, err := io.Copy(io.MultiWriter(sinks...), reader); err != nil {
 		return File{}, nil, err
 	}
 
 	file := File{
 		Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
 		Size:   header.Size,
+	}
+	if archiveHasher != nil {
+		file.sha512 = hex.EncodeToString(archiveHasher.Sum(nil))
 	}
 	if !keepBody {
 		return file, nil, nil

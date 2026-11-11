@@ -65,12 +65,14 @@ type Filesets struct {
 //
 // Each ecosystem draws the boundary itself, and none of them draw it around a directory:
 // Python takes the paths its RECORD declares, JavaScript takes a package directory minus
-// the nested package trees inside it, Lua takes the paths its rock manifest declares across
+// the nested package trees inside it and, under Yarn Plug'n'Play, the cache archives whose
+// checksum a Berry yarn.lock records, Lua takes the paths its rock manifest declares across
 // the install roots they land in, and os-pm takes the list its package manager wrote. The
 // digests always come from the image, never from the manifest that names the file.
 //
 // A component installed some other way — a Python egg-info, a LuaRocks 2 tree, a Yarn PnP
-// cache — has no fileset, and this says nothing about whether it shipped.
+// package whose cache archive the image does not hold — has no fileset, and this says
+// nothing about whether it shipped.
 //
 // The same read takes the log the build's JavaScript observer left, and leaves it out of
 // the index: it is werf's record of the bundles, not a file of the image's components.
@@ -95,6 +97,7 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 	}
 	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)
 	filesets.Filesets = append(filesets.Filesets, javascriptFilesets(index, manifests)...)
+	filesets.Filesets = append(filesets.Filesets, yarnPnPFilesets(ctx, index, manifests)...)
 	filesets.Filesets = append(filesets.Filesets, luaFilesets(ctx, index, manifests)...)
 
 	// Readers walk maps; a consumer that logs or reports per component should see the same
@@ -113,6 +116,9 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 func capturesFilesetFile(file string, size int64) bool {
 	if file == jsobserver.LogPath {
 		return size >= 0 && size <= maxJSObserverLogBytes
+	}
+	if path.Base(file) == yarnLockName {
+		return size <= maxYarnLockBytes
 	}
 
 	return isFilesetManifest(file)

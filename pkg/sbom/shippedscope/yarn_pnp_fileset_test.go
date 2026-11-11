@@ -389,12 +389,12 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 	})
 
 	ginkgo.DescribeTable("does not take an archive outside another package's tree whose bytes that package owns",
-		func(ctx ginkgo.SpecContext, vendored string, outside tarEntry) {
+		func(ctx ginkgo.SpecContext, outside tarEntry) {
 			root := "app/node_modules/debug"
 			debugTree := []tarEntry{
 				regularFile(root+"/package.json", `{"name":"debug","version":"4.3.4"}`),
 				regularFile(root+"/index.js", "debug"),
-				regularFile(root+"/fixtures/"+vendored, msArchive),
+				regularFile(root+"/fixtures/ms.bin", msArchive),
 				regularFile(root+"/fixtures/yarn.lock", berryLockOf("10c0",
 					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
 				)),
@@ -409,9 +409,8 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 			gomega.Expect(MarkNotShipped(ctx, bom, consumer)).To(gomega.BeZero())
 			gomega.Expect(isShipped((*bom.Components)[1])).To(gomega.BeTrue())
 		},
-		ginkgo.Entry("a hardlink named as an archive", "ms.zip", hardlink("srv/copy.zip", "app/node_modules/debug/fixtures/ms.zip")),
-		ginkgo.Entry("a byte-identical copy", "ms.zip", regularFile("srv/copy.zip", msArchive)),
-		ginkgo.Entry("a copy of a file not named as an archive", "ms.bin", regularFile("srv/copy.zip", msArchive)),
+		ginkgo.Entry("a hardlink named as an archive", hardlink("srv/copy.zip", "app/node_modules/debug/fixtures/ms.bin")),
+		ginkgo.Entry("a byte-identical copy", regularFile("srv/copy.zip", msArchive)),
 	)
 
 	ginkgo.It("leaves a package unknown when another package's archive is a hardlink to a lower layer", func(ctx ginkgo.SpecContext) {

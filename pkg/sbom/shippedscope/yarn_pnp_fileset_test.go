@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 			"/app/yarn.lock": {Digest: digestOf(lock), Size: int64(len(lock))},
 		})
 
-		gomega.Expect(yarnPnPFilesets(ctx, index, map[string][]byte{"/app/yarn.lock": []byte(lock)})).To(gomega.BeEmpty())
+		gomega.Expect(yarnPnPFilesets(ctx, index, map[string][]byte{"/app/yarn.lock": []byte(lock)}, nil)).To(gomega.BeEmpty())
 	})
 
 	ginkgo.It("does not hold a lockfile reached through a hardlink in memory, whatever its size", func(ctx ginkgo.SpecContext) {
@@ -298,23 +298,27 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(esbuild.Files).To(gomega.HaveKey("/" + root + "/bin/esbuild"))
 	})
 
-	ginkgo.It("leaves a package whose archive lies inside another package's tree unknown", func(ctx ginkgo.SpecContext) {
-		fixtures := "app/node_modules/debug/fixtures"
-		filesets := collect(ctx, []tarEntry{
-			regularFile("app/node_modules/debug/package.json", `{"name":"debug","version":"4.3.4"}`),
-			regularFile("app/node_modules/debug/index.js", "debug"),
-			regularFile(fixtures+"/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-f8fda810b3.zip", msArchive),
-			regularFile(fixtures+"/yarn.lock", berryLockOf("10c0",
-				berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
-			)),
-		})
+	ginkgo.DescribeTable("leaves a package whose archive lies inside another package's tree unknown",
+		func(ctx ginkgo.SpecContext, root string) {
+			fixtures := root + "/fixtures"
+			filesets := collect(ctx, []tarEntry{
+				regularFile(root+"/package.json", `{"name":"debug","version":"4.3.4"}`),
+				regularFile(root+"/index.js", "debug"),
+				regularFile(fixtures+"/.yarn/cache/ms-npm-2.1.3-81ff3cfac1-f8fda810b3.zip", msArchive),
+				regularFile(fixtures+"/yarn.lock", berryLockOf("10c0",
+					berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: checksumOf(msArchive)},
+				)),
+			})
 
-		bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/debug@4.3.4"), componentOf("pkg:npm/ms@2.1.3")}}
-		RecordOccurrences(ctx, bom, filesets.Filesets)
-		gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
-		gomega.Expect(shipped((*bom.Components)[1])).To(gomega.BeTrue())
-		gomega.Expect(filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")).To(gomega.BeNil())
-	})
+			bom := &cdx.BOM{Components: &[]cdx.Component{componentOf("pkg:npm/debug@4.3.4"), componentOf("pkg:npm/ms@2.1.3")}}
+			RecordOccurrences(ctx, bom, filesets.Filesets)
+			gomega.Expect(MarkNotShipped(ctx, bom, filesets)).To(gomega.BeZero())
+			gomega.Expect(shipped((*bom.Components)[1])).To(gomega.BeTrue())
+			gomega.Expect(filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")).To(gomega.BeNil())
+		},
+		ginkgo.Entry("under node_modules", "app/node_modules/debug"),
+		ginkgo.Entry("in a distribution directory", "usr/share/nodejs/debug"),
+	)
 
 	ginkgo.It("proves a package shipped in an image that copied only its archive, and the other not", func(ctx ginkgo.SpecContext) {
 		donor := collect(ctx, []tarEntry{

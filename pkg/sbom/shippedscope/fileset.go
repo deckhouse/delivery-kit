@@ -96,8 +96,9 @@ func CollectFilesets(ctx context.Context, img v1.Image) (*Filesets, error) {
 		BundlesUnknown:      bundlesUnknown,
 	}
 	filesets.Filesets = append(filesets.Filesets, pythonFilesets(ctx, index, manifests)...)
-	filesets.Filesets = append(filesets.Filesets, javascriptFilesets(index, manifests)...)
-	filesets.Filesets = append(filesets.Filesets, yarnPnPFilesets(ctx, index, manifests)...)
+	javascript := javascriptFilesets(index, manifests)
+	filesets.Filesets = append(filesets.Filesets, javascript...)
+	filesets.Filesets = append(filesets.Filesets, yarnPnPFilesets(ctx, index, manifests, javascript)...)
 	filesets.Filesets = append(filesets.Filesets, luaFilesets(ctx, index, manifests)...)
 
 	// Readers walk maps; a consumer that logs or reports per component should see the same

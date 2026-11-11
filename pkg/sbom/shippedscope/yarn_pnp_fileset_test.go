@@ -261,6 +261,23 @@ var _ = ginkgo.Describe("CollectFilesets, Yarn Plug'n'Play", func() {
 		gomega.Expect(lo.Keys(captured)).NotTo(gomega.ContainElement("/app/yarn.lock"))
 	})
 
+	ginkgo.It("warns about a lockfile sharing a hardlink target with a captured manifest and takes nothing from it", func(ctx ginkgo.SpecContext) {
+		lock := berryLockOf("10c0",
+			berryLockEntry{descriptor: "ms@npm:2.1.3", resolution: "ms@npm:2.1.3", checksum: berryChecksumOf(msArchive)},
+		)
+
+		var output bytes.Buffer
+		filesets := collectFilesetsOf(logboek.NewContext(ctx, logboek.NewLogger(&output, &output)), []tarEntry{
+			regularFile(strings.TrimPrefix(msCachePath, "/"), msArchive),
+			regularFile("srv/objects/shared", lock),
+			hardlink("app/node_modules/p/package.json", "srv/objects/shared"),
+			hardlink("app/yarn.lock", "srv/objects/shared"),
+		})
+
+		gomega.Expect(filesetOf(filesets, EcosystemJavaScript, "ms", "2.1.3")).To(gomega.BeNil())
+		gomega.Expect(output.String()).To(gomega.ContainSubstring("Yarn lockfile /app/yarn.lock is over"))
+	})
+
 	ginkgo.It("still takes an unplugged package from its node_modules tree", func(ctx ginkgo.SpecContext) {
 		root := "app/.yarn/unplugged/esbuild-npm-0.20.0-0123456789/node_modules/esbuild"
 		filesets := collectFilesetsOf(ctx, []tarEntry{

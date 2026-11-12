@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
@@ -23,6 +24,7 @@ import (
 	"github.com/werf/werf/v3/pkg/context_manager"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/dockerfile"
+	"github.com/werf/werf/v3/pkg/dockerfile/frontend"
 	"github.com/werf/werf/v3/pkg/git_repo"
 	"github.com/werf/werf/v3/pkg/giterminism_manager"
 	"github.com/werf/werf/v3/pkg/image"
@@ -364,6 +366,9 @@ func (s *FullDockerfileStage) dependenciesDigest(ctx context.Context, c Conveyor
 		stagesOnBuildDependencies = append(stagesOnBuildDependencies, onBuildDependencies)
 	}
 
+	// Expand reparses RUN mounts from the Dockerfile text, resetting from= back to stage names.
+	frontend.ResolveDockerStagesFromValue(s.dockerStages)
+
 	for ind, stage := range s.dockerStages {
 		for relatedStageIndex, relatedStage := range s.dockerStages {
 			if ind == relatedStageIndex {
@@ -583,6 +588,63 @@ func (s *FullDockerfileStage) dockerfileInstructionDependencies(ctx context.Cont
 			}
 			dependencies = append(dependencies, checksum)
 		}
+	case *instructions.RunCommand:
+		resolvedValue, err := resolveValueFunc(c.String())
+		if err != nil {
+			return nil, nil, err
+		}
+		dependencies = append(dependencies, resolvedValue)
+
+		// Expand resolves ARG/ENV once before typed validation. Unmatched words
+		// keep the whole-context fallback used for an unresolved COPY source.
+		// A base image ENV is unknown here, so a word made only of such variables
+		// becomes "0" to pass the numeric option checks; when validation still
+		// fails, the RUN contributes its resolved text only, as before bind-mount
+		// tracking.
+		unmatched := map[string]struct{}{}
+		if err := c.Expand(func(word string) (string, error) {
+			if isBaseImageOnbuildInstruction {
+				return word, nil
+			}
+
+			argsArray := toArgsArray(s.DockerStageArgsHash(dockerStageID), s.DockerStageEnvs(dockerStageID))
+			if isOnbuildInstruction {
+				argsArray = toArgsArray(s.DockerStageEnvs(dockerStageID))
+			}
+
+			resolved, hasUnmatched, err := shlexProcessWordWithUnmatched(word, argsArray)
+			if err != nil {
+				return "", err
+			}
+			if hasUnmatched {
+				if resolved == "" {
+					resolved = "0"
+				}
+				unmatched[resolved] = struct{}{}
+			}
+
+			return resolved, nil
+		}); err != nil {
+			logboek.Context(ctx).Debug().LogF("Skip mount sources checksum for %q: %s\n", c.String(), err)
+			break
+		}
+
+		for _, mount := range instructions.GetMounts(c) {
+			if mount.Type != instructions.MountTypeBind || mount.From != "" {
+				continue
+			}
+
+			source := mount.Source
+			if _, unresolved := unmatched[source]; unresolved || source == "" {
+				source = "."
+			}
+
+			checksum, err := s.calculateFilesChecksum(ctx, giterminismManager, []string{literalPathGlob(source)}, c.String())
+			if err != nil {
+				return nil, nil, err
+			}
+			dependencies = append(dependencies, checksum)
+		}
 	case *instructions.OnbuildCommand:
 		cDependencies, cOnBuildDependencies, err := s.dockerfileOnBuildInstructionDependencies(ctx, giterminismManager, resolvedDockerMetaArgsHash, resolvedDependenciesArgsHash, dockerStageID, c.Expression, false)
 		if err != nil {
@@ -688,6 +750,11 @@ func (s *FullDockerfileStage) SetupDockerImageBuilder(b stage_builder.Dockerfile
 	}
 
 	return nil
+}
+
+// literalPathGlob escapes doublestar metacharacters so a bind source is a path, not a COPY/ADD glob.
+func literalPathGlob(path string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`, `{`, `\{`, `}`, `\}`).Replace(path)
 }
 
 func (s *FullDockerfileStage) calculateFilesChecksum(ctx context.Context, giterminismManager giterminism_manager.Interface, wildcards []string, dockerfileLine string) (string, error) {

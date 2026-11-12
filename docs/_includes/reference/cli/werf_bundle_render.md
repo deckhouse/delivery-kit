@@ -44,9 +44,6 @@ werf bundle render [options]
             $WERF_CONTAINER_REGISTRY_MIRROR_*)
       --debug-templates=false
             Enable debug mode for Go templates (default $WERF_DEBUG_TEMPLATES or false)
-      --deno-binary-path=""
-            Path to the Deno binary to use instead of auto-downloading (default                     
-            $WERF_DENO_BINARY_PATH)
       --disable-default-secret-values=false
             Do not use secret values from the default .helm/secret-values.yaml file (default        
             $WERF_DISABLE_DEFAULT_SECRET_VALUES or false)
@@ -67,8 +64,8 @@ werf bundle render [options]
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
       --ignore-bundle-js=false
-            Do not use the existing bundle.js file. Requires TypeScript source files and Deno to    
-            rebuild (default $WERF_IGNORE_BUNDLE_JS)
+            Do not use the existing bundle.js file. Requires TypeScript source files to rebuild     
+            (default $WERF_IGNORE_BUNDLE_JS)
       --ignore-secret-key=false
             Disable secrets decryption (default $WERF_IGNORE_SECRET_KEY)
       --include-crds=true
@@ -174,7 +171,9 @@ werf bundle render [options]
       --log-verbose=false
             Enable verbose output (default $WERF_LOG_VERBOSE).
       --namespace=""
-            Use specified Kubernetes namespace (default $WERF_NAMESPACE)
+            Use specified Kubernetes namespace (default $WERF_NAMESPACE or the namespace recorded   
+            in the bundle at publish, used without --env or with the publish one; with another      
+            non-empty --env both --release and --namespace are required)
       --network-parallelism=30
             Parallelize some network operations (default $WERF_NETWORK_PARALLELISM or 30)
       --no-default-patches=false
@@ -183,6 +182,9 @@ werf bundle render [options]
       --no-values-schema-validation=false
             Disable values validation against JSON schema (default                                  
             $WERF_NO_VALUES_SCHEMA_VALIDATION)
+      --node-binary-path=""
+            Path to the Node.js binary to use instead of the one in PATH (default                   
+            $WERF_NODE_BINARY_PATH)
       --output=""
             Write render output to the specified file instead of stdout ($WERF_RENDER_OUTPUT by     
             default)
@@ -194,9 +196,12 @@ werf bundle render [options]
             Path to keyring containing public keys to verify chart provenance (default              
             $WERF_PROVENANCE_KEYRING)
       --provenance-strategy=""
-            Strategy for provenance verifying (default $WERF_PROVENANCE_STRATEGY).
+            Strategy for provenance verifying: verify, verify-if-possible, later or never (default  
+            $WERF_PROVENANCE_STRATEGY or never).
       --release=""
-            Use specified Helm release name (default $WERF_RELEASE)
+            Use specified Helm release name (default $WERF_RELEASE or the release name recorded in  
+            the bundle at publish, used without --env or with the publish one; with another         
+            non-empty --env both --release and --namespace are required)
       --release-storage=""
             How releases should be stored (default $WERF_RELEASE_STORAGE)
       --release-storage-sql-connection=""
@@ -266,8 +271,7 @@ werf bundle render [options]
             Skip TLS certificate validation when accessing a registry (default                      
             $WERF_SKIP_TLS_VERIFY_REGISTRY)
       --tag="latest"
-            Provide exact tag version or semver-based pattern, werf will render the latest version  
-            of the specified bundle ($WERF_TAG or latest by default)
+            Tag of the bundle to render ($WERF_TAG or latest by default)
       --templates-allow-dns=false
             Allow performing DNS requests in templating (default $WERF_TEMPLATES_ALLOW_DNS)
       --tmp-dir=""

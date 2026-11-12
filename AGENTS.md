@@ -95,6 +95,8 @@ After changing Go code, run these in order — `task format` mutates files, so i
 
 NEVER assume a change compiles. While iterating, scope the slow steps (`task lint:golangci-lint golangciPaths="./pkg/foo/..."`, `task test:unit paths="./pkg/foo/..."`), then run them unscoped before handing the work over.
 
+One owner runs the full final checks for each runtime-affecting candidate and relevant environment; independent reviewers may reuse inspectable evidence under `.agents/skills/review/SKILL.md` instead of each rerunning the full suite. Record the candidate revision, commands, environment, exit statuses and log paths. This does not waive the checks above or approval of the current candidate.
+
 A failure in a package the diff does not touch is usually a host-environment flake, not your change: re-run that suite alone before investigating it.
 
 If the user asks you to wait for PR checks, use a single blocking `gh pr checks <number> --watch`, never a `sleep`-and-poll loop: a run takes tens of minutes and every poll is another turn that re-reads the whole context.
@@ -112,6 +114,8 @@ On macOS `task build` produces a **non-CGO** binary and skips every `//go:build 
 No local check sees a `//go:build linux` **test** file: `task build`, `task lint` and `task test:unit` all stay green while one does not compile, and `task build:dev:linux:amd64:go` does not build tests either. Typecheck them with `GOOS=linux GOARCH=amd64 task test:unit paths="./pkg/foo/..."` — it compiles the linux test binary, then fails with `exec format error`, which means compilation passed. To also execute them, run `go test` with the `goTags` from `Taskfile.dist.yaml` inside a linux container, mounting the repo and `$HOME/go/pkg/mod`.
 
 Unit tests otherwise run anywhere. e2e and integration suites need Docker plus a reachable registry in `WERF_TEST_K8S_DOCKER_REGISTRY` — set it even for entries that need no registry, or the suite refuses to start — and run best one at a time (`task test:e2e paths="./test/e2e/build" labelFilter="..." parallel=1`); `task test:setup:environment` provisions kind and that registry and writes `.env`, but any local registry works — the docker-backend specs run on macOS, only the Buildah-mode entries need Linux. Anything exercising registry deletion additionally needs `REGISTRY_STORAGE_DELETE_ENABLED=true` on that registry: stock `registry:2` answers every DELETE with `UNSUPPORTED: The operation is unsupported`, which reads like a werf bug.
+
+Before expensive Linux/CGO or container checks, verify free disk space, runtime health and fixture dependencies in the intended environment. Finish checkout before recording source identity; build from that fixed tree, verify the binary revision/checksum, then run e2e. Existing scenario runners must enforce this order and fail on identity mismatches rather than race checkout against result collection. Keep candidate outputs separate and clean only resources owned by the task; preserve shared warm caches.
 
 ## Testing (MANDATORY)
 
@@ -139,4 +143,4 @@ When a mistake was caused by a rule missing from AGENTS.md or CODESTYLE.md, prop
 
 `nelm`, `kubedog`, and `common-go` are ordinary versioned dependencies: fixing something inside them means a PR in that repository plus a version bump here — NEVER a local patch.
 
-`go.mod` also has a `replace` block pointing several dependencies at forks: `spf13/cobra` → `werf/3p-cobra`, `deislabs/oras` → `werf/3p-oras`, `oras.land/oras-go` → `werf/3p-oras-go`, `docker/buildx` → `werf/3p-buildx`, plus a downgrade pin for `mattn/go-sqlite3`. Buildah is NOT among them: it comes straight from `go.podman.io/buildah`, the path the project moved to in v1.44. ALWAYS check that block before trusting upstream documentation for these libraries.
+`go.mod` also has a `replace` block pointing several dependencies at forks: `spf13/cobra` → `werf/3p-cobra`, `docker/buildx` → `werf/3p-buildx`, plus a downgrade pin for `mattn/go-sqlite3`. Buildah is NOT among them: it comes straight from `go.podman.io/buildah`, the path the project moved to in v1.44. ALWAYS check that block before trusting upstream documentation for these libraries.

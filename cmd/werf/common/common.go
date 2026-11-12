@@ -22,14 +22,12 @@ import (
 	"github.com/werf/nelm/v2/pkg/helm/pkg/chart/loader"
 	"github.com/werf/nelm/v2/pkg/helm/pkg/engine"
 	"github.com/werf/nelm/v2/pkg/log"
-	"github.com/werf/nelm/v2/pkg/ts"
 	"github.com/werf/werf/v3/pkg/build"
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/buildah"
 	"github.com/werf/werf/v3/pkg/cleanup_report"
 	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
-	"github.com/werf/werf/v3/pkg/deno"
 	"github.com/werf/werf/v3/pkg/docker"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/git_repo"
@@ -352,7 +350,7 @@ func SetupChartProvenanceKeyring(cmdData *CmdData, cmd *cobra.Command) {
 }
 
 func SetupChartProvenanceStrategy(cmdData *CmdData, cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&cmdData.ChartProvenanceStrategy, "provenance-strategy", "", os.Getenv("WERF_PROVENANCE_STRATEGY"), `Strategy for provenance verifying (default $WERF_PROVENANCE_STRATEGY).`)
+	cmd.Flags().StringVarP(&cmdData.ChartProvenanceStrategy, "provenance-strategy", "", os.Getenv("WERF_PROVENANCE_STRATEGY"), `Strategy for provenance verifying: verify, verify-if-possible, later or never (default $WERF_PROVENANCE_STRATEGY or never).`)
 }
 
 func SetupExtraRuntimeAnnotations(cmdData *CmdData, cmd *cobra.Command) {
@@ -488,6 +486,16 @@ func SetupNamespace(cmdData *CmdData, cmd *cobra.Command, projectConfigParsed bo
 	}
 
 	cmd.Flags().StringVarP(&cmdData.Namespace, "namespace", "", os.Getenv("WERF_NAMESPACE"), usage)
+}
+
+// SetupBundleRelease sets up --release for the commands deploying a published bundle.
+func SetupBundleRelease(cmdData *CmdData, cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&cmdData.Release, "release", "", os.Getenv("WERF_RELEASE"), "Use specified Helm release name (default $WERF_RELEASE or the release name recorded in the bundle at publish, used without --env or with the publish one; with another non-empty --env both --release and --namespace are required)")
+}
+
+// SetupBundleNamespace sets up --namespace for the commands deploying a published bundle.
+func SetupBundleNamespace(cmdData *CmdData, cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&cmdData.Namespace, "namespace", "", os.Getenv("WERF_NAMESPACE"), "Use specified Kubernetes namespace (default $WERF_NAMESPACE or the namespace recorded in the bundle at publish, used without --env or with the publish one; with another non-empty --env both --release and --namespace are required)")
 }
 
 func SetupAddAnnotations(cmdData *CmdData, cmd *cobra.Command) {
@@ -886,25 +894,8 @@ func SetupKubeVersion(cmdData *CmdData, cmd *cobra.Command) {
 }
 
 func SetupTSOptions(cmdData *CmdData, cmd *cobra.Command) {
-	cmd.Flags().BoolVarP(&cmdData.IgnoreBundleJS, "ignore-bundle-js", "", util.GetBoolEnvironmentDefaultFalse("WERF_IGNORE_BUNDLE_JS"), "Do not use the existing bundle.js file. Requires TypeScript source files and Deno to rebuild (default $WERF_IGNORE_BUNDLE_JS)")
-	SetupDenoBinaryPath(cmdData, cmd)
-}
-
-func SetupDenoBinaryPath(cmdData *CmdData, cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&cmdData.DenoBinaryPath, "deno-binary-path", "", os.Getenv("WERF_DENO_BINARY_PATH"), "Path to the Deno binary to use instead of auto-downloading (default $WERF_DENO_BINARY_PATH)")
-}
-
-// SetupDenoContext puts the embedded Deno data into ctx, so nelm can extract
-// the embedded binary lazily — only when a chart actually contains TypeScript.
-func SetupDenoContext(ctx context.Context) context.Context {
-	compressed, embedded := deno.EmbeddedDenoData()
-	if !embedded {
-		return ctx
-	}
-
-	return ts.NewContextWithTSOptions(ctx, common.TypeScriptOptions{
-		EmbeddedDenoCompressed: compressed,
-	})
+	cmd.Flags().BoolVarP(&cmdData.IgnoreBundleJS, "ignore-bundle-js", "", util.GetBoolEnvironmentDefaultFalse("WERF_IGNORE_BUNDLE_JS"), "Do not use the existing bundle.js file. Requires TypeScript source files to rebuild (default $WERF_IGNORE_BUNDLE_JS)")
+	cmd.Flags().StringVarP(&cmdData.NodeBinaryPath, "node-binary-path", "", os.Getenv("WERF_NODE_BINARY_PATH"), "Path to the Node.js binary to use instead of the one in PATH (default $WERF_NODE_BINARY_PATH)")
 }
 
 func allStagesNames() []string {
@@ -1537,7 +1528,7 @@ func GetIntrospectOptions(cmdData *CmdData, werfConfig *config.WerfConfig) (buil
 		}
 
 		if imageName != "*" && werfConfig.GetImage(imageName) == nil {
-			return introspectOptions, fmt.Errorf("specified image %q (%q) is not defined in werf.yaml", imageName, optionValue)
+			return introspectOptions, fmt.Errorf("specified image %q (%q) is not defined in %s", imageName, optionValue, werfConfig.SourceFilePathOrDefault())
 		}
 
 		if !isStageExist(stageName) {

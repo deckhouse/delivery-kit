@@ -3,8 +3,6 @@ title: TypeScript templates
 permalink: usage/deploy/typescript.html
 ---
 
-> **Note**: TypeScript templates are an experimental feature. To enable it, set the environment variable `NELM_FEAT_TYPESCRIPT=true`.
-
 ## Overview
 
 In addition to [Helm templates]({{ "/usage/deploy/templates.html" | true_relative_url }}), werf can generate Kubernetes manifests with TypeScript. Helm templates and TypeScript templates can coexist in the same chart — resulting manifests are merged into a single multi-doc YAML document.
@@ -125,6 +123,8 @@ Deno runtime is shipped inside werf, so an isolated environment only requires th
    werf bundle apply --repo example.org/mycompany/myapp
    ```
    TypeScript templates will be rendered and deployed using pre-compiled files from the chart bundle.
+
+To change such a chart and pack it again without network access, pass `--ts-no-rebuild` to `nelm chart pack`: it reuses the pre-compiled files instead of rebuilding them, see [Changing a published chart]({{ "/usage/distribute/bundles.html#changing-a-published-chart" | true_relative_url }}). Helm, Argo CD and Flux do not run TypeScript templates, so they do not deploy the resources these templates generate.
 
 ## SDK API overview
 

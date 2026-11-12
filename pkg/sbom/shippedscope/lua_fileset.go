@@ -19,11 +19,16 @@ const rockManifestName = "rock_manifest"
 //
 // A module compiled with luac or luajit -b to a sibling "X.luac" or "X.ljbc" belongs to
 // the rock that declared "X.lua" in the same directory, whether or not the source is
-// still there: projects often ship only the bytecode.
+// still there: projects often ship only the bytecode. A file some rock's manifest
+// declares stays with the rocks that declare it, and is never inferred for another.
 func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte) []Fileset {
-	var filesets []Fileset
+	type rock struct {
+		name, version string
+		declared      []string
+	}
 
-	bytecode := compiledLuaSources(index)
+	var rocks []rock
+	explicit := make(map[string]bool)
 
 	for _, manifest := range slices.Sorted(maps.Keys(manifests)) {
 		body := manifests[manifest]
@@ -62,21 +67,38 @@ func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]b
 				root = path.Join(rockDir, section)
 			}
 
-			for _, file := range manifestEntryPaths(root, entry) {
-				declared = append(declared, file)
-				declared = append(declared, bytecode[file]...)
+			declared = append(declared, manifestEntryPaths(root, entry)...)
+		}
+
+		for _, file := range declared {
+			explicit[file] = true
+		}
+
+		rocks = append(rocks, rock{name: name, version: version, declared: declared})
+	}
+
+	bytecode := compiledLuaSources(index)
+
+	filesets := make([]Fileset, 0, len(rocks))
+	for _, rock := range rocks {
+		owned := slices.Clone(rock.declared)
+		for _, file := range rock.declared {
+			for _, compiled := range bytecode[file] {
+				if !explicit[compiled] {
+					owned = append(owned, compiled)
+				}
 			}
 		}
 
-		files, symlinks := collect(index, declared)
+		files, symlinks := collect(index, owned)
 
 		filesets = append(filesets, Fileset{
 			Ecosystem:     EcosystemLua,
-			Name:          name,
-			Version:       version,
+			Name:          rock.name,
+			Version:       rock.version,
 			Files:         files,
 			Symlinks:      symlinks,
-			DeclaresFiles: len(declared) > 0,
+			DeclaresFiles: len(rock.declared) > 0,
 		})
 	}
 

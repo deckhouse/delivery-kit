@@ -77,3 +77,33 @@ var _ = ginkgo.Describe("Lua bytecode evidence", func() {
 		gomega.Expect(MarkNotShipped(ctx, empty, filesetsOf(emptyIndex()))).To(gomega.Equal(1))
 	})
 })
+
+var _ = ginkgo.Describe("Lua bytecode evidence with explicit declarations", func() {
+	ginkgo.It("leaves bytecode another rock declares to that rock", func(ctx ginkgo.SpecContext) {
+		donorFiles := collectFilesetsOf(ctx, []tarEntry{
+			regularFile(bytecodeRockManifest, luaBytecodeRockManifest),
+			regularFile("usr/local/lib/luarocks/rocks-5.4/compiled/2.0-1/rock_manifest",
+				"rock_manifest = {\n   lua = {\n      pkg = {\n         [\"util.luac\"] = \"d4\"\n      },\n      [\"compiled.lua\"] = \"e5\"\n   }\n}\n"),
+			regularFile(bytecodeRockModules+"pkg/util.lua", "util source"),
+			regularFile(bytecodeRockModules+"pkg/util.luac", "util compiled"),
+			regularFile(bytecodeRockModules+"compiled.lua", "compiled source"),
+		})
+		gomega.Expect(filesetOf(donorFiles, EcosystemLua, "pkg", "1.0-1").Files).NotTo(gomega.HaveKey("/" + bytecodeRockModules + "pkg/util.luac"))
+		gomega.Expect(filesetOf(donorFiles, EcosystemLua, "compiled", "2.0-1").Files).To(gomega.HaveKey("/" + bytecodeRockModules + "pkg/util.luac"))
+		donor := cyclonedxutil.NewBOM()
+		donor.Components = &[]cdx.Component{componentOf("pkg:luarocks/pkg@1.0-1"), componentOf("pkg:luarocks/compiled@2.0-1")}
+		RecordOccurrences(ctx, donor, donorFiles.Filesets)
+
+		consumer, err := cyclonedxutil.CloneBOM(donor)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		importedFiles := collectFilesetsOf(ctx, []tarEntry{
+			regularFile(bytecodeRockModules+"pkg/util.lua", "util source"),
+			regularFile(bytecodeRockModules+"pkg/util.luac", "util compiled"),
+		})
+		RecordOccurrences(ctx, consumer, importedFiles.Filesets)
+		gomega.Expect(MarkNotShipped(ctx, consumer, importedFiles)).To(gomega.BeZero())
+		for _, component := range *consumer.Components {
+			gomega.Expect(isShipped(component)).To(gomega.BeTrue(), component.PackageURL)
+		}
+	})
+})

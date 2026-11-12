@@ -29,6 +29,7 @@ import (
 	chartv2util "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2/util"
 	"github.com/werf/nelm/v2/pkg/helm/pkg/registry"
 	"github.com/werf/nelm/v2/pkg/werfdata"
+	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/logging"
 )
@@ -44,6 +45,7 @@ var _ = Describe("Bundle copy", func() {
 
 	BeforeEach(func() {
 		ctx = logging.WithLogger(context.Background())
+		Expect(docker_registry.Init(ctx, false, false, nil, nil)).To(Succeed())
 		registryHost := startTestRegistry()
 		fromRepo = registryHost + "/group/testproject"
 		toRepo = registryHost + "/org/newproject"

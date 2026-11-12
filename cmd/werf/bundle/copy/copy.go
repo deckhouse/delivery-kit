@@ -68,6 +68,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 func runCopy(ctx context.Context) error {
 	_, ctx, err := common.InitCommonComponents(ctx, common.InitCommonComponentsOptions{
 		Cmd:                &commonCmdData,
+		InitDockerRegistry: true,
 		InitWerf:           true,
 		InitGitDataManager: true,
 	})

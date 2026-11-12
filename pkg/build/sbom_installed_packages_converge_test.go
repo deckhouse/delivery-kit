@@ -121,5 +121,6 @@ var _ = Describe("Installed inventory convergence", func() {
 		Entry("inventory before JavaScript bundle evidence", "19"),
 		Entry("inventory before Yarn Plug'n'Play archive evidence", "20"),
 		Entry("inventory before incomplete-index file verdicts", "21"),
+		Entry("inventory before compiled Lua sibling evidence", "22"),
 	)
 })

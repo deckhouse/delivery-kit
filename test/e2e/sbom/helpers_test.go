@@ -646,3 +646,93 @@ func assertYarnPnPImages(ctx SpecContext, project *werf.Project, archives map[st
 
 	return snapshot
 }
+
+const (
+	luaBytecodeTree     = "/root/.luarocks/share/lua/5.3"
+	luaBytecodeRockDir  = "/root/.luarocks/lib/luarocks/rocks-5.3/inspect/3.1.3-0"
+	luaBytecodeOnlyPURL = "pkg:luarocks/inspect@3.1.3-0"
+	luaBytecodeKeptPURL = "pkg:luarocks/ansicolors@1.0.2-3"
+)
+
+var luaBytecodeStrays = []string{luaBytecodeTree + "/ansicolors.lc", luaBytecodeTree + "/stray/inspect.luac"}
+
+type luaBytecodeSnapshot struct {
+	Shipped     bool
+	Occurrences []cdx.EvidenceOccurrence
+}
+
+// assertLuaBytecodeOutputs proves the fixture is a valid oracle before any SBOM is read:
+// the donor keeps the source of one rock only, every bytecode file has bytes of its own so
+// that no digest can stand in for another path, and each importer holds exactly what it
+// imported. Returns, per file of the donor's Lua tree, the occurrence it must produce.
+func assertLuaBytecodeOutputs(ctx SpecContext, project *werf.Project) map[string]cdx.EvidenceOccurrence {
+	repo := os.Getenv("WERF_REPO")
+	Expect(repo).NotTo(BeEmpty())
+	filesOf := func(imageName, dir string) map[string][]byte {
+		return imageFilesUnder(pullImage(ctx, repo+"@"+stagesImageDigestOf(ctx, project, imageName)), dir)
+	}
+
+	tree := filesOf("donor", luaBytecodeTree)
+	Expect(tree).NotTo(HaveKey("inspect.lua"), "the donor must keep only the bytecode of inspect")
+	Expect(tree).To(HaveKey("ansicolors.lua"))
+	bytecode := []string{"inspect.luac", "ansicolors.luac", "ansicolors.ljbc", "ansicolors.lc", "stray/inspect.luac"}
+	for _, file := range bytecode {
+		Expect(tree).To(HaveKey(file))
+		Expect(string(tree[file])).To(HavePrefix("\x1bLua"), "%s must be Lua bytecode", file)
+	}
+	Expect(lo.Uniq(lo.Map(bytecode, func(file string, _ int) string { return digestOfString(string(tree[file])) }))).To(HaveLen(len(bytecode)))
+
+	imported := map[string][]byte{"inspect.luac": tree["inspect.luac"]}
+	Expect(filesOf("consumer", "/opt/lua")).To(Equal(imported))
+	Expect(filesOf("grandchild", "/srv/lua")).To(Equal(imported))
+	manifest := filesOf("donor", luaBytecodeRockDir)["rock_manifest"]
+	Expect(string(manifest)).To(ContainSubstring(`"inspect.lua"`))
+	Expect(filesOf("manifest-only", "/root")).To(Equal(map[string][]byte{
+		strings.TrimPrefix(luaBytecodeRockDir, "/root/") + "/rock_manifest": manifest,
+	}))
+
+	return lo.MapEntries(tree, func(file string, body []byte) (string, cdx.EvidenceOccurrence) {
+		return file, cdx.EvidenceOccurrence{Location: luaBytecodeTree + "/" + file, AdditionalContext: digestOfString(string(body))}
+	})
+}
+
+func assertLuaBytecodeImages(ctx SpecContext, project *werf.Project, tree map[string]cdx.EvidenceOccurrence) map[string]luaBytecodeSnapshot {
+	negative := cdx.Property{Name: shippedscope.PropertyShipped, Value: "false"}
+
+	snapshot := make(map[string]luaBytecodeSnapshot)
+	for _, imageName := range []string{"donor", "consumer", "grandchild", "manifest-only"} {
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{imageName}}}))
+
+		for _, comp := range lo.FromPtr(bom.Components) {
+			Expect(lo.Map(occurrencesOf(&comp), locationOf)).NotTo(ContainElement(BeElementOf(luaBytecodeStrays)),
+				"%s: %s must not own bytecode under another name or directory", imageName, comp.PackageURL)
+		}
+
+		for _, purl := range []string{luaBytecodeOnlyPURL, luaBytecodeKeptPURL} {
+			comp := sbomtest.FindComponentByPURL(bom, purl)
+			Expect(comp).NotTo(BeNil(), "%s must retain component %s", imageName, purl)
+			Expect(comp.PackageURL).To(Equal(purl))
+			properties := lo.FromPtr(comp.Properties)
+			occurrences := occurrencesOf(comp)
+
+			switch {
+			case imageName == "donor" && purl == luaBytecodeOnlyPURL:
+				Expect(occurrences).To(ContainElement(tree["inspect.luac"]), "the compiled sibling of a deleted source must evidence %s", purl)
+				Expect(properties).NotTo(ContainElement(negative), "the donor ships %s as bytecode", purl)
+			case imageName == "donor":
+				Expect(occurrences).To(ContainElements(tree["ansicolors.lua"], tree["ansicolors.luac"], tree["ansicolors.ljbc"]),
+					"the source and its compiled siblings must evidence %s", purl)
+				Expect(properties).NotTo(ContainElement(negative), "the donor ships %s", purl)
+			case imageName != "manifest-only" && purl == luaBytecodeOnlyPURL:
+				Expect(occurrences).To(ContainElement(tree["inspect.luac"]), "%s must keep the bytecode evidence of %s", imageName, purl)
+				Expect(properties).NotTo(ContainElement(negative), "%s imported the bytecode of %s", imageName, purl)
+			default:
+				Expect(properties).To(ContainElement(negative), "%s must mark %s not shipped", imageName, purl)
+			}
+
+			snapshot[imageName+"/"+purl] = luaBytecodeSnapshot{Shipped: !slices.Contains(properties, negative), Occurrences: occurrences}
+		}
+	}
+
+	return snapshot
+}

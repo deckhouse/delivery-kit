@@ -16,8 +16,14 @@ const rockManifestName = "rock_manifest"
 // holds little more than the rockspec and its docs: luarocks spreads the code that runs
 // over trees shared with every other rock, and only the manifest says which files there
 // are this rock's.
+//
+// A module compiled with luac or luajit -b to a sibling "X.luac" or "X.ljbc" belongs to
+// the rock that declared "X.lua" in the same directory, whether or not the source is
+// still there: projects often ship only the bytecode.
 func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]byte) []Fileset {
 	var filesets []Fileset
+
+	bytecode := compiledLuaSources(index)
 
 	for _, manifest := range slices.Sorted(maps.Keys(manifests)) {
 		body := manifests[manifest]
@@ -56,7 +62,10 @@ func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]b
 				root = path.Join(rockDir, section)
 			}
 
-			declared = append(declared, manifestEntryPaths(root, entry)...)
+			for _, file := range manifestEntryPaths(root, entry) {
+				declared = append(declared, file)
+				declared = append(declared, bytecode[file]...)
+			}
 		}
 
 		files, symlinks := collect(index, declared)
@@ -72,6 +81,23 @@ func luaFilesets(ctx context.Context, index *FileIndex, manifests map[string][]b
 	}
 
 	return filesets
+}
+
+// compiledLuaSources associates bytecode paths with the source path they sit beside. This
+// establishes file ownership within the installation layout, not what the bytecode was
+// compiled from: the manifest's checksums are of the source and cannot prove that.
+func compiledLuaSources(index *FileIndex) map[string][]string {
+	compiled := make(map[string][]string)
+
+	for file := range index.Files {
+		for _, extension := range []string{".luac", ".ljbc"} {
+			if stem, ok := strings.CutSuffix(file, extension); ok {
+				compiled[stem+".lua"] = append(compiled[stem+".lua"], file)
+			}
+		}
+	}
+
+	return compiled
 }
 
 // manifestEntryPaths walks the nested tables a manifest uses for directories, down to the

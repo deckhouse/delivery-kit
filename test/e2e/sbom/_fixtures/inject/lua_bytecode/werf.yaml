@@ -26,25 +26,37 @@ shell:
     - |
       set -eu
       lua=$(command -v lua5.3 || command -v lua)
-      luac=$(command -v luac5.3 || command -v luac)
+      echo "check lua version"
       "$lua" -v 2>&1 | grep -q '^Lua 5\.3\.'
       tree=/root/.luarocks/share/lua/5.3
       rocks=/root/.luarocks/lib/luarocks/rocks-5.3
+      echo "check rock manifests"
       grep -q '"inspect.lua"' "$rocks/inspect/3.1.3-0/rock_manifest"
       grep -q '"ansicolors.lua"' "$rocks/ansicolors/1.0.2-3/rock_manifest"
+      # The os-pm lua package ships no luac; string.dump emits the same format.
+      cat > /tmp/compile.lua <<'EOF'
+      local src, out, strip = arg[1], arg[2], arg[3] == "strip"
+      local f = assert(loadfile(src))
+      local h = assert(io.open(out, "wb"))
+      h:write(string.dump(f, strip))
+      h:close()
+      EOF
       cd "$tree"
-      "$luac" -o inspect.luac inspect.lua
-      "$luac" -o ansicolors.luac ansicolors.lua
-      "$luac" -s -o ansicolors.ljbc ansicolors.lua
+      echo "compile inspect and ansicolors"
+      "$lua" /tmp/compile.lua inspect.lua inspect.luac
+      "$lua" /tmp/compile.lua ansicolors.lua ansicolors.luac
+      "$lua" /tmp/compile.lua ansicolors.lua ansicolors.ljbc strip
+      echo "compile decoy and stray bytecode"
       printf 'return "not ansicolors"\n' > /tmp/decoy.lua
-      "$luac" -s -o ansicolors.lc /tmp/decoy.lua
+      "$lua" /tmp/compile.lua /tmp/decoy.lua ansicolors.lc strip
       rm /tmp/decoy.lua
       mkdir stray
-      "$luac" -s -o stray/inspect.luac inspect.lua
-      rm inspect.lua
+      "$lua" /tmp/compile.lua inspect.lua stray/inspect.luac strip
+      rm /tmp/compile.lua inspect.lua
       test ! -e inspect.lua
       test -f ansicolors.lua
       cd /
+      echo "check require of inspect.luac"
       "$lua" -e '
         local tree = "/root/.luarocks/share/lua/5.3"
         package.path = tree .. "/?.luac;" .. package.path

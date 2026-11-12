@@ -36,7 +36,9 @@ shell:
       "$luac" -o inspect.luac inspect.lua
       "$luac" -o ansicolors.luac ansicolors.lua
       "$luac" -s -o ansicolors.ljbc ansicolors.lua
-      "$luac" -s -o ansicolors.lc ansicolors.lua
+      printf 'return "not ansicolors"\n' > /tmp/decoy.lua
+      "$luac" -s -o ansicolors.lc /tmp/decoy.lua
+      rm /tmp/decoy.lua
       mkdir stray
       "$luac" -s -o stray/inspect.luac inspect.lua
       rm inspect.lua

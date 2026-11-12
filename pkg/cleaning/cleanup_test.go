@@ -150,6 +150,7 @@ type fakePrimaryStagesStorage struct {
 	deletedTags        []string
 	unregisteredTags   []string
 	lastCleanupRecords []string
+	customTags         []*storage.CustomTagMetadata
 
 	orphanedArtifactNames []string
 	deletedArtifacts      []string
@@ -663,5 +664,54 @@ var _ = Describe("Cleanup last cleanup record", func() {
 		},
 		Entry("dry run must not write anything to the meta repo", true, []string(nil)),
 		Entry("real run records the cleanup", false, []string{"myproject"}),
+	)
+})
+
+var _ = Describe("Cleanup keep list", func() {
+	DescribeTable("protects a stage listed by its own tag or by a custom tag that points to it",
+		func(keepListTags []string, expectKept bool) {
+			ctx := context.Background()
+			stageDesc := newTestStageDesc("example.com/primary", image.NewStageID("ff0011", 1748001122334))
+
+			storageManager := newFakeStorageManager()
+			storageManager.stageDescSet = image.NewStageDescSet(stageDesc)
+			storageManager.meta.customTags = []*storage.CustomTagMetadata{
+				{StageID: stageDesc.StageID.String(), Tag: "main"},
+				{StageID: "ee0022-1748001122334", Tag: "orphan"},
+			}
+
+			report := cleanup_report.NewReport(ctx, "cleanup", false, "example.com/primary", cleanup_report.NewReportOptions{})
+			cleanup := &cleanupManager{
+				stageManager:      stage_manager.NewManager(),
+				StorageManager:    storageManager,
+				ProjectName:       "myproject",
+				WithoutKube:       true,
+				ConfigMetaCleanup: config.MetaCleanup{DisableGitHistoryBasedPolicy: true},
+				keepList:          NewKeepList(keepListTags...),
+				report:            report,
+			}
+
+			Expect(cleanup.run(ctx)).To(Succeed())
+
+			if expectKept {
+				Expect(storageManager.deletedStages).To(BeEmpty())
+				Expect(report.Kept).To(ConsistOf(
+					cleanup_report.Item{Type: cleanup_report.ItemTypeStage, Tag: stageDesc.Info.Tag, Reason: "keep list"},
+					cleanup_report.Item{Type: cleanup_report.ItemTypeCustomTag, Tag: "main"},
+				))
+				Expect(report.Deleted).To(ConsistOf(cleanup_report.Item{Type: cleanup_report.ItemTypeCustomTag, Tag: "orphan"}))
+			} else {
+				Expect(storageManager.deletedStages).To(ConsistOf(stageDesc))
+				Expect(report.Deleted).To(ConsistOf(
+					cleanup_report.Item{Type: cleanup_report.ItemTypeStage, Tag: stageDesc.Info.Tag},
+					cleanup_report.Item{Type: cleanup_report.ItemTypeCustomTag, Tag: "main"},
+					cleanup_report.Item{Type: cleanup_report.ItemTypeCustomTag, Tag: "orphan"},
+				))
+			}
+		},
+		Entry("by stage tag", []string{"ff0011-1748001122334"}, true),
+		Entry("by custom tag", []string{"main"}, true),
+		Entry("custom tag of a missing stage protects nothing", []string{"orphan"}, false),
+		Entry("unrelated tag protects nothing", []string{"other"}, false),
 	)
 })

@@ -3,8 +3,6 @@ title: TypeScript-шаблоны
 permalink: usage/deploy/typescript.html
 ---
 
-> **Обратите внимание**: TypeScript-шаблоны — экспериментальная функция. Для включения установите переменную окружения `NELM_FEAT_TYPESCRIPT=true`.
-
 ## Обзор
 
 Помимо [Helm-шаблонов]({{ "/usage/deploy/templates.html" | true_relative_url }}), werf поддерживает генерацию Kubernetes-манифестов с помощью TypeScript. Helm-шаблоны и TypeScript-шаблоны могут сосуществовать в одном чарте — полученные манифесты объединяются в единый мульти-документный YAML.
@@ -125,6 +123,8 @@ werf render --dev
    werf bundle apply --repo example.org/mycompany/myapp
    ```
    TypeScript-шаблоны будут отрендерены и развёрнуты с использованием предварительно скомпилированных файлов из бандла чарта.
+
+Чтобы изменить такой чарт и упаковать его снова без доступа к сети, передайте `nelm chart pack` опцию `--ts-no-rebuild`: она использует предварительно скомпилированные файлы вместо пересборки, см. [Изменение опубликованного чарта]({{ "/usage/distribute/bundles.html#изменение-опубликованного-чарта" | true_relative_url }}). Helm, Argo CD и Flux не выполняют TypeScript-шаблоны, поэтому не развёртывают генерируемые ими ресурсы.
 
 ## Обзор SDK API
 

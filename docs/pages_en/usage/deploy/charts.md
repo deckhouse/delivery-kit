@@ -60,13 +60,19 @@ keywords:
   - apps
 annotations:
   anyAdditionalInfo: here
-maintainters:
+maintainers:
   - name: John Doe
     email: john@example.org
     url: https://john.example.org
 ```
 
 The resulting chart may be deployed or published, although there is little use of it as it is. You will have to add templates to the `templates` directory or include dependent charts to make it more useful.
+
+{% include pages/en/json_schema.md.liquid file="Chart.yaml" schema="chart.json" file_match='"Chart.yaml"' %}
+
+This schema supports the werf `export-values` extension in chart dependencies. The extension works with chart `apiVersion: v1` or `apiVersion: v2`; it is not supported by chart `apiVersion: v3` (which is separate from the werf version). Unlike the standard Helm schema, it allows the main chart metadata that werf fills in (`apiVersion`, `name` and `version`) to be omitted. Dependent charts still need their own metadata.
+
+Use this schema for charts deployed with werf, not as an additional schema alongside the standard Helm schema. If the editor still reports `export-values` as an unknown property, use the file-level `yaml-language-server` comment above to select the werf schema explicitly.
 
 ## Adding files to a chart
 
@@ -88,6 +94,7 @@ Add templates, parameters, dependent charts, and more to the chart as needed. A 
   values.yaml
   values.schema.json
   secret-values.yaml        # only available in werf
+  patches.yaml              # only available in werf
   Chart.yaml
   Chart.lock
   README.md
@@ -115,6 +122,8 @@ Here:
 
 - `secret-values.yaml` — (werf only) an encrypted declarative configuration file similar to `values.yaml`. Its decrypted contents are merged with `values.yaml` during manifest generation;
 
+- `patches.yaml` — (werf only) [patches]({{ "/usage/deploy/resource_patching.html" | true_relative_url }}) that modify the rendered resources or make werf ignore changes in specific fields;
+
 - `Chart.yaml` — contains the main configuration and the chart metadata;
 
 - `Chart.lock` — the lock file protects from unwanted changes/updates to dependent charts;
@@ -137,7 +146,9 @@ The `.helmignore` file in the chart root can include filename filters that preve
 
 - Helm's default rule `templates/.?*` always applies, so files and directories starting with a dot directly under `templates/` are excluded even without a `.helmignore`, a directory along with its contents;
 
-- files delivered into the chart through werf includes are filtered by the same rules. A `.helmignore` delivered by an include applies only when the chart has no `.helmignore` of its own, and then it filters the local files of the chart as well.
+- files delivered into the chart through werf includes are filtered by the same rules. A `.helmignore` delivered by an include applies only when the chart has no `.helmignore` of its own, and then it filters the local files of the chart as well;
+
+- the `.werf-data/` directory of the chart and of its dependent charts in `charts/` is never excluded: it holds the publish-time inputs of a chart published by `werf bundle publish`.
 
 Which `.helmignore` filters a dependent chart depends on how the chart is included:
 

@@ -40,9 +40,6 @@ werf bundle apply [options]
       --delete-propagation=""
             Set default delete propagation strategy (default $WERF_DELETE_PROPAGATION or            
             Background).
-      --deno-binary-path=""
-            Path to the Deno binary to use instead of auto-downloading (default                     
-            $WERF_DENO_BINARY_PATH)
       --deploy-graph-path=""
             Save deploy graph path to the specified file (by default $WERF_DEPLOY_GRAPH_PATH).      
             Extension must be .dot or not specified. If extension not specified, then .dot is used
@@ -69,8 +66,8 @@ werf bundle apply [options]
       --home-dir=""
             Use specified dir to store werf cache files and dirs (default $WERF_HOME or ~/.werf)
       --ignore-bundle-js=false
-            Do not use the existing bundle.js file. Requires TypeScript source files and Deno to    
-            rebuild (default $WERF_IGNORE_BUNDLE_JS)
+            Do not use the existing bundle.js file. Requires TypeScript source files to rebuild     
+            (default $WERF_IGNORE_BUNDLE_JS)
       --ignore-secret-key=false
             Disable secrets decryption (default $WERF_IGNORE_SECRET_KEY)
       --insecure-helm-dependencies=false
@@ -172,7 +169,9 @@ werf bundle apply [options]
       --log-verbose=false
             Enable verbose output (default $WERF_LOG_VERBOSE).
       --namespace=""
-            Use specified Kubernetes namespace (default $WERF_NAMESPACE)
+            Use specified Kubernetes namespace (default $WERF_NAMESPACE or the namespace recorded   
+            in the bundle at publish, used without --env or with the publish one; with another      
+            non-empty --env both --release and --namespace are required)
       --network-parallelism=30
             Parallelize some network operations (default $WERF_NETWORK_PARALLELISM or 30)
       --no-create-namespace=false
@@ -199,6 +198,9 @@ werf bundle apply [options]
       --no-values-schema-validation=false
             Disable values validation against JSON schema (default                                  
             $WERF_NO_VALUES_SCHEMA_VALIDATION)
+      --node-binary-path=""
+            Path to the Node.js binary to use instead of the one in PATH (default                   
+            $WERF_NODE_BINARY_PATH)
       --patches=[]
             Additional patches files (render patches for rendered resources, diff patches for drift 
             detection). Also, can be defined with $WERF_PATCHES or $WERF_PATCHES_* (e.g.            
@@ -209,9 +211,12 @@ werf bundle apply [options]
             Path to keyring containing public keys to verify chart provenance (default              
             $WERF_PROVENANCE_KEYRING)
       --provenance-strategy=""
-            Strategy for provenance verifying (default $WERF_PROVENANCE_STRATEGY).
+            Strategy for provenance verifying: verify, verify-if-possible, later or never (default  
+            $WERF_PROVENANCE_STRATEGY or never).
       --release=""
-            Use specified Helm release name (default $WERF_RELEASE)
+            Use specified Helm release name (default $WERF_RELEASE or the release name recorded in  
+            the bundle at publish, used without --env or with the publish one; with another         
+            non-empty --env both --release and --namespace are required)
       --release-info-annotations=[]
             Add annotations to release metadata (default $WERF_RELEASE_INFO_ANNOTATIONS)
       --release-label=[]
@@ -323,8 +328,7 @@ werf bundle apply [options]
             Status progress period in seconds. Set -1 to stop showing status progress. Defaults to  
             $WERF_STATUS_PROGRESS_PERIOD_SECONDS or 5 seconds
       --tag="latest"
-            Provide exact tag version or semver-based pattern, werf will install or upgrade to the  
-            latest version of the specified bundle ($WERF_TAG or latest by default)
+            Tag of the bundle to install or upgrade to ($WERF_TAG or latest by default)
       --templates-allow-dns=false
             Allow performing DNS requests in templating (default $WERF_TEMPLATES_ALLOW_DNS)
   -t, --timeout=0

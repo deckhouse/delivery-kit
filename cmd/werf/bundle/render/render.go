@@ -3,9 +3,7 @@ package render
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
-	ioutil "io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,9 +93,9 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupChartProvenanceStrategy(&commonCmdData, cmd)
 	common.SetupExtraAPIVersions(&commonCmdData, cmd)
 	common.SetupKubeVersion(&commonCmdData, cmd)
-	common.SetupNamespace(&commonCmdData, cmd, false)
+	common.SetupBundleNamespace(&commonCmdData, cmd)
 	common.SetupNetworkParallelism(&commonCmdData, cmd)
-	common.SetupRelease(&commonCmdData, cmd, false)
+	common.SetupBundleRelease(&commonCmdData, cmd)
 	common.SetupReleaseStorageDriver(&commonCmdData, cmd)
 	common.SetupReleaseStorageSQLConnection(&commonCmdData, cmd)
 	common.SetupSetDockerConfigJsonValue(&commonCmdData, cmd)
@@ -110,7 +108,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 		defaultTag = "latest"
 	}
 	cmd.Flags().StringVarP(&cmdData.Tag, "tag", "", defaultTag,
-		"Provide exact tag version or semver-based pattern, werf will render the latest version of the specified bundle ($WERF_TAG or latest by default)")
+		"Tag of the bundle to render ($WERF_TAG or latest by default)")
 	cmd.Flags().BoolVarP(&cmdData.IncludeCRDs, "include-crds", "", util.GetBoolEnvironmentDefaultTrue("WERF_INCLUDE_CRDS"),
 		"Include CRDs in the templated output (default $WERF_INCLUDE_CRDS)")
 	cmd.Flags().StringVarP(&cmdData.RenderOutput, "output", "", os.Getenv("WERF_RENDER_OUTPUT"),
@@ -155,27 +153,17 @@ func runRender(ctx context.Context) error {
 		}
 	}()
 
-	releaseNamespace := common.GetNamespace(&commonCmdData)
-	releaseName := common.GetOptionalRelease(&commonCmdData)
-	registryCredentialsPath := docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
-
-	serviceValues, err := deploy.GetBundleServiceValues(ctx, deploy.ServiceValuesOptions{
-		Env:                      commonCmdData.Environment,
-		Namespace:                releaseNamespace,
-		SetDockerConfigJsonValue: *commonCmdData.SetDockerConfigJsonValue,
-		DockerConfigPath:         filepath.Dir(registryCredentialsPath),
+	ctx = action.SetupLogging(ctx, cmp.Or(common.GetNelmLogLevel(&commonCmdData), action.DefaultChartRenderLogLevel), action.SetupLoggingOptions{
+		ColorMode:      *commonCmdData.LogColorMode,
+		LogIsParseable: true,
 	})
-	if err != nil {
-		return fmt.Errorf("get service values: %w", err)
-	}
-
-	secretWorkDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get current working directory: %w", err)
-	}
 
 	var bundlePath string
 	if isLocalBundle {
+		if commonCmdData.ChartProvenanceStrategy == bundles.ProvenanceStrategyVerify {
+			return fmt.Errorf("--provenance-strategy=%s can't verify the signature of the unpacked bundle in --bundle-dir: render the bundle from the container registry instead", bundles.ProvenanceStrategyVerify)
+		}
+
 		bundlePath = cmdData.BundleDir
 	} else {
 		bundlesRegistryClient, err := common.NewBundlesRegistryClient(ctx, &commonCmdData)
@@ -188,35 +176,44 @@ func runRender(ctx context.Context) error {
 			return fmt.Errorf("get repo address: %w", err)
 		}
 
-		bundlePath = filepath.Join(werf.GetServiceDir(), "tmp", "bundles", uuid.NewString())
-		defer os.RemoveAll(bundlePath)
+		bundleDir := filepath.Join(werf.GetServiceDir(), "tmp", "bundles", uuid.NewString())
+		defer os.RemoveAll(bundleDir)
 
-		if err := bundles.Pull(ctx, fmt.Sprintf("%s:%s", repoAddress, cmdData.Tag), bundlePath, bundlesRegistryClient, nelmcommon.HelmOptions{
-			ChartLoadOpts: nelmcommon.ChartLoadOptions{
-				DefaultSecretValuesDisable: commonCmdData.DefaultSecretValuesDisable,
-				DefaultValuesDisable:       commonCmdData.DefaultValuesDisable,
-				ExtraValues:                serviceValues,
-				SecretKeyIgnore:            commonCmdData.SecretKeyIgnore,
-				SecretValuesFiles:          commonCmdData.SecretValuesFiles,
-				SecretWorkDir:              secretWorkDir,
-			},
-		}); err != nil {
-			return fmt.Errorf("pull bundle: %w", err)
+		bundlePath, err = bundles.Download(ctx, repoAddress, cmdData.Tag, bundleDir, bundlesRegistryClient, bundles.DownloadOptions{
+			ChartRepoConnectionOptions: common.GetBundlesRegistryConnectionOptions(&commonCmdData),
+			ProvenanceKeyring:          commonCmdData.ChartProvenanceKeyring,
+			ProvenanceStrategy:         commonCmdData.ChartProvenanceStrategy,
+		})
+		if err != nil {
+			return err
 		}
 	}
 
-	serviceAnnotations, extraAnnotations, extraLabels, err := getAnnotationsAndLabels(bundlePath)
+	releaseName, releaseNamespace, err := bundles.ResolveRelease(ctx, bundlePath, commonCmdData.Release, commonCmdData.Namespace, commonCmdData.Environment)
+	if err != nil {
+		return err
+	}
+
+	releaseNamespace = cmp.Or(releaseNamespace, common.GetNamespace(&commonCmdData))
+	releaseName = cmp.Or(releaseName, common.GetOptionalRelease(&commonCmdData))
+	registryCredentialsPath := docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
+
+	serviceValues, err := deploy.GetBundleServiceValues(ctx, deploy.ServiceValuesOptions{
+		Env:                      commonCmdData.Environment,
+		Namespace:                releaseNamespace,
+		SetDockerConfigJsonValue: *commonCmdData.SetDockerConfigJsonValue,
+		DockerConfigPath:         filepath.Dir(registryCredentialsPath),
+	})
+	if err != nil {
+		return fmt.Errorf("get service values: %w", err)
+	}
+
+	serviceAnnotations, extraAnnotations, extraLabels, err := getAnnotationsAndLabels()
 	if err != nil {
 		return fmt.Errorf("get annotations and labels: %w", err)
 	}
 
-	ctx = action.SetupLogging(ctx, cmp.Or(common.GetNelmLogLevel(&commonCmdData), action.DefaultChartRenderLogLevel), action.SetupLoggingOptions{
-		ColorMode:      *commonCmdData.LogColorMode,
-		LogIsParseable: true,
-	})
 	engine.Debug = commonCmdData.DebugTemplates
-
-	ctx = common.SetupDenoContext(ctx)
 
 	if _, err := action.ChartRender(ctx, action.ChartRenderOptions{
 		KubeConnectionOptions:       commonCmdData.KubeConnectionOptions,
@@ -250,7 +247,7 @@ func runRender(ctx context.Context) error {
 		ShowStandaloneCRDs:          cmdData.IncludeCRDs,
 		TemplatesAllowDNS:           commonCmdData.TemplatesAllowDNS,
 		IgnoreBundleJS:              commonCmdData.IgnoreBundleJS,
-		DenoBinaryPath:              commonCmdData.DenoBinaryPath,
+		NodeBinaryPath:              commonCmdData.NodeBinaryPath,
 	}); err != nil {
 		return fmt.Errorf("chart render: %w", err)
 	}
@@ -258,12 +255,10 @@ func runRender(ctx context.Context) error {
 	return nil
 }
 
-func getAnnotationsAndLabels(bundleDir string) (map[string]string, map[string]string, map[string]string, error) {
-	bundleExtraAnnotations, err := readBundleJsonMap(filepath.Join(bundleDir, "extra_annotations.json"))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("read bundle extra_annotations.json: %w", err)
-	}
-
+// getAnnotationsAndLabels returns werf's service annotations and the user's extra annotations and
+// labels to deploy the bundle with, in addition to the ones recorded in the bundle, which Nelm
+// applies.
+func getAnnotationsAndLabels() (map[string]string, map[string]string, map[string]string, error) {
 	userExtraAnnotations, err := common.GetUserExtraAnnotations(&commonCmdData)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get user extra annotations: %w", err)
@@ -271,7 +266,7 @@ func getAnnotationsAndLabels(bundleDir string) (map[string]string, map[string]st
 
 	serviceAnnotations := map[string]string{}
 	extraAnnotations := map[string]string{}
-	for key, value := range lo.Assign(bundleExtraAnnotations, userExtraAnnotations) {
+	for key, value := range userExtraAnnotations {
 		if strings.HasPrefix(key, "project.werf.io/") ||
 			strings.Contains(key, "ci.werf.io/") ||
 			key == "werf.io/release-channel" {
@@ -286,32 +281,10 @@ func getAnnotationsAndLabels(bundleDir string) (map[string]string, map[string]st
 		serviceAnnotations["project.werf.io/env"] = commonCmdData.Environment
 	}
 
-	bundleExtraLabels, err := readBundleJsonMap(filepath.Join(bundleDir, "extra_labels.json"))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("read bundle extra_labels.json: %w", err)
-	}
-
-	userExtraLabels, err := common.GetUserExtraLabels(&commonCmdData)
+	extraLabels, err := common.GetUserExtraLabels(&commonCmdData)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get user extra labels: %w", err)
 	}
 
-	extraLabels := lo.Assign(bundleExtraLabels, userExtraLabels)
-
 	return serviceAnnotations, extraAnnotations, extraLabels, nil
-}
-
-func readBundleJsonMap(path string) (map[string]string, error) {
-	var res map[string]string
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("error accessing %q: %w", path, err)
-	} else if data, err := ioutil.ReadFile(path); err != nil {
-		return nil, fmt.Errorf("error reading %q: %w", path, err)
-	} else if err := json.Unmarshal(data, &res); err != nil {
-		return nil, fmt.Errorf("error unmarshalling json from %q: %w", path, err)
-	} else {
-		return res, nil
-	}
 }

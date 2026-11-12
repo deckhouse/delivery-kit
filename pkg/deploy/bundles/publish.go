@@ -3,62 +3,137 @@ package bundles
 import (
 	"context"
 	"fmt"
-	"path/filepath"
+	"path"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/samber/lo"
 
 	"github.com/werf/logboek"
-	nelmcommon "github.com/werf/nelm/v2/pkg/common"
-	"github.com/werf/nelm/v2/pkg/helm/pkg/chart/loader"
-	v2chart "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2"
-	"github.com/werf/werf/v3/pkg/deploy/bundles/registry"
+	"github.com/werf/nelm/v2/pkg/action"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/registry"
 	"github.com/werf/werf/v3/pkg/ref"
 )
 
 type PublishOptions struct {
-	HelmCompatibleChart bool
-	RenameChart         string
-	HelmOptions         nelmcommon.HelmOptions
+	// ChartPackOptions are the options to pack the chart with. The chart name and version are set
+	// from the repo and the tag.
+	ChartPackOptions action.ChartPackOptions
+	// ChartUploadOptions are the options to push the packed chart with. The extra tags are set from
+	// the tag.
+	ChartUploadOptions action.ChartUploadOptions
 }
 
-func Publish(ctx context.Context, bundleDir, bundleRef string, bundlesRegistryClient *registry.Client, opts PublishOptions) error {
-	r, err := ref.ParseReference(bundleRef)
+// Publish packs the chart and pushes it into repo under the chart version derived from tag and under
+// tag itself, both with "+" encoded as "_" as Helm does.
+func Publish(ctx context.Context, chartDir, repo, tag string, opts PublishOptions) error {
+	repo, err := normalizeRepo(repo)
 	if err != nil {
-		return fmt.Errorf("error parsing bundle ref %q: %w", bundleRef, err)
+		return err
 	}
 
-	if err := logboek.Context(ctx).Default().LogProcess("Saving bundle to the local chart helm cache").DoError(func() error {
-		path, err := filepath.Abs(bundleDir)
+	packOpts := opts.ChartPackOptions
+	packOpts.Name = path.Base(repo)
+	packOpts.Version = action.ChartVersionFromTag(ctx, tag, time.Now())
+
+	tags := chartTags(packOpts.Version, tag)
+
+	r, err := ref.ParseReference(fmt.Sprintf("%s:%s", repo, tags[0]))
+	if err != nil {
+		return fmt.Errorf("error parsing bundle ref: %w", err)
+	}
+
+	if err := checkTagIsNotProvenance(tag); err != nil {
+		return err
+	}
+
+	// Nelm refuses such tags only after packing, so fail before the images and dependencies are packed.
+	if err := checkChartTagsDoNotOverwriteImages(r.Repo, tags, packOpts.ExtraValues); err != nil {
+		return err
+	}
+
+	var packResult *action.ChartPackResult
+	if err := logboek.Context(ctx).Default().LogProcess("Packing bundle").DoError(func() error {
+		packResult, err = action.ChartPack(ctx, chartDir, packOpts)
 		if err != nil {
-			return err
+			return fmt.Errorf("pack chart %q: %w", chartDir, err)
 		}
 
-		loadCtx := nelmcommon.ContextWithHelmOptions(ctx, opts.HelmOptions)
-		ch, err := loader.Load(loadCtx, path)
-		if err != nil {
-			return fmt.Errorf("error loading chart %q: %w", path, err)
-		}
-
-		v2ch, ok := ch.(*v2chart.Chart)
-		if !ok {
-			return fmt.Errorf("unsupported chart type %T", ch)
-		}
-
-		if nameOverwrite := GetChartNameOverwrite(r.Repo, opts.RenameChart, opts.HelmCompatibleChart); nameOverwrite != nil {
-			v2ch.Metadata.Name = *nameOverwrite
-		}
-
-		if err := bundlesRegistryClient.SaveChart(ctx, v2ch, r, opts.HelmOptions); err != nil {
-			return fmt.Errorf("unable to save bundle to the local chart helm cache: %w", err)
-		}
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	if err := logboek.Context(ctx).LogProcess("Pushing bundle %q", bundleRef).DoError(func() error {
-		return bundlesRegistryClient.PushChart(ctx, r, opts.HelmOptions)
-	}); err != nil {
-		return err
+	uploadOpts := opts.ChartUploadOptions
+	uploadOpts.ExtraTags = tags[1:]
+
+	return logboek.Context(ctx).LogProcess("Pushing bundle %s with tags %s", repo, strings.Join(tags, ", ")).DoError(func() error {
+		if _, err := action.ChartUpload(ctx, packResult.ArchivePath, registry.OCIScheme+"://"+path.Dir(repo), uploadOpts); err != nil {
+			return fmt.Errorf("push chart: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// checkChartTagsDoNotOverwriteImages fails if a chart tag equals the tag of a werf image from the
+// service values in the same repository, since pushing the chart would replace the image.
+func checkChartTagsDoNotOverwriteImages(repo string, tags []string, serviceValues map[string]interface{}) error {
+	imageRefs := map[string]string{}
+
+	werfVals, _ := serviceValues["werf"].(map[string]interface{})
+	legacyImageVals, _ := werfVals["image"].(map[string]interface{})
+	for imageName, val := range legacyImageVals {
+		if imageRef, ok := val.(string); ok {
+			imageRefs[imageName] = imageRef
+		}
+	}
+
+	globalVals, _ := serviceValues["global"].(map[string]interface{})
+	globalWerfVals, _ := globalVals["werf"].(map[string]interface{})
+	imagesVals, _ := globalWerfVals["images"].(map[string]interface{})
+	for imageName, val := range imagesVals {
+		imageVals, _ := val.(map[string]interface{})
+		if imageRef, ok := imageVals["ref_tag"].(string); ok {
+			imageRefs[imageName] = imageRef
+		}
+	}
+
+	imageNames := lo.Keys(imageRefs)
+	sort.Strings(imageNames)
+
+	for _, imageName := range imageNames {
+		imageRef, err := ref.ParseReference(imageRefs[imageName])
+		if err != nil || imageRef.Repo != repo || !lo.Contains(tags, imageRef.Tag) {
+			continue
+		}
+
+		return fmt.Errorf("bundle tag %q would overwrite the image %q %s in the same repository: publish the bundle with another --tag or use another image tag", imageRef.Tag, imageName, imageRef.FullName())
 	}
 
 	return nil
+}
+
+// chartTags returns the tags to push a chart with chartVersion under: the version itself and the tag the user asked for, if it differs, both with "+", invalid in a tag, encoded as Helm does.
+func chartTags(chartVersion, tag string) []string {
+	versionTag := encodeTag(chartVersion)
+	tag = encodeTag(tag)
+	if tag == "" || tag == versionTag {
+		return []string{versionTag}
+	}
+
+	return []string{versionTag, tag}
+}
+
+func checkTagIsNotProvenance(tag string) error {
+	if strings.HasSuffix(tag, ".prov") {
+		return fmt.Errorf("tag %q is not allowed: tags ending in \".prov\" address provenance files", tag)
+	}
+
+	return nil
+}
+
+func encodeTag(tag string) string {
+	return strings.ReplaceAll(tag, "+", "_")
 }

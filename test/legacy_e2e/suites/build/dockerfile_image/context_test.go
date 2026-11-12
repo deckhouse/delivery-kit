@@ -1,7 +1,9 @@
 package common_test
 
 import (
+	"fmt"
 	"path/filepath"
+	"runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,10 +32,15 @@ var _ = Describe("context", func() {
 
 	type entry struct {
 		prepareFixturesFunc func(ctx SpecContext)
-		expectedDigest      string
+		expectedDigests     map[string]string
 	}
 
 	itBody := func(ctx SpecContext, entry entry) {
+		expectedDigest, ok := entry.expectedDigests[runtime.GOARCH]
+		if !ok {
+			Skip(fmt.Sprintf("skip on %s: no expected digest", runtime.GOARCH))
+		}
+
 		entry.prepareFixturesFunc(ctx)
 
 		output, err := utils.RunCommand(
@@ -44,7 +51,7 @@ var _ = Describe("context", func() {
 		)
 		Expect(err).ShouldNot(HaveOccurred())
 
-		Expect(string(output)).Should(ContainSubstring(entry.expectedDigest))
+		Expect(string(output)).Should(ContainSubstring(expectedDigest))
 	}
 
 	_ = DescribeTable("checksum", itBody,
@@ -55,7 +62,10 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "57fb876b722ed420f62aaea92cf35665b3ec1f3f8177d7d0ded30e44",
+			expectedDigests: map[string]string{
+				"amd64": "57fb876b722ed420f62aaea92cf35665b3ec1f3f8177d7d0ded30e44",
+				"arm64": "3798a9fa1e719af302ba0e550dbb94395f1183c6e7973ffd8c2b1a0b",
+			},
 		}),
 		Entry("file from contextAddFile added to context", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -64,7 +74,10 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "75a6e025e44f8f853f3258af6634f28669f7dfa5ccbb5f1b352117be",
+			expectedDigests: map[string]string{
+				"amd64": "75a6e025e44f8f853f3258af6634f28669f7dfa5ccbb5f1b352117be",
+				"arm64": "bf82c40575b2cdab81e33bab0f8ee2c17c1efa247abba8cfb57363c2",
+			},
 		}),
 		Entry("symlinks from contextAddFiles added to context as is", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -73,7 +86,10 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "0d2d35d6be53fe942fd99c4fab3c29b245b8f065906f7062946bdcca",
+			expectedDigests: map[string]string{
+				"amd64": "0d2d35d6be53fe942fd99c4fab3c29b245b8f065906f7062946bdcca",
+				"arm64": "9d94c61e2e2df1916e46ec51aca6c12a02ba72e6e38155f0e56e0930",
+			},
 		}),
 		Entry("dir from contextAddFiles added to context", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -82,7 +98,10 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "66f80882c792e392ad17003ec362479e3dda79b8d0b8fd92a70f3af4",
+			expectedDigests: map[string]string{
+				"amd64": "66f80882c792e392ad17003ec362479e3dda79b8d0b8fd92a70f3af4",
+				"arm64": "2569440d2af176823ad56327c6b299e53ad573172395740e2588b77c",
+			},
 		}),
 		Entry("specified files from dir allowed in allowContextAddFiles added to context", entry{
 			prepareFixturesFunc: func(ctx SpecContext) {
@@ -91,7 +110,10 @@ var _ = Describe("context", func() {
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "add", "werf.yaml", "werf-giterminism.yaml", ".dockerignore", "Dockerfile")
 				utils.RunSucceedCommand(ctx, SuiteData.WerfRepoWorktreeDir, "git", "commit", "-m", "+")
 			},
-			expectedDigest: "e03f700a970a62270cbb9843e8bbc3797e70ee3aa0ed3e348da8bf9b",
+			expectedDigests: map[string]string{
+				"amd64": "e03f700a970a62270cbb9843e8bbc3797e70ee3aa0ed3e348da8bf9b",
+				"arm64": "6062b687136dd3ea829d7b1dee986eac0564f8191a9452f1bcc3a2d4",
+			},
 		}),
 	)
 })

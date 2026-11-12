@@ -3,7 +3,6 @@ package apply
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,13 +96,13 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	common.SetupExtraRuntimeAnnotations(&commonCmdData, cmd)
 	common.SetupExtraRuntimeLabels(&commonCmdData, cmd)
 	common.SetupForceAdoption(&commonCmdData, cmd)
-	common.SetupNamespace(&commonCmdData, cmd, false)
+	common.SetupBundleNamespace(&commonCmdData, cmd)
 	common.SetupNetworkParallelism(&commonCmdData, cmd)
 	common.SetupNoInstallCRDs(&commonCmdData, cmd)
 	common.SetupNoRemoveManualChanges(&commonCmdData, cmd)
 	common.SetupNoShowNotes(&commonCmdData, cmd)
 	common.SetupNoCreateNamespace(&commonCmdData, cmd)
-	common.SetupRelease(&commonCmdData, cmd, false)
+	common.SetupBundleRelease(&commonCmdData, cmd)
 	common.SetupReleaseInfoAnnotations(&commonCmdData, cmd)
 	common.SetupReleaseLabel(&commonCmdData, cmd)
 	common.SetupReleaseStorageDriver(&commonCmdData, cmd)
@@ -121,7 +120,7 @@ func NewCmd(ctx context.Context) *cobra.Command {
 	if defaultTag == "" {
 		defaultTag = "latest"
 	}
-	cmd.Flags().StringVarP(&cmdData.Tag, "tag", "", defaultTag, "Provide exact tag version or semver-based pattern, werf will install or upgrade to the latest version of the specified bundle ($WERF_TAG or latest by default)")
+	cmd.Flags().StringVarP(&cmdData.Tag, "tag", "", defaultTag, "Tag of the bundle to install or upgrade to ($WERF_TAG or latest by default)")
 	cmd.Flags().BoolVarP(&cmdData.AutoRollback, "auto-rollback", "R", util.GetBoolEnvironmentDefaultFalse("WERF_AUTO_ROLLBACK"), "Enable auto rollback of the failed release to the previous deployed release version when current deploy process have failed ($WERF_AUTO_ROLLBACK by default)")
 	cmd.Flags().BoolVarP(&cmdData.AutoRollback, "atomic", "", util.GetBoolEnvironmentDefaultFalse("WERF_ATOMIC"), "Enable auto rollback of the failed release to the previous deployed release version when current deploy process have failed ($WERF_ATOMIC by default)")
 	cmd.Flags().StringVarP(&cmdData.PlanArtifactPath, "use-plan", "", os.Getenv("WERF_USE_PLAN_PATH"), "Use the gzip-compressed JSON plan file from the specified path during release install")
@@ -170,6 +169,10 @@ func runApply(ctx context.Context) error {
 		installReportPath = commonCmdData.DeployReportPath
 	}
 
+	ctx = action.SetupLogging(ctx, cmp.Or(common.GetNelmLogLevel(&commonCmdData), action.DefaultReleaseInstallLogLevel), action.SetupLoggingOptions{
+		ColorMode: *commonCmdData.LogColorMode,
+	})
+
 	usePlanArtifact := cmdData.PlanArtifactPath != ""
 
 	if !usePlanArtifact {
@@ -178,18 +181,35 @@ func runApply(ctx context.Context) error {
 			return fmt.Errorf("get repo address: %w", err)
 		}
 
-		releaseNamespace = common.GetNamespace(&commonCmdData)
-		releaseName, err = common.GetRequiredRelease(&commonCmdData)
-		if err != nil {
-			return fmt.Errorf("get release name: %w", err)
-		}
-
-		bundlePath = filepath.Join(werf.GetServiceDir(), "tmp", "bundles", uuid.NewString())
-		defer os.RemoveAll(bundlePath)
+		bundleDir := filepath.Join(werf.GetServiceDir(), "tmp", "bundles", uuid.NewString())
+		defer os.RemoveAll(bundleDir)
 
 		bundlesRegistryClient, err := common.NewBundlesRegistryClient(ctx, &commonCmdData)
 		if err != nil {
 			return fmt.Errorf("construct bundles registry client: %w", err)
+		}
+
+		bundlePath, err = bundles.Download(ctx, repoAddress, cmdData.Tag, bundleDir, bundlesRegistryClient, bundles.DownloadOptions{
+			ChartRepoConnectionOptions: common.GetBundlesRegistryConnectionOptions(&commonCmdData),
+			ProvenanceKeyring:          commonCmdData.ChartProvenanceKeyring,
+			ProvenanceStrategy:         commonCmdData.ChartProvenanceStrategy,
+		})
+		if err != nil {
+			return err
+		}
+
+		releaseName, releaseNamespace, err = bundles.ResolveRelease(ctx, bundlePath, commonCmdData.Release, commonCmdData.Namespace, commonCmdData.Environment)
+		if err != nil {
+			return err
+		}
+
+		releaseNamespace = cmp.Or(releaseNamespace, common.GetNamespace(&commonCmdData))
+
+		if releaseName == "" {
+			releaseName, err = common.GetRequiredRelease(&commonCmdData)
+			if err != nil {
+				return fmt.Errorf("get release name: %w", err)
+			}
 		}
 
 		registryCredentialsPath = docker.GetDockerConfigCredentialsFile(*commonCmdData.DockerConfig)
@@ -204,27 +224,9 @@ func runApply(ctx context.Context) error {
 			return fmt.Errorf("get service values: %w", err)
 		}
 
-		secretWorkDir, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("get current working directory: %w", err)
-		}
-
-		if err := bundles.Pull(ctx, fmt.Sprintf("%s:%s", repoAddress, cmdData.Tag), bundlePath, bundlesRegistryClient, nelmcommon.HelmOptions{
-			ChartLoadOpts: nelmcommon.ChartLoadOptions{
-				DefaultSecretValuesDisable: commonCmdData.DefaultSecretValuesDisable,
-				DefaultValuesDisable:       commonCmdData.DefaultValuesDisable,
-				ExtraValues:                serviceValues,
-				SecretKeyIgnore:            commonCmdData.SecretKeyIgnore,
-				SecretValuesFiles:          commonCmdData.SecretValuesFiles,
-				SecretWorkDir:              secretWorkDir,
-			},
-		}); err != nil {
-			return fmt.Errorf("pull bundle: %w", err)
-		}
-
 		var serviceAnnotations map[string]string
 
-		serviceAnnotations, extraAnnotations, extraLabels, err = getAnnotationsAndLabels(bundlePath)
+		serviceAnnotations, extraAnnotations, extraLabels, err = getAnnotationsAndLabels()
 		if err != nil {
 			return fmt.Errorf("get annotations and labels: %w", err)
 		}
@@ -238,12 +240,7 @@ func runApply(ctx context.Context) error {
 		}
 	}
 
-	ctx = action.SetupLogging(ctx, cmp.Or(common.GetNelmLogLevel(&commonCmdData), action.DefaultReleaseInstallLogLevel), action.SetupLoggingOptions{
-		ColorMode: *commonCmdData.LogColorMode,
-	})
 	engine.Debug = commonCmdData.DebugTemplates
-
-	ctx = common.SetupDenoContext(ctx)
 
 	if _, err := action.ReleaseInstall(ctx, releaseName, releaseNamespace, action.ReleaseInstallOptions{
 		KubeConnectionOptions:      commonCmdData.KubeConnectionOptions,
@@ -289,7 +286,7 @@ func runApply(ctx context.Context) error {
 			ReleaseStorageSQLConnection: commonCmdData.ReleaseStorageSQLConnection,
 		},
 		IgnoreBundleJS: commonCmdData.IgnoreBundleJS,
-		DenoBinaryPath: commonCmdData.DenoBinaryPath,
+		NodeBinaryPath: commonCmdData.NodeBinaryPath,
 	}); err != nil {
 		return fmt.Errorf("release install: %w", err)
 	}
@@ -297,12 +294,10 @@ func runApply(ctx context.Context) error {
 	return nil
 }
 
-func getAnnotationsAndLabels(bundleDir string) (map[string]string, map[string]string, map[string]string, error) {
-	bundleExtraAnnotations, err := readBundleJsonMap(filepath.Join(bundleDir, "extra_annotations.json"))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("read bundle extra_annotations.json: %w", err)
-	}
-
+// getAnnotationsAndLabels returns werf's service annotations and the user's extra annotations and
+// labels to deploy the bundle with, in addition to the ones recorded in the bundle, which Nelm
+// applies.
+func getAnnotationsAndLabels() (map[string]string, map[string]string, map[string]string, error) {
 	userExtraAnnotations, err := common.GetUserExtraAnnotations(&commonCmdData)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get user extra annotations: %w", err)
@@ -310,7 +305,7 @@ func getAnnotationsAndLabels(bundleDir string) (map[string]string, map[string]st
 
 	serviceAnnotations := map[string]string{}
 	extraAnnotations := map[string]string{}
-	for key, value := range lo.Assign(bundleExtraAnnotations, userExtraAnnotations) {
+	for key, value := range userExtraAnnotations {
 		if strings.HasPrefix(key, "project.werf.io/") ||
 			strings.Contains(key, "ci.werf.io/") ||
 			key == "werf.io/release-channel" {
@@ -325,32 +320,10 @@ func getAnnotationsAndLabels(bundleDir string) (map[string]string, map[string]st
 		serviceAnnotations["project.werf.io/env"] = commonCmdData.Environment
 	}
 
-	bundleExtraLabels, err := readBundleJsonMap(filepath.Join(bundleDir, "extra_labels.json"))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("read bundle extra_labels.json: %w", err)
-	}
-
-	userExtraLabels, err := common.GetUserExtraLabels(&commonCmdData)
+	extraLabels, err := common.GetUserExtraLabels(&commonCmdData)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get user extra labels: %w", err)
 	}
 
-	extraLabels := lo.Assign(bundleExtraLabels, userExtraLabels)
-
 	return serviceAnnotations, extraAnnotations, extraLabels, nil
-}
-
-func readBundleJsonMap(path string) (map[string]string, error) {
-	var res map[string]string
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("error accessing %q: %w", path, err)
-	} else if data, err := os.ReadFile(path); err != nil {
-		return nil, fmt.Errorf("error reading %q: %w", path, err)
-	} else if err := json.Unmarshal(data, &res); err != nil {
-		return nil, fmt.Errorf("error unmarshalling json from %q: %w", path, err)
-	} else {
-		return res, nil
-	}
 }

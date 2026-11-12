@@ -207,7 +207,7 @@ Yarn Berry's Plug'n'Play linker leaves no `node_modules`: packages stay in cache
 
 ## Compiled Lua modules
 
-A rock owns the files its `rock_manifest` declares. A `X.luac` or `X.ljbc` file next to a declared `X.lua` — compiled with `luac` or `luajit -b` — is attributed to the same rock, whether or not `X.lua` is still in the image: an image that ships only the bytecode, or imports it from a donor, keeps the rock shipped. The sibling rule does not infer ownership of bytecode in another directory or under another name, nor of a file another rock's `rock_manifest` declares: an explicit `rock_manifest` entry owns a file of any name, and content evidence a component inherited from a donor still follows bytes that an import moved or renamed.
+A rock owns the files its `rock_manifest` declares. A `X.luac` or `X.ljbc` file next to a declared `X.lua` — compiled with `luac` or `luajit -b` — is attributed to the same rock, whether or not `X.lua` is still in the image: an image that ships only the bytecode, or imports it from a donor, keeps the rock shipped. The sibling rule does not infer ownership of bytecode in another directory or under another name, nor of a file another rock's `rock_manifest` declares: an explicit `rock_manifest` entry owns a file of any name, and content evidence a component inherited from a donor still follows bytes that an import moved or renamed. The rule checks only the name and location of a regular file: a symlinked `X.luac` is not attributed, and neither the bytecode contents nor the `rock_manifest` checksums are verified, so any bytes under the right name count.
 
 ## Caching and rebuilds
 

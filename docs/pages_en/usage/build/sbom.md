@@ -205,6 +205,10 @@ The observer only instruments Rollup 4.x and esbuild 0.24.x; other versions disc
 
 Yarn Berry's Plug'n'Play linker leaves no `node_modules`: packages stay in cache zips. werf reads the Berry `yarn.lock` from the image, and every `npm:` entry whose `checksum` equals the SHA-512 of a `.zip` file anywhere in the image — the project `.yarn/cache`, the global cache, or wherever an import put it — gets an `evidence.occurrences` entry at the zip's path with `additionalContext` `sha256:…`. An image that imports the zip of a package keeps it shipped; an image that inherits the package from a donor without its zip marks it `werf:shipped: false`. An entry whose zip the image that installed it does not hold gets no evidence and is never marked. Other resolutions (`workspace:`, `patch:` and others) get no zip evidence. A zip that is a file of an installed package (under `node_modules`, `/usr/share/nodejs` or `/usr/lib/nodejs`) belongs to that package and is not matched. A `yarn.lock` that is a hardlink or larger than 32 MiB is not read, with a warning: its entries get no zip evidence, so whether their packages ship stays unknown. Unplugged packages (`.yarn/unplugged`) are matched like packages in `node_modules`. Licenses of zipped packages are not extracted.
 
+## Compiled Lua modules
+
+A rock owns the files its `rock_manifest` declares. A `X.luac` or `X.ljbc` file next to a declared `X.lua` — compiled with `luac` or `luajit -b` — is attributed to the same rock, whether or not `X.lua` is still in the image: an image that ships only the bytecode, or imports it from a donor, keeps the rock shipped. Bytecode in another directory or under another name is not attributed to any rock.
+
 ## Caching and rebuilds
 
 Toggling `build.sbom.enable` changes the stage digest, so enabling or disabling SBOM generation invalidates the cache and triggers a full rebuild.
@@ -213,7 +217,7 @@ While SBOM generation is off (the default), stage digests are identical to those
 
 A werf upgrade that changes the JavaScript observer changes the digests of the SBOM-enabled stages that run user commands, so those stages are rebuilt.
 
-A werf upgrade that changes the SBOM artifact format does not rebuild stages: the SBOMs of cached stages are regenerated during the SBOM step, for example to add [Yarn PnP archive](#yarn-pnp-archives) evidence.
+A werf upgrade that changes the SBOM artifact format does not rebuild stages: the SBOMs of cached stages are regenerated during the SBOM step, for example to add [Yarn PnP archive](#yarn-pnp-archives) or [compiled Lua module](#compiled-lua-modules) evidence.
 
 Changing GOST properties (`sbom.gost`) does not affect stage digests. Cached stages are reused, and the SBOM document is regenerated with the updated properties during the SBOM step.
 

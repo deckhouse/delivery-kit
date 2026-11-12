@@ -143,6 +143,9 @@ type Decision struct {
 //
 // A zero-size file proves nothing — its digest is the same for every package.
 //
+// An incomplete index cannot show bytes absent, so there a file-backed component every
+// check misses is kept for lack of data rather than dropped.
+//
 // Two files with the same bytes at two paths are two files. A component's own path in the
 // image is contested only by the components that declare that path; the bytes it shares
 // with a file elsewhere are not a claim on that file. Only when nobody declares the image
@@ -321,6 +324,17 @@ func Match(ctx context.Context, components []Component, binaries ProducedBinarie
 			}
 		}
 		if decision.Shipped {
+			continue
+		}
+
+		// A hardlink resolved against the flattened view is indexed with its target's final
+		// bytes, while the link itself may still hold the bytes this component is missing.
+		if index.Incomplete {
+			decision.Shipped = true
+			decision.Reason = ReasonNoData
+			logboek.Context(ctx).Debug().LogF("not-shipped verdict withheld for %s %s@%s: checked %d files, 0 matches, but the file index is incomplete\n",
+				component.Ecosystem, component.Name, component.Version, decision.Checked)
+
 			continue
 		}
 

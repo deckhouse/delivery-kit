@@ -32,6 +32,7 @@ import (
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/pkg/sbom/declared"
 	"github.com/werf/werf/v3/pkg/sbom/externalref"
+	"github.com/werf/werf/v3/pkg/sbom/gomod"
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/managedinput"
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
@@ -529,6 +530,10 @@ func (step *sbomStep) scanCatalogerDir(ctx context.Context, scanOpts scanner.Sca
 		return nil, nil, err
 	}
 
+	if config.PackagesDirectiveType(cataloger.Ecosystem) == config.PackagesDirectiveTypeGoMod {
+		dropUnrequiredGoReplaces(ctx, bom, cataloger, dir)
+	}
+
 	if err := step.recordDeclaredPackages(ctx, bom, cataloger, dir); err != nil {
 		return nil, nil, err
 	}
@@ -611,6 +616,21 @@ func (step *sbomStep) recordGoModuleGraph(ctx context.Context, bom *cdx.BOM, ima
 // this point is the scan directory syft reported and later becomes the image. A spec
 // werf cannot read — a manifest the manager inside the image accepted — costs the
 // declaration only, not the build.
+// Best effort, like the declaration step after it: an unreadable go.mod already costs
+// the declared packages, and recordDeclaredPackages reports that.
+func dropUnrequiredGoReplaces(ctx context.Context, bom *cdx.BOM, cataloger scanner.Cataloger, dir string) {
+	if len(cataloger.SourcePaths) == 0 {
+		return
+	}
+	goMod, err := os.ReadFile(filepath.Join(dir, filepath.Clean("/"+cataloger.SourcePaths[0])))
+	if err != nil {
+		return
+	}
+	if err := gomod.DropUnrequiredLocalReplaces(bom, goMod); err != nil {
+		logboek.Context(ctx).Warn().LogF("WARNING: unable to read the replace directives of %s; a module its go.mod only forbids may stay in the SBOM: %s\n", cataloger.SourcePaths[0], err)
+	}
+}
+
 func (step *sbomStep) recordDeclaredPackages(ctx context.Context, bom *cdx.BOM, cataloger scanner.Cataloger, dir string) error {
 	ecosystem := config.PackagesDirectiveType(cataloger.Ecosystem)
 	if len(cataloger.SourcePaths) == 0 || ecosystem == "" {

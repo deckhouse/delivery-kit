@@ -387,7 +387,7 @@ func (e *Enricher) resolvePurls(ctx context.Context, purls []string) map[string]
 			}
 
 			outcome.ref = cdx.ExternalReference{
-				URL:     res.URL,
+				URL:     cyclonedxutil.VCSURL(res.URL),
 				Type:    cdx.ExternalReferenceType(res.Kind),
 				Comment: cyclonedxutil.ExternalReferenceCommentResolved,
 				Hashes:  refHashes(res.Kind, res.Hashes),

@@ -11,6 +11,7 @@ import (
 	packageurl "github.com/package-url/packageurl-go"
 
 	"github.com/werf/werf/v3/pkg/sbom/cpe"
+	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	"github.com/werf/werf/v3/pkg/sbom/os_pm/metadata"
 )
@@ -86,7 +87,7 @@ func ConvertToCycloneDX(ctx context.Context, pkgs map[string]PmPackageInfo, cont
 
 		if pkg.OriginalRepo != "" {
 			comp.ExternalReferences = &[]cdx.ExternalReference{
-				{Type: cdx.ERTypeVCS, URL: pkg.OriginalRepo},
+				{Type: cdx.ERTypeVCS, URL: cyclonedxutil.VCSURL(pkg.OriginalRepo)},
 			}
 		}
 

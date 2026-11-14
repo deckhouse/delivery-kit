@@ -58,6 +58,8 @@ type Original struct {
 }
 
 type VerifyOptions struct {
+	ProducedFiles     map[string]string
+	ProducedSymlinks  map[string]string
 	BuildGitSources   [][]GitSource
 	Platform          string
 	Subject           string

@@ -41,7 +41,20 @@ func nativeBootstrap(name string) bool {
 	return name != "" && slices.Contains(strings.Split(os.Getenv("WERF_SBOM_BOOTSTRAP_IMAGES"), ","), name)
 }
 
+func nativeChecked(name string) bool {
+	return name != "" && slices.Contains(strings.Split(os.Getenv("WERF_SBOM_CHECKED_IMAGES"), ","), name)
+}
+
 func validateNativeBootstrap(img *buildimage.Image) error {
+	if nativeChecked(img.GetName()) {
+		if nativeBootstrap(img.GetName()) {
+			return fmt.Errorf("image %s cannot be both checked and bootstrap", img.GetName())
+		}
+		if img.IsFinal {
+			return fmt.Errorf("checked image %s cannot be final", img.GetName())
+		}
+		return nil
+	}
 	if nativeBootstrap(img.GetName()) {
 		if img.IsFinal {
 			return fmt.Errorf("bootstrap image %s cannot be final", img.GetName())
@@ -51,11 +64,14 @@ func validateNativeBootstrap(img *buildimage.Image) error {
 	if nativeBootstrap(img.GetBaseImageName()) {
 		return fmt.Errorf("bootstrap image %s cannot be used as from for strict image %s", img.GetBaseImageName(), img.GetName())
 	}
+	if nativeChecked(img.GetBaseImageName()) {
+		return fmt.Errorf("checked image %s cannot be used as from for strict image %s", img.GetBaseImageName(), img.GetName())
+	}
 	return nil
 }
 
 func nativeSBOMSettings() string {
-	return util.Sha256Hash(nativeInstrumentation, os.Getenv("WERF_SBOM_PM_SHA256"), os.Getenv("WERF_SBOM_TRUSTED_INDEXES"), os.Getenv("WERF_SBOM_BOOTSTRAP_IMAGES"))
+	return util.Sha256Hash(nativeInstrumentation, os.Getenv("WERF_SBOM_PM_SHA256"), os.Getenv("WERF_SBOM_TRUSTED_INDEXES"), os.Getenv("WERF_SBOM_BOOTSTRAP_IMAGES"), os.Getenv("WERF_SBOM_CHECKED_IMAGES"))
 }
 
 func nativeSBOMRepo(conveyor *Conveyor) string {
@@ -183,7 +199,18 @@ func nativeUserRoots(ctx context.Context, img *buildimage.Image, cfg *v1.ConfigF
 			tmpdir = value
 		}
 	}
-	return nativegate.UserSourceRoots(ctx, mappings, cfg.Config.WorkingDir, tmpdir)
+	workdir := cfg.Config.WorkingDir
+	if img.StapelImageConfig != nil {
+		if spec := img.StapelImageConfig.ImageBaseConfig().ImageSpec; spec != nil {
+			if spec.ClearWorkingDir {
+				workdir = ""
+			}
+			if spec.WorkingDir != "" {
+				workdir = spec.WorkingDir
+			}
+		}
+	}
+	return nativegate.UserSourceRoots(ctx, mappings, workdir, tmpdir)
 }
 
 func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Image, saved v1.Image, desc *image.StageDesc) (*nativegate.PackageSet, error) {
@@ -203,7 +230,7 @@ func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Ima
 	for _, snapshot := range provenance.Snapshots {
 		boundaries = append(boundaries, snapshot.LayerCount)
 	}
-	views, err := shippedscope.CollectImageSnapshots(ctx, saved, provenance.DiffIDs, boundaries, shippedscope.CollectImageSnapshotsOptions{CaptureMatch: func(name string) bool { return name == "/var/lib/pm" || strings.HasPrefix(name, "/var/lib/pm/") }})
+	views, err := shippedscope.CollectImageSnapshots(ctx, saved, provenance.DiffIDs, boundaries, shippedscope.CollectImageSnapshotsOptions{CaptureMatch: nativePackageStatePath})
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +238,12 @@ func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Ima
 	for _, snapshot := range provenance.Snapshots {
 		required := snapshot.Stage == stage.Packages && img.StapelImageConfig != nil && len(img.StapelImageConfig.ImageBaseConfig().OSPMPackages()) > 0
 		snapshots = append(snapshots, nativegate.PackageSnapshot{Stage: string(snapshot.Stage), View: views[snapshot.LayerCount], RequiresSources: required})
+	}
+	if nativeChecked(img.GetName()) {
+		snapshots, err = nativeCheckedPackageSnapshots(snapshots)
+		if err != nil {
+			return nil, err
+		}
 	}
 	receipt, err := nativegate.CollectPackageSources(ctx, snapshots, directory, nativePMOptions())
 	if err != nil {
@@ -223,6 +256,12 @@ func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Ima
 	set, err := nativegate.OpenPackageSet(ctx, receipt, img.TargetPlatform, trusted)
 	if err != nil {
 		return nil, fmt.Errorf("/var/lib/pm/sbom-sources.json: %w", err)
+	}
+	if nativeChecked(img.GetName()) {
+		set.ProducedFiles, set.ProducedSymlinks, err = nativeProducedEntries(ctx, provenance, views)
+		if err != nil {
+			return nil, err
+		}
 	}
 	set.BuildGitSources = [][]nativegate.GitSource{}
 	for _, snapshot := range provenance.Snapshots {
@@ -258,7 +297,7 @@ func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildima
 	if err != nil {
 		return err
 	}
-	if !sbomImage.IsScratchRef(img.GetBaseImageReference()) && img.GetBaseImageReference() != "" {
+	if !nativeChecked(img.GetName()) && !sbomImage.IsScratchRef(img.GetBaseImageReference()) && img.GetBaseImageReference() != "" {
 		base, err := phase.collectBaseImageSbom(ctx, img)
 		if err != nil {
 			return err
@@ -280,6 +319,11 @@ func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildima
 			return err
 		}
 	}
+	for _, bom := range imports.ExportBOMs {
+		if err := packages.IncludeExport(ctx, bom, []nativegate.Original{}, img.TargetPlatform, trusted); err != nil {
+			return err
+		}
+	}
 	packages.Originals = append(packages.Originals, imports.Originals...)
 	maps.Copy(packages.Symlinks, imports.Symlinks)
 	if stg.Name() != stage.BeforeInstall {
@@ -290,11 +334,13 @@ func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildima
 		packages.Originals = append(packages.Originals, gitOriginals...)
 		maps.Copy(packages.Symlinks, gitLinks)
 	}
-	baseLinks, err := phase.nativeBaseLinks(ctx, img)
-	if err != nil {
-		return err
+	if !nativeChecked(img.GetName()) {
+		baseLinks, err := phase.nativeBaseLinks(ctx, img)
+		if err != nil {
+			return err
+		}
+		maps.Copy(packages.Symlinks, baseLinks)
 	}
-	maps.Copy(packages.Symlinks, baseLinks)
 	cfg, err := saved.ConfigFile()
 	if err != nil {
 		return err
@@ -364,6 +410,7 @@ type nativeImportedSources struct {
 	Originals  []nativegate.Original
 	Components []cdx.Component
 	BOMs       []*cdx.BOM
+	ExportBOMs []*cdx.BOM
 	Symlinks   map[string]string
 }
 
@@ -389,6 +436,7 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 	var result []nativegate.Original
 	var components []cdx.Component
 	var boms []*cdx.BOM
+	var exportBOMs []*cdx.BOM
 	symlinks := map[string]string{}
 	for position, snapshot := range provenance.Snapshots {
 		stg := img.GetStage(snapshot.Stage)
@@ -427,9 +475,13 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 				return nativeImportedSources{}, fmt.Errorf("%s: no-data: import image %s missing", directive.Add, directive.From)
 			}
 			bootstrap := !directive.ExternalImage && nativeBootstrap(directive.From)
+			checked := !directive.ExternalImage && nativeChecked(directive.From)
+			if bootstrap && nativeChecked(img.GetName()) {
+				continue
+			}
 			var bom *cdx.BOM
 			var originals []nativegate.Original
-			if !bootstrap {
+			if !bootstrap && !checked {
 				bom, err = phase.sbomStep.pullImageSbom(ctx, lookup, info)
 				if err != nil {
 					return nativeImportedSources{}, fmt.Errorf("%s: import %s has no SBOM: %w", directive.Add, directive.From, err)
@@ -447,8 +499,36 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 			if err != nil {
 				return nativeImportedSources{}, err
 			}
-			sourceIndex, indexErr := shippedscope.IndexImageFiles(ctx, sourceImage)
-			cleanup()
+			scope := nativegate.ImportScope{Backend: backend, FromPath: directive.Add, ToPath: directive.To, IncludePaths: directive.IncludePaths, ExcludePaths: directive.ExcludePaths}
+			before, after := views[provenance.Snapshots[position-1].LayerCount].Index, views[snapshot.LayerCount].Index
+			sourceIndex, indexErr := func() (*shippedscope.FileIndex, error) {
+				defer cleanup()
+				index, err := shippedscope.IndexImageFiles(ctx, sourceImage)
+				if err != nil || !checked {
+					return index, err
+				}
+				var candidates []nativegate.Original
+				for name := range index.Files {
+					candidates = append(candidates, nativegate.Original{Path: name, SourcePath: name})
+				}
+				for name := range index.Symlinks {
+					candidates = append(candidates, nativegate.Original{Path: name, SourcePath: name})
+				}
+				projected, err := nativegate.ProjectImageOriginals(ctx, candidates, index, before, after, scope)
+				if err != nil {
+					return nil, err
+				}
+				paths := make([]string, 0, len(projected))
+				for _, file := range projected {
+					paths = append(paths, file.SourcePath)
+				}
+				bom, err = phase.nativeCheckedExport(ctx, phase.Conveyor.GetImage(img.TargetPlatform, directive.From), sourceImage, paths)
+				if err != nil {
+					return nil, err
+				}
+				originals, err = nativegate.ImageExportOriginals(ctx, bom, img.TargetPlatform)
+				return index, err
+			}()
 			if indexErr != nil {
 				return nativeImportedSources{}, indexErr
 			}
@@ -459,23 +539,27 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 				}
 			}
 
-			projected, err := nativegate.ProjectImageOriginals(ctx, originals, sourceIndex, views[provenance.Snapshots[position-1].LayerCount].Index, views[snapshot.LayerCount].Index, nativegate.ImportScope{Backend: backend, FromPath: directive.Add, ToPath: directive.To, IncludePaths: directive.IncludePaths, ExcludePaths: directive.ExcludePaths})
+			projected, err := nativegate.ProjectImageOriginals(ctx, originals, sourceIndex, before, after, scope)
 			if err != nil {
 				return nativeImportedSources{}, err
 			}
 			result = append(result, projected...)
-			links, err := nativegate.ProjectImageSymlinks(ctx, sourceIndex, views[provenance.Snapshots[position-1].LayerCount].Index, views[snapshot.LayerCount].Index, nativegate.ImportScope{Backend: backend, FromPath: directive.Add, ToPath: directive.To, IncludePaths: directive.IncludePaths, ExcludePaths: directive.ExcludePaths})
+			links, err := nativegate.ProjectImageSymlinks(ctx, sourceIndex, before, after, scope)
 			if err != nil {
 				return nativeImportedSources{}, err
 			}
 			maps.Copy(symlinks, links)
 			if bom != nil {
 				components = append(components, (*bom.Components)...)
-				boms = append(boms, bom)
+				if checked {
+					exportBOMs = append(exportBOMs, bom)
+				} else {
+					boms = append(boms, bom)
+				}
 			}
 		}
 	}
-	return nativeImportedSources{Originals: result, Components: components, BOMs: boms, Symlinks: symlinks}, nil
+	return nativeImportedSources{Originals: result, Components: components, BOMs: boms, ExportBOMs: exportBOMs, Symlinks: symlinks}, nil
 }
 
 func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage.Image, base *cdx.BOM, external BOMPatcherInterface, gostConfig gost.Config, signer signature.Signer, signerIdentity string) error {

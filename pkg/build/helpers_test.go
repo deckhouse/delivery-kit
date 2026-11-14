@@ -50,6 +50,7 @@ import (
 	imagePkg "github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/opstats"
 	"github.com/werf/werf/v3/pkg/sbom/jsobserver"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	"github.com/werf/werf/v3/pkg/storage"
 	"github.com/werf/werf/v3/pkg/storage/manager"
@@ -58,6 +59,23 @@ import (
 	"github.com/werf/werf/v3/pkg/werf"
 	"github.com/werf/werf/v3/test/pkg/utils"
 )
+
+func nativeStageSnapshot(files map[string]string) *shippedscope.ImageSnapshot {
+	view := &shippedscope.ImageSnapshot{Index: &shippedscope.FileIndex{Files: map[string]shippedscope.File{}, Directories: map[string]struct{}{}, Symlinks: map[string]string{}}, Bodies: map[string][]byte{}}
+	for name, body := range files {
+		view.Index.Files[name] = shippedscope.File{Digest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(body))), Size: int64(len(body))}
+		view.Bodies[name] = []byte(body)
+	}
+	return view
+}
+
+func nativeNoDataPMCommand() nativegate.ReadPackageSourcesOptions {
+	ginkgo.GinkgoHelper()
+	body := []byte("#!/bin/sh\nprintf 'no-data\\n' >&2\nexit 2\n")
+	filename := filepath.Join(ginkgo.GinkgoT().TempDir(), "pm")
+	gomega.Expect(os.WriteFile(filename, body, 0o700)).To(gomega.Succeed())
+	return nativegate.ReadPackageSourcesOptions{Binary: filename, SHA256: fmt.Sprintf("%x", sha256.Sum256(body))}
+}
 
 func newSBOMStageOrderImage(ctx context.Context) *buildImage.Image {
 	tmpDir, homeDir := ginkgo.GinkgoT().TempDir(), ginkgo.GinkgoT().TempDir()

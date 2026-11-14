@@ -34,6 +34,10 @@ func excludeServiceFiles(index *shippedscope.FileIndex) {
 }
 
 func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
+	return readFilesystemScope(ctx, img, nil)
+}
+
+func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]bool) (*filesystem, error) {
 	index, err := shippedscope.IndexImageFiles(ctx, img)
 	if err != nil {
 		return nil, err
@@ -42,9 +46,13 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		return nil, fmt.Errorf("incomplete image index")
 	}
 	outsideDigests := map[string]bool{}
+	fullDigests := map[string]bool{}
 	for name, file := range index.Files {
-		if !servicePath(name) {
+		if !servicePath(name) && (selected == nil || selected[name]) {
 			outsideDigests[file.Digest] = true
+			if binaryName(name) {
+				fullDigests[file.Digest] = true
+			}
 		}
 	}
 	fs := &filesystem{index: index, bodies: map[string][]byte{}, executable: map[string]bool{}}
@@ -67,6 +75,9 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		if !ok {
 			continue
 		}
+		if selected != nil && !outsideDigests[entry.Digest] {
+			continue
+		}
 		if servicePath(name) && !outsideDigests[entry.Digest] {
 			continue
 		}
@@ -84,7 +95,7 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		// A name the suffix guard recognizes is judged on its whole body too: the text
 		// a toolchain installs under a library name is only text if no byte of it says
 		// otherwise, and a prefix cannot say that.
-		full := servicePath(name) || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
+		full := fullDigests[entry.Digest] || servicePath(name) || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
 		if full {
 			if h.Size > 512<<20 {
 				return nil, fmt.Errorf("%s: file exceeds supported inspection limit", name)
@@ -103,7 +114,7 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		fs.executable[name] = h.Mode&0o111 != 0
 	}
 	for name, entry := range index.Files {
-		if servicePath(name) {
+		if servicePath(name) || (selected != nil && !selected[name]) {
 			continue
 		}
 		if _, ok := fs.bodies[name]; ok {

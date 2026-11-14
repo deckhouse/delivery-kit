@@ -18,9 +18,26 @@ import (
 const (
 	verificationProperty = "dk:verification"
 	verifiedImage        = "instrumented-v1"
+	verifiedExport       = "instrumented-export-v1"
 )
 
 func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptions) error {
+	return verify(ctx, img, target, opts, nil)
+}
+
+// VerifyExport verifies only selected producer outputs. Its export marker cannot certify the producer image or its runtime closure.
+func VerifyExport(ctx context.Context, img v1.Image, target *cdx.BOM, paths []string, opts VerifyOptions) error {
+	selected := map[string]bool{}
+	for _, name := range paths {
+		if !path.IsAbs(name) || path.Clean(name) != name {
+			return fmt.Errorf("%s: invalid export path", name)
+		}
+		selected[name] = true
+	}
+	return verify(ctx, img, target, opts, selected)
+}
+
+func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptions, selected map[string]bool) error {
 	if opts.Platform != "linux/amd64" && opts.Platform != "linux/arm64" {
 		return fmt.Errorf("unsupported platform %s", opts.Platform)
 	}
@@ -39,12 +56,43 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	if cfg.OS+"/"+cfg.Architecture != opts.Platform {
 		return fmt.Errorf("image platform %s/%s differs from %s", cfg.OS, cfg.Architecture, opts.Platform)
 	}
-	fs, err := readFilesystem(ctx, img)
+	fs, err := readFilesystemScope(ctx, img, selected)
 	if err != nil {
 		return fmt.Errorf("read image filesystem: %w", err)
 	}
+	if selected != nil {
+		for name := range selected {
+			_, file := fs.index.Files[name]
+			_, link := fs.index.Symlinks[name]
+			if !file && !link {
+				return fmt.Errorf("%s: no-data: selected export missing", name)
+			}
+		}
+	}
 	if err := verifySymlinkOriginals(fs, opts.ExpectedSymlinks); err != nil {
 		return err
+	}
+	if selected != nil {
+		knownLinks := map[string]string{}
+		for name, target := range opts.ExpectedSymlinks {
+			parent, err := resolvePath(fs, path.Dir(name))
+			if err != nil {
+				return err
+			}
+			knownLinks[path.Join(parent, path.Base(name))] = target
+		}
+		for name := range selected {
+			target, link := fs.index.Symlinks[name]
+			if !link {
+				continue
+			}
+			if expected, known := knownLinks[name]; known && expected == target {
+				continue
+			}
+			if expected, produced := opts.ProducedSymlinks[name]; !produced || expected != target || !userFile(name, opts.UserRoots) {
+				return fmt.Errorf("%s: no-data: symlink export has no original or own producing stage", name)
+			}
+		}
 	}
 
 	originals := make(map[string]Original)
@@ -71,6 +119,14 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		resolved, err := resolveRegularOriginal(fs, original.Path)
 		if err != nil {
 			return err
+		}
+		if selected != nil && original.Kind == "git" {
+			if file, exists := fs.index.Files[resolved]; exists && file.Digest != original.SHA256 {
+				return fmt.Errorf("%s: hash-mismatch: git original changed", resolved)
+			}
+		}
+		if selected != nil && !selected[resolved] {
+			continue
 		}
 		if previous, exists := originals[resolved]; exists && (previous.SHA256 != original.SHA256 || previous.Component.BOMRef != original.Component.BOMRef) {
 			if original.Kind == "bootstrap" && previous.Kind != "bootstrap" && previous.SHA256 == original.SHA256 {
@@ -102,6 +158,9 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	}
 	present := make(map[string]Record)
 	for _, name := range slices.Sorted(maps.Keys(fs.index.Files)) {
+		if selected != nil && !selected[name] {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -165,6 +224,9 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		case native:
 			record.Origin = "build"
 		case userFile(name, opts.UserRoots):
+			if selected != nil && opts.ProducedFiles[name] != file.Digest {
+				return fmt.Errorf("%s: no-data: export is not from a producing stage", name)
+			}
 			ref := "urn:dk:generated:" + opts.Subject
 			component, err := embeddedComponent(shared.BuildComponent{ID: "app", Name: opts.Subject, Version: "unspecified", Source: shared.BuildSource{Kind: "declared", Locator: "dk:image:" + opts.Subject}})
 			if err != nil {
@@ -181,15 +243,18 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		}
 		present[name] = record
 	}
-	for _, env := range cfg.Config.Env {
-		key, value, _ := strings.Cut(env, "=")
-		if value != "" && slices.Contains([]string{"LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT"}, key) {
-			return fmt.Errorf("unsupported dynamic loader environment %s", key)
+	edges := map[string][]string{}
+	if selected == nil {
+		for _, env := range cfg.Config.Env {
+			key, value, _ := strings.Cut(env, "=")
+			if value != "" && slices.Contains([]string{"LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT"}, key) {
+				return fmt.Errorf("unsupported dynamic loader environment %s", key)
+			}
 		}
-	}
-	edges, _, err := runtimeDependencies(fs, present, false)
-	if err != nil {
-		return err
+		edges, _, err = runtimeDependencies(fs, present, false)
+		if err != nil {
+			return err
+		}
 	}
 	if err := catalog.writeBOM(present, edges, target); err != nil {
 		return err
@@ -199,9 +264,17 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	}
 	properties := []cdx.Property{}
 	if target.Metadata.Properties != nil {
-		properties = *target.Metadata.Properties
+		for _, property := range *target.Metadata.Properties {
+			if property.Name != verificationProperty && property.Name != "dk:platform" {
+				properties = append(properties, property)
+			}
+		}
 	}
-	properties = append(properties, cdx.Property{Name: verificationProperty, Value: verifiedImage}, cdx.Property{Name: "dk:platform", Value: opts.Platform})
+	marker := verifiedImage
+	if selected != nil {
+		marker = verifiedExport
+	}
+	properties = append(properties, cdx.Property{Name: verificationProperty, Value: marker}, cdx.Property{Name: "dk:platform", Value: opts.Platform})
 	target.Metadata.Properties = &properties
 	return nil
 }
@@ -250,6 +323,10 @@ func sourceIdentity(source shared.BuildSource) string {
 }
 
 func ValidateImageSource(ctx context.Context, filename, kind string, bom *cdx.BOM, platform string) error {
+	return validateSource(ctx, filename, kind, bom, platform, verifiedImage)
+}
+
+func validateSource(ctx context.Context, filename, kind string, bom *cdx.BOM, platform, marker string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -258,7 +335,7 @@ func ValidateImageSource(ctx context.Context, filename, kind string, bom *cdx.BO
 	}
 	verified, matched := false, false
 	for _, property := range *bom.Metadata.Properties {
-		if property.Name == verificationProperty && property.Value == verifiedImage {
+		if property.Name == verificationProperty && property.Value == marker {
 			verified = true
 		}
 		if property.Name == "dk:platform" && property.Value == platform {

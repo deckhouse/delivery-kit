@@ -23,11 +23,13 @@ import (
 )
 
 type PackageSet struct {
-	BuildGitSources [][]GitSource
-	resolved        []*resolvedSource
-	Originals       []Original
-	Components      []cdx.Component
-	Symlinks        map[string]string
+	ProducedFiles    map[string]string
+	ProducedSymlinks map[string]string
+	BuildGitSources  [][]GitSource
+	resolved         []*resolvedSource
+	Originals        []Original
+	Components       []cdx.Component
+	Symlinks         map[string]string
 }
 
 type ContextOptions struct {
@@ -42,6 +44,17 @@ func (set *PackageSet) IncludeImage(ctx context.Context, bom *cdx.BOM, originals
 	if err := ValidateImageSource(ctx, "/", "source", bom, platform); err != nil {
 		return err
 	}
+	return set.includeSource(ctx, bom, originals, platform, trusted)
+}
+
+func (set *PackageSet) IncludeExport(ctx context.Context, bom *cdx.BOM, originals []Original, platform string, trusted TrustedPackages) error {
+	if err := validateSource(ctx, "/", "export", bom, platform, verifiedExport); err != nil {
+		return err
+	}
+	return set.includeSource(ctx, bom, originals, platform, trusted)
+}
+
+func (set *PackageSet) includeSource(ctx context.Context, bom *cdx.BOM, originals []Original, platform string, trusted TrustedPackages) error {
 	receipt := &sources.Receipt{Version: sources.Version, Sources: []sources.Source{}}
 	seenSources := map[string]bool{}
 	for _, component := range *bom.Components {

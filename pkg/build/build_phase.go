@@ -705,7 +705,7 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 }
 
 func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
-	if img.StapelImageConfig != nil && nativeBootstrap(img.GetName()) {
+	if img.StapelImageConfig != nil && (nativeBootstrap(img.GetName()) || nativeChecked(img.GetName())) {
 		return validateNativeBootstrap(img)
 	}
 	stageDesc := img.GetLastNonEmptyStageDesc()
@@ -1269,7 +1269,7 @@ func (phase *BuildPhase) logContentAnchorReuse(ctx context.Context, img *image.I
 
 func (phase *BuildPhase) AfterImageStages(ctx context.Context, img *image.Image) error {
 	img.SetLastNonEmptyStage(phase.StagesIterator.PrevNonEmptyStage)
-	if phase.Conveyor.EnableSbom() && img.StapelImageConfig != nil && !nativeBootstrap(img.GetName()) {
+	if phase.Conveyor.EnableSbom() && img.StapelImageConfig != nil && !nativeBootstrap(img.GetName()) && !nativeChecked(img.GetName()) {
 		if err := phase.convergeImageSbom(ctx, img.GetName(), []*image.Image{img}, phase.sbomFailures.Breaker()); err != nil {
 			return fmt.Errorf("verify completed image %s: %w", img.GetName(), err)
 		}

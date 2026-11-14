@@ -3,6 +3,7 @@ package nativegate
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"debug/elf"
@@ -167,6 +168,35 @@ func fixtureImageWithLinkTypes(files map[string][]byte, links, hardlinks map[str
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	cfg.OS, cfg.Architecture = "linux", "amd64"
 	img, err = mutate.ConfigFile(img, cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return img
+}
+
+type fixtureZeroReader struct{}
+
+var _ io.Reader = fixtureZeroReader{}
+
+func (fixtureZeroReader) Read(body []byte) (int, error) {
+	clear(body)
+	return len(body), nil
+}
+
+func fixtureImageWithLargeFile(name string, prefix []byte, mode int64) v1.Image {
+	ginkgo.GinkgoHelper()
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	w := tar.NewWriter(gz)
+	size := int64(512<<20) + 1
+	gomega.Expect(w.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Mode: mode, Size: size})).To(gomega.Succeed())
+	_, err := w.Write(prefix)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	_, err = io.CopyN(w, fixtureZeroReader{}, size-int64(len(prefix)))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(w.Close()).To(gomega.Succeed())
+	gomega.Expect(gz.Close()).To(gomega.Succeed())
+	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(compressed.Bytes())), nil })
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	img, err := mutate.AppendLayers(fixtureImage(map[string][]byte{"/out/file": []byte("generated")}), layer)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return img
 }

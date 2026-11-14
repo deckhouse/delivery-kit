@@ -34,6 +34,11 @@ import (
 )
 
 var _ = ginkgo.Describe("native SBOM cache", func() {
+	ginkgo.It("rejects a producer listed as both checked and bootstrap", func() {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "producer")
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_BOOTSTRAP_IMAGES", "producer")
+		gomega.Expect(validateNativeBootstrap(&buildimage.Image{Name: "producer"})).To(gomega.MatchError(gomega.ContainSubstring("both checked and bootstrap")))
+	})
 	ginkgo.It("rejects a checked producer marked final", func() {
 		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
 		ginkgo.GinkgoT().Setenv("WERF_SBOM_BOOTSTRAP_IMAGES", "")

@@ -12,6 +12,17 @@ func ImageOriginals(ctx context.Context, bom *cdx.BOM, platform string) ([]Origi
 	if err := ValidateImageSource(ctx, "/", "source", bom, platform); err != nil {
 		return nil, err
 	}
+	return imageOriginals(bom)
+}
+
+func ImageExportOriginals(ctx context.Context, bom *cdx.BOM, platform string) ([]Original, error) {
+	if err := validateSource(ctx, "/", "export", bom, platform, verifiedExport); err != nil {
+		return nil, err
+	}
+	return imageOriginals(bom)
+}
+
+func imageOriginals(bom *cdx.BOM) ([]Original, error) {
 	components := map[string]cdx.Component{}
 	for _, component := range *bom.Components {
 		components[component.BOMRef] = component

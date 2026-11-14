@@ -8,6 +8,9 @@ build:
 image: gen
 final: false
 from: scratch
+imageSpec:
+  config:
+    workingDir: /out
 git:
   - add: /data
     to: /gen-src

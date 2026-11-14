@@ -11,16 +11,11 @@ from: scratch
 git:
   - add: /data
     to: /gen-src
-shell:
-  install:
-    - /.werf/stapel/embedded/bin/mkdir -p /out
-    - printf "#!/bin/sh\n\177ELF\002\001\001\000\000\000\000\000\000\000\000\000" > /out/run.sh
-    - /.werf/stapel/embedded/bin/chmod +x /out/run.sh
 ---
 image: app
 from: scratch
 import:
   - image: gen
-    add: /out
+    add: /gen-src
     to: /app
     after: install

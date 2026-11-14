@@ -25,6 +25,7 @@
 # Own WERF_HOME with auto host cleanup off (nothing of another job on the host is touched); one build
 # at a time, nice 10. Needs go (to build the ELF) and docker.
 set -uo pipefail
+bad=0 # RED / SETUP FAILED / unpinned / outside-the-gate results: a non-zero exit of the runner (ALLOW_UNPINNED=1 tolerates unpinned patterns)
 : "${DK:?Delivery Kit werf binary}" "${PM:?pm binary}" "${STAGE_REPO:?stage repository prefix}" "${STOCK_EMPTY:?empty stock image by digest}" "${STOCK_BASE:?non-empty stock image by digest}" "${OUT:?output directory}"
 fixtures=$(cd "$(dirname "$0")/../_fixtures/increment1" && pwd)
 mkdir -p "$OUT/tmp"
@@ -44,7 +45,7 @@ run() { # name fixture BASE BASE_NO_SBOM BASE_NO_SBOM_EMPTY; ONLY=<regex of case
     mkdir -p "$d/gen" && printf 'package main\n\nfunc main() {}\n' > "$d/gen/main.go" && printf 'module prebuilt\n\ngo 1.22\n' > "$d/gen/go.mod"
     mkdir -p "$d/prebuilt"
     (cd "$d/gen" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$d/prebuilt/tool" .) && rm -rf "$d/gen"
-    [ -s "$d/prebuilt/tool" ] || { echo "== $name: SETUP FAILED: $d/prebuilt/tool was not built"; return 0; }
+    [ -s "$d/prebuilt/tool" ] || { echo "== $name: SETUP FAILED: $d/prebuilt/tool was not built"; bad=1; return 0; }
   fi
   (cd "$d" && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm i)
   (cd "$d" && WERF_REPO=$STAGE_REPO/$name timeout 420 nice -n 10 "$DK" build >"$OUT/$name.log" 2>&1; echo "exit=$?" >>"$OUT/$name.log")
@@ -64,7 +65,10 @@ expect() {
   local got=pass; grep -q '^exit=0$' "$OUT/$1.log" || got=refuse
   # A build that failed in the recipe (e.g. a read-only service directory) is not a refusal by the gate.
   if [ "$got" = refuse ] && { grep -q 'container run failed' "$OUT/$1.log" || ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; }; then got="failed-outside-the-gate"; fi
-  if [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"; else echo "   $1: expected $2, got $got: RED"; fi
+  if [ "$got" = "$2" ] && [ "${3:-}" = "." ] && [ "${ALLOW_UNPINNED:-0}" != 1 ]; then
+    echo "   $1: expected $2, got $got: UNPINNED (any failure but a recipe failure; pin the gate's wording first)"; bad=1
+  elif [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"
+  else echo "   $1: expected $2, got $got: RED"; bad=1; fi
 }
 run service-path-written service-path-written scratch x x
 expect service-path-written refuse
@@ -150,7 +154,7 @@ checked() { # name expected(refuse|pass) pattern-or-sbom-path
     # An accepted export must show up in the SBOM; a gate that silently drops the file would still exit 0.
     if grep -q '^exit=0$' "$OUT/$1.log" 2>/dev/null; then
       (cd "$OUT/$1" && WERF_SBOM_CHECKED_IMAGES=gen WERF_REPO=$STAGE_REPO/$1 "$DK" sbom get app >"$OUT/$1.sbom.json" 2>"$OUT/$1.sbom.err")
-      if grep -q -F "$3" "$OUT/$1.sbom.json" 2>/dev/null; then echo "   $1: $3 in the SBOM: OK"; else echo "   $1: $3 in the SBOM: RED (absent)"; fi
+      if grep -q -F "$3" "$OUT/$1.sbom.json" 2>/dev/null; then echo "   $1: $3 in the SBOM: OK"; else echo "   $1: $3 in the SBOM: RED (absent)"; bad=1; fi
     fi
   else
     # refusal of any kind except a recipe failure (container run failed) and a missing log; the gate's own wording is pinned after the first run
@@ -163,5 +167,7 @@ checked checked-text pass /app/config.h
 checked checked-git-modified refuse 'hash-mismatch'
 checked checked-elf refuse
 checked checked-binary refuse
+# V1 on COMMITTED executable git scripts (variant A: only non-executable text can be generated): a git original with a BEL is text
 checked checked-script-bel pass /app/run.sh
 checked checked-script-elf refuse
+exit "$bad"

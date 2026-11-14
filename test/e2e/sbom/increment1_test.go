@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -69,7 +70,7 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 				}
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				if header.Size > 0 {
-					filename := "/" + strings.TrimPrefix(header.Name, "/")
+					filename := path.Clean("/" + header.Name)
 					gomega.Expect(filename).NotTo(gomega.HavePrefix("/go-cache/"))
 					gomega.Expect(filename).NotTo(gomega.HavePrefix("/tmp-cache/"))
 				}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"al.essio.dev/pkg/shellescape"
@@ -19,7 +20,10 @@ import (
 	"github.com/werf/werf/v3/pkg/stapel"
 )
 
-var _ LegacyContainer = (*LegacyStageImageContainer)(nil)
+var (
+	_ LegacyContainer          = (*LegacyStageImageContainer)(nil)
+	_ SBOMServiceFilesProvider = (*LegacyStageImageContainer)(nil)
+)
 
 type LegacyStageImageContainer struct {
 	prepareImports             func(context.Context) ([]string, error)
@@ -35,6 +39,7 @@ type LegacyStageImageContainer struct {
 	serviceCommitChangeOptions *LegacyStageImageContainerOptions
 	inheritedCommitOptions     *LegacyStageImageContainerOptions
 	buildTimeEnv               map[string]string
+	sbomServiceFiles           []string
 }
 
 func newLegacyStageImageContainer(img *LegacyStageImage) *LegacyStageImageContainer {
@@ -46,6 +51,18 @@ func newLegacyStageImageContainer(img *LegacyStageImage) *LegacyStageImageContai
 	c.serviceCommitChangeOptions = newLegacyStageContainerOptions()
 	c.buildTimeEnv = make(map[string]string)
 	return c
+}
+
+// SBOMServiceFiles lists the file mount points werf itself created for the container (the ssh agent socket). Paths mounted by
+// the user and the directory mount of the legacy shell builder are not listed.
+func (c *LegacyStageImageContainer) SBOMServiceFiles(_ context.Context) []string {
+	return slices.Clone(c.sbomServiceFiles)
+}
+
+func (c *LegacyStageImageContainer) addSBOMServiceFile(path string) {
+	if !slices.Contains(c.sbomServiceFiles, path) {
+		c.sbomServiceFiles = append(c.sbomServiceFiles, path)
+	}
 }
 
 func (c *LegacyStageImageContainer) Name() string {

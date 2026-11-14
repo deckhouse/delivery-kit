@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -97,4 +98,11 @@ type hostCleanupBuildah struct {
 
 func (b *hostCleanupBuildah) RunCommand(ctx context.Context, container string, command []string, opts buildah.RunCommandOpts) error {
 	return b.runCommand(ctx, container, command, opts)
+}
+
+func expectedSSHMountPoint() string {
+	if runtime.GOOS == "darwin" {
+		return "/run/host-services/ssh-auth.sock"
+	}
+	return "/.werf/tmp/ssh-auth-sock"
 }

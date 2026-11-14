@@ -89,6 +89,14 @@ func byteCountBinary(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
+const ServiceScriptPath = "/.werf/script.sh"
+
+// SBOMServiceFilesProvider reports the file mount points that werf itself created for a stage container and that may stay in
+// the layer as empty files. A path mounted by the user is never listed, even if it names the same target; directories are not.
+type SBOMServiceFilesProvider interface {
+	SBOMServiceFiles(ctx context.Context) []string
+}
+
 func setSSHMountPoint(sshAuthSock string) (string, map[string]string) {
 	var vol string
 	env := make(map[string]string)

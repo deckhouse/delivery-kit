@@ -1,5 +1,7 @@
 package container_backend
 
+import "github.com/werf/werf/v3/pkg/ssh_agent"
+
 type LegacyStageImageBuilderContainer struct{ image *LegacyStageImage }
 
 func (c *LegacyStageImageBuilderContainer) AddRunCommands(commands ...string) {
@@ -41,4 +43,5 @@ func (c *LegacyStageImageBuilderContainer) MountSSHAgentSocket(sshAuthSock strin
 	vol, env := setSSHMountPoint(sshAuthSock)
 	c.AddVolume(vol)
 	c.AddBuildTimeEnv(env)
+	c.image.container.addSBOMServiceFile(env[ssh_agent.SSHAuthSockEnv])
 }

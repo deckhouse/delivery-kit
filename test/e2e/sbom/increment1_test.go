@@ -35,7 +35,7 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 		reportPath := SuiteData.GetBuildReportPath("increment1-mounts.json")
 		project := werf.NewProject(SuiteData.WerfBinPath, repo)
 		project.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--platform=linux/amd64", "--save-build-report", "--build-report-path=" + reportPath}}})
-		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{}))
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}}}))
 		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/output")))
 		for _, component := range lo.FromPtr(bom.Components) {
 			gomega.Expect(component.Name).NotTo(gomega.HavePrefix("/go-cache/"))

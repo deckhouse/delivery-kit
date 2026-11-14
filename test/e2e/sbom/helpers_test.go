@@ -868,6 +868,21 @@ func startSSHAgent() {
 	Expect(err).NotTo(HaveOccurred(), string(out))
 	match := regexp.MustCompile(`SSH_AGENT_PID=(\d+)`).FindSubmatch(out)
 	Expect(match).NotTo(BeNil(), "ssh-agent printed no pid: %s", out)
-	DeferCleanup(func() { _ = exec.Command("kill", string(match[1])).Run() })
+	DeferCleanup(func() { Expect(exec.Command("kill", string(match[1])).Run()).To(Succeed()) })
 	SuiteData.Stubs.SetEnv("SSH_AUTH_SOCK", socket)
+}
+
+// scratchStand is the stand of the specs that need only the pm binary: the base is literal scratch, no index.
+func scratchStand() *stand {
+	GinkgoHelper()
+	s := requireStand()
+	s.values["BASE"] = "scratch"
+	return s
+}
+
+// prebuiltELF adds a stock ELF (no record) to prebuilt/ of the fixture repository.
+func prebuiltELF(repo string) {
+	GinkgoHelper()
+	Expect(os.MkdirAll(filepath.Join(repo, "prebuilt"), 0o755)).To(Succeed())
+	writeStockELF("prebuilt/tool")(repo)
 }

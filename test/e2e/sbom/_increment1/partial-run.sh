@@ -117,7 +117,8 @@ agent_dir=$(mktemp -d "$OUT/agent.XXXXXX"); eval "$(ssh-agent -a "$agent_dir/soc
 SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent scratch x x
 kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"
 expect service-path-ssh-agent pass
-# The mounted cache contents must be in neither the published image nor its SBOM (spec of the cache-mounts fixture).
+# The mounted cache contents must be in neither the published image nor its SBOM (spec of the cache-mounts fixture). Only a NON-EMPTY file under
+# /go-cache/ or /tmp-cache/ counts as a leak (as in the Ginkgo spec): an empty file or directory there would not be flagged.
 if selected cache-mounts && grep -q '^exit=0$' "$OUT/cache-mounts.log" 2>/dev/null; then
   (cd "$OUT/cache-mounts" && WERF_REPO=$STAGE_REPO/cache-mounts "$DK" build --save-build-report --build-report-path "$OUT/cache-mounts.report.json" >>"$OUT/cache-mounts.log" 2>&1 &&
     WERF_REPO=$STAGE_REPO/cache-mounts "$DK" sbom get app >"$OUT/cache-mounts.sbom.json" 2>>"$OUT/cache-mounts.log") || { echo "   cache-mounts: report/sbom commands FAILED"; bad=1; }

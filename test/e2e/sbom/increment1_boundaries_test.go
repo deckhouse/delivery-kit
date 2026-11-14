@@ -1,7 +1,6 @@
 package e2e_build_test
 
 import (
-	"os"
 	"path/filepath"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -15,21 +14,10 @@ import (
 
 // Boundaries of the verification that need only the pm binary and a scratch base (WERF_TEST_I1_PM_BINARY, WERF_TEST_I1_PM_SHA256):
 // checked build-environment images (WERF_SBOM_CHECKED_IMAGES=gen) and the /.werf service directories. The refusal wording is the
-// one of pkg/build/sbom_native.go and pkg/sbom/nativegate; the exporter reasons of the checked producer that are not pinned yet are
-// matched by the common prefix "verify export from checked image gen" and the fixture is the proof of the case.
+// one of pkg/build/sbom_native.go, pkg/sbom/nativegate and the checked exporter; the paths in the export refusals are those of the
+// file in the checked image (/out for generated files, the git mapping /gen-src for git files) and are to be confirmed on the first run.
 var _ = ginkgo.Describe("SBOM increment 1: checked images and service directories", ginkgo.Label("e2e", "sbom", "increment1"), func() {
 	const exportPrefix = "verify export from checked image gen"
-
-	// scratchStand is the stand of these specs: the base is literal scratch, no index.
-	scratchStand := func() *stand {
-		s := requireStand()
-		s.values["BASE"] = "scratch"
-		return s
-	}
-	prebuiltELF := func(repo string) {
-		gomega.Expect(os.MkdirAll(filepath.Join(repo, "prebuilt"), 0o755)).To(gomega.Succeed())
-		writeStockELF("prebuilt/tool")(repo)
-	}
 
 	type refusal struct {
 		fixture string
@@ -40,11 +28,11 @@ var _ = ginkgo.Describe("SBOM increment 1: checked images and service directorie
 	refusals := map[string]refusal{
 		"a checked image that is final":                      {fixture: "increment1/checked-final", checked: true, wants: []string{"checked image gen cannot be final"}},
 		"a strict image built from a checked image":          {fixture: "increment1/checked-from", checked: true, wants: []string{"checked image gen cannot be used as from for strict image app"}},
-		"an export of a git file changed in the checked one": {fixture: "increment1/checked-git-modified", checked: true, wants: []string{exportPrefix, "hash-mismatch: git original changed"}},
-		"an export of an ELF without a record":               {fixture: "increment1/checked-elf", checked: true, prepare: prebuiltELF, wants: []string{exportPrefix, "missing sbom metadata"}},
-		"an export of non-text data":                         {fixture: "increment1/checked-binary", checked: true, wants: []string{exportPrefix}},
-		"an export of a generated executable file":           {fixture: "increment1/checked-generated-exec", checked: true, wants: []string{exportPrefix}},
-		"an export of a git script with an ELF payload":      {fixture: "increment1/checked-script-elf", checked: true, wants: []string{exportPrefix}},
+		"an export of a git file changed in the checked one": {fixture: "increment1/checked-git-modified", checked: true, wants: []string{exportPrefix, "/gen-src/config.txt", "hash-mismatch: git original changed"}},
+		"an export of an ELF without a record":               {fixture: "increment1/checked-elf", checked: true, prepare: prebuiltELF, wants: []string{exportPrefix, "/gen-src/tool", "missing sbom metadata"}},
+		"an export of non-text data":                         {fixture: "increment1/checked-binary", checked: true, wants: []string{exportPrefix, "/out/blob.bin", "generated export must be non-executable text"}},
+		"an export of a generated executable file":           {fixture: "increment1/checked-generated-exec", checked: true, wants: []string{exportPrefix, "/out/tool.sh", "generated export must be non-executable text"}},
+		"an export of a git script with an ELF payload":      {fixture: "increment1/checked-script-elf", checked: true, wants: []string{exportPrefix, "/gen-src/run.sh", "unsupported binary format"}},
 		"a user file under /.werf/user":                      {fixture: "increment1/service-path-written", wants: []string{"/.werf/user/payload.txt: no-data: file has no trusted original"}},
 		"a user file under /.werf/scripts":                   {fixture: "increment1/service-path-dir-scripts", wants: []string{"/.werf/scripts/payload.txt: no-data: file has no trusted original"}},
 	}
@@ -72,7 +60,18 @@ var _ = ginkgo.Describe("SBOM increment 1: checked images and service directorie
 		project.Build(ctx, &werf.BuildOptions{})
 		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}}}))
 		gomega.Expect(lo.FromPtr(bom.Metadata.Properties)).To(gomega.ContainElement(cdx.Property{Name: "dk:verification", Value: "instrumented-v1"}))
-		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:verification", Value: "generated"})))))
+		// /app/config.h itself depends on a component marked generated, not just any generated component in the BOM.
+		file, found := lo.Find(lo.FromPtr(bom.Components), func(component cdx.Component) bool { return component.Name == "/app/config.h" })
+		gomega.Expect(found).To(gomega.BeTrue())
+		dependency, found := lo.Find(lo.FromPtr(bom.Dependencies), func(dependency cdx.Dependency) bool { return dependency.Ref == file.BOMRef })
+		gomega.Expect(found).To(gomega.BeTrue(), "no dependency entry for /app/config.h")
+		generated := lo.Filter(lo.FromPtr(bom.Components), func(component cdx.Component, _ int) bool {
+			return lo.Contains(lo.FromPtr(dependency.Dependencies), component.BOMRef) &&
+				lo.ContainsBy(lo.FromPtr(component.Properties), func(property cdx.Property) bool {
+					return property == cdx.Property{Name: "dk:verification", Value: "generated"}
+				})
+		})
+		gomega.Expect(generated).NotTo(gomega.BeEmpty(), "/app/config.h does not depend on a generated component")
 	})
 
 	ginkgo.It("accepts a committed git script containing a BEL as git text", func(ctx ginkgo.SpecContext) {

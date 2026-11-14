@@ -1,7 +1,9 @@
 package e2e_build_test
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/onsi/ginkgo/v2"
@@ -9,6 +11,7 @@ import (
 	"github.com/samber/lo"
 
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
+	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
@@ -19,6 +22,30 @@ import (
 // They are skipped, with the missing variables named, when it is not configured; see
 // _increment1/README.md. Fixtures hold @TOKEN@ placeholders that i1Repo replaces.
 var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e2e", "sbom", "increment1"), func() {
+	ginkgo.It("reuses an unchanged image and a cached install before rebuilding setup", func(ctx ginkgo.SpecContext) {
+		stand := requireStand("BASE")
+		repo := i1Repo(ctx, "repo_sbom_i1_cache", "increment1/cache", stand, nil)
+		project := werf.NewProject(SuiteData.WerfBinPath, repo)
+		first := project.Build(ctx, &werf.BuildOptions{})
+		gomega.Expect(first).To(gomega.ContainSubstring("INCREMENT1_INSTALL_EXECUTED"))
+		gomega.Expect(first).To(gomega.ContainSubstring("INCREMENT1_SETUP_EXECUTED_v1"))
+		repeated := project.Build(ctx, &werf.BuildOptions{})
+		gomega.Expect(repeated).NotTo(gomega.ContainSubstring("INCREMENT1_INSTALL_EXECUTED"))
+		gomega.Expect(repeated).NotTo(gomega.ContainSubstring("INCREMENT1_SETUP_EXECUTED"))
+		filename := filepath.Join(repo, "werf.yaml")
+		body, err := os.ReadFile(filename)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		changed := strings.ReplaceAll(strings.ReplaceAll(string(body), "INCREMENT1_SETUP_EXECUTED_v1", "INCREMENT1_SETUP_EXECUTED_v2"), "setup-v1", "setup-v2")
+		gomega.Expect(os.WriteFile(filename, []byte(changed), 0o644)).To(gomega.Succeed())
+		utils.RunSucceedCommand(ctx, repo, "git", "add", "werf.yaml")
+		utils.RunSucceedCommand(ctx, repo, "git", "commit", "-m", "change setup only")
+		partial := project.Build(ctx, &werf.BuildOptions{})
+		gomega.Expect(partial).NotTo(gomega.ContainSubstring("INCREMENT1_INSTALL_EXECUTED"))
+		gomega.Expect(partial).To(gomega.ContainSubstring("INCREMENT1_SETUP_EXECUTED_v2"))
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{}))
+		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/install.marker")))
+		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/setup.marker")))
+	})
 	// A refusal must name the file (or the package) and the reason. The reasons are the wording of
 	// pkg/sbom/nativegate; a change of wording is a change of this table.
 	type negative struct {

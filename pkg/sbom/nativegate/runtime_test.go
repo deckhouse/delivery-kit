@@ -196,6 +196,16 @@ var _ = ginkgo.Describe("runtime dependencies", func() {
 		gomega.Expect(edges["/usr/bin/app"]).NotTo(gomega.ContainElement("/usr/lib/libfoo.so.1.0"))
 	})
 
+	ginkgo.It("prefers a library in DT_RUNPATH to one in the loader's directories", func() {
+		image := baseImage()
+		image.files["/usr/bin/app"] = dynELF{Type: elf.ET_EXEC, Interp: interpName, Needed: []string{"libfoo.so.1"}, Runpath: "/opt/private"}.bytes()
+		image.files["/opt/private/libfoo.so.1"] = dynELF{Type: elf.ET_DYN, Sonames: []string{"libfoo.so.1"}}.bytes()
+		edges, _, err := image.deps(false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(edges["/usr/bin/app"]).To(gomega.ContainElement("/opt/private/libfoo.so.1"))
+		gomega.Expect(edges["/usr/bin/app"]).NotTo(gomega.ContainElement("/usr/lib/libfoo.so.1.0"))
+	})
+
 	ginkgo.DescribeTable("follows DT_RUNPATH before the loader's directories", func(runpath string) {
 		image := baseImage()
 		delete(image.files, "/usr/lib/libfoo.so.1.0")

@@ -60,16 +60,19 @@ run cache-mounts cache-mounts x x x
 expect() {
   [ -f "$OUT/$1.log" ] || return 0
   local got=pass; grep -q '^exit=0$' "$OUT/$1.log" || got=refuse
+  # A build that failed in the recipe (e.g. a read-only service directory) is not a refusal by the gate.
+  if [ "$got" = refuse ] && ! grep -q 'verify image app:' "$OUT/$1.log"; then got="failed-outside-the-gate"; fi
   if [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"; else echo "   $1: expected $2, got $got: RED"; fi
 }
 run service-path-written service-path-written scratch x x
 expect service-path-written refuse
 # A red control proves a bypass only if the file is really in the image: list the layers of the published image.
-if grep -q '^exit=0$' "$OUT/service-path-written.log"; then
-  (cd "$OUT/service-path-written" && WERF_REPO=$STAGE_REPO/service-path-written "$DK" build --save-build-report --build-report-path "$OUT/service-path-written.report.json" >>"$OUT/service-path-written.log" 2>&1)
-  python3 - "$OUT/service-path-written.report.json" "$OUT/service-path-written.layers" <<'PY'
+layers_check() { # name file-in-image
+  grep -q '^exit=0$' "$OUT/$1.log" || return 0
+  (cd "$OUT/$1" && WERF_REPO=$STAGE_REPO/$1 "$DK" build --save-build-report --build-report-path "$OUT/$1.report.json" >>"$OUT/$1.log" 2>&1)
+  python3 - "$OUT/$1.report.json" "$OUT/$1.layers" "$2" "$1" <<'PY'
 import json, subprocess, sys, tarfile, io
-report, listing = sys.argv[1:]
+report, listing, wanted, name = sys.argv[1:]
 ref = json.load(open(report))["Images"]["app"]["DockerImageName"]
 subprocess.run(["docker", "pull", "-q", ref], check=True, capture_output=True)
 saved = subprocess.run(["docker", "save", ref], check=True, capture_output=True).stdout
@@ -80,10 +83,17 @@ with tarfile.open(fileobj=io.BytesIO(saved)) as outer:
         with tarfile.open(fileobj=io.BytesIO(outer.extractfile(layer).read())) as inner:
             names += ["/" + (n[2:] if n.startswith("./") else n.lstrip("/")) for n in inner.getnames()]
 open(listing, "w").write("\n".join(names) + "\n")
-print("   service-path-written: /.werf/user/payload.txt in the image layers: %s" % ("YES" if "/.werf/user/payload.txt" in names else "NO"))
+print("   %s: %s in the image layers: %s" % (name, wanted, "YES" if wanted in names else "NO"))
 subprocess.run(["docker", "rmi", ref], capture_output=True)
 PY
-fi
+}
+layers_check service-path-written /.werf/user/payload.txt
+run service-path-dir-scripts service-path-dir-scripts scratch x x
+expect service-path-dir-scripts refuse
+layers_check service-path-dir-scripts /.werf/scripts/payload.txt
+run service-path-dir-stapel service-path-dir-stapel scratch x x
+expect service-path-dir-stapel refuse
+layers_check service-path-dir-stapel /.werf/stapel/payload.txt
 agent_dir=$(mktemp -d "$OUT/agent.XXXXXX"); eval "$(ssh-agent -a "$agent_dir/sock" -s)" >/dev/null
 SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent scratch x x
 kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"

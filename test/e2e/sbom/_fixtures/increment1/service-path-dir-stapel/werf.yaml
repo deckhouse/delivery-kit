@@ -1,0 +1,16 @@
+project: werf-test-e2e-sbom-i1-service-path-dir-stapel
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: "@BASE@"
+git:
+  - add: /data
+    to: /app
+shell:
+  install:
+    # A recipe writing a file into a werf service DIRECTORY (/.werf/stapel): not an excuse to skip the gate.
+    - echo not-a-werf-file > /.werf/stapel/payload.txt

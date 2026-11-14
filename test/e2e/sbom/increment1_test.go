@@ -54,7 +54,7 @@ var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", 
 			fixture: "increment1/elf-in-git",
 			needs:   []string{"BASE"},
 			prepare: writeStockELF("prebuilt/tool"),
-			refusal: `/app/tool: no-data: missing build record`,
+			refusal: `/app/tool: no-data: missing (sbom metadata|build record)`,
 		},
 		"a file of a commit changed in a shell stage": {
 			fixture: "increment1/git-file-edited",
@@ -67,10 +67,12 @@ var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", 
 			env:     map[string]string{"WERF_SBOM_TRUSTED_INDEXES": "@OTHER_INDEX@"},
 			refusal: `@PM_PACKAGE@: no-data: package outside instrumented index`,
 		},
+		// BASE_NO_SBOM must be a stock image with files: an empty base (scratch) has nothing to verify
+		// and the build, whose files all come from git, passes.
 		"a base image without an instrumented SBOM": {
 			fixture: "increment1/base-without-sbom",
 			needs:   []string{"BASE_NO_SBOM"},
-			refusal: `no-data: base image (has no instrumented SBOM|SBOM is unverified or has a different platform)`,
+			refusal: `unable to get base image sbom with ref @BASE_NO_SBOM@: the image "@BASE_NO_SBOM@" must have an SBOM artifact attached`,
 		},
 		"an instrumented arm64 binary in an amd64 build": {
 			fixture: "increment1/foreign-arch",

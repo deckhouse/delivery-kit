@@ -8,10 +8,10 @@ the specs skip, naming the missing `WERF_TEST_I1_*` variables, until a stand is 
 | fixture | scenario | expected refusal (a regular expression, as `pkg/sbom/nativegate` words it) |
 |---|---|---|
 | `pkg-file-replaced` | a file of a pm package changed by a shell stage after installation | `<file>: hash-mismatch: pm original changed` |
-| `elf-in-git` | an ELF binary from a git mapping (stock Go build, no `.note.package`) | `/app/tool: no-data: missing build record` |
+| `elf-in-git` | an ELF binary from a git mapping (stock Go build, no `.note.package`) | `/app/tool: no-data: missing (sbom metadata\|build record)` |
 | `git-file-edited` | a file of a commit changed by a shell stage | `/app/config.txt: hash-mismatch: git original changed` |
 | `package-outside-index` | a pm package whose index is not in `WERF_SBOM_TRUSTED_INDEXES` | `<package>: no-data: package outside instrumented index` |
-| `base-without-sbom` | a base image that has no instrumented SBOM | `no-data: base image (has no instrumented SBOM\|SBOM is unverified…)` |
+| `base-without-sbom` | a base image that has no instrumented SBOM | `unable to get base image sbom with ref <base>: the image "<base>" must have an SBOM artifact attached` |
 | `foreign-arch` | an instrumented linux/arm64 binary (`WERF_TEST_I1_ARM64_BINARY`) in an amd64 build | `/app/tool: unsupported platform linux/arm64: expected linux/amd64` |
 | `positive` | a C program on `builder/native` and a Go program on `builder/golang-alt-1.27` | builds; `/app/hello` is a file component with `dk:origin=build`; the SBOM carries `dk:verification=instrumented-v1` |
 
@@ -32,7 +32,7 @@ Set by the stand (take the values from the state file of the track that publishe
 | `WERF_TEST_I1_PM_BINARY` | the pm binary of the chain; its SHA-256 is computed and passed as `WERF_SBOM_PM_SHA256` |
 | `WERF_TEST_I1_TRUSTED_INDEXES` | the pinned instrumented index (`repo@sha256:`), passed as `WERF_SBOM_TRUSTED_INDEXES` |
 | `WERF_TEST_I1_BASE` | an instrumented base image (an image built from the chain, with its SBOM) |
-| `WERF_TEST_I1_BASE_NO_SBOM` | a base image without such an SBOM (any stock image) |
+| `WERF_TEST_I1_BASE_NO_SBOM` | a non-empty stock base image without such an SBOM, by digest (not scratch: an empty base has nothing to verify) |
 | `WERF_TEST_I1_BUILDER_NATIVE`, `..._BUILDER_GO` | the instrumented `builder/native` and `builder/golang-alt-1.27` |
 | `WERF_TEST_I1_PM_PACKAGE`, `..._PM_PACKAGE_FILE` | a data package of the index and one of its files (for example `tzdata`, `/usr/share/zoneinfo/UTC`) |
 | `WERF_TEST_I1_ARM64_BINARY` | an instrumented linux/arm64 ELF (record platform linux/arm64), e.g. a binary of an arm64 package |
@@ -47,3 +47,11 @@ and index are the ones the spec's pilot run used; their digests are in the BI-1 
 `render.sh` renders every fixture with placeholder values using the Delivery Kit binary (no image is
 built, no registry is read). `run.sh` renders, then runs the specs; run it on the build host under its
 lock (`state/linux-host.lock`).
+
+## First run on a candidate Delivery Kit (ef2d4c702), partial stand
+The stand held no instrumented base, builders or index (BI-1's core was still building), so only the cases that do not
+need them were run by hand with the same fixtures (logs in `artifacts/pm-1/e2e-ef2d4c7/`):
+`elf-in-git` on `from: scratch` is refused naming `/app/tool` (`no-data: missing sbom metadata`); `base-without-sbom`
+on a non-empty stock base is refused naming the base; on the empty `scratch` base it passes (hence the note above);
+`git-file-edited` is refused for a file DK itself leaves, `/.werf/tmp/ssh-auth-sock` (`no trusted original`), before
+the changed git file is reached.

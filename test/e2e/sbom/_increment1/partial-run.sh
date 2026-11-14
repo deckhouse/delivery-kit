@@ -52,6 +52,32 @@ run git-file-edited git-file-edited scratch x x
 run base-without-sbom base-without-sbom x "$STOCK_BASE" x
 run base-empty-without-sbom base-empty-without-sbom x x "$STOCK_EMPTY"
 run from-scratch from-scratch x x x
+run cache-mounts cache-mounts x x x
+# The mounted cache contents must be in neither the published image nor its SBOM (spec of the cache-mounts fixture).
+if grep -q '^exit=0$' "$OUT/cache-mounts.log"; then
+  (cd "$OUT/cache-mounts" && WERF_REPO=$STAGE_REPO/cache-mounts "$DK" build --save-build-report --build-report-path "$OUT/cache-mounts.report.json" >>"$OUT/cache-mounts.log" 2>&1 &&
+    WERF_REPO=$STAGE_REPO/cache-mounts "$DK" sbom get app >"$OUT/cache-mounts.sbom.json" 2>>"$OUT/cache-mounts.log")
+  python3 - "$OUT/cache-mounts.report.json" "$OUT/cache-mounts.sbom.json" "$OUT/cache-mounts.layers" <<'PY'
+import json, subprocess, sys, tarfile, io
+report, sbom, listing = sys.argv[1:]
+ref = json.load(open(report))["Images"]["app"]["DockerImageName"]
+subprocess.run(["docker", "pull", "-q", ref], check=True, capture_output=True)
+saved = subprocess.run(["docker", "save", ref], check=True, capture_output=True).stdout
+names = []
+with tarfile.open(fileobj=io.BytesIO(saved)) as outer:
+    manifest = json.load(outer.extractfile("manifest.json"))
+    for layer in manifest[0]["Layers"]:
+        with tarfile.open(fileobj=io.BytesIO(outer.extractfile(layer).read())) as inner:
+            names += ["/" + (n[2:] if n.startswith("./") else n.lstrip("/")) for n in inner.getnames()]
+open(listing, "w").write("\n".join(names) + "\n")
+leaked = [n for n in names if n.startswith(("/go-cache", "/tmp-cache"))]
+bom = json.load(open(sbom))
+in_bom = [c["name"] for c in bom.get("components", []) if c.get("name", "").startswith(("/go-cache/", "/tmp-cache/"))]
+print("   cache-mounts: image paths under the mounts: %s; SBOM components under the mounts: %s; /app/output in image: %s" % (
+    leaked or "none", in_bom or "none", "/app/output" in names))
+subprocess.run(["docker", "rmi", ref], capture_output=True)
+PY
+fi
 # The spec's assertions for the passing build: the SBOM carries the verification marker and the git file as a file component.
 if grep -q '^exit=0$' "$OUT/from-scratch.log"; then
   (cd "$OUT/from-scratch" && WERF_REPO=$STAGE_REPO/from-scratch "$DK" sbom get app >"$OUT/from-scratch.sbom.json" 2>"$OUT/from-scratch.sbom.err")

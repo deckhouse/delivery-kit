@@ -48,6 +48,7 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 	})
 	ginkgo.It("builds from literal scratch with a verified git file", func(ctx ginkgo.SpecContext) {
 		stand := requireStand()
+		SuiteData.Stubs.SetEnv("WERF_TMP_DIR", ginkgo.GinkgoT().TempDir())
 		repo := i1Repo(ctx, "repo_sbom_i1_from_scratch", "increment1/from-scratch", stand, nil)
 		project := werf.NewProject(SuiteData.WerfBinPath, repo)
 		project.Build(ctx, &werf.BuildOptions{})

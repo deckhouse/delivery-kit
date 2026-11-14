@@ -136,6 +136,9 @@ func nativeUserRoots(ctx context.Context, img *buildimage.Image, cfg *v1.ConfigF
 }
 
 func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Image, saved v1.Image, desc *image.StageDesc) (*nativegate.PackageSet, error) {
+	if err := os.MkdirAll(phase.Conveyor.tmpDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create SBOM temporary directory: %w", err)
+	}
 	directory, err := os.MkdirTemp(phase.Conveyor.tmpDir, "sbom-pm-state-")
 	if err != nil {
 		return nil, fmt.Errorf("create package state directory: %w", err)

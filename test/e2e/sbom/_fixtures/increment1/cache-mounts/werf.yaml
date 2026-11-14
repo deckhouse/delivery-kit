@@ -1,0 +1,25 @@
+project: werf-test-e2e-sbom-i1-cache-mounts
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: scratch
+git:
+  - add: /data
+    to: /app
+mount:
+  - from: build_dir
+    to: /go-cache
+  - from: tmp_dir
+    to: /tmp-cache
+shell:
+  install:
+    - printf '\177ELF' > /go-cache/unrecorded
+    - printf '!<arch>\n' > /tmp-cache/package-d
+  setup:
+    - test -s /go-cache/unrecorded
+    - test -s /tmp-cache/package-d
+    - echo shipped > /app/output

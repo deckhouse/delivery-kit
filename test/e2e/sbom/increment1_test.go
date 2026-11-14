@@ -6,11 +6,14 @@ import (
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/samber/lo"
 
 	"github.com/werf/werf/v3/pkg/build"
+	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
 	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
@@ -23,6 +26,34 @@ import (
 // They are skipped, with the missing variables named, when it is not configured; see
 // _increment1/README.md. Fixtures hold @TOKEN@ placeholders that i1Repo replaces.
 var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e2e", "sbom", "increment1"), func() {
+	ginkgo.It("keeps build_dir and tmp_dir cache contents outside the image and SBOM", func(ctx ginkgo.SpecContext) {
+		stand := requireStand()
+		repo := i1Repo(ctx, "repo_sbom_i1_cache_mounts", "increment1/cache-mounts", stand, nil)
+		reportPath := SuiteData.GetBuildReportPath("increment1-mounts.json")
+		project := werf.NewProject(SuiteData.WerfBinPath, repo)
+		project.Build(ctx, &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--platform=linux/amd64", "--save-build-report", "--build-report-path=" + reportPath}}})
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{}))
+		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/output")))
+		for _, component := range lo.FromPtr(bom.Components) {
+			gomega.Expect(component.Name).NotTo(gomega.HavePrefix("/go-cache/"))
+			gomega.Expect(component.Name).NotTo(gomega.HavePrefix("/tmp-cache/"))
+		}
+		report, err := build.LoadBuildReportFromFile(ctx, reportPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(report.Images).To(gomega.HaveKey("app"))
+		ref, err := name.ParseReference(report.Images["app"].DockerImageName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		img, err := remote.Image(ref, remote.WithContext(ctx))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		index, err := shippedscope.IndexImageFiles(ctx, img)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(index.Incomplete).To(gomega.BeFalse())
+		gomega.Expect(index.Files).To(gomega.HaveKey("/app/output"))
+		for filename := range index.Files {
+			gomega.Expect(filename).NotTo(gomega.HavePrefix("/go-cache/"))
+			gomega.Expect(filename).NotTo(gomega.HavePrefix("/tmp-cache/"))
+		}
+	})
 	ginkgo.It("reuses unchanged images and rebuilds only the changed setup chain", func(ctx ginkgo.SpecContext) {
 		stand := requireStand()
 		SuiteData.Stubs.SetEnv("WERF_TMP_DIR", ginkgo.GinkgoT().TempDir())

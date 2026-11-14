@@ -20,6 +20,7 @@ import (
 )
 
 type sbomStageRecord struct {
+	ServiceFiles  []string               `json:"serviceFiles,omitempty"`
 	GitSources    []nativegate.GitSource `json:"gitSources,omitempty"`
 	Stage         stage.StageName        `json:"stage"`
 	StageDigest   string                 `json:"stageDigest"`
@@ -28,6 +29,7 @@ type sbomStageRecord struct {
 }
 
 type sbomStageSnapshot struct {
+	ServiceFiles  []string
 	GitSources    []nativegate.GitSource
 	Stage         stage.StageName
 	LayerCount    int
@@ -90,7 +92,7 @@ func resolveSBOMStageProvenance(ctx context.Context, final *image.StageDesc, rea
 			return unknown, fmt.Errorf("resolve SBOM stages: unexpected stage %q at %q", record.Stage, id)
 		}
 		previousPosition = position
-		result.Snapshots = append(result.Snapshots, sbomStageSnapshot{Stage: record.Stage, LayerCount: len(current.RootFS.DiffIDs), ImportBackend: record.ImportBackend, GitSources: record.GitSources})
+		result.Snapshots = append(result.Snapshots, sbomStageSnapshot{Stage: record.Stage, LayerCount: len(current.RootFS.DiffIDs), ImportBackend: record.ImportBackend, GitSources: record.GitSources, ServiceFiles: record.ServiceFiles})
 		if record.Stage == stage.From {
 			result.Layers.Known = true
 			slices.Reverse(result.Layers.Ranges)

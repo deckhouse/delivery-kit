@@ -48,6 +48,7 @@ func (phase *BuildPhase) nativeCheckedExport(ctx context.Context, img *buildimag
 	}
 	opts := nativegate.VerifyOptions{Subject: img.GetName(), Platform: img.TargetPlatform, UserRoots: roots, ProducedFiles: packages.ProducedFiles, ProducedSymlinks: packages.ProducedSymlinks, BuildGitSources: packages.BuildGitSources, Originals: packages.Originals, TrustedComponents: packages.Components, ExpectedSymlinks: maps.Clone(packages.Symlinks)}
 	opts.Originals = append(opts.Originals, imports.Originals...)
+	opts.ServiceFiles = append(slices.Clone(packages.ServiceFiles), imports.ServiceFiles...)
 	opts.Originals = append(opts.Originals, gitOriginals...)
 	opts.TrustedComponents = append(opts.TrustedComponents, imports.Components...)
 	if opts.ExpectedSymlinks == nil {

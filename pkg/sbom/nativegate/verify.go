@@ -56,12 +56,15 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	if cfg.OS+"/"+cfg.Architecture != opts.Platform {
 		return fmt.Errorf("image platform %s/%s differs from %s", cfg.OS, cfg.Architecture, opts.Platform)
 	}
-	fs, err := readFilesystemScope(ctx, img, selected)
+	fs, err := readFilesystemScope(ctx, img, selected, opts.ServiceFiles)
 	if err != nil {
 		return fmt.Errorf("read image filesystem: %w", err)
 	}
 	if selected != nil {
 		for name := range selected {
+			if _, service := fs.services[name]; service {
+				continue
+			}
 			_, file := fs.index.Files[name]
 			_, link := fs.index.Symlinks[name]
 			if !file && !link {
@@ -103,9 +106,6 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		}
 	}
 	for _, original := range opts.Originals {
-		if servicePath(original.Path) {
-			continue
-		}
 		if !digestPattern.MatchString(original.SHA256) || original.Component.BOMRef == "" || original.Component.Name == "" {
 			return fmt.Errorf("%s: no-data: incomplete original %s", original.Path, original.Kind)
 		}
@@ -119,6 +119,12 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		resolved, err := resolveRegularOriginal(fs, original.Path)
 		if err != nil {
 			return err
+		}
+		if service, exists := fs.services[resolved]; exists {
+			if service.Digest != original.SHA256 {
+				return fmt.Errorf("%s: hash-mismatch: original replaced by a service placeholder", resolved)
+			}
+			continue
 		}
 		if selected != nil && original.Kind == "git" {
 			if file, exists := fs.index.Files[resolved]; exists && file.Digest != original.SHA256 {
@@ -265,7 +271,7 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	properties := []cdx.Property{}
 	if target.Metadata.Properties != nil {
 		for _, property := range *target.Metadata.Properties {
-			if property.Name != verificationProperty && property.Name != "dk:platform" {
+			if property.Name != verificationProperty && property.Name != "dk:platform" && property.Name != emptyServiceFileProperty {
 				properties = append(properties, property)
 			}
 		}
@@ -275,6 +281,11 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		marker = verifiedExport
 	}
 	properties = append(properties, cdx.Property{Name: verificationProperty, Value: marker}, cdx.Property{Name: "dk:platform", Value: opts.Platform})
+	for _, name := range slices.Sorted(maps.Keys(fs.services)) {
+		if selected == nil || selected[name] {
+			properties = append(properties, cdx.Property{Name: emptyServiceFileProperty, Value: name})
+		}
+	}
 	target.Metadata.Properties = &properties
 	return nil
 }
@@ -285,7 +296,7 @@ func resolveRegularOriginal(fs *filesystem, name string) (string, error) {
 		return "", err
 	}
 	resolved := path.Join(parent, path.Base(name))
-	if !servicePath(name) && servicePath(resolved) {
+	if !reservedServicePath(name) && reservedServicePath(resolved) {
 		return "", fmt.Errorf("%s: original resolves into reserved service namespace", name)
 	}
 	if _, exists := fs.index.Symlinks[resolved]; exists {
@@ -350,9 +361,6 @@ func validateSource(ctx context.Context, filename, kind string, bom *cdx.BOM, pl
 
 func verifySymlinkOriginals(fs *filesystem, expected map[string]string) error {
 	for _, name := range slices.Sorted(maps.Keys(expected)) {
-		if servicePath(name) {
-			continue
-		}
 		parent, err := resolvePath(fs, path.Dir(name))
 		if err != nil {
 			return err

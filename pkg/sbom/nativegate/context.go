@@ -23,6 +23,7 @@ import (
 )
 
 type PackageSet struct {
+	ServiceFiles     []string
 	ProducedFiles    map[string]string
 	ProducedSymlinks map[string]string
 	BuildGitSources  [][]GitSource
@@ -196,14 +197,17 @@ func MaterializeBuildContext(ctx context.Context, img v1.Image, packages *Packag
 	if index.Incomplete {
 		return "", fmt.Errorf("no-data: incomplete build context image")
 	}
-	excludeServiceFiles(index)
+	services, err := excludeServiceFiles(index, packages.ServiceFiles)
+	if err != nil {
+		return "", err
+	}
 	if err := verifySymlinkOriginals(&filesystem{index: index}, packages.Symlinks); err != nil {
 		return "", err
 	}
 	if err := validateBootstrapInputs(ctx, img, packages, opts.Platform); err != nil {
 		return "", err
 	}
-	bindings := lo.Filter(packages.Originals, func(original Original, _ int) bool { return !servicePath(original.Path) })
+	bindings := slices.Clone(packages.Originals)
 	for position, binding := range bindings {
 		if binding.Kind != "bootstrap" {
 			continue
@@ -222,6 +226,9 @@ func MaterializeBuildContext(ctx context.Context, img v1.Image, packages *Packag
 		filename, err := resolveRegularOriginal(&filesystem{index: index}, binding.Path)
 		if err != nil {
 			return "", err
+		}
+		if service, exists := services[filename]; exists && service.Digest != binding.SHA256 {
+			return "", fmt.Errorf("%s: hash-mismatch: original replaced by a service placeholder", filename)
 		}
 		known[filename] = true
 	}

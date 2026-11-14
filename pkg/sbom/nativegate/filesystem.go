@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"maps"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -21,23 +20,14 @@ type filesystem struct {
 	index      *shippedscope.FileIndex
 	bodies     map[string][]byte
 	executable map[string]bool
+	services   map[string]shippedscope.File
 }
 
-func servicePath(name string) bool {
+func reservedServicePath(name string) bool {
 	return name == "/.werf" || strings.HasPrefix(name, "/.werf/")
 }
 
-func excludeServiceFiles(index *shippedscope.FileIndex) {
-	maps.DeleteFunc(index.Files, func(name string, _ shippedscope.File) bool {
-		return servicePath(name)
-	})
-}
-
-func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
-	return readFilesystemScope(ctx, img, nil)
-}
-
-func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]bool) (*filesystem, error) {
+func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]bool, owned []string) (*filesystem, error) {
 	index, err := shippedscope.IndexImageFiles(ctx, img)
 	if err != nil {
 		return nil, err
@@ -45,11 +35,11 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 	if index.Incomplete {
 		return nil, fmt.Errorf("incomplete image index")
 	}
-	outsideDigests := map[string]bool{}
+	capturedDigests := map[string]bool{}
 	fullDigests := map[string]bool{}
 	for name, file := range index.Files {
-		if !servicePath(name) && (selected == nil || selected[name]) {
-			outsideDigests[file.Digest] = true
+		if selected == nil || selected[name] {
+			capturedDigests[file.Digest] = true
 			if binaryName(name) {
 				fullDigests[file.Digest] = true
 			}
@@ -75,10 +65,7 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 		if !ok {
 			continue
 		}
-		if selected != nil && !outsideDigests[entry.Digest] {
-			continue
-		}
-		if servicePath(name) && !outsideDigests[entry.Digest] {
+		if selected != nil && !capturedDigests[entry.Digest] {
 			continue
 		}
 		if _, exists := fs.bodies[name]; exists {
@@ -95,7 +82,7 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 		// A name the suffix guard recognizes is judged on its whole body too: the text
 		// a toolchain installs under a library name is only text if no byte of it says
 		// otherwise, and a prefix cannot say that.
-		full := fullDigests[entry.Digest] || servicePath(name) || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
+		full := fullDigests[entry.Digest] || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
 		if full {
 			if h.Size > 512<<20 {
 				return nil, fmt.Errorf("%s: file exceeds supported inspection limit", name)
@@ -114,7 +101,7 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 		fs.executable[name] = h.Mode&0o111 != 0
 	}
 	for name, entry := range index.Files {
-		if servicePath(name) || (selected != nil && !selected[name]) {
+		if selected != nil && !selected[name] {
 			continue
 		}
 		if _, ok := fs.bodies[name]; ok {
@@ -133,7 +120,10 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 			return nil, fmt.Errorf("unreadable surviving file %s", name)
 		}
 	}
-	excludeServiceFiles(index)
+	fs.services, err = excludeServiceFiles(index, owned)
+	if err != nil {
+		return nil, err
+	}
 	return fs, nil
 }
 

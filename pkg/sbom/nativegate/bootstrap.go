@@ -13,7 +13,7 @@ func validateBootstrapInputs(ctx context.Context, img v1.Image, packages *Packag
 	if !slices.ContainsFunc(packages.Originals, func(original Original) bool { return original.Kind == "bootstrap" }) {
 		return nil
 	}
-	fs, err := readFilesystem(ctx, img)
+	fs, err := readFilesystemScope(ctx, img, nil, packages.ServiceFiles)
 	if err != nil {
 		return err
 	}
@@ -27,12 +27,18 @@ func validateBootstrapInputs(ctx context.Context, img v1.Image, packages *Packag
 	}
 	ins := inspector{policy: strictPolicy(platform), catalog: &catalog}
 	for _, original := range packages.Originals {
-		if original.Kind != "bootstrap" || servicePath(original.Path) {
+		if original.Kind != "bootstrap" {
 			continue
 		}
 		filename, err := resolveRegularOriginal(fs, original.Path)
 		if err != nil {
 			return err
+		}
+		if service, exists := fs.services[filename]; exists {
+			if service.Digest != original.SHA256 {
+				return fmt.Errorf("%s: hash-mismatch: bootstrap import replaced by a service placeholder", filename)
+			}
+			continue
 		}
 		file, exists := fs.index.Files[filename]
 		if !exists {

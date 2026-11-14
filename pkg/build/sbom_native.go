@@ -34,7 +34,7 @@ import (
 
 const (
 	nativeContextMount    = "/.werf/sbom-build-context"
-	nativeInstrumentation = "native-sbom-increment-1-git-identity-v1"
+	nativeInstrumentation = "native-sbom-increment-1-checked-service-files-v1"
 )
 
 func nativeBootstrap(name string) bool {
@@ -265,10 +265,13 @@ func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Ima
 	}
 	set.BuildGitSources = [][]nativegate.GitSource{}
 	for _, snapshot := range provenance.Snapshots {
+		set.ServiceFiles = append(set.ServiceFiles, snapshot.ServiceFiles...)
 		if slices.Contains(jsObserverStageNames, snapshot.Stage) {
 			set.BuildGitSources = append(set.BuildGitSources, snapshot.GitSources)
 		}
 	}
+	slices.Sort(set.ServiceFiles)
+	set.ServiceFiles = slices.Compact(set.ServiceFiles)
 	return set, nil
 }
 
@@ -309,6 +312,11 @@ func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildima
 		if err := packages.IncludeImage(ctx, base, originals, img.TargetPlatform, trusted); err != nil {
 			return err
 		}
+		services, err := nativegate.ServiceFilesFromBOM(ctx, base)
+		if err != nil {
+			return err
+		}
+		packages.ServiceFiles = append(packages.ServiceFiles, services...)
 	}
 	imports, err := phase.nativeImportOriginals(ctx, img, saved, desc)
 	if err != nil {
@@ -325,6 +333,7 @@ func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildima
 		}
 	}
 	packages.Originals = append(packages.Originals, imports.Originals...)
+	packages.ServiceFiles = append(packages.ServiceFiles, imports.ServiceFiles...)
 	maps.Copy(packages.Symlinks, imports.Symlinks)
 	if stg.Name() != stage.BeforeInstall {
 		gitOriginals, gitLinks, err := nativeGitOriginals(ctx, img)
@@ -407,11 +416,12 @@ func nativeGitOriginals(ctx context.Context, img *buildimage.Image) ([]nativegat
 }
 
 type nativeImportedSources struct {
-	Originals  []nativegate.Original
-	Components []cdx.Component
-	BOMs       []*cdx.BOM
-	ExportBOMs []*cdx.BOM
-	Symlinks   map[string]string
+	ServiceFiles []string
+	Originals    []nativegate.Original
+	Components   []cdx.Component
+	BOMs         []*cdx.BOM
+	ExportBOMs   []*cdx.BOM
+	Symlinks     map[string]string
 }
 
 func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildimage.Image, saved v1.Image, desc *image.StageDesc) (nativeImportedSources, error) {
@@ -437,6 +447,7 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 	var components []cdx.Component
 	var boms []*cdx.BOM
 	var exportBOMs []*cdx.BOM
+	var serviceFiles []string
 	symlinks := map[string]string{}
 	for position, snapshot := range provenance.Snapshots {
 		stg := img.GetStage(snapshot.Stage)
@@ -550,6 +561,27 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 			}
 			maps.Copy(symlinks, links)
 			if bom != nil {
+				services, err := nativegate.ServiceFilesFromBOM(ctx, bom)
+				if err != nil {
+					return nativeImportedSources{}, err
+				}
+				var serviceOriginals []nativegate.Original
+				for _, name := range services {
+					file, exists := sourceIndex.Files[name]
+					if !exists || file.Size != 0 || file.Digest != "sha256:"+util.Sha256Hash() {
+						return nativeImportedSources{}, fmt.Errorf("%s: invalid service placeholder in import %s", name, directive.From)
+					}
+					serviceOriginals = append(serviceOriginals, nativegate.Original{Path: name, SourcePath: name, SHA256: file.Digest})
+				}
+				projectedServices, err := nativegate.ProjectImageOriginals(ctx, serviceOriginals, sourceIndex, before, after, scope)
+				if err != nil {
+					return nativeImportedSources{}, err
+				}
+				for _, file := range projectedServices {
+					if file.Path == file.SourcePath {
+						serviceFiles = append(serviceFiles, file.Path)
+					}
+				}
 				components = append(components, (*bom.Components)...)
 				if checked {
 					exportBOMs = append(exportBOMs, bom)
@@ -559,7 +591,7 @@ func (phase *BuildPhase) nativeImportOriginals(ctx context.Context, img *buildim
 			}
 		}
 	}
-	return nativeImportedSources{Originals: result, Components: components, BOMs: boms, ExportBOMs: exportBOMs, Symlinks: symlinks}, nil
+	return nativeImportedSources{Originals: result, Components: components, BOMs: boms, ExportBOMs: exportBOMs, Symlinks: symlinks, ServiceFiles: serviceFiles}, nil
 }
 
 func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage.Image, base *cdx.BOM, external BOMPatcherInterface, gostConfig gost.Config, signer signature.Signer, signerIdentity string) error {
@@ -594,7 +626,7 @@ func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage
 	if err != nil {
 		return err
 	}
-	opts := nativegate.VerifyOptions{Platform: img.TargetPlatform, Subject: img.GetName(), UserRoots: roots, Originals: packages.Originals, TrustedComponents: packages.Components, BuildGitSources: packages.BuildGitSources}
+	opts := nativegate.VerifyOptions{Platform: img.TargetPlatform, Subject: img.GetName(), UserRoots: roots, Originals: packages.Originals, TrustedComponents: packages.Components, BuildGitSources: packages.BuildGitSources, ServiceFiles: slices.Clone(packages.ServiceFiles)}
 	if !sbomImage.IsScratchRef(img.GetBaseImageReference()) && img.GetBaseImageReference() != "" {
 		originals, err := nativegate.ImageOriginals(ctx, base, img.TargetPlatform)
 		if err != nil {
@@ -602,6 +634,11 @@ func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage
 		}
 		opts.Originals = append(opts.Originals, originals...)
 		opts.TrustedComponents = append(opts.TrustedComponents, (*base.Components)...)
+		services, err := nativegate.ServiceFilesFromBOM(ctx, base)
+		if err != nil {
+			return err
+		}
+		opts.ServiceFiles = append(opts.ServiceFiles, services...)
 	}
 	gitOriginals, gitSymlinks, err := nativeGitOriginals(ctx, img)
 	if err != nil {
@@ -618,6 +655,7 @@ func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage
 		return err
 	}
 	opts.Originals = append(opts.Originals, imports.Originals...)
+	opts.ServiceFiles = append(opts.ServiceFiles, imports.ServiceFiles...)
 	maps.Copy(opts.ExpectedSymlinks, imports.Symlinks)
 	baseLinks, err := phase.nativeBaseLinks(ctx, img)
 	if err != nil {

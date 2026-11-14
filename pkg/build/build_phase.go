@@ -1868,6 +1868,7 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 		serviceLabels[imagePkg.WerfParentStageID] = baseStageImage.Image.GetStageDesc().StageID.String()
 	}
 
+	var sbomRecord sbomStageRecord
 	if phase.Conveyor.EnableSbom() && img.StapelImageConfig != nil {
 		if _, ok := serviceLabels[imagePkg.WerfParentStageID]; !ok {
 			serviceLabels[imagePkg.WerfParentStageID] = ""
@@ -1876,10 +1877,11 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 		if err != nil {
 			return err
 		}
-		record, err := json.Marshal(sbomStageRecord{
+		sbomRecord = sbomStageRecord{
 			GitSources: gitSources,
 			Stage:      stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID], ImportBackend: nativeImportBackend(phase.Conveyor),
-		})
+		}
+		record, err := json.Marshal(sbomRecord)
 		if err != nil {
 			return fmt.Errorf("encode SBOM stage record: %w", err)
 		}
@@ -1948,6 +1950,23 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 
 	if err := stg.PrepareImage(ctx, phase.Conveyor, phase.Conveyor.ContainerBackend, prevBuiltImage, stageImage, phase.buildContextArchive); err != nil {
 		return fmt.Errorf("error preparing stage %s: %w", stg.Name(), err)
+	}
+	if phase.Conveyor.EnableSbom() && img.StapelImageConfig != nil && stg.IsStapelStage() {
+		sbomRecord.ServiceFiles = nativeStageServiceFiles(ctx, stg)
+		if len(sbomRecord.ServiceFiles) > 0 {
+			record, err := json.Marshal(sbomRecord)
+			if err != nil {
+				return fmt.Errorf("encode SBOM service mount provenance: %w", err)
+			}
+			serviceLabels[imagePkg.WerfSBOMStageLabel] = string(record)
+			stageImage.Image.SetBuildServiceLabels(serviceLabels)
+			labels := map[string]string{imagePkg.WerfSBOMStageLabel: string(record)}
+			if phase.Conveyor.UseLegacyStapelBuilder(phase.Conveyor.ContainerBackend) {
+				stageImage.Builder.LegacyStapelStageBuilder().Container().ServiceCommitChangeOptions().AddLabel(labels)
+			} else {
+				stageImage.Builder.StapelStageBuilder().AddLabels(labels)
+			}
+		}
 	}
 
 	return nil

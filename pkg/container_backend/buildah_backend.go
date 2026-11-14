@@ -333,7 +333,7 @@ func (backend *BuildahBackend) applyCommands(ctx context.Context, container *con
 
 	logboek.Context(ctx).Info().LogF("Executing script %s\n", hostScriptPath)
 
-	destScriptPath := "/.werf/script.sh"
+	destScriptPath := ServiceScriptPath
 
 	var mounts []*specs.Mount
 	mounts = append(mounts, &specs.Mount{

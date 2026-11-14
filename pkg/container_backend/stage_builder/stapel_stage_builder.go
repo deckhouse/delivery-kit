@@ -12,6 +12,8 @@ type StapelStageBuilderInterface interface {
 	Build(ctx context.Context, opts container_backend.BuildOptions) error
 }
 
+var _ container_backend.SBOMServiceFilesProvider = (*StapelStageBuilder)(nil)
+
 type StapelStageBuilder struct {
 	container_backend.BuildStapelStageOptions
 

@@ -19,7 +19,10 @@ import (
 	"github.com/werf/werf/v3/pkg/stapel"
 )
 
-var _ LegacyContainer = (*LegacyStageImageContainer)(nil)
+var (
+	_ LegacyContainer          = (*LegacyStageImageContainer)(nil)
+	_ SBOMServiceFilesProvider = (*LegacyStageImageContainer)(nil)
+)
 
 type LegacyStageImageContainer struct {
 	prepareImports             func(context.Context) ([]string, error)
@@ -35,6 +38,8 @@ type LegacyStageImageContainer struct {
 	serviceCommitChangeOptions *LegacyStageImageContainerOptions
 	inheritedCommitOptions     *LegacyStageImageContainerOptions
 	buildTimeEnv               map[string]string
+	// sbomServiceFiles are the file mount points werf created itself (the ssh agent socket); a user volume is never recorded here.
+	sbomServiceFiles []string
 }
 
 func newLegacyStageImageContainer(img *LegacyStageImage) *LegacyStageImageContainer {
@@ -46,6 +51,21 @@ func newLegacyStageImageContainer(img *LegacyStageImage) *LegacyStageImageContai
 	c.serviceCommitChangeOptions = newLegacyStageContainerOptions()
 	c.buildTimeEnv = make(map[string]string)
 	return c
+}
+
+// SBOMServiceFiles lists the regular files werf created as mount points of this container. The shell directory mount of the
+// legacy builder is a directory, so the script inside it is not declared as a file.
+func (c *LegacyStageImageContainer) SBOMServiceFiles(_ context.Context) []string {
+	return append([]string(nil), c.sbomServiceFiles...)
+}
+
+func (c *LegacyStageImageContainer) addSBOMServiceFile(path string) {
+	for _, existing := range c.sbomServiceFiles {
+		if existing == path {
+			return
+		}
+	}
+	c.sbomServiceFiles = append(c.sbomServiceFiles, path)
 }
 
 func (c *LegacyStageImageContainer) Name() string {

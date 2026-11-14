@@ -1,8 +1,11 @@
 package container_backend
 
 import (
+	"context"
 	"fmt"
 	"io"
+
+	"github.com/werf/werf/v3/pkg/ssh_agent"
 )
 
 type AddDataArchiveOptions struct {
@@ -48,6 +51,9 @@ type BuildStapelStageOptions struct {
 
 	BuildVolumes []string
 	Commands     []string
+
+	// sbomSSHMountPoint is the destination of the ssh agent socket mounted by MountSSHAgentSocket itself (never by a user volume).
+	sbomSSHMountPoint string
 
 	DataArchiveSpecs      []DataArchiveSpec
 	RemoveDataSpecs       []RemoveDataSpec
@@ -215,4 +221,20 @@ func (opts *BuildStapelStageOptions) MountSSHAgentSocket(sshAuthSock string) {
 	vol, env := setSSHMountPoint(sshAuthSock)
 	opts.AddBuildVolumes(vol)
 	opts.AddBuildTimeEnvs(env)
+	opts.sbomSSHMountPoint = env[ssh_agent.SSHAuthSockEnv]
+}
+
+var _ SBOMServiceFilesProvider = (*BuildStapelStageOptions)(nil)
+
+// SBOMServiceFiles lists the regular files werf creates for this stage: the ssh agent socket mount point (only if
+// MountSSHAgentSocket mounted one) and, when there are commands, the script file the native backend binds (applyCommands).
+func (opts *BuildStapelStageOptions) SBOMServiceFiles(_ context.Context) []string {
+	var files []string
+	if opts.sbomSSHMountPoint != "" {
+		files = append(files, opts.sbomSSHMountPoint)
+	}
+	if len(opts.Commands) > 0 {
+		files = append(files, ServiceScriptPath)
+	}
+	return files
 }

@@ -38,10 +38,14 @@ docker image inspect "$GOLANG" >/dev/null 2>&1 || { docker pull -q "$GOLANG" >/d
 mkdir "$work/src" "$work/out"
 printf 'module hello\n\ngo 1.22\n' > "$work/src/go.mod"
 printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello") }\n' > "$work/src/main.go"
-docker run --rm --platform linux/amd64 -v "$work/src:/src:ro" -v "$work/out:/out" -w /src \
-  -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=arm64 -e GOCACHE=/tmp/gocache "$GOLANG" \
-  go build -buildvcs=false -o /out/hello-arm64 . >"$work/build.log" 2>&1 \
+# The builder may define an ENTRYPOINT and its PATH only in the image config: bypass the entrypoint and take PATH from it.
+path=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$GOLANG" | sed -n 's/^PATH=//p')
+[ -n "$path" ] || { echo "FAIL the builder image has no PATH in its config"; exit 1; }
+docker run --rm --platform linux/amd64 --entrypoint /bin/sh -v "$work/src:/src:ro" -v "$work/out:/out" -w /src \
+  -e "PATH=$path" -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=arm64 -e GOCACHE=/tmp/gocache "$GOLANG" \
+  -c 'go version && go env GOROOT && go build -buildvcs=false -o /out/hello-arm64 .' >"$work/build.log" 2>&1 \
   || { echo "FAIL the cross build failed:"; tail -40 "$work/build.log"; exit 1; }
+cat "$work/build.log"
 cp "$work/out/hello-arm64" "$OUT"
 file "$OUT" | grep -q "ELF 64-bit.*ARM aarch64" || { echo "FAIL $OUT is not an aarch64 ELF: $(file "$OUT")"; exit 1; }
 info=$("$PM" info --build-info --json "$OUT") || { echo "FAIL no present record in the arm64 binary:"; echo "$info"; exit 1; }

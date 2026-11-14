@@ -25,6 +25,7 @@
 # Own WERF_HOME with auto host cleanup off (nothing of another job on the host is touched); one build
 # at a time, nice 10. Needs go (to build the ELF) and docker.
 set -uo pipefail
+EXECUTED="" # names of the cases selected (ONLY) and run in THIS invocation: assertions and post-checks look only at them
 bad=0 # RED / SETUP FAILED / unpinned / outside-the-gate results: a non-zero exit of the runner (ALLOW_UNPINNED=1 tolerates unpinned patterns)
 : "${DK:?Delivery Kit werf binary}" "${PM:?pm binary}" "${STAGE_REPO:?stage repository prefix}" "${STOCK_EMPTY:?empty stock image by digest}" "${STOCK_BASE:?non-empty stock image by digest}" "${OUT:?output directory}"
 fixtures=$(cd "$(dirname "$0")/../_fixtures/increment1" && pwd)
@@ -39,6 +40,7 @@ export WERF_SBOM_PM_BINARY=$PM WERF_SBOM_PM_SHA256=$(sha256sum "$PM" | cut -d' '
 run() { # name fixture BASE BASE_NO_SBOM BASE_NO_SBOM_EMPTY; ONLY=<regex of case names> runs a part of the cases
   local name=$1 fx=$2 d=$OUT/$1
   [[ $1 =~ ${ONLY:-.} ]] || return 0
+  EXECUTED="$EXECUTED $1"
   rm -rf "$d"; cp -R "$fixtures/$fx" "$d"
   find "$d" -name werf.yaml -exec sed -i "s|@BASE@|$3|g; s|@BASE_NO_SBOM@|$4|g; s|@BASE_NO_SBOM_EMPTY@|$5|g" {} +
   if [ "$fx" = elf-in-git ] || [ "$fx" = checked-elf ]; then
@@ -51,17 +53,10 @@ run() { # name fixture BASE BASE_NO_SBOM BASE_NO_SBOM_EMPTY; ONLY=<regex of case
   (cd "$d" && WERF_REPO=$STAGE_REPO/$name timeout 420 nice -n 10 "$DK" build >"$OUT/$name.log" 2>&1; echo "exit=$?" >>"$OUT/$name.log")
   echo "== $name: $(tail -1 "$OUT/$name.log")  $(grep -m1 '^Error:' "$OUT/$name.log" | sed 's/sha256:[0-9a-f]\{64\}/sha256:…/g' | cut -c1-260)"
 }
-run elf-in-git elf-in-git scratch x x
-run git-file-edited git-file-edited scratch x x
-run base-without-sbom base-without-sbom x "$STOCK_BASE" x
-run base-empty-without-sbom base-empty-without-sbom x x "$STOCK_EMPTY"
-run from-scratch from-scratch x x x
-run cache-mounts cache-mounts x x x
-# The service path /.werf/: a file a recipe writes there that is not a werf service file must be refused (the gate
-# must not exclude the whole directory); werf's own service paths (the ssh agent socket) must not make a build fail.
+selected() { [[ " $EXECUTED " == *" $1 "* ]]; }
 # expect NAME refuse|pass prints OK or RED: RED = the gate does the opposite of the spec (a red control on a gate that excludes /.werf/).
 expect() {
-  [ -f "$OUT/$1.log" ] || return 0
+  selected "$1" || return 0
   local got=pass; grep -q '^exit=0$' "$OUT/$1.log" || got=refuse
   # A build that failed in the recipe (e.g. a read-only service directory) is not a refusal by the gate.
   if [ "$got" = refuse ] && { grep -q 'container run failed' "$OUT/$1.log" || ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; }; then got="failed-outside-the-gate"; fi
@@ -70,16 +65,32 @@ expect() {
   elif [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"
   else echo "   $1: expected $2, got $got: RED"; bad=1; fi
 }
+run elf-in-git elf-in-git scratch x x
+expect elf-in-git refuse 'verify image app: /app/tool: no-data: missing sbom metadata'
+run git-file-edited git-file-edited scratch x x
+expect git-file-edited refuse 'hash-mismatch: git original changed'
+run base-without-sbom base-without-sbom x "$STOCK_BASE" x
+expect base-without-sbom refuse 'must have an SBOM artifact attached'
+run base-empty-without-sbom base-empty-without-sbom x x "$STOCK_EMPTY"
+expect base-empty-without-sbom refuse 'must have an SBOM artifact attached'
+run from-scratch from-scratch x x x
+expect from-scratch pass
+run cache-mounts cache-mounts x x x
+expect cache-mounts pass
+# The service path /.werf/: a file a recipe writes there that is not a werf service file must be refused (the gate
+# must not exclude the whole directory); werf's own service paths (the ssh agent socket) must not make a build fail.
 run service-path-written service-path-written scratch x x
 expect service-path-written refuse
 # A red control proves a bypass only if the file is really in the image: list the layers of the published image.
 layers_check() { # name file-in-image
+  selected "$1" || return 0
   grep -q '^exit=0$' "$OUT/$1.log" || return 0
-  (cd "$OUT/$1" && WERF_REPO=$STAGE_REPO/$1 "$DK" build --save-build-report --build-report-path "$OUT/$1.report.json" >>"$OUT/$1.log" 2>&1)
+  (cd "$OUT/$1" && WERF_REPO=$STAGE_REPO/$1 "$DK" build --save-build-report --build-report-path "$OUT/$1.report.json" >>"$OUT/$1.log" 2>&1) || { echo "   $1: layer check build FAILED"; bad=1; return 0; }
   python3 - "$OUT/$1.report.json" "$OUT/$1.layers" "$2" "$1" <<'PY'
 import json, subprocess, sys, tarfile, io
 report, listing, wanted, name = sys.argv[1:]
 ref = json.load(open(report))["Images"]["app"]["DockerImageName"]
+preexisting = subprocess.run(["docker", "image", "inspect", ref], capture_output=True).returncode == 0
 subprocess.run(["docker", "pull", "-q", ref], check=True, capture_output=True)
 saved = subprocess.run(["docker", "save", ref], check=True, capture_output=True).stdout
 names = []
@@ -90,8 +101,11 @@ with tarfile.open(fileobj=io.BytesIO(saved)) as outer:
             names += ["/" + (n[2:] if n.startswith("./") else n.lstrip("/")) for n in inner.getnames()]
 open(listing, "w").write("\n".join(names) + "\n")
 print("   %s: %s in the image layers: %s" % (name, wanted, "YES" if wanted in names else "NO"))
-subprocess.run(["docker", "rmi", ref], capture_output=True)
+if not preexisting:  # never remove an image that was there before this run
+    subprocess.run(["docker", "rmi", ref], capture_output=True)
+sys.exit(0 if wanted in names else 1)  # a red control is valid only if the file really is in the image
 PY
+  [ $? -eq 0 ] || { echo "   $1: layer check FAILED (the control file is not in the image or docker/report failed)"; bad=1; }
 }
 layers_check service-path-written /.werf/user/payload.txt
 run service-path-dir-scripts service-path-dir-scripts scratch x x
@@ -104,13 +118,14 @@ SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent 
 kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"
 expect service-path-ssh-agent pass
 # The mounted cache contents must be in neither the published image nor its SBOM (spec of the cache-mounts fixture).
-if grep -q '^exit=0$' "$OUT/cache-mounts.log"; then
+if selected cache-mounts && grep -q '^exit=0$' "$OUT/cache-mounts.log" 2>/dev/null; then
   (cd "$OUT/cache-mounts" && WERF_REPO=$STAGE_REPO/cache-mounts "$DK" build --save-build-report --build-report-path "$OUT/cache-mounts.report.json" >>"$OUT/cache-mounts.log" 2>&1 &&
-    WERF_REPO=$STAGE_REPO/cache-mounts "$DK" sbom get app >"$OUT/cache-mounts.sbom.json" 2>>"$OUT/cache-mounts.log")
+    WERF_REPO=$STAGE_REPO/cache-mounts "$DK" sbom get app >"$OUT/cache-mounts.sbom.json" 2>>"$OUT/cache-mounts.log") || { echo "   cache-mounts: report/sbom commands FAILED"; bad=1; }
   python3 - "$OUT/cache-mounts.report.json" "$OUT/cache-mounts.sbom.json" "$OUT/cache-mounts.layers" <<'PY'
 import json, subprocess, sys, tarfile, io
 report, sbom, listing = sys.argv[1:]
 ref = json.load(open(report))["Images"]["app"]["DockerImageName"]
+preexisting = subprocess.run(["docker", "image", "inspect", ref], capture_output=True).returncode == 0
 subprocess.run(["docker", "pull", "-q", ref], check=True, capture_output=True)
 saved = subprocess.run(["docker", "save", ref], check=True, capture_output=True).stdout
 names = []
@@ -125,20 +140,26 @@ bom = json.load(open(sbom))
 in_bom = [c["name"] for c in bom.get("components", []) if c.get("name", "").startswith(("/go-cache/", "/tmp-cache/"))]
 print("   cache-mounts: image paths under the mounts: %s; SBOM components under the mounts: %s; /app/output in image: %s" % (
     leaked or "none", in_bom or "none", "/app/output" in names))
-subprocess.run(["docker", "rmi", ref], capture_output=True)
+if not preexisting:  # never remove an image that was there before this run
+    subprocess.run(["docker", "rmi", ref], capture_output=True)
+sys.exit(1 if leaked or in_bom else 0)
 PY
+  [ $? -eq 0 ] || { echo "   cache-mounts: cache contents leaked or the check FAILED"; bad=1; }
 fi
 # The spec's assertions for the passing build: the SBOM carries the verification marker and the git file as a file component.
-if grep -q '^exit=0$' "$OUT/from-scratch.log"; then
-  (cd "$OUT/from-scratch" && WERF_REPO=$STAGE_REPO/from-scratch "$DK" sbom get app >"$OUT/from-scratch.sbom.json" 2>"$OUT/from-scratch.sbom.err")
+if selected from-scratch && grep -q '^exit=0$' "$OUT/from-scratch.log" 2>/dev/null; then
+  (cd "$OUT/from-scratch" && WERF_REPO=$STAGE_REPO/from-scratch "$DK" sbom get app >"$OUT/from-scratch.sbom.json" 2>"$OUT/from-scratch.sbom.err") || { echo "   from-scratch: sbom get FAILED"; bad=1; }
   python3 - "$OUT/from-scratch.sbom.json" <<'PY'
 import json, sys
 bom = json.load(open(sys.argv[1]))
 props = [(p["name"], p["value"]) for p in bom.get("metadata", {}).get("properties", [])]
 files = [c for c in bom.get("components", []) if c.get("name") == "/app/config.txt"]
+ok = ("dk:verification", "instrumented-v1") in props and bool(files)
 print("   from-scratch SBOM: dk:verification=instrumented-v1 %s; /app/config.txt component %s" % (
     "present" if ("dk:verification", "instrumented-v1") in props else "MISSING", "present" if files else "MISSING"))
+sys.exit(0 if ok else 1)
 PY
+  [ $? -eq 0 ] || { echo "   from-scratch: SBOM assertions FAILED"; bad=1; }
 fi
 
 # Checked build-environment images (WERF_SBOM_CHECKED_IMAGES=gen): for the Delivery Kit with the checked producer. Prepared before
@@ -152,7 +173,7 @@ checked() { # name expected(refuse|pass) pattern-or-sbom-path
   if [ "$2" = pass ]; then
     expect "$1" pass
     # An accepted export must show up in the SBOM; a gate that silently drops the file would still exit 0.
-    if grep -q '^exit=0$' "$OUT/$1.log" 2>/dev/null; then
+    if selected "$1" && grep -q '^exit=0$' "$OUT/$1.log" 2>/dev/null; then
       (cd "$OUT/$1" && WERF_SBOM_CHECKED_IMAGES=gen WERF_REPO=$STAGE_REPO/$1 "$DK" sbom get app >"$OUT/$1.sbom.json" 2>"$OUT/$1.sbom.err")
       if grep -q -F "$3" "$OUT/$1.sbom.json" 2>/dev/null; then echo "   $1: $3 in the SBOM: OK"; else echo "   $1: $3 in the SBOM: RED (absent)"; bad=1; fi
     fi
@@ -170,4 +191,7 @@ checked checked-binary refuse
 # V1 on COMMITTED executable git scripts (variant A: only non-executable text can be generated): a git original with a BEL is text
 checked checked-script-bel pass /app/run.sh
 checked checked-script-elf refuse
+# variant A boundary: an EXECUTABLE file generated by the checked stage is not generated text
+checked checked-generated-exec refuse
+[ -n "$EXECUTED" ] || { echo "no case matches ONLY=${ONLY:-.}: nothing was run"; bad=1; }
 exit "$bad"

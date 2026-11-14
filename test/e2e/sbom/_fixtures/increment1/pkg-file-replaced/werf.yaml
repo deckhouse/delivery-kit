@@ -1,0 +1,16 @@
+project: werf-test-e2e-sbom-i1-pkg-file-replaced
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: @BASE@
+packages:
+  - type: os-pm
+    spec:
+      - @PM_PACKAGE@
+shell:
+  install:
+    - echo tampered >> @PM_PACKAGE_FILE@

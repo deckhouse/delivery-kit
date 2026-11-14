@@ -1,0 +1,13 @@
+project: werf-test-e2e-sbom-i1-package-outside-index
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: @BASE@
+packages:
+  - type: os-pm
+    spec:
+      - @PM_PACKAGE@

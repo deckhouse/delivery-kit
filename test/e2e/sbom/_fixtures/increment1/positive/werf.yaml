@@ -1,0 +1,29 @@
+project: werf-test-e2e-sbom-i1-positive
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: c-hello
+from: @BUILDER_NATIVE@
+git:
+  - add: /src/c
+    to: /src
+shell:
+  install:
+    - mkdir -p /app
+    - gcc -o /app/hello /src/hello.c
+---
+image: go-hello
+from: @BUILDER_GO@
+git:
+  - add: /src/go
+    to: /src
+packages:
+  - type: go-mod
+    workdir: /src
+shell:
+  install:
+    - mkdir -p /app
+    - cd /src && CGO_ENABLED=0 go build -o /app/hello .

@@ -20,8 +20,10 @@ shell:
 ---
 image: stable
 from: scratch
+git:
+  - add: /data
+    to: /stable
 shell:
   install:
     - echo INCREMENT1_STABLE_EXECUTED
-    - mkdir -p /tmp
-    - echo stable > /tmp/stable.marker
+    - echo stable > /stable/stable.marker

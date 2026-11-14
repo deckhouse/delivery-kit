@@ -284,6 +284,9 @@ func verifySymlinkOriginals(fs *filesystem, expected map[string]string) error {
 }
 
 func matchPackageOriginal(name, hash string, originals []Original) (*Original, error) {
+	if hash == digest(nil) {
+		return nil, nil
+	}
 	var result *Original
 	seen := map[string]bool{}
 	for _, original := range originals {

@@ -10,6 +10,31 @@ import (
 )
 
 var _ = ginkgo.Describe("relocated package files", func() {
+	ginkgo.DescribeTable("does not infer ownership from empty content", func(name string, own bool, count int) {
+		originals := []Original{{Path: "/usr/share/empty", SHA256: fixtureDigest(nil), Component: fixtureComponent("pm"), Kind: "pm"}}
+		if count == 2 {
+			originals = append(originals, Original{Path: "/usr/share/other-empty", SHA256: fixtureDigest(nil), Component: fixtureComponent("pm"), Kind: "pm"})
+		}
+		bom := cdx.NewBOM()
+		err := Verify(context.Background(), fixtureImage(map[string][]byte{name: nil}), bom, VerifyOptions{Subject: "app", Platform: "linux/amd64", UserRoots: []string{"/src"}, Originals: originals})
+		if !own {
+			gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring(name), gomega.ContainSubstring("no-data"))))
+			return
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", name), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "generated"}))))))
+	}, ginkgo.Entry("outside user roots", "/relocated/empty", false, 1), ginkgo.Entry("inside user roots", "/src/empty", true, 1), ginkgo.Entry("several empty originals", "/src/empty", true, 2))
+	ginkgo.It("retains an empty package file at its declared path", func() {
+		original := Original{Path: "/usr/share/empty", SHA256: fixtureDigest(nil), Component: fixtureComponent("pm"), Kind: "pm"}
+		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{original.Path: nil}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64", Originals: []Original{original}})).To(gomega.Succeed())
+	})
+	ginkgo.It("keeps a nonempty package header under its package inside ownRoots", func() {
+		body := []byte("package header")
+		bom := cdx.NewBOM()
+		original := Original{Path: "/usr/include/header.h", SHA256: fixtureDigest(body), Component: fixtureComponent("pm"), Kind: "pm"}
+		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/src/header.h": body}), bom, VerifyOptions{Subject: "app", Platform: "linux/amd64", UserRoots: []string{"/src"}, Originals: []Original{original}})).To(gomega.Succeed())
+		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "/src/header.h"), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "pm"}))))))
+	})
 	ginkgo.It("accounts a copy while the package original remains", func() {
 		body := []byte("package data")
 		bom := cdx.NewBOM()

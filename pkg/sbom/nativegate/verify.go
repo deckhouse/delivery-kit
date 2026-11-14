@@ -89,6 +89,17 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	for _, component := range opts.TrustedComponents {
 		catalog.Components[component.BOMRef] = component
 	}
+	buildLocators := map[string]bool{}
+	for _, sources := range opts.BuildGitSources {
+		subject, ownComponent, err := declaredSubject(ctx, opts.Subject, sources)
+		if err != nil {
+			return err
+		}
+		buildLocators[subject.Source.Locator] = true
+		if _, exists := catalog.Components[ownComponent.BOMRef]; !exists {
+			catalog.Components[ownComponent.BOMRef] = ownComponent
+		}
+	}
 	present := make(map[string]Record)
 	for _, name := range slices.Sorted(maps.Keys(fs.index.Files)) {
 		if err := ctx.Err(); err != nil {
@@ -134,7 +145,7 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 					return fmt.Errorf("%s: no-data: unknown package %s", name, catalog.Components[ref].Name)
 				}
 			}
-			if !known && !currentBuildSubject(record, catalog, opts.Subject) {
+			if !known && !currentBuildSubject(record, catalog, opts.Subject, buildLocators) {
 				return fmt.Errorf("%s: no-data: binary has no matching original or current build subject", name)
 			}
 		} else if file.Size > 0 && binaryLike(fs.bodies[name], fs.executable[name], name) && !interpretedScript(fs.bodies[name], name) && !plainText(fs.bodies[name], name) {
@@ -313,11 +324,11 @@ func matchPackageOriginal(name, hash string, originals []Original) (*Original, e
 	return result, nil
 }
 
-func currentBuildSubject(record Record, catalog Catalog, name string) bool {
+func currentBuildSubject(record Record, catalog Catalog, name string, locators map[string]bool) bool {
 	current := func(ref string) bool {
 		component := catalog.Components[ref]
 		source, ok := componentSource(component)
-		return ok && source.Kind == "declared" && source.Locator == "dk:image:"+name && component.Name == name
+		return ok && source.Kind == "declared" && locators[source.Locator] && component.Name == name && (source.Locator == "dk:image:"+name || component.Version == "unspecified")
 	}
 	if record.Archive != nil {
 		return !slices.ContainsFunc(record.Archive.Members, func(member ArchiveMember) bool { return !current(member.Subject) })

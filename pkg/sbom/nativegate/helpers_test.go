@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"os"
 	"strings"
 
 	"fox.flant.com/deckhouse/container-base/pm.git/sbom/original"
@@ -33,6 +34,15 @@ import (
 )
 
 func fixtureDigest(body []byte) string { return fmt.Sprintf("sha256:%x", sha256.Sum256(body)) }
+
+func fixtureContractBOM() *cdx.BOM {
+	ginkgo.GinkgoHelper()
+	data, err := os.ReadFile("testdata/contract-example-v1.json")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var bom cdx.BOM
+	gomega.Expect(json.Unmarshal(data, &bom)).To(gomega.Succeed())
+	return &bom
+}
 
 func fixtureComponent(kind string) cdx.Component {
 	return cdx.Component{Type: cdx.ComponentTypeLibrary, BOMRef: kind, Name: kind, Version: "1", PackageURL: "pkg:generic/" + kind + "@1", Properties: &[]cdx.Property{{Name: "dk:source", Value: `{"kind":"` + kind + `","locator":"registry.example.invalid/packages","checksum":"sha256:` + strings.Repeat("1", 64) + `"}`}}}
@@ -78,12 +88,15 @@ func fixtureArchive(member string, content []byte) []byte {
 }
 
 func fixtureRegistryPackage(ctx context.Context) (sources.Source, TrustedPackages) {
+	return fixtureRegistryPackageImage(ctx, fixtureImageWithLinks(map[string][]byte{"/usr/share/data": []byte("original")}, map[string]string{"/usr/share/current": "data"}))
+}
+
+func fixtureRegistryPackageImage(ctx context.Context, img v1.Image) (sources.Source, TrustedPackages) {
 	ginkgo.GinkgoHelper()
 	gomega.Expect(docker_registry.Init(ctx, true, false, nil, nil)).To(gomega.Succeed())
 	server := httptest.NewServer(registry.New(registry.Logger(log.New(ginkgo.GinkgoWriter, "", 0))))
 	ginkgo.DeferCleanup(server.Close)
 	repo := strings.TrimPrefix(server.URL, "http://") + "/packages"
-	img := fixtureImageWithLinks(map[string][]byte{"/usr/share/data": []byte("original")}, map[string]string{"/usr/share/current": "data"})
 	ref, err := name.NewTag(repo + ":data")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(remote.Write(ref, img, remote.WithContext(ctx))).To(gomega.Succeed())

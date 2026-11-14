@@ -27,6 +27,8 @@
 #
 # Exit 0 only if the binary exists, is an ELF for aarch64, and `pm info --build-info` reads a present record for it
 # whose platform is linux/arm64. If the patched Go writes no record for arm64, this is the place it shows: tell BI-1.
+# The script does not supply SBOM_BUILD_CONTEXT (the helper context a patched Go may need outside a werf stage): a failure
+# on that account is a finding for DK-1/BI-1, not proof that arm64 records are impossible.
 # Not run end to end yet (no builder at the time of writing). The pulled builder image is removed by tag at the end
 # only if this script pulled it.
 set -euo pipefail

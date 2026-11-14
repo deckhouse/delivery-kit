@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -33,7 +34,7 @@ import (
 
 const (
 	nativeContextMount    = "/.werf/sbom-build-context"
-	nativeInstrumentation = "native-sbom-increment-1"
+	nativeInstrumentation = "native-sbom-increment-1-git-identity-v1"
 )
 
 func nativeBootstrap(name string) bool {
@@ -62,6 +63,56 @@ func nativeSBOMRepo(conveyor *Conveyor) string {
 		return ""
 	}
 	return conveyor.StorageManager.GetStagesStorage().Address()
+}
+
+func nativeGitSources(ctx context.Context, img *buildimage.Image) ([]nativegate.GitSource, error) {
+	result := []nativegate.GitSource{}
+	seen := map[*stage.GitMapping]bool{}
+	for _, stg := range img.GetStages() {
+		for _, mapping := range stg.GetGitMappings() {
+			if seen[mapping] {
+				continue
+			}
+			seen[mapping] = true
+			identity, err := mapping.SBOMIdentity(ctx)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, nativegate.GitSource{Repository: identity.Repository, Commit: identity.Commit, Add: mapping.Add, To: mapping.To})
+		}
+	}
+	return result, nil
+}
+
+func nativeStageGitSources(ctx context.Context, img *buildimage.Image, name stage.StageName) ([]nativegate.GitSource, error) {
+	if name == stage.BeforeInstall || !slices.Contains(jsObserverStageNames, name) {
+		return nil, nil
+	}
+	return nativeGitSources(ctx, img)
+}
+
+func nativeGitRepositoriesChecksum(sources []nativegate.GitSource) (string, error) {
+	keys := []string{}
+	for _, source := range sources {
+		data, err := json.Marshal([]string{source.Repository, source.Add, source.To})
+		if err != nil {
+			return "", fmt.Errorf("encode git repository cache identity: %w", err)
+		}
+		keys = append(keys, string(data))
+	}
+	slices.Sort(keys)
+	return util.Sha256Hash(slices.Compact(keys)...), nil
+}
+
+func nativeGitRepositoryChecksum(ctx context.Context, conveyor *Conveyor, img *buildimage.Image) (string, error) {
+	if conveyor == nil || !conveyor.EnableSbom() || img.StapelImageConfig == nil {
+		return "", nil
+	}
+	sources, err := nativeGitSources(ctx, img)
+	if err != nil {
+		return "", err
+	}
+	return nativeGitRepositoriesChecksum(sources)
 }
 
 func nativeArtifactChecksum(imageDigest, signerIdentity string, gostConfig gost.Config) string {
@@ -173,6 +224,12 @@ func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Ima
 	if err != nil {
 		return nil, fmt.Errorf("/var/lib/pm/sbom-sources.json: %w", err)
 	}
+	set.BuildGitSources = [][]nativegate.GitSource{}
+	for _, snapshot := range provenance.Snapshots {
+		if slices.Contains(jsObserverStageNames, snapshot.Stage) {
+			set.BuildGitSources = append(set.BuildGitSources, snapshot.GitSources)
+		}
+	}
 	return set, nil
 }
 
@@ -253,7 +310,11 @@ func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildima
 	if err := os.Chmod(directory, 0o755); err != nil {
 		return err
 	}
-	filename, err := nativegate.MaterializeBuildContext(ctx, saved, packages, directory, nativegate.ContextOptions{Subject: img.GetName(), Platform: img.TargetPlatform, UserRoots: roots, ContainerRoot: nativeContextMount})
+	gitSources, err := nativeStageGitSources(ctx, img, stg.Name())
+	if err != nil {
+		return err
+	}
+	filename, err := nativegate.MaterializeBuildContext(ctx, saved, packages, directory, nativegate.ContextOptions{Subject: img.GetName(), Platform: img.TargetPlatform, UserRoots: roots, ContainerRoot: nativeContextMount, GitSources: gitSources})
 	if err != nil {
 		return err
 	}
@@ -449,7 +510,7 @@ func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage
 	if err != nil {
 		return err
 	}
-	opts := nativegate.VerifyOptions{Platform: img.TargetPlatform, Subject: img.GetName(), UserRoots: roots, Originals: packages.Originals, TrustedComponents: packages.Components}
+	opts := nativegate.VerifyOptions{Platform: img.TargetPlatform, Subject: img.GetName(), UserRoots: roots, Originals: packages.Originals, TrustedComponents: packages.Components, BuildGitSources: packages.BuildGitSources}
 	if !sbomImage.IsScratchRef(img.GetBaseImageReference()) && img.GetBaseImageReference() != "" {
 		originals, err := nativegate.ImageOriginals(ctx, base, img.TargetPlatform)
 		if err != nil {

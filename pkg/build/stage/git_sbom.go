@@ -15,14 +15,38 @@ import (
 )
 
 type GitSourceFiles struct {
+	GitSourceIdentity
+	Files    map[string]string
+	Symlinks map[string]string
+}
+
+type GitSourceIdentity struct {
 	Repository string
 	Commit     string
-	Files      map[string]string
-	Symlinks   map[string]string
+}
+
+func (gm *GitMapping) SBOMIdentity(ctx context.Context) (GitSourceIdentity, error) {
+	metadata, err := gm.gitSource(ctx)
+	if err != nil {
+		return GitSourceIdentity{}, err
+	}
+	if gm.IsLocal() {
+		origin, err := gm.GitRepo().RemoteOriginUrl(ctx)
+		if err != nil {
+			return GitSourceIdentity{}, fmt.Errorf("read local git origin: %w", err)
+		}
+		if origin != "" {
+			metadata.Source, err = sanitizeGitSourceURL(origin)
+			if err != nil {
+				return GitSourceIdentity{}, err
+			}
+		}
+	}
+	return GitSourceIdentity{Repository: metadata.Source, Commit: metadata.Commit}, nil
 }
 
 func (gm *GitMapping) SBOMSource(ctx context.Context) (GitSourceFiles, error) {
-	metadata, err := gm.gitSource(ctx)
+	metadata, err := gm.SBOMIdentity(ctx)
 	if err != nil {
 		return GitSourceFiles{}, err
 	}
@@ -52,7 +76,7 @@ func (gm *GitMapping) SBOMSource(ctx context.Context) (GitSourceFiles, error) {
 	if err != nil {
 		return GitSourceFiles{}, err
 	}
-	result.Repository, result.Commit = metadata.Source, metadata.Commit
+	result.GitSourceIdentity = metadata
 	return result, nil
 }
 

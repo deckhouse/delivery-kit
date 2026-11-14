@@ -1,0 +1,87 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:aebb8550-cf2c-45ba-a13a-4166d047eac6",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "urn:example:image",
+      "type": "container",
+      "name": "app",
+      "version": "1"
+    },
+    "properties": [
+      {
+        "name": "dk:verification",
+        "value": "instrumented-v1"
+      },
+      {
+        "name": "dk:platform",
+        "value": "linux/amd64"
+      }
+    ]
+  },
+  "components": [
+    {
+      "bom-ref": "sha256:464c9d88fe6618d0c5fb4654295b8be538a617080a2b9db259363584fb58ed12:/usr/bin/app",
+      "type": "file",
+      "name": "/usr/bin/app",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "464c9d88fe6618d0c5fb4654295b8be538a617080a2b9db259363584fb58ed12"
+        }
+      ],
+      "properties": [
+        {
+          "name": "dk:origin",
+          "value": "build"
+        }
+      ],
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "/usr/bin/app",
+            "additionalContext": "sha256:464c9d88fe6618d0c5fb4654295b8be538a617080a2b9db259363584fb58ed12"
+          }
+        ]
+      }
+    },
+    {
+      "bom-ref": "urn:dk:component:sha256:ea07fbf438a50950745577ad97522fe4415d206604e3cfcdde660702757a80f3",
+      "type": "library",
+      "name": "app",
+      "version": "1",
+      "purl": "pkg:generic/app@1?source_kind=declared&source_locator=https:%2F%2Fexample.invalid%2Fapp",
+      "properties": [
+        {
+          "name": "dk:source",
+          "value": "{\"kind\":\"declared\",\"locator\":\"https://example.invalid/app\"}"
+        }
+      ],
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "/usr/bin/app",
+            "additionalContext": "sha256:464c9d88fe6618d0c5fb4654295b8be538a617080a2b9db259363584fb58ed12"
+          }
+        ]
+      }
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "sha256:464c9d88fe6618d0c5fb4654295b8be538a617080a2b9db259363584fb58ed12:/usr/bin/app",
+      "dependsOn": [
+        "urn:dk:component:sha256:ea07fbf438a50950745577ad97522fe4415d206604e3cfcdde660702757a80f3"
+      ]
+    },
+    {
+      "ref": "urn:example:image",
+      "dependsOn": [
+        "sha256:464c9d88fe6618d0c5fb4654295b8be538a617080a2b9db259363584fb58ed12:/usr/bin/app"
+      ]
+    }
+  ]
+}

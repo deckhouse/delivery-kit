@@ -19,7 +19,7 @@ func TestNativeGate(t *testing.T) {
 var _ = ginkgo.Describe("increment 1 verification", func() {
 	var opts VerifyOptions
 	ginkgo.BeforeEach(func() {
-		opts = VerifyOptions{Platform: "linux/amd64", Subject: "app", UserRoots: []string{"/src", "/build"}}
+		opts = VerifyOptions{BuildGitSources: [][]GitSource{nil}, Platform: "linux/amd64", Subject: "app", UserRoots: []string{"/src", "/build"}}
 	})
 
 	ginkgo.DescribeTable("rejects missing composition by content regardless of filename", func(name string, kind elf.Type) {

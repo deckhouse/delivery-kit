@@ -10,6 +10,13 @@ import (
 )
 
 var _ = ginkgo.Describe("shipped archives", func() {
+	ginkgo.It("rejects a modified pm archive against its original hash", func() {
+		original := fixtureArchive("legacy.o", fixtureELF(elf.ET_REL, nil))
+		changed := append(append([]byte{}, original...), []byte("tampered")...)
+		filename := "/usr/lib/lib.a"
+		err := Verify(context.Background(), fixtureImage(map[string][]byte{filename: changed}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64", Originals: []Original{{Path: filename, SHA256: fixtureDigest(original), Kind: "pm", Component: fixtureComponent("pm")}}})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring(filename), gomega.ContainSubstring("hash-mismatch"))))
+	})
 	ginkgo.It("refuses a Go cache archive when it is actually shipped in the image", func() {
 		body := fixtureArchive("__.PKGDEF", []byte("go object linux amd64 go1.27.4\n"))
 		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/go-cache/package-d": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64"})
@@ -25,7 +32,7 @@ var _ = ginkgo.Describe("shipped archives", func() {
 	})
 	ginkgo.It("accepts an archive with an instrumented member", func() {
 		body := fixtureArchive("code.o", fixtureELF(elf.ET_REL, fixtureRecord("c-object", "linux/amd64")))
-		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/build/library": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64"})).To(gomega.Succeed())
+		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/build/library": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64", BuildGitSources: [][]GitSource{nil}})).To(gomega.Succeed())
 	})
 	ginkgo.It("rejects an extensionless archive with an unrecorded member", func() {
 		body := fixtureArchive("code.o", fixtureELF(elf.ET_REL, nil))

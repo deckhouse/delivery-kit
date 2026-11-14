@@ -2,8 +2,10 @@ package build
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -21,15 +23,107 @@ import (
 
 	buildimage "github.com/werf/werf/v3/pkg/build/image"
 	"github.com/werf/werf/v3/pkg/build/stage"
+	"github.com/werf/werf/v3/pkg/config"
 	"github.com/werf/werf/v3/pkg/container_backend"
 	"github.com/werf/werf/v3/pkg/docker_registry"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil/gost"
 	sbomimage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/test/mock"
+	"github.com/werf/werf/v3/test/pkg/utils"
 )
 
 var _ = ginkgo.Describe("native SBOM cache", func() {
+	ginkgo.It("rejects a checked producer marked final", func() {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_BOOTSTRAP_IMAGES", "")
+		err := validateNativeBootstrap(&buildimage.Image{Name: "checked", IsFinal: true})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("checked image checked cannot be final")))
+	})
+	ginkgo.It("rejects a checked producer as the base of a strict image", func(ctx ginkgo.SpecContext) {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_BOOTSTRAP_IMAGES", "")
+		img, err := buildimage.NewImage(ctx, "linux/amd64", "strict", buildimage.FromImage, buildimage.ImageOptions{BaseImageName: "checked"})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(validateNativeBootstrap(img)).To(gomega.MatchError(gomega.ContainSubstring("checked image checked cannot be used as from for strict image strict")))
+	})
+	ginkgo.It("binds checked producer policy to the SBOM cache", func() {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "")
+		before := nativeSBOMSettings()
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
+		gomega.Expect(nativeSBOMSettings()).NotTo(gomega.Equal(before))
+	})
+	ginkgo.It("binds SBOM cache keys to sanitized local repository identity only when enabled", func(ctx ginkgo.SpecContext) {
+		img := newSBOMStageOrderImage(ctx)
+		utils.RunSucceedCommand(ctx, img.ProjectDir, "git", "remote", "add", "origin", "https://user:secret@example.invalid/project.git?token=private")
+		sources, err := nativeGitSources(ctx, img)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(sources).NotTo(gomega.BeEmpty())
+		for _, source := range sources {
+			gomega.Expect(source.Repository).To(gomega.Equal("https://example.invalid/project.git"))
+		}
+		before, err := nativeStageGitSources(ctx, img, stage.BeforeInstall)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(before).To(gomega.BeEmpty())
+		for _, name := range []stage.StageName{stage.Packages, stage.Install, stage.BeforeSetup, stage.Setup} {
+			actual, err := nativeStageGitSources(ctx, img, name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(actual).To(gomega.Equal(sources))
+		}
+		currentKey, err := nativeGitRepositoriesChecksum(sources)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for i := range sources {
+			sources[i].Commit = strings.Repeat("b", 40)
+		}
+		builtKey, err := nativeGitRepositoriesChecksum(sources)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(builtKey).To(gomega.Equal(currentKey))
+		conveyor := &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: true}}}}}
+		first, err := nativeGitRepositoryChecksum(ctx, conveyor, img)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		utils.RunSucceedCommand(ctx, img.ProjectDir, "git", "remote", "set-url", "origin", "https://example.invalid/fork.git")
+		second, err := nativeGitRepositoryChecksum(ctx, conveyor, img)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(second).NotTo(gomega.Equal(first))
+		for _, anchor := range []bool{false, true} {
+			opts := calculateDigestOptions{TargetPlatform: "linux/amd64", BuildCacheVersion: "test", Anchor: anchor, SBOMGitRepositories: first}
+			before, err := calculateDigest(ctx, "from", "", nil, conveyor, opts)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			opts.SBOMGitRepositories = second
+			after, err := calculateDigest(ctx, "from", "", nil, conveyor, opts)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(after).NotTo(gomega.Equal(before))
+			conveyor.werfConfig.Meta.Build.Sbom.Enable = false
+			without, err := calculateDigest(ctx, "from", "", nil, conveyor, opts)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			opts.SBOMGitRepositories = first
+			unchanged, err := calculateDigest(ctx, "from", "", nil, conveyor, opts)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(unchanged).To(gomega.Equal(without))
+			conveyor.werfConfig.Meta.Build.Sbom.Enable = true
+		}
+	})
+	ginkgo.It("skips native context and early convergence when SBOM is disabled", func(ctx ginkgo.SpecContext) {
+		img := newSBOMStageOrderImage(ctx)
+		root := ginkgo.GinkgoT().TempDir()
+		marker := filepath.Join(root, "pm-invoked")
+		binary := filepath.Join(root, "pm")
+		body := []byte("#!/bin/sh\n: > \"$WERF_TEST_PM_SENTINEL\"\nexit 1\n")
+		gomega.Expect(os.WriteFile(binary, body, 0o700)).To(gomega.Succeed())
+		ginkgo.GinkgoT().Setenv("WERF_TEST_PM_SENTINEL", marker)
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_PM_BINARY", binary)
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_PM_SHA256", fmt.Sprintf("%x", sha256.Sum256(body)))
+		backend := mock.NewMockContainerBackend(gomock.NewController(ginkgo.GinkgoT()))
+		directory := filepath.Join(root, "must-not-create")
+		phase := &BuildPhase{BasePhase: BasePhase{Conveyor: &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{}}, ContainerBackend: backend, tmpDir: directory}}, StagesIterator: &StagesIterator{}}
+		gomega.Expect(phase.prepareNativeContext(ctx, img, img.GetStage(stage.Install))).To(gomega.Succeed())
+		gomega.Expect(phase.AfterImageStages(ctx, img)).To(gomega.Succeed())
+		gomega.Expect(nativeSBOMRepo(phase.Conveyor)).To(gomega.BeEmpty())
+		_, err := os.Stat(marker)
+		gomega.Expect(os.IsNotExist(err)).To(gomega.BeTrue())
+		_, err = os.Stat(directory)
+		gomega.Expect(os.IsNotExist(err)).To(gomega.BeTrue())
+	})
 	ginkgo.DescribeTable("reuses the published artifact before reading cached stages", func(ctx ginkgo.SpecContext, valid bool) {
 		gomega.Expect(docker_registry.Init(ctx, true, false, nil, nil)).To(gomega.Succeed())
 		server := httptest.NewServer(registry.New())

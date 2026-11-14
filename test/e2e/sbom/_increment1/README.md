@@ -63,3 +63,7 @@ also require `TRUSTED_INDEXES` when selected directly.
 `base-empty-without-sbom`, `from-scratch`) by hand with these fixtures, on a host that has only a Delivery Kit binary, the pm binary
 and two stock images by digest; it uses its own `WERF_HOME` and `TMPDIR`, turns host auto-cleanup off, and for a passing `from-scratch`
 build also checks `dk:verification` and the `/app/config.txt` component in `werf sbom get`. See the header of the script.
+
+## The arm64 binary of `foreign-arch`
+`arm64-binary.sh` cross-compiles a Go hello for linux/arm64 in the strict builder and checks that the patched Go wrote a present
+record for platform linux/arm64; its output is the `WERF_TEST_I1_ARM64_BINARY` of the full stand. It needs the builder (not run yet).

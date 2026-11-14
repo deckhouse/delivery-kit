@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -856,4 +858,16 @@ func writeForeignELF(relPath string) func(string) {
 		Expect(info.Status).To(Equal("present"))
 		Expect(os.WriteFile(filepath.Join(repo, relPath), body.Bytes(), 0o755)).To(Succeed())
 	}
+}
+
+// startSSHAgent runs a private ssh-agent without keys and points the build at it; the agent is killed after the spec.
+func startSSHAgent() {
+	GinkgoHelper()
+	socket := filepath.Join(GinkgoT().TempDir(), "agent.sock")
+	out, err := exec.Command("ssh-agent", "-a", socket, "-s").CombinedOutput()
+	Expect(err).NotTo(HaveOccurred(), string(out))
+	match := regexp.MustCompile(`SSH_AGENT_PID=(\d+)`).FindSubmatch(out)
+	Expect(match).NotTo(BeNil(), "ssh-agent printed no pid: %s", out)
+	DeferCleanup(func() { _ = exec.Command("kill", string(match[1])).Run() })
+	SuiteData.Stubs.SetEnv("SSH_AUTH_SOCK", socket)
 }

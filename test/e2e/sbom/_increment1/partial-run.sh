@@ -91,9 +91,8 @@ layers_check service-path-written /.werf/user/payload.txt
 run service-path-dir-scripts service-path-dir-scripts scratch x x
 expect service-path-dir-scripts refuse
 layers_check service-path-dir-scripts /.werf/scripts/payload.txt
-run service-path-dir-stapel service-path-dir-stapel scratch x x
-expect service-path-dir-stapel refuse
-layers_check service-path-dir-stapel /.werf/stapel/payload.txt
+# /.werf/stapel is a build-time mount: a file written there is NOT in the published image (checked on 70dddd223), so it
+# proves nothing about the gate and has no case here.
 agent_dir=$(mktemp -d "$OUT/agent.XXXXXX"); eval "$(ssh-agent -a "$agent_dir/sock" -s)" >/dev/null
 SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent scratch x x
 kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"

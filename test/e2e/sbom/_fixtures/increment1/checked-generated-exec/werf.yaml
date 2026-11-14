@@ -17,8 +17,10 @@ git:
 shell:
   install:
     - /.werf/stapel/embedded/bin/mkdir -p /out
-    - printf "#!/bin/sh\necho generated\n" > /out/tool.sh
-    - /.werf/stapel/embedded/bin/chmod +x /out/tool.sh
+    # the stapel tools have no chmod: install -m 0755 makes the executable generated file
+    - printf "#!/bin/sh\necho generated\n" > /out/tool.src
+    - /.werf/stapel/embedded/bin/install -m 0755 /out/tool.src /out/tool.sh
+    - /.werf/stapel/embedded/bin/rm /out/tool.src
 ---
 image: app
 from: scratch

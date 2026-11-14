@@ -15,17 +15,20 @@ import (
 	"github.com/werf/common-go/pkg/util"
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/image"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
 
 type sbomStageRecord struct {
-	Stage         stage.StageName `json:"stage"`
-	StageDigest   string          `json:"stageDigest"`
-	ParentStageID string          `json:"parentStageID"`
-	ImportBackend string          `json:"importBackend,omitempty"`
+	GitSources    []nativegate.GitSource `json:"gitSources,omitempty"`
+	Stage         stage.StageName        `json:"stage"`
+	StageDigest   string                 `json:"stageDigest"`
+	ParentStageID string                 `json:"parentStageID"`
+	ImportBackend string                 `json:"importBackend,omitempty"`
 }
 
 type sbomStageSnapshot struct {
+	GitSources    []nativegate.GitSource
 	Stage         stage.StageName
 	LayerCount    int
 	ImportBackend string
@@ -87,7 +90,7 @@ func resolveSBOMStageProvenance(ctx context.Context, final *image.StageDesc, rea
 			return unknown, fmt.Errorf("resolve SBOM stages: unexpected stage %q at %q", record.Stage, id)
 		}
 		previousPosition = position
-		result.Snapshots = append(result.Snapshots, sbomStageSnapshot{Stage: record.Stage, LayerCount: len(current.RootFS.DiffIDs), ImportBackend: record.ImportBackend})
+		result.Snapshots = append(result.Snapshots, sbomStageSnapshot{Stage: record.Stage, LayerCount: len(current.RootFS.DiffIDs), ImportBackend: record.ImportBackend, GitSources: record.GitSources})
 		if record.Stage == stage.From {
 			result.Layers.Known = true
 			slices.Reverse(result.Layers.Ranges)

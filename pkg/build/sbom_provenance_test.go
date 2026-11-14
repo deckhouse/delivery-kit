@@ -14,6 +14,7 @@ import (
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/image"
 	"github.com/werf/werf/v3/pkg/sbom/cyclonedxutil"
+	"github.com/werf/werf/v3/pkg/sbom/nativegate"
 	"github.com/werf/werf/v3/pkg/sbom/scanner"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 )
@@ -68,6 +69,24 @@ var _ = ginkgo.Describe("SBOM stage provenance", func() {
 		gomega.Expect(provenance.Layers).To(gomega.Equal(shippedscope.ProducedLayers{Known: true, Ranges: []shippedscope.ProducedLayerRange{{Start: 4, End: 6}, {Start: 7, End: 8}}}))
 		gomega.Expect(provenance.DiffIDs).To(gomega.Equal(configs[final.Info.Name].RootFS.DiffIDs))
 		gomega.Expect(reads).To(gomega.HaveLen(len(ids)))
+	})
+	ginkgo.It("recovers each producing stage git identity independently of the current checkout", func(ctx ginkgo.SpecContext) {
+		for position, commit := range map[int]string{3: strings.Repeat("a", 40), 5: strings.Repeat("b", 40)} {
+			cfg := configs["example.com/stages:"+ids[position]]
+			var record sbomStageRecord
+			gomega.Expect(json.Unmarshal([]byte(cfg.Config.Labels[image.WerfSBOMStageLabel]), &record)).To(gomega.Succeed())
+			record.GitSources = []nativegate.GitSource{{Repository: "https://example.invalid/project.git", Commit: commit, Add: "/", To: "/src"}}
+			data, err := json.Marshal(record)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			cfg.Config.Labels[image.WerfSBOMStageLabel] = string(data)
+		}
+		provenance, err := resolveSBOMStageProvenance(ctx, final, readConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(provenance.Snapshots[1].GitSources).To(gomega.BeEmpty())
+		gomega.Expect(provenance.Snapshots[3].GitSources).To(gomega.HaveLen(1))
+		gomega.Expect(provenance.Snapshots[3].GitSources[0].Commit).To(gomega.Equal(strings.Repeat("a", 40)))
+		gomega.Expect(provenance.Snapshots[5].GitSources).To(gomega.HaveLen(1))
+		gomega.Expect(provenance.Snapshots[5].GitSources[0].Commit).To(gomega.Equal(strings.Repeat("b", 40)))
 	})
 
 	ginkgo.It("stops at this image's from stage instead of following an internal base", func(ctx ginkgo.SpecContext) {

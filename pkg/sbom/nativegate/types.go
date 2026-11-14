@@ -58,6 +58,7 @@ type Original struct {
 }
 
 type VerifyOptions struct {
+	BuildGitSources   [][]GitSource
 	Platform          string
 	Subject           string
 	UserRoots         []string

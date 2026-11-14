@@ -16,7 +16,7 @@ var _ = ginkgo.Describe("native CycloneDX contract", func() {
 	ginkgo.It("publishes schema-valid file relationships without a catalog blob", func() {
 		bom := cyclonedxutil.NewBOM()
 		bom.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeContainer, Name: "app", BOMRef: "urn:example:image", Version: "1"}}
-		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/usr/bin/app": fixtureELF(elf.ET_EXEC, fixtureRecord("c-static", "linux/amd64"))}), bom, VerifyOptions{Subject: "app", Platform: "linux/amd64"})).To(gomega.Succeed())
+		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/usr/bin/app": fixtureELF(elf.ET_EXEC, fixtureRecord("c-static", "linux/amd64"))}), bom, VerifyOptions{Subject: "app", Platform: "linux/amd64", BuildGitSources: [][]GitSource{nil}})).To(gomega.Succeed())
 		cyclonedxutil.Canonicalize(context.Background(), bom)
 		data, err := cyclonedxutil.ToJSON(bom)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -23,13 +23,15 @@ import (
 )
 
 type PackageSet struct {
-	resolved   []*resolvedSource
-	Originals  []Original
-	Components []cdx.Component
-	Symlinks   map[string]string
+	BuildGitSources [][]GitSource
+	resolved        []*resolvedSource
+	Originals       []Original
+	Components      []cdx.Component
+	Symlinks        map[string]string
 }
 
 type ContextOptions struct {
+	GitSources    []GitSource
 	Subject       string
 	Platform      string
 	UserRoots     []string
@@ -223,7 +225,11 @@ func MaterializeBuildContext(ctx context.Context, img v1.Image, packages *Packag
 			bindings = append(bindings, *matched)
 		}
 	}
-	declaration := &buildcontext.Context{Version: 1, Platform: opts.Platform, Subject: shared.BuildComponent{ID: "app", Name: opts.Subject, Version: "unspecified", Source: shared.BuildSource{Kind: "declared", Locator: "dk:image:" + opts.Subject}}, OwnRoots: opts.UserRoots, Packages: []buildcontext.Package{}, Imports: []buildcontext.Import{}}
+	subject, _, err := declaredSubject(ctx, opts.Subject, opts.GitSources)
+	if err != nil {
+		return "", err
+	}
+	declaration := &buildcontext.Context{Version: 1, Platform: opts.Platform, Subject: subject, OwnRoots: opts.UserRoots, Packages: []buildcontext.Package{}, Imports: []buildcontext.Import{}}
 	seen := map[string]buildcontext.Import{}
 	for position, resolved := range packages.resolved {
 		name := strings.TrimPrefix(digest([]byte(resolved.ID)), "sha256:")

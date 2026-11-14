@@ -32,7 +32,7 @@ var _ = ginkgo.Describe("shipped archives", func() {
 	})
 	ginkgo.It("accepts an archive with an instrumented member", func() {
 		body := fixtureArchive("code.o", fixtureELF(elf.ET_REL, fixtureRecord("c-object", "linux/amd64")))
-		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/build/library": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64"})).To(gomega.Succeed())
+		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/build/library": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64", BuildGitSources: [][]GitSource{nil}})).To(gomega.Succeed())
 	})
 	ginkgo.It("rejects an extensionless archive with an unrecorded member", func() {
 		body := fixtureArchive("code.o", fixtureELF(elf.ET_REL, nil))

@@ -57,3 +57,7 @@ task --yes test:e2e paths=./test/e2e/sbom labelFilter=increment1 parallel=1 -- -
 
 The full `run.sh` still requires every stand input. Package-file and C/Go positive cases
 also require `TRUSTED_INDEXES` when selected directly.
+
+## The arm64 binary of `foreign-arch`
+
+`arm64-binary.sh` cross-compiles a Go hello for linux/arm64 with plain `docker run` and checks the embedded platform record. It needs an instrumented builder and its helper context; the script does not yet supply `SBOM_BUILD_CONTEXT`. End-to-end execution remains unverified. The synthetic foreign-platform ELF test runs independently of this tool.

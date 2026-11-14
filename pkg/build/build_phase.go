@@ -274,6 +274,10 @@ func (phase *BuildPhase) calculateAnchorDigest(ctx context.Context, img *image.I
 		return fmt.Errorf("image %q: %w", img.Name, err)
 	}
 
+	gitIdentity, err := nativeGitRepositoryChecksum(ctx, phase.Conveyor, img)
+	if err != nil {
+		return fmt.Errorf("image %q git identity: %w", img.Name, err)
+	}
 	digest, err := calculateDigest(ctx, string(anchor.Name()), "", nil, phase.Conveyor, calculateDigestOptions{
 		TargetPlatform:         img.TargetPlatform,
 		BuildCacheVersion:      imagePkg.BuildCacheVersion,
@@ -283,6 +287,7 @@ func (phase *BuildPhase) calculateAnchorDigest(ctx context.Context, img *image.I
 		HolisticInputs:         holisticInputs,
 		JSObserver:             jsObserverImageInstrumentation(phase.Conveyor, img),
 		SBOMRepo:               nativeSBOMRepo(phase.Conveyor),
+		SBOMGitRepositories:    gitIdentity,
 	})
 	if err != nil {
 		return fmt.Errorf("image %q: %w", img.Name, err)
@@ -1731,6 +1736,11 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 	opts.BuildCacheVersion = imagePkg.BuildCacheVersion
 	opts.JSObserver = jsObserverInstrumentation(phase.Conveyor, img, stg)
 	opts.SBOMRepo = nativeSBOMRepo(phase.Conveyor)
+	gitIdentity, identityErr := nativeGitRepositoryChecksum(ctx, phase.Conveyor, img)
+	if identityErr != nil {
+		return false, nil, identityErr
+	}
+	opts.SBOMGitRepositories = gitIdentity
 
 	var stageDependencies string
 	var prevNonEmptyStage stage.Interface
@@ -1821,9 +1831,10 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		}
 	} else {
 		stageContentSig, err = calculateDigest(ctx, fmt.Sprintf("%s-content", stg.Name()), "", stg, phase.Conveyor, calculateDigestOptions{
-			TargetPlatform:    img.TargetPlatform,
-			BuildCacheVersion: imagePkg.BuildCacheVersion,
-			SBOMRepo:          nativeSBOMRepo(phase.Conveyor),
+			TargetPlatform:      img.TargetPlatform,
+			BuildCacheVersion:   imagePkg.BuildCacheVersion,
+			SBOMRepo:            nativeSBOMRepo(phase.Conveyor),
+			SBOMGitRepositories: gitIdentity,
 		})
 		if err != nil {
 			return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, fmt.Errorf("unable to calculate stage %s content digest: %w", stg.Name(), err)
@@ -1861,8 +1872,13 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 		if _, ok := serviceLabels[imagePkg.WerfParentStageID]; !ok {
 			serviceLabels[imagePkg.WerfParentStageID] = ""
 		}
+		gitSources, err := nativeStageGitSources(ctx, img, stg.Name())
+		if err != nil {
+			return err
+		}
 		record, err := json.Marshal(sbomStageRecord{
-			Stage: stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID], ImportBackend: nativeImportBackend(phase.Conveyor),
+			GitSources: gitSources,
+			Stage:      stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID], ImportBackend: nativeImportBackend(phase.Conveyor),
 		})
 		if err != nil {
 			return fmt.Errorf("encode SBOM stage record: %w", err)
@@ -2248,6 +2264,7 @@ func introspectStage(ctx context.Context, s stage.Interface) error {
 
 type calculateDigestOptions struct {
 	SBOMRepo               string
+	SBOMGitRepositories    string
 	TargetPlatform         string
 	BuildCacheVersion      string
 	ManifestSigningOptions signing.ManifestSigningOptions
@@ -2282,7 +2299,7 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 			}
 		}
 		if conveyor != nil && conveyor.EnableSbom() {
-			args = append(args, "sbom_enabled", nativeSBOMSettings(), opts.SBOMRepo)
+			args = append(args, "sbom_enabled", nativeSBOMSettings(), opts.SBOMRepo, opts.SBOMGitRepositories)
 		}
 		if opts.JSObserver != "" {
 			args = append(args, "js_observer:"+opts.JSObserver)
@@ -2344,8 +2361,8 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 	}
 
 	if conveyor != nil && conveyor.EnableSbom() {
-		checksumArgs = append(checksumArgs, "sbom_enabled", nativeSBOMSettings(), opts.SBOMRepo)
-		checksumArgsNames = append(checksumArgsNames, "SbomEnabled", "SBOMInstrumentation", "SBOMRepo")
+		checksumArgs = append(checksumArgs, "sbom_enabled", nativeSBOMSettings(), opts.SBOMRepo, opts.SBOMGitRepositories)
+		checksumArgsNames = append(checksumArgsNames, "SbomEnabled", "SBOMInstrumentation", "SBOMRepo", "SBOMGitRepositories")
 	}
 
 	if opts.JSObserver != "" {

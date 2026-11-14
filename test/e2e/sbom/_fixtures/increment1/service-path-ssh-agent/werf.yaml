@@ -1,0 +1,19 @@
+project: werf-test-e2e-sbom-i1-service-path-ssh-agent
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: "@BASE@"
+git:
+  - add: /data
+    to: /app
+shell:
+  install:
+    # The test builtin proves the agent socket is really there in the stage (a build without the mount would fail on it).
+    # Run with SSH_AUTH_SOCK set: werf puts the agent socket under /.werf/tmp in the build container; that and the
+    # other werf service paths must not make the strict build fail.
+    - test -S "$SSH_AUTH_SOCK"
+    - echo built

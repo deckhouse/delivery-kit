@@ -58,6 +58,17 @@ task --yes test:e2e paths=./test/e2e/sbom labelFilter=increment1 parallel=1 -- -
 The full `run.sh` still requires every stand input. Package-file and C/Go positive cases
 also require `TRUSTED_INDEXES` when selected directly.
 
-## The arm64 binary of `foreign-arch`
+## Partial stand
+`partial-run.sh` runs the cases that need no instrumented base, builders or index (`elf-in-git`, `git-file-edited`, `base-without-sbom`,
+`base-empty-without-sbom`, `from-scratch`) by hand with these fixtures, on a host that has only a Delivery Kit binary, the pm binary
+and two stock images by digest; it uses its own `WERF_HOME` and `TMPDIR`, turns host auto-cleanup off, and for a passing `from-scratch`
+build also checks `dk:verification` and the `/app/config.txt` component in `werf sbom get`. See the header of the script.
 
-`arm64-binary.sh` cross-compiles a Go hello for linux/arm64 with plain `docker run` and checks the embedded platform record. It needs an instrumented builder and its helper context; the script does not yet supply `SBOM_BUILD_CONTEXT`. End-to-end execution remains unverified. The synthetic foreign-platform ELF test runs independently of this tool.
+## The arm64 binary of `foreign-arch`
+`arm64-binary.sh` cross-compiles a Go hello for linux/arm64 in the builder with plain `docker run` (not through werf: an `sbom.enable` image would be refused by the strict gate for the foreign-platform ELF) and checks that the patched Go wrote a present
+record for platform linux/arm64; its output is the `WERF_TEST_I1_ARM64_BINARY` of the full stand. It needs the builder (not run yet). The script does not supply `SBOM_BUILD_CONTEXT` (the helper context a patched Go may need outside a werf stage); end-to-end execution is unverified, and the synthetic foreign-platform ELF test runs independently of this tool.
+
+## Checked build-environment cases (prepared, not run)
+`partial-run.sh` runs the `checked-*` fixtures with `WERF_SBOM_CHECKED_IMAGES=gen`: checked image as final and strict image `from` a checked one (both refused),
+generated text exported from a checked image (accepted), a modified git file (hash-mismatch), an ELF without a record, non-text data and a `#!` script with an ELF payload
+(refused), and a `#!` script containing a BEL (text, accepted). They need a Delivery Kit binary with the checked producer; the refusal wording of the cases is not pinned yet.

@@ -1,0 +1,21 @@
+project: werf-test-e2e-sbom-i1-checked-elf
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: gen
+final: false
+from: scratch
+git:
+  - add: /prebuilt
+    to: /gen-src
+---
+image: app
+from: scratch
+import:
+  - image: gen
+    add: /gen-src
+    to: /app
+    after: install

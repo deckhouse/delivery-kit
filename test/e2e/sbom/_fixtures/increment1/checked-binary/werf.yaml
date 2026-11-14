@@ -1,0 +1,28 @@
+project: werf-test-e2e-sbom-i1-checked-binary
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: gen
+final: false
+from: scratch
+imageSpec:
+  config:
+    workingDir: /out
+git:
+  - add: /data
+    to: /gen-src
+shell:
+  install:
+    - /.werf/stapel/embedded/bin/mkdir -p /out
+    - printf "\000\001\002\377" > /out/blob.bin
+---
+image: app
+from: scratch
+import:
+  - image: gen
+    add: /out
+    to: /app
+    after: install

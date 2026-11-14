@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"al.essio.dev/pkg/shellescape"
@@ -38,8 +39,7 @@ type LegacyStageImageContainer struct {
 	serviceCommitChangeOptions *LegacyStageImageContainerOptions
 	inheritedCommitOptions     *LegacyStageImageContainerOptions
 	buildTimeEnv               map[string]string
-	// sbomServiceFiles are the file mount points werf created itself (the ssh agent socket); a user volume is never recorded here.
-	sbomServiceFiles []string
+	sbomServiceFiles           []string
 }
 
 func newLegacyStageImageContainer(img *LegacyStageImage) *LegacyStageImageContainer {
@@ -53,19 +53,16 @@ func newLegacyStageImageContainer(img *LegacyStageImage) *LegacyStageImageContai
 	return c
 }
 
-// SBOMServiceFiles lists the regular files werf created as mount points of this container. The shell directory mount of the
-// legacy builder is a directory, so the script inside it is not declared as a file.
+// SBOMServiceFiles lists the file mount points werf itself created for the container (the ssh agent socket). Paths mounted by
+// the user and the directory mount of the legacy shell builder are not listed.
 func (c *LegacyStageImageContainer) SBOMServiceFiles(_ context.Context) []string {
-	return append([]string(nil), c.sbomServiceFiles...)
+	return slices.Clone(c.sbomServiceFiles)
 }
 
 func (c *LegacyStageImageContainer) addSBOMServiceFile(path string) {
-	for _, existing := range c.sbomServiceFiles {
-		if existing == path {
-			return
-		}
+	if !slices.Contains(c.sbomServiceFiles, path) {
+		c.sbomServiceFiles = append(c.sbomServiceFiles, path)
 	}
-	c.sbomServiceFiles = append(c.sbomServiceFiles, path)
 }
 
 func (c *LegacyStageImageContainer) Name() string {

@@ -89,12 +89,10 @@ func byteCountBinary(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// ServiceScriptPath is the file the native backend binds the stage script to (applyCommands).
 const ServiceScriptPath = "/.werf/script.sh"
 
-// SBOMServiceFilesProvider reports the regular files that werf itself created as mount points of the stage container and that
-// may stay in the stage layer as empty files. Only provenance is reported - a path mounted by a user (AddBuildVolumes,
-// AddVolume, run options) is never listed, even if it names the same target - and directory mount points are not part of it.
+// SBOMServiceFilesProvider reports the file mount points that werf itself created for a stage container and that may stay in
+// the layer as empty files. A path mounted by the user is never listed, even if it names the same target; directories are not.
 type SBOMServiceFilesProvider interface {
 	SBOMServiceFiles(ctx context.Context) []string
 }

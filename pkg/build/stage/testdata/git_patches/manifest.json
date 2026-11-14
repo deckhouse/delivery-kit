@@ -1,0 +1,19 @@
+{
+  "expected": {
+    "after-001-002-alt/a.txt": "0199e23e53e933f268a12a926e255703761ec3f912f6df5d5cca2edd08b068fc",
+    "after-001-002-alt/b.txt": "b2ef07f1e2b1b58edd8a1b35c5472177f5f1fa1ff74cad1c04cc776029511139",
+    "after-001-002/a.txt": "0199e23e53e933f268a12a926e255703761ec3f912f6df5d5cca2edd08b068fc",
+    "after-001-002/b.txt": "bc85caa9b61bcf3a54ccfc800e2b0eda6c11fa5df4e0481c896d31cda2462eb2"
+  },
+  "patches": {
+    "001-edit-a.patch": "077295f857731eb66199cf95e5f23fc7ee826038f09127db58a46a86af2259b3",
+    "002-edit-a-and-b.alt.patch": "a8d77afe5f385c0a3a38831001c4c0f89385ad0d1fc6c81727ad6e73cf2d6e4b",
+    "002-edit-a-and-b.patch": "14cb705216b70b9e8a7330381fd3bfc5b17b8dbf808b03349cebd1304b421f5d",
+    "003-does-not-apply.patch": "ac5bf168e9bcb21490ebfe97683596094bf63e48f7e929404f1860c4ea3a4c6f",
+    "004-unsafe-parent-path.patch": "2b34e18959a502f39706b2a69331404656ebbb9993983c7ff443913714cf9acf",
+    "005-rename.patch": "6bd8c5757ba28b91990cfb13dc01c8b82776b66497806a0413fc9cfb98f364df",
+    "006-delete.patch": "89e362a4a3fab14be584027c6aab01c0e645809422643f96b02f8f6a3ad74201",
+    "007-mode.patch": "41de1bd3e0e86392200db3cc1cd273f687d79ed12490abb08d0ce2c0904ad671",
+    "008-empty.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

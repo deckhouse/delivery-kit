@@ -1,0 +1,9 @@
+diff --git a/a.txt b/a.txt
+index 85c3040..e50310a 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,3 @@
+ alpha
+-beta
++BETA
+ gamma

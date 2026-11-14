@@ -124,14 +124,16 @@ var _ = ginkgo.Describe("git.patches fixtures", func() {
 		gomega.Expect(m.Expected["after-001-002-alt/b.txt"]).NotTo(gomega.Equal(m.Expected["after-001-002/b.txt"]))
 	})
 
+	// The wording of git differs between versions ("unrecognized input" before 2.4x, "No valid patches in input" after), so the
+	// message is matched by alternatives.
 	ginkgo.DescribeTable("a patch the reference semantics refuse", func(name, message string) {
 		dir := gitPatchesFixtureRepo()
 		err := gitPatchesApply(dir, name)
-		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(message)))
+		gomega.Expect(err).To(gomega.MatchError(gomega.MatchRegexp(message)))
 	},
 		ginkgo.Entry("context mismatch (no fuzz, no fallback)", "003-does-not-apply.patch", "patch does not apply"),
-		ginkgo.Entry("path leaving the tree", "004-unsafe-parent-path.patch", "outside"),
-		ginkgo.Entry("empty patch", "008-empty.patch", "No valid patches"),
+		ginkgo.Entry("path leaving the tree", "004-unsafe-parent-path.patch", "outside|\\.\\./"),
+		ginkgo.Entry("empty patch", "008-empty.patch", "unrecognized input|No valid patches"),
 	)
 
 	// Rename, delete and mode change apply under plain git; whether the DSL accepts them is a decision of the DSL,

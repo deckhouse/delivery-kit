@@ -1,0 +1,1 @@
+The test copies the instrumented linux/arm64 binary named by WERF_TEST_I1_ARM64_BINARY to prebuilt/tool before the first commit.

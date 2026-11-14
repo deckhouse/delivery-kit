@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -25,7 +28,7 @@ import (
 // The specs need a stand: instrumented images in a registry, the pm binary, the trusted indexes.
 // They are skipped, with the missing variables named, when it is not configured; see
 // _increment1/README.md. Fixtures hold @TOKEN@ placeholders that i1Repo replaces.
-var _ = Describe("SBOM increment 1: strict verification", Label("e2e", "sbom", "increment1"), func() {
+var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", "sbom", "increment1"), func() {
 	// A refusal must name the file (or the package) and the reason. The reasons are the wording of
 	// pkg/sbom/nativegate; a change of wording is a change of this table.
 	type negative struct {
@@ -35,72 +38,50 @@ var _ = Describe("SBOM increment 1: strict verification", Label("e2e", "sbom", "
 		// prepare may add files to the repository before its first commit.
 		prepare func(repo string)
 		needs   []string
-		names   []string
-		reasons []string
+		// refusal is a regular expression of the refusal as pkg/sbom/nativegate words it: the file
+		// or package, then the gate's reason. A build that fails for another reason (registry,
+		// missing image, flags) names neither.
+		refusal string
 	}
 
 	cases := map[string]negative{
 		"a package file replaced in a shell stage": {
 			fixture: "increment1/pkg-file-replaced",
 			needs:   []string{"BASE", "PM_PACKAGE", "PM_PACKAGE_FILE"},
-			names:   []string{"@PM_PACKAGE_FILE@"},
-			reasons: []string{"hash-mismatch"},
+			refusal: `@PM_PACKAGE_FILE@: hash-mismatch: pm original changed`,
 		},
 		"an ELF binary in git, with no record of its build": {
 			fixture: "increment1/elf-in-git",
 			needs:   []string{"BASE"},
 			prepare: writeStockELF("prebuilt/tool"),
-			names:   []string{"/app/tool"},
-			reasons: []string{"missing build record"},
+			refusal: `/app/tool: no-data: missing build record`,
 		},
 		"a file of a commit changed in a shell stage": {
 			fixture: "increment1/git-file-edited",
 			needs:   []string{"BASE"},
-			names:   []string{"/app/config.txt"},
-			reasons: []string{"hash-mismatch"},
+			refusal: `/app/config\.txt: hash-mismatch: git original changed`,
 		},
 		"a package outside the trusted index": {
 			fixture: "increment1/package-outside-index",
 			needs:   []string{"BASE", "PM_PACKAGE", "OTHER_INDEX"},
 			env:     map[string]string{"WERF_SBOM_TRUSTED_INDEXES": "@OTHER_INDEX@"},
-			names:   []string{"@PM_PACKAGE@"},
-			reasons: []string{"outside instrumented index"},
+			refusal: `@PM_PACKAGE@: no-data: package outside instrumented index`,
 		},
 		"a base image without an instrumented SBOM": {
 			fixture: "increment1/base-without-sbom",
 			needs:   []string{"BASE_NO_SBOM"},
-			reasons: []string{"no-data", "SBOM"},
+			refusal: `no-data: base image (has no instrumented SBOM|SBOM is unverified or has a different platform)`,
 		},
-		"a build for a platform the chain does not cover": {
-			fixture: "increment1/positive",
-			args:    []string{"--platform=linux/arm64", "c-hello"},
-			needs:   []string{"BUILDER_NATIVE", "BUILDER_GO"},
-			names:   []string{"linux/arm64"},
-			reasons: []string{"platform"},
+		"an instrumented arm64 binary in an amd64 build": {
+			fixture: "increment1/foreign-arch",
+			needs:   []string{"BASE", "ARM64_BINARY"},
+			prepare: copyFromEnv("prebuilt/tool", "WERF_TEST_I1_ARM64_BINARY"),
+			refusal: `/app/tool: unsupported platform linux/arm64: expected linux/amd64`,
 		},
 	}
 
-	for title, tc := range cases {
-		It("refuses "+title, func(ctx SpecContext) {
-			stand := requireStand(tc.needs...)
-			repo := i1Repo(ctx, "repo_sbom_i1_"+filepath.Base(tc.fixture)+"_"+hexPrefix(title), tc.fixture, stand, tc.prepare)
-			for key, value := range tc.env {
-				SuiteData.Stubs.SetEnv(key, stand.replace(value))
-			}
-
-			out := werf.NewProject(SuiteData.WerfBinPath, repo).Build(ctx, &werf.BuildOptions{
-				CommonOptions: werf.CommonOptions{ShouldFail: true, ExtraArgs: tc.args},
-			})
-
-			for _, name := range tc.names {
-				Expect(out).To(ContainSubstring(stand.replace(name)), "the refusal must name %s:\n%s", name, out)
-			}
-			for _, reason := range tc.reasons {
-				Expect(out).To(ContainSubstring(reason), "the refusal must say %q:\n%s", reason, out)
-			}
-		})
-	}
-
+	// The positive build comes first and the container is Ordered: when it fails, the negatives are
+	// skipped, because a negative that fails in an environment where nothing builds proves nothing.
 	It("builds a C and a Go binary on the instrumented builders, and the SBOM holds them as built files", func(ctx SpecContext) {
 		stand := requireStand("BUILDER_NATIVE", "BUILDER_GO")
 		repo := i1Repo(ctx, "repo_sbom_i1_positive", "increment1/positive", stand, nil)
@@ -120,12 +101,29 @@ var _ = Describe("SBOM increment 1: strict verification", Label("e2e", "sbom", "
 			Expect(lo.FromPtr(bom.Metadata.Properties)).To(ContainElement(cdx.Property{Name: "dk:verification", Value: "instrumented-v1"}))
 		}
 	})
+
+	for _, title := range slices.Sorted(maps.Keys(cases)) {
+		tc := cases[title]
+		It("refuses "+title, func(ctx SpecContext) {
+			stand := requireStand(tc.needs...)
+			repo := i1Repo(ctx, "repo_sbom_i1_"+filepath.Base(tc.fixture)+"_"+hexPrefix(title), tc.fixture, stand, tc.prepare)
+			for key, value := range tc.env {
+				SuiteData.Stubs.SetEnv(key, stand.replace(value))
+			}
+
+			out := werf.NewProject(SuiteData.WerfBinPath, repo).Build(ctx, &werf.BuildOptions{
+				CommonOptions: werf.CommonOptions{ShouldFail: true, ExtraArgs: tc.args},
+			})
+
+			Expect(out).To(MatchRegexp(stand.pattern(tc.refusal)), "the refusal must be the gate's, naming the file or package:\n%s", out)
+		})
+	}
 })
 
 // stand is the configuration of an increment 1 stand, read from WERF_TEST_I1_* variables.
 type stand struct{ values map[string]string }
 
-var standKeys = []string{"BASE", "BASE_NO_SBOM", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
+var standKeys = []string{"ARM64_BINARY", "BASE", "BASE_NO_SBOM", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
 
 // requireStand skips the spec unless every variable it needs is set, and the build environment
 // (pm binary, trusted indexes) of the stand is complete.
@@ -157,6 +155,14 @@ func requireStand(needs ...string) *stand {
 	SuiteData.Stubs.SetEnv("WERF_SBOM_PM_SHA256", hex.EncodeToString(sum[:]))
 	SuiteData.Stubs.SetEnv("WERF_SBOM_TRUSTED_INDEXES", s.values["TRUSTED_INDEXES"])
 	return s
+}
+
+// pattern is replace for a regular expression: the values are matched literally.
+func (s *stand) pattern(text string) string {
+	for key, value := range s.values {
+		text = strings.ReplaceAll(text, "@"+key+"@", regexp.QuoteMeta(value))
+	}
+	return text
 }
 
 func (s *stand) replace(text string) string {
@@ -209,4 +215,14 @@ func writeStockELF(relPath string) func(repo string) {
 func hexPrefix(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:3])
+}
+
+// copyFromEnv copies the file named by an environment variable into the repository.
+func copyFromEnv(relPath, variable string) func(repo string) {
+	return func(repo string) {
+		GinkgoHelper()
+		body, err := os.ReadFile(os.Getenv(variable))
+		Expect(err).NotTo(HaveOccurred(), "read %s", variable)
+		Expect(os.WriteFile(filepath.Join(repo, relPath), body, 0o755)).To(Succeed())
+	}
 }

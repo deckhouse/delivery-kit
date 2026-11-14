@@ -31,4 +31,13 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 WERF="$WERF_TEST_BINARY_PATH" test/e2e/sbom/_increment1/render.sh
 export TASK_X_REMOTE_TASKFILES=1
-exec task --yes test:e2e paths="./test/e2e/sbom" labelFilter="increment1" parallel=1
+log=$(mktemp)
+status=0
+task --yes test:e2e paths="./test/e2e/sbom" labelFilter="increment1" parallel=1 -- -v 2>&1 | tee "$log" || status=$?
+# Ginkgo exits 0 when every spec skips. A stand run that ran nothing, or skipped a spec for a missing
+# variable, is not a pass.
+if grep -q "stand is not configured" "$log" || grep -q "Ran 0 of" "$log"; then
+  echo "FAIL: increment 1 specs were skipped; set the WERF_TEST_I1_* variables" >&2
+  exit 2
+fi
+exit $status

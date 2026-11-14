@@ -5,15 +5,19 @@ Delivery Kit binary against an instrumented stand, and checks that each negative
 with the file (or package) named, and the positive one builds. Nothing here builds an image by itself:
 the specs skip, naming the missing `WERF_TEST_I1_*` variables, until a stand is configured.
 
-| fixture | scenario | expected refusal (names, reason) |
+| fixture | scenario | expected refusal (a regular expression, as `pkg/sbom/nativegate` words it) |
 |---|---|---|
-| `pkg-file-replaced` | a file of a pm package changed by a shell stage after installation | `@PM_PACKAGE_FILE@`, `hash-mismatch` |
-| `elf-in-git` | an ELF binary from a git mapping (stock Go build, no `.note.package`) | `/app/tool`, `missing build record` |
-| `git-file-edited` | a file of a commit changed by a shell stage | `/app/config.txt`, `hash-mismatch` |
-| `package-outside-index` | a pm package whose index is not in `WERF_SBOM_TRUSTED_INDEXES` | `@PM_PACKAGE@`, `outside instrumented index` |
-| `base-without-sbom` | a base image that has no instrumented SBOM | `no-data`, `SBOM` |
-| `positive` with `--platform=linux/arm64` | a build for a platform the chain does not cover | `linux/arm64`, `platform` |
+| `pkg-file-replaced` | a file of a pm package changed by a shell stage after installation | `<file>: hash-mismatch: pm original changed` |
+| `elf-in-git` | an ELF binary from a git mapping (stock Go build, no `.note.package`) | `/app/tool: no-data: missing build record` |
+| `git-file-edited` | a file of a commit changed by a shell stage | `/app/config.txt: hash-mismatch: git original changed` |
+| `package-outside-index` | a pm package whose index is not in `WERF_SBOM_TRUSTED_INDEXES` | `<package>: no-data: package outside instrumented index` |
+| `base-without-sbom` | a base image that has no instrumented SBOM | `no-data: base image (has no instrumented SBOM\|SBOM is unverified…)` |
+| `foreign-arch` | an instrumented linux/arm64 binary (`WERF_TEST_I1_ARM64_BINARY`) in an amd64 build | `/app/tool: unsupported platform linux/arm64: expected linux/amd64` |
 | `positive` | a C program on `builder/native` and a Go program on `builder/golang-alt-1.27` | builds; `/app/hello` is a file component with `dk:origin=build`; the SBOM carries `dk:verification=instrumented-v1` |
+
+Each negative is matched by the gate's own wording, naming the file or package, so a build that fails for
+another reason (registry, missing image, flags) does not satisfy it. The positive spec runs first and the
+container is Ordered: if it fails, the negatives are skipped.
 
 The reasons are the wording of `pkg/sbom/nativegate`. A change of wording changes the table in the test.
 
@@ -31,6 +35,7 @@ Set by the stand (take the values from the state file of the track that publishe
 | `WERF_TEST_I1_BASE_NO_SBOM` | a base image without such an SBOM (any stock image) |
 | `WERF_TEST_I1_BUILDER_NATIVE`, `..._BUILDER_GO` | the instrumented `builder/native` and `builder/golang-alt-1.27` |
 | `WERF_TEST_I1_PM_PACKAGE`, `..._PM_PACKAGE_FILE` | a data package of the index and one of its files (for example `tzdata`, `/usr/share/zoneinfo/UTC`) |
+| `WERF_TEST_I1_ARM64_BINARY` | an instrumented linux/arm64 ELF (record platform linux/arm64), e.g. a binary of an arm64 package |
 | `WERF_TEST_I1_OTHER_INDEX` | an instrumented index that does not hold `PM_PACKAGE`'s source |
 
 Until the chain's builders and index are published, point the variables at the pilot's: the builders

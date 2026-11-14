@@ -55,6 +55,9 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		}
 	}
 	for _, original := range opts.Originals {
+		if servicePath(original.Path) {
+			continue
+		}
 		if !digestPattern.MatchString(original.SHA256) || original.Component.BOMRef == "" || original.Component.Name == "" {
 			return fmt.Errorf("%s: no-data: incomplete original %s", original.Path, original.Kind)
 		}
@@ -198,6 +201,9 @@ func resolveRegularOriginal(fs *filesystem, name string) (string, error) {
 		return "", err
 	}
 	resolved := path.Join(parent, path.Base(name))
+	if !servicePath(name) && servicePath(resolved) {
+		return "", fmt.Errorf("%s: original resolves into reserved service namespace", name)
+	}
 	if _, exists := fs.index.Symlinks[resolved]; exists {
 		return "", fmt.Errorf("%s: hash-mismatch: regular original replaced by a symlink", name)
 	}
@@ -256,6 +262,9 @@ func ValidateImageSource(ctx context.Context, filename, kind string, bom *cdx.BO
 
 func verifySymlinkOriginals(fs *filesystem, expected map[string]string) error {
 	for _, name := range slices.Sorted(maps.Keys(expected)) {
+		if servicePath(name) {
+			continue
+		}
 		parent, err := resolvePath(fs, path.Dir(name))
 		if err != nil {
 			return err

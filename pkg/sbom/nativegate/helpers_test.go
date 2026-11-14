@@ -127,6 +127,10 @@ func fixtureImage(files map[string][]byte) v1.Image {
 }
 
 func fixtureImageWithLinks(files map[string][]byte, links map[string]string) v1.Image {
+	return fixtureImageWithLinkTypes(files, links, nil)
+}
+
+func fixtureImageWithLinkTypes(files map[string][]byte, links, hardlinks map[string]string) v1.Image {
 	ginkgo.GinkgoHelper()
 	var body bytes.Buffer
 	w := tar.NewWriter(&body)
@@ -137,6 +141,9 @@ func fixtureImageWithLinks(files map[string][]byte, links map[string]string) v1.
 	}
 	for name, target := range links {
 		gomega.Expect(w.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Typeflag: tar.TypeSymlink, Linkname: target, Mode: 0o777})).To(gomega.Succeed())
+	}
+	for name, target := range hardlinks {
+		gomega.Expect(w.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Typeflag: tar.TypeLink, Linkname: strings.TrimPrefix(target, "/"), Mode: 0o644})).To(gomega.Succeed())
 	}
 	gomega.Expect(w.Close()).To(gomega.Succeed())
 	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body.Bytes())), nil })

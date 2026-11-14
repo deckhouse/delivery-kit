@@ -27,7 +27,7 @@ func validateBootstrapInputs(ctx context.Context, img v1.Image, packages *Packag
 	}
 	ins := inspector{policy: strictPolicy(platform), catalog: &catalog}
 	for _, original := range packages.Originals {
-		if original.Kind != "bootstrap" {
+		if original.Kind != "bootstrap" || servicePath(original.Path) {
 			continue
 		}
 		filename, err := resolveRegularOriginal(fs, original.Path)

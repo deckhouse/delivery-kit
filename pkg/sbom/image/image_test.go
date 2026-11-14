@@ -11,14 +11,16 @@ var _ = Describe("Image", func() {
 			Expect(IsScratchRef(imageRef)).To(Equal(expected))
 		},
 		Entry("bare scratch", "scratch", true),
+		Entry("tagged scratch is a registry image", "scratch:latest", false),
+		Entry("registry scratch without tag", "registry.werf.io/werf/scratch", false),
 
-		Entry("registry scratch with tag", "registry.werf.io/werf/scratch:latest", true),
-		Entry("registry scratch with custom tag", "registry.werf.io/werf/scratch:some-valid-tag", true),
+		Entry("registry scratch with tag", "registry.werf.io/werf/scratch:latest", false),
+		Entry("registry scratch with custom tag", "registry.werf.io/werf/scratch:some-valid-tag", false),
 
-		Entry("registry scratch with digest", "registry.werf.io/werf/scratch@sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", true),
+		Entry("registry scratch with digest", "registry.werf.io/werf/scratch@sha256:5d68d4300015200b8797ddf93a5dee3491fd2f6c0211d70a6ab8127ea053375a", false),
 
-		Entry("localhost scratch with tag", "localhost:5000/scratch:latest", true),
-		Entry("localhost scratch with digest", "localhost:5000/scratch@sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1", true),
+		Entry("localhost scratch with tag", "localhost:5000/scratch:latest", false),
+		Entry("localhost scratch with digest", "localhost:5000/scratch@sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1", false),
 
 		Entry("ubuntu", "ubuntu:22.04", false),
 		Entry("registry image", "registry.werf.io/base/ubuntu:22.04", false),

@@ -181,13 +181,14 @@ func MaterializeBuildContext(ctx context.Context, img v1.Image, packages *Packag
 	if index.Incomplete {
 		return "", fmt.Errorf("no-data: incomplete build context image")
 	}
+	excludeServiceFiles(index)
 	if err := verifySymlinkOriginals(&filesystem{index: index}, packages.Symlinks); err != nil {
 		return "", err
 	}
 	if err := validateBootstrapInputs(ctx, img, packages, opts.Platform); err != nil {
 		return "", err
 	}
-	bindings := slices.Clone(packages.Originals)
+	bindings := lo.Filter(packages.Originals, func(original Original, _ int) bool { return !servicePath(original.Path) })
 	for position, binding := range bindings {
 		if binding.Kind != "bootstrap" {
 			continue

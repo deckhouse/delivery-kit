@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -22,6 +23,16 @@ type filesystem struct {
 	executable map[string]bool
 }
 
+func servicePath(name string) bool {
+	return name == "/.werf" || strings.HasPrefix(name, "/.werf/")
+}
+
+func excludeServiceFiles(index *shippedscope.FileIndex) {
+	maps.DeleteFunc(index.Files, func(name string, _ shippedscope.File) bool {
+		return servicePath(name)
+	})
+}
+
 func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 	index, err := shippedscope.IndexImageFiles(ctx, img)
 	if err != nil {
@@ -29,6 +40,12 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 	}
 	if index.Incomplete {
 		return nil, fmt.Errorf("incomplete image index")
+	}
+	outsideDigests := map[string]bool{}
+	for name, file := range index.Files {
+		if !servicePath(name) {
+			outsideDigests[file.Digest] = true
+		}
 	}
 	fs := &filesystem{index: index, bodies: map[string][]byte{}, executable: map[string]bool{}}
 	reader := mutate.Extract(img)
@@ -50,6 +67,9 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		if !ok {
 			continue
 		}
+		if servicePath(name) && !outsideDigests[entry.Digest] {
+			continue
+		}
 		if _, exists := fs.bodies[name]; exists {
 			continue
 		}
@@ -64,7 +84,7 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		// A name the suffix guard recognizes is judged on its whole body too: the text
 		// a toolchain installs under a library name is only text if no byte of it says
 		// otherwise, and a prefix cannot say that.
-		full := nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
+		full := servicePath(name) || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
 		if full {
 			if h.Size > 512<<20 {
 				return nil, fmt.Errorf("%s: file exceeds supported inspection limit", name)
@@ -83,6 +103,9 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 		fs.executable[name] = h.Mode&0o111 != 0
 	}
 	for name, entry := range index.Files {
+		if servicePath(name) {
+			continue
+		}
 		if _, ok := fs.bodies[name]; ok {
 			continue
 		}
@@ -99,6 +122,7 @@ func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 			return nil, fmt.Errorf("unreadable surviving file %s", name)
 		}
 	}
+	excludeServiceFiles(index)
 	return fs, nil
 }
 

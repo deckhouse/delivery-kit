@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
-	"github.com/distribution/reference"
 	"github.com/sigstore/sigstore/pkg/signature"
 
 	"github.com/werf/werf/v3/pkg/attestation"
@@ -33,22 +32,7 @@ var (
 )
 
 func IsScratchRef(imageRef string) bool {
-	if imageRef == "" {
-		return false
-	}
-	if imageRef == scratchImageName {
-		return true
-	}
-	ref, err := reference.ParseAnyReference(imageRef)
-	if err != nil {
-		return false
-	}
-	named, ok := ref.(reference.Named)
-	if !ok {
-		return false
-	}
-	path := reference.Path(named)
-	return path == scratchImageName || strings.HasSuffix(path, "/"+scratchImageName)
+	return imageRef == scratchImageName
 }
 
 func FallbackTag(parentDigest string) string {

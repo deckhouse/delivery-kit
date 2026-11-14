@@ -80,7 +80,7 @@ expect cache-mounts pass
 # The service path /.werf/: a file a recipe writes there that is not a werf service file must be refused (the gate
 # must not exclude the whole directory); werf's own service paths (the ssh agent socket) must not make a build fail.
 run service-path-written service-path-written scratch x x
-expect service-path-written refuse
+expect service-path-written refuse '/.werf/user/payload.txt: no-data: file has no trusted original; directory is not in a git mapping/WorkingDir'
 # A red control proves a bypass only if the file is really in the image: list the layers of the published image.
 layers_check() { # name file-in-image
   selected "$1" || return 0
@@ -109,7 +109,7 @@ PY
 }
 layers_check service-path-written /.werf/user/payload.txt
 run service-path-dir-scripts service-path-dir-scripts scratch x x
-expect service-path-dir-scripts refuse
+expect service-path-dir-scripts refuse '/.werf/scripts/payload.txt: no-data: file has no trusted original; directory is not in a git mapping/WorkingDir'
 layers_check service-path-dir-scripts /.werf/scripts/payload.txt
 # /.werf/stapel is a build-time mount: a file written there is NOT in the published image (checked on 70dddd223), so it
 # proves nothing about the gate and has no case here.

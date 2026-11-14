@@ -131,18 +131,24 @@ saved = subprocess.run(["docker", "save", ref], check=True, capture_output=True)
 names = []
 with tarfile.open(fileobj=io.BytesIO(saved)) as outer:
     manifest = json.load(outer.extractfile("manifest.json"))
+    leaked = []
     for layer in manifest[0]["Layers"]:
         with tarfile.open(fileobj=io.BytesIO(outer.extractfile(layer).read())) as inner:
-            names += ["/" + (n[2:] if n.startswith("./") else n.lstrip("/")) for n in inner.getnames()]
+            for member in inner.getmembers():
+                name = "/" + (member.name[2:] if member.name.startswith("./") else member.name.lstrip("/"))
+                names.append(name)
+                # only a non-empty file under a mount directory is a leak (the mount points themselves are empty directories)
+                if member.size > 0 and (name.startswith("/go-cache/") or name.startswith("/tmp-cache/")):
+                    leaked.append(name)
 open(listing, "w").write("\n".join(names) + "\n")
-leaked = [n for n in names if n.startswith(("/go-cache", "/tmp-cache"))]
 bom = json.load(open(sbom))
 in_bom = [c["name"] for c in bom.get("components", []) if c.get("name", "").startswith(("/go-cache/", "/tmp-cache/"))]
-print("   cache-mounts: image paths under the mounts: %s; SBOM components under the mounts: %s; /app/output in image: %s" % (
-    leaked or "none", in_bom or "none", "/app/output" in names))
+output_present = "/app/output" in names
+print("   cache-mounts: non-empty files under the mounts: %s; SBOM components under the mounts: %s; /app/output in image: %s" % (
+    leaked or "none", in_bom or "none", output_present))
 if not preexisting:  # never remove an image that was there before this run
     subprocess.run(["docker", "rmi", ref], capture_output=True)
-sys.exit(1 if leaked or in_bom else 0)
+sys.exit(1 if leaked or in_bom or not output_present else 0)
 PY
   [ $? -eq 0 ] || { echo "   cache-mounts: cache contents leaked or the check FAILED"; bad=1; }
 fi
@@ -174,8 +180,11 @@ checked() { # name expected(refuse|pass) pattern-or-sbom-path
     expect "$1" pass
     # An accepted export must show up in the SBOM; a gate that silently drops the file would still exit 0.
     if selected "$1" && grep -q '^exit=0$' "$OUT/$1.log" 2>/dev/null; then
-      (cd "$OUT/$1" && WERF_SBOM_CHECKED_IMAGES=gen WERF_REPO=$STAGE_REPO/$1 "$DK" sbom get app >"$OUT/$1.sbom.json" 2>"$OUT/$1.sbom.err")
-      if grep -q -F "$3" "$OUT/$1.sbom.json" 2>/dev/null; then echo "   $1: $3 in the SBOM: OK"; else echo "   $1: $3 in the SBOM: RED (absent)"; bad=1; fi
+      if (cd "$OUT/$1" && WERF_SBOM_CHECKED_IMAGES=gen WERF_REPO=$STAGE_REPO/$1 "$DK" sbom get app >"$OUT/$1.sbom.json" 2>"$OUT/$1.sbom.err"); then
+        if grep -q -F "$3" "$OUT/$1.sbom.json" 2>/dev/null; then echo "   $1: $3 in the SBOM: OK"; else echo "   $1: $3 in the SBOM: RED (absent)"; bad=1; fi
+      else
+        echo "   $1: sbom get FAILED (exit status)"; bad=1
+      fi
     fi
   else
     # refusal of any kind except a recipe failure (container run failed) and a missing log; the gate's own wording is pinned after the first run

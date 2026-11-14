@@ -748,7 +748,7 @@ func assertLuaBytecodeImages(ctx SpecContext, project *werf.Project, tree map[st
 // stand is the configuration of an increment 1 stand, read from WERF_TEST_I1_* variables.
 type stand struct{ values map[string]string }
 
-var standKeys = []string{"BASE", "BASE_NO_SBOM", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
+var standKeys = []string{"BASE", "BASE_NO_SBOM", "BASE_NO_SBOM_EMPTY", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
 
 // requireStand skips the spec unless every variable it needs is set, and the build environment
 // (pm binary, trusted indexes) of the stand is complete.

@@ -28,7 +28,7 @@
 #     test/e2e/sbom/_increment1/run.sh
 set -euo pipefail
 : "${WERF_TEST_BINARY_PATH:?path to the Delivery Kit werf binary}"
-for key in PM_BINARY PM_SHA256 TRUSTED_INDEXES BASE BASE_NO_SBOM BUILDER_NATIVE BUILDER_GO PM_PACKAGE PM_PACKAGE_FILE OTHER_INDEX; do
+for key in PM_BINARY PM_SHA256 TRUSTED_INDEXES BASE BASE_NO_SBOM BASE_NO_SBOM_EMPTY BUILDER_NATIVE BUILDER_GO PM_PACKAGE PM_PACKAGE_FILE OTHER_INDEX; do
   variable="WERF_TEST_I1_$key"
   if [ -z "$(printenv "$variable")" ]; then
     printf "missing %s\n" "$variable" >&2

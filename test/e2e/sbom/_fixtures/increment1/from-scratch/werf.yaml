@@ -1,0 +1,12 @@
+project: werf-test-e2e-sbom-i1-from-scratch
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: scratch
+git:
+  - add: /data
+    to: /app

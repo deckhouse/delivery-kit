@@ -46,6 +46,18 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/install.marker")))
 		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/setup.marker")))
 	})
+	ginkgo.It("builds from literal scratch with a verified git file", func(ctx ginkgo.SpecContext) {
+		stand := requireStand()
+		repo := i1Repo(ctx, "repo_sbom_i1_from_scratch", "increment1/from-scratch", stand, nil)
+		project := werf.NewProject(SuiteData.WerfBinPath, repo)
+		project.Build(ctx, &werf.BuildOptions{})
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}}}))
+		file, found := lo.Find(lo.FromPtr(bom.Components), func(component cdx.Component) bool { return component.Name == "/app/config.txt" })
+		gomega.Expect(found).To(gomega.BeTrue())
+		gomega.Expect(lo.FromPtr(file.Properties)).To(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "git"}))
+		gomega.Expect(lo.FromPtr(bom.Metadata.Properties)).To(gomega.ContainElement(cdx.Property{Name: "dk:verification", Value: "instrumented-v1"}))
+	})
+
 	// A refusal must name the file (or the package) and the reason. The reasons are the wording of
 	// pkg/sbom/nativegate; a change of wording is a change of this table.
 	type negative struct {
@@ -55,48 +67,47 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 		// prepare may add files to the repository before its first commit.
 		prepare func(repo string)
 		needs   []string
-		names   []string
-		reasons []string
+		refusal string
 	}
 
 	cases := map[string]negative{
 		"a package file replaced in a shell stage": {
 			fixture: "increment1/pkg-file-replaced",
 			needs:   []string{"BASE", "PM_PACKAGE", "PM_PACKAGE_FILE"},
-			names:   []string{"@PM_PACKAGE_FILE@"},
-			reasons: []string{"hash-mismatch"},
+			refusal: "verify image app: @PM_PACKAGE_FILE@: hash-mismatch: pm original changed",
 		},
 		"an ELF binary in git, with no record of its build": {
 			fixture: "increment1/elf-in-git",
 			needs:   []string{"BASE"},
 			prepare: writeStockELF("prebuilt/tool"),
-			names:   []string{"/app/tool"},
-			reasons: []string{"missing"},
+			refusal: "verify image app: /app/tool: no-data: missing sbom metadata",
 		},
 		"a file of a commit changed in a shell stage": {
 			fixture: "increment1/git-file-edited",
 			needs:   []string{"BASE"},
-			names:   []string{"/app/config.txt"},
-			reasons: []string{"hash-mismatch"},
+			refusal: "verify image app: /app/config.txt: hash-mismatch: git original changed",
 		},
 		"a package outside the trusted index": {
 			fixture: "increment1/package-outside-index",
 			needs:   []string{"BASE", "PM_PACKAGE", "OTHER_INDEX"},
 			env:     map[string]string{"WERF_SBOM_TRUSTED_INDEXES": "@OTHER_INDEX@"},
-			names:   []string{"@PM_PACKAGE@"},
-			reasons: []string{"outside instrumented index"},
+			refusal: "@PM_PACKAGE@: no-data: package outside instrumented index",
 		},
 		"a base image without an instrumented SBOM": {
 			fixture: "increment1/base-without-sbom",
 			needs:   []string{"BASE_NO_SBOM"},
-			reasons: []string{"no-data", "SBOM"},
+			refusal: `unable to get base image sbom with ref @BASE_NO_SBOM@: the image "@BASE_NO_SBOM@" must have an SBOM artifact attached`,
+		},
+		"an empty registry base without an instrumented SBOM": {
+			fixture: "increment1/base-empty-without-sbom",
+			needs:   []string{"BASE_NO_SBOM_EMPTY"},
+			refusal: `unable to get base image sbom with ref @BASE_NO_SBOM_EMPTY@: the image "@BASE_NO_SBOM_EMPTY@" must have an SBOM artifact attached`,
 		},
 		"an arm64 file in an amd64 image": {
 			fixture: "increment1/elf-in-git",
 			needs:   []string{"BASE"},
 			prepare: writeForeignELF("prebuilt/tool"),
-			names:   []string{"/app/tool", "linux/arm64"},
-			reasons: []string{"platform"},
+			refusal: "verify image app: /app/tool: unsupported platform linux/arm64: expected linux/amd64",
 		},
 	}
 
@@ -112,12 +123,7 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 				CommonOptions: werf.CommonOptions{ShouldFail: true, ExtraArgs: tc.args},
 			})
 
-			for _, name := range tc.names {
-				gomega.Expect(out).To(gomega.ContainSubstring(stand.replace(name)), "the refusal must name %s:\n%s", name, out)
-			}
-			for _, reason := range tc.reasons {
-				gomega.Expect(out).To(gomega.ContainSubstring(reason), "the refusal must say %q:\n%s", reason, out)
-			}
+			gomega.Expect(out).To(gomega.ContainSubstring(stand.replace(tc.refusal)), "the refusal must name the file or package with its reason:\n%s", out)
 		})
 	}
 

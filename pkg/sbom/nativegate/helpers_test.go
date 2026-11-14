@@ -27,9 +27,11 @@ func fixtureComponent(kind string) cdx.Component {
 }
 
 func fixtureRecord(profile, platform string) map[string]any {
-	return map[string]any{"schema": "pm.buildinfo/v1", "artifact": "elf", "profile": map[string]string{"id": profile, "revision": "1", "platform": platform}, "subject": "app", "complete": true,
+	return map[string]any{
+		"schema": "pm.buildinfo/v1", "artifact": "elf", "profile": map[string]any{"id": profile, "revision": 1, "platform": platform}, "subject": "app", "complete": true,
 		"components": []any{map[string]any{"id": "app", "name": "app", "version": "1", "source": map[string]string{"kind": "declared", "locator": "https://example.invalid/app"}}},
-		"inputs": []any{}, "tools": []any{map[string]string{"name": "gcc", "version": "16", "sha256": "sha256:" + strings.Repeat("1", 64)}}}
+		"inputs":     []any{}, "tools": []any{map[string]string{"name": "gcc", "version": "16", "sha256": "sha256:" + strings.Repeat("1", 64)}},
+	}
 }
 
 func fixtureELF(kind elf.Type, record any) []byte {
@@ -49,6 +51,9 @@ func fixtureELF(kind elf.Type, record any) []byte {
 	}
 	names := []byte("\x00.shstrtab\x00.note.package\x00")
 	header := elf.Header64{Ident: [16]byte{0x7f, 'E', 'L', 'F', byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)}, Type: uint16(kind), Machine: uint16(elf.EM_X86_64), Version: uint32(elf.EV_CURRENT), Ehsize: 64, Shentsize: 64, Shnum: 3, Shstrndx: 1, Shoff: uint64(64 + note.Len() + len(names))}
+	if record == nil {
+		header.Shnum = 2
+	}
 	var body bytes.Buffer
 	for _, value := range []any{header, note.Bytes(), names, elf.Section64{}, elf.Section64{Name: 1, Type: uint32(elf.SHT_STRTAB), Off: uint64(64 + note.Len()), Size: uint64(len(names)), Addralign: 1}, elf.Section64{Name: 11, Type: uint32(elf.SHT_NOTE), Off: 64, Size: uint64(note.Len()), Addralign: 4}} {
 		gomega.Expect(binary.Write(&body, binary.LittleEndian, value)).To(gomega.Succeed())
@@ -70,7 +75,10 @@ func fixtureImage(files map[string][]byte) v1.Image {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	img, err := mutate.AppendLayers(empty.Image, layer)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	img, err = mutate.ConfigFile(img, &v1.ConfigFile{OS: "linux", Architecture: "amd64"})
+	cfg, err := img.ConfigFile()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	cfg.OS, cfg.Architecture = "linux", "amd64"
+	img, err = mutate.ConfigFile(img, cfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return img
 }

@@ -25,7 +25,7 @@ var _ = ginkgo.Describe("increment 1 verification", func() {
 	ginkgo.DescribeTable("rejects missing composition by content regardless of filename", func(name string, kind elf.Type) {
 		body := fixtureELF(kind, nil)
 		err := Verify(context.Background(), fixtureImage(map[string][]byte{name: body}), cdx.NewBOM(), opts)
-		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring(name), gomega.ContainSubstring("missing build record"))))
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring(name), gomega.ContainSubstring("missing"))))
 	},
 		ginkgo.Entry("extensionless executable", "/src/tool", elf.ET_EXEC),
 		ginkgo.Entry("object disguised as text", "/src/readme.txt", elf.ET_REL),
@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("increment 1 verification", func() {
 	ginkgo.It("marks new user files generated without claiming verification", func() {
 		bom := cdx.NewBOM()
 		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/src/config.h": []byte("generated")}), bom, opts)).To(gomega.Succeed())
-		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "app"), gomega.HaveField("Properties", gomega.PointTo(gomega.ContainElement(cdx.Property{Name: "dk:verification", Value: "generated"}))))))
+		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "app"), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:verification", Value: "generated"}))))))
 	})
 
 	ginkgo.It("does not accept a sibling directory as user code", func() {

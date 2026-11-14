@@ -14,5 +14,6 @@ shell:
   install:
     # A recipe writing a file under /.werf/ that is not a werf service file: the gate must not read the whole
     # directory as werf's own.
-    - mkdir -p /.werf/user
+    # The stapel tools are not on PATH of a scratch base; the shell builtins are.
+    - /.werf/stapel/embedded/bin/mkdir -p /.werf/user
     - echo not-a-werf-file > /.werf/user/payload.txt

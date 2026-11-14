@@ -14,4 +14,4 @@ shell:
   install:
     # Run with SSH_AUTH_SOCK set: werf puts the agent socket under /.werf/tmp in the build container; that and the
     # other werf service paths must not make the strict build fail.
-    - ls /.werf >/dev/null
+    - echo built

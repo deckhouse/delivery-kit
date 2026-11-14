@@ -34,6 +34,25 @@ import (
 )
 
 var _ = ginkgo.Describe("native SBOM cache", func() {
+	ginkgo.It("rejects a checked producer marked final", func() {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_BOOTSTRAP_IMAGES", "")
+		err := validateNativeBootstrap(&buildimage.Image{Name: "checked", IsFinal: true})
+		gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("checked image checked cannot be final")))
+	})
+	ginkgo.It("rejects a checked producer as the base of a strict image", func(ctx ginkgo.SpecContext) {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_BOOTSTRAP_IMAGES", "")
+		img, err := buildimage.NewImage(ctx, "linux/amd64", "strict", buildimage.FromImage, buildimage.ImageOptions{BaseImageName: "checked"})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(validateNativeBootstrap(img)).To(gomega.MatchError(gomega.ContainSubstring("checked image checked cannot be used as from for strict image strict")))
+	})
+	ginkgo.It("binds checked producer policy to the SBOM cache", func() {
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "")
+		before := nativeSBOMSettings()
+		ginkgo.GinkgoT().Setenv("WERF_SBOM_CHECKED_IMAGES", "checked")
+		gomega.Expect(nativeSBOMSettings()).NotTo(gomega.Equal(before))
+	})
 	ginkgo.It("binds SBOM cache keys to sanitized local repository identity only when enabled", func(ctx ginkgo.SpecContext) {
 		img := newSBOMStageOrderImage(ctx)
 		utils.RunSucceedCommand(ctx, img.ProjectDir, "git", "remote", "add", "origin", "https://user:secret@example.invalid/project.git?token=private")

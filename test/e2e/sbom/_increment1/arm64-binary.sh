@@ -15,52 +15,34 @@
 # limitations under the License.
 
 # Produces the instrumented linux/arm64 binary the foreign-arch case needs (WERF_TEST_I1_ARM64_BINARY): a Go hello
-# cross-compiled in the strict builder, where the patched Go writes the composition record of the target
-# (profile go, platform linux/arm64; the linker patch accepts linux/amd64 and linux/arm64). Run on the build host,
-# under its lock, once the builder is published.
+# cross-compiled in the builder, where the patched Go writes the composition record of the target (profile go,
+# platform linux/arm64; the linker patch accepts linux/amd64 and linux/arm64). Run on the build host, under its
+# lock, once the builder is published.
 #
-#   WERF=<delivery kit werf> REPO=<stage repo> GOLANG=<builder/golang-alt-1.27 repo@sha256:…> PM=<pm binary> \
-#   OUT=/path/hello-arm64 test/e2e/sbom/_increment1/arm64-binary.sh
+# The build runs with plain `docker run` and a bind mount, not through werf: an image with build.sbom.enable would be
+# refused by the strict gate for holding a foreign-platform ELF, which is the very case this binary is for.
+#
+#   GOLANG=<builder/golang-alt-1.27 repo@sha256:…> PM=<pm binary> OUT=/path/hello-arm64 \
+#   test/e2e/sbom/_increment1/arm64-binary.sh
 #
 # Exit 0 only if the binary exists, is an ELF for aarch64, and `pm info --build-info` reads a present record for it
 # whose platform is linux/arm64. If the patched Go writes no record for arm64, this is the place it shows: tell BI-1.
+# Not run end to end yet (no builder at the time of writing). The pulled builder image is removed by tag at the end
+# only if this script pulled it.
 set -euo pipefail
-: "${WERF:?}" "${REPO:?}" "${GOLANG:?}" "${PM:?}" "${OUT:?}"
+: "${GOLANG:?}" "${PM:?}" "${OUT:?}"
 work=$(mktemp -d)
-trap 'rm -rf "$work"; docker rm -f arm64-binary-extract >/dev/null 2>&1 || true' EXIT
-cd "$work"
-git init -q . && git config user.email t@t && git config user.name t
-printf 'module hello\n\ngo 1.22\n' > go.mod
-printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello") }\n' > main.go
-cat > werf.yaml <<YAML
-project: arm64-binary
-configVersion: 1
-build:
-  sbom:
-    enable: true
-    standard: cyclonedx@1.6
----
-image: hello
-from: ${GOLANG}
-git:
-- add: /
-  to: /src
-  includePaths: [go.mod, main.go]
-packages:
-- type: go-mod
-  workdir: /src
-shell:
-  install:
-  - mkdir -p /out
-  - cd /src && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false -o /out/hello-arm64 .
-YAML
-git add -A && git commit -qm hello
-"$WERF" build --repo "$REPO" --insecure-registry --platform linux/amd64 --save-build-report --build-report-path report.json >build.log 2>&1 \
-  || { echo "FAIL the cross build failed:"; tail -40 build.log; exit 1; }
-image=$(python3 -c 'import json;r=json.load(open("report.json"))["Images"]["hello"];print(r["DockerRepo"]+"@"+r["DockerImageDigest"])')
-docker pull -q "$image" >/dev/null
-docker create --name arm64-binary-extract "$image" >/dev/null
-docker cp arm64-binary-extract:/out/hello-arm64 "$OUT"
+pulled=
+trap 'rm -rf "$work"; [ -z "$pulled" ] || docker rmi "$GOLANG" >/dev/null 2>&1 || true' EXIT
+docker image inspect "$GOLANG" >/dev/null 2>&1 || { docker pull -q "$GOLANG" >/dev/null; pulled=1; }
+mkdir "$work/src" "$work/out"
+printf 'module hello\n\ngo 1.22\n' > "$work/src/go.mod"
+printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello") }\n' > "$work/src/main.go"
+docker run --rm --platform linux/amd64 -v "$work/src:/src:ro" -v "$work/out:/out" -w /src \
+  -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=arm64 -e GOCACHE=/tmp/gocache "$GOLANG" \
+  go build -buildvcs=false -o /out/hello-arm64 . >"$work/build.log" 2>&1 \
+  || { echo "FAIL the cross build failed:"; tail -40 "$work/build.log"; exit 1; }
+cp "$work/out/hello-arm64" "$OUT"
 file "$OUT" | grep -q "ELF 64-bit.*ARM aarch64" || { echo "FAIL $OUT is not an aarch64 ELF: $(file "$OUT")"; exit 1; }
 info=$("$PM" info --build-info --json "$OUT") || { echo "FAIL no present record in the arm64 binary:"; echo "$info"; exit 1; }
 echo "$info" | python3 -c '

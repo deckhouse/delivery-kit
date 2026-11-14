@@ -65,5 +65,5 @@ and two stock images by digest; it uses its own `WERF_HOME` and `TMPDIR`, turns 
 build also checks `dk:verification` and the `/app/config.txt` component in `werf sbom get`. See the header of the script.
 
 ## The arm64 binary of `foreign-arch`
-`arm64-binary.sh` cross-compiles a Go hello for linux/arm64 in the strict builder and checks that the patched Go wrote a present
+`arm64-binary.sh` cross-compiles a Go hello for linux/arm64 in the builder with plain `docker run` (not through werf: an `sbom.enable` image would be refused by the strict gate for the foreign-platform ELF) and checks that the patched Go wrote a present
 record for platform linux/arm64; its output is the `WERF_TEST_I1_ARM64_BINARY` of the full stand. It needs the builder (not run yet).

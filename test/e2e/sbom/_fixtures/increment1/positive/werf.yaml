@@ -17,17 +17,18 @@ shell:
 ---
 image: go-hello
 from: "@BUILDER_GO@"
+mount:
+  - from: build_dir
+    to: /go-cache
 git:
   - add: /src/go
     to: /src
 packages:
   - type: go-mod
     workdir: /src
-# The Go build cache lives in a mount, not in a layer: the strict gate refuses its archives (__.PKGDEF).
-mount:
-  - from: build_dir
-    to: /go-cache
+    env:
+      GOMODCACHE: /go-cache/mod
 shell:
   install:
     - mkdir -p /app
-    - cd /src && GOCACHE=/go-cache/build CGO_ENABLED=0 go build -o /app/hello .
+    - cd /src && GOCACHE=/go-cache/build GOMODCACHE=/go-cache/mod CGO_ENABLED=0 go build -o /app/hello .

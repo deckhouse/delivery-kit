@@ -28,7 +28,7 @@ for fixture in "$fixtures"/*/; do
   work=$(mktemp -d)
   cp -R "$fixture". "$work"/
   find "$work" -name werf.yaml -exec sed -i.bak \
-    -e "s|@BASE@|$ref|g" -e "s|@BASE_NO_SBOM@|$ref|g" -e "s|@BUILDER_NATIVE@|$ref|g" -e "s|@BUILDER_GO@|$ref|g" \
+    -e "s|@BASE@|$ref|g" -e "s|@BASE_NO_SBOM@|$ref|g" -e "s|@BASE_NO_SBOM_EMPTY@|$ref|g" -e "s|@BUILDER_NATIVE@|$ref|g" -e "s|@BUILDER_GO@|$ref|g" \
     -e "s|@PM_PACKAGE@|tzdata|g" -e "s|@PM_PACKAGE_FILE@|/usr/share/zoneinfo/UTC|g" -e "s|@OTHER_INDEX@|$ref|g" {} +
   find "$work" -name '*.bak' -delete
   (cd "$work" && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm render &&

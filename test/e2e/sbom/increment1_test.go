@@ -48,24 +48,27 @@ var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", 
 		"a package file replaced in a shell stage": {
 			fixture: "increment1/pkg-file-replaced",
 			needs:   []string{"BASE", "PM_PACKAGE", "PM_PACKAGE_FILE"},
-			refusal: `@PM_PACKAGE_FILE@: hash-mismatch: pm original changed`,
+			refusal: `verify image app: @PM_PACKAGE_FILE@: hash-mismatch: pm original changed`,
 		},
 		"an ELF binary in git, with no record of its build": {
 			fixture: "increment1/elf-in-git",
 			needs:   []string{"BASE"},
 			prepare: writeStockELF("prebuilt/tool"),
-			refusal: `/app/tool: no-data: missing (sbom metadata|build record)`,
+			refusal: `verify image app: /app/tool: no-data: missing (sbom metadata|build record)`,
 		},
+		// Candidate Delivery Kit ef2d4c702 refuses every image with a shell stage first, for werf's own
+		// /.werf/tmp/ssh-auth-sock ("no trusted original"), so this spec is red for that reason until
+		// the false positive is fixed; see _increment1/README.md.
 		"a file of a commit changed in a shell stage": {
 			fixture: "increment1/git-file-edited",
 			needs:   []string{"BASE"},
-			refusal: `/app/config\.txt: hash-mismatch: git original changed`,
+			refusal: `verify image app: /app/config\.txt: hash-mismatch: git original changed`,
 		},
 		"a package outside the trusted index": {
 			fixture: "increment1/package-outside-index",
 			needs:   []string{"BASE", "PM_PACKAGE", "OTHER_INDEX"},
 			env:     map[string]string{"WERF_SBOM_TRUSTED_INDEXES": "@OTHER_INDEX@"},
-			refusal: `@PM_PACKAGE@: no-data: package outside instrumented index`,
+			refusal: `@PM_PACKAGE@: no-data: package outside instrumented index`, // names the package; the gate prefix depends on the stage that opens the package set
 		},
 		// BASE_NO_SBOM must be a stock image with files: an empty base (scratch) has nothing to verify
 		// and the build, whose files all come from git, passes.
@@ -74,11 +77,18 @@ var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", 
 			needs:   []string{"BASE_NO_SBOM"},
 			refusal: `unable to get base image sbom with ref @BASE_NO_SBOM@: the image "@BASE_NO_SBOM@" must have an SBOM artifact attached`,
 		},
+		// Any registry image without an instrumented SBOM is refused as a base, empty or not; only the
+		// `from: scratch` directive has no base to verify (spec: the from-scratch positive below).
+		"an empty registry image without an instrumented SBOM as base": {
+			fixture: "increment1/base-empty-without-sbom",
+			needs:   []string{"BASE_NO_SBOM_EMPTY"},
+			refusal: `unable to get base image sbom with ref @BASE_NO_SBOM_EMPTY@: the image "@BASE_NO_SBOM_EMPTY@" must have an SBOM artifact attached`,
+		},
 		"an instrumented arm64 binary in an amd64 build": {
 			fixture: "increment1/foreign-arch",
 			needs:   []string{"BASE", "ARM64_BINARY"},
 			prepare: copyFromEnv("prebuilt/tool", "WERF_TEST_I1_ARM64_BINARY"),
-			refusal: `/app/tool: unsupported platform linux/arm64: expected linux/amd64`,
+			refusal: `verify image app: /app/tool: unsupported platform linux/arm64: expected linux/amd64`,
 		},
 	}
 
@@ -104,6 +114,21 @@ var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", 
 		}
 	})
 
+	It("builds an image on the `from: scratch` directive, which has no base to verify", func(ctx SpecContext) {
+		stand := requireStand()
+		repo := i1Repo(ctx, "repo_sbom_i1_from_scratch", "increment1/from-scratch", stand, nil)
+		werfProject := werf.NewProject(SuiteData.WerfBinPath, repo)
+
+		werfProject.Build(ctx, &werf.BuildOptions{})
+
+		bom := sbomtest.MustParseSBOMOutput(werfProject.SbomGet(ctx, &werf.SbomGetOptions{
+			CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}},
+		}))
+		Expect(lo.FromPtr(bom.Metadata.Properties)).To(ContainElement(cdx.Property{Name: "dk:verification", Value: "instrumented-v1"}))
+		_, found := lo.Find(lo.FromPtr(bom.Components), func(c cdx.Component) bool { return c.Name == "/app/config.txt" })
+		Expect(found).To(BeTrue(), "the git file must be a file component of the SBOM")
+	})
+
 	for _, title := range slices.Sorted(maps.Keys(cases)) {
 		tc := cases[title]
 		It("refuses "+title, func(ctx SpecContext) {
@@ -125,7 +150,7 @@ var _ = Describe("SBOM increment 1: strict verification", Ordered, Label("e2e", 
 // stand is the configuration of an increment 1 stand, read from WERF_TEST_I1_* variables.
 type stand struct{ values map[string]string }
 
-var standKeys = []string{"ARM64_BINARY", "BASE", "BASE_NO_SBOM", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
+var standKeys = []string{"ARM64_BINARY", "BASE", "BASE_NO_SBOM", "BASE_NO_SBOM_EMPTY", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
 
 // requireStand skips the spec unless every variable it needs is set, and the build environment
 // (pm binary, trusted indexes) of the stand is complete.

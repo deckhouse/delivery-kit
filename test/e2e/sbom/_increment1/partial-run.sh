@@ -59,7 +59,7 @@ expect() {
   selected "$1" || return 0
   local got=pass; grep -q '^exit=0$' "$OUT/$1.log" || got=refuse
   # A build that failed in the recipe (e.g. a read-only service directory) is not a refusal by the gate.
-  if [ "$got" = refuse ] && { grep -q 'container run failed' "$OUT/$1.log" || ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; }; then got="failed-outside-the-gate"; fi
+  if [ "$got" = refuse ] && { grep -q -E 'container run failed|cannot initialize ssh agent|component init error' "$OUT/$1.log" || ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; }; then got="failed-outside-the-gate"; fi
   if [ "$got" = "$2" ] && [ "${3:-}" = "." ] && [ "${ALLOW_UNPINNED:-0}" != 1 ]; then
     echo "   $1: expected $2, got $got: UNPINNED (any failure but a recipe failure; pin the gate's wording first)"; bad=1
   elif [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"
@@ -113,9 +113,13 @@ expect service-path-dir-scripts refuse
 layers_check service-path-dir-scripts /.werf/scripts/payload.txt
 # /.werf/stapel is a build-time mount: a file written there is NOT in the published image (checked on 70dddd223), so it
 # proves nothing about the gate and has no case here.
-agent_dir=$(mktemp -d "$OUT/agent.XXXXXX"); eval "$(ssh-agent -a "$agent_dir/sock" -s)" >/dev/null
-SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent scratch x x
-kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"
+if [[ service-path-ssh-agent =~ ${ONLY:-.} ]]; then
+  agent_dir=$(mktemp -d "$OUT/agent.XXXXXX"); eval "$(ssh-agent -a "$agent_dir/sock" -s)" >/dev/null
+  SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent scratch x x
+  kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"
+  # the agent is gone: no later case may inherit its socket
+  unset SSH_AUTH_SOCK SSH_AGENT_PID
+fi
 expect service-path-ssh-agent pass
 # The mounted cache contents must be in neither the published image nor its SBOM (spec of the cache-mounts fixture). Only a NON-EMPTY file under
 # /go-cache/ or /tmp-cache/ counts as a leak (as in the Ginkgo spec): an empty file or directory there would not be flagged.

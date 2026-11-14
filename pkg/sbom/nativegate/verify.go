@@ -213,7 +213,7 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 			if !known && !currentBuildSubject(record, catalog, opts.Subject, buildLocators) {
 				return fmt.Errorf("%s: no-data: binary has no matching original or current build subject", name)
 			}
-		} else if file.Size > 0 && binaryLike(fs.bodies[name], fs.executable[name], name) && !interpretedScript(fs.bodies[name], name) && !plainText(fs.bodies[name], name) {
+		} else if file.Size > 0 && (binaryLike(fs.bodies[name], fs.executable[name], name) || bytes.HasPrefix(fs.bodies[name], []byte("#!"))) && !interpretedScript(fs.bodies[name], name) && !plainText(fs.bodies[name], name) {
 			return fmt.Errorf("%s: unsupported binary format", name)
 		}
 		record.Path, record.SHA256 = name, file.Digest
@@ -232,6 +232,9 @@ func verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		case userFile(name, opts.UserRoots):
 			if selected != nil && opts.ProducedFiles[name] != file.Digest {
 				return fmt.Errorf("%s: no-data: export is not from a producing stage", name)
+			}
+			if selected != nil && (fs.executable[name] || !fs.text[name]) {
+				return fmt.Errorf("%s: no-data: generated export must be non-executable text", name)
 			}
 			ref := "urn:dk:generated:" + opts.Subject
 			component, err := embeddedComponent(shared.BuildComponent{ID: "app", Name: opts.Subject, Version: "unspecified", Source: shared.BuildSource{Kind: "declared", Locator: "dk:image:" + opts.Subject}})

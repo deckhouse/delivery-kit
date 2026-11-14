@@ -34,7 +34,7 @@ import (
 
 const (
 	nativeContextMount    = "/.werf/sbom-build-context"
-	nativeInstrumentation = "native-sbom-increment-1-checked-service-files-v1"
+	nativeInstrumentation = "native-sbom-increment-1-checked-text-service-files-v2"
 )
 
 func nativeBootstrap(name string) bool {

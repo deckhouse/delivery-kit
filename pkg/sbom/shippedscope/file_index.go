@@ -26,6 +26,7 @@ type File struct {
 	// Digest is "sha256:<hex>", the form /var/lib/pm/files.json and SBOM occurrences use.
 	Digest string
 	Size   int64
+	Mode   int64 `json:"-"`
 
 	// sha512 is the hex SHA-512 of a .zip file: the digest a Yarn Berry lockfile records for
 	// the cache archive of each package.
@@ -192,6 +193,7 @@ func readFile(reader io.Reader, header *tar.Header, keepBody, archive bool) (Fil
 	file := File{
 		Digest: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
 		Size:   header.Size,
+		Mode:   header.Mode,
 	}
 	if archiveHasher != nil {
 		file.sha512 = hex.EncodeToString(archiveHasher.Sum(nil))

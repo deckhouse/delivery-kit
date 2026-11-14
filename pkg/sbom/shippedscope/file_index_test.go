@@ -21,6 +21,7 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(index.Files).To(HaveKeyWithValue("/usr/bin/tool", File{
 			Digest: digestOf("payload"),
 			Size:   int64(len("payload")),
+			Mode:   0o644,
 		}))
 	})
 
@@ -181,6 +182,7 @@ var _ = Describe("IndexImageFiles", func() {
 		Expect(index.Files).To(HaveKeyWithValue("/usr/lib/python/py.typed", File{
 			Digest: digestOf(""),
 			Size:   0,
+			Mode:   0o644,
 		}))
 	})
 

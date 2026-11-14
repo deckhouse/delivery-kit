@@ -2,7 +2,6 @@ package build
 
 import (
 	"context"
-	"slices"
 
 	"github.com/werf/werf/v3/pkg/build/stage"
 	"github.com/werf/werf/v3/pkg/container_backend"
@@ -14,15 +13,16 @@ func nativeStageServiceFiles(ctx context.Context, stg stage.Interface) []string 
 	if !ok {
 		return nil
 	}
-	var files []string
+	if builder.GetDockerfileBuilderImplementation() != nil || builder.GetDockerfileStageBuilderImplementation() != nil {
+		return nil
+	}
 	if native := builder.GetStapelStageBuilderImplementation(); native != nil {
-		files = append(files, native.SBOMServiceFiles(ctx)...)
+		return native.SBOMServiceFiles(ctx)
 	}
 	if legacy := builder.GetLegacyStapelStageBuilderImplmentation(); legacy != nil {
 		if provider, ok := legacy.Container().(container_backend.SBOMServiceFilesProvider); ok {
-			files = append(files, provider.SBOMServiceFiles(ctx)...)
+			return provider.SBOMServiceFiles(ctx)
 		}
 	}
-	slices.Sort(files)
-	return slices.Compact(files)
+	return nil
 }

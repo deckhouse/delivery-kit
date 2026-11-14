@@ -363,3 +363,46 @@ func (i *rtImage) deps(partial bool) (map[string][]string, []string, error) {
 	}
 	return runtimeDependencies(fs, present, partial)
 }
+
+func fixtureImageWithFileMode(name string, content []byte, mode int64) v1.Image {
+	ginkgo.GinkgoHelper()
+	var body bytes.Buffer
+	w := tar.NewWriter(&body)
+	gomega.Expect(w.WriteHeader(&tar.Header{Name: strings.TrimPrefix(name, "/"), Mode: mode, Size: int64(len(content))})).To(gomega.Succeed())
+	_, err := w.Write(content)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(w.Close()).To(gomega.Succeed())
+	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body.Bytes())), nil })
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	img, err := mutate.AppendLayers(fixtureImage(nil), layer)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return img
+}
+
+func fixtureImageWithHiddenHardlinkTarget(targetMode, copyMode int64) v1.Image {
+	ginkgo.GinkgoHelper()
+	content := []byte("#!/bin/sh\necho text\n")
+	var lower bytes.Buffer
+	w := tar.NewWriter(&lower)
+	gomega.Expect(w.WriteHeader(&tar.Header{Name: "tools/run", Mode: targetMode, Size: int64(len(content))})).To(gomega.Succeed())
+	_, err := w.Write(content)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(w.WriteHeader(&tar.Header{Name: "out/run", Typeflag: tar.TypeLink, Linkname: "tools/run", Mode: targetMode})).To(gomega.Succeed())
+	gomega.Expect(w.Close()).To(gomega.Succeed())
+	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(lower.Bytes())), nil })
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	img, err := mutate.AppendLayers(fixtureImage(nil), layer)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var upper bytes.Buffer
+	w = tar.NewWriter(&upper)
+	gomega.Expect(w.WriteHeader(&tar.Header{Name: "tools/.wh.run", Mode: 0o644})).To(gomega.Succeed())
+	gomega.Expect(w.WriteHeader(&tar.Header{Name: "data/copy", Mode: copyMode, Size: int64(len(content))})).To(gomega.Succeed())
+	_, err = w.Write(content)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(w.Close()).To(gomega.Succeed())
+	layer, err = tarball.LayerFromOpener(func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(upper.Bytes())), nil })
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	img, err = mutate.AppendLayers(img, layer)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return img
+}

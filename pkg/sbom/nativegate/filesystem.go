@@ -2,6 +2,7 @@ package nativegate
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"context"
 	"debug/pe"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -20,6 +22,7 @@ type filesystem struct {
 	index      *shippedscope.FileIndex
 	bodies     map[string][]byte
 	executable map[string]bool
+	text       map[string]bool
 	services   map[string]shippedscope.File
 }
 
@@ -40,12 +43,12 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 	for name, file := range index.Files {
 		if selected == nil || selected[name] {
 			capturedDigests[file.Digest] = true
-			if binaryName(name) {
+			if binaryName(name) || file.Mode&0o111 != 0 {
 				fullDigests[file.Digest] = true
 			}
 		}
 	}
-	fs := &filesystem{index: index, bodies: map[string][]byte{}, executable: map[string]bool{}}
+	fs := &filesystem{index: index, bodies: map[string][]byte{}, executable: map[string]bool{}, text: map[string]bool{}}
 	reader := mutate.Extract(img)
 	defer reader.Close()
 	tr := tar.NewReader(reader)
@@ -82,7 +85,7 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 		// A name the suffix guard recognizes is judged on its whole body too: the text
 		// a toolchain installs under a library name is only text if no byte of it says
 		// otherwise, and a prefix cannot say that.
-		full := fullDigests[entry.Digest] || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
+		full := fullDigests[entry.Digest] || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!"))
 		if full {
 			if h.Size > 512<<20 {
 				return nil, fmt.Errorf("%s: file exceeds supported inspection limit", name)
@@ -96,6 +99,16 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 		}
 		if full && digest(body) != entry.Digest {
 			return nil, fmt.Errorf("filesystem/index mismatch %s", name)
+		}
+		if selected != nil {
+			var reader io.Reader = bytes.NewReader(body)
+			if !full {
+				reader = io.MultiReader(reader, tr)
+			}
+			fs.text[name], err = textStream(reader)
+			if err != nil {
+				return nil, fmt.Errorf("read text %s: %w", name, err)
+			}
 		}
 		fs.bodies[name] = body
 		fs.executable[name] = h.Mode&0o111 != 0
@@ -111,7 +124,8 @@ func readFilesystemScope(ctx context.Context, img v1.Image, selected map[string]
 		for candidate, body := range fs.bodies {
 			if index.Files[candidate].Digest == entry.Digest {
 				fs.bodies[name] = body
-				fs.executable[name] = fs.executable[candidate]
+				fs.executable[name] = entry.Mode&0o111 != 0
+				fs.text[name] = fs.text[candidate]
 				found = true
 				break
 			}
@@ -180,4 +194,26 @@ func binaryLike(body []byte, executable bool, name string) bool {
 
 func binaryName(name string) bool {
 	return strings.HasSuffix(name, ".o") || strings.HasSuffix(name, ".so") || strings.HasSuffix(name, ".a")
+}
+
+func textStream(reader io.Reader) (bool, error) {
+	r := bufio.NewReader(reader)
+	for {
+		point, size, err := r.ReadRune()
+		if err == io.EOF {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if point == utf8.RuneError && size == 1 {
+			return false, nil
+		}
+		if point == '\t' || point == '\n' || point == '\r' || point == '\f' {
+			continue
+		}
+		if point < 0x20 || point == 0x7f {
+			return false, nil
+		}
+	}
 }

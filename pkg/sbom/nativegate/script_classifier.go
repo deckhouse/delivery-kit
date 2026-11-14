@@ -2,17 +2,10 @@ package nativegate
 
 import (
 	"bytes"
-	"path"
-	"slices"
-	"strings"
 	"unicode/utf8"
 )
 
 const shebangLimit = 256
-
-const envInterpreter = "/usr/bin/env"
-
-var knownInterpreters = []string{"ash", "bash", "dash", "node", "python", "python3", "sh"}
 
 // AS_NEEDED stands only inside GROUP or INPUT and INCLUDE takes a bare file name,
 // so neither opens a script in the parenthesized form read below.
@@ -27,10 +20,7 @@ func interpretedScript(body []byte, name string) bool {
 	if !terminated || !bytes.HasPrefix(line, []byte("#!")) || len(line) >= shebangLimit {
 		return false
 	}
-	if !textScriptBody(body) {
-		return false
-	}
-	if !shebangInterpreter(string(line)) {
+	if !utf8.Valid(body) || bytes.IndexByte(body, 0) >= 0 || bytes.IndexByte(body, 0x7f) >= 0 {
 		return false
 	}
 
@@ -100,42 +90,4 @@ func textScriptBody(body []byte) bool {
 	}
 
 	return true
-}
-
-// Quoted or escaped interpreter syntax is outside this conservative classifier.
-func shebangInterpreter(line string) bool {
-	rest := strings.TrimSuffix(strings.TrimPrefix(line, "#!"), "\r")
-	for n := 0; n < len(rest); n++ {
-		if rest[n] != '\t' && (rest[n] < 0x20 || rest[n] > 0x7e) {
-			return false
-		}
-	}
-	if strings.ContainsAny(rest, `'"\`) {
-		return false
-	}
-	fields := strings.Fields(rest)
-	if len(fields) == 0 {
-		return false
-	}
-	if fields[0] == envInterpreter {
-		return envShebangInterpreter(fields[1:])
-	}
-	if !strings.HasPrefix(fields[0], "/") || path.Clean(fields[0]) != fields[0] {
-		return false
-	}
-
-	return slices.Contains(knownInterpreters, path.Base(fields[0]))
-}
-
-// Without -S, env receives the remainder as one executable name.
-func envShebangInterpreter(arguments []string) bool {
-	split := len(arguments) > 0 && arguments[0] == "-S"
-	if split {
-		arguments = arguments[1:]
-	}
-	if len(arguments) == 0 || (!split && len(arguments) != 1) {
-		return false
-	}
-
-	return !strings.Contains(arguments[0], "/") && slices.Contains(knownInterpreters, arguments[0])
 }

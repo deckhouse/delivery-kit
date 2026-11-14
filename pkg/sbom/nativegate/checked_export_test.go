@@ -2,6 +2,7 @@ package nativegate
 
 import (
 	"debug/elf"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/onsi/ginkgo/v2"
@@ -11,14 +12,44 @@ import (
 )
 
 var _ = ginkgo.Describe("checked producer exports", func() {
-	ginkgo.It("keeps ordinary generated data policy for large non-native files", func(ctx ginkgo.SpecContext) {
+	ginkgo.DescribeTable("keeps the hardlink inode mode apart from an equal-content file", func(ctx ginkgo.SpecContext, targetMode, copyMode int64, refuse bool) {
+		img := fixtureImageWithHiddenHardlinkTarget(targetMode, copyMode)
+		index, err := shippedscope.IndexImageFiles(ctx, img)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(index.Incomplete).To(gomega.BeFalse())
+		gomega.Expect(index.Files).NotTo(gomega.HaveKey("/tools/run"))
+		gomega.Expect(index.Files["/out/run"].Digest).To(gomega.Equal(index.Files["/data/copy"].Digest))
+		err = VerifyExport(ctx, img, cdx.NewBOM(), []string{"/out/run"}, VerifyOptions{Subject: "checked", Platform: "linux/amd64", UserRoots: []string{"/out"}, ProducedFiles: map[string]string{"/out/run": index.Files["/out/run"].Digest}})
+		if refuse {
+			gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/out/run"), gomega.ContainSubstring("non-executable text"))))
+		} else {
+			gomega.Expect(err).To(gomega.Succeed())
+		}
+	}, ginkgo.Entry("executable hardlink and non-executable copy", int64(0o755), int64(0o644), true), ginkgo.Entry("non-executable hardlink and executable copy", int64(0o644), int64(0o755), false))
+	ginkgo.It("refuses large binary generated exports without limiting known data", func(ctx ginkgo.SpecContext) {
 		img := fixtureImageWithLargeFile("/out/data", []byte("data"), 0o644)
 		opts := VerifyOptions{Subject: "checked", Platform: "linux/amd64", UserRoots: []string{"/out"}}
 		gomega.Expect(Verify(ctx, img, cdx.NewBOM(), opts)).To(gomega.Succeed())
 		index, err := shippedscope.IndexImageFiles(ctx, img)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		opts.ProducedFiles = map[string]string{"/out/data": index.Files["/out/data"].Digest}
+		gomega.Expect(VerifyExport(ctx, img, cdx.NewBOM(), []string{"/out/data"}, opts)).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/out/data"), gomega.ContainSubstring("non-executable text"))))
+		opts.Originals = []Original{{Path: "/out/data", SHA256: index.Files["/out/data"].Digest, Kind: "pm", Component: fixtureComponent("pm")}}
 		gomega.Expect(VerifyExport(ctx, img, cdx.NewBOM(), []string{"/out/data"}, opts)).To(gomega.Succeed())
+	})
+	ginkgo.DescribeTable("refuses non-text or executable generated exports", func(ctx ginkgo.SpecContext, body []byte, mode int64) {
+		img := fixtureImageWithFileMode("/out/generated", body, mode)
+		err := VerifyExport(ctx, img, cdx.NewBOM(), []string{"/out/generated"}, VerifyOptions{Subject: "checked", Platform: "linux/amd64", UserRoots: []string{"/out"}, ProducedFiles: map[string]string{"/out/generated": fixtureDigest(body)}})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/out/generated"), gomega.ContainSubstring("non-executable text"))))
+	},
+		ginkgo.Entry("binary suffix after text prefix", []byte(strings.Repeat("a", 8192)+"\x00binary"), int64(0o644)),
+		ginkgo.Entry("invalid UTF8 suffix", []byte(strings.Repeat("a", 8192)+"\xff"), int64(0o644)),
+		ginkgo.Entry("executable text", []byte("#!/bin/sh\necho generated\n"), int64(0o755)),
+	)
+	ginkgo.It("accepts generated Unicode text across reader boundaries", func(ctx ginkgo.SpecContext) {
+		body := []byte(strings.Repeat("a", 4095) + "я\n")
+		img := fixtureImage(map[string][]byte{"/out/generated": body})
+		gomega.Expect(VerifyExport(ctx, img, cdx.NewBOM(), []string{"/out/generated"}, VerifyOptions{Subject: "checked", Platform: "linux/amd64", UserRoots: []string{"/out"}, ProducedFiles: map[string]string{"/out/generated": fixtureDigest(body)}})).To(gomega.Succeed())
 	})
 	ginkgo.It("refuses an inherited stock symlink without an original or producing stage", func(ctx ginkgo.SpecContext) {
 		err := VerifyExport(ctx, fixtureImageWithLinks(nil, map[string]string{"/out/link": "/stock/file"}), cdx.NewBOM(), []string{"/out/link"}, VerifyOptions{Subject: "checked", Platform: "linux/amd64", UserRoots: []string{"/out"}})

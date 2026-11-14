@@ -10,6 +10,11 @@ import (
 )
 
 var _ = ginkgo.Describe("shipped archives", func() {
+	ginkgo.It("refuses a Go cache archive when it is actually shipped in the image", func() {
+		body := fixtureArchive("__.PKGDEF", []byte("go object linux amd64 go1.27.4\n"))
+		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/go-cache/package-d": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64"})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/go-cache/package-d"), gomega.ContainSubstring("__.PKGDEF"), gomega.ContainSubstring("no-data"))))
+	})
 	ginkgo.It("accounts for a pinned pm archive as a package file without member evidence", func() {
 		body := fixtureArchive("legacy.o", fixtureELF(elf.ET_REL, nil))
 		component := fixtureComponent("pm")

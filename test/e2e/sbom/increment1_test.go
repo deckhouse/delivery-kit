@@ -1,6 +1,8 @@
 package e2e_build_test
 
 import (
+	"archive/tar"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +54,26 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 		for filename := range index.Files {
 			gomega.Expect(filename).NotTo(gomega.HavePrefix("/go-cache/"))
 			gomega.Expect(filename).NotTo(gomega.HavePrefix("/tmp-cache/"))
+		}
+		layers, err := img.Layers()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, layer := range layers {
+			reader, err := layer.Uncompressed()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.DeferCleanup(reader.Close)
+			tarReader := tar.NewReader(reader)
+			for {
+				header, err := tarReader.Next()
+				if err == io.EOF {
+					break
+				}
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if header.Size > 0 {
+					filename := "/" + strings.TrimPrefix(header.Name, "/")
+					gomega.Expect(filename).NotTo(gomega.HavePrefix("/go-cache/"))
+					gomega.Expect(filename).NotTo(gomega.HavePrefix("/tmp-cache/"))
+				}
+			}
 		}
 	})
 	ginkgo.It("reuses unchanged images and rebuilds only the changed setup chain", func(ctx ginkgo.SpecContext) {

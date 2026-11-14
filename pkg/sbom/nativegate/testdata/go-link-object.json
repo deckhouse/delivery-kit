@@ -1,0 +1,82 @@
+{
+  "type": "pm",
+  "sbom": {
+    "schema": "pm.buildinfo/v1",
+    "artifact": "object",
+    "profile": {
+      "id": "go-link-object",
+      "revision": 1,
+      "platform": "linux/amd64"
+    },
+    "subject": "app",
+    "complete": true,
+    "components": [
+      {
+        "id": "app",
+        "name": "app",
+        "version": "1.0",
+        "source": {
+          "kind": "declared",
+          "locator": "https://example.invalid/app"
+        }
+      },
+      {
+        "id": "gomodule",
+        "name": "example.invalid/gomodule",
+        "version": "v1.0.0",
+        "source": {
+          "kind": "go",
+          "locator": "example.invalid/gomodule@v1.0.0",
+          "checksum": "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+      },
+      {
+        "id": "go-toolchain",
+        "name": "go-toolchain",
+        "version": "1.0",
+        "source": {
+          "kind": "pm",
+          "locator": "https://example.invalid/go-toolchain",
+          "checksum": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      }
+    ],
+    "inputs": [
+      {
+        "kind": "go-module",
+        "path": "example.invalid/gomodule@v1.0.0",
+        "sha256": "sha256:b1608757a2026f627d087d0a1c888a59b42f75e5eff02920527be1621fbdded0",
+        "components": [
+          "gomodule"
+        ],
+        "disposition": "included"
+      },
+      {
+        "kind": "runtime",
+        "path": "go/pkg/runtime",
+        "sha256": "sha256:821ac927fc56d338f963b6e8eb65d2c8452d33a3f9eec47e692e0b7b1bdbf91a",
+        "components": [
+          "go-toolchain"
+        ],
+        "disposition": "included"
+      }
+    ],
+    "tools": [
+      {
+        "name": "fixture-tool",
+        "version": "1.0",
+        "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "goModules": [
+      {
+        "component": "gomodule",
+        "module": {
+          "Path": "example.invalid/gomodule",
+          "Version": "v1.0.0",
+          "Sum": "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+      }
+    ]
+  }
+}

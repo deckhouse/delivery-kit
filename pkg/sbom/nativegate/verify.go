@@ -39,7 +39,7 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 	if cfg.OS+"/"+cfg.Architecture != opts.Platform {
 		return fmt.Errorf("image platform %s/%s differs from %s", cfg.OS, cfg.Architecture, opts.Platform)
 	}
-	fs, err := readFilesystem(ctx, img, ImagePolicy{Role: "final"})
+	fs, err := readFilesystem(ctx, img)
 	if err != nil {
 		return fmt.Errorf("read image filesystem: %w", err)
 	}

@@ -375,7 +375,8 @@ type publicationStorage struct {
 
 var _ storage.PrimaryStagesStorage = (*publicationStorage)(nil)
 
-func (s *publicationStorage) String() string { return "publication-test" }
+func (s *publicationStorage) String() string  { return "publication-test" }
+func (s *publicationStorage) Address() string { return "registry.example/publication-test" }
 func (s *publicationStorage) StoreImage(_ context.Context, img container_backend.LegacyImageInterface) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()

@@ -2,7 +2,12 @@ package e2e_build_test
 
 import (
 	"archive/tar"
+	"bytes"
+	"context"
+	"crypto/sha256"
 	"crypto/sha512"
+	"debug/elf"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,9 +15,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
+	pmreader "fox.flant.com/deckhouse/container-base/pm.git/sbom"
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -30,6 +37,7 @@ import (
 	sbomImage "github.com/werf/werf/v3/pkg/sbom/image"
 	"github.com/werf/werf/v3/pkg/sbom/shippedscope"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
+	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
 )
 
@@ -735,4 +743,117 @@ func assertLuaBytecodeImages(ctx SpecContext, project *werf.Project, tree map[st
 	}
 
 	return snapshot
+}
+
+// stand is the configuration of an increment 1 stand, read from WERF_TEST_I1_* variables.
+type stand struct{ values map[string]string }
+
+var standKeys = []string{"BASE", "BASE_NO_SBOM", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
+
+// requireStand skips the spec unless every variable it needs is set, and the build environment
+// (pm binary, trusted indexes) of the stand is complete.
+func requireStand(needs ...string) *stand {
+	GinkgoHelper()
+	s := &stand{values: map[string]string{}}
+	var missing []string
+	for _, key := range append([]string{"PM_BINARY", "PM_SHA256", "TRUSTED_INDEXES"}, needs...) {
+		value := os.Getenv("WERF_TEST_I1_" + key)
+		if value == "" {
+			missing = append(missing, "WERF_TEST_I1_"+key)
+		}
+		s.values[key] = value
+	}
+	if len(missing) > 0 {
+		Skip("increment 1 stand is not configured, missing " + strings.Join(missing, ", "))
+	}
+	for _, key := range standKeys {
+		if value := os.Getenv("WERF_TEST_I1_" + key); value != "" {
+			s.values[key] = value
+		}
+	}
+	body, err := os.ReadFile(s.values["PM_BINARY"])
+	Expect(err).NotTo(HaveOccurred(), "read the pm binary")
+	sum := sha256.Sum256(body)
+	Expect(hex.EncodeToString(sum[:])).To(Equal(s.values["PM_SHA256"]), "pm binary must match the pinned stand artifact")
+
+	setupSbomBuildEnv()
+	SuiteData.Stubs.SetEnv("WERF_SBOM_PM_BINARY", s.values["PM_BINARY"])
+	SuiteData.Stubs.SetEnv("WERF_SBOM_PM_SHA256", hex.EncodeToString(sum[:]))
+	SuiteData.Stubs.SetEnv("WERF_SBOM_TRUSTED_INDEXES", s.values["TRUSTED_INDEXES"])
+	return s
+}
+
+func (s *stand) replace(text string) string {
+	for key, value := range s.values {
+		text = strings.ReplaceAll(text, "@"+key+"@", value)
+	}
+	return text
+}
+
+// i1Repo copies a fixture, fills its placeholders, lets prepare add files and commits the result.
+func i1Repo(ctx context.Context, dirname, fixture string, s *stand, prepare func(repo string)) string {
+	GinkgoHelper()
+	repo := SuiteData.GetTestRepoPath(dirname)
+	utils.CopyIn(utils.FixturePath(fixture), repo)
+	Expect(filepath.WalkDir(repo, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || filepath.Base(path) != "werf.yaml" {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte(s.replace(string(body))), 0o644)
+	})).To(Succeed())
+	if prepare != nil {
+		prepare(repo)
+	}
+	utils.RunSucceedCommand(ctx, repo, "git", "init")
+	utils.RunSucceedCommand(ctx, repo, "git", "add", ".")
+	utils.RunSucceedCommand(ctx, repo, "git", "commit", "-m", "initial")
+	return repo
+}
+
+func writeStockELF(relPath string) func(repo string) {
+	return func(repo string) {
+		GinkgoHelper()
+		Expect(runtime.GOOS).To(Equal("linux"), "the increment1 stand runs on Linux")
+		body, err := os.ReadFile("/bin/true")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bytes.HasPrefix(body, []byte("\x7fELF"))).To(BeTrue())
+		Expect(os.WriteFile(filepath.Join(repo, relPath), body, 0o755)).To(Succeed())
+	}
+}
+
+func hexPrefix(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:3])
+}
+
+func writeForeignELF(relPath string) func(string) {
+	return func(repo string) {
+		GinkgoHelper()
+		record := pmreader.BuildRecord{Schema: "pm.buildinfo/v1", Artifact: "elf", Profile: pmreader.BuildProfile{ID: "c-static", Revision: "1", Platform: "linux/arm64"}, Subject: "app", Complete: true, Components: []pmreader.BuildComponent{{ID: "app", Name: "app", Version: "1", Source: pmreader.BuildSource{Kind: "declared", Locator: "dk:image:app"}}}, Inputs: []pmreader.BuildInput{}, Tools: []pmreader.BuildTool{{Name: "fixture", Version: "1", SHA256: "sha256:" + strings.Repeat("1", 64)}}}
+		payload, err := json.Marshal(map[string]any{"type": "pm", "sbom": record})
+		Expect(err).NotTo(HaveOccurred())
+		var note bytes.Buffer
+		for _, value := range []uint32{4, uint32(len(payload)), 0xcafe1a7e} {
+			Expect(binary.Write(&note, binary.LittleEndian, value)).To(Succeed())
+		}
+		_, err = note.Write(append([]byte("FDO\x00"), payload...))
+		Expect(err).NotTo(HaveOccurred())
+		for note.Len()%4 != 0 {
+			Expect(note.WriteByte(0)).To(Succeed())
+		}
+		names := []byte("\x00.shstrtab\x00.note.package\x00")
+		header := elf.Header64{Ident: [16]byte{0x7f, 'E', 'L', 'F', byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)}, Type: uint16(elf.ET_EXEC), Machine: uint16(elf.EM_AARCH64), Version: uint32(elf.EV_CURRENT), Ehsize: 64, Shentsize: 64, Shnum: 3, Shstrndx: 1, Shoff: uint64(64 + note.Len() + len(names))}
+		var body bytes.Buffer
+		for _, value := range []any{header, note.Bytes(), names, elf.Section64{}, elf.Section64{Name: 1, Type: uint32(elf.SHT_STRTAB), Off: uint64(64 + note.Len()), Size: uint64(len(names)), Addralign: 1}, elf.Section64{Name: 11, Type: uint32(elf.SHT_NOTE), Off: 64, Size: uint64(note.Len()), Addralign: 4}} {
+			Expect(binary.Write(&body, binary.LittleEndian, value)).To(Succeed())
+		}
+		info, err := pmreader.ReadBuildInfo(bytes.NewReader(body.Bytes()))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(info.Status).To(Equal("present"))
+		Expect(os.WriteFile(filepath.Join(repo, relPath), body.Bytes(), 0o755)).To(Succeed())
+	}
 }

@@ -13,7 +13,7 @@ func validateBootstrapInputs(ctx context.Context, img v1.Image, packages *Packag
 	if !slices.ContainsFunc(packages.Originals, func(original Original) bool { return original.Kind == "bootstrap" }) {
 		return nil
 	}
-	fs, err := readFilesystem(ctx, img, ImagePolicy{Role: "final"})
+	fs, err := readFilesystem(ctx, img)
 	if err != nil {
 		return err
 	}

@@ -1,68 +1,12 @@
 package nativegate
 
 import (
-	"archive/tar"
 	"context"
-	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path"
-	"strings"
 
-	"fox.flant.com/deckhouse/container-base/pm.git/sbom/sources"
 	cdx "github.com/CycloneDX/cyclonedx-go"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/mutate"
 )
-
-func ImagePackageSources(ctx context.Context, img v1.Image, directory string, opts ReadPackageSourcesOptions) (*sources.Receipt, error) {
-	root, err := os.OpenRoot(directory)
-	if err != nil {
-		return nil, fmt.Errorf("open package state root: %w", err)
-	}
-	defer root.Close()
-	stream := mutate.Extract(img)
-	defer stream.Close()
-	reader := tar.NewReader(stream)
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read package state from image: %w", err)
-		}
-		name := strings.TrimPrefix(path.Clean("/"+header.Name), "/")
-		if name != "var/lib/pm" && !strings.HasPrefix(name, "var/lib/pm/") {
-			continue
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := root.MkdirAll(name, 0o700); err != nil {
-				return nil, err
-			}
-		case tar.TypeReg:
-			if err := root.MkdirAll(path.Dir(name), 0o700); err != nil {
-				return nil, err
-			}
-			file, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-			if err != nil {
-				return nil, fmt.Errorf("materialize package state %s: %w", name, err)
-			}
-			_, copyErr := io.Copy(file, reader)
-			if err := errors.Join(copyErr, file.Close()); err != nil {
-				return nil, fmt.Errorf("write package state %s: %w", name, err)
-			}
-		default:
-			return nil, fmt.Errorf("/%s: unsupported package state file type %d", name, header.Typeflag)
-		}
-	}
-	return ReadPackageSources(ctx, directory, opts)
-}
 
 func ImageOriginals(ctx context.Context, bom *cdx.BOM, platform string) ([]Original, error) {
 	if err := ValidateImageSource(ctx, "/", "source", bom, platform); err != nil {

@@ -26,16 +26,6 @@ func (gm *GitMapping) SBOMSource(ctx context.Context) (GitSourceFiles, error) {
 	if err != nil {
 		return GitSourceFiles{}, err
 	}
-	if metadata.Source == "." {
-		origin, err := gm.GitRepo().RemoteOriginUrl(ctx)
-		if err != nil {
-			return GitSourceFiles{}, fmt.Errorf("read local git origin: %w", err)
-		}
-		metadata.Source, err = sanitizeGitSourceURL(origin)
-		if err != nil {
-			return GitSourceFiles{}, err
-		}
-	}
 	opts, err := gm.makeArchiveOptions(ctx, metadata.Commit)
 	if err != nil {
 		return GitSourceFiles{}, err

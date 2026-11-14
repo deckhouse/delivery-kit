@@ -1,0 +1,1 @@
+The test writes prebuilt/tool (a Linux ELF built by the stock Go toolchain) before the first commit.

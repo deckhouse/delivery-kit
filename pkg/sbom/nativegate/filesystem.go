@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -23,7 +22,7 @@ type filesystem struct {
 	executable map[string]bool
 }
 
-func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesystem, error) {
+func readFilesystem(ctx context.Context, img v1.Image) (*filesystem, error) {
 	index, err := shippedscope.IndexImageFiles(ctx, img)
 	if err != nil {
 		return nil, err
@@ -54,22 +53,6 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		if _, exists := fs.bodies[name]; exists {
 			continue
 		}
-		if h.Size > 512<<20 && (ip.Role == "final" || slices.Contains(ip.Outputs, name)) {
-			return nil, fmt.Errorf("file exceeds experimental limit %s", name)
-		}
-		metadata := name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json" || name == "/var/lib/pm/container-factory-version"
-		capture := metadata || ip.Role == "final" || slices.Contains(ip.Outputs, name) || name == "/var/lib/pm/index.json" || name == "/var/lib/pm/files.json"
-		if !capture {
-			for _, out := range ip.Outputs {
-				if index.Files[out].Digest == entry.Digest {
-					capture = true
-					break
-				}
-			}
-		}
-		if !capture {
-			continue
-		}
 		prefix := make([]byte, min(h.Size, 16))
 		if _, err := io.ReadFull(tr, prefix); err != nil {
 			return nil, err
@@ -81,8 +64,11 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		// A name the suffix guard recognizes is judged on its whole body too: the text
 		// a toolchain installs under a library name is only text if no byte of it says
 		// otherwise, and a prefix cannot say that.
-		full := metadata || ip.Role != "final" || nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
+		full := nativeCandidate(prefix) || bytes.HasPrefix(prefix, []byte("#!")) || h.Mode&0o111 != 0 || binaryName(name)
 		if full {
+			if h.Size > 512<<20 {
+				return nil, fmt.Errorf("%s: file exceeds supported inspection limit", name)
+			}
 			rest, readErr := io.ReadAll(tr)
 			err = readErr
 			body = append(body, rest...)
@@ -97,9 +83,6 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 		fs.executable[name] = h.Mode&0o111 != 0
 	}
 	for name, entry := range index.Files {
-		if ip.Role != "final" && !slices.Contains(ip.Outputs, name) {
-			continue
-		}
 		if _, ok := fs.bodies[name]; ok {
 			continue
 		}
@@ -112,7 +95,7 @@ func readFilesystem(ctx context.Context, img v1.Image, ip ImagePolicy) (*filesys
 				break
 			}
 		}
-		if !found && (ip.Role == "final" || slices.Contains(ip.Outputs, name)) {
+		if !found {
 			return nil, fmt.Errorf("unreadable surviving file %s", name)
 		}
 	}

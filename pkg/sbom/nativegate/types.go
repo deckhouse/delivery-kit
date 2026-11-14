@@ -17,11 +17,7 @@ var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 type TrustedPackages map[string]osPm.PmPackageInfo
 
 type (
-	Tool        struct{ Name, Version, SHA256 string }
-	ImagePolicy struct {
-		Role    string
-		Outputs []string
-	}
+	Tool struct{ Name, Version, SHA256 string }
 )
 
 type Policy struct {
@@ -30,7 +26,7 @@ type Policy struct {
 }
 
 func strictPolicy(platform string) *Policy {
-	return &Policy{Platform: platform, Profiles: []string{"c-object", "c-relocatable", "c-static", "c-dynamic", "go", "go-cgo-static", "go-cgo-dynamic"}}
+	return &Policy{Platform: platform, Profiles: []string{"c-object", "c-relocatable", "c-static", "c-dynamic", "go", "go-cgo-static", "go-cgo-dynamic", "go-link-object"}}
 }
 
 type ArchiveMember struct {

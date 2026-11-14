@@ -1,0 +1,15 @@
+project: werf-test-e2e-sbom-i1-git-file-edited
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: app
+from: "@BASE@"
+git:
+  - add: /data
+    to: /app
+shell:
+  install:
+    - echo tampered >> /app/config.txt

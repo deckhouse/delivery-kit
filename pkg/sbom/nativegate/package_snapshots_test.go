@@ -13,6 +13,27 @@ import (
 )
 
 var _ = ginkgo.Describe("package install boundaries", func() {
+	ginkgo.It("materializes only pm state and lets the command confirm emptiness", func() {
+		root := ginkgo.GinkgoT().TempDir()
+		binary := filepath.Join(root, "pm")
+		body := []byte("#!/bin/sh\n[ ! -e \"$3/outside\" ] || exit 9\ncat \"$3/var/lib/pm/sbom-sources.json\"\n")
+		gomega.Expect(os.WriteFile(binary, body, 0o700)).To(gomega.Succeed())
+		data := []byte(`{"version":1,"sources":[]}`)
+		view := &shippedscope.ImageSnapshot{Index: &shippedscope.FileIndex{Files: map[string]shippedscope.File{"/var/lib/pm/sbom-sources.json": {Digest: fixtureDigest(data), Size: int64(len(data))}, "/outside": {Digest: fixtureDigest([]byte("outside")), Size: 7}}}, Bodies: map[string][]byte{"/var/lib/pm/sbom-sources.json": data, "/outside": []byte("outside")}}
+		receipt, err := CollectPackageSources(context.Background(), []PackageSnapshot{{Stage: "from", View: view}}, root, ReadPackageSourcesOptions{Binary: binary, SHA256: strings.TrimPrefix(fixtureDigest(body), "sha256:")})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(receipt.Sources).To(gomega.BeEmpty())
+	})
+	ginkgo.It("rejects observed package state when pm reports no receipt", func() {
+		root := ginkgo.GinkgoT().TempDir()
+		binary := filepath.Join(root, "pm")
+		body := []byte("#!/bin/sh\nprintf '%s\\n' 'no-data: missing receipt' >&2\nexit 2\n")
+		gomega.Expect(os.WriteFile(binary, body, 0o700)).To(gomega.Succeed())
+		data := []byte("{}")
+		view := &shippedscope.ImageSnapshot{Index: &shippedscope.FileIndex{Files: map[string]shippedscope.File{"/var/lib/pm/index.json": {Digest: fixtureDigest(data), Size: int64(len(data))}}}, Bodies: map[string][]byte{"/var/lib/pm/index.json": data}}
+		_, err := CollectPackageSources(context.Background(), []PackageSnapshot{{Stage: "from", View: view}}, root, ReadPackageSourcesOptions{Binary: binary, SHA256: strings.TrimPrefix(fixtureDigest(body), "sha256:")})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("missing receipt"), gomega.ContainSubstring("exit status 2"))))
+	})
 	ginkgo.It("refuses a parent alias that would hide package state from capture", func() {
 		view := &shippedscope.ImageSnapshot{Index: &shippedscope.FileIndex{Files: map[string]shippedscope.File{}, Symlinks: map[string]string{"/var": "/state"}, Directories: map[string]struct{}{"/": {}}}}
 		_, err := CollectPackageSources(context.Background(), []PackageSnapshot{{Stage: "from", View: view}}, ginkgo.GinkgoT().TempDir(), ReadPackageSourcesOptions{})

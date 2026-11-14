@@ -1933,9 +1933,6 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 	if err := stg.PrepareImage(ctx, phase.Conveyor, phase.Conveyor.ContainerBackend, prevBuiltImage, stageImage, phase.buildContextArchive); err != nil {
 		return fmt.Errorf("error preparing stage %s: %w", stg.Name(), err)
 	}
-	if err := phase.prepareNativeContext(ctx, img, stg); err != nil {
-		return fmt.Errorf("prepare SBOM context for %s: %w", stg.Name(), err)
-	}
 
 	return nil
 }
@@ -2087,6 +2084,9 @@ func (phase *BuildPhase) atomicBuildStageImage(ctx context.Context, img *image.I
 	stageImage := stg.GetStageImage()
 
 	if stg.IsBuildable() {
+		if err := phase.prepareNativeContext(ctx, img, stg); err != nil {
+			return false, fmt.Errorf("prepare SBOM context for %s: %w", stg.Name(), err)
+		}
 		if err := logboek.Context(ctx).Streams().DoErrorWithTag(fmt.Sprintf("%s/%s", img.LogName(), stg.Name()), img.LogTagStyle(), func() error {
 			opts := stageBuildOptions(phase.ImageBuildOptions, img.TargetPlatform, stg)
 			if err := stageImage.Builder.Build(ctx, opts); err != nil {

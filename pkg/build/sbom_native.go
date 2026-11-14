@@ -166,7 +166,11 @@ func (phase *BuildPhase) nativePackages(ctx context.Context, img *buildimage.Ima
 	if err != nil {
 		return nil, err
 	}
-	return nativegate.OpenPackageSet(ctx, receipt, img.TargetPlatform, trusted)
+	set, err := nativegate.OpenPackageSet(ctx, receipt, img.TargetPlatform, trusted)
+	if err != nil {
+		return nil, fmt.Errorf("/var/lib/pm/sbom-sources.json: %w", err)
+	}
+	return set, nil
 }
 
 func (phase *BuildPhase) prepareNativeContext(ctx context.Context, img *buildimage.Image, stg stage.Interface) error {
@@ -281,6 +285,9 @@ func nativeGitOriginals(ctx context.Context, img *buildimage.Image) ([]nativegat
 			locator := source.Repository
 			identity := locator + "@" + source.Commit
 			component := cdx.Component{Type: cdx.ComponentTypeApplication, BOMRef: "urn:dk:git:" + util.Sha256Hash(identity), Name: img.GetName(), Version: source.Commit, PackageURL: packageurl.NewPackageURL(packageurl.TypeGeneric, "", img.GetName(), source.Commit, packageurl.Qualifiers{{Key: "source_kind", Value: "git"}, {Key: "source_locator", Value: locator}}, "").ToString(), ExternalReferences: &[]cdx.ExternalReference{{Type: cdx.ERTypeVCS, URL: locator}}, Properties: &[]cdx.Property{{Name: "dk:git-commit", Value: source.Commit}}}
+			if locator == "." {
+				component.ExternalReferences = nil
+			}
 			for _, name := range slices.Sorted(maps.Keys(source.Files)) {
 				result = append(result, nativegate.Original{Path: name, SHA256: source.Files[name], Component: component, Kind: "git"})
 			}
@@ -472,6 +479,7 @@ func (phase *BuildPhase) convergeNativeSBOM(ctx context.Context, img *buildimage
 	opts.TrustedComponents = append(opts.TrustedComponents, imports.Components...)
 	bom := cyclonedxutil.NewBOM()
 	restoreImageMetadata(bom, desc)
+	cyclonedxutil.MarkWerfTool(bom, werf.Version)
 	if err := nativegate.Verify(ctx, saved, bom, opts); err != nil {
 		return fmt.Errorf("verify image %s: %w", img.GetName(), err)
 	}

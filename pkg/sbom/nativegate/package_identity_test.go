@@ -11,6 +11,14 @@ import (
 )
 
 var _ = ginkgo.Describe("indexed package identity", func() {
+	ginkgo.It("refuses a registry package outside the pinned instrumented index", func(ctx ginkgo.SpecContext) {
+		source, trusted := fixtureRegistryPackage(ctx)
+		receipt := &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}}
+		_, err := OpenPackageSet(ctx, receipt, "linux/amd64", trusted)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = OpenPackageSet(ctx, receipt, "linux/amd64", TrustedPackages{})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("data"), gomega.ContainSubstring("outside instrumented index"))))
+	})
 	ginkgo.It("verifies package symlink targets before compilation and publication", func(ctx ginkgo.SpecContext) {
 		source, trusted := fixtureRegistryPackage(ctx)
 		set, err := OpenPackageSet(ctx, &sources.Receipt{Version: sources.Version, Sources: []sources.Source{source}}, "linux/amd64", trusted)

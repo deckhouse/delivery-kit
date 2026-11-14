@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("SBOM increment 1: checked images and service directorie
 		gomega.Expect(generated).NotTo(gomega.BeEmpty(), "/app/config.h does not depend on a generated component")
 	})
 
-	ginkgo.It("accepts a committed git script containing a BEL as git text", func(ctx ginkgo.SpecContext) {
+	ginkgo.It("accepts a committed git script containing a BEL as text, owned by its Git component", func(ctx ginkgo.SpecContext) {
 		stand := scratchStand()
 		repo := i1Repo(ctx, "repo_sbom_i1_checked_script_bel", "increment1/checked-script-bel", stand, nil)
 		SuiteData.Stubs.SetEnv("WERF_SBOM_CHECKED_IMAGES", "gen")
@@ -83,7 +83,15 @@ var _ = ginkgo.Describe("SBOM increment 1: checked images and service directorie
 		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}}}))
 		file, found := lo.Find(lo.FromPtr(bom.Components), func(component cdx.Component) bool { return component.Name == "/app/run.sh" })
 		gomega.Expect(found).To(gomega.BeTrue())
-		gomega.Expect(lo.FromPtr(file.Properties)).To(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "git"}))
+		// An export from a checked image is an image original; the Git identity stays on the owner component.
+		gomega.Expect(lo.FromPtr(file.Properties)).To(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "image"}))
+		ownerRef, found := lo.Find(lo.FromPtr(file.Properties), func(property cdx.Property) bool { return property.Name == "dk:owner" })
+		gomega.Expect(found).To(gomega.BeTrue(), "/app/run.sh has no dk:owner")
+		owner, found := lo.Find(lo.FromPtr(bom.Components), func(component cdx.Component) bool { return component.BOMRef == ownerRef.Value })
+		gomega.Expect(found).To(gomega.BeTrue(), "the owner component %s is not in the BOM", ownerRef.Value)
+		commit, found := lo.Find(lo.FromPtr(owner.Properties), func(property cdx.Property) bool { return property.Name == "dk:git-commit" })
+		gomega.Expect(found).To(gomega.BeTrue(), "the owner of /app/run.sh carries no Git identity")
+		gomega.Expect(commit.Value).NotTo(gomega.BeEmpty())
 	})
 
 	ginkgo.It("builds with an ssh agent socket mounted: the service placeholder is not a user file", func(ctx ginkgo.SpecContext) {

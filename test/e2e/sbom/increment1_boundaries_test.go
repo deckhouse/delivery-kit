@@ -85,10 +85,11 @@ var _ = ginkgo.Describe("SBOM increment 1: checked images and service directorie
 		gomega.Expect(found).To(gomega.BeTrue())
 		// An export from a checked image is an image original; the Git identity stays on the owner component.
 		gomega.Expect(lo.FromPtr(file.Properties)).To(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "image"}))
-		ownerRef, found := lo.Find(lo.FromPtr(file.Properties), func(property cdx.Property) bool { return property.Name == "dk:owner" })
+		// dk:owner is the PURL of the owner component (state/contracts/dk-sbom.md), not its bom-ref.
+		ownerPURL, found := lo.Find(lo.FromPtr(file.Properties), func(property cdx.Property) bool { return property.Name == "dk:owner" })
 		gomega.Expect(found).To(gomega.BeTrue(), "/app/run.sh has no dk:owner")
-		owner, found := lo.Find(lo.FromPtr(bom.Components), func(component cdx.Component) bool { return component.BOMRef == ownerRef.Value })
-		gomega.Expect(found).To(gomega.BeTrue(), "the owner component %s is not in the BOM", ownerRef.Value)
+		owner, found := lo.Find(lo.FromPtr(bom.Components), func(component cdx.Component) bool { return component.PackageURL == ownerPURL.Value })
+		gomega.Expect(found).To(gomega.BeTrue(), "the owner component with the purl %s is not in the BOM", ownerPURL.Value)
 		commit, found := lo.Find(lo.FromPtr(owner.Properties), func(property cdx.Property) bool { return property.Name == "dk:git-commit" })
 		gomega.Expect(found).To(gomega.BeTrue(), "the owner of /app/run.sh carries no Git identity")
 		gomega.Expect(commit.Value).NotTo(gomega.BeEmpty())

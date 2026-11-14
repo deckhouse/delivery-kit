@@ -57,3 +57,9 @@ task --yes test:e2e paths=./test/e2e/sbom labelFilter=increment1 parallel=1 -- -
 
 The full `run.sh` still requires every stand input. Package-file and C/Go positive cases
 also require `TRUSTED_INDEXES` when selected directly.
+
+## Partial stand
+`partial-run.sh` runs the cases that need no instrumented base, builders or index (`elf-in-git`, `git-file-edited`, `base-without-sbom`,
+`base-empty-without-sbom`, `from-scratch`) by hand with these fixtures, on a host that has only a Delivery Kit binary, the pm binary
+and two stock images by digest; it uses its own `WERF_HOME` and `TMPDIR`, turns host auto-cleanup off, and for a passing `from-scratch`
+build also checks `dk:verification` and the `/app/config.txt` component in `werf sbom get`. See the header of the script.

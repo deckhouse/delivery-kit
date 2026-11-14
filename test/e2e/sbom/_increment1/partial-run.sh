@@ -40,7 +40,7 @@ run() { # name fixture BASE BASE_NO_SBOM BASE_NO_SBOM_EMPTY; ONLY=<regex of case
   [[ $1 =~ ${ONLY:-.} ]] || return 0
   rm -rf "$d"; cp -R "$fixtures/$fx" "$d"
   find "$d" -name werf.yaml -exec sed -i "s|@BASE@|$3|g; s|@BASE_NO_SBOM@|$4|g; s|@BASE_NO_SBOM_EMPTY@|$5|g" {} +
-  if [ "$fx" = elf-in-git ]; then
+  if [ "$fx" = elf-in-git ] || [ "$fx" = checked-elf ]; then
     mkdir -p "$d/gen" && printf 'package main\n\nfunc main() {}\n' > "$d/gen/main.go" && printf 'module prebuilt\n\ngo 1.22\n' > "$d/gen/go.mod"
     (cd "$d/gen" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$d/prebuilt/tool" .) && rm -rf "$d/gen"
   fi
@@ -61,7 +61,7 @@ expect() {
   [ -f "$OUT/$1.log" ] || return 0
   local got=pass; grep -q '^exit=0$' "$OUT/$1.log" || got=refuse
   # A build that failed in the recipe (e.g. a read-only service directory) is not a refusal by the gate.
-  if [ "$got" = refuse ] && ! grep -q 'verify image app:' "$OUT/$1.log"; then got="failed-outside-the-gate"; fi
+  if [ "$got" = refuse ] && ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; then got="failed-outside-the-gate"; fi
   if [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"; else echo "   $1: expected $2, got $got: RED"; fi
 }
 run service-path-written service-path-written scratch x x
@@ -134,3 +134,22 @@ print("   from-scratch SBOM: dk:verification=instrumented-v1 %s; /app/config.txt
     "present" if ("dk:verification", "instrumented-v1") in props else "MISSING", "present" if files else "MISSING"))
 PY
 fi
+
+# Checked build-environment images (WERF_SBOM_CHECKED_IMAGES=gen): for the Delivery Kit with the checked producer. Prepared before
+# the binary exists, not run yet; the refusal wording of the cases that must be refused is NOT pinned (pattern "." = any refusal by
+# the Delivery Kit; fix the patterns after the first run). Spec of the cases: checked-final/checked-from refused by the configuration;
+# checked-text exported as generated text is accepted; a modified git file (hash-mismatch), an ELF without a record, non-text data and
+# a #!-script with an ELF payload are refused; a #!-script with a BEL is text and accepted.
+export CHECKED_PATTERN='.'
+checked() { # name expected(refuse|pass) pattern
+  WERF_SBOM_CHECKED_IMAGES=gen run "$1" "$1" scratch x x
+  expect "$1" "$2" "${3:-.}"
+}
+checked checked-final refuse
+checked checked-from refuse
+checked checked-text pass
+checked checked-git-modified refuse 'hash-mismatch'
+checked checked-elf refuse
+checked checked-binary refuse
+checked checked-script-bel pass
+checked checked-script-elf refuse

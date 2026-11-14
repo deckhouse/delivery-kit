@@ -1,0 +1,26 @@
+project: werf-test-e2e-sbom-i1-checked-script-bel
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: gen
+final: false
+from: scratch
+git:
+  - add: /data
+    to: /gen-src
+shell:
+  install:
+    - /.werf/stapel/embedded/bin/mkdir -p /out
+    - printf "#!/bin/sh\necho hi\007\n" > /out/run.sh
+    - /.werf/stapel/embedded/bin/chmod +x /out/run.sh
+---
+image: app
+from: scratch
+import:
+  - image: gen
+    add: /out
+    to: /app
+    after: install

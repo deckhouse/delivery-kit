@@ -1,0 +1,24 @@
+project: werf-test-e2e-sbom-i1-checked-git-modified
+configVersion: 1
+build:
+  sbom:
+    enable: true
+    standard: cyclonedx@1.6
+---
+image: gen
+final: false
+from: scratch
+git:
+  - add: /data
+    to: /gen-src
+shell:
+  install:
+    - echo tampered >> /gen-src/config.txt
+---
+image: app
+from: scratch
+import:
+  - image: gen
+    add: /gen-src
+    to: /app
+    after: install

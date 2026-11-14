@@ -67,3 +67,8 @@ build also checks `dk:verification` and the `/app/config.txt` component in `werf
 ## The arm64 binary of `foreign-arch`
 `arm64-binary.sh` cross-compiles a Go hello for linux/arm64 in the builder with plain `docker run` (not through werf: an `sbom.enable` image would be refused by the strict gate for the foreign-platform ELF) and checks that the patched Go wrote a present
 record for platform linux/arm64; its output is the `WERF_TEST_I1_ARM64_BINARY` of the full stand. It needs the builder (not run yet). The script does not supply `SBOM_BUILD_CONTEXT` (the helper context a patched Go may need outside a werf stage); end-to-end execution is unverified, and the synthetic foreign-platform ELF test runs independently of this tool.
+
+## Checked build-environment cases (prepared, not run)
+`partial-run.sh` runs the `checked-*` fixtures with `WERF_SBOM_CHECKED_IMAGES=gen`: checked image as final and strict image `from` a checked one (both refused),
+generated text exported from a checked image (accepted), a modified git file (hash-mismatch), an ELF without a record, non-text data and a `#!` script with an ELF payload
+(refused), and a `#!` script containing a BEL (text, accepted). They need a Delivery Kit binary with the checked producer; the refusal wording of the cases is not pinned yet.

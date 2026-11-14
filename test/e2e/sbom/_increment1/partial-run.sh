@@ -27,7 +27,10 @@
 set -uo pipefail
 : "${DK:?Delivery Kit werf binary}" "${PM:?pm binary}" "${STAGE_REPO:?stage repository prefix}" "${STOCK_EMPTY:?empty stock image by digest}" "${STOCK_BASE:?non-empty stock image by digest}" "${OUT:?output directory}"
 fixtures=$(cd "$(dirname "$0")/../_fixtures/increment1" && pwd)
-mkdir -p "$OUT"
+mkdir -p "$OUT/tmp"
+# A private TMPDIR as well as a private WERF_HOME: werf deletes stale tmp dirs it does not hold a lock for, and
+# the locks live in WERF_HOME, so another job's werf on a shared /tmp would delete this one's live ones.
+export TMPDIR=$OUT/tmp
 unset SSH_AUTH_SOCK SSH_AGENT_PID DOCKER_BUILDKIT
 export WERF_HOME=${WERF_HOME:-$OUT/werf-home} WERF_DISABLE_AUTO_HOST_CLEANUP=1 WERF_LOG_COLOR_MODE=off WERF_LOG_TERMINAL_WIDTH=200
 export WERF_BUILDAH_MODE=docker WERF_INSECURE_REGISTRY=1 WERF_SKIP_TLS_VERIFY_REGISTRY=1 WERF_EXTERNAL_REFS_SERVER_URL=http://127.0.0.1:9

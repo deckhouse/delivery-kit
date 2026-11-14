@@ -64,3 +64,10 @@ Against candidate ef2d4c702 the `git-file-edited` spec fails for a reason other 
 any build with a shell stage holds werf's `/.werf/tmp/ssh-auth-sock`, which the gate refuses ("no trusted original")
 before the changed git file is reached. A red `git-file-edited` with that file in the output is that defect, not a
 failure to detect the edit. The spec is left active so the defect keeps showing; it turns green only when it is fixed.
+
+Against candidate 6d24c01a4 the service-file refusal no longer appears for that spec, but the build now stops earlier, at the end
+of every build with no import, with `create package state directory: stat <conveyor tmp>/<random>: no such file or directory`
+(`os.MkdirTemp(phase.Conveyor.tmpDir, …)` in `pkg/build/sbom_native.go`; that directory is created only when a stage needs it,
+for example an import server). `git-file-edited` and `from-scratch` fail there, so neither the edited-file refusal nor a passing
+build has been seen on that candidate. The partial-run runner uses a private `TMPDIR` as well as `WERF_HOME`; the failure is
+the same with and without it.

@@ -96,7 +96,9 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 			return err
 		}
 		buildLocators[subject.Source.Locator] = true
-		catalog.Components[ownComponent.BOMRef] = ownComponent
+		if _, exists := catalog.Components[ownComponent.BOMRef]; !exists {
+			catalog.Components[ownComponent.BOMRef] = ownComponent
+		}
 	}
 	present := make(map[string]Record)
 	for _, name := range slices.Sorted(maps.Keys(fs.index.Files)) {

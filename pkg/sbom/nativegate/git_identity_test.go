@@ -146,6 +146,36 @@ var _ = ginkgo.Describe("declared code git identity", func() {
 		}
 		gomega.Expect(count).To(gomega.Equal(2))
 	})
+	ginkgo.It("preserves imported component metadata when the current build has the same git identity", func(ctx ginkgo.SpecContext) {
+		sources := []GitSource{{Repository: "https://example.invalid/project.git", Commit: strings.Repeat("a", 40), Add: "/", To: "/src"}}
+		subject, _, err := declaredSubject(ctx, "app", sources)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		record := fixtureRecord("c-static", "linux/amd64")
+		component := record["components"].([]any)[0].(map[string]any)
+		component["version"] = "unspecified"
+		component["source"].(map[string]string)["locator"] = subject.Source.Locator
+		record["components"] = append(record["components"].([]any), map[string]any{"id": "dependency", "name": "dependency", "version": "1", "source": map[string]string{"kind": "declared", "locator": "dk:image:dependency"}})
+		record["inputs"] = []any{map[string]any{"kind": "object", "origin": "build", "path": "/build/dependency.o", "sha256": "sha256:" + strings.Repeat("3", 64), "disposition": "included", "components": []string{"dependency"}}}
+		body := fixtureELF(elf.ET_EXEC, record)
+		bom := cdx.NewBOM()
+		bom.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeContainer, Name: "source", BOMRef: "source-image"}}
+		gomega.Expect(Verify(ctx, fixtureImage(map[string][]byte{"/out/app": body}), bom, VerifyOptions{Subject: "app", Platform: "linux/amd64", BuildGitSources: [][]GitSource{sources}})).To(gomega.Succeed())
+		property := cdx.Property{Name: "example:provenance", Value: "retained"}
+		reference := cdx.ExternalReference{Type: cdx.ERTypeDistribution, URL: "https://example.invalid/release"}
+		for i, component := range *bom.Components {
+			if component.Pedigree != nil {
+				*(*bom.Components)[i].Properties = append(*component.Properties, property)
+				(*bom.Components)[i].ExternalReferences = &[]cdx.ExternalReference{reference}
+			}
+		}
+		originals, err := ImageOriginals(ctx, bom, "linux/amd64")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(originals).To(gomega.HaveLen(1))
+		gomega.Expect(originals[0].Component.BOMRef).To(gomega.Equal("source-image"))
+		result := cdx.NewBOM()
+		gomega.Expect(Verify(ctx, fixtureImage(map[string][]byte{"/out/app": body}), result, VerifyOptions{Subject: "app", Platform: "linux/amd64", Originals: originals, TrustedComponents: *bom.Components, BuildGitSources: [][]GitSource{sources}})).To(gomega.Succeed())
+		gomega.Expect(*result.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Pedigree", gomega.Not(gomega.BeNil())), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(property))), gomega.HaveField("ExternalReferences", gomega.HaveValue(gomega.ContainElement(reference))))))
+	})
 	ginkgo.It("rejects a binary recorded for another git mapping identity", func(ctx ginkgo.SpecContext) {
 		sources := []GitSource{{Repository: "https://example.invalid/project.git", Commit: strings.Repeat("a", 40), Add: "/", To: "/src"}}
 		record := fixtureRecord("c-static", "linux/amd64")

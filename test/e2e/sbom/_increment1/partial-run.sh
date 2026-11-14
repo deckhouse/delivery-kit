@@ -64,6 +64,26 @@ expect() {
 }
 run service-path-written service-path-written scratch x x
 expect service-path-written refuse
+# A red control proves a bypass only if the file is really in the image: list the layers of the published image.
+if grep -q '^exit=0$' "$OUT/service-path-written.log"; then
+  (cd "$OUT/service-path-written" && WERF_REPO=$STAGE_REPO/service-path-written "$DK" build --save-build-report --build-report-path "$OUT/service-path-written.report.json" >>"$OUT/service-path-written.log" 2>&1)
+  python3 - "$OUT/service-path-written.report.json" "$OUT/service-path-written.layers" <<'PY'
+import json, subprocess, sys, tarfile, io
+report, listing = sys.argv[1:]
+ref = json.load(open(report))["Images"]["app"]["DockerImageName"]
+subprocess.run(["docker", "pull", "-q", ref], check=True, capture_output=True)
+saved = subprocess.run(["docker", "save", ref], check=True, capture_output=True).stdout
+names = []
+with tarfile.open(fileobj=io.BytesIO(saved)) as outer:
+    manifest = json.load(outer.extractfile("manifest.json"))
+    for layer in manifest[0]["Layers"]:
+        with tarfile.open(fileobj=io.BytesIO(outer.extractfile(layer).read())) as inner:
+            names += ["/" + (n[2:] if n.startswith("./") else n.lstrip("/")) for n in inner.getnames()]
+open(listing, "w").write("\n".join(names) + "\n")
+print("   service-path-written: /.werf/user/payload.txt in the image layers: %s" % ("YES" if "/.werf/user/payload.txt" in names else "NO"))
+subprocess.run(["docker", "rmi", ref], capture_output=True)
+PY
+fi
 agent_dir=$(mktemp -d "$OUT/agent.XXXXXX"); eval "$(ssh-agent -a "$agent_dir/sock" -s)" >/dev/null
 SSH_AUTH_SOCK=$agent_dir/sock run service-path-ssh-agent service-path-ssh-agent scratch x x
 kill "$SSH_AGENT_PID" 2>/dev/null; rm -rf "$agent_dir"

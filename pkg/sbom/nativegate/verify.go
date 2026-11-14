@@ -69,6 +69,13 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		}
 		originals[resolved] = original
 	}
+	// Package files by content: only package originals take part, one entry per path.
+	packageOriginalsByContent := map[string][]Original{}
+	for _, resolved := range slices.Sorted(maps.Keys(originals)) {
+		if original := originals[resolved]; original.Kind == "pm" {
+			packageOriginalsByContent[original.SHA256] = append(packageOriginalsByContent[original.SHA256], original)
+		}
+	}
 	policy := &Policy{Platform: opts.Platform, Profiles: []string{"c-object", "c-relocatable", "c-static", "c-dynamic", "go", "go-cgo-static", "go-cgo-dynamic"}}
 	catalog := Catalog{Components: make(map[string]cdx.Component)}
 	present := make(map[string]Record)
@@ -100,12 +107,15 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 			return fmt.Errorf("%s: unsupported binary format", name)
 		}
 		record.Path, record.SHA256 = name, file.Digest
+		account := func(owner Original) {
+			catalog.Components[owner.Component.BOMRef] = owner.Component
+			record.Components = appendUnique(record.Components, owner.Component.BOMRef)
+			record.Owners = []string{owner.Component.BOMRef}
+			record.Origin = owner.Kind
+		}
 		switch {
 		case known:
-			catalog.Components[original.Component.BOMRef] = original.Component
-			record.Components = appendUnique(record.Components, original.Component.BOMRef)
-			record.Owners = []string{original.Component.BOMRef}
-			record.Origin = original.Kind
+			account(original)
 		case native:
 			record.Origin = "build"
 		case userFile(name, opts.UserRoots):
@@ -115,7 +125,22 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 		case pmStateFile(name):
 			continue
 		default:
-			return fmt.Errorf("%s: no-data: file has no trusted original; directory is not in a git mapping/WorkingDir", name)
+			// A package file moved or renamed by a shell stage has no original at its own
+			// path; it is matched to the originals by content (spec 3.2). Exactly one
+			// original with these bytes accounts for it under its package; none or several
+			// do not say which file this is.
+			switch matches := packageOriginalsByContent[file.Digest]; len(matches) {
+			case 0:
+				return fmt.Errorf("%s: no-data: file has no trusted original; directory is not in a git mapping/WorkingDir", name)
+			case 1:
+				account(matches[0])
+			default:
+				paths := make([]string, len(matches))
+				for i, m := range matches {
+					paths[i] = m.Path
+				}
+				return fmt.Errorf("%s: ambiguous: %d package files have its content (%s)", name, len(matches), strings.Join(paths, ", "))
+			}
 		}
 		present[name] = record
 	}

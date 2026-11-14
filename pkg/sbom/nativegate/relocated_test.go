@@ -10,6 +10,22 @@ import (
 )
 
 var _ = ginkgo.Describe("relocated package files", func() {
+	ginkgo.It("accounts a copy while the package original remains", func() {
+		body := []byte("package data")
+		bom := cdx.NewBOM()
+		original := Original{Path: "/usr/share/data", SourcePath: "usr/share/data", SHA256: fixtureDigest(body), Component: fixtureComponent("pm"), Kind: "pm"}
+		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/usr/share/data": body, "/relocated/data": body}), bom, VerifyOptions{Subject: "app", Platform: "linux/amd64", Originals: []Original{original}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, name := range []string{"/usr/share/data", "/relocated/data"} {
+			gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", name), gomega.HaveField("Type", cdx.ComponentTypeFile), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "pm"}))))))
+		}
+	})
+	ginkgo.It("does not infer a moved package from a git original", func() {
+		body := []byte("source data")
+		original := Original{Path: "/src/data", SHA256: fixtureDigest(body), Component: fixtureComponent("git"), Kind: "git"}
+		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/relocated/data": body}), cdx.NewBOM(), VerifyOptions{Subject: "app", Platform: "linux/amd64", Originals: []Original{original}})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/relocated/data"), gomega.ContainSubstring("no-data"))))
+	})
 	ginkgo.It("retains the package owner for exactly one matching original", func() {
 		body := []byte("package data")
 		bom := cdx.NewBOM()

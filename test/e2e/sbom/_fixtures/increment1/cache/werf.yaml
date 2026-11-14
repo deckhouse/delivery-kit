@@ -6,7 +6,7 @@ build:
     standard: cyclonedx@1.6
 ---
 image: app
-from: "@BASE@"
+from: scratch
 git:
   - add: /data
     to: /app
@@ -17,3 +17,11 @@ shell:
   setup:
     - echo INCREMENT1_SETUP_EXECUTED_v1
     - echo setup-v1 > /app/setup.marker
+---
+image: stable
+from: scratch
+shell:
+  install:
+    - echo INCREMENT1_STABLE_EXECUTED
+    - mkdir -p /tmp
+    - echo stable > /tmp/stable.marker

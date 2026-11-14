@@ -16,7 +16,7 @@ the specs skip, naming the missing `WERF_TEST_I1_*` variables, until a stand is 
 | `from-scratch` | literal `from: scratch` without a registry base | builds; `/app/config.txt` appears in the verified SBOM |
 | `elf-in-git` with an ARM64 fixture | an instrumented ARM64 ELF in an AMD64 image | `/app/tool: unsupported platform linux/arm64: expected linux/amd64` |
 | `positive` | a C program on `builder/native` and a Go program on `builder/golang-alt-1.27` | builds; `/app/hello` is a file component with `dk:origin=build`; the SBOM carries `dk:verification=instrumented-v1` |
-| `cache` | repeat an unchanged build, then change setup only | no repeated shell execution; cached install reused when setup changes; both marker files remain in the SBOM |
+| `cache` | two scratch images; repeat unchanged, then change only app setup | no repeated shell execution or stage verification; cached app install and the independent stable image are reused; both app marker files remain in the SBOM |
 
 The reasons are the wording of `pkg/sbom/nativegate`. A change of wording changes the table in the test.
 
@@ -46,3 +46,14 @@ Use the agreed increment pins. A pilot run is diagnostic only and does not count
 `render.sh` renders every fixture with placeholder values using the Delivery Kit binary (no image is
 built, no registry is read). `run.sh` renders, then runs the specs; run it on the build host under its
 lock (`state/linux-host.lock`).
+
+The cache and literal-scratch cases need only `WERF_TEST_BINARY_PATH`,
+`WERF_TEST_K8S_DOCKER_REGISTRY`, `WERF_TEST_I1_PM_BINARY` and `WERF_TEST_I1_PM_SHA256`.
+They install no packages, so no trusted index or instrumented builder is required:
+
+```sh
+task --yes test:e2e paths=./test/e2e/sbom labelFilter=increment1 parallel=1 -- --focus='reuses unchanged images|builds from literal scratch'
+```
+
+The full `run.sh` still requires every stand input. Package-file and C/Go positive cases
+also require `TRUSTED_INDEXES` when selected directly.

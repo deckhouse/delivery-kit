@@ -10,6 +10,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/samber/lo"
 
+	"github.com/werf/werf/v3/pkg/build"
 	sbomtest "github.com/werf/werf/v3/test/pkg/sbom"
 	"github.com/werf/werf/v3/test/pkg/utils"
 	"github.com/werf/werf/v3/test/pkg/werf"
@@ -22,16 +23,42 @@ import (
 // They are skipped, with the missing variables named, when it is not configured; see
 // _increment1/README.md. Fixtures hold @TOKEN@ placeholders that i1Repo replaces.
 var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e2e", "sbom", "increment1"), func() {
-	ginkgo.It("reuses an unchanged image and a cached install before rebuilding setup", func(ctx ginkgo.SpecContext) {
-		stand := requireStand("BASE")
+	ginkgo.It("reuses unchanged images and rebuilds only the changed setup chain", func(ctx ginkgo.SpecContext) {
+		stand := requireStand()
+		SuiteData.Stubs.SetEnv("WERF_TMP_DIR", ginkgo.GinkgoT().TempDir())
 		repo := i1Repo(ctx, "repo_sbom_i1_cache", "increment1/cache", stand, nil)
 		project := werf.NewProject(SuiteData.WerfBinPath, repo)
-		first := project.Build(ctx, &werf.BuildOptions{})
+		reportPath := SuiteData.GetBuildReportPath("increment1-cache.json")
+		options := &werf.BuildOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"--platform=linux/amd64", "--save-build-report", "--build-report-path=" + reportPath}}}
+		first := project.Build(ctx, options)
 		gomega.Expect(first).To(gomega.ContainSubstring("INCREMENT1_INSTALL_EXECUTED"))
 		gomega.Expect(first).To(gomega.ContainSubstring("INCREMENT1_SETUP_EXECUTED_v1"))
-		repeated := project.Build(ctx, &werf.BuildOptions{})
+		gomega.Expect(first).To(gomega.ContainSubstring("INCREMENT1_STABLE_EXECUTED"))
+		firstReport, err := build.LoadBuildReportFromFile(ctx, reportPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(firstReport.Images).To(gomega.HaveKey("app"))
+		gomega.Expect(firstReport.Images).To(gomega.HaveKey("stable"))
+		gomega.Expect(firstReport.Images["app"].Rebuilt).To(gomega.BeTrue())
+		gomega.Expect(firstReport.Images["stable"].Rebuilt).To(gomega.BeTrue())
+		gomega.Expect(firstReport.Images["app"].DockerImageDigest).NotTo(gomega.BeEmpty())
+		gomega.Expect(firstReport.Images["stable"].DockerImageDigest).NotTo(gomega.BeEmpty())
+		repeated := project.Build(ctx, options)
 		gomega.Expect(repeated).NotTo(gomega.ContainSubstring("INCREMENT1_INSTALL_EXECUTED"))
 		gomega.Expect(repeated).NotTo(gomega.ContainSubstring("INCREMENT1_SETUP_EXECUTED"))
+		gomega.Expect(repeated).NotTo(gomega.ContainSubstring("INCREMENT1_STABLE_EXECUTED"))
+		gomega.Expect(repeated).To(gomega.ContainSubstring("image app: Use previously generated SBOM from registry"))
+		gomega.Expect(repeated).To(gomega.ContainSubstring("image stable: Use previously generated SBOM from registry"))
+		repeatedReport, err := build.LoadBuildReportFromFile(ctx, reportPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, name := range []string{"app", "stable"} {
+			gomega.Expect(repeatedReport.Images).To(gomega.HaveKey(name))
+			record := repeatedReport.Images[name]
+			gomega.Expect(record.Rebuilt).To(gomega.BeFalse())
+			gomega.Expect(record.DockerImageDigest).To(gomega.Equal(firstReport.Images[name].DockerImageDigest))
+			for _, stg := range record.Stages {
+				gomega.Expect(stg.Rebuilt).To(gomega.BeFalse(), "%s/%s", name, stg.Name)
+			}
+		}
 		filename := filepath.Join(repo, "werf.yaml")
 		body, err := os.ReadFile(filename)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -39,10 +66,21 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 		gomega.Expect(os.WriteFile(filename, []byte(changed), 0o644)).To(gomega.Succeed())
 		utils.RunSucceedCommand(ctx, repo, "git", "add", "werf.yaml")
 		utils.RunSucceedCommand(ctx, repo, "git", "commit", "-m", "change setup only")
-		partial := project.Build(ctx, &werf.BuildOptions{})
+		partial := project.Build(ctx, options)
 		gomega.Expect(partial).NotTo(gomega.ContainSubstring("INCREMENT1_INSTALL_EXECUTED"))
 		gomega.Expect(partial).To(gomega.ContainSubstring("INCREMENT1_SETUP_EXECUTED_v2"))
-		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{}))
+		gomega.Expect(partial).NotTo(gomega.ContainSubstring("INCREMENT1_STABLE_EXECUTED"))
+		gomega.Expect(partial).To(gomega.ContainSubstring("image stable: Use previously generated SBOM from registry"))
+		partialReport, err := build.LoadBuildReportFromFile(ctx, reportPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(partialReport.Images).To(gomega.HaveKey("app"))
+		gomega.Expect(partialReport.Images).To(gomega.HaveKey("stable"))
+		gomega.Expect(partialReport.Images["app"].Rebuilt).To(gomega.BeTrue())
+		gomega.Expect(partialReport.Images["stable"].Rebuilt).To(gomega.BeFalse())
+		gomega.Expect(partialReport.Images["app"].DockerImageDigest).NotTo(gomega.Equal(firstReport.Images["app"].DockerImageDigest))
+		gomega.Expect(partialReport.Images["stable"].DockerImageDigest).To(gomega.Equal(firstReport.Images["stable"].DockerImageDigest))
+		gomega.Expect(partialReport.Images["app"].Stages).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "install"), gomega.HaveField("Rebuilt", false))))
+		bom := sbomtest.MustParseSBOMOutput(project.SbomGet(ctx, &werf.SbomGetOptions{CommonOptions: werf.CommonOptions{ExtraArgs: []string{"app"}}}))
 		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/install.marker")))
 		gomega.Expect(lo.FromPtr(bom.Components)).To(gomega.ContainElement(gomega.HaveField("Name", "/app/setup.marker")))
 	})
@@ -74,18 +112,18 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 	cases := map[string]negative{
 		"a package file replaced in a shell stage": {
 			fixture: "increment1/pkg-file-replaced",
-			needs:   []string{"BASE", "PM_PACKAGE", "PM_PACKAGE_FILE"},
+			needs:   []string{"BASE", "PM_PACKAGE", "PM_PACKAGE_FILE", "TRUSTED_INDEXES"},
 			refusal: "verify image app: @PM_PACKAGE_FILE@: hash-mismatch: pm original changed",
 		},
 		"an ELF binary in git, with no record of its build": {
 			fixture: "increment1/elf-in-git",
-			needs:   []string{"BASE"},
+			needs:   []string{"BASE", "TRUSTED_INDEXES"},
 			prepare: writeStockELF("prebuilt/tool"),
 			refusal: "verify image app: /app/tool: no-data: missing sbom metadata",
 		},
 		"a file of a commit changed in a shell stage": {
 			fixture: "increment1/git-file-edited",
-			needs:   []string{"BASE"},
+			needs:   []string{"BASE", "TRUSTED_INDEXES"},
 			refusal: "verify image app: /app/config.txt: hash-mismatch: git original changed",
 		},
 		"a package outside the trusted index": {
@@ -106,7 +144,7 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 		},
 		"an arm64 file in an amd64 image": {
 			fixture: "increment1/elf-in-git",
-			needs:   []string{"BASE"},
+			needs:   []string{"BASE", "TRUSTED_INDEXES"},
 			prepare: writeForeignELF("prebuilt/tool"),
 			refusal: "verify image app: /app/tool: unsupported platform linux/arm64: expected linux/amd64",
 		},
@@ -129,7 +167,7 @@ var _ = ginkgo.Describe("SBOM increment 1: strict verification", ginkgo.Label("e
 	}
 
 	ginkgo.It("builds a C and a Go binary on the instrumented builders, and the SBOM holds them as built files", func(ctx ginkgo.SpecContext) {
-		stand := requireStand("BUILDER_NATIVE", "BUILDER_GO")
+		stand := requireStand("BUILDER_NATIVE", "BUILDER_GO", "TRUSTED_INDEXES")
 		repo := i1Repo(ctx, "repo_sbom_i1_positive", "increment1/positive", stand, nil)
 		werfProject := werf.NewProject(SuiteData.WerfBinPath, repo)
 

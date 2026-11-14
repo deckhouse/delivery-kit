@@ -16,7 +16,7 @@ var _ = ginkgo.Describe("shipped archives", func() {
 		bom := cdx.NewBOM()
 		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/usr/lib/lib.a": body}), bom, VerifyOptions{Subject: "builder", Platform: "linux/amd64", Originals: []Original{{Path: "/usr/lib/lib.a", SHA256: fixtureDigest(body), Component: component, Kind: "pm"}}})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "/usr/lib/lib.a"), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "pm"}))))))
+		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "/usr/lib/lib.a"), gomega.HaveField("Type", cdx.ComponentTypeFile), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:origin", Value: "pm"}))))))
 	})
 	ginkgo.It("accepts an archive with an instrumented member", func() {
 		body := fixtureArchive("code.o", fixtureELF(elf.ET_REL, fixtureRecord("c-object", "linux/amd64")))

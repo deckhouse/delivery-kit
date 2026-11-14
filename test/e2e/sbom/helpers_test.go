@@ -748,7 +748,7 @@ func assertLuaBytecodeImages(ctx SpecContext, project *werf.Project, tree map[st
 // stand is the configuration of an increment 1 stand, read from WERF_TEST_I1_* variables.
 type stand struct{ values map[string]string }
 
-var standKeys = []string{"BASE", "BASE_NO_SBOM", "BASE_NO_SBOM_EMPTY", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
+var standKeys = []string{"TRUSTED_INDEXES", "BASE", "BASE_NO_SBOM", "BASE_NO_SBOM_EMPTY", "BUILDER_NATIVE", "BUILDER_GO", "PM_PACKAGE", "PM_PACKAGE_FILE", "OTHER_INDEX"}
 
 // requireStand skips the spec unless every variable it needs is set, and the build environment
 // (pm binary, trusted indexes) of the stand is complete.
@@ -756,7 +756,7 @@ func requireStand(needs ...string) *stand {
 	GinkgoHelper()
 	s := &stand{values: map[string]string{}}
 	var missing []string
-	for _, key := range append([]string{"PM_BINARY", "PM_SHA256", "TRUSTED_INDEXES"}, needs...) {
+	for _, key := range append([]string{"PM_BINARY", "PM_SHA256"}, needs...) {
 		value := os.Getenv("WERF_TEST_I1_" + key)
 		if value == "" {
 			missing = append(missing, "WERF_TEST_I1_"+key)

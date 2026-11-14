@@ -86,6 +86,13 @@ var _ = ginkgo.Describe("moved package files", func() {
 		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/opt/moved/data.txt"), gomega.ContainSubstring("no-data"))))
 	})
 
+	ginkgo.It("does not take an empty file for a moved package file", func() {
+		// Any stage can create an empty file; its bytes say nothing about where it came from.
+		opts.Originals = []Original{original("/usr/share/pkg/.keep", "")}
+		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/opt/created/empty": nil}), cdx.NewBOM(), opts)
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/opt/created/empty"), gomega.ContainSubstring("no-data"))))
+	})
+
 	ginkgo.It("leaves a file under a user root generated, as it was", func() {
 		opts.Originals = []Original{original("/usr/share/pkg/data.txt", content)}
 		bom := cdx.NewBOM()

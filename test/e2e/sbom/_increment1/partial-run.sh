@@ -42,7 +42,9 @@ run() { # name fixture BASE BASE_NO_SBOM BASE_NO_SBOM_EMPTY; ONLY=<regex of case
   find "$d" -name werf.yaml -exec sed -i "s|@BASE@|$3|g; s|@BASE_NO_SBOM@|$4|g; s|@BASE_NO_SBOM_EMPTY@|$5|g" {} +
   if [ "$fx" = elf-in-git ] || [ "$fx" = checked-elf ]; then
     mkdir -p "$d/gen" && printf 'package main\n\nfunc main() {}\n' > "$d/gen/main.go" && printf 'module prebuilt\n\ngo 1.22\n' > "$d/gen/go.mod"
+    mkdir -p "$d/prebuilt"
     (cd "$d/gen" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$d/prebuilt/tool" .) && rm -rf "$d/gen"
+    [ -s "$d/prebuilt/tool" ] || { echo "== $name: SETUP FAILED: $d/prebuilt/tool was not built"; return 0; }
   fi
   (cd "$d" && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm i)
   (cd "$d" && WERF_REPO=$STAGE_REPO/$name timeout 420 nice -n 10 "$DK" build >"$OUT/$name.log" 2>&1; echo "exit=$?" >>"$OUT/$name.log")
@@ -61,7 +63,7 @@ expect() {
   [ -f "$OUT/$1.log" ] || return 0
   local got=pass; grep -q '^exit=0$' "$OUT/$1.log" || got=refuse
   # A build that failed in the recipe (e.g. a read-only service directory) is not a refusal by the gate.
-  if [ "$got" = refuse ] && ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; then got="failed-outside-the-gate"; fi
+  if [ "$got" = refuse ] && { grep -q 'container run failed' "$OUT/$1.log" || ! grep -q -E "${3:-verify image app:}" "$OUT/$1.log"; }; then got="failed-outside-the-gate"; fi
   if [ "$got" = "$2" ]; then echo "   $1: expected $2, got $got: OK"; else echo "   $1: expected $2, got $got: RED"; fi
 }
 run service-path-written service-path-written scratch x x
@@ -136,20 +138,30 @@ PY
 fi
 
 # Checked build-environment images (WERF_SBOM_CHECKED_IMAGES=gen): for the Delivery Kit with the checked producer. Prepared before
-# the binary exists, not run yet; the refusal wording of the cases that must be refused is NOT pinned (pattern "." = any refusal by
-# the Delivery Kit; fix the patterns after the first run). Spec of the cases: checked-final/checked-from refused by the configuration;
+# the binary exists, not run yet; the refusal wording of the cases that must be refused is NOT pinned (pattern "." = any failure except a recipe failure
+# (container run failed); fix the patterns after the first run). Spec of the cases: checked-final/checked-from refused by the configuration;
 # checked-text exported as generated text is accepted; a modified git file (hash-mismatch), an ELF without a record, non-text data and
 # a #!-script with an ELF payload are refused; a #!-script with a BEL is text and accepted.
 export CHECKED_PATTERN='.'
-checked() { # name expected(refuse|pass) pattern
+checked() { # name expected(refuse|pass) pattern-or-sbom-path
   WERF_SBOM_CHECKED_IMAGES=gen run "$1" "$1" scratch x x
-  expect "$1" "$2" "${3:-.}"
+  if [ "$2" = pass ]; then
+    expect "$1" pass
+    # An accepted export must show up in the SBOM; a gate that silently drops the file would still exit 0.
+    if grep -q '^exit=0$' "$OUT/$1.log" 2>/dev/null; then
+      (cd "$OUT/$1" && WERF_SBOM_CHECKED_IMAGES=gen WERF_REPO=$STAGE_REPO/$1 "$DK" sbom get app >"$OUT/$1.sbom.json" 2>"$OUT/$1.sbom.err")
+      if grep -q -F "$3" "$OUT/$1.sbom.json" 2>/dev/null; then echo "   $1: $3 in the SBOM: OK"; else echo "   $1: $3 in the SBOM: RED (absent)"; fi
+    fi
+  else
+    # refusal of any kind except a recipe failure (container run failed) and a missing log; the gate's own wording is pinned after the first run
+    expect "$1" refuse "${3:-.}"
+  fi
 }
 checked checked-final refuse
 checked checked-from refuse
-checked checked-text pass
+checked checked-text pass /app/config.h
 checked checked-git-modified refuse 'hash-mismatch'
 checked checked-elf refuse
 checked checked-binary refuse
-checked checked-script-bel pass
+checked checked-script-bel pass /app/run.sh
 checked checked-script-elf refuse

@@ -52,3 +52,15 @@ run git-file-edited git-file-edited scratch x x
 run base-without-sbom base-without-sbom x "$STOCK_BASE" x
 run base-empty-without-sbom base-empty-without-sbom x x "$STOCK_EMPTY"
 run from-scratch from-scratch x x x
+# The spec's assertions for the passing build: the SBOM carries the verification marker and the git file as a file component.
+if grep -q '^exit=0$' "$OUT/from-scratch.log"; then
+  (cd "$OUT/from-scratch" && WERF_REPO=$STAGE_REPO/from-scratch "$DK" sbom get app >"$OUT/from-scratch.sbom.json" 2>"$OUT/from-scratch.sbom.err")
+  python3 - "$OUT/from-scratch.sbom.json" <<'PY'
+import json, sys
+bom = json.load(open(sys.argv[1]))
+props = [(p["name"], p["value"]) for p in bom.get("metadata", {}).get("properties", [])]
+files = [c for c in bom.get("components", []) if c.get("name") == "/app/config.txt"]
+print("   from-scratch SBOM: dk:verification=instrumented-v1 %s; /app/config.txt component %s" % (
+    "present" if ("dk:verification", "instrumented-v1") in props else "MISSING", "present" if files else "MISSING"))
+PY
+fi

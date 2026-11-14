@@ -153,7 +153,7 @@ func formatInstallCommand(pkgs []string, env map[string]string) packagesCommand 
 	}
 }
 
-func renderPackagesCommands(packages []*PackagesDirective) []packagesCommand {
+func renderPackagesCommands(packages []*PackagesDirective, sbomEnabled bool) []packagesCommand {
 	var commands []packagesCommand
 	for _, pkg := range packages {
 		eco, ok := ecosystems[pkg.Type]
@@ -161,7 +161,11 @@ func renderPackagesCommands(packages []*PackagesDirective) []packagesCommand {
 			continue
 		}
 
-		command := eco.InstallCmd(pkg.FileBased, pkg.Spec.Packages, pkg.Env)
+		spec := pkg.Spec.Packages
+		if sbomEnabled && pkg.Type == PackagesDirectiveTypeOSPM {
+			spec = append([]string{"--sbom-sources-file", "/var/lib/pm/sbom-sources.json"}, spec...)
+		}
+		command := eco.InstallCmd(pkg.FileBased, spec, pkg.Env)
 		// The type, spec and lock select the result but are absent from the command of
 		// some ecosystems: go reads go.mod by convention, and the lock appears only in the
 		// guard the digest leaves out.
@@ -173,7 +177,7 @@ func renderPackagesCommands(packages []*PackagesDirective) []packagesCommand {
 
 func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 	var commands []string
-	for _, command := range renderPackagesCommands(packages) {
+	for _, command := range renderPackagesCommands(packages, false) {
 		commands = append(commands, command.run)
 	}
 	return commands
@@ -181,7 +185,7 @@ func GeneratePackagesCommands(packages []*PackagesDirective) []string {
 
 func generatePackagesDigestInputs(packages []*PackagesDirective) []string {
 	var inputs []string
-	for _, command := range renderPackagesCommands(packages) {
+	for _, command := range renderPackagesCommands(packages, false) {
 		inputs = append(inputs, command.digest)
 	}
 	return inputs

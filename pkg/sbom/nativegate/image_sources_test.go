@@ -12,6 +12,13 @@ import (
 )
 
 var _ = ginkgo.Describe("image source transport", func() {
+	ginkgo.It("does not manufacture a confirmed empty receipt when package state is absent", func() {
+		binary := filepath.Join(ginkgo.GinkgoT().TempDir(), "pm")
+		body := []byte("#!/bin/sh\nprintf '%s\\n' 'no-data: missing receipt' >&2\nexit 2\n")
+		gomega.Expect(os.WriteFile(binary, body, 0o700)).To(gomega.Succeed())
+		_, err := ImagePackageSources(context.Background(), fixtureImage(nil), ginkgo.GinkgoT().TempDir(), ReadPackageSourcesOptions{Binary: binary, SHA256: strings.TrimPrefix(fixtureDigest(body), "sha256:")})
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("missing receipt"), gomega.ContainSubstring("exit status 2"))))
+	})
 	ginkgo.It("passes the image package state to pm without executing image files", func() {
 		directory := ginkgo.GinkgoT().TempDir()
 		binary := filepath.Join(ginkgo.GinkgoT().TempDir(), "pm")

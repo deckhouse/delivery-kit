@@ -76,12 +76,6 @@ flant.internal/deckhouse/delivery/delivery-kit-sdk.git v1.6.0 h1:CvnymM7FVJsuKnW
 flant.internal/deckhouse/delivery/delivery-kit-sdk.git v1.6.0/go.mod h1:xF6+K99DWDjRmzcjUyZdlbghiMxeVs5KeXxz1QgyCHY=
 flant.internal/deckhouse/delivery/elfedit.git v0.3.0 h1:YZzteox7xCpdUhCVN3H8FNYnF3VgnOWoo57dVhfZfi4=
 flant.internal/deckhouse/delivery/elfedit.git v0.3.0/go.mod h1:Qdsqyxx1eur+519iAS4slYEf5m4QMZDERZ5WMaeqQWg=
-fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261031093520-e05f64803850 h1:Dt5/n7Eqlu3faEqPgkgPp3Q0TK1aRzAzC5UrJk1A7gk=
-fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261031093520-e05f64803850/go.mod h1:mIacAKXQtWngqJyNzXqmzYAi1Wo9lZH//X/eGJNv1vA=
-fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261114003911-e6691a398dcf h1:iXjyvw2BixXGjDNBbXMQjSGtsMHs+WBa1cBatS5seZo=
-fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261114003911-e6691a398dcf/go.mod h1:mIacAKXQtWngqJyNzXqmzYAi1Wo9lZH//X/eGJNv1vA=
-fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261114004300-9e1edf2322d2 h1:eqo8c7yGd+++3o0Fgfn49wzSAKLBxhptQo399Rtg1cc=
-fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261114004300-9e1edf2322d2/go.mod h1:mIacAKXQtWngqJyNzXqmzYAi1Wo9lZH//X/eGJNv1vA=
 fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261114004825-00f507a3ac14 h1:+ZEgLckYlQVKzY+KWiT2L94eJe7PTBx8sfyhnwDeS0E=
 fox.flant.com/deckhouse/container-base/pm.git/sbom v0.0.0-20261114004825-00f507a3ac14/go.mod h1:mIacAKXQtWngqJyNzXqmzYAi1Wo9lZH//X/eGJNv1vA=
 github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6 h1:He8afgbRMd7mFxO99hRNu+6tazq8nFF9lIwo9JFroBk=

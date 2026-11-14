@@ -146,6 +146,9 @@ func (phase *BuildPhase) Name() string {
 }
 
 func (phase *BuildPhase) BeforeImages(ctx context.Context) error {
+	if phase.Conveyor.EnableSbom() {
+		phase.sbomFailures = convergefailure.NewTracker(os.Getenv(externalref.EnvName))
+	}
 	if err := phase.Conveyor.StorageManager.InitCache(ctx); err != nil {
 		return fmt.Errorf("unable to init storage manager cache: %w", err)
 	}
@@ -279,6 +282,7 @@ func (phase *BuildPhase) calculateAnchorDigest(ctx context.Context, img *image.I
 		Anchor:                 true,
 		HolisticInputs:         holisticInputs,
 		JSObserver:             jsObserverImageInstrumentation(phase.Conveyor, img),
+		SBOMRepo:               nativeSBOMRepo(phase.Conveyor),
 	})
 	if err != nil {
 		return fmt.Errorf("image %q: %w", img.Name, err)
@@ -696,6 +700,9 @@ func (phase *BuildPhase) convergeImageSbom(ctx context.Context, name string, ima
 }
 
 func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name string, img *image.Image, signer signature.Signer, signerIdentity string, breaker *externalref.ResolverBreaker) error {
+	if img.StapelImageConfig != nil && nativeBootstrap(img.GetName()) {
+		return validateNativeBootstrap(img)
+	}
 	stageDesc := img.GetLastNonEmptyStageDesc()
 	if stageDesc == nil {
 		return fmt.Errorf("unable to converge sbom for image %q: stage descriptor is unavailable", name)
@@ -706,9 +713,12 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 		return err
 	}
 
-	importImageSboms, err := phase.collectImportImageSboms(ctx, img)
-	if err != nil {
-		return err
+	var importImageSboms []*cdx.BOM
+	if img.StapelImageConfig == nil {
+		importImageSboms, err = phase.collectImportImageSboms(ctx, img)
+		if err != nil {
+			return err
+		}
 	}
 
 	var gostConfig gost.Config
@@ -732,6 +742,9 @@ func (phase *BuildPhase) convergePlatformImageSbom(ctx context.Context, name str
 	externalRefPatcher, err := externalref.NewExternalRefPatcher(externalref.NewExternalRefPatcherOptions{Breaker: breaker})
 	if err != nil {
 		return err
+	}
+	if img.StapelImageConfig != nil {
+		return phase.convergeNativeSBOM(ctx, img, baseImageSbom, externalRefPatcher, gostConfig, signer, signerIdentity)
 	}
 
 	goModPatcher := gomod.NewBOMPatcher(gitRepo, commit, imageContext)
@@ -1117,6 +1130,11 @@ func (phase *BuildPhase) ImageProcessingShouldBeStopped(_ context.Context, _ *im
 }
 
 func (phase *BuildPhase) BeforeImageStages(ctx context.Context, img *image.Image) (deferFn func(), err error) {
+	if phase.Conveyor.EnableSbom() {
+		if err := validateNativeBootstrap(img); err != nil {
+			return nil, err
+		}
+	}
 	phase.StagesIterator = NewStagesIterator(phase.Conveyor)
 
 	if stageDesc := img.GetContentTagDesc(); stageDesc != nil {
@@ -1246,6 +1264,11 @@ func (phase *BuildPhase) logContentAnchorReuse(ctx context.Context, img *image.I
 
 func (phase *BuildPhase) AfterImageStages(ctx context.Context, img *image.Image) error {
 	img.SetLastNonEmptyStage(phase.StagesIterator.PrevNonEmptyStage)
+	if phase.Conveyor.EnableSbom() && img.StapelImageConfig != nil && !nativeBootstrap(img.GetName()) {
+		if err := phase.convergeImageSbom(ctx, img.GetName(), []*image.Image{img}, phase.sbomFailures.Breaker()); err != nil {
+			return fmt.Errorf("verify completed image %s: %w", img.GetName(), err)
+		}
+	}
 	return nil
 }
 
@@ -1707,6 +1730,7 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 	opts.ELFSigningOptions = phase.ELFSigningOptions
 	opts.BuildCacheVersion = imagePkg.BuildCacheVersion
 	opts.JSObserver = jsObserverInstrumentation(phase.Conveyor, img, stg)
+	opts.SBOMRepo = nativeSBOMRepo(phase.Conveyor)
 
 	var stageDependencies string
 	var prevNonEmptyStage stage.Interface
@@ -1799,6 +1823,7 @@ func (phase *BuildPhase) calculateStage(ctx context.Context, img *image.Image, s
 		stageContentSig, err = calculateDigest(ctx, fmt.Sprintf("%s-content", stg.Name()), "", stg, phase.Conveyor, calculateDigestOptions{
 			TargetPlatform:    img.TargetPlatform,
 			BuildCacheVersion: imagePkg.BuildCacheVersion,
+			SBOMRepo:          nativeSBOMRepo(phase.Conveyor),
 		})
 		if err != nil {
 			return false, phase.Conveyor.GetStageDigestMutex(stg.GetDigest()).Unlock, fmt.Errorf("unable to calculate stage %s content digest: %w", stg.Name(), err)
@@ -1837,7 +1862,7 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 			serviceLabels[imagePkg.WerfParentStageID] = ""
 		}
 		record, err := json.Marshal(sbomStageRecord{
-			Stage: stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID],
+			Stage: stg.Name(), StageDigest: stg.GetDigest(), ParentStageID: serviceLabels[imagePkg.WerfParentStageID], ImportBackend: nativeImportBackend(phase.Conveyor),
 		})
 		if err != nil {
 			return fmt.Errorf("encode SBOM stage record: %w", err)
@@ -1907,6 +1932,9 @@ func (phase *BuildPhase) prepareStageInstructions(ctx context.Context, img *imag
 
 	if err := stg.PrepareImage(ctx, phase.Conveyor, phase.Conveyor.ContainerBackend, prevBuiltImage, stageImage, phase.buildContextArchive); err != nil {
 		return fmt.Errorf("error preparing stage %s: %w", stg.Name(), err)
+	}
+	if err := phase.prepareNativeContext(ctx, img, stg); err != nil {
+		return fmt.Errorf("prepare SBOM context for %s: %w", stg.Name(), err)
 	}
 
 	return nil
@@ -2219,6 +2247,7 @@ func introspectStage(ctx context.Context, s stage.Interface) error {
 }
 
 type calculateDigestOptions struct {
+	SBOMRepo               string
 	TargetPlatform         string
 	BuildCacheVersion      string
 	ManifestSigningOptions signing.ManifestSigningOptions
@@ -2253,7 +2282,7 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 			}
 		}
 		if conveyor != nil && conveyor.EnableSbom() {
-			args = append(args, "sbom_enabled")
+			args = append(args, "sbom_enabled", nativeSBOMSettings(), opts.SBOMRepo)
 		}
 		if opts.JSObserver != "" {
 			args = append(args, "js_observer:"+opts.JSObserver)
@@ -2315,8 +2344,8 @@ func calculateDigest(ctx context.Context, stageName, stageDependencies string, p
 	}
 
 	if conveyor != nil && conveyor.EnableSbom() {
-		checksumArgs = append(checksumArgs, "sbom_enabled")
-		checksumArgsNames = append(checksumArgsNames, "SbomEnabled")
+		checksumArgs = append(checksumArgs, "sbom_enabled", nativeSBOMSettings(), opts.SBOMRepo)
+		checksumArgsNames = append(checksumArgsNames, "SbomEnabled", "SBOMInstrumentation", "SBOMRepo")
 	}
 
 	if opts.JSObserver != "" {

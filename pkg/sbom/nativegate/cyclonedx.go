@@ -24,6 +24,14 @@ func (c *Catalog) writeBOM(present map[string]Record, runtimeEdges map[string][]
 			Properties: &[]cdx.Property{{Name: "dk:origin", Value: r.Origin}},
 			Evidence:   &cdx.Evidence{Occurrences: &[]cdx.EvidenceOccurrence{{Location: name, AdditionalContext: r.SHA256}}},
 		}
+		file := components[ref]
+		if r.SourcePath != "" {
+			*file.Properties = append(*file.Properties, cdx.Property{Name: "dk:original-path", Value: r.SourcePath})
+		}
+		if len(r.Owners) == 1 && c.Components[r.Owners[0]].PackageURL != "" {
+			*file.Properties = append(*file.Properties, cdx.Property{Name: "dk:owner", Value: c.Components[r.Owners[0]].PackageURL})
+		}
+		components[ref] = file
 		refs := slices.Clone(r.Components)
 		for _, dependency := range runtimeEdges[name] {
 			refs = appendUnique(refs, present[dependency].SHA256+":"+dependency)

@@ -8,6 +8,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
+	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 )
 
 var _ = ginkgo.Describe("instrumented index", func() {
@@ -23,6 +25,6 @@ var _ = ginkgo.Describe("instrumented index", func() {
 		img = mutate.Annotations(img, map[string]string{"io.deckhouse.sbom.instrumented": "v1", "io.deckhouse.sbom.base-images-revision": strings.Repeat("a", 40)}).(v1.Image)
 		packages, err := trustedIndexPackages(context.Background(), "registry.example.invalid/packages/index", img)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(packages).To(gomega.Equal(map[string]bool{"registry.example.invalid/packages@sha256:" + strings.Repeat("1", 64): true}))
+		gomega.Expect(packages).To(gomega.Equal(TrustedPackages{"registry.example.invalid/packages@sha256:" + strings.Repeat("1", 64): osPm.PmPackageInfo{Name: "data", Version: "1", Digest: "sha256:" + strings.Repeat("1", 64), Arch: []string{"linux/amd64"}}}))
 	})
 })

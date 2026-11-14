@@ -25,7 +25,6 @@ func ImagePackageSources(ctx context.Context, img v1.Image, directory string, op
 	stream := mutate.Extract(img)
 	defer stream.Close()
 	reader := tar.NewReader(stream)
-	present := false
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -41,7 +40,6 @@ func ImagePackageSources(ctx context.Context, img v1.Image, directory string, op
 		if name != "var/lib/pm" && !strings.HasPrefix(name, "var/lib/pm/") {
 			continue
 		}
-		present = true
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := root.MkdirAll(name, 0o700); err != nil {
@@ -62,9 +60,6 @@ func ImagePackageSources(ctx context.Context, img v1.Image, directory string, op
 		default:
 			return nil, fmt.Errorf("/%s: unsupported package state file type %d", name, header.Typeflag)
 		}
-	}
-	if !present {
-		return &sources.Receipt{Version: sources.Version, Sources: []sources.Source{}}, nil
 	}
 	return ReadPackageSources(ctx, directory, opts)
 }

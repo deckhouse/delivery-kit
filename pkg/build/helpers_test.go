@@ -224,6 +224,8 @@ type anchorPrimaryStagesStorage struct {
 	storage.PrimaryStagesStorage
 }
 
+func (*anchorPrimaryStagesStorage) Address() string { return "registry.example/primary" }
+
 func (m *anchorLookupStorageManager) GetStagesStorage() storage.PrimaryStagesStorage {
 	return m.primaryStagesStorage
 }
@@ -856,7 +858,7 @@ func installedRockspec(name string) string {
 }
 
 func sbomConveyor(enabled bool) *Conveyor {
-	return &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: enabled}}}}}
+	return &Conveyor{werfConfig: &config.WerfConfig{Meta: &config.Meta{Build: config.MetaBuild{Sbom: &config.MetaBuildSbom{Enable: enabled}}}}, StorageManager: &anchorLookupStorageManager{primaryStagesStorage: &anchorPrimaryStagesStorage{}}}
 }
 
 func userShell(tmpDir string) *builder.Shell {

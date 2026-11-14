@@ -8,9 +8,13 @@ import (
 	"slices"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+
+	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 )
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+
+type TrustedPackages map[string]osPm.PmPackageInfo
 
 type (
 	Tool        struct{ Name, Version, SHA256 string }
@@ -24,20 +28,27 @@ type Policy struct {
 	Profiles []string
 	Platform string
 }
+
+func strictPolicy(platform string) *Policy {
+	return &Policy{Platform: platform, Profiles: []string{"c-object", "c-relocatable", "c-static", "c-dynamic", "go", "go-cgo-static", "go-cgo-dynamic"}}
+}
+
 type ArchiveMember struct {
 	Composition           json.RawMessage
 	Name, SHA256, Profile string
 	Components            []string
 	Index                 int
+	Subject               string
 }
 type (
 	ArchiveEvidence struct{ Members []ArchiveMember }
 	Record          struct {
-		Archive                       *ArchiveEvidence
-		Composition                   json.RawMessage
-		Path, SHA256, Origin, Profile string
-		Components, Owners            []string
-		Tools                         []Tool
+		Archive                                   *ArchiveEvidence
+		Composition                               json.RawMessage
+		Subject                                   string
+		Path, SourcePath, SHA256, Origin, Profile string
+		Components, Owners                        []string
+		Tools                                     []Tool
 	}
 )
 type Catalog struct{ Components map[string]cdx.Component }
@@ -54,6 +65,7 @@ type VerifyOptions struct {
 	Platform          string
 	Subject           string
 	UserRoots         []string
+	ExpectedSymlinks  map[string]string
 	Originals         []Original
 	TrustedComponents []cdx.Component
 }

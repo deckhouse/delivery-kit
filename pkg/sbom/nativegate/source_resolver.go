@@ -88,16 +88,8 @@ func originalSourceID(repo string, pin v1.Hash, platform v1.Platform) string {
 	return "pm-source:" + digest([]byte(repo+"\n"+pin.String()+"\n"+platform.String()))
 }
 
-// ReadPinnedOriginalConfig reads the config of the one original image a canonical pinned
-// reference names. It is for callers that have the source image digest but no pm packet
-// yet, so the identity cannot be checked against packet metadata: the reference must be
-// canonical and pinned by digest, the target an explicit Linux platform, and the manifest
-// bytes are verified against that digest before the config is read.
-//
-// Selection is the canonical one — a unique platform match in an index, never the first
-// descriptor and never the host — so a multi-arch original resolves to the architecture
-// that was asked for or to nothing.
-func ReadPinnedOriginalConfig(ctx context.Context, reference, platform string) (*v1.ConfigFile, error) {
+// ReadPinnedImage requires a unique platform match and verifies the pinned manifest and config.
+func ReadPinnedImage(ctx context.Context, reference, platform string) (v1.Image, error) {
 	ref, err := name.NewDigest(reference, name.StrictValidation)
 	if err != nil {
 		return nil, fmt.Errorf("original reference %q: %w", reference, err)
@@ -122,7 +114,7 @@ func ReadPinnedOriginalConfig(ctx context.Context, reference, platform string) (
 		return nil, err
 	}
 
-	return image.ConfigFile()
+	return image, nil
 }
 
 func fetchOriginalPackage(ctx context.Context, repo name.Repository, pin v1.Hash, platform v1.Platform) (*original.OriginalPackage, originalRoot, error) {

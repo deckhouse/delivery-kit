@@ -68,6 +68,30 @@ var _ = ginkgo.Describe("increment 1 verification", func() {
 		gomega.Expect(Verify(context.Background(), fixtureImage(map[string][]byte{"/src/config.h": []byte("generated")}), bom, opts)).To(gomega.Succeed())
 		gomega.Expect(*bom.Components).To(gomega.ContainElement(gomega.And(gomega.HaveField("Name", "app"), gomega.HaveField("Properties", gomega.HaveValue(gomega.ContainElement(cdx.Property{Name: "dk:verification", Value: "generated"}))))))
 	})
+	ginkgo.It("rejects a changed symlink from the commit", func() {
+		opts.ExpectedSymlinks = map[string]string{"/src/header.h": "original.h"}
+		gomega.Expect(Verify(context.Background(), fixtureImageWithLinks(nil, map[string]string{"/src/header.h": "original.h"}), cdx.NewBOM(), opts)).To(gomega.Succeed())
+		err := Verify(context.Background(), fixtureImageWithLinks(nil, map[string]string{"/src/header.h": "changed.h"}), cdx.NewBOM(), opts)
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/src/header.h"), gomega.ContainSubstring("hash-mismatch"))))
+	})
+	ginkgo.DescribeTable("rejects replacing a trusted regular file by another file type", func(kind string) {
+		opts.Originals = []Original{{Path: "/src/a.c", SHA256: fixtureDigest([]byte("source")), Component: fixtureComponent("git"), Kind: "git"}}
+		files, links := map[string][]byte{}, map[string]string{}
+		if kind == "directory" {
+			files["/src/a.c/child"] = []byte("source")
+		} else {
+			links["/src/a.c"] = "target"
+			if kind == "equal-content link" {
+				files["/src/target"] = []byte("source")
+			}
+		}
+		err := Verify(context.Background(), fixtureImageWithLinks(files, links), cdx.NewBOM(), opts)
+		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("/src/a.c"), gomega.ContainSubstring("hash-mismatch"))))
+	}, ginkgo.Entry("dangling link", "dangling link"), ginkgo.Entry("equal-content link", "equal-content link"), ginkgo.Entry("directory", "directory"))
+	ginkgo.It("preserves parent-directory aliases when checking regular originals", func() {
+		opts.Originals = []Original{{Path: "/lib/file", SHA256: fixtureDigest([]byte("source")), Component: fixtureComponent("pm"), Kind: "pm"}}
+		gomega.Expect(Verify(context.Background(), fixtureImageWithLinks(map[string][]byte{"/usr/lib/file": []byte("source")}, map[string]string{"/lib": "usr/lib"}), cdx.NewBOM(), opts)).To(gomega.Succeed())
+	})
 
 	ginkgo.It("does not accept a sibling directory as user code", func() {
 		err := Verify(context.Background(), fixtureImage(map[string][]byte{"/src-other/input.c": []byte("unknown")}), cdx.NewBOM(), opts)

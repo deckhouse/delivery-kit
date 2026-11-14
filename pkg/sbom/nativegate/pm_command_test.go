@@ -34,4 +34,10 @@ var _ = ginkgo.Describe("pm source command", func() {
 		_, err := ReadPackageSources(context.Background(), root, ReadPackageSourcesOptions{Binary: binary, SHA256: strings.TrimPrefix(fixtureDigest(body), "sha256:")})
 		gomega.Expect(err).To(gomega.MatchError(gomega.And(gomega.ContainSubstring("source missing"), gomega.ContainSubstring("exit status "+code))))
 	}, ginkgo.Entry("invalid", "1"), ginkgo.Entry("no-data", "2"))
+	ginkgo.DescribeTable("rejects malformed successful output", func(payload string) {
+		body := []byte("#!/bin/sh\nprintf '%s\\n' '" + payload + "'\n")
+		gomega.Expect(os.WriteFile(binary, body, 0o700)).To(gomega.Succeed())
+		_, err := ReadPackageSources(context.Background(), root, ReadPackageSourcesOptions{Binary: binary, SHA256: strings.TrimPrefix(fixtureDigest(body), "sha256:")})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+	}, ginkgo.Entry("truncated JSON", `{"version":1`), ginkgo.Entry("missing sources", `{"version":1}`), ginkgo.Entry("unsupported version", `{"version":2,"sources":[]}`), ginkgo.Entry("trailing document", `{"version":1,"sources":[]} {}`))
 })

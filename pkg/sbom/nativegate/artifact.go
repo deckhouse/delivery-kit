@@ -5,7 +5,6 @@ import (
 	"debug/elf"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -100,11 +99,17 @@ func (i *inspector) inspect(body []byte) (Record, bool, error) {
 		if err != nil {
 			return record, true, err
 		}
-		if previous, ok := i.catalog.Components[converted.BOMRef]; ok && !reflect.DeepEqual(previous, converted) {
-			return record, true, fmt.Errorf("invalid: conflicting component identity %s", converted.BOMRef)
+		if previous, ok := i.catalog.Components[converted.BOMRef]; ok {
+			if previous.Name != converted.Name || previous.Version != converted.Version || previous.PackageURL != converted.PackageURL {
+				return record, true, fmt.Errorf("invalid: conflicting component identity %s", converted.BOMRef)
+			}
+			converted = previous
 		}
 		i.catalog.Components[converted.BOMRef] = converted
 		record.Components = appendUnique(record.Components, converted.BOMRef)
+		if component.ID == composition.Subject {
+			record.Subject = converted.BOMRef
+		}
 	}
 	sort.Strings(record.Components)
 	raw, err := json.Marshal(composition)

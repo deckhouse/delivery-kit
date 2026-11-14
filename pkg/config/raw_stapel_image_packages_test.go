@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -116,9 +117,16 @@ var _ = Describe("rawStapelImage packages stage commands", func() {
 			stapelImage, err := rawImage.toStapelImageDirective(context.Background(), giterminismManager, meta, "image1")
 			Expect(err).To(Succeed())
 			Expect(stapelImage.Shell).NotTo(BeNil())
-			Expect(stapelImage.Shell.Packages).To(Equal(GeneratePackagesCommands(stapelImage.Packages)))
+			sbomEnabled := meta != nil && meta.Build.Sbom != nil && meta.Build.Sbom.Enable
+			expectedCommands := GeneratePackagesCommands(stapelImage.Packages)
+			expectedDigestInputs := generatePackagesDigestInputs(stapelImage.Packages)
+			if sbomEnabled {
+				expectedCommands[1] = strings.Replace(expectedCommands[1], "pm install curl", "pm install --sbom-sources-file /var/lib/pm/sbom-sources.json curl", 1)
+				expectedDigestInputs[1] = strings.Replace(expectedDigestInputs[1], "pm install curl", "pm install --sbom-sources-file /var/lib/pm/sbom-sources.json curl", 1)
+			}
+			Expect(stapelImage.Shell.Packages).To(Equal(expectedCommands))
 			Expect(stapelImage.Shell.Packages).To(HaveLen(2))
-			Expect(stapelImage.Shell.PackagesDigestInputs).To(Equal(generatePackagesDigestInputs(stapelImage.Packages)))
+			Expect(stapelImage.Shell.PackagesDigestInputs).To(Equal(expectedDigestInputs))
 			Expect(stapelImage.Shell.PackagesDigestInputs).To(HaveLen(2))
 		},
 		Entry("build.sbom absent", &Meta{}),

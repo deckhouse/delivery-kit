@@ -16,8 +16,8 @@ import (
 	osPm "github.com/werf/werf/v3/pkg/sbom/packages/os_pm"
 )
 
-func LoadTrustedIndexes(ctx context.Context, references []string, platform string) (map[string]bool, error) {
-	result := map[string]bool{}
+func LoadTrustedIndexes(ctx context.Context, references []string, platform string) (TrustedPackages, error) {
+	result := TrustedPackages{}
 	for _, reference := range references {
 		ref, err := name.NewDigest(reference, name.StrictValidation)
 		if err != nil || ref.Name() != reference {
@@ -44,7 +44,7 @@ func LoadTrustedIndexes(ctx context.Context, references []string, platform strin
 	return result, nil
 }
 
-func trustedIndexPackages(ctx context.Context, repository string, img v1.Image) (map[string]bool, error) {
+func trustedIndexPackages(ctx context.Context, repository string, img v1.Image) (TrustedPackages, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -82,12 +82,16 @@ func trustedIndexPackages(ctx context.Context, repository string, img v1.Image) 
 	if packages == nil {
 		return nil, fmt.Errorf("no-data: index.json has no package list")
 	}
-	result := map[string]bool{}
+	result := TrustedPackages{}
 	for _, pkg := range packages {
 		if pkg.Name == "" || pkg.Version == "" || len(pkg.Arch) == 0 || !digestPattern.MatchString(pkg.Digest) {
 			return nil, fmt.Errorf("index.json: incomplete package %s", pkg.Name)
 		}
-		result[registry+"@"+pkg.Digest] = true
+		key := registry + "@" + pkg.Digest
+		if previous, exists := result[key]; exists && (previous.Name != pkg.Name || previous.Version != pkg.Version) {
+			return nil, fmt.Errorf("index.json: conflicting package identity at %s", pkg.Digest)
+		}
+		result[key] = pkg
 	}
 	return result, nil
 }

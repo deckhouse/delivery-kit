@@ -39,8 +39,11 @@ func ReadPackageSources(ctx context.Context, root string, opts ReadPackageSource
 		return nil, fmt.Errorf("read pm sources: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	receipt, status, err := sources.Parse(data)
-	if err != nil || status != "present" || receipt == nil {
+	if err != nil {
 		return nil, fmt.Errorf("decode pm sources (%s): %w", status, err)
+	}
+	if status != "present" || receipt == nil {
+		return nil, fmt.Errorf("decode pm sources: %s", status)
 	}
 	return receipt, nil
 }

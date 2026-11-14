@@ -73,6 +73,7 @@ func (i *inspector) readArchive(record *Record, body []byte) error {
 		evidence.Members = append(evidence.Members, ArchiveMember{
 			Name: member.name, Index: member.index, SHA256: read.SHA256,
 			Profile: read.Profile, Composition: read.Composition, Components: read.Components,
+			Subject: read.Subject,
 		})
 		record.Components = appendUnique(record.Components, read.Components...)
 		for _, tool := range read.Tools {

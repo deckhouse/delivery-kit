@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	packageurl "github.com/package-url/packageurl-go"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
@@ -430,6 +431,13 @@ func newComponentError(failed []*componentError) *ComponentError {
 }
 
 func componentNeedsResolve(comp *cdx.Component) bool {
+	purl, err := packageurl.FromString(comp.PackageURL)
+	if err == nil && purl.Type == packageurl.TypeGeneric {
+		switch purl.Qualifiers.Map()["source_kind"] {
+		case "pm", "declared", "git":
+			return false
+		}
+	}
 	return comp.PackageURL != "" && comp.Version != "(devel)"
 }
 

@@ -129,7 +129,12 @@ func Verify(ctx context.Context, img v1.Image, target *cdx.BOM, opts VerifyOptio
 			// path; it is matched to the originals by content (spec 3.2). Exactly one
 			// original with these bytes accounts for it under its package; none or several
 			// do not say which file this is.
-			switch matches := packageOriginalsByContent[file.Digest]; len(matches) {
+			// An empty file carries no content to match: any stage can create one.
+			var candidates []Original
+			if file.Size > 0 {
+				candidates = packageOriginalsByContent[file.Digest]
+			}
+			switch matches := candidates; len(matches) {
 			case 0:
 				return fmt.Errorf("%s: no-data: file has no trusted original; directory is not in a git mapping/WorkingDir", name)
 			case 1:

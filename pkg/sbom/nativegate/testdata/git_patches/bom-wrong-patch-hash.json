@@ -1,0 +1,69 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79",
+  "version": 1,
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "git-patches-fixture",
+      "name": "git-patches-fixture",
+      "version": "0.0.0",
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "git+https://example.invalid/git-patches-fixture.git@1fd4533938906ef64e022dbd07ce911f9460890e"
+        },
+        {
+          "type": "vcs",
+          "url": "git+https://example.invalid/git-patches-fixture.git@1fd4533938906ef64e022dbd07ce911f9460890e#patches/001-edit-a.patch",
+          "hashes": [
+            {
+              "alg": "SHA-256",
+              "content": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        },
+        {
+          "type": "vcs",
+          "url": "git+https://example.invalid/git-patches-fixture.git@1fd4533938906ef64e022dbd07ce911f9460890e#patches/002-edit-a-and-b.patch",
+          "hashes": [
+            {
+              "alg": "SHA-256",
+              "content": "14cb705216b70b9e8a7330381fd3bfc5b17b8dbf808b03349cebd1304b421f5d"
+            }
+          ]
+        }
+      ],
+      "pedigree": {
+        "ancestors": [
+          {
+            "type": "library",
+            "name": "git-patches-fixture-upstream",
+            "version": "0.0.0"
+          }
+        ],
+        "commits": [
+          {
+            "uid": "1fd4533938906ef64e022dbd07ce911f9460890e",
+            "url": "https://example.invalid/git-patches-fixture.git"
+          }
+        ],
+        "patches": [
+          {
+            "type": "unofficial",
+            "diff": {
+              "url": "git+https://example.invalid/git-patches-fixture.git@1fd4533938906ef64e022dbd07ce911f9460890e#patches/001-edit-a.patch"
+            }
+          },
+          {
+            "type": "unofficial",
+            "diff": {
+              "url": "git+https://example.invalid/git-patches-fixture.git@1fd4533938906ef64e022dbd07ce911f9460890e#patches/002-edit-a-and-b.patch"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
